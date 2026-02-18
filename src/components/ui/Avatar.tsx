@@ -39,10 +39,10 @@ export function Avatar({ name, src, size = 'md', className = '' }: AvatarProps) 
   const initials = getInitials(name);
   const bgColor = stringToColor(name);
 
-  if (src) {
+  if (src && (src.startsWith('http') || src.startsWith('/'))) {
     return (
-      <img 
-        src={src} 
+      <img
+        src={src}
         alt={name}
         className={`${sizeClasses[size]} rounded-full object-cover ${className}`}
       />

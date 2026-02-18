@@ -3,6 +3,7 @@
 import { useState, ReactNode } from 'react';
 import { Search, Filter, X } from 'lucide-react';
 import { useApp } from '@/lib/store';
+import { Avatar } from '@/components/ui/Avatar';
 
 interface HeaderProps {
   title: string;
@@ -154,7 +155,8 @@ export function Header({ title, subtitle, actions }: HeaderProps) {
                         : 'bg-white text-zinc-600 border border-zinc-200 hover:border-zinc-300'
                     }`}
                   >
-                    {member.avatar}
+                    <Avatar name={member.name} size="xs" />
+                    <span>{member.name.split(' ')[0]}</span>
                   </button>
                 ))}
               </div>

@@ -8,22 +8,20 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import Modal from '@/components/ui/Modal';
-import { Plus, Mail, MoreVertical, Edit, Trash2, Shield, User, UserMinus } from 'lucide-react';
+import { Mail, MoreVertical, Edit, Shield, User, UserMinus } from 'lucide-react';
 import { TeamMember } from '@/lib/types';
 import { toast } from '@/components/ui/Toast';
 
 export default function TeamPage() {
-  const { team, addTeamMember, updateTeamMember, deleteTeamMember, tasks } = useApp();
+  const { team, updateTeamMember, tasks } = useApp();
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingMember, setEditingMember] = useState<TeamMember | null>(null);
 
   const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
   const [role, setRole] = useState<TeamMember['role']>('member');
 
   const resetForm = () => {
     setName('');
-    setEmail('');
     setRole('member');
     setEditingMember(null);
   };
@@ -32,7 +30,6 @@ export default function TeamPage() {
     if (member) {
       setEditingMember(member);
       setName(member.name);
-      setEmail(member.email);
       setRole(member.role);
     } else {
       resetForm();
@@ -48,26 +45,12 @@ export default function TeamPage() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!name.trim() || !email.trim()) return;
+    if (!name.trim() || !editingMember) return;
 
-    const avatar = name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
-
-    if (editingMember) {
-      updateTeamMember(editingMember.id, { name: name.trim(), email: email.trim(), role });
-      toast('success', 'Team member updated');
-    } else {
-      addTeamMember({ name: name.trim(), email: email.trim(), role, avatar });
-      toast('success', 'Team member added');
-    }
+    updateTeamMember(editingMember.id, { name: name.trim(), role });
+    toast('success', 'Team member updated');
 
     handleCloseForm();
-  };
-
-  const handleDelete = (id: string) => {
-    if (confirm('Are you sure you want to remove this team member?')) {
-      deleteTeamMember(id);
-      toast('success', 'Team member removed');
-    }
   };
 
   const roleIcons = {
@@ -121,13 +104,6 @@ export default function TeamPage() {
                     <Edit size={14} />
                     Edit
                   </button>
-                  <button
-                    onClick={() => { handleDelete(member.id); setShowMenu(false); }}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50"
-                  >
-                    <Trash2 size={14} />
-                    Remove
-                  </button>
                 </div>
               </>
             )}
@@ -156,11 +132,6 @@ export default function TeamPage() {
       <Header
         title="Team"
         subtitle={`${team.length} team members`}
-        actions={
-          <Button onClick={() => handleOpenForm()} icon={<Plus size={16} />}>
-            Add Member
-          </Button>
-        }
       />
 
       <div className="p-4 lg:p-6">
@@ -174,10 +145,7 @@ export default function TeamPage() {
           <div className="text-center py-12 bg-white rounded-xl border border-zinc-200">
             <User className="mx-auto mb-3 text-zinc-400" size={40} />
             <h3 className="font-medium text-zinc-700 mb-1">No team members yet</h3>
-            <p className="text-sm text-zinc-500 mb-4">Add your first team member to get started</p>
-            <Button onClick={() => handleOpenForm()} icon={<Plus size={16} />}>
-              Add Member
-            </Button>
+            <p className="text-sm text-zinc-500">Team members are managed through Supabase</p>
           </div>
         )}
       </div>
@@ -186,7 +154,7 @@ export default function TeamPage() {
       <Modal
         isOpen={isFormOpen}
         onClose={handleCloseForm}
-        title={editingMember ? 'Edit Team Member' : 'Add Team Member'}
+        title="Edit Team Member"
         size="md"
       >
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -198,14 +166,11 @@ export default function TeamPage() {
             required
           />
 
-          <Input
-            label="Email"
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="Enter email address"
-            required
-          />
+          <div>
+            <label className="block text-sm font-medium text-zinc-700 mb-1">Email</label>
+            <p className="px-3 py-2 text-sm text-zinc-500 bg-zinc-50 border border-zinc-200 rounded-lg">{editingMember?.email}</p>
+            <p className="text-xs text-zinc-400 mt-1">Email is managed through Supabase</p>
+          </div>
 
           <Select
             label="Role"
@@ -223,7 +188,7 @@ export default function TeamPage() {
               Cancel
             </Button>
             <Button type="submit">
-              {editingMember ? 'Save Changes' : 'Add Member'}
+              Save Changes
             </Button>
           </div>
         </form>
