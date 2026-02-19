@@ -1,7 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { Project, Task, TeamMember, FilterState, ViewMode, Subtask, Comment, Contact, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, Activity, PortalSettings, PortalFile } from './types';
+import { Project, Task, TeamMember, FilterState, ViewMode, Subtask, Comment, Contact, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, Activity, PortalSettings, PortalFile, ApiKey } from './types';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
@@ -68,6 +68,9 @@ import {
   insertPortalFile as insertPortalFileQuery,
   renamePortalFile as renamePortalFileQuery,
   removePortalFile as removePortalFileQuery,
+  fetchApiKeys,
+  insertApiKey as insertApiKeyQuery,
+  revokeApiKey as revokeApiKeyQuery,
 } from '@/lib/supabase/queries';
 import { toast } from '@/components/ui/Toast';
 
@@ -86,6 +89,7 @@ interface AppContextType {
   activities: Activity[];
   portalSettings: PortalSettings[];
   portalFiles: PortalFile[];
+  apiKeys: ApiKey[];
   loading: boolean;
 
   // Filters
@@ -165,6 +169,10 @@ interface AppContextType {
   renamePortalFile: (id: string, name: string) => void;
   deletePortalFile: (id: string) => void;
 
+  // API Key CRUD
+  addApiKey: (name: string, keyHash: string, keyPrefix: string, permissions?: string) => Promise<ApiKey | undefined>;
+  revokeApiKey: (id: string) => void;
+
   // Helpers
   getProject: (id: string) => Project | undefined;
   getTasksByProject: (projectId: string) => Task[];
@@ -209,6 +217,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [activities, setActivities] = useState<Activity[]>([]);
   const [portalSettings, setPortalSettings] = useState<PortalSettings[]>([]);
   const [portalFiles, setPortalFiles] = useState<PortalFile[]>([]);
+  const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
   const [filters, setFilters] = useState<FilterState>(defaultFilters);
   const [viewMode, setViewMode] = useState<ViewMode>('board');
   const [loading, setLoading] = useState(true);
@@ -245,7 +254,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     const loadData = async () => {
       try {
-        const [projectsData, tasksData, teamData, contactsData, projectContactsData, leadsData, leadInteractionsData, leadProposalsData, leadFieldsData, leadContactsData, activitiesData, portalSettingsData, portalFilesData] = await Promise.all([
+        const [projectsData, tasksData, teamData, contactsData, projectContactsData, leadsData, leadInteractionsData, leadProposalsData, leadFieldsData, leadContactsData, activitiesData, portalSettingsData, portalFilesData, apiKeysData] = await Promise.all([
           fetchProjects(supabase),
           fetchTasks(supabase),
           fetchTeamMembers(supabase),
@@ -259,6 +268,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           fetchActivities(supabase),
           fetchAllPortalSettings(supabase),
           fetchAllPortalFiles(supabase),
+          fetchApiKeys(supabase),
         ]);
 
         setProjects(projectsData);
@@ -274,6 +284,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setActivities(activitiesData);
         setPortalSettings(portalSettingsData);
         setPortalFiles(portalFilesData);
+        setApiKeys(apiKeysData);
       } catch (err) {
         console.error('Failed to load data:', err);
         toast('error', 'Failed to load data from server');
@@ -1389,6 +1400,39 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  // API Key CRUD
+  const addApiKeyAction = async (name: string, keyHash: string, keyPrefix: string, permissions = 'full'): Promise<ApiKey | undefined> => {
+    if (skipSupabase) return undefined;
+
+    try {
+      const newKey = await insertApiKeyQuery(supabase, {
+        name,
+        key_prefix: keyPrefix,
+        key_hash: keyHash,
+        created_by: teamMemberId,
+        permissions,
+      });
+      setApiKeys(prev => [newKey, ...prev]);
+      return newKey;
+    } catch (err) {
+      toast('error', 'Failed to create API key');
+      return undefined;
+    }
+  };
+
+  const revokeApiKeyAction = async (id: string) => {
+    const prev = apiKeys;
+    setApiKeys(keys => keys.map(k => k.id === id ? { ...k, revoked_at: new Date().toISOString() } : k));
+    if (skipSupabase) return;
+
+    try {
+      await revokeApiKeyQuery(supabase, id);
+    } catch (err) {
+      setApiKeys(prev);
+      toast('error', 'Failed to revoke API key');
+    }
+  };
+
   // Helpers
   const getProject = (id: string) => projects.find(p => p.id === id);
   const getTasksByProject = (projectId: string) => tasks.filter(t => t.project_id === projectId);
@@ -1439,6 +1483,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       activities,
       portalSettings,
       portalFiles,
+      apiKeys,
       loading,
       filters,
       setFilters,
@@ -1487,6 +1532,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       addPortalFile,
       renamePortalFile,
       deletePortalFile,
+      addApiKey: addApiKeyAction,
+      revokeApiKey: revokeApiKeyAction,
       getProject,
       getTasksByProject,
       getTeamMember,

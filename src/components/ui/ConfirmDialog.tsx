@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import { Button } from './Button';
 
@@ -12,6 +12,7 @@ interface ConfirmDialogProps {
   message: string;
   confirmLabel?: string;
   variant?: 'danger' | 'default';
+  doubleConfirm?: boolean;
 }
 
 export function ConfirmDialog({
@@ -22,12 +23,14 @@ export function ConfirmDialog({
   message,
   confirmLabel = 'Delete',
   variant = 'danger',
+  doubleConfirm = variant === 'danger',
 }: ConfirmDialogProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
+  const [step, setStep] = useState(1);
 
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') handleClose();
     };
 
     if (isOpen) {
@@ -41,13 +44,29 @@ export function ConfirmDialog({
     };
   }, [isOpen, onClose]);
 
+  const handleClose = () => {
+    setStep(1);
+    onClose();
+  };
+
+  const handleConfirmClick = () => {
+    if (doubleConfirm && step === 1) {
+      setStep(2);
+      return;
+    }
+    onConfirm();
+    handleClose();
+  };
+
   if (!isOpen) return null;
+
+  const isStep2 = doubleConfirm && step === 2;
 
   return (
     <div
       ref={overlayRef}
       className="fixed inset-0 z-[60] flex items-center justify-center p-4"
-      onClick={(e) => e.target === overlayRef.current && onClose()}
+      onClick={(e) => e.target === overlayRef.current && handleClose()}
     >
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm animate-fadeIn" />
 
@@ -59,20 +78,26 @@ export function ConfirmDialog({
             <AlertTriangle size={24} className={variant === 'danger' ? 'text-red-600' : 'text-amber-600'} />
           </div>
 
-          <h3 className="text-lg font-semibold text-zinc-900 mb-2">{title}</h3>
-          <p className="text-sm text-zinc-500 leading-relaxed">{message}</p>
+          <h3 className="text-lg font-semibold text-zinc-900 mb-2">
+            {isStep2 ? 'Are you absolutely sure?' : title}
+          </h3>
+          <p className="text-sm text-zinc-500 leading-relaxed">
+            {isStep2
+              ? 'This action is permanent and cannot be undone.'
+              : message}
+          </p>
         </div>
 
         <div className="flex items-center gap-3 px-6 pb-6">
-          <Button variant="secondary" onClick={onClose} className="flex-1">
+          <Button variant="secondary" onClick={handleClose} className="flex-1">
             Cancel
           </Button>
           <Button
             variant={variant === 'danger' ? 'danger' : 'primary'}
-            onClick={() => { onConfirm(); onClose(); }}
+            onClick={handleConfirmClick}
             className="flex-1"
           >
-            {confirmLabel}
+            {isStep2 ? 'Permanently Delete' : confirmLabel}
           </Button>
         </div>
       </div>

@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { ContactForm } from '@/components/contacts/ContactForm';
 import Modal from '@/components/ui/Modal';
 import { ProjectContact, CONTACT_ROLES } from '@/lib/types';
@@ -21,6 +22,8 @@ interface ProjectContactsPanelProps {
 
 export function ProjectContactsPanel({ isOpen, onClose, projectId }: ProjectContactsPanelProps) {
   const { contacts, getContactsByProject, getPrimaryClient, addProjectContact, updateProjectContact, removeProjectContact } = useApp();
+
+  const [removeTarget, setRemoveTarget] = useState<string | null>(null);
 
   // Edit state
   const [editingPcId, setEditingPcId] = useState<string | null>(null);
@@ -72,8 +75,12 @@ export function ProjectContactsPanel({ isOpen, onClose, projectId }: ProjectCont
   };
 
   const handleRemove = (pcId: string) => {
-    if (confirm('Remove this contact from the project?')) {
-      removeProjectContact(pcId, projectId);
+    setRemoveTarget(pcId);
+  };
+
+  const executeRemove = () => {
+    if (removeTarget) {
+      removeProjectContact(removeTarget, projectId);
     }
   };
 
@@ -353,6 +360,16 @@ export function ProjectContactsPanel({ isOpen, onClose, projectId }: ProjectCont
       <ContactForm
         isOpen={showNewContactForm}
         onClose={() => setShowNewContactForm(false)}
+      />
+
+      <ConfirmDialog
+        isOpen={!!removeTarget}
+        onClose={() => setRemoveTarget(null)}
+        onConfirm={executeRemove}
+        title="Remove Contact"
+        message="Remove this contact from the project?"
+        confirmLabel="Remove"
+        variant="danger"
       />
     </>
   );

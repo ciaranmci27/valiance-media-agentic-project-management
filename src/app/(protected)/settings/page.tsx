@@ -8,12 +8,15 @@ import { Header } from '@/components/layout/Header';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { AvatarUpload } from '@/components/ui/AvatarUpload';
-import { User, Lock, FlaskConical } from 'lucide-react';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { User, Lock, FlaskConical, Key, Copy, Check, Plus, Ban, ExternalLink } from 'lucide-react';
 import { toast } from '@/components/ui/Toast';
 import { useDemo } from '@/lib/demo-context';
+import { hashApiKey, generateApiKey } from '@/lib/api/crypto';
+import type { ApiKey } from '@/lib/types';
 
 export default function SettingsPage() {
-  const { team, updateTeamMember } = useApp();
+  const { team, updateTeamMember, apiKeys, addApiKey, revokeApiKey } = useApp();
   const { user, teamMemberId } = useAuth();
   const supabase = createClient();
 
@@ -30,6 +33,15 @@ export default function SettingsPage() {
   const [profileLoading, setProfileLoading] = useState(false);
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [avatarSrc, setAvatarSrc] = useState<string | undefined>(undefined);
+
+  // API Key state
+  const [showKeyForm, setShowKeyForm] = useState(false);
+  const [keyName, setKeyName] = useState('');
+  const [keyPermissions, setKeyPermissions] = useState<'full' | 'read_only'>('full');
+  const [generatingKey, setGeneratingKey] = useState(false);
+  const [revealedKey, setRevealedKey] = useState<string | null>(null);
+  const [copiedKey, setCopiedKey] = useState(false);
+  const [revokeTarget, setRevokeTarget] = useState<ApiKey | null>(null);
 
   // Derive current avatar src from member data or local override
   const currentAvatarSrc = avatarSrc ?? (
@@ -121,6 +133,65 @@ export default function SettingsPage() {
       setPasswordLoading(false);
     }
   };
+
+  const handleGenerateKey = async () => {
+    if (!keyName.trim()) {
+      toast('error', 'Please enter a name for this key');
+      return;
+    }
+
+    setGeneratingKey(true);
+    try {
+      const fullKey = generateApiKey();
+      const keyHash = await hashApiKey(fullKey);
+      const keyPrefix = fullKey.slice(0, 15);
+
+      const result = await addApiKey(keyName.trim(), keyHash, keyPrefix, keyPermissions);
+      if (result) {
+        setRevealedKey(fullKey);
+        setKeyName('');
+        setKeyPermissions('full');
+        setShowKeyForm(false);
+      }
+    } catch {
+      toast('error', 'Failed to generate API key');
+    } finally {
+      setGeneratingKey(false);
+    }
+  };
+
+  const handleCopyKey = () => {
+    if (!revealedKey) return;
+    navigator.clipboard.writeText(revealedKey);
+    setCopiedKey(true);
+    toast('success', 'API key copied to clipboard');
+    setTimeout(() => setCopiedKey(false), 2000);
+  };
+
+  const handleRevokeKey = () => {
+    if (!revokeTarget) return;
+    revokeApiKey(revokeTarget.id);
+    toast('success', 'API key revoked');
+    setRevokeTarget(null);
+  };
+
+  const formatRelativeTime = (dateStr: string | null) => {
+    if (!dateStr) return 'Never';
+    const date = new Date(dateStr);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMin = Math.floor(diffMs / 60000);
+    if (diffMin < 1) return 'Just now';
+    if (diffMin < 60) return `${diffMin}m ago`;
+    const diffHr = Math.floor(diffMin / 60);
+    if (diffHr < 24) return `${diffHr}h ago`;
+    const diffDays = Math.floor(diffHr / 24);
+    if (diffDays < 30) return `${diffDays}d ago`;
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  };
+
+  const activeKeys = apiKeys.filter(k => !k.revoked_at);
+  const revokedKeys = apiKeys.filter(k => k.revoked_at);
 
   return (
     <div className="animate-fadeIn min-h-screen bg-zinc-50">
@@ -214,6 +285,176 @@ export default function SettingsPage() {
           </section>
         )}
 
+        {/* API Keys Section — admin only */}
+        {isAdmin && !isDemoMode && (
+          <section className="bg-white rounded-xl border border-zinc-200 p-4 lg:p-6">
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-violet-50 rounded-lg">
+                  <Key className="text-violet-600" size={20} />
+                </div>
+                <div>
+                  <h2 className="font-semibold text-zinc-900">API Keys</h2>
+                  <p className="text-sm text-zinc-500">Manage keys for external integrations</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <a
+                  href="/api/docs"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-violet-600 hover:bg-violet-50 rounded-lg transition-colors"
+                >
+                  <ExternalLink size={14} />
+                  View Docs
+                </a>
+                {!showKeyForm && !revealedKey && (
+                  <Button
+                    size="sm"
+                    onClick={() => setShowKeyForm(true)}
+                    icon={<Plus size={14} />}
+                  >
+                    Generate New Key
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            {/* One-time key display */}
+            {revealedKey && (
+              <div className="mb-6 p-4 bg-emerald-50 border border-emerald-200 rounded-lg space-y-3">
+                <div className="flex items-center gap-2">
+                  <Check size={16} className="text-emerald-600" />
+                  <p className="text-sm font-medium text-emerald-800">API key generated successfully</p>
+                </div>
+                <p className="text-xs text-emerald-700">
+                  Copy this key now. It will only be shown once and cannot be retrieved later.
+                </p>
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 px-3 py-2 bg-white border border-emerald-200 rounded-lg text-sm font-mono text-zinc-800 break-all select-all">
+                    {revealedKey}
+                  </code>
+                  <button
+                    onClick={handleCopyKey}
+                    className="p-2 text-emerald-600 hover:bg-emerald-100 rounded-lg transition-colors flex-shrink-0"
+                  >
+                    {copiedKey ? <Check size={16} /> : <Copy size={16} />}
+                  </button>
+                </div>
+                <Button size="sm" variant="secondary" onClick={() => setRevealedKey(null)}>
+                  Done
+                </Button>
+              </div>
+            )}
+
+            {/* Generate key form */}
+            {showKeyForm && (
+              <div className="mb-6 p-4 bg-zinc-50 border border-zinc-200 rounded-lg space-y-3">
+                <h4 className="text-sm font-medium text-zinc-900">New API Key</h4>
+                <Input
+                  label="Name"
+                  value={keyName}
+                  onChange={(e) => setKeyName(e.target.value)}
+                  placeholder='e.g. "Zapier Integration"'
+                />
+                <div>
+                  <label className="block text-sm font-medium text-zinc-700 mb-1.5">Permissions</label>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setKeyPermissions('full')}
+                      className={`px-3 py-1.5 text-sm rounded-lg border transition-colors ${
+                        keyPermissions === 'full'
+                          ? 'bg-indigo-50 border-indigo-200 text-indigo-700'
+                          : 'bg-white border-zinc-200 text-zinc-600 hover:border-zinc-300'
+                      }`}
+                    >
+                      Full Access
+                    </button>
+                    <button
+                      onClick={() => setKeyPermissions('read_only')}
+                      className={`px-3 py-1.5 text-sm rounded-lg border transition-colors ${
+                        keyPermissions === 'read_only'
+                          ? 'bg-indigo-50 border-indigo-200 text-indigo-700'
+                          : 'bg-white border-zinc-200 text-zinc-600 hover:border-zinc-300'
+                      }`}
+                    >
+                      Read Only
+                    </button>
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <Button onClick={handleGenerateKey} disabled={generatingKey || !keyName.trim()}>
+                    {generatingKey ? 'Generating...' : 'Generate'}
+                  </Button>
+                  <Button variant="secondary" onClick={() => { setShowKeyForm(false); setKeyName(''); }}>
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Keys table */}
+            {activeKeys.length > 0 && (
+              <div className="border border-zinc-200 rounded-lg divide-y divide-zinc-100">
+                {activeKeys.map(key => (
+                  <div key={key.id} className="flex items-center gap-3 px-4 py-3">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-zinc-900">{key.name}</p>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <code className="text-xs text-zinc-500 font-mono">{key.key_prefix}...****</code>
+                        <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                          key.permissions === 'full'
+                            ? 'bg-indigo-50 text-indigo-600'
+                            : 'bg-zinc-100 text-zinc-500'
+                        }`}>
+                          {key.permissions === 'full' ? 'Full' : 'Read Only'}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      <p className="text-xs text-zinc-400">Last used</p>
+                      <p className="text-xs text-zinc-600">{formatRelativeTime(key.last_used_at)}</p>
+                    </div>
+                    <button
+                      onClick={() => setRevokeTarget(key)}
+                      className="p-1.5 text-zinc-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors flex-shrink-0"
+                      title="Revoke key"
+                    >
+                      <Ban size={14} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {activeKeys.length === 0 && !showKeyForm && !revealedKey && (
+              <div className="text-center py-6 text-zinc-500">
+                <Key className="mx-auto mb-2" size={24} />
+                <p className="text-sm">No API keys yet</p>
+                <p className="text-xs mt-1">Generate a key to enable external integrations</p>
+              </div>
+            )}
+
+            {/* Revoked keys */}
+            {revokedKeys.length > 0 && (
+              <div className="mt-4">
+                <p className="text-xs font-medium text-zinc-400 uppercase tracking-wide mb-2">Revoked</p>
+                <div className="border border-zinc-100 rounded-lg divide-y divide-zinc-50">
+                  {revokedKeys.map(key => (
+                    <div key={key.id} className="flex items-center gap-3 px-4 py-2.5 opacity-50">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-zinc-500 line-through">{key.name}</p>
+                        <code className="text-xs text-zinc-400 font-mono">{key.key_prefix}...****</code>
+                      </div>
+                      <span className="text-xs text-red-400">Revoked</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </section>
+        )}
+
         {/* Change Password Section */}
         {!isDemoMode && (
         <section className="bg-white rounded-xl border border-zinc-200 p-4 lg:p-6">
@@ -252,6 +493,16 @@ export default function SettingsPage() {
         </section>
         )}
       </div>
+
+      <ConfirmDialog
+        isOpen={!!revokeTarget}
+        onClose={() => setRevokeTarget(null)}
+        onConfirm={handleRevokeKey}
+        title="Revoke API Key"
+        message={`This will permanently revoke "${revokeTarget?.name}". Any integrations using this key will stop working immediately.`}
+        confirmLabel="Revoke"
+        variant="danger"
+      />
     </div>
   );
 }

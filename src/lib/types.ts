@@ -13,6 +13,7 @@ export interface Project {
   due_date: string | null;
   member_ids: string[];
   created_by?: string | null;
+  archived_at?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -57,6 +58,7 @@ export interface Lead {
   member_ids: string[];
   contact_id: string | null;
   created_by?: string | null;
+  archived_at?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -246,6 +248,22 @@ export interface PortalFile {
   file_size: number;
   mime_type: string;
   uploaded_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// ============================================================
+// API KEYS
+// ============================================================
+
+export interface ApiKey {
+  id: string;
+  name: string;
+  key_prefix: string;
+  permissions: 'full' | 'read_only';
+  last_used_at: string | null;
+  revoked_at: string | null;
+  created_by: string | null;
   created_at: string;
   updated_at: string;
 }

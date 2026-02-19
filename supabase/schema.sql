@@ -281,6 +281,26 @@ create table public.portal_files (
 );
 
 -- ============================================================
+-- 19. API KEYS (database-managed API key system)
+-- ============================================================
+create table public.api_keys (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  key_prefix text not null,
+  key_hash text not null,
+  created_by uuid references public.team_members(id) on delete set null,
+  permissions text not null default 'full' check (permissions in ('full', 'read_only')),
+  last_used_at timestamptz,
+  revoked_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+-- Soft delete support for projects and leads
+alter table public.projects add column if not exists archived_at timestamptz default null;
+alter table public.leads add column if not exists archived_at timestamptz default null;
+
+-- ============================================================
 -- INDEXES
 -- ============================================================
 create unique index idx_team_members_auth_user_id on public.team_members(auth_user_id) where auth_user_id is not null;
@@ -315,6 +335,11 @@ create index idx_lead_contacts_contact_id on public.lead_contacts(contact_id);
 create index idx_portal_settings_project_id on public.portal_settings(project_id);
 create index idx_portal_settings_token on public.portal_settings(token);
 create index idx_portal_files_project_id on public.portal_files(project_id);
+
+create index idx_api_keys_key_hash on public.api_keys(key_hash);
+create index idx_api_keys_revoked_at on public.api_keys(revoked_at) where revoked_at is null;
+create index idx_projects_archived_at on public.projects(archived_at) where archived_at is null;
+create index idx_leads_archived_at on public.leads(archived_at) where archived_at is null;
 
 -- ============================================================
 -- UPDATED_AT TRIGGER FUNCTION
@@ -371,6 +396,10 @@ create trigger set_portal_files_updated_at
   before update on public.portal_files
   for each row execute function public.handle_updated_at();
 
+create trigger set_api_keys_updated_at
+  before update on public.api_keys
+  for each row execute function public.handle_updated_at();
+
 -- ============================================================
 -- AUTO-CREATE TEAM MEMBER ON SIGNUP
 -- ============================================================
@@ -414,6 +443,7 @@ alter table public.lead_members enable row level security;
 alter table public.lead_contacts enable row level security;
 alter table public.portal_settings enable row level security;
 alter table public.portal_files enable row level security;
+alter table public.api_keys enable row level security;
 
 -- All authenticated users get full CRUD on shared data
 create policy "team_members_all" on public.team_members
@@ -468,6 +498,9 @@ create policy "portal_settings_all" on public.portal_settings
   for all to authenticated using (true) with check (true);
 
 create policy "portal_files_all" on public.portal_files
+  for all to authenticated using (true) with check (true);
+
+create policy "api_keys_all" on public.api_keys
   for all to authenticated using (true) with check (true);
 
 -- ============================================================

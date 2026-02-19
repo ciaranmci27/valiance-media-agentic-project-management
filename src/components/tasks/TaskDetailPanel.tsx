@@ -46,6 +46,8 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
   const [editingCommentText, setEditingCommentText] = useState('');
   const [draggedSubtaskId, setDraggedSubtaskId] = useState<string | null>(null);
+  const [deleteSubtaskTarget, setDeleteSubtaskTarget] = useState<string | null>(null);
+  const [deleteCommentTarget, setDeleteCommentTarget] = useState<string | null>(null);
 
   // Reset local state when task changes
   useEffect(() => {
@@ -396,7 +398,7 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
                         <Edit size={12} />
                       </button>
                       <button
-                        onClick={() => deleteSubtask(task.id, subtask.id)}
+                        onClick={() => setDeleteSubtaskTarget(subtask.id)}
                         className="p-1 text-zinc-400 hover:text-red-500"
                       >
                         <X size={14} />
@@ -467,7 +469,7 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
                               </button>
                             )}
                             <button
-                              onClick={() => deleteComment(task.id, comment.id)}
+                              onClick={() => setDeleteCommentTarget(comment.id)}
                               className="p-1 text-zinc-400 hover:text-red-500"
                             >
                               <X size={14} />
@@ -549,6 +551,26 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
         onConfirm={executeDelete}
         title="Delete Task"
         message="This will permanently delete this task and all its subtasks and comments. This action cannot be undone."
+        confirmLabel="Delete"
+        variant="danger"
+      />
+
+      <ConfirmDialog
+        isOpen={!!deleteSubtaskTarget}
+        onClose={() => setDeleteSubtaskTarget(null)}
+        onConfirm={() => { if (deleteSubtaskTarget) deleteSubtask(task.id, deleteSubtaskTarget); }}
+        title="Delete Subtask"
+        message="Are you sure you want to delete this subtask?"
+        confirmLabel="Delete"
+        variant="danger"
+      />
+
+      <ConfirmDialog
+        isOpen={!!deleteCommentTarget}
+        onClose={() => setDeleteCommentTarget(null)}
+        onConfirm={() => { if (deleteCommentTarget) deleteComment(task.id, deleteCommentTarget); }}
+        title="Delete Comment"
+        message="Are you sure you want to delete this comment?"
         confirmLabel="Delete"
         variant="danger"
       />

@@ -6,7 +6,9 @@ function isPublicRoute(pathname: string) {
     pathname.startsWith('/login') ||
     pathname.startsWith('/auth') ||
     pathname.startsWith('/portal') ||
-    pathname.startsWith('/api/portal')
+    pathname.startsWith('/api/portal') ||
+    pathname.startsWith('/api/v1') ||
+    pathname.startsWith('/api/docs')
   );
 }
 

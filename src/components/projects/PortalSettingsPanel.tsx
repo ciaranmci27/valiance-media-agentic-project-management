@@ -10,6 +10,7 @@ import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
 import { toast } from '@/components/ui/Toast';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { AvatarCropModal } from '@/components/ui/AvatarCropModal';
 import { createClient } from '@/lib/supabase/client';
 
@@ -53,6 +54,7 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
   const [logoCropFile, setLogoCropFile] = useState<File | null>(null);
   const [editingFileId, setEditingFileId] = useState<string | null>(null);
   const [editingFileName, setEditingFileName] = useState('');
+  const [deleteFileTarget, setDeleteFileTarget] = useState<string | null>(null);
   const renameCancelledRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const logoInputRef = useRef<HTMLInputElement>(null);
@@ -192,8 +194,14 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
   };
 
   const handleDeleteFile = (fileId: string) => {
-    deletePortalFile(fileId);
-    toast('success', 'File removed');
+    setDeleteFileTarget(fileId);
+  };
+
+  const executeDeleteFile = () => {
+    if (deleteFileTarget) {
+      deletePortalFile(deleteFileTarget);
+      toast('success', 'File removed');
+    }
   };
 
   return (
@@ -516,6 +524,15 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
         file={logoCropFile}
         onCrop={handleLogoCropped}
         onCancel={() => setLogoCropFile(null)}
+      />
+      <ConfirmDialog
+        isOpen={!!deleteFileTarget}
+        onClose={() => setDeleteFileTarget(null)}
+        onConfirm={executeDeleteFile}
+        title="Delete File"
+        message="Are you sure you want to remove this file from the portal?"
+        confirmLabel="Delete"
+        variant="danger"
       />
     </div>
   );

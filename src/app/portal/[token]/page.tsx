@@ -243,7 +243,7 @@ export default function PortalPage() {
                 {data.project.name}
               </h1>
               {data.settings.welcome_message && (
-                <p className="text-sm text-zinc-500 mt-1 max-w-lg">
+                <p className="text-sm text-zinc-500 max-w-lg">
                   {data.settings.welcome_message}
                 </p>
               )}

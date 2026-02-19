@@ -5,6 +5,7 @@ import { useApp } from '@/lib/store';
 import { LEAD_FIELD_DEFINITIONS, LeadFieldDefinition, LeadFieldCategory } from '@/lib/types';
 import Modal from '@/components/ui/Modal';
 import { Badge } from '@/components/ui/Badge';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import {
   Plus, X, ExternalLink, Edit, Trash2, Check,
   Globe, Briefcase, BarChart3, Lightbulb,
@@ -215,6 +216,7 @@ interface LeadFieldItemProps {
 
 function LeadFieldItem({ definition, value, isEditing, onStartEdit, onStopEdit, onSave, onRemove, categoryConfig }: LeadFieldItemProps) {
   const [editValue, setEditValue] = useState(value);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -253,12 +255,21 @@ function LeadFieldItem({ definition, value, isEditing, onStartEdit, onStopEdit, 
             <Edit size={14} />
           </button>
           <button
-            onClick={onRemove}
+            onClick={() => setShowDeleteConfirm(true)}
             className="p-1.5 rounded-lg text-zinc-400 hover:text-red-600 hover:bg-red-50 transition-all"
           >
             <Trash2 size={14} />
           </button>
         </div>
+        <ConfirmDialog
+          isOpen={showDeleteConfirm}
+          onClose={() => setShowDeleteConfirm(false)}
+          onConfirm={onRemove}
+          title="Delete Field"
+          message={`Remove the "${definition.label}" field from this lead?`}
+          confirmLabel="Delete"
+          variant="danger"
+        />
       </div>
     );
   }

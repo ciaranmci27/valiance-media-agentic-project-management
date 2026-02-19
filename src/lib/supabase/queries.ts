@@ -1,5 +1,5 @@
 import { SupabaseClient } from '@supabase/supabase-js';
-import type { Project, Task, TeamMember, Subtask, Comment, Activity, Contact, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, PortalSettings, PortalFile } from '@/lib/types';
+import type { Project, Task, TeamMember, Subtask, Comment, Activity, Contact, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, PortalSettings, PortalFile, ApiKey } from '@/lib/types';
 
 // ============================================================
 // PROJECTS
@@ -1145,4 +1145,50 @@ export async function renamePortalFile(supabase: SupabaseClient, id: string, nam
 export async function removePortalFile(supabase: SupabaseClient, id: string) {
   const { error } = await supabase.from('portal_files').delete().eq('id', id);
   if (error) throw error;
+}
+
+// ============================================================
+// API KEYS
+// ============================================================
+
+export async function fetchApiKeys(supabase: SupabaseClient) {
+  const { data, error } = await supabase
+    .from('api_keys')
+    .select('id, name, key_prefix, permissions, last_used_at, revoked_at, created_by, created_at, updated_at')
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+  return (data || []) as ApiKey[];
+}
+
+export async function insertApiKey(
+  supabase: SupabaseClient,
+  apiKey: { name: string; key_prefix: string; key_hash: string; created_by: string | null; permissions?: string }
+) {
+  const { data, error } = await supabase
+    .from('api_keys')
+    .insert({
+      name: apiKey.name,
+      key_prefix: apiKey.key_prefix,
+      key_hash: apiKey.key_hash,
+      created_by: apiKey.created_by,
+      permissions: apiKey.permissions || 'full',
+    })
+    .select('id, name, key_prefix, permissions, last_used_at, revoked_at, created_by, created_at, updated_at')
+    .single();
+
+  if (error) throw error;
+  return data as ApiKey;
+}
+
+export async function revokeApiKey(supabase: SupabaseClient, id: string) {
+  const { data, error } = await supabase
+    .from('api_keys')
+    .update({ revoked_at: new Date().toISOString() })
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data as ApiKey;
 }
