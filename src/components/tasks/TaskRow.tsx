@@ -4,16 +4,32 @@ import { Task } from '@/lib/types';
 import { useApp } from '@/lib/store';
 import { StatusBadge, PriorityBadge } from '@/components/ui/Badge';
 import { AvatarGroup } from '@/components/ui/Avatar';
-import { Calendar, CheckSquare, MessageSquare, MoreVertical, Edit, Trash2 } from 'lucide-react';
+import { Calendar, CheckSquare, MessageSquare, MoreVertical, Edit, Trash2, Clock } from 'lucide-react';
 import { useState } from 'react';
+
+function timeAgo(dateStr: string): string {
+  const now = Date.now();
+  const then = new Date(dateStr).getTime();
+  const diffMins = Math.floor((now - then) / 60000);
+  if (diffMins < 1) return 'just now';
+  if (diffMins < 60) return `${diffMins}m ago`;
+  const hours = Math.floor(diffMins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
 
 interface TaskRowProps {
   task: Task;
+  onView?: (task: Task) => void;
   onEdit?: (task: Task) => void;
   onDelete?: (id: string) => void;
+  selected?: boolean;
+  onToggleSelect?: (id: string) => void;
 }
 
-export function TaskRow({ task, onEdit, onDelete }: TaskRowProps) {
+export function TaskRow({ task, onView, onEdit, onDelete }: TaskRowProps) {
   const { team } = useApp();
   const [showMenu, setShowMenu] = useState(false);
   
@@ -35,7 +51,10 @@ export function TaskRow({ task, onEdit, onDelete }: TaskRowProps) {
 
   // Mobile card view
   return (
-    <div className="lg:hidden p-3 lg:p-0 border-b border-zinc-100 hover:bg-zinc-50 transition-colors">
+    <div
+      className="lg:hidden p-3 lg:p-0 border-b border-zinc-100 hover:bg-zinc-50 transition-colors cursor-pointer"
+      onClick={() => onView?.(task)}
+    >
       <div className="flex items-start gap-3">
         {/* Status indicator */}
         <div className="pt-1">
@@ -52,7 +71,7 @@ export function TaskRow({ task, onEdit, onDelete }: TaskRowProps) {
           <div className="flex items-start justify-between gap-2">
             <h3 className="font-medium text-zinc-900 text-sm leading-tight">{task.title}</h3>
             <button
-              onClick={() => setShowMenu(!showMenu)}
+              onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }}
               className="p-1 rounded text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 flex-shrink-0"
             >
               <MoreVertical size={16} />
@@ -101,6 +120,11 @@ export function TaskRow({ task, onEdit, onDelete }: TaskRowProps) {
                 {task.comments.length}
               </span>
             )}
+
+            <span className="text-xs text-zinc-400 flex items-center gap-1" title={`Updated ${new Date(task.updated_at).toLocaleString()}`}>
+              <Clock size={12} />
+              {timeAgo(task.updated_at)}
+            </span>
           </div>
 
           {/* Assignees */}
@@ -115,17 +139,17 @@ export function TaskRow({ task, onEdit, onDelete }: TaskRowProps) {
       {/* Actions menu */}
       {showMenu && (
         <>
-          <div className="fixed inset-0 z-10" onClick={() => setShowMenu(false)} />
-          <div className="absolute right-4 bg-white rounded-lg shadow-xl border border-zinc-200 py-1 z-20 min-w-[120px]">
+          <div className="fixed inset-0 z-10 cursor-default" onClick={(e) => { e.stopPropagation(); setShowMenu(false); }} />
+          <div className="absolute right-4 bg-white rounded-lg shadow-xl border border-zinc-200 py-1 z-20 min-w-[120px] cursor-pointer">
             <button
-              onClick={() => { onEdit?.(task); setShowMenu(false); }}
+              onClick={(e) => { e.stopPropagation(); onEdit?.(task); setShowMenu(false); }}
               className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-100"
             >
               <Edit size={14} />
               Edit
             </button>
             <button
-              onClick={() => { onDelete?.(task.id); setShowMenu(false); }}
+              onClick={(e) => { e.stopPropagation(); onDelete?.(task.id); setShowMenu(false); }}
               className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50"
             >
               <Trash2 size={14} />
@@ -139,7 +163,7 @@ export function TaskRow({ task, onEdit, onDelete }: TaskRowProps) {
 }
 
 /* Desktop table row view */
-export function TaskRowDesktop({ task, onEdit, onDelete }: TaskRowProps) {
+export function TaskRowDesktop({ task, onView, onEdit, onDelete, selected, onToggleSelect }: TaskRowProps) {
   const { team } = useApp();
   const [showMenu, setShowMenu] = useState(false);
   
@@ -160,7 +184,23 @@ export function TaskRowDesktop({ task, onEdit, onDelete }: TaskRowProps) {
   const completedSubtasks = task.subtasks.filter(s => s.completed).length;
 
   return (
-    <div className="hidden lg:flex items-center gap-4 px-4 py-3 bg-white border-b border-zinc-100 hover:bg-zinc-50 transition-colors group">
+    <div
+      className="hidden lg:flex items-center gap-4 px-4 py-3 bg-white border-b border-zinc-100 hover:bg-zinc-50 transition-colors group cursor-pointer"
+      onClick={() => onView?.(task)}
+    >
+      {/* Selection checkbox */}
+      {onToggleSelect && (
+        <div className="w-5 flex items-center">
+          <input
+            type="checkbox"
+            checked={selected || false}
+            onChange={(e) => { e.stopPropagation(); onToggleSelect(task.id); }}
+            onClick={(e) => e.stopPropagation()}
+            className="w-4 h-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+          />
+        </div>
+      )}
+
       {/* Status */}
       <div className="w-3">
         <div className={`w-2.5 h-2.5 rounded-full ${
@@ -226,6 +266,13 @@ export function TaskRowDesktop({ task, onEdit, onDelete }: TaskRowProps) {
         )}
       </div>
 
+      {/* Updated */}
+      <div className="w-20 text-center">
+        <span className="text-xs text-zinc-400" title={`Updated ${new Date(task.updated_at).toLocaleString()}`}>
+          {timeAgo(task.updated_at)}
+        </span>
+      </div>
+
       {/* Assignees */}
       <div className="w-24 flex justify-center">
         {assignees.length > 0 && (
@@ -235,8 +282,8 @@ export function TaskRowDesktop({ task, onEdit, onDelete }: TaskRowProps) {
 
       {/* Actions */}
       <div className="relative">
-        <button 
-          onClick={() => setShowMenu(!showMenu)}
+        <button
+          onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }}
           className="p-1.5 rounded text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 opacity-0 group-hover:opacity-100 transition-all"
         >
           <MoreVertical size={16} />
@@ -244,17 +291,17 @@ export function TaskRowDesktop({ task, onEdit, onDelete }: TaskRowProps) {
         
         {showMenu && (
           <>
-            <div className="fixed inset-0" onClick={() => setShowMenu(false)} />
-            <div className="absolute right-0 top-8 bg-white rounded-lg shadow-xl border border-zinc-200 py-1 z-10 min-w-[120px]">
+            <div className="fixed inset-0 cursor-default" onClick={(e) => { e.stopPropagation(); setShowMenu(false); }} />
+            <div className="absolute right-0 top-8 bg-white rounded-lg shadow-xl border border-zinc-200 py-1 z-10 min-w-[120px] cursor-pointer">
               <button
-                onClick={() => { onEdit?.(task); setShowMenu(false); }}
+                onClick={(e) => { e.stopPropagation(); onEdit?.(task); setShowMenu(false); }}
                 className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-100"
               >
                 <Edit size={14} />
                 Edit
               </button>
               <button
-                onClick={() => { onDelete?.(task.id); setShowMenu(false); }}
+                onClick={(e) => { e.stopPropagation(); onDelete?.(task.id); setShowMenu(false); }}
                 className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50"
               >
                 <Trash2 size={14} />

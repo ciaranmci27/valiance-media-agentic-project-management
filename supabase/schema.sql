@@ -16,9 +16,9 @@ create table public.team_members (
 );
 
 -- ============================================================
--- 3. CLIENTS
+-- 3. CONTACTS (replaces clients)
 -- ============================================================
-create table public.clients (
+create table public.contacts (
   id uuid primary key default gen_random_uuid(),
   name text not null,
   email text not null default '',
@@ -42,7 +42,6 @@ create table public.projects (
   status text not null default 'active' check (status in ('active', 'completed', 'archived')),
   start_date text,
   due_date text,
-  client_id uuid references public.clients(id) on delete set null,
   created_by uuid references public.team_members(id) on delete set null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -56,6 +55,24 @@ create table public.project_members (
   member_id uuid not null references public.team_members(id) on delete cascade,
   primary key (project_id, member_id)
 );
+
+-- ============================================================
+-- 5b. PROJECT CONTACTS (junction: project <-> contact with roles)
+-- ============================================================
+create table public.project_contacts (
+  id uuid primary key default gen_random_uuid(),
+  project_id uuid not null references public.projects(id) on delete cascade,
+  contact_id uuid not null references public.contacts(id) on delete cascade,
+  role text not null default 'Stakeholder',
+  custom_role text,
+  is_primary_client boolean not null default false,
+  created_at timestamptz not null default now(),
+  unique (project_id, contact_id)
+);
+
+-- Only 1 primary client per project:
+create unique index idx_project_contacts_primary_client
+  on public.project_contacts (project_id) where is_primary_client = true;
 
 -- ============================================================
 -- 6. TASKS
@@ -135,7 +152,40 @@ create table public.leads (
   value numeric(12,2),
   notes text not null default '',
   assigned_to uuid references public.team_members(id) on delete set null,
-  client_id uuid references public.clients(id) on delete set null,
+  contact_id uuid references public.contacts(id) on delete set null,
+  created_by uuid references public.team_members(id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+-- ============================================================
+-- 12. LEAD INTERACTIONS
+-- ============================================================
+create table public.lead_interactions (
+  id uuid primary key default gen_random_uuid(),
+  lead_id uuid not null references public.leads(id) on delete cascade,
+  type text not null default 'note' check (type in ('call', 'email', 'meeting', 'note', 'follow_up')),
+  title text not null,
+  description text not null default '',
+  occurred_at timestamptz not null default now(),
+  scheduled_at timestamptz,
+  completed boolean not null default false,
+  created_by uuid references public.team_members(id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+-- ============================================================
+-- 13. LEAD PROPOSALS
+-- ============================================================
+create table public.lead_proposals (
+  id uuid primary key default gen_random_uuid(),
+  lead_id uuid not null references public.leads(id) on delete cascade,
+  title text not null,
+  description text not null default '',
+  estimated_value numeric(12,2),
+  status text not null default 'draft' check (status in ('draft', 'sent', 'accepted', 'rejected')),
+  sent_at timestamptz,
   created_by uuid references public.team_members(id) on delete set null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -145,11 +195,11 @@ create table public.leads (
 -- INDEXES
 -- ============================================================
 create unique index idx_team_members_auth_user_id on public.team_members(auth_user_id) where auth_user_id is not null;
-create index idx_clients_created_by on public.clients(created_by);
+create index idx_contacts_created_by on public.contacts(created_by);
 create index idx_projects_status on public.projects(status);
 create index idx_projects_created_by on public.projects(created_by);
-create index idx_projects_client_id on public.projects(client_id);
 create index idx_project_members_member_id on public.project_members(member_id);
+create index idx_project_contacts_contact_id on public.project_contacts(contact_id);
 create index idx_tasks_project_id on public.tasks(project_id);
 create index idx_tasks_status on public.tasks(status);
 create index idx_tasks_created_by on public.tasks(created_by);
@@ -161,8 +211,13 @@ create index idx_activities_entity_id on public.activities(entity_id);
 create index idx_activities_user_id on public.activities(user_id);
 create index idx_leads_status on public.leads(status);
 create index idx_leads_assigned_to on public.leads(assigned_to);
-create index idx_leads_client_id on public.leads(client_id);
+create index idx_leads_contact_id on public.leads(contact_id);
 create index idx_leads_created_by on public.leads(created_by);
+create index idx_lead_interactions_lead_id on public.lead_interactions(lead_id);
+create index idx_lead_interactions_type on public.lead_interactions(type);
+create index idx_lead_interactions_scheduled_at on public.lead_interactions(scheduled_at) where scheduled_at is not null;
+create index idx_lead_proposals_lead_id on public.lead_proposals(lead_id);
+create index idx_lead_proposals_status on public.lead_proposals(status);
 
 -- ============================================================
 -- UPDATED_AT TRIGGER FUNCTION
@@ -179,8 +234,8 @@ create trigger set_team_members_updated_at
   before update on public.team_members
   for each row execute function public.handle_updated_at();
 
-create trigger set_clients_updated_at
-  before update on public.clients
+create trigger set_contacts_updated_at
+  before update on public.contacts
   for each row execute function public.handle_updated_at();
 
 create trigger set_projects_updated_at
@@ -197,6 +252,14 @@ create trigger set_subtasks_updated_at
 
 create trigger set_leads_updated_at
   before update on public.leads
+  for each row execute function public.handle_updated_at();
+
+create trigger set_lead_interactions_updated_at
+  before update on public.lead_interactions
+  for each row execute function public.handle_updated_at();
+
+create trigger set_lead_proposals_updated_at
+  before update on public.lead_proposals
   for each row execute function public.handle_updated_at();
 
 -- ============================================================
@@ -225,27 +288,33 @@ create trigger on_auth_user_created
 
 -- Enable RLS on all tables
 alter table public.team_members enable row level security;
-alter table public.clients enable row level security;
+alter table public.contacts enable row level security;
 alter table public.projects enable row level security;
 alter table public.project_members enable row level security;
+alter table public.project_contacts enable row level security;
 alter table public.tasks enable row level security;
 alter table public.task_assignees enable row level security;
 alter table public.subtasks enable row level security;
 alter table public.comments enable row level security;
 alter table public.activities enable row level security;
 alter table public.leads enable row level security;
+alter table public.lead_interactions enable row level security;
+alter table public.lead_proposals enable row level security;
 
 -- All authenticated users get full CRUD on shared data
 create policy "team_members_all" on public.team_members
   for all to authenticated using (true) with check (true);
 
-create policy "clients_all" on public.clients
+create policy "contacts_all" on public.contacts
   for all to authenticated using (true) with check (true);
 
 create policy "projects_all" on public.projects
   for all to authenticated using (true) with check (true);
 
 create policy "project_members_all" on public.project_members
+  for all to authenticated using (true) with check (true);
+
+create policy "project_contacts_all" on public.project_contacts
   for all to authenticated using (true) with check (true);
 
 create policy "tasks_all" on public.tasks
@@ -264,4 +333,10 @@ create policy "activities_all" on public.activities
   for all to authenticated using (true) with check (true);
 
 create policy "leads_all" on public.leads
+  for all to authenticated using (true) with check (true);
+
+create policy "lead_interactions_all" on public.lead_interactions
+  for all to authenticated using (true) with check (true);
+
+create policy "lead_proposals_all" on public.lead_proposals
   for all to authenticated using (true) with check (true);

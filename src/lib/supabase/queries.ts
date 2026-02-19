@@ -1,5 +1,5 @@
 import { SupabaseClient } from '@supabase/supabase-js';
-import type { Project, Task, TeamMember, Subtask, Comment, Activity, Client, Lead } from '@/lib/types';
+import type { Project, Task, TeamMember, Subtask, Comment, Activity, Contact, ProjectContact, Lead, LeadInteraction, LeadProposal } from '@/lib/types';
 
 // ============================================================
 // PROJECTS
@@ -37,7 +37,6 @@ export async function insertProject(
       status: project.status,
       start_date: project.start_date,
       due_date: project.due_date,
-      client_id: project.client_id || null,
       created_by: project.created_by,
     })
     .select()
@@ -229,6 +228,30 @@ export async function toggleSubtaskCompleted(
   if (error) throw error;
 }
 
+export async function reorderSubtasks(
+  supabase: SupabaseClient,
+  subtaskIds: string[]
+) {
+  // Update sort_order for each subtask
+  const updates = subtaskIds.map((id, index) =>
+    supabase.from('subtasks').update({ sort_order: index }).eq('id', id)
+  );
+  await Promise.all(updates);
+}
+
+export async function patchSubtask(
+  supabase: SupabaseClient,
+  subtaskId: string,
+  updates: Partial<Pick<Subtask, 'title' | 'completed' | 'sort_order'>>
+) {
+  const { error } = await supabase
+    .from('subtasks')
+    .update(updates)
+    .eq('id', subtaskId);
+
+  if (error) throw error;
+}
+
 export async function removeSubtask(supabase: SupabaseClient, subtaskId: string) {
   const { error } = await supabase.from('subtasks').delete().eq('id', subtaskId);
   if (error) throw error;
@@ -252,6 +275,19 @@ export async function insertComment(
 
   if (error) throw error;
   return data as Comment;
+}
+
+export async function patchComment(
+  supabase: SupabaseClient,
+  commentId: string,
+  text: string
+) {
+  const { error } = await supabase
+    .from('comments')
+    .update({ text })
+    .eq('id', commentId);
+
+  if (error) throw error;
 }
 
 export async function removeComment(supabase: SupabaseClient, commentId: string) {
@@ -344,59 +380,137 @@ export async function insertActivity(
 }
 
 // ============================================================
-// CLIENTS
+// CONTACTS
 // ============================================================
 
-export async function fetchClients(supabase: SupabaseClient) {
+export async function fetchContacts(supabase: SupabaseClient) {
   const { data, error } = await supabase
-    .from('clients')
+    .from('contacts')
     .select('*')
     .order('created_at', { ascending: false });
 
   if (error) throw error;
-  return (data || []) as Client[];
+  return (data || []) as Contact[];
 }
 
-export async function insertClient(
+export async function insertContact(
   supabase: SupabaseClient,
-  client: Omit<Client, 'id' | 'created_at' | 'updated_at'>
+  contact: Omit<Contact, 'id' | 'created_at' | 'updated_at'>
 ) {
   const { data, error } = await supabase
-    .from('clients')
+    .from('contacts')
     .insert({
-      name: client.name,
-      email: client.email,
-      phone: client.phone,
-      company: client.company,
-      notes: client.notes,
-      color: client.color,
-      created_by: client.created_by || null,
+      name: contact.name,
+      email: contact.email,
+      phone: contact.phone,
+      company: contact.company,
+      notes: contact.notes,
+      color: contact.color,
+      created_by: contact.created_by || null,
     })
     .select()
     .single();
 
   if (error) throw error;
-  return data as Client;
+  return data as Contact;
 }
 
-export async function patchClient(
+export async function patchContact(
   supabase: SupabaseClient,
   id: string,
-  updates: Partial<Client>
+  updates: Partial<Contact>
 ) {
   const { data, error } = await supabase
-    .from('clients')
+    .from('contacts')
     .update(updates)
     .eq('id', id)
     .select()
     .single();
 
   if (error) throw error;
-  return data as Client;
+  return data as Contact;
 }
 
-export async function removeClient(supabase: SupabaseClient, id: string) {
-  const { error } = await supabase.from('clients').delete().eq('id', id);
+export async function removeContact(supabase: SupabaseClient, id: string) {
+  const { error } = await supabase.from('contacts').delete().eq('id', id);
+  if (error) throw error;
+}
+
+// ============================================================
+// PROJECT CONTACTS
+// ============================================================
+
+export async function fetchAllProjectContacts(supabase: SupabaseClient) {
+  const { data, error } = await supabase
+    .from('project_contacts')
+    .select('*, contact:contacts(*)')
+    .order('created_at', { ascending: true });
+
+  if (error) throw error;
+  return (data || []) as ProjectContact[];
+}
+
+export async function addProjectContact(
+  supabase: SupabaseClient,
+  projectId: string,
+  contactId: string,
+  role: string,
+  customRole: string | null,
+  isPrimaryClient: boolean
+) {
+  // If setting as primary client, unset existing primary on this project first
+  if (isPrimaryClient) {
+    await supabase
+      .from('project_contacts')
+      .update({ is_primary_client: false })
+      .eq('project_id', projectId)
+      .eq('is_primary_client', true);
+  }
+
+  const { data, error } = await supabase
+    .from('project_contacts')
+    .insert({
+      project_id: projectId,
+      contact_id: contactId,
+      role,
+      custom_role: customRole,
+      is_primary_client: isPrimaryClient,
+    })
+    .select('*, contact:contacts(*)')
+    .single();
+
+  if (error) throw error;
+  return data as ProjectContact;
+}
+
+export async function updateProjectContact(
+  supabase: SupabaseClient,
+  id: string,
+  projectId: string,
+  updates: Partial<Pick<ProjectContact, 'role' | 'custom_role' | 'is_primary_client'>>
+) {
+  // If setting as primary client, unset existing primary on this project first
+  if (updates.is_primary_client) {
+    await supabase
+      .from('project_contacts')
+      .update({ is_primary_client: false })
+      .eq('project_id', projectId)
+      .eq('is_primary_client', true);
+  }
+
+  const { data, error } = await supabase
+    .from('project_contacts')
+    .update(updates)
+    .eq('id', id)
+    .select('*, contact:contacts(*)')
+    .single();
+
+  if (error) throw error;
+  return data as ProjectContact;
+}
+
+export async function removeProjectContact(supabase: SupabaseClient, id: string) {
+  const { error } = await supabase.from('project_contacts').delete().eq('id', id);
   if (error) throw error;
 }
 
@@ -430,7 +544,7 @@ export async function insertLead(
       value: lead.value,
       notes: lead.notes,
       assigned_to: lead.assigned_to || null,
-      client_id: lead.client_id || null,
+      contact_id: lead.contact_id || null,
       created_by: lead.created_by || null,
     })
     .select()
@@ -461,6 +575,143 @@ export async function removeLead(supabase: SupabaseClient, id: string) {
   if (error) throw error;
 }
 
+// ============================================================
+// LEAD INTERACTIONS
+// ============================================================
+
+export async function fetchLeadInteractions(supabase: SupabaseClient) {
+  const { data, error } = await supabase
+    .from('lead_interactions')
+    .select('*')
+    .order('occurred_at', { ascending: false });
+
+  if (error) throw error;
+  return (data || []) as LeadInteraction[];
+}
+
+export async function fetchLeadInteractionsByLeadId(supabase: SupabaseClient, leadId: string) {
+  const { data, error } = await supabase
+    .from('lead_interactions')
+    .select('*')
+    .eq('lead_id', leadId)
+    .order('occurred_at', { ascending: false });
+
+  if (error) throw error;
+  return (data || []) as LeadInteraction[];
+}
+
+export async function insertLeadInteraction(
+  supabase: SupabaseClient,
+  interaction: Omit<LeadInteraction, 'id' | 'created_at' | 'updated_at'>
+) {
+  const { data, error } = await supabase
+    .from('lead_interactions')
+    .insert({
+      lead_id: interaction.lead_id,
+      type: interaction.type,
+      title: interaction.title,
+      description: interaction.description,
+      occurred_at: interaction.occurred_at,
+      scheduled_at: interaction.scheduled_at || null,
+      completed: interaction.completed,
+      created_by: interaction.created_by || null,
+    })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data as LeadInteraction;
+}
+
+export async function patchLeadInteraction(
+  supabase: SupabaseClient,
+  id: string,
+  updates: Partial<LeadInteraction>
+) {
+  const { data, error } = await supabase
+    .from('lead_interactions')
+    .update(updates)
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data as LeadInteraction;
+}
+
+export async function removeLeadInteraction(supabase: SupabaseClient, id: string) {
+  const { error } = await supabase.from('lead_interactions').delete().eq('id', id);
+  if (error) throw error;
+}
+
+// ============================================================
+// LEAD PROPOSALS
+// ============================================================
+
+export async function fetchLeadProposals(supabase: SupabaseClient) {
+  const { data, error } = await supabase
+    .from('lead_proposals')
+    .select('*')
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+  return (data || []) as LeadProposal[];
+}
+
+export async function fetchLeadProposalsByLeadId(supabase: SupabaseClient, leadId: string) {
+  const { data, error } = await supabase
+    .from('lead_proposals')
+    .select('*')
+    .eq('lead_id', leadId)
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+  return (data || []) as LeadProposal[];
+}
+
+export async function insertLeadProposal(
+  supabase: SupabaseClient,
+  proposal: Omit<LeadProposal, 'id' | 'created_at' | 'updated_at'>
+) {
+  const { data, error } = await supabase
+    .from('lead_proposals')
+    .insert({
+      lead_id: proposal.lead_id,
+      title: proposal.title,
+      description: proposal.description,
+      estimated_value: proposal.estimated_value,
+      status: proposal.status,
+      sent_at: proposal.sent_at || null,
+      created_by: proposal.created_by || null,
+    })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data as LeadProposal;
+}
+
+export async function patchLeadProposal(
+  supabase: SupabaseClient,
+  id: string,
+  updates: Partial<LeadProposal>
+) {
+  const { data, error } = await supabase
+    .from('lead_proposals')
+    .update(updates)
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data as LeadProposal;
+}
+
+export async function removeLeadProposal(supabase: SupabaseClient, id: string) {
+  const { error } = await supabase.from('lead_proposals').delete().eq('id', id);
+  if (error) throw error;
+}
+
 export async function convertLead(
   supabase: SupabaseClient,
   lead: Lead,
@@ -469,23 +720,28 @@ export async function convertLead(
   projectDescription: string,
   createdBy: string | null
 ) {
-  // 1. Create client from lead data
-  const { data: client, error: clientError } = await supabase
-    .from('clients')
-    .insert({
-      name: lead.name,
-      email: lead.email,
-      phone: lead.phone,
-      company: lead.company,
-      color: projectColor,
-      created_by: createdBy,
-    })
-    .select()
-    .single();
+  // 1. Reuse existing contact if lead has one, otherwise create one
+  let contactId = lead.contact_id;
 
-  if (clientError) throw clientError;
+  if (!contactId) {
+    const { data: contact, error: contactError } = await supabase
+      .from('contacts')
+      .insert({
+        name: lead.name,
+        email: lead.email,
+        phone: lead.phone,
+        company: lead.company,
+        color: projectColor,
+        created_by: createdBy,
+      })
+      .select()
+      .single();
 
-  // 2. Create project linked to client
+    if (contactError) throw contactError;
+    contactId = contact.id;
+  }
+
+  // 2. Create project (no client_id)
   const { data: project, error: projectError } = await supabase
     .from('projects')
     .insert({
@@ -493,7 +749,6 @@ export async function convertLead(
       description: projectDescription,
       color: projectColor,
       status: 'active',
-      client_id: client.id,
       created_by: createdBy,
     })
     .select()
@@ -501,19 +756,41 @@ export async function convertLead(
 
   if (projectError) throw projectError;
 
-  // 3. Update lead status to won and link to client
+  // 3. Create project_contact (role='Client', is_primary_client=true)
+  const { data: projectContact, error: pcError } = await supabase
+    .from('project_contacts')
+    .insert({
+      project_id: project.id,
+      contact_id: contactId,
+      role: 'Client',
+      is_primary_client: true,
+    })
+    .select('*, contact:contacts(*)')
+    .single();
+
+  if (pcError) throw pcError;
+
+  // 4. Update lead status to won and link contact
   const { data: updatedLead, error: leadError } = await supabase
     .from('leads')
-    .update({ status: 'won', client_id: client.id })
+    .update({ status: 'won', contact_id: contactId })
     .eq('id', lead.id)
     .select()
     .single();
 
   if (leadError) throw leadError;
 
+  // Fetch the contact for return
+  const { data: contact } = await supabase
+    .from('contacts')
+    .select('*')
+    .eq('id', contactId)
+    .single();
+
   return {
-    client: client as Client,
-    project: { ...project, member_ids: [], client_id: client.id } as Project,
+    contact: contact as Contact,
+    project: { ...project, member_ids: [] } as Project,
+    projectContact: projectContact as ProjectContact,
     lead: updatedLead as Lead,
   };
 }

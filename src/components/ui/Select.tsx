@@ -1,57 +1,171 @@
 'use client';
 
-import { SelectHTMLAttributes, forwardRef } from 'react';
-import { ChevronDown } from 'lucide-react';
+import { useState, useRef, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
+import { ChevronDown, Check } from 'lucide-react';
 
-interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
+interface SelectProps {
   label?: string;
   error?: string;
   options: { value: string; label: string }[];
   placeholder?: string;
+  value?: string;
+  onChange?: (value: string) => void;
+  disabled?: boolean;
+  size?: 'default' | 'sm';
 }
 
-export const Select = forwardRef<HTMLSelectElement, SelectProps>(
-  ({ label, error, options, placeholder, className = '', ...props }, ref) => {
-    return (
-      <div className="space-y-1.5">
-        {label && (
-          <label className="block text-sm font-medium text-zinc-700">
-            {label}
-          </label>
-        )}
-        <div className="relative">
-          <select
-            ref={ref}
-            className={`w-full px-3 py-2 text-sm bg-white border rounded-lg outline-none appearance-none transition-all duration-150
-              ${error 
-                ? 'border-red-400 focus:border-red-500 focus:ring-2 focus:ring-red-100' 
-                : 'border-zinc-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100'
-              }
-              ${className}`}
-            {...props}
+export function Select({
+  label,
+  error,
+  options,
+  placeholder,
+  value,
+  onChange,
+  disabled = false,
+  size = 'default',
+}: SelectProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [dropdownPos, setDropdownPos] = useState({ top: 0, left: 0, width: 0 });
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  const selectedOption = options.find((o) => o.value === value);
+  const displayLabel = selectedOption?.label || placeholder || 'Select...';
+
+  const updatePosition = useCallback(() => {
+    if (!triggerRef.current) return;
+    const rect = triggerRef.current.getBoundingClientRect();
+    setDropdownPos({
+      top: rect.bottom + 4,
+      left: rect.left,
+      width: rect.width,
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    updatePosition();
+    window.addEventListener('scroll', updatePosition, true);
+    window.addEventListener('resize', updatePosition);
+    return () => {
+      window.removeEventListener('scroll', updatePosition, true);
+      window.removeEventListener('resize', updatePosition);
+    };
+  }, [isOpen, updatePosition]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (
+        triggerRef.current &&
+        !triggerRef.current.contains(target) &&
+        dropdownRef.current &&
+        !dropdownRef.current.contains(target)
+      ) {
+        setIsOpen(false);
+      }
+    };
+
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsOpen(false);
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleEscape);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [isOpen]);
+
+  const handleSelect = (optionValue: string) => {
+    onChange?.(optionValue);
+    setIsOpen(false);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown') {
+      e.preventDefault();
+      setIsOpen(true);
+    }
+  };
+
+  const sizeClasses =
+    size === 'sm'
+      ? 'px-2.5 py-1.5 text-xs'
+      : 'px-3 py-2 text-sm';
+
+  return (
+    <div className="space-y-1.5">
+      {label && (
+        <label className="block text-sm font-medium text-zinc-700">
+          {label}
+        </label>
+      )}
+      <button
+        ref={triggerRef}
+        type="button"
+        disabled={disabled}
+        onClick={() => setIsOpen(!isOpen)}
+        onKeyDown={handleKeyDown}
+        className={`w-full ${sizeClasses} bg-white border rounded-lg outline-none transition-all duration-150 flex items-center justify-between gap-2 text-left ${
+          error
+            ? 'border-red-400 focus:border-red-500 focus:ring-2 focus:ring-red-100'
+            : isOpen
+              ? 'border-indigo-500 ring-2 ring-indigo-100'
+              : 'border-zinc-200 hover:border-zinc-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100'
+        } ${disabled ? 'opacity-50 cursor-not-allowed bg-zinc-50' : 'cursor-pointer'}`}
+      >
+        <span className={`truncate ${selectedOption ? 'text-zinc-900' : 'text-zinc-400'}`}>
+          {displayLabel}
+        </span>
+        <ChevronDown
+          size={size === 'sm' ? 14 : 16}
+          className={`flex-shrink-0 text-zinc-400 transition-transform duration-150 ${isOpen ? 'rotate-180' : ''}`}
+        />
+      </button>
+      {error && <p className="text-xs text-red-500">{error}</p>}
+
+      {isOpen &&
+        createPortal(
+          <div
+            ref={dropdownRef}
+            className="fixed z-[9999] bg-white border border-zinc-200 rounded-lg shadow-lg py-1 overflow-auto"
+            style={{
+              top: dropdownPos.top,
+              left: dropdownPos.left,
+              width: dropdownPos.width,
+              maxHeight: 240,
+            }}
           >
-            {placeholder && (
-              <option value="" disabled>
-                {placeholder}
-              </option>
-            )}
-            {options.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-          <ChevronDown 
-            size={16} 
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 pointer-events-none" 
-          />
-        </div>
-        {error && (
-          <p className="text-xs text-red-500">{error}</p>
+            {options.map((option) => {
+              const isSelected = option.value === value;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => handleSelect(option.value)}
+                  className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left transition-colors ${
+                    isSelected
+                      ? 'bg-indigo-50 text-indigo-700'
+                      : 'text-zinc-700 hover:bg-zinc-50'
+                  }`}
+                >
+                  <span className="flex-1 truncate">{option.label}</span>
+                  {isSelected && (
+                    <Check size={14} className="flex-shrink-0 text-indigo-600" />
+                  )}
+                </button>
+              );
+            })}
+          </div>,
+          document.body
         )}
-      </div>
-    );
-  }
-);
+    </div>
+  );
+}
 
 Select.displayName = 'Select';

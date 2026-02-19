@@ -4,16 +4,30 @@ import { Task } from '@/lib/types';
 import { useApp } from '@/lib/store';
 import { StatusBadge, PriorityBadge } from '@/components/ui/Badge';
 import { AvatarGroup } from '@/components/ui/Avatar';
-import { Calendar, MessageSquare, CheckSquare, MoreVertical, Edit, Trash2 } from 'lucide-react';
+import { Calendar, MessageSquare, CheckSquare, MoreVertical, Edit, Trash2, Clock } from 'lucide-react';
 import { useState } from 'react';
+
+function timeAgo(dateStr: string): string {
+  const now = Date.now();
+  const then = new Date(dateStr).getTime();
+  const diffMins = Math.floor((now - then) / 60000);
+  if (diffMins < 1) return 'just now';
+  if (diffMins < 60) return `${diffMins}m ago`;
+  const hours = Math.floor(diffMins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
 
 interface TaskCardProps {
   task: Task;
+  onView?: (task: Task) => void;
   onEdit?: (task: Task) => void;
   onDelete?: (id: string) => void;
 }
 
-export function TaskCard({ task, onEdit, onDelete }: TaskCardProps) {
+export function TaskCard({ task, onView, onEdit, onDelete }: TaskCardProps) {
   const { team } = useApp();
   const [showMenu, setShowMenu] = useState(false);
   
@@ -35,7 +49,10 @@ export function TaskCard({ task, onEdit, onDelete }: TaskCardProps) {
   const dueInfo = formatDate(task.due_date);
 
   return (
-    <div className="bg-white rounded-lg border border-zinc-200 p-3 lg:p-4 hover:shadow-md hover:border-zinc-300 transition-all duration-150 group">
+    <div
+      className="bg-white rounded-lg border border-zinc-200 p-3 lg:p-4 hover:shadow-md hover:border-zinc-300 transition-all duration-150 group cursor-pointer"
+      onClick={() => onView?.(task)}
+    >
       <div className="flex items-start justify-between mb-2 lg:mb-3">
         <div className="flex items-center gap-1.5 lg:gap-2 flex-wrap">
           <StatusBadge status={task.status} />
@@ -43,8 +60,8 @@ export function TaskCard({ task, onEdit, onDelete }: TaskCardProps) {
         </div>
         
         <div className="relative">
-          <button 
-            onClick={() => setShowMenu(!showMenu)}
+          <button
+            onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }}
             className="lg:opacity-0 group-hover:opacity-100 p-1 rounded text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 transition-all"
           >
             <MoreVertical size={16} />
@@ -52,17 +69,17 @@ export function TaskCard({ task, onEdit, onDelete }: TaskCardProps) {
           
           {showMenu && (
             <>
-              <div className="fixed inset-0 z-10" onClick={() => setShowMenu(false)} />
-              <div className="absolute right-0 top-8 bg-white rounded-lg shadow-xl border border-zinc-200 py-1 z-20 min-w-[120px]">
+              <div className="fixed inset-0 z-10 cursor-default" onClick={(e) => { e.stopPropagation(); setShowMenu(false); }} />
+              <div className="absolute right-0 top-8 bg-white rounded-lg shadow-xl border border-zinc-200 py-1 z-20 min-w-[120px] cursor-pointer">
                 <button
-                  onClick={() => { onEdit?.(task); setShowMenu(false); }}
+                  onClick={(e) => { e.stopPropagation(); onEdit?.(task); setShowMenu(false); }}
                   className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-100"
                 >
                   <Edit size={14} />
                   Edit
                 </button>
                 <button
-                  onClick={() => { onDelete?.(task.id); setShowMenu(false); }}
+                  onClick={(e) => { e.stopPropagation(); onDelete?.(task.id); setShowMenu(false); }}
                   className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50"
                 >
                   <Trash2 size={14} />
@@ -126,6 +143,10 @@ export function TaskCard({ task, onEdit, onDelete }: TaskCardProps) {
               <span>{task.comments.length}</span>
             </div>
           )}
+          <div className="flex items-center gap-1 text-xs text-zinc-400" title={`Updated ${new Date(task.updated_at).toLocaleString()}`}>
+            <Clock size={12} />
+            <span>{timeAgo(task.updated_at)}</span>
+          </div>
         </div>
         
         {assignees.length > 0 && (

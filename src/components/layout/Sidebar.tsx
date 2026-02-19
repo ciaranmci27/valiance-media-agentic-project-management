@@ -14,7 +14,8 @@ import {
   X,
   LogOut,
   Target,
-  Building2,
+  UserCircle,
+  CheckSquare,
 } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
@@ -22,10 +23,12 @@ import { Avatar } from '@/components/ui/Avatar';
 
 const navItems = [
   { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
+  { href: '/my-tasks', icon: CheckSquare, label: 'My Tasks' },
   { href: '/projects', icon: FolderKanban, label: 'Projects' },
   { href: '/leads', icon: Target, label: 'Leads' },
-  { href: '/clients', icon: Building2, label: 'Clients' },
+  { href: '/contacts', icon: UserCircle, label: 'Contacts' },
   { href: '/team', icon: Users, label: 'Team' },
+  { href: '/settings', icon: Settings, label: 'Settings' },
 ];
 
 export function Sidebar() {
@@ -45,7 +48,7 @@ export function Sidebar() {
       {/* Mobile menu button */}
       <button
         onClick={() => setIsOpen(true)}
-        className="lg:hidden fixed top-4 left-4 z-50 p-2 bg-white border border-zinc-200 rounded-lg shadow-md"
+        className="lg:hidden fixed top-4 left-4 z-50 p-2 bg-white border border-zinc-200 rounded-lg"
       >
         <Menu size={20} className="text-zinc-700" />
       </button>
@@ -112,7 +115,7 @@ export function Sidebar() {
             </div>
 
             <div className="space-y-0.5">
-              {projects.slice(0, 5).map((project) => (
+              {projects.filter(p => p.status === 'active').slice(0, 5).map((project) => (
                 <Link
                   key={project.id}
                   href={`/projects/${project.id}`}
@@ -131,13 +134,13 @@ export function Sidebar() {
                 </Link>
               ))}
 
-              {projects.length > 5 && (
+              {projects.filter(p => p.status === 'active').length > 5 && (
                 <Link
                   href="/projects"
                   onClick={closeSidebar}
                   className="flex items-center gap-2.5 px-3 py-2 text-sm text-zinc-500 hover:text-zinc-300 transition-colors"
                 >
-                  <span>+{projects.length - 5} more</span>
+                  <span>+{projects.filter(p => p.status === 'active').length - 5} more</span>
                 </Link>
               )}
             </div>

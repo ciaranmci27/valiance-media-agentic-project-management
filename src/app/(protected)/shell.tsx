@@ -3,6 +3,7 @@
 import { AuthProvider, useAuth } from '@/lib/auth-context';
 import { AppProvider } from '@/lib/store';
 import { Sidebar } from '@/components/layout/Sidebar';
+import { KeyboardShortcuts } from '@/components/layout/KeyboardShortcuts';
 import { ToastContainer } from '@/components/ui/Toast';
 import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
@@ -42,6 +43,7 @@ export function ProtectedShell({ children }: { children: React.ReactNode }) {
           <main className="lg:ml-60 min-h-screen">
             {children}
           </main>
+          <KeyboardShortcuts />
           <ToastContainer />
         </AppProvider>
       </AuthGate>

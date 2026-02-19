@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { MoreVertical, Edit, Trash2, ArrowRightCircle, DollarSign } from 'lucide-react';
 import { Lead } from '@/lib/types';
 import { useApp } from '@/lib/store';
@@ -34,6 +35,7 @@ interface LeadCardProps {
 
 export function LeadCard({ lead, onEdit, onDelete, onConvert }: LeadCardProps) {
   const { getTeamMember } = useApp();
+  const router = useRouter();
   const [showMenu, setShowMenu] = useState(false);
 
   const assignee = lead.assigned_to ? getTeamMember(lead.assigned_to) : null;
@@ -46,7 +48,10 @@ export function LeadCard({ lead, onEdit, onDelete, onConvert }: LeadCardProps) {
   };
 
   return (
-    <div className="bg-white rounded-xl border border-zinc-200 p-4 lg:p-5 hover:shadow-lg hover:border-zinc-300 transition-all duration-200 group">
+    <div
+      className="bg-white rounded-xl border border-zinc-200 p-4 lg:p-5 hover:shadow-lg hover:border-zinc-300 transition-all duration-200 group cursor-pointer"
+      onClick={() => router.push(`/leads/${lead.id}`)}
+    >
       <div className="flex items-start justify-between mb-3">
         <div className="min-w-0 flex-1">
           <h3 className="font-semibold text-zinc-900 truncate text-sm lg:text-base">{lead.name}</h3>
@@ -57,7 +62,7 @@ export function LeadCard({ lead, onEdit, onDelete, onConvert }: LeadCardProps) {
 
         <div className="relative flex-shrink-0">
           <button
-            onClick={() => setShowMenu(!showMenu)}
+            onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }}
             className="lg:opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 transition-all"
           >
             <MoreVertical size={16} />
@@ -65,10 +70,10 @@ export function LeadCard({ lead, onEdit, onDelete, onConvert }: LeadCardProps) {
 
           {showMenu && (
             <>
-              <div className="fixed inset-0 z-10" onClick={() => setShowMenu(false)} />
-              <div className="absolute right-0 top-10 bg-white rounded-lg shadow-xl border border-zinc-200 py-1 z-20 min-w-[160px]">
+              <div className="fixed inset-0 z-10 cursor-default" onClick={(e) => { e.stopPropagation(); setShowMenu(false); }} />
+              <div className="absolute right-0 top-10 bg-white rounded-lg shadow-xl border border-zinc-200 py-1 z-20 min-w-[160px] cursor-pointer">
                 <button
-                  onClick={() => { onEdit?.(lead); setShowMenu(false); }}
+                  onClick={(e) => { e.stopPropagation(); onEdit?.(lead); setShowMenu(false); }}
                   className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-100"
                 >
                   <Edit size={14} />
@@ -76,15 +81,15 @@ export function LeadCard({ lead, onEdit, onDelete, onConvert }: LeadCardProps) {
                 </button>
                 {canConvert && (
                   <button
-                    onClick={() => { onConvert?.(lead); setShowMenu(false); }}
+                    onClick={(e) => { e.stopPropagation(); onConvert?.(lead); setShowMenu(false); }}
                     className="w-full flex items-center gap-2 px-3 py-2 text-sm text-emerald-700 hover:bg-emerald-50"
                   >
                     <ArrowRightCircle size={14} />
-                    Convert to Client
+                    Convert
                   </button>
                 )}
                 <button
-                  onClick={() => { onDelete?.(lead.id); setShowMenu(false); }}
+                  onClick={(e) => { e.stopPropagation(); onDelete?.(lead.id); setShowMenu(false); }}
                   className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50"
                 >
                   <Trash2 size={14} />

@@ -7,15 +7,18 @@ import { Header } from '@/components/layout/Header';
 import { ProjectCard } from '@/components/projects/ProjectCard';
 import { ProjectForm } from '@/components/projects/ProjectForm';
 import { Button } from '@/components/ui/Button';
-import { Plus, FolderKanban } from 'lucide-react';
+import { Plus, FolderKanban, Search } from 'lucide-react';
 import { Project } from '@/lib/types';
 import { toast } from '@/components/ui/Toast';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 
 function ProjectsContent() {
   const searchParams = useSearchParams();
   const { projects, deleteProject } = useApp();
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
+  const [search, setSearch] = useState('');
+  const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
 
   // Check for ?new=true in URL
   useEffect(() => {
@@ -30,10 +33,13 @@ function ProjectsContent() {
   };
 
   const handleDelete = (id: string) => {
-    if (confirm('Are you sure you want to delete this project? All tasks will also be deleted.')) {
-      deleteProject(id);
-      toast('success', 'Project deleted');
-    }
+    setDeletingProjectId(id);
+  };
+
+  const executeDelete = () => {
+    if (!deletingProjectId) return;
+    deleteProject(deletingProjectId);
+    toast('success', 'Project deleted');
   };
 
   const handleCloseForm = () => {
@@ -41,9 +47,16 @@ function ProjectsContent() {
     setEditingProject(null);
   };
 
-  const activeProjects = projects.filter(p => p.status === 'active');
-  const completedProjects = projects.filter(p => p.status === 'completed');
-  const archivedProjects = projects.filter(p => p.status === 'archived');
+  const searchLower = search.toLowerCase();
+  const filtered = search
+    ? projects.filter(p =>
+        p.name.toLowerCase().includes(searchLower) ||
+        p.description.toLowerCase().includes(searchLower))
+    : projects;
+
+  const activeProjects = filtered.filter(p => p.status === 'active');
+  const completedProjects = filtered.filter(p => p.status === 'completed');
+  const archivedProjects = filtered.filter(p => p.status === 'archived');
 
   return (
     <>
@@ -58,6 +71,19 @@ function ProjectsContent() {
       />
 
       <div className="p-4 lg:p-6 space-y-6 lg:space-y-8">
+        {projects.length > 0 && (
+          <div className="relative">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search projects..."
+              className="w-full pl-10 pr-4 py-2.5 bg-white border border-zinc-200 rounded-lg text-sm text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+            />
+          </div>
+        )}
+
         {projects.length === 0 ? (
           <div className="text-center py-16 bg-white rounded-xl border border-zinc-200">
             <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-zinc-100 flex items-center justify-center">
@@ -132,6 +158,16 @@ function ProjectsContent() {
         isOpen={isFormOpen}
         onClose={handleCloseForm}
         project={editingProject}
+      />
+
+      <ConfirmDialog
+        isOpen={!!deletingProjectId}
+        onClose={() => setDeletingProjectId(null)}
+        onConfirm={executeDelete}
+        title="Delete Project"
+        message="This will permanently delete the project and all its tasks. This action cannot be undone."
+        confirmLabel="Delete"
+        variant="danger"
       />
     </>
   );

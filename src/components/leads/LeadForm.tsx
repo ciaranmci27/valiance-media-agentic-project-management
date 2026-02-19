@@ -44,6 +44,8 @@ export function LeadForm({ isOpen, onClose, lead }: LeadFormProps) {
   const [value, setValue] = useState('');
   const [notes, setNotes] = useState('');
   const [assignedTo, setAssignedTo] = useState('');
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (lead) {
@@ -69,10 +71,27 @@ export function LeadForm({ isOpen, onClose, lead }: LeadFormProps) {
     }
   }, [lead, isOpen]);
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!name.trim()) return;
+  const validate = () => {
+    const errs: Record<string, string> = {};
+    if (!name.trim()) errs.name = 'Name is required';
+    if (email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      errs.email = 'Invalid email format';
+    }
+    if (phone.trim() && !/^[+\d\s\-().]{7,20}$/.test(phone.trim())) {
+      errs.phone = 'Invalid phone number';
+    }
+    if (value && isNaN(parseFloat(value))) {
+      errs.value = 'Invalid amount';
+    }
+    setErrors(errs);
+    return Object.keys(errs).length === 0;
+  };
 
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!validate()) return;
+
+    setSaving(true);
     const leadData = {
       name: name.trim(),
       email: email.trim(),
@@ -83,15 +102,16 @@ export function LeadForm({ isOpen, onClose, lead }: LeadFormProps) {
       value: value ? parseFloat(value) : null,
       notes: notes.trim(),
       assigned_to: assignedTo || null,
-      client_id: lead?.client_id || null,
+      contact_id: lead?.contact_id || null,
     };
 
     if (lead) {
-      updateLead(lead.id, leadData);
+      await updateLead(lead.id, leadData);
     } else {
-      addLead(leadData);
+      await addLead(leadData);
     }
 
+    setSaving(false);
     onClose();
   };
 
@@ -114,6 +134,7 @@ export function LeadForm({ isOpen, onClose, lead }: LeadFormProps) {
           onChange={(e) => setName(e.target.value)}
           placeholder="Contact name"
           required
+          error={errors.name}
         />
 
         <div className="grid grid-cols-2 gap-4">
@@ -123,12 +144,14 @@ export function LeadForm({ isOpen, onClose, lead }: LeadFormProps) {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="Email address"
+            error={errors.email}
           />
           <Input
             label="Phone"
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
             placeholder="Phone number"
+            error={errors.phone}
           />
         </div>
 
@@ -143,13 +166,13 @@ export function LeadForm({ isOpen, onClose, lead }: LeadFormProps) {
           <Select
             label="Source"
             value={source}
-            onChange={(e) => setSource(e.target.value as Lead['source'])}
+            onChange={(value) => setSource(value as Lead['source'])}
             options={sourceOptions}
           />
           <Select
             label="Status"
             value={status}
-            onChange={(e) => setStatus(e.target.value as Lead['status'])}
+            onChange={(value) => setStatus(value as Lead['status'])}
             options={statusOptions}
           />
           <Input
@@ -166,7 +189,7 @@ export function LeadForm({ isOpen, onClose, lead }: LeadFormProps) {
         <Select
           label="Assigned To"
           value={assignedTo}
-          onChange={(e) => setAssignedTo(e.target.value)}
+          onChange={(value) => setAssignedTo(value)}
           options={assigneeOptions}
         />
 
@@ -185,8 +208,8 @@ export function LeadForm({ isOpen, onClose, lead }: LeadFormProps) {
           <Button type="button" variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit">
-            {lead ? 'Save Changes' : 'Add Lead'}
+          <Button type="submit" disabled={saving}>
+            {saving ? 'Saving...' : lead ? 'Save Changes' : 'Add Lead'}
           </Button>
         </div>
       </form>

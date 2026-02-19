@@ -8,11 +8,11 @@ import { Header } from '@/components/layout/Header';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Avatar } from '@/components/ui/Avatar';
-import { User, Palette, Database, Download, Lock } from 'lucide-react';
+import { User, Palette, Lock } from 'lucide-react';
 import { toast } from '@/components/ui/Toast';
 
 export default function SettingsPage() {
-  const { team, projects, tasks, updateTeamMember } = useApp();
+  const { team, updateTeamMember } = useApp();
   const { user, teamMemberId } = useAuth();
   const supabase = createClient();
 
@@ -48,17 +48,6 @@ export default function SettingsPage() {
     }
   };
 
-  const handleExportData = () => {
-    const data = { projects, tasks, team };
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `projectem-backup-${new Date().toISOString().split('T')[0]}.json`;
-    a.click();
-    toast('success', 'Data exported successfully');
-  };
-
   const handleChangePassword = async () => {
     if (newPassword.length < 6) {
       toast('error', 'Password must be at least 6 characters');
@@ -82,12 +71,6 @@ export default function SettingsPage() {
       setPasswordLoading(false);
     }
   };
-
-  const stats = [
-    { label: 'Projects', value: projects.length },
-    { label: 'Tasks', value: tasks.length },
-    { label: 'Team Members', value: team.length },
-  ];
 
   return (
     <div className="animate-fadeIn min-h-screen bg-zinc-50">
@@ -169,35 +152,6 @@ export default function SettingsPage() {
           <div className="mt-4">
             <Button onClick={handleChangePassword} disabled={passwordLoading}>
               {passwordLoading ? 'Updating...' : 'Update Password'}
-            </Button>
-          </div>
-        </section>
-
-        {/* Data Management Section */}
-        <section className="bg-white rounded-xl border border-zinc-200 p-4 lg:p-6">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="p-2 bg-emerald-50 rounded-lg">
-              <Database className="text-emerald-600" size={20} />
-            </div>
-            <div>
-              <h2 className="font-semibold text-zinc-900">Data Management</h2>
-              <p className="text-sm text-zinc-500">Manage your project data</p>
-            </div>
-          </div>
-
-          {/* Stats */}
-          <div className="grid grid-cols-3 gap-4 mb-6 p-4 bg-zinc-50 rounded-lg">
-            {stats.map((stat) => (
-              <div key={stat.label} className="text-center">
-                <p className="text-2xl font-bold text-zinc-900">{stat.value}</p>
-                <p className="text-xs text-zinc-500">{stat.label}</p>
-              </div>
-            ))}
-          </div>
-
-          <div className="flex flex-wrap gap-3">
-            <Button variant="secondary" icon={<Download size={16} />} onClick={handleExportData}>
-              Export Data
             </Button>
           </div>
         </section>

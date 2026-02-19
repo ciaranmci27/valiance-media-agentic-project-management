@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import Modal from '@/components/ui/Modal';
-import { Mail, MoreVertical, Edit, Shield, User, UserMinus } from 'lucide-react';
+import { Mail, MoreVertical, Edit, Shield, User, UserMinus, Search } from 'lucide-react';
 import { TeamMember } from '@/lib/types';
 import { toast } from '@/components/ui/Toast';
 
@@ -16,6 +16,7 @@ export default function TeamPage() {
   const { team, updateTeamMember, tasks } = useApp();
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingMember, setEditingMember] = useState<TeamMember | null>(null);
+  const [search, setSearch] = useState('');
 
   const [name, setName] = useState('');
   const [role, setRole] = useState<TeamMember['role']>('member');
@@ -26,14 +27,10 @@ export default function TeamPage() {
     setEditingMember(null);
   };
 
-  const handleOpenForm = (member?: TeamMember) => {
-    if (member) {
-      setEditingMember(member);
-      setName(member.name);
-      setRole(member.role);
-    } else {
-      resetForm();
-    }
+  const handleOpenForm = (member: TeamMember) => {
+    setEditingMember(member);
+    setName(member.name);
+    setRole(member.role);
     setIsFormOpen(true);
   };
 
@@ -44,12 +41,10 @@ export default function TeamPage() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-
     if (!name.trim() || !editingMember) return;
 
     updateTeamMember(editingMember.id, { name: name.trim(), role });
     toast('success', 'Team member updated');
-
     handleCloseForm();
   };
 
@@ -68,6 +63,13 @@ export default function TeamPage() {
   const getTaskCount = (memberId: string) => {
     return tasks.filter(t => t.assignee_ids.includes(memberId)).length;
   };
+
+  const searchLower = search.toLowerCase();
+  const filtered = search
+    ? team.filter(m =>
+        m.name.toLowerCase().includes(searchLower) ||
+        m.email.toLowerCase().includes(searchLower))
+    : team;
 
   const MemberCard = ({ member }: { member: TeamMember }) => {
     const [showMenu, setShowMenu] = useState(false);
@@ -95,8 +97,8 @@ export default function TeamPage() {
 
             {showMenu && (
               <>
-                <div className="fixed inset-0 z-10" onClick={() => setShowMenu(false)} />
-                <div className="absolute right-0 top-10 bg-white rounded-lg shadow-xl border border-zinc-200 py-1 z-20 min-w-[140px]">
+                <div className="fixed inset-0 z-10 cursor-default" onClick={(e) => { e.stopPropagation(); setShowMenu(false); }} />
+                <div className="absolute right-0 top-10 bg-white rounded-lg shadow-xl border border-zinc-200 py-1 z-20 min-w-[140px] cursor-pointer">
                   <button
                     onClick={() => { handleOpenForm(member); setShowMenu(false); }}
                     className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-100"
@@ -134,9 +136,22 @@ export default function TeamPage() {
         subtitle={`${team.length} team members`}
       />
 
-      <div className="p-4 lg:p-6">
+      <div className="p-4 lg:p-6 space-y-4">
+        {team.length > 0 && (
+          <div className="relative">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search team members..."
+              className="w-full pl-10 pr-4 py-2.5 bg-white border border-zinc-200 rounded-lg text-sm text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+            />
+          </div>
+        )}
+
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {team.map((member) => (
+          {filtered.map((member) => (
             <MemberCard key={member.id} member={member} />
           ))}
         </div>
@@ -150,7 +165,7 @@ export default function TeamPage() {
         )}
       </div>
 
-      {/* Add/Edit Member Modal */}
+      {/* Edit Member Modal */}
       <Modal
         isOpen={isFormOpen}
         onClose={handleCloseForm}
@@ -175,7 +190,7 @@ export default function TeamPage() {
           <Select
             label="Role"
             value={role}
-            onChange={(e) => setRole(e.target.value as TeamMember['role'])}
+            onChange={(value) => setRole(value as TeamMember['role'])}
             options={[
               { value: 'admin', label: 'Admin' },
               { value: 'member', label: 'Member' },

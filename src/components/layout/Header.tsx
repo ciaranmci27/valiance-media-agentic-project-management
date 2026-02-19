@@ -12,11 +12,14 @@ interface HeaderProps {
 }
 
 export function Header({ title, subtitle, actions }: HeaderProps) {
-  const { filters, setFilters, team } = useApp();
+  const { filters, setFilters, team, tasks } = useApp();
   const [showFilters, setShowFilters] = useState(false);
 
   const statusOptions = ['todo', 'in_progress', 'in_review', 'done'];
   const priorityOptions = ['low', 'medium', 'high', 'urgent'];
+
+  // Collect unique tags across all tasks
+  const allTags = Array.from(new Set(tasks.flatMap(t => t.tags))).sort();
 
   const toggleFilter = (type: 'status' | 'priority', value: string) => {
     const current = filters[type];
@@ -30,14 +33,14 @@ export function Header({ title, subtitle, actions }: HeaderProps) {
     setFilters({ status: [], priority: [], assigneeIds: [], tags: [], search: '' });
   };
 
-  const hasActiveFilters = filters.status.length > 0 || filters.priority.length > 0 || filters.assigneeIds.length > 0;
+  const hasActiveFilters = filters.status.length > 0 || filters.priority.length > 0 || filters.assigneeIds.length > 0 || filters.tags.length > 0;
 
   return (
     <header className="bg-white border-b border-zinc-200 sticky top-0 z-30">
       {/* Main header row */}
       <div className="h-16 flex items-center justify-between px-4 lg:px-6">
         <div className="flex items-center gap-4">
-          <div className="pl-12 lg:pl-0">
+          <div className="pl-12 lg:pl-0 flex items-center gap-3">
             <h1 className="text-lg lg:text-xl font-semibold text-zinc-900 tracking-tight">{title}</h1>
             {subtitle && <div className="text-sm text-zinc-500">{subtitle}</div>}
           </div>
@@ -69,7 +72,7 @@ export function Header({ title, subtitle, actions }: HeaderProps) {
             <span className="hidden sm:inline">Filter</span>
             {hasActiveFilters && (
               <span className="bg-indigo-600 text-white text-xs px-1.5 py-0.5 rounded-full">
-                {filters.status.length + filters.priority.length + filters.assigneeIds.length}
+                {filters.status.length + filters.priority.length + filters.assigneeIds.length + filters.tags.length}
               </span>
             )}
           </button>
@@ -161,6 +164,34 @@ export function Header({ title, subtitle, actions }: HeaderProps) {
                 ))}
               </div>
             </div>
+
+            {/* Tags filter */}
+            {allTags.length > 0 && (
+              <div>
+                <label className="block text-xs font-medium text-zinc-500 mb-2">Tags</label>
+                <div className="flex flex-wrap gap-1.5">
+                  {allTags.slice(0, 8).map(tag => (
+                    <button
+                      key={tag}
+                      onClick={() => {
+                        const current = filters.tags;
+                        const updated = current.includes(tag)
+                          ? current.filter(t => t !== tag)
+                          : [...current, tag];
+                        setFilters({ ...filters, tags: updated });
+                      }}
+                      className={`px-2 py-1 text-xs rounded-full transition-all ${
+                        filters.tags.includes(tag)
+                          ? 'bg-indigo-100 text-indigo-700 border border-indigo-300'
+                          : 'bg-white text-zinc-600 border border-zinc-200 hover:border-zinc-300'
+                      }`}
+                    >
+                      {tag}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Search (mobile) */}
             <div className="md:hidden">

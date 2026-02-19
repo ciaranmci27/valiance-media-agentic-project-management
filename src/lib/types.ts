@@ -1,5 +1,8 @@
 // ProjectEM PM - TypeScript Interfaces
 
+export const CONTACT_ROLES = ['Client', 'Primary Contact', 'Technical Contact', 'Billing Contact', 'Stakeholder', 'Other'] as const;
+export type ContactRole = typeof CONTACT_ROLES[number];
+
 export interface Project {
   id: string;
   name: string;
@@ -9,13 +12,12 @@ export interface Project {
   start_date: string | null;
   due_date: string | null;
   member_ids: string[];
-  client_id: string | null;
   created_by?: string | null;
   created_at: string;
   updated_at: string;
 }
 
-export interface Client {
+export interface Contact {
   id: string;
   name: string;
   email: string;
@@ -26,6 +28,17 @@ export interface Client {
   created_by?: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface ProjectContact {
+  id: string;
+  project_id: string;
+  contact_id: string;
+  role: string;
+  custom_role: string | null;
+  is_primary_client: boolean;
+  created_at: string;
+  contact?: Contact;
 }
 
 export interface Lead {
@@ -39,7 +52,40 @@ export interface Lead {
   value: number | null;
   notes: string;
   assigned_to: string | null;
-  client_id: string | null;
+  contact_id: string | null;
+  created_by?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export const LEAD_INTERACTION_TYPES = ['call', 'email', 'meeting', 'note', 'follow_up'] as const;
+export type LeadInteractionType = typeof LEAD_INTERACTION_TYPES[number];
+
+export interface LeadInteraction {
+  id: string;
+  lead_id: string;
+  type: LeadInteractionType;
+  title: string;
+  description: string;
+  occurred_at: string;
+  scheduled_at: string | null;
+  completed: boolean;
+  created_by?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export const LEAD_PROPOSAL_STATUSES = ['draft', 'sent', 'accepted', 'rejected'] as const;
+export type LeadProposalStatus = typeof LEAD_PROPOSAL_STATUSES[number];
+
+export interface LeadProposal {
+  id: string;
+  lead_id: string;
+  title: string;
+  description: string;
+  estimated_value: number | null;
+  status: LeadProposalStatus;
+  sent_at: string | null;
   created_by?: string | null;
   created_at: string;
   updated_at: string;

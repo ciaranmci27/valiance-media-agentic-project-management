@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, ReactNode } from 'react';
+import { useState, useEffect } from 'react';
 import { X, CheckCircle, AlertCircle, Info, AlertTriangle } from 'lucide-react';
 
 interface Toast {
@@ -9,34 +9,46 @@ interface Toast {
   message: string;
 }
 
+let toasts: Toast[] = [];
 let toastListeners: ((toasts: Toast[]) => void)[] = [];
 
+function notify() {
+  const snapshot = [...toasts];
+  toastListeners.forEach(listener => listener(snapshot));
+}
+
 export function toast(type: Toast['type'], message: string) {
-  const id = `toast-${Date.now()}`;
+  const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
   const newToast: Toast = { id, type, message };
-  
-  const currentToasts = getToasts();
-  toastListeners.forEach(listener => listener([...currentToasts, newToast]));
-  
+
+  // Limit to 5 visible toasts
+  if (toasts.length >= 5) {
+    toasts = toasts.slice(-4);
+  }
+
+  toasts = [...toasts, newToast];
+  notify();
+
   setTimeout(() => {
-    const toasts = getToasts().filter(t => t.id !== id);
-    toastListeners.forEach(listener => listener(toasts));
+    toasts = toasts.filter(t => t.id !== id);
+    notify();
   }, 4000);
 }
 
-function getToasts(): Toast[] {
-  return [];
-}
-
 export function ToastContainer() {
-  const [toasts, setToasts] = useState<Toast[]>([]);
+  const [visible, setVisible] = useState<Toast[]>([]);
 
   useEffect(() => {
-    toastListeners.push(setToasts);
+    toastListeners.push(setVisible);
     return () => {
-      toastListeners = toastListeners.filter(l => l !== setToasts);
+      toastListeners = toastListeners.filter(l => l !== setVisible);
     };
   }, []);
+
+  const dismiss = (id: string) => {
+    toasts = toasts.filter(t => t.id !== id);
+    notify();
+  };
 
   const icons = {
     success: <CheckCircle className="text-emerald-500" size={18} />,
@@ -54,7 +66,7 @@ export function ToastContainer() {
 
   return (
     <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2">
-      {toasts.map((t) => (
+      {visible.map((t) => (
         <div
           key={t.id}
           className={`flex items-center gap-3 px-4 py-3 rounded-lg border shadow-lg animate-slideIn ${bgColors[t.type]}`}
@@ -62,10 +74,7 @@ export function ToastContainer() {
           {icons[t.type]}
           <span className="text-sm font-medium text-zinc-700">{t.message}</span>
           <button
-            onClick={() => {
-              const newToasts = toasts.filter(toast => toast.id !== t.id);
-              toastListeners.forEach(listener => listener(newToasts));
-            }}
+            onClick={() => dismiss(t.id)}
             className="ml-2 text-zinc-400 hover:text-zinc-600"
           >
             <X size={16} />
