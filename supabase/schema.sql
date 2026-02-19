@@ -11,6 +11,7 @@ create table public.team_members (
   email text not null,
   avatar text not null default '',
   role text not null default 'member' check (role in ('admin', 'member', 'guest')),
+  notification_prefs jsonb not null default '{}',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -296,6 +297,21 @@ create table public.api_keys (
   updated_at timestamptz not null default now()
 );
 
+-- ============================================================
+-- 20. NOTIFICATIONS
+-- ============================================================
+create table public.notifications (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.team_members(id) on delete cascade,
+  title text not null,
+  message text,
+  link text,
+  is_read boolean not null default false,
+  entity_type text check (entity_type in ('task', 'project', 'lead', 'comment', 'member', 'contact')),
+  entity_id text,
+  created_at timestamptz not null default now()
+);
+
 -- Soft delete support for projects and leads
 alter table public.projects add column if not exists archived_at timestamptz default null;
 alter table public.leads add column if not exists archived_at timestamptz default null;
@@ -340,6 +356,40 @@ create index idx_api_keys_key_hash on public.api_keys(key_hash);
 create index idx_api_keys_revoked_at on public.api_keys(revoked_at) where revoked_at is null;
 create index idx_projects_archived_at on public.projects(archived_at) where archived_at is null;
 create index idx_leads_archived_at on public.leads(archived_at) where archived_at is null;
+
+create index idx_notifications_user_id on public.notifications(user_id);
+create index idx_notifications_unread on public.notifications(user_id, is_read) where is_read = false;
+create index idx_notifications_created_at on public.notifications(created_at desc);
+
+-- Dedup index for upsert_notification: one unread notification per user+entity
+create unique index idx_notifications_dedup
+  on public.notifications (user_id, entity_type, entity_id) where is_read = false;
+
+-- ============================================================
+-- UPSERT NOTIFICATION (SECURITY DEFINER — bypasses RLS for dedup check)
+-- ============================================================
+create or replace function public.upsert_notification(
+  p_user_id uuid,
+  p_title text,
+  p_message text,
+  p_link text,
+  p_entity_type text,
+  p_entity_id text
+) returns void as $$
+begin
+  update public.notifications
+  set title = p_title, message = p_message, link = p_link, created_at = now()
+  where user_id = p_user_id
+    and entity_type = p_entity_type
+    and entity_id = p_entity_id
+    and is_read = false;
+
+  if not found then
+    insert into public.notifications (user_id, title, message, link, entity_type, entity_id)
+    values (p_user_id, p_title, p_message, p_link, p_entity_type, p_entity_id);
+  end if;
+end;
+$$ language plpgsql security definer;
 
 -- ============================================================
 -- UPDATED_AT TRIGGER FUNCTION
@@ -444,6 +494,7 @@ alter table public.lead_contacts enable row level security;
 alter table public.portal_settings enable row level security;
 alter table public.portal_files enable row level security;
 alter table public.api_keys enable row level security;
+alter table public.notifications enable row level security;
 
 -- All authenticated users get full CRUD on shared data
 create policy "team_members_all" on public.team_members
@@ -502,6 +553,24 @@ create policy "portal_files_all" on public.portal_files
 
 create policy "api_keys_all" on public.api_keys
   for all to authenticated using (true) with check (true);
+
+-- Users can only read/update/delete their own notifications.
+-- Any authenticated user can insert (the store creates notifications for other users).
+create policy "notifications_select_own" on public.notifications
+  for select to authenticated
+  using (user_id in (select id from public.team_members where auth_user_id = auth.uid()));
+
+create policy "notifications_update_own" on public.notifications
+  for update to authenticated
+  using (user_id in (select id from public.team_members where auth_user_id = auth.uid()));
+
+create policy "notifications_delete_own" on public.notifications
+  for delete to authenticated
+  using (user_id in (select id from public.team_members where auth_user_id = auth.uid()));
+
+create policy "notifications_insert" on public.notifications
+  for insert to authenticated
+  with check (true);
 
 -- ============================================================
 -- STORAGE: Portal Files Bucket (public, 50MB limit)

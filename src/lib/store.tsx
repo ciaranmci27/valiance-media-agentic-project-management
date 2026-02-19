@@ -1,7 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { Project, Task, TeamMember, FilterState, ViewMode, Subtask, Comment, Contact, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, Activity, PortalSettings, PortalFile, ApiKey } from './types';
+import { Project, Task, TeamMember, FilterState, ViewMode, Subtask, Comment, Contact, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, Activity, PortalSettings, PortalFile, ApiKey, NotificationCategory } from './types';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
@@ -227,6 +227,35 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const supabase = createClient();
   const skipSupabase = isDemoMode;
 
+  // Fire-and-forget notification helper — uses upsert RPC for dedup
+  const notify = (userIds: string[], title: string, message: string, link: string | null, entityType: string | null, entityId: string | null, category?: NotificationCategory) => {
+    if (skipSupabase) return;
+    const recipients = userIds.filter(id => {
+      if (id === teamMemberId) return false;
+      if (category) {
+        const member = team.find(m => m.id === id);
+        if (member?.notification_prefs?.[category] === false) return false;
+      }
+      return true;
+    });
+    for (const userId of recipients) {
+      supabase.rpc('upsert_notification', {
+        p_user_id: userId,
+        p_title: title,
+        p_message: message || '',
+        p_link: link,
+        p_entity_type: entityType,
+        p_entity_id: entityId,
+      }).then(() => {}, () => {});
+    }
+  };
+
+  // Helper: get actor name for notification messages
+  const actorName = () => {
+    const actor = team.find(m => m.id === teamMemberId);
+    return actor?.name || 'Someone';
+  };
+
   // Fetch all data from Supabase on mount (or load demo data)
   useEffect(() => {
     if (isDemoMode) {
@@ -332,6 +361,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     try {
       await patchProject(supabase, id, updates, updates.member_ids);
+
+      const project = projects.find(p => p.id === id);
+      if (project) {
+        notify(project.member_ids, `"${project.name}" was updated`, `${actorName()} updated the project.`, `/projects/${id}`, 'project', id, 'project_updates');
+      }
     } catch (err) {
       setProjects(prev);
       toast('error', 'Failed to update project');
@@ -386,6 +420,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const updateTask = async (id: string, updates: Partial<Task>) => {
     const prev = tasks;
+    const existingTask = tasks.find(t => t.id === id);
     setTasks(t => t.map(task =>
       task.id === id ? { ...task, ...updates, updated_at: new Date().toISOString() } : task
     ));
@@ -393,6 +428,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     try {
       await patchTask(supabase, id, updates, updates.assignee_ids);
+
+      if (existingTask) {
+        const project = projects.find(p => p.id === existingTask.project_id);
+        const projectLink = `/projects/${existingTask.project_id}`;
+
+        if (updates.status && updates.status !== existingTask.status) {
+          const statusLabel = updates.status.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
+          notify(existingTask.assignee_ids, `"${existingTask.title}" moved to ${statusLabel}`, `${actorName()} updated the task status.`, projectLink, 'task', id, 'task_status');
+        } else if (updates.assignee_ids) {
+          const newAssignees = updates.assignee_ids.filter(aid => !existingTask.assignee_ids.includes(aid));
+          if (newAssignees.length > 0) {
+            notify(newAssignees, `You were assigned to "${existingTask.title}"`, `${actorName()} assigned you to a task${project ? ` in ${project.name}` : ''}.`, projectLink, 'task', id, 'task_assignments');
+          }
+          // Notify existing assignees about the change too
+          const existingAssignees = existingTask.assignee_ids;
+          notify(existingAssignees, `"${existingTask.title}" was updated`, `${actorName()} updated the task.`, projectLink, 'task', id, 'task_updates');
+        } else {
+          notify(existingTask.assignee_ids, `"${existingTask.title}" was updated`, `${actorName()} updated the task.`, projectLink, 'task', id, 'task_updates');
+        }
+      }
     } catch (err) {
       setTasks(prev);
       toast('error', 'Failed to update task');
@@ -431,6 +486,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
           ? { ...t, subtasks: t.subtasks.map(s => s.id === optimisticId ? newSubtask : s) }
           : t
       ));
+
+      const task = tasks.find(t => t.id === taskId);
+      if (task) {
+        notify(task.assignee_ids, `"${task.title}" was updated`, `${actorName()} added a subtask.`, `/projects/${task.project_id}`, 'task', taskId, 'task_subtasks');
+      }
     } catch (err) {
       setTasks(prev => prev.map(t =>
         t.id === taskId
@@ -461,6 +521,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     try {
       await toggleSubtaskCompleted(supabase, subtaskId, newCompleted);
+
+      const parentTask = tasks.find(t => t.id === taskId);
+      if (parentTask) {
+        const msg = newCompleted ? `${actorName()} completed a subtask.` : `${actorName()} reopened a subtask.`;
+        notify(parentTask.assignee_ids, `"${parentTask.title}" was updated`, msg, `/projects/${parentTask.project_id}`, 'task', taskId, 'task_subtasks');
+      }
     } catch (err) {
       setTasks(prev => prev.map(t =>
         t.id === taskId
@@ -546,6 +612,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
           ? { ...t, comments: t.comments.map(c => c.id === optimisticId ? newComment : c) }
           : t
       ));
+
+      // Notify task assignees about the new comment (dedup key = parent task)
+      const task = tasks.find(t => t.id === taskId);
+      if (task) {
+        const preview = text.length > 60 ? text.slice(0, 60) + '...' : text;
+        notify(task.assignee_ids, `New comment on "${task.title}"`, `${actorName()}: "${preview}"`, `/projects/${task.project_id}`, 'task', taskId, 'task_comments');
+      }
     } catch (err) {
       setTasks(prev => prev.map(t =>
         t.id === taskId
@@ -601,6 +674,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       const newMember = await insertTeamMember(supabase, member);
       setTeam(prev => prev.map(m => m.id === optimisticId ? newMember : m));
+
+      // Notify all existing team members
+      const allMemberIds = team.map(m => m.id);
+      notify(
+        allMemberIds,
+        'New team member joined',
+        `${member.name} was added to the team as ${member.role === 'admin' ? 'an admin' : `a ${member.role}`}.`,
+        '/team', 'member', newMember.id,
+        'team_members'
+      );
     } catch (err) {
       setTeam(prev => prev.filter(m => m.id !== optimisticId));
       toast('error', 'Failed to add team member');
@@ -660,6 +743,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const updateContact = async (id: string, updates: Partial<Contact>) => {
     const prev = contacts;
+    const existingContact = contacts.find(c => c.id === id);
     setContacts(c => c.map(contact =>
       contact.id === id ? { ...contact, ...updates, updated_at: new Date().toISOString() } : contact
     ));
@@ -667,6 +751,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     try {
       await patchContact(supabase, id, updates);
+
+      // Notify members of linked projects + leads
+      if (existingContact) {
+        const linkedProjectIds = projectContacts.filter(pc => pc.contact_id === id).map(pc => pc.project_id);
+        const projectMemberIds = projects.filter(p => linkedProjectIds.includes(p.id)).flatMap(p => p.member_ids);
+        const linkedLeadIds = leadContacts.filter(lc => lc.contact_id === id).map(lc => lc.lead_id);
+        const leadMemberIds = leads.filter(l => linkedLeadIds.includes(l.id)).flatMap(l => l.member_ids);
+        const allRecipients = [...new Set([...projectMemberIds, ...leadMemberIds])];
+        if (allRecipients.length > 0) {
+          notify(allRecipients, `Contact "${existingContact.name}" was updated`, `${actorName()} updated the contact.`, null, 'contact', id, 'contact_updates');
+        }
+      }
     } catch (err) {
       setContacts(prev);
       toast('error', 'Failed to update contact');
@@ -725,6 +821,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       const newPc = await addProjectContactQuery(supabase, projectId, contactId, role, customRole, isPrimaryClient);
       setProjectContacts(prev => prev.map(pc => pc.id === optimisticId ? newPc : pc));
+
+      const project = projects.find(p => p.id === projectId);
+      if (project) {
+        notify(project.member_ids, `"${project.name}" contacts updated`, `${actorName()} linked a contact.`, `/projects/${projectId}`, 'project', projectId, 'project_contacts');
+      }
     } catch (err) {
       setProjectContacts(prev => prev.filter(pc => pc.id !== optimisticId));
       toast('error', 'Failed to add contact to project');
@@ -755,19 +856,29 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     try {
       await updateProjectContactQuery(supabase, pcId, projectId, updates);
+
+      const project = projects.find(p => p.id === projectId);
+      if (project) {
+        notify(project.member_ids, `"${project.name}" contacts updated`, `${actorName()} updated a contact role.`, `/projects/${projectId}`, 'project', projectId, 'project_contacts');
+      }
     } catch (err) {
       setProjectContacts(prev);
       toast('error', 'Failed to update project contact');
     }
   };
 
-  const removeProjectContactAction = async (pcId: string, _projectId: string) => {
+  const removeProjectContactAction = async (pcId: string, projectId: string) => {
     const prev = projectContacts;
     setProjectContacts(pcs => pcs.filter(pc => pc.id !== pcId));
     if (skipSupabase) return;
 
     try {
       await removeProjectContactQuery(supabase, pcId);
+
+      const project = projects.find(p => p.id === projectId);
+      if (project) {
+        notify(project.member_ids, `"${project.name}" contacts updated`, `${actorName()} removed a contact.`, `/projects/${projectId}`, 'project', projectId, 'project_contacts');
+      }
     } catch (err) {
       setProjectContacts(prev);
       toast('error', 'Failed to remove contact from project');
@@ -862,6 +973,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
           await patchContact(supabase, contactId, identityFields);
         } catch {
           // Non-critical: lead update succeeded
+        }
+      }
+
+      if (currentLead) {
+        if (updates.status && updates.status !== currentLead.status) {
+          const statusLabel = updates.status.charAt(0).toUpperCase() + updates.status.slice(1);
+          notify(currentLead.member_ids, `Lead "${currentLead.name}" moved to ${statusLabel}`, `${actorName()} updated the lead status.`, `/leads/${id}`, 'lead', id, 'lead_status');
+        } else {
+          notify(currentLead.member_ids, `Lead "${currentLead.name}" was updated`, `${actorName()} updated the lead.`, `/leads/${id}`, 'lead', id, 'lead_updates');
         }
       }
     } catch (err) {
@@ -974,6 +1094,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (result.additionalProjectContacts && result.additionalProjectContacts.length > 0) {
         setProjectContacts(prev => [...prev, ...result.additionalProjectContacts]);
       }
+
+      notify(lead.member_ids, `Lead "${lead.name}" converted to project`, `${actorName()} converted the lead.`, `/leads/${leadId}`, 'lead', leadId, 'lead_conversions');
     } catch (err) {
       // Rollback
       if (optimisticContact) {
@@ -1005,6 +1127,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       const newInteraction = await insertLeadInteraction(supabase, { ...interaction, created_by: teamMemberId });
       setLeadInteractions(prev => prev.map(i => i.id === optimisticId ? newInteraction : i));
+
+      const lead = leads.find(l => l.id === interaction.lead_id);
+      if (lead) {
+        const typeLabel = interaction.type.replace('_', ' ');
+        notify(lead.member_ids, `New ${typeLabel} on lead "${lead.name}"`, `${actorName()} logged a ${typeLabel}.`, `/leads/${interaction.lead_id}`, 'lead', interaction.lead_id, 'lead_interactions');
+      }
     } catch (err) {
       setLeadInteractions(prev => prev.filter(i => i.id !== optimisticId));
       toast('error', 'Failed to add interaction');
@@ -1020,6 +1148,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     try {
       await patchLeadInteraction(supabase, id, updates);
+
+      const interaction = leadInteractions.find(i => i.id === id);
+      if (interaction) {
+        const lead = leads.find(l => l.id === interaction.lead_id);
+        if (lead) {
+          notify(lead.member_ids, `Lead "${lead.name}" was updated`, `${actorName()} updated an interaction.`, `/leads/${lead.id}`, 'lead', lead.id, 'lead_interactions');
+        }
+      }
     } catch (err) {
       setLeadInteractions(prev);
       toast('error', 'Failed to update interaction');
@@ -1056,6 +1192,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       const newProposal = await insertLeadProposal(supabase, { ...proposal, created_by: teamMemberId });
       setLeadProposals(prev => prev.map(p => p.id === optimisticId ? newProposal : p));
+
+      const lead = leads.find(l => l.id === proposal.lead_id);
+      if (lead) {
+        notify(lead.member_ids, `New proposal for "${lead.name}"`, `${actorName()} added a proposal.`, `/leads/${proposal.lead_id}`, 'lead', proposal.lead_id, 'lead_proposals');
+      }
     } catch (err) {
       setLeadProposals(prev => prev.filter(p => p.id !== optimisticId));
       toast('error', 'Failed to add proposal');
@@ -1071,6 +1212,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     try {
       await patchLeadProposal(supabase, id, updates);
+
+      const proposal = leadProposals.find(p => p.id === id);
+      if (proposal) {
+        const lead = leads.find(l => l.id === proposal.lead_id);
+        if (lead) {
+          notify(lead.member_ids, `Lead "${lead.name}" proposal updated`, `${actorName()} updated a proposal.`, `/leads/${lead.id}`, 'lead', lead.id, 'lead_proposals');
+        }
+      }
     } catch (err) {
       setLeadProposals(prev);
       toast('error', 'Failed to update proposal');
@@ -1108,6 +1257,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setLeadFields(f => f.map(field =>
           field.id === existing.id ? updated : field
         ));
+        const lead = leads.find(l => l.id === leadId);
+        if (lead) notify(lead.member_ids, `Lead "${lead.name}" was updated`, `${actorName()} updated lead details.`, `/leads/${leadId}`, 'lead', leadId, 'lead_updates');
       } catch (err) {
         setLeadFields(prev);
         toast('error', 'Failed to update field');
@@ -1130,6 +1281,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       try {
         const created = await upsertLeadField(supabase, leadId, fieldKey, value);
         setLeadFields(prev => prev.map(f => f.id === optimisticId ? created : f));
+        const lead = leads.find(l => l.id === leadId);
+        if (lead) notify(lead.member_ids, `Lead "${lead.name}" was updated`, `${actorName()} updated lead details.`, `/leads/${leadId}`, 'lead', leadId, 'lead_updates');
       } catch (err) {
         setLeadFields(prev => prev.filter(f => f.id !== optimisticId));
         toast('error', 'Failed to add field');
@@ -1195,9 +1348,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       const newLc = await addLeadContactQuery(supabase, leadId, contactId, role, customRole, isPrimaryClient);
       setLeadContacts(prev => prev.map(lc => lc.id === optimisticId ? newLc : lc));
-      // Sync lead.contact_id in DB if primary changed
       if (isPrimaryClient) {
         await patchLead(supabase, leadId, { contact_id: contactId });
+      }
+
+      const lead = leads.find(l => l.id === leadId);
+      if (lead) {
+        notify(lead.member_ids, `Lead "${lead.name}" contacts updated`, `${actorName()} linked a contact.`, `/leads/${leadId}`, 'lead', leadId, 'lead_contacts');
       }
     } catch (err) {
       setLeadContacts(prev => prev.filter(lc => lc.id !== optimisticId));
@@ -1272,6 +1429,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       await removeLeadContactQuery(supabase, lcId);
       if (removingLc?.is_primary_client) {
         await patchLead(supabase, leadId, { contact_id: null });
+      }
+
+      const lead = leads.find(l => l.id === leadId);
+      if (lead) {
+        notify(lead.member_ids, `Lead "${lead.name}" contacts updated`, `${actorName()} removed a contact.`, `/leads/${leadId}`, 'lead', leadId, 'lead_contacts');
       }
     } catch (err) {
       setLeadContacts(prev);

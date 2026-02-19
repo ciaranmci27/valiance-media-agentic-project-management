@@ -9,11 +9,49 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { AvatarUpload } from '@/components/ui/AvatarUpload';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import { User, Lock, FlaskConical, Key, Copy, Check, Plus, Ban, ExternalLink } from 'lucide-react';
+import { User, Lock, FlaskConical, Key, Copy, Check, Plus, Ban, ExternalLink, Bell } from 'lucide-react';
 import { toast } from '@/components/ui/Toast';
 import { useDemo } from '@/lib/demo-context';
 import { hashApiKey, generateApiKey } from '@/lib/api/crypto';
-import type { ApiKey } from '@/lib/types';
+import type { ApiKey, NotificationCategory, NotificationPreferences } from '@/lib/types';
+
+const NOTIF_GROUPS: { group: string; items: { key: NotificationCategory; label: string; desc: string }[] }[] = [
+  {
+    group: 'Tasks',
+    items: [
+      { key: 'task_status', label: 'Status changes', desc: 'Task moved to In Progress, Done, etc.' },
+      { key: 'task_assignments', label: 'Assignments', desc: 'When you\'re assigned to a task' },
+      { key: 'task_updates', label: 'General updates', desc: 'Priority, title, and other task changes' },
+      { key: 'task_subtasks', label: 'Subtasks', desc: 'Subtasks added or completed' },
+      { key: 'task_comments', label: 'Comments', desc: 'New comments on tasks' },
+    ],
+  },
+  {
+    group: 'Leads',
+    items: [
+      { key: 'lead_status', label: 'Status changes', desc: 'Lead moved between pipeline stages' },
+      { key: 'lead_updates', label: 'General updates', desc: 'Field changes and detail updates' },
+      { key: 'lead_interactions', label: 'Interactions', desc: 'Calls, emails, meetings logged' },
+      { key: 'lead_proposals', label: 'Proposals', desc: 'Proposals added or updated' },
+      { key: 'lead_contacts', label: 'Contacts', desc: 'Contacts linked or removed from leads' },
+      { key: 'lead_conversions', label: 'Conversions', desc: 'Lead converted to a project' },
+    ],
+  },
+  {
+    group: 'Projects',
+    items: [
+      { key: 'project_updates', label: 'Project updates', desc: 'Project details changed' },
+      { key: 'project_contacts', label: 'Project contacts', desc: 'Contacts linked or removed' },
+    ],
+  },
+  {
+    group: 'Other',
+    items: [
+      { key: 'contact_updates', label: 'Contact updates', desc: 'Changes to contacts you\'re linked to' },
+      { key: 'team_members', label: 'Team members', desc: 'New team members added' },
+    ],
+  },
+];
 
 export default function SettingsPage() {
   const { team, updateTeamMember, apiKeys, addApiKey, revokeApiKey } = useApp();
@@ -43,6 +81,9 @@ export default function SettingsPage() {
   const [copiedKey, setCopiedKey] = useState(false);
   const [revokeTarget, setRevokeTarget] = useState<ApiKey | null>(null);
 
+  // Notification prefs state
+  const [notifPrefs, setNotifPrefs] = useState<NotificationPreferences>({});
+
   // Derive current avatar src from member data or local override
   const currentAvatarSrc = avatarSrc ?? (
     currentMember?.avatar && (currentMember.avatar.startsWith('http') || currentMember.avatar.startsWith('blob:'))
@@ -59,6 +100,26 @@ export default function SettingsPage() {
       setUserEmail(user.email || '');
     }
   }, [currentMember?.id, user?.id]);
+
+  useEffect(() => {
+    if (currentMember?.notification_prefs) {
+      setNotifPrefs(currentMember.notification_prefs);
+    }
+  }, [currentMember?.id]);
+
+  const handleToggleNotif = (category: NotificationCategory) => {
+    if (!teamMemberId) return;
+    const isCurrentlyEnabled = notifPrefs[category] !== false;
+    const newPrefs = { ...notifPrefs };
+    if (isCurrentlyEnabled) {
+      newPrefs[category] = false;
+    } else {
+      delete newPrefs[category];
+    }
+    setNotifPrefs(newPrefs);
+    updateTeamMember(teamMemberId, { notification_prefs: newPrefs });
+    toast('success', isCurrentlyEnabled ? 'Notification disabled' : 'Notification enabled');
+  };
 
   const handleAvatarCropped = async (blob: Blob) => {
     if (!teamMemberId) return;
@@ -245,6 +306,55 @@ export default function SettingsPage() {
             <Button onClick={handleSaveProfile} disabled={profileLoading}>
               {profileLoading ? 'Saving...' : 'Save Changes'}
             </Button>
+          </div>
+        </section>
+
+        {/* Notification Preferences Section */}
+        <section className="bg-white rounded-xl border border-zinc-200 p-4 lg:p-6">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="p-2 bg-blue-50 rounded-lg">
+              <Bell className="text-blue-600" size={20} />
+            </div>
+            <div>
+              <h2 className="font-semibold text-zinc-900">Notification Preferences</h2>
+              <p className="text-sm text-zinc-500">Choose which notifications you receive</p>
+            </div>
+          </div>
+
+          <div className="space-y-6">
+            {NOTIF_GROUPS.map(({ group, items }) => (
+              <div key={group}>
+                <p className="text-xs font-medium text-zinc-400 uppercase tracking-wide mb-3">{group}</p>
+                <div className="space-y-3">
+                  {items.map(({ key, label, desc }) => {
+                    const enabled = notifPrefs[key] !== false;
+                    return (
+                      <div key={key} className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm text-zinc-700">{label}</p>
+                          <p className="text-xs text-zinc-500 mt-0.5">{desc}</p>
+                        </div>
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={enabled}
+                          onClick={() => handleToggleNotif(key)}
+                          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0 ${
+                            enabled ? 'bg-blue-500' : 'bg-zinc-200'
+                          }`}
+                        >
+                          <span
+                            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                              enabled ? 'translate-x-6' : 'translate-x-1'
+                            }`}
+                          />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
           </div>
         </section>
 

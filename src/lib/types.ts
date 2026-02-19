@@ -190,6 +190,29 @@ export interface Comment {
   created_at: string;
 }
 
+// ============================================================
+// NOTIFICATION PREFERENCES
+// ============================================================
+
+export type NotificationCategory =
+  | 'task_status'
+  | 'task_assignments'
+  | 'task_updates'
+  | 'task_subtasks'
+  | 'task_comments'
+  | 'lead_status'
+  | 'lead_updates'
+  | 'lead_interactions'
+  | 'lead_proposals'
+  | 'lead_contacts'
+  | 'lead_conversions'
+  | 'project_updates'
+  | 'project_contacts'
+  | 'contact_updates'
+  | 'team_members';
+
+export type NotificationPreferences = Partial<Record<NotificationCategory, boolean>>;
+
 export interface TeamMember {
   id: string;
   auth_user_id?: string | null;
@@ -197,6 +220,7 @@ export interface TeamMember {
   email: string;
   avatar: string;
   role: 'admin' | 'member' | 'guest';
+  notification_prefs?: NotificationPreferences;
 }
 
 export interface FilterState {
@@ -250,6 +274,24 @@ export interface PortalFile {
   uploaded_by: string | null;
   created_at: string;
   updated_at: string;
+}
+
+// ============================================================
+// NOTIFICATIONS
+// ============================================================
+
+export type NotificationEntityType = 'task' | 'project' | 'lead' | 'comment' | 'member' | 'contact';
+
+export interface Notification {
+  id: string;
+  user_id: string;
+  title: string;
+  message: string | null;
+  link: string | null;
+  is_read: boolean;
+  entity_type: NotificationEntityType | null;
+  entity_id: string | null;
+  created_at: string;
 }
 
 // ============================================================

@@ -1,4 +1,4 @@
-import type { TeamMember, Contact, Project, ProjectContact, Task, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, Activity, PortalSettings, PortalFile } from './types';
+import type { TeamMember, Contact, Project, ProjectContact, Task, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, Activity, PortalSettings, PortalFile, Notification } from './types';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -684,5 +684,101 @@ export const demoPortalFiles: PortalFile[] = [
     uploaded_by: 'a1a1a1a1-0001-4000-8000-000000000001',
     created_at: daysAgo(1),
     updated_at: daysAgo(1),
+  },
+];
+
+// ---------------------------------------------------------------------------
+// NOTIFICATIONS
+// ---------------------------------------------------------------------------
+export const demoNotifications: Notification[] = [
+  // Unread
+  {
+    id: 'notif-0001-4000-8000-000000000001',
+    user_id: 'a1a1a1a1-0001-4000-8000-000000000001',
+    title: 'You were assigned to "Design homepage hero"',
+    message: 'Marcus Johnson assigned you to a task in Crest Financial Rebrand.',
+    link: '/projects/c3c3c3c3-0001-4000-8000-000000000001',
+    is_read: false,
+    entity_type: 'task',
+    entity_id: 'd4d4d4d4-0001-4000-8000-000000000001',
+    created_at: hoursAgo(1),
+  },
+  {
+    id: 'notif-0002-4000-8000-000000000002',
+    user_id: 'a1a1a1a1-0001-4000-8000-000000000001',
+    title: 'New comment on "Set up CI/CD pipeline"',
+    message: 'Jake Thompson: "Deployed to staging — can you review?"',
+    link: '/projects/c3c3c3c3-0002-4000-8000-000000000002',
+    is_read: false,
+    entity_type: 'comment',
+    entity_id: 'd4d4d4d4-0005-4000-8000-000000000005',
+    created_at: hoursAgo(3),
+  },
+  // Read
+  {
+    id: 'notif-0003-4000-8000-000000000003',
+    user_id: 'a1a1a1a1-0001-4000-8000-000000000001',
+    title: 'Lead "BrightWave AI" moved to Qualified',
+    message: 'Emily Rodriguez updated the lead status.',
+    link: '/leads/e5e5e5e5-0003-4000-8000-000000000003',
+    is_read: true,
+    entity_type: 'lead',
+    entity_id: 'e5e5e5e5-0003-4000-8000-000000000003',
+    created_at: hoursAgo(8),
+  },
+  {
+    id: 'notif-0004-4000-8000-000000000004',
+    user_id: 'a1a1a1a1-0001-4000-8000-000000000001',
+    title: '"Create brand color palette" completed',
+    message: 'Emily Rodriguez marked the task as done.',
+    link: '/projects/c3c3c3c3-0001-4000-8000-000000000001',
+    is_read: true,
+    entity_type: 'task',
+    entity_id: 'd4d4d4d4-0002-4000-8000-000000000002',
+    created_at: hoursAgo(12),
+  },
+  {
+    id: 'notif-0005-4000-8000-000000000005',
+    user_id: 'a1a1a1a1-0001-4000-8000-000000000001',
+    title: 'New team member joined',
+    message: 'Priya Patel was added to the team as a guest.',
+    link: '/team',
+    is_read: true,
+    entity_type: 'member',
+    entity_id: 'a1a1a1a1-0005-4000-8000-000000000005',
+    created_at: daysAgo(1),
+  },
+  {
+    id: 'notif-0006-4000-8000-000000000006',
+    user_id: 'a1a1a1a1-0001-4000-8000-000000000001',
+    title: 'Lead "Kaizen Fitness" moved to Proposal',
+    message: 'You updated the lead status.',
+    link: '/leads/e5e5e5e5-0004-4000-8000-000000000004',
+    is_read: true,
+    entity_type: 'lead',
+    entity_id: 'e5e5e5e5-0004-4000-8000-000000000004',
+    created_at: daysAgo(2),
+  },
+  {
+    id: 'notif-0007-4000-8000-000000000007',
+    user_id: 'a1a1a1a1-0001-4000-8000-000000000001',
+    title: '"Write API documentation" moved to In Review',
+    message: 'Jake Thompson updated the task status.',
+    link: '/projects/c3c3c3c3-0002-4000-8000-000000000002',
+    is_read: true,
+    entity_type: 'task',
+    entity_id: 'd4d4d4d4-0007-4000-8000-000000000007',
+    created_at: daysAgo(3),
+  },
+  {
+    id: 'notif-0008-4000-8000-000000000008',
+    user_id: 'a1a1a1a1-0001-4000-8000-000000000001',
+    title: 'Bloomwell Health App project created',
+    message: 'A new project was created from lead conversion.',
+    link: '/projects/c3c3c3c3-0002-4000-8000-000000000002',
+    is_read: true,
+    entity_type: 'project',
+    entity_id: 'c3c3c3c3-0002-4000-8000-000000000002',
+    created_at: daysAgo(5),
   },
 ];

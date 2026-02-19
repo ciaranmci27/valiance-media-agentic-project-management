@@ -4,6 +4,7 @@ import { useState, ReactNode } from 'react';
 import { Search, Filter, X, Menu } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { Avatar } from '@/components/ui/Avatar';
+import { NotificationDropdown } from './NotificationDropdown';
 
 interface HeaderProps {
   title: string;
@@ -56,6 +57,8 @@ export function Header({ title, subtitle, actions, searchPlaceholder, showFilter
         </div>
 
         <div className="flex items-center gap-2 lg:gap-3">
+          <NotificationDropdown />
+
           {searchPlaceholder && (
             <>
               {/* Search (desktop) */}
