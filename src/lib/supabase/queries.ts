@@ -1,5 +1,5 @@
 import { SupabaseClient } from '@supabase/supabase-js';
-import type { Project, Task, TeamMember, Subtask, Comment, Activity, Contact, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact } from '@/lib/types';
+import type { Project, Task, TeamMember, Subtask, Comment, Activity, Contact, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, PortalSettings, PortalFile } from '@/lib/types';
 
 // ============================================================
 // PROJECTS
@@ -996,4 +996,153 @@ export async function convertLead(
     additionalProjectContacts,
     lead: { ...updatedLead, member_ids: leadMemberIds } as Lead,
   };
+}
+
+// ============================================================
+// PORTAL SETTINGS
+// ============================================================
+
+export async function fetchAllPortalSettings(supabase: SupabaseClient) {
+  const { data, error } = await supabase
+    .from('portal_settings')
+    .select('*')
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+  return (data || []) as PortalSettings[];
+}
+
+export async function fetchPortalSettings(supabase: SupabaseClient, projectId: string) {
+  const { data, error } = await supabase
+    .from('portal_settings')
+    .select('*')
+    .eq('project_id', projectId)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data as PortalSettings | null;
+}
+
+export async function upsertPortalSettings(
+  supabase: SupabaseClient,
+  projectId: string,
+  settings: Partial<Omit<PortalSettings, 'id' | 'project_id' | 'created_at' | 'updated_at'>>
+) {
+  // Check if settings exist for this project
+  const existing = await fetchPortalSettings(supabase, projectId);
+
+  if (existing) {
+    const { data, error } = await supabase
+      .from('portal_settings')
+      .update(settings)
+      .eq('id', existing.id)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data as PortalSettings;
+  } else {
+    // Generate a token for new settings
+    const token = Array.from(crypto.getRandomValues(new Uint8Array(24)))
+      .map(b => b.toString(16).padStart(2, '0'))
+      .join('');
+
+    const { data, error } = await supabase
+      .from('portal_settings')
+      .insert({
+        project_id: projectId,
+        token,
+        enabled: settings.enabled ?? false,
+        pin: settings.pin ?? null,
+        welcome_message: settings.welcome_message ?? '',
+        logo_url: settings.logo_url ?? '',
+        accent_color: settings.accent_color ?? '#6366F1',
+        show_progress: settings.show_progress ?? true,
+        show_proposals: settings.show_proposals ?? true,
+        show_files: settings.show_files ?? true,
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data as PortalSettings;
+  }
+}
+
+export async function regeneratePortalToken(supabase: SupabaseClient, projectId: string) {
+  const token = Array.from(crypto.getRandomValues(new Uint8Array(24)))
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('');
+
+  const { data, error } = await supabase
+    .from('portal_settings')
+    .update({ token })
+    .eq('project_id', projectId)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data as PortalSettings;
+}
+
+// ============================================================
+// PORTAL FILES
+// ============================================================
+
+export async function fetchAllPortalFiles(supabase: SupabaseClient) {
+  const { data, error } = await supabase
+    .from('portal_files')
+    .select('*')
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+  return (data || []) as PortalFile[];
+}
+
+export async function fetchPortalFiles(supabase: SupabaseClient, projectId: string) {
+  const { data, error } = await supabase
+    .from('portal_files')
+    .select('*')
+    .eq('project_id', projectId)
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+  return (data || []) as PortalFile[];
+}
+
+export async function insertPortalFile(
+  supabase: SupabaseClient,
+  file: Omit<PortalFile, 'id' | 'created_at' | 'updated_at'>
+) {
+  const { data, error } = await supabase
+    .from('portal_files')
+    .insert({
+      project_id: file.project_id,
+      name: file.name,
+      file_url: file.file_url,
+      file_size: file.file_size,
+      mime_type: file.mime_type,
+      uploaded_by: file.uploaded_by || null,
+    })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data as PortalFile;
+}
+
+export async function renamePortalFile(supabase: SupabaseClient, id: string, name: string) {
+  const { data, error } = await supabase
+    .from('portal_files')
+    .update({ name })
+    .eq('id', id)
+    .select()
+    .single();
+  if (error) throw error;
+  return data as PortalFile;
+}
+
+export async function removePortalFile(supabase: SupabaseClient, id: string) {
+  const { error } = await supabase.from('portal_files').delete().eq('id', id);
+  if (error) throw error;
 }

@@ -13,6 +13,7 @@ interface LeadFormProps {
   isOpen: boolean;
   onClose: () => void;
   lead?: Lead | null;
+  onConvertRequested?: (lead: Lead) => void;
 }
 
 const sourceOptions = [
@@ -34,7 +35,7 @@ const statusOptions = [
   { value: 'lost', label: 'Lost' },
 ];
 
-export function LeadForm({ isOpen, onClose, lead }: LeadFormProps) {
+export function LeadForm({ isOpen, onClose, lead, onConvertRequested }: LeadFormProps) {
   const { team, addLead, updateLead } = useApp();
 
   const [name, setName] = useState('');
@@ -102,6 +103,29 @@ export function LeadForm({ isOpen, onClose, lead }: LeadFormProps) {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!validate()) return;
+
+    // If editing an existing lead and status changed to "won", redirect to Convert flow
+    if (lead && status === 'won' && lead.status !== 'won' && onConvertRequested) {
+      // Save any other field changes first (without the won status)
+      const leadData = {
+        name: name.trim(),
+        email: email.trim(),
+        phone: phone.trim(),
+        company: company.trim(),
+        source: source as Lead['source'],
+        status: lead.status,
+        value: value ? parseFloat(value) : null,
+        equity: equity ? parseFloat(equity) : null,
+        notes,
+        assigned_to: memberIds.length > 0 ? memberIds[0] : null,
+        member_ids: memberIds,
+        contact_id: lead.contact_id || null,
+      };
+      await updateLead(lead.id, leadData);
+      onClose();
+      onConvertRequested({ ...lead, ...leadData });
+      return;
+    }
 
     setSaving(true);
     const leadData = {

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { Project, Task, TeamMember, FilterState, ViewMode, Subtask, Comment, Contact, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, Activity } from './types';
+import { Project, Task, TeamMember, FilterState, ViewMode, Subtask, Comment, Contact, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, Activity, PortalSettings, PortalFile } from './types';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
@@ -9,6 +9,7 @@ import {
   demoTeam, demoContacts, demoProjects, demoProjectContacts, demoTasks,
   demoLeads, demoLeadInteractions, demoLeadProposals, demoLeadFields,
   demoLeadContacts, demoActivities,
+  demoPortalSettings, demoPortalFiles,
 } from '@/lib/demo-data';
 import {
   fetchProjects,
@@ -60,6 +61,13 @@ import {
   updateLeadContact as updateLeadContactQuery,
   removeLeadContact as removeLeadContactQuery,
   fetchActivities,
+  fetchAllPortalSettings,
+  upsertPortalSettings as upsertPortalSettingsQuery,
+  regeneratePortalToken as regeneratePortalTokenQuery,
+  fetchAllPortalFiles,
+  insertPortalFile as insertPortalFileQuery,
+  renamePortalFile as renamePortalFileQuery,
+  removePortalFile as removePortalFileQuery,
 } from '@/lib/supabase/queries';
 import { toast } from '@/components/ui/Toast';
 
@@ -76,6 +84,8 @@ interface AppContextType {
   leadFields: LeadField[];
   leadContacts: LeadContact[];
   activities: Activity[];
+  portalSettings: PortalSettings[];
+  portalFiles: PortalFile[];
   loading: boolean;
 
   // Filters
@@ -146,6 +156,15 @@ interface AppContextType {
   updateLeadContact: (lcId: string, leadId: string, updates: Partial<Pick<LeadContact, 'role' | 'custom_role' | 'is_primary_client'>>) => void;
   removeLeadContact: (lcId: string, leadId: string) => void;
 
+  // Portal Settings CRUD
+  upsertPortalSettings: (projectId: string, settings: Partial<Omit<PortalSettings, 'id' | 'project_id' | 'created_at' | 'updated_at'>>) => void;
+  regeneratePortalToken: (projectId: string) => void;
+
+  // Portal File CRUD
+  addPortalFile: (file: Omit<PortalFile, 'id' | 'created_at' | 'updated_at'>) => void;
+  renamePortalFile: (id: string, name: string) => void;
+  deletePortalFile: (id: string) => void;
+
   // Helpers
   getProject: (id: string) => Project | undefined;
   getTasksByProject: (projectId: string) => Task[];
@@ -162,6 +181,8 @@ interface AppContextType {
   getLeadFieldValue: (leadId: string, fieldKey: string) => string | undefined;
   getContactsByLead: (leadId: string) => LeadContact[];
   getPrimaryLeadContact: (leadId: string) => LeadContact | undefined;
+  getPortalSettings: (projectId: string) => PortalSettings | undefined;
+  getPortalFiles: (projectId: string) => PortalFile[];
 }
 
 export const defaultFilters: FilterState = {
@@ -186,6 +207,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [leadFields, setLeadFields] = useState<LeadField[]>([]);
   const [leadContacts, setLeadContacts] = useState<LeadContact[]>([]);
   const [activities, setActivities] = useState<Activity[]>([]);
+  const [portalSettings, setPortalSettings] = useState<PortalSettings[]>([]);
+  const [portalFiles, setPortalFiles] = useState<PortalFile[]>([]);
   const [filters, setFilters] = useState<FilterState>(defaultFilters);
   const [viewMode, setViewMode] = useState<ViewMode>('board');
   const [loading, setLoading] = useState(true);
@@ -209,6 +232,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setLeadFields([...demoLeadFields]);
       setLeadContacts([...demoLeadContacts]);
       setActivities([...demoActivities]);
+      setPortalSettings([...demoPortalSettings]);
+      setPortalFiles([...demoPortalFiles]);
       setLoading(false);
       return;
     }
@@ -220,7 +245,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     const loadData = async () => {
       try {
-        const [projectsData, tasksData, teamData, contactsData, projectContactsData, leadsData, leadInteractionsData, leadProposalsData, leadFieldsData, leadContactsData, activitiesData] = await Promise.all([
+        const [projectsData, tasksData, teamData, contactsData, projectContactsData, leadsData, leadInteractionsData, leadProposalsData, leadFieldsData, leadContactsData, activitiesData, portalSettingsData, portalFilesData] = await Promise.all([
           fetchProjects(supabase),
           fetchTasks(supabase),
           fetchTeamMembers(supabase),
@@ -232,6 +257,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
           fetchLeadFields(supabase),
           fetchAllLeadContacts(supabase),
           fetchActivities(supabase),
+          fetchAllPortalSettings(supabase),
+          fetchAllPortalFiles(supabase),
         ]);
 
         setProjects(projectsData);
@@ -245,6 +272,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setLeadFields(leadFieldsData);
         setLeadContacts(leadContactsData);
         setActivities(activitiesData);
+        setPortalSettings(portalSettingsData);
+        setPortalFiles(portalFilesData);
       } catch (err) {
         console.error('Failed to load data:', err);
         toast('error', 'Failed to load data from server');
@@ -1240,6 +1269,126 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  // Portal Settings CRUD
+  const upsertPortalSettingsAction = async (
+    projectId: string,
+    settings: Partial<Omit<PortalSettings, 'id' | 'project_id' | 'created_at' | 'updated_at'>>
+  ) => {
+    const existing = portalSettings.find(ps => ps.project_id === projectId);
+    const now = new Date().toISOString();
+
+    if (existing) {
+      const prev = portalSettings;
+      setPortalSettings(ps => ps.map(s =>
+        s.project_id === projectId ? { ...s, ...settings, updated_at: now } : s
+      ));
+      if (skipSupabase) return;
+
+      try {
+        const updated = await upsertPortalSettingsQuery(supabase, projectId, settings);
+        setPortalSettings(ps => ps.map(s => s.project_id === projectId ? updated : s));
+      } catch (err) {
+        setPortalSettings(prev);
+        toast('error', 'Failed to update portal settings');
+      }
+    } else {
+      const optimisticId = crypto.randomUUID();
+      const token = Array.from({ length: 48 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
+      const optimistic: PortalSettings = {
+        id: optimisticId,
+        project_id: projectId,
+        enabled: settings.enabled ?? false,
+        token,
+        pin: settings.pin ?? null,
+        welcome_message: settings.welcome_message ?? '',
+        logo_url: settings.logo_url ?? '',
+        accent_color: settings.accent_color ?? '#6366F1',
+        show_progress: settings.show_progress ?? true,
+        show_proposals: settings.show_proposals ?? true,
+        show_files: settings.show_files ?? true,
+        created_at: now,
+        updated_at: now,
+      };
+
+      setPortalSettings(prev => [...prev, optimistic]);
+      if (skipSupabase) return;
+
+      try {
+        const created = await upsertPortalSettingsQuery(supabase, projectId, settings);
+        setPortalSettings(prev => prev.map(s => s.id === optimisticId ? created : s));
+      } catch (err) {
+        setPortalSettings(prev => prev.filter(s => s.id !== optimisticId));
+        toast('error', 'Failed to create portal settings');
+      }
+    }
+  };
+
+  const regeneratePortalTokenAction = async (projectId: string) => {
+    const prev = portalSettings;
+    const newToken = Array.from({ length: 48 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
+    setPortalSettings(ps => ps.map(s =>
+      s.project_id === projectId ? { ...s, token: newToken, updated_at: new Date().toISOString() } : s
+    ));
+    if (skipSupabase) return;
+
+    try {
+      const updated = await regeneratePortalTokenQuery(supabase, projectId);
+      setPortalSettings(ps => ps.map(s => s.project_id === projectId ? updated : s));
+    } catch (err) {
+      setPortalSettings(prev);
+      toast('error', 'Failed to regenerate portal token');
+    }
+  };
+
+  // Portal File CRUD
+  const addPortalFile = async (file: Omit<PortalFile, 'id' | 'created_at' | 'updated_at'>) => {
+    const optimisticId = crypto.randomUUID();
+    const now = new Date().toISOString();
+    const optimistic: PortalFile = {
+      ...file,
+      id: optimisticId,
+      created_at: now,
+      updated_at: now,
+    };
+
+    setPortalFiles(prev => [optimistic, ...prev]);
+    if (skipSupabase) return;
+
+    try {
+      const created = await insertPortalFileQuery(supabase, file);
+      setPortalFiles(prev => prev.map(f => f.id === optimisticId ? created : f));
+    } catch (err) {
+      setPortalFiles(prev => prev.filter(f => f.id !== optimisticId));
+      toast('error', 'Failed to upload file');
+    }
+  };
+
+  const renamePortalFile = async (id: string, name: string) => {
+    const prev = portalFiles;
+    setPortalFiles(f => f.map(file => file.id === id ? { ...file, name } : file));
+    if (skipSupabase) return;
+
+    try {
+      await renamePortalFileQuery(supabase, id, name);
+    } catch (err) {
+      setPortalFiles(prev);
+      toast('error', 'Failed to rename file');
+    }
+  };
+
+  const deletePortalFile = async (id: string) => {
+    const prev = portalFiles;
+    setPortalFiles(f => f.filter(file => file.id !== id));
+    if (skipSupabase) return;
+
+    try {
+      await removePortalFileQuery(supabase, id);
+    } catch (err) {
+      setPortalFiles(prev);
+      toast('error', 'Failed to delete file');
+    }
+  };
+
   // Helpers
   const getProject = (id: string) => projects.find(p => p.id === id);
   const getTasksByProject = (projectId: string) => tasks.filter(t => t.project_id === projectId);
@@ -1272,6 +1421,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
   const getContactsByLead = (leadId: string) => leadContacts.filter(lc => lc.lead_id === leadId);
   const getPrimaryLeadContact = (leadId: string) => leadContacts.find(lc => lc.lead_id === leadId && lc.is_primary_client);
+  const getPortalSettings = (projectId: string) => portalSettings.find(ps => ps.project_id === projectId);
+  const getPortalFiles = (projectId: string) => portalFiles.filter(pf => pf.project_id === projectId);
 
   return (
     <AppContext.Provider value={{
@@ -1286,6 +1437,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       leadFields,
       leadContacts,
       activities,
+      portalSettings,
+      portalFiles,
       loading,
       filters,
       setFilters,
@@ -1329,6 +1482,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       addLeadContact: addLeadContactAction,
       updateLeadContact: updateLeadContactAction,
       removeLeadContact: removeLeadContactAction,
+      upsertPortalSettings: upsertPortalSettingsAction,
+      regeneratePortalToken: regeneratePortalTokenAction,
+      addPortalFile,
+      renamePortalFile,
+      deletePortalFile,
       getProject,
       getTasksByProject,
       getTeamMember,
@@ -1344,6 +1502,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       getLeadFieldValue,
       getContactsByLead,
       getPrimaryLeadContact,
+      getPortalSettings,
+      getPortalFiles,
     }}>
       {children}
     </AppContext.Provider>

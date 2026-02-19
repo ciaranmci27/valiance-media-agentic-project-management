@@ -4,7 +4,9 @@ import { NextResponse, type NextRequest } from 'next/server';
 function isPublicRoute(pathname: string) {
   return (
     pathname.startsWith('/login') ||
-    pathname.startsWith('/auth')
+    pathname.startsWith('/auth') ||
+    pathname.startsWith('/portal') ||
+    pathname.startsWith('/api/portal')
   );
 }
 

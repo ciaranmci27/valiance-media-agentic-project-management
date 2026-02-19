@@ -189,6 +189,7 @@ export default function LeadsPage() {
         isOpen={isFormOpen}
         onClose={handleCloseForm}
         lead={editingLead}
+        onConvertRequested={(lead) => setConvertingLead(lead)}
       />
 
       <ConvertLeadModal

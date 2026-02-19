@@ -245,6 +245,42 @@ from public.leads
 where contact_id is not null;
 
 -- ============================================================
+-- 17. PORTAL SETTINGS (one per project, client-facing portal config)
+-- ============================================================
+create table public.portal_settings (
+  id uuid primary key default gen_random_uuid(),
+  project_id uuid not null references public.projects(id) on delete cascade,
+  enabled boolean not null default false,
+  token text not null default encode(gen_random_bytes(24), 'hex'),
+  pin text default null,
+  welcome_message text not null default '',
+  logo_url text not null default '',
+  accent_color text not null default '#6366F1',
+  show_progress boolean not null default true,
+  show_proposals boolean not null default true,
+  show_files boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique(project_id),
+  unique(token)
+);
+
+-- ============================================================
+-- 18. PORTAL FILES (per-project shared deliverables)
+-- ============================================================
+create table public.portal_files (
+  id uuid primary key default gen_random_uuid(),
+  project_id uuid not null references public.projects(id) on delete cascade,
+  name text not null,
+  file_url text not null,
+  file_size bigint not null default 0,
+  mime_type text not null default 'application/octet-stream',
+  uploaded_by uuid references public.team_members(id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+-- ============================================================
 -- INDEXES
 -- ============================================================
 create unique index idx_team_members_auth_user_id on public.team_members(auth_user_id) where auth_user_id is not null;
@@ -276,6 +312,9 @@ create index idx_lead_fields_field_key on public.lead_fields(field_key);
 create index idx_lead_members_member_id on public.lead_members(member_id);
 create index idx_lead_contacts_lead_id on public.lead_contacts(lead_id);
 create index idx_lead_contacts_contact_id on public.lead_contacts(contact_id);
+create index idx_portal_settings_project_id on public.portal_settings(project_id);
+create index idx_portal_settings_token on public.portal_settings(token);
+create index idx_portal_files_project_id on public.portal_files(project_id);
 
 -- ============================================================
 -- UPDATED_AT TRIGGER FUNCTION
@@ -324,6 +363,14 @@ create trigger set_lead_fields_updated_at
   before update on public.lead_fields
   for each row execute function public.handle_updated_at();
 
+create trigger set_portal_settings_updated_at
+  before update on public.portal_settings
+  for each row execute function public.handle_updated_at();
+
+create trigger set_portal_files_updated_at
+  before update on public.portal_files
+  for each row execute function public.handle_updated_at();
+
 -- ============================================================
 -- AUTO-CREATE TEAM MEMBER ON SIGNUP
 -- ============================================================
@@ -365,6 +412,8 @@ alter table public.lead_proposals enable row level security;
 alter table public.lead_fields enable row level security;
 alter table public.lead_members enable row level security;
 alter table public.lead_contacts enable row level security;
+alter table public.portal_settings enable row level security;
+alter table public.portal_files enable row level security;
 
 -- All authenticated users get full CRUD on shared data
 create policy "team_members_all" on public.team_members
@@ -414,3 +463,36 @@ create policy "lead_members_all" on public.lead_members
 
 create policy "lead_contacts_all" on public.lead_contacts
   for all to authenticated using (true) with check (true);
+
+create policy "portal_settings_all" on public.portal_settings
+  for all to authenticated using (true) with check (true);
+
+create policy "portal_files_all" on public.portal_files
+  for all to authenticated using (true) with check (true);
+
+-- ============================================================
+-- STORAGE: Portal Files Bucket (public, 50MB limit)
+-- ============================================================
+insert into storage.buckets (id, name, public, file_size_limit)
+values ('portal-files', 'portal-files', true, 52428800)
+on conflict (id) do nothing;
+
+create policy "Authenticated users can upload portal files"
+  on storage.objects for insert
+  to authenticated
+  with check (bucket_id = 'portal-files');
+
+create policy "Authenticated users can update portal files"
+  on storage.objects for update
+  to authenticated
+  using (bucket_id = 'portal-files');
+
+create policy "Authenticated users can delete portal files"
+  on storage.objects for delete
+  to authenticated
+  using (bucket_id = 'portal-files');
+
+create policy "Public can read portal files"
+  on storage.objects for select
+  to public
+  using (bucket_id = 'portal-files');

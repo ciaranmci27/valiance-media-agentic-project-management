@@ -535,6 +535,7 @@ export default function LeadDetailPage() {
         isOpen={isEditOpen}
         onClose={() => setIsEditOpen(false)}
         lead={lead}
+        onConvertRequested={() => setIsConvertOpen(true)}
       />
 
       <ConvertLeadModal

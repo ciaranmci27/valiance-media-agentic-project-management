@@ -217,3 +217,70 @@ export interface Activity {
   metadata?: Record<string, any>;
   created_at: string;
 }
+
+// ============================================================
+// CLIENT PORTAL
+// ============================================================
+
+export interface PortalSettings {
+  id: string;
+  project_id: string;
+  enabled: boolean;
+  token: string;
+  pin: string | null;
+  welcome_message: string;
+  logo_url: string;
+  accent_color: string;
+  show_progress: boolean;
+  show_proposals: boolean;
+  show_files: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PortalFile {
+  id: string;
+  project_id: string;
+  name: string;
+  file_url: string;
+  file_size: number;
+  mime_type: string;
+  uploaded_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PortalData {
+  project: {
+    name: string;
+    color: string;
+    description: string;
+  };
+  settings: {
+    welcome_message: string;
+    logo_url: string;
+    accent_color: string;
+    show_progress: boolean;
+    show_proposals: boolean;
+    show_files: boolean;
+  };
+  progress: {
+    total_tasks: number;
+    done_tasks: number;
+    percent: number;
+  };
+  proposals: {
+    id: string;
+    title: string;
+    description: string;
+    estimated_value: number | null;
+    status: string;
+  }[];
+  files: {
+    id: string;
+    name: string;
+    file_url: string;
+    file_size: number;
+    mime_type: string;
+  }[];
+}

@@ -116,18 +116,28 @@ export function AvatarCropModal({ file, onCrop, onCancel }: AvatarCropModalProps
     const sx = naturalW / 2 - (CONTAINER_SIZE / 2 + pan.x) / es;
     const sy = naturalH / 2 - (CONTAINER_SIZE / 2 + pan.y) / es;
 
+    // Preserve transparency for PNG inputs
+    const isPng = file?.type === 'image/png';
+    const outMime = isPng ? 'image/png' : 'image/jpeg';
+
     const canvas = document.createElement('canvas');
     canvas.width = OUTPUT_SIZE;
     canvas.height = OUTPUT_SIZE;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
+    // For JPEG, fill white background first (no transparency support)
+    if (!isPng) {
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, OUTPUT_SIZE, OUTPUT_SIZE);
+    }
+
     ctx.drawImage(img, sx, sy, viewSize, viewSize, 0, 0, OUTPUT_SIZE, OUTPUT_SIZE);
 
     canvas.toBlob(
       (blob) => { if (blob) onCrop(blob); },
-      'image/jpeg',
-      QUALITY
+      outMime,
+      isPng ? undefined : QUALITY
     );
   };
 

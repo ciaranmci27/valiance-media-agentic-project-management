@@ -12,6 +12,7 @@ import { TaskForm } from '@/components/tasks/TaskForm';
 import { TaskDetailPanel } from '@/components/tasks/TaskDetailPanel';
 import { ProjectForm } from '@/components/projects/ProjectForm';
 import { ProjectContactsPanel } from '@/components/projects/ProjectContactsPanel';
+import { PortalSettingsPanel } from '@/components/projects/PortalSettingsPanel';
 import { Button } from '@/components/ui/Button';
 import { StatusBadge } from '@/components/ui/Badge';
 import { Avatar, AvatarGroup } from '@/components/ui/Avatar';
@@ -473,6 +474,11 @@ export default function ProjectDetailPage() {
             )}
           </>
         )}
+      </div>
+
+      {/* Client Portal */}
+      <div className="px-4 lg:px-6 pb-4 lg:pb-6">
+        <PortalSettingsPanel projectId={projectId} />
       </div>
 
       {/* Delete Project */}

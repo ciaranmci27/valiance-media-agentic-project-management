@@ -1,4 +1,4 @@
-import type { TeamMember, Contact, Project, ProjectContact, Task, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, Activity } from './types';
+import type { TeamMember, Contact, Project, ProjectContact, Task, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, Activity, PortalSettings, PortalFile } from './types';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -599,4 +599,90 @@ export const demoLeadContacts: LeadContact[] = [
   { id: 'lc-0011-4000-8000-000000000011', lead_id: '77770001-0011-4000-8000-000000000011', contact_id: 'b2b2b2b2-0019-4000-8000-000000000019', role: 'Client',            custom_role: null, is_primary_client: true,  created_at: daysAgo(2),  contact: contactRef('b2b2b2b2-0019-4000-8000-000000000019') },
   // Tom Nguyen retainer
   { id: 'lc-0012-4000-8000-000000000012', lead_id: '77770001-0012-4000-8000-000000000012', contact_id: 'b2b2b2b2-0005-4000-8000-000000000005', role: 'Client',            custom_role: null, is_primary_client: true,  created_at: daysAgo(28), contact: contactRef('b2b2b2b2-0005-4000-8000-000000000005') },
+];
+
+// ---------------------------------------------------------------------------
+// PORTAL SETTINGS
+// ---------------------------------------------------------------------------
+export const demoPortalSettings: PortalSettings[] = [
+  {
+    id: 'ps-0001-4000-8000-000000000001',
+    project_id: 'c3c3c3c3-0001-4000-8000-000000000001',
+    enabled: true,
+    token: 'demo-portal-token-crest-financial-rebrand-001',
+    pin: null,
+    welcome_message: 'Welcome to the Crest Financial project portal! Here you can track our progress and download shared files.',
+    logo_url: '',
+    accent_color: '#6366F1',
+    show_progress: true,
+    show_proposals: true,
+    show_files: true,
+    created_at: daysAgo(10),
+    updated_at: daysAgo(1),
+  },
+  {
+    id: 'ps-0002-4000-8000-000000000002',
+    project_id: 'c3c3c3c3-0002-4000-8000-000000000002',
+    enabled: true,
+    token: 'demo-portal-token-bloomwell-health-app-002',
+    pin: '1234',
+    welcome_message: 'Welcome to the Bloomwell project hub! Track app development progress below.',
+    logo_url: '',
+    accent_color: '#EC4899',
+    show_progress: true,
+    show_proposals: true,
+    show_files: true,
+    created_at: daysAgo(8),
+    updated_at: daysAgo(1),
+  },
+];
+
+// ---------------------------------------------------------------------------
+// PORTAL FILES
+// ---------------------------------------------------------------------------
+export const demoPortalFiles: PortalFile[] = [
+  {
+    id: 'pf-0001-4000-8000-000000000001',
+    project_id: 'c3c3c3c3-0001-4000-8000-000000000001',
+    name: 'Brand-Guidelines-v2.pdf',
+    file_url: '#',
+    file_size: 2400000,
+    mime_type: 'application/pdf',
+    uploaded_by: 'a1a1a1a1-0001-4000-8000-000000000001',
+    created_at: daysAgo(5),
+    updated_at: daysAgo(5),
+  },
+  {
+    id: 'pf-0002-4000-8000-000000000002',
+    project_id: 'c3c3c3c3-0001-4000-8000-000000000001',
+    name: 'Logo-Finals.zip',
+    file_url: '#',
+    file_size: 8500000,
+    mime_type: 'application/zip',
+    uploaded_by: 'a1a1a1a1-0002-4000-8000-000000000002',
+    created_at: daysAgo(3),
+    updated_at: daysAgo(3),
+  },
+  {
+    id: 'pf-0003-4000-8000-000000000003',
+    project_id: 'c3c3c3c3-0002-4000-8000-000000000002',
+    name: 'App-Wireframes.fig',
+    file_url: '#',
+    file_size: 3200000,
+    mime_type: 'application/octet-stream',
+    uploaded_by: 'a1a1a1a1-0004-4000-8000-000000000004',
+    created_at: daysAgo(7),
+    updated_at: daysAgo(7),
+  },
+  {
+    id: 'pf-0004-4000-8000-000000000004',
+    project_id: 'c3c3c3c3-0001-4000-8000-000000000001',
+    name: 'Proposal-Draft.html',
+    file_url: '#',
+    file_size: 48000,
+    mime_type: 'text/html',
+    uploaded_by: 'a1a1a1a1-0001-4000-8000-000000000001',
+    created_at: daysAgo(1),
+    updated_at: daysAgo(1),
+  },
 ];
