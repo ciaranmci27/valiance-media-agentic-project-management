@@ -1,5 +1,3 @@
-// ProjectEM PM - TypeScript Interfaces
-
 export const CONTACT_ROLES = ['Client', 'Primary Contact', 'Technical Contact', 'Billing Contact', 'Stakeholder', 'Other'] as const;
 export type ContactRole = typeof CONTACT_ROLES[number];
 

@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import { DM_Sans } from 'next/font/google';
+import { siteConfig } from '@/site-config';
 
 const dmSans = DM_Sans({
   subsets: ['latin'],
@@ -8,8 +9,9 @@ const dmSans = DM_Sans({
 });
 
 export const metadata: Metadata = {
-  title: 'ProjectEM | Client Portal',
-  description: 'Manage projects, track leads, and collaborate with our team, all in one place. Our internal hub for project and client management.',
+  title: `${siteConfig.name} | ${siteConfig.tagline}`,
+  description: siteConfig.description,
+  icons: { icon: '/logos/logo.svg' },
 };
 
 export default function RootLayout({

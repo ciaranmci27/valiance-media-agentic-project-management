@@ -26,7 +26,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (isEnvForcedDemo) {
-      setUser({ id: DEMO_USER_ID, email: 'demo@projectem.app' } as User);
+      setUser({ id: DEMO_USER_ID, email: 'demo@example.com' } as User);
       setTeamMemberId(DEMO_ADMIN_TEAM_MEMBER_ID);
       setLoading(false);
       return;

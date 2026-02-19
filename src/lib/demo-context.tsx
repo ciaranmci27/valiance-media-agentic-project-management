@@ -1,7 +1,6 @@
 'use client';
 
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-
 interface DemoContextType {
   isDemoMode: boolean;
   isEnvForcedDemo: boolean;
