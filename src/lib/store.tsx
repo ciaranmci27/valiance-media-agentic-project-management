@@ -85,7 +85,7 @@ interface AppContextType {
   setViewMode: (mode: ViewMode) => void;
 
   // Project CRUD
-  addProject: (project: Omit<Project, 'id' | 'created_at' | 'updated_at'>) => void;
+  addProject: (project: Omit<Project, 'id' | 'created_at' | 'updated_at'>) => Promise<Project | undefined>;
   updateProject: (id: string, updates: Partial<Project>) => void;
   deleteProject: (id: string) => void;
 

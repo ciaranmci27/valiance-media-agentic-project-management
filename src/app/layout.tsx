@@ -8,8 +8,8 @@ const dmSans = DM_Sans({
 });
 
 export const metadata: Metadata = {
-  title: 'ProjectEM — Project Management',
-  description: 'Project management by ProjectEM',
+  title: 'ProjectEM | Client Portal',
+  description: 'Manage projects, track leads, and collaborate with our team, all in one place. Our internal hub for project and client management.',
 };
 
 export default function RootLayout({

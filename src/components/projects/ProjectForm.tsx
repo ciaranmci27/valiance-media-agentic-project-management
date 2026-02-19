@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Project } from '@/lib/types';
 import { useApp } from '@/lib/store';
 import Modal from '@/components/ui/Modal';
@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { ContactForm } from '@/components/contacts/ContactForm';
 
 const PROJECT_COLORS = [
   '#6366F1', '#8B5CF6', '#EC4899', '#EF4444',
@@ -21,7 +22,7 @@ interface ProjectFormProps {
 }
 
 export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
-  const { team, addProject, updateProject } = useApp();
+  const { team, contacts, addProject, updateProject, addProjectContact, getPrimaryClient } = useApp();
 
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -32,6 +33,14 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
   const [memberIds, setMemberIds] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [confirmStatusChange, setConfirmStatusChange] = useState(false);
+  const [selectedContactId, setSelectedContactId] = useState('');
+  const [contactSearch, setContactSearch] = useState('');
+  const [contactDropdownOpen, setContactDropdownOpen] = useState(false);
+  const [contactSearchVisible, setContactSearchVisible] = useState(false);
+  const [clientError, setClientError] = useState(false);
+  const [showNewContactForm, setShowNewContactForm] = useState(false);
+  const contactsCountBeforeRef = useRef(contacts.length);
+  const contactDropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (project) {
@@ -42,6 +51,8 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
       setStartDate(project.start_date || '');
       setDueDate(project.due_date || '');
       setMemberIds(project.member_ids);
+      const primaryClient = getPrimaryClient(project.id);
+      setSelectedContactId(primaryClient?.contact_id || '');
     } else {
       setName('');
       setDescription('');
@@ -50,7 +61,12 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
       setStartDate('');
       setDueDate('');
       setMemberIds([]);
+      setSelectedContactId('');
     }
+    setContactSearch('');
+    setClientError(false);
+    setContactDropdownOpen(false);
+    setContactSearchVisible(false);
   }, [project, isOpen]);
 
   const doSave = async () => {
@@ -67,8 +83,17 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
 
     if (project) {
       await updateProject(project.id, projectData);
+      if (selectedContactId) {
+        const currentPrimary = getPrimaryClient(project.id);
+        if (currentPrimary?.contact_id !== selectedContactId) {
+          await addProjectContact(project.id, selectedContactId, 'Client', null, true);
+        }
+      }
     } else {
-      await addProject(projectData);
+      const newProject = await addProject(projectData);
+      if (newProject && selectedContactId) {
+        await addProjectContact(newProject.id, selectedContactId, 'Client', null, true);
+      }
     }
 
     setSaving(false);
@@ -78,6 +103,11 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
+
+    if (!project && !selectedContactId) {
+      setClientError(true);
+      return;
+    }
 
     // Confirm when changing an existing project's status to completed/archived
     if (project && project.status === 'active' && status !== 'active') {
@@ -96,6 +126,25 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
     );
   };
 
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (contactDropdownRef.current && !contactDropdownRef.current.contains(e.target as Node)) {
+        setContactDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const filteredContacts = contacts
+    .filter(c => {
+      const q = contactSearch.toLowerCase();
+      return c.name.toLowerCase().includes(q) || c.company?.toLowerCase().includes(q);
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  const selectedContact = contacts.find(c => c.id === selectedContactId);
+
   const statusOptions = [
     { value: 'active', label: 'Active' },
     { value: 'completed', label: 'Completed' },
@@ -110,16 +159,27 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
       size="lg"
     >
       <form onSubmit={handleSubmit} className="space-y-4">
-        <Input
-          label="Project Name"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="Enter project name"
-          required
-        />
+        <div className="grid grid-cols-2 gap-4">
+          <Input
+            label="Project Name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Enter project name"
+            required
+          />
+          <Select
+            label="Status"
+            value={status}
+            onChange={(value) => setStatus(value as Project['status'])}
+            options={statusOptions}
+          />
+        </div>
 
         <div className="space-y-1.5">
-          <label className="block text-sm font-medium text-zinc-700">Description</label>
+          <div className="flex items-center justify-between">
+            <label className="block text-sm font-medium text-zinc-700">Description</label>
+            <span className="text-xs text-zinc-400">{description.length}/100</span>
+          </div>
           <textarea
             value={description}
             onChange={(e) => setDescription(e.target.value.slice(0, 100))}
@@ -128,7 +188,160 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
             maxLength={100}
             className="w-full px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-all resize-none"
           />
-          <p className="text-xs text-zinc-400 text-right">{description.length}/100</p>
+        </div>
+
+        <div className="space-y-1.5" ref={contactDropdownRef}>
+          <label className="block text-sm font-medium text-zinc-700">
+            Client {!project && <span className="text-red-500">*</span>}
+          </label>
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => {
+                setContactDropdownOpen(!contactDropdownOpen);
+                setContactSearch('');
+              }}
+              className={`w-full px-3 py-2 text-sm text-left bg-white border rounded-lg outline-none transition-all ${
+                clientError && !selectedContactId
+                  ? 'border-red-400 focus:border-red-500 focus:ring-2 focus:ring-red-100'
+                  : 'border-zinc-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100'
+              }`}
+            >
+              {selectedContact ? (
+                <span className="flex items-center gap-2">
+                  <span className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-[10px] font-semibold shrink-0">
+                    {selectedContact.name.charAt(0).toUpperCase()}
+                  </span>
+                  <span className="truncate">{selectedContact.name}</span>
+                  {selectedContact.company && (
+                    <span className="text-zinc-400 truncate">- {selectedContact.company}</span>
+                  )}
+                </span>
+              ) : (
+                <span className="text-zinc-400">Select a client...</span>
+              )}
+            </button>
+            {contactDropdownOpen && (
+              <div className="absolute z-50 mt-1 w-full bg-white border border-zinc-200 rounded-lg shadow-lg flex flex-col max-h-60">
+                {contactSearchVisible && (
+                  <div className="p-2 border-b border-zinc-100 shrink-0">
+                    <input
+                      type="text"
+                      value={contactSearch}
+                      onChange={(e) => setContactSearch(e.target.value)}
+                      placeholder="Search contacts..."
+                      className="w-full px-2 py-1.5 text-sm bg-zinc-50 border border-zinc-200 rounded-md outline-none focus:border-indigo-500"
+                      autoFocus
+                    />
+                  </div>
+                )}
+                <div className="overflow-y-auto min-h-0 flex-1">
+                  {filteredContacts.length === 0 ? (
+                    <div className="px-3 py-2 text-sm text-zinc-400">No contacts found</div>
+                  ) : (
+                    filteredContacts.map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => {
+                          setSelectedContactId(c.id);
+                          setContactDropdownOpen(false);
+                          setClientError(false);
+                        }}
+                        className={`w-full px-3 py-2 text-sm text-left hover:bg-indigo-50 flex items-center gap-2 transition-colors ${
+                          c.id === selectedContactId ? 'bg-indigo-50 text-indigo-700' : 'text-zinc-700'
+                        }`}
+                      >
+                        <span className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-[10px] font-semibold shrink-0">
+                          {c.name.charAt(0).toUpperCase()}
+                        </span>
+                        <span className="truncate">{c.name}</span>
+                        {c.company && (
+                          <span className="text-zinc-400 text-xs truncate">- {c.company}</span>
+                        )}
+                      </button>
+                    ))
+                  )}
+                </div>
+                <div className="shrink-0 border-t border-zinc-100">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setContactSearchVisible(!contactSearchVisible);
+                      if (contactSearchVisible) setContactSearch('');
+                    }}
+                    className="w-full px-3 py-2 text-sm text-left text-indigo-600 hover:bg-indigo-50 flex items-center gap-2 transition-colors font-medium"
+                  >
+                    <span className="w-4 h-4 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center shrink-0">
+                      <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                      </svg>
+                    </span>
+                    {contactSearchVisible ? 'Hide search' : 'Search contacts'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      contactsCountBeforeRef.current = contacts.length;
+                      setContactDropdownOpen(false);
+                      setShowNewContactForm(true);
+                    }}
+                    className="w-full px-3 py-2 text-sm text-left text-indigo-600 hover:bg-indigo-50 flex items-center gap-2 transition-colors font-medium"
+                  >
+                    <span className="w-4 h-4 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-xs shrink-0">+</span>
+                    Create new contact
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+          {clientError && !selectedContactId && (
+            <p className="text-xs text-red-500">Please select a client for this project</p>
+          )}
+        </div>
+
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between">
+            <label className="block text-sm font-medium text-zinc-700">Team Members</label>
+            <button
+              type="button"
+              onClick={() => setMemberIds(memberIds.length === team.length ? [] : team.map(m => m.id))}
+              className="text-xs text-indigo-600 hover:text-indigo-700 transition-colors"
+            >
+              {memberIds.length === team.length ? 'Deselect All' : 'Select All'}
+            </button>
+          </div>
+          <div className="flex flex-wrap gap-2 p-2 bg-zinc-50 border border-zinc-200 rounded-lg max-h-24 overflow-y-auto">
+            {team.map((member) => (
+              <button
+                key={member.id}
+                type="button"
+                onClick={() => toggleMember(member.id)}
+                className={`px-2 py-1 text-xs rounded-full transition-all ${
+                  memberIds.includes(member.id)
+                    ? 'bg-indigo-100 text-indigo-700 border border-indigo-300'
+                    : 'bg-white text-zinc-600 border border-zinc-200 hover:border-zinc-300'
+                }`}
+              >
+                {member.name}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <Input
+            label="Start Date"
+            type="date"
+            value={startDate}
+            onChange={(e) => setStartDate(e.target.value)}
+          />
+          <Input
+            label="Due Date"
+            type="date"
+            value={dueDate}
+            onChange={(e) => setDueDate(e.target.value)}
+          />
         </div>
 
         <div className="space-y-1.5">
@@ -148,50 +361,6 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
-          <Select
-            label="Status"
-            value={status}
-            onChange={(value) => setStatus(value as Project['status'])}
-            options={statusOptions}
-          />
-
-          <div className="space-y-1.5">
-            <label className="block text-sm font-medium text-zinc-700">Team Members</label>
-            <div className="flex flex-wrap gap-2 p-2 bg-zinc-50 border border-zinc-200 rounded-lg max-h-24 overflow-y-auto">
-              {team.map((member) => (
-                <button
-                  key={member.id}
-                  type="button"
-                  onClick={() => toggleMember(member.id)}
-                  className={`px-2 py-1 text-xs rounded-full transition-all ${
-                    memberIds.includes(member.id)
-                      ? 'bg-indigo-100 text-indigo-700 border border-indigo-300'
-                      : 'bg-white text-zinc-600 border border-zinc-200 hover:border-zinc-300'
-                  }`}
-                >
-                  {member.name}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-4">
-          <Input
-            label="Start Date"
-            type="date"
-            value={startDate}
-            onChange={(e) => setStartDate(e.target.value)}
-          />
-          <Input
-            label="Due Date"
-            type="date"
-            value={dueDate}
-            onChange={(e) => setDueDate(e.target.value)}
-          />
-        </div>
-
         <div className="flex justify-end gap-3 pt-4">
           <Button type="button" variant="ghost" onClick={onClose}>
             Cancel
@@ -201,6 +370,21 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
           </Button>
         </div>
       </form>
+
+      <ContactForm
+        isOpen={showNewContactForm}
+        onClose={() => {
+          setShowNewContactForm(false);
+          // Auto-select the newly created contact if one was added
+          if (contacts.length > contactsCountBeforeRef.current) {
+            const newest = contacts[0]; // store prepends new contacts
+            if (newest) {
+              setSelectedContactId(newest.id);
+              setClientError(false);
+            }
+          }
+        }}
+      />
 
       <ConfirmDialog
         isOpen={confirmStatusChange}
