@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { MoreVertical, Edit, Trash2, ArrowRightCircle, DollarSign } from 'lucide-react';
+import { MoreVertical, Edit, Trash2, ArrowRightCircle, DollarSign, Percent } from 'lucide-react';
 import { Lead } from '@/lib/types';
 import { useApp } from '@/lib/store';
 import { Badge } from '@/components/ui/Badge';
@@ -38,7 +38,7 @@ export function LeadCard({ lead, onEdit, onDelete, onConvert }: LeadCardProps) {
   const router = useRouter();
   const [showMenu, setShowMenu] = useState(false);
 
-  const assignee = lead.assigned_to ? getTeamMember(lead.assigned_to) : null;
+  const members = (lead.member_ids || []).map(id => getTeamMember(id)).filter(Boolean);
   const sourceConfig = SOURCE_CONFIG[lead.source];
   const statusConfig = STATUS_CONFIG[lead.status];
   const canConvert = lead.status !== 'won' && lead.status !== 'lost';
@@ -106,10 +106,20 @@ export function LeadCard({ lead, onEdit, onDelete, onConvert }: LeadCardProps) {
         <Badge variant={statusConfig.variant}>{statusConfig.label}</Badge>
       </div>
 
-      {lead.value != null && (
-        <div className="flex items-center gap-1 text-sm font-medium text-zinc-700 mb-3">
-          <DollarSign size={14} className="text-emerald-500" />
-          {formatCurrency(lead.value)}
+      {(lead.value != null || lead.equity != null) && (
+        <div className="flex items-center gap-3 text-sm font-medium text-zinc-700 mb-3">
+          {lead.value != null && (
+            <span className="flex items-center gap-1">
+              <DollarSign size={14} className="text-emerald-500" />
+              {formatCurrency(lead.value)}
+            </span>
+          )}
+          {lead.equity != null && (
+            <span className="flex items-center gap-1">
+              <Percent size={14} className="text-indigo-500" />
+              {lead.equity}%
+            </span>
+          )}
         </div>
       )}
 
@@ -117,8 +127,12 @@ export function LeadCard({ lead, onEdit, onDelete, onConvert }: LeadCardProps) {
         <div className="text-xs text-zinc-500">
           {lead.email && <span>{lead.email}</span>}
         </div>
-        {assignee && (
-          <Avatar name={assignee.name} size="xs" />
+        {members.length > 0 && (
+          <div className="flex -space-x-1.5">
+            {members.map(m => m && (
+              <Avatar key={m.id} name={m.name} size="xs" />
+            ))}
+          </div>
         )}
       </div>
     </div>

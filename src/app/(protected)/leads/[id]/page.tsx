@@ -9,16 +9,19 @@ import { LeadForm } from '@/components/leads/LeadForm';
 import { LeadInteractionForm } from '@/components/leads/LeadInteractionForm';
 import { LeadProposalForm } from '@/components/leads/LeadProposalForm';
 import { ConvertLeadModal } from '@/components/leads/ConvertLeadModal';
+import { LeadFieldsSection } from '@/components/leads/LeadFieldsSection';
+import { LeadContactsSection } from '@/components/leads/LeadContactsSection';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Avatar } from '@/components/ui/Avatar';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { toast } from '@/components/ui/Toast';
 import { LeadInteraction, LeadProposal } from '@/lib/types';
+import { RichTextEditor } from '@/components/ui/RichTextEditor';
 import {
-  Edit, Trash2, ArrowRightCircle, ArrowLeft, ChevronRight, Target,
+  Edit, Trash2, ArrowRightCircle, ChevronRight, Target,
   Mail, Phone, Building2, StickyNote, DollarSign, Plus, CalendarClock,
-  PhoneCall, Users, MoreVertical, Check, UserCircle,
+  PhoneCall, Users, MoreVertical, Check,
 } from 'lucide-react';
 
 const STATUS_CONFIG: Record<string, { label: string; variant: 'default' | 'success' | 'warning' | 'danger' | 'info' | 'purple' }> = {
@@ -81,7 +84,7 @@ export default function LeadDetailPage() {
   const params = useParams();
   const router = useRouter();
   const {
-    getLead, getTeamMember, getContact, getInteractionsByLead, getProposalsByLead, getUpcomingFollowUps,
+    getLead, getTeamMember, getInteractionsByLead, getProposalsByLead, getUpcomingFollowUps,
     updateLead, deleteLead, updateLeadInteraction, deleteLeadInteraction, deleteLeadProposal,
   } = useApp();
 
@@ -118,8 +121,7 @@ export default function LeadDetailPage() {
     );
   }
 
-  const assignee = lead.assigned_to ? getTeamMember(lead.assigned_to) : null;
-  const linkedContact = lead.contact_id ? getContact(lead.contact_id) : null;
+  const members = (lead.member_ids || []).map(id => getTeamMember(id)).filter(Boolean) as NonNullable<ReturnType<typeof getTeamMember>>[];
   const interactions = getInteractionsByLead(leadId);
   const proposals = getProposalsByLead(leadId);
   const upcomingFollowUps = getUpcomingFollowUps(leadId);
@@ -179,9 +181,6 @@ export default function LeadDetailPage() {
         subtitle={lead.company || undefined}
         actions={
           <div className="flex items-center gap-2">
-            <Button variant="ghost" onClick={() => router.push('/leads')} icon={<ArrowLeft size={16} />}>
-              Back
-            </Button>
             <Button variant="secondary" onClick={() => setIsEditOpen(true)} icon={<Edit size={16} />}>
               Edit
             </Button>
@@ -200,7 +199,7 @@ export default function LeadDetailPage() {
       <div className="p-4 lg:p-6 space-y-6">
         {/* Lead Info Card */}
         <div className="bg-white rounded-xl border border-zinc-200 p-5 lg:p-6">
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 mb-4">
             <div>
               <p className="text-xs text-zinc-500 mb-1">Status</p>
               <Badge variant={statusCfg.variant}>{statusCfg.label}</Badge>
@@ -216,14 +215,24 @@ export default function LeadDetailPage() {
               </p>
             </div>
             <div>
-              <p className="text-xs text-zinc-500 mb-1">Assigned To</p>
-              {assignee ? (
-                <div className="flex items-center gap-2">
-                  <Avatar name={assignee.name} size="xs" />
-                  <span className="text-sm text-zinc-700">{assignee.name}</span>
+              <p className="text-xs text-zinc-500 mb-1">Equity</p>
+              <p className="text-sm font-semibold text-zinc-900">
+                {lead.equity != null ? `${lead.equity}%` : <span className="text-zinc-400 font-normal">--</span>}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-zinc-500 mb-1">Team Members</p>
+              {members.length > 0 ? (
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {members.map(m => (
+                    <div key={m.id} className="flex items-center gap-1.5 bg-zinc-50 rounded-full px-2 py-0.5">
+                      <Avatar name={m.name} size="xs" />
+                      <span className="text-sm text-zinc-700">{m.name}</span>
+                    </div>
+                  ))}
                 </div>
               ) : (
-                <span className="text-sm text-zinc-400">Unassigned</span>
+                <span className="text-sm text-zinc-400">No members assigned</span>
               )}
             </div>
           </div>
@@ -267,13 +276,11 @@ export default function LeadDetailPage() {
             </div>
             {isEditingNotes ? (
               <div className="space-y-2">
-                <textarea
+                <RichTextEditor
                   value={notesValue}
-                  onChange={(e) => setNotesValue(e.target.value)}
-                  rows={3}
-                  autoFocus
-                  className="w-full px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 resize-none"
+                  onChange={setNotesValue}
                   placeholder="Add notes about this lead..."
+                  rows={3}
                 />
                 <div className="flex justify-end gap-2">
                   <button
@@ -296,13 +303,19 @@ export default function LeadDetailPage() {
               </div>
             ) : (
               lead.notes ? (
-                <p className="text-sm text-zinc-700 whitespace-pre-wrap">{lead.notes}</p>
+                <div
+                  className="text-sm text-zinc-700 prose prose-sm prose-zinc max-w-none"
+                  dangerouslySetInnerHTML={{ __html: lead.notes }}
+                />
               ) : (
                 <p className="text-sm text-zinc-400 italic">No notes yet</p>
               )
             )}
           </div>
         </div>
+
+        {/* Lead Details (Dynamic Fields) */}
+        <LeadFieldsSection leadId={leadId} />
 
         {/* Upcoming Follow-ups */}
         {upcomingFollowUps.length > 0 && (
@@ -513,27 +526,8 @@ export default function LeadDetailPage() {
           )}
         </div>
 
-        {/* Linked Contact */}
-        {linkedContact && (
-          <div>
-            <div className="flex items-center gap-2 mb-4">
-              <UserCircle size={18} className="text-zinc-500" />
-              <h2 className="font-semibold text-zinc-900">Linked Contact</h2>
-            </div>
-            <Link
-              href={`/contacts/${linkedContact.id}`}
-              className="block bg-white rounded-xl border border-zinc-200 p-4 hover:shadow-lg hover:border-zinc-300 transition-all"
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-4 h-4 rounded-full" style={{ backgroundColor: linkedContact.color }} />
-                <div>
-                  <p className="font-medium text-zinc-900 text-sm">{linkedContact.name}</p>
-                  {linkedContact.company && <p className="text-xs text-zinc-500">{linkedContact.company}</p>}
-                </div>
-              </div>
-            </Link>
-          </div>
-        )}
+        {/* Lead Contacts */}
+        <LeadContactsSection leadId={leadId} />
       </div>
 
       {/* Modals */}

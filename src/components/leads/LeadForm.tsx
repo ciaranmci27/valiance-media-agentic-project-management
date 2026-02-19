@@ -7,6 +7,7 @@ import Modal from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
+import { RichTextEditor } from '@/components/ui/RichTextEditor';
 
 interface LeadFormProps {
   isOpen: boolean;
@@ -42,8 +43,9 @@ export function LeadForm({ isOpen, onClose, lead }: LeadFormProps) {
   const [source, setSource] = useState<Lead['source']>('other');
   const [status, setStatus] = useState<Lead['status']>('new');
   const [value, setValue] = useState('');
+  const [equity, setEquity] = useState('');
   const [notes, setNotes] = useState('');
-  const [assignedTo, setAssignedTo] = useState('');
+  const [memberIds, setMemberIds] = useState<string[]>([]);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
 
@@ -56,8 +58,9 @@ export function LeadForm({ isOpen, onClose, lead }: LeadFormProps) {
       setSource(lead.source);
       setStatus(lead.status);
       setValue(lead.value != null ? String(lead.value) : '');
+      setEquity(lead.equity != null ? String(lead.equity) : '');
       setNotes(lead.notes);
-      setAssignedTo(lead.assigned_to || '');
+      setMemberIds(lead.member_ids || []);
     } else {
       setName('');
       setEmail('');
@@ -66,8 +69,9 @@ export function LeadForm({ isOpen, onClose, lead }: LeadFormProps) {
       setSource('other');
       setStatus('new');
       setValue('');
+      setEquity('');
       setNotes('');
-      setAssignedTo('');
+      setMemberIds([]);
     }
   }, [lead, isOpen]);
 
@@ -82,6 +86,11 @@ export function LeadForm({ isOpen, onClose, lead }: LeadFormProps) {
     }
     if (value && isNaN(parseFloat(value))) {
       errs.value = 'Invalid amount';
+    }
+    if (equity && isNaN(parseFloat(equity))) {
+      errs.equity = 'Invalid percentage';
+    } else if (equity && (parseFloat(equity) < 0 || parseFloat(equity) > 100)) {
+      errs.equity = 'Must be 0-100';
     }
     setErrors(errs);
     return Object.keys(errs).length === 0;
@@ -100,8 +109,10 @@ export function LeadForm({ isOpen, onClose, lead }: LeadFormProps) {
       source,
       status,
       value: value ? parseFloat(value) : null,
-      notes: notes.trim(),
-      assigned_to: assignedTo || null,
+      equity: equity ? parseFloat(equity) : null,
+      notes,
+      assigned_to: memberIds.length > 0 ? memberIds[0] : null,
+      member_ids: memberIds,
       contact_id: lead?.contact_id || null,
     };
 
@@ -114,11 +125,6 @@ export function LeadForm({ isOpen, onClose, lead }: LeadFormProps) {
     setSaving(false);
     onClose();
   };
-
-  const assigneeOptions = [
-    { value: '', label: 'Unassigned' },
-    ...team.map(m => ({ value: m.id, label: m.name })),
-  ];
 
   return (
     <Modal
@@ -162,7 +168,7 @@ export function LeadForm({ isOpen, onClose, lead }: LeadFormProps) {
           placeholder="Company name"
         />
 
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-2 gap-4">
           <Select
             label="Source"
             value={source}
@@ -175,6 +181,9 @@ export function LeadForm({ isOpen, onClose, lead }: LeadFormProps) {
             onChange={(value) => setStatus(value as Lead['status'])}
             options={statusOptions}
           />
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
           <Input
             label="Value ($)"
             type="number"
@@ -183,24 +192,52 @@ export function LeadForm({ isOpen, onClose, lead }: LeadFormProps) {
             placeholder="0"
             min="0"
             step="0.01"
+            error={errors.value}
+          />
+          <Input
+            label="Equity (%)"
+            type="number"
+            value={equity}
+            onChange={(e) => setEquity(e.target.value)}
+            placeholder="0"
+            min="0"
+            max="100"
+            step="0.01"
+            error={errors.equity}
           />
         </div>
 
-        <Select
-          label="Assigned To"
-          value={assignedTo}
-          onChange={(value) => setAssignedTo(value)}
-          options={assigneeOptions}
-        />
+        <div className="space-y-1.5">
+          <label className="block text-sm font-medium text-zinc-700">Team Members</label>
+          <div className="flex flex-wrap gap-2 p-2 bg-zinc-50 border border-zinc-200 rounded-lg max-h-24 overflow-y-auto">
+            {team.map((member) => (
+              <button
+                key={member.id}
+                type="button"
+                onClick={() => setMemberIds(prev =>
+                  prev.includes(member.id)
+                    ? prev.filter(id => id !== member.id)
+                    : [...prev, member.id]
+                )}
+                className={`px-2 py-1 text-xs rounded-full transition-all ${
+                  memberIds.includes(member.id)
+                    ? 'bg-indigo-100 text-indigo-700 border border-indigo-300'
+                    : 'bg-white text-zinc-600 border border-zinc-200 hover:border-zinc-300'
+                }`}
+              >
+                {member.name}
+              </button>
+            ))}
+          </div>
+        </div>
 
         <div className="space-y-1.5">
           <label className="block text-sm font-medium text-zinc-700">Notes</label>
-          <textarea
+          <RichTextEditor
             value={notes}
-            onChange={(e) => setNotes(e.target.value)}
+            onChange={setNotes}
             placeholder="Additional notes..."
             rows={3}
-            className="w-full px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-all resize-none"
           />
         </div>
 

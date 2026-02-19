@@ -10,7 +10,7 @@ import { ProjectForm } from '@/components/projects/ProjectForm';
 import { ContactForm } from '@/components/contacts/ContactForm';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
-import { Edit, Mail, Phone, Building2, StickyNote, Plus, ArrowLeft, FolderKanban, Target, UserCircle, ChevronRight } from 'lucide-react';
+import { Edit, Mail, Phone, Building2, StickyNote, Plus, FolderKanban, Target, UserCircle, ChevronRight } from 'lucide-react';
 import { Project } from '@/lib/types';
 import { toast } from '@/components/ui/Toast';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
@@ -95,9 +95,6 @@ export default function ContactDetailPage() {
         subtitle={contact.company || undefined}
         actions={
           <div className="flex items-center gap-2">
-            <Button variant="ghost" onClick={() => router.push('/contacts')} icon={<ArrowLeft size={16} />}>
-              Back
-            </Button>
             <Button variant="secondary" onClick={() => setIsEditOpen(true)} icon={<Edit size={16} />}>
               Edit
             </Button>

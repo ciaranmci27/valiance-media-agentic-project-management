@@ -150,6 +150,7 @@ create table public.leads (
   source text not null default 'other' check (source in ('referral', 'website', 'social', 'cold_outreach', 'event', 'other')),
   status text not null default 'new' check (status in ('new', 'contacted', 'qualified', 'proposal', 'won', 'lost')),
   value numeric(12,2),
+  equity numeric(5,2),
   notes text not null default '',
   assigned_to uuid references public.team_members(id) on delete set null,
   contact_id uuid references public.contacts(id) on delete set null,
@@ -192,6 +193,58 @@ create table public.lead_proposals (
 );
 
 -- ============================================================
+-- 14. LEAD FIELDS (dynamic key-value fields for leads)
+-- ============================================================
+create table public.lead_fields (
+  id uuid primary key default gen_random_uuid(),
+  lead_id uuid not null references public.leads(id) on delete cascade,
+  field_key text not null,
+  value text not null default '',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (lead_id, field_key)
+);
+
+-- ============================================================
+-- 15. LEAD MEMBERS (junction: lead <-> team_member)
+-- ============================================================
+create table public.lead_members (
+  lead_id uuid not null references public.leads(id) on delete cascade,
+  member_id uuid not null references public.team_members(id) on delete cascade,
+  primary key (lead_id, member_id)
+);
+
+-- Backfill: create lead_members entries for existing leads that have assigned_to
+insert into public.lead_members (lead_id, member_id)
+select id, assigned_to
+from public.leads
+where assigned_to is not null;
+
+-- ============================================================
+-- 16. LEAD CONTACTS (junction: lead <-> contact with roles)
+-- ============================================================
+create table public.lead_contacts (
+  id uuid primary key default gen_random_uuid(),
+  lead_id uuid not null references public.leads(id) on delete cascade,
+  contact_id uuid not null references public.contacts(id) on delete cascade,
+  role text not null default 'Stakeholder',
+  custom_role text,
+  is_primary_client boolean not null default false,
+  created_at timestamptz not null default now(),
+  unique (lead_id, contact_id)
+);
+
+-- Only 1 primary client per lead:
+create unique index idx_lead_contacts_primary_client
+  on public.lead_contacts (lead_id) where is_primary_client = true;
+
+-- Backfill: create lead_contacts entries for existing leads that have a contact_id
+insert into public.lead_contacts (lead_id, contact_id, role, is_primary_client)
+select id, contact_id, 'Client', true
+from public.leads
+where contact_id is not null;
+
+-- ============================================================
 -- INDEXES
 -- ============================================================
 create unique index idx_team_members_auth_user_id on public.team_members(auth_user_id) where auth_user_id is not null;
@@ -218,6 +271,11 @@ create index idx_lead_interactions_type on public.lead_interactions(type);
 create index idx_lead_interactions_scheduled_at on public.lead_interactions(scheduled_at) where scheduled_at is not null;
 create index idx_lead_proposals_lead_id on public.lead_proposals(lead_id);
 create index idx_lead_proposals_status on public.lead_proposals(status);
+create index idx_lead_fields_lead_id on public.lead_fields(lead_id);
+create index idx_lead_fields_field_key on public.lead_fields(field_key);
+create index idx_lead_members_member_id on public.lead_members(member_id);
+create index idx_lead_contacts_lead_id on public.lead_contacts(lead_id);
+create index idx_lead_contacts_contact_id on public.lead_contacts(contact_id);
 
 -- ============================================================
 -- UPDATED_AT TRIGGER FUNCTION
@@ -262,6 +320,10 @@ create trigger set_lead_proposals_updated_at
   before update on public.lead_proposals
   for each row execute function public.handle_updated_at();
 
+create trigger set_lead_fields_updated_at
+  before update on public.lead_fields
+  for each row execute function public.handle_updated_at();
+
 -- ============================================================
 -- AUTO-CREATE TEAM MEMBER ON SIGNUP
 -- ============================================================
@@ -300,6 +362,9 @@ alter table public.activities enable row level security;
 alter table public.leads enable row level security;
 alter table public.lead_interactions enable row level security;
 alter table public.lead_proposals enable row level security;
+alter table public.lead_fields enable row level security;
+alter table public.lead_members enable row level security;
+alter table public.lead_contacts enable row level security;
 
 -- All authenticated users get full CRUD on shared data
 create policy "team_members_all" on public.team_members
@@ -339,4 +404,13 @@ create policy "lead_interactions_all" on public.lead_interactions
   for all to authenticated using (true) with check (true);
 
 create policy "lead_proposals_all" on public.lead_proposals
+  for all to authenticated using (true) with check (true);
+
+create policy "lead_fields_all" on public.lead_fields
+  for all to authenticated using (true) with check (true);
+
+create policy "lead_members_all" on public.lead_members
+  for all to authenticated using (true) with check (true);
+
+create policy "lead_contacts_all" on public.lead_contacts
   for all to authenticated using (true) with check (true);

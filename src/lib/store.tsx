@@ -1,7 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { Project, Task, TeamMember, FilterState, ViewMode, Subtask, Comment, Contact, ProjectContact, Lead, LeadInteraction, LeadProposal, Activity } from './types';
+import { Project, Task, TeamMember, FilterState, ViewMode, Subtask, Comment, Contact, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, Activity } from './types';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/lib/auth-context';
 import {
@@ -46,6 +46,13 @@ import {
   insertLeadProposal,
   patchLeadProposal,
   removeLeadProposal,
+  fetchLeadFields,
+  upsertLeadField,
+  removeLeadField as removeLeadFieldQuery,
+  fetchAllLeadContacts,
+  addLeadContact as addLeadContactQuery,
+  updateLeadContact as updateLeadContactQuery,
+  removeLeadContact as removeLeadContactQuery,
   fetchActivities,
 } from '@/lib/supabase/queries';
 import { toast } from '@/components/ui/Toast';
@@ -60,6 +67,8 @@ interface AppContextType {
   leads: Lead[];
   leadInteractions: LeadInteraction[];
   leadProposals: LeadProposal[];
+  leadFields: LeadField[];
+  leadContacts: LeadContact[];
   activities: Activity[];
   loading: boolean;
 
@@ -122,6 +131,15 @@ interface AppContextType {
   updateLeadProposal: (id: string, updates: Partial<LeadProposal>) => void;
   deleteLeadProposal: (id: string) => void;
 
+  // Lead Field CRUD
+  setLeadField: (leadId: string, fieldKey: string, value: string) => void;
+  deleteLeadField: (id: string, leadId: string) => void;
+
+  // Lead Contact CRUD
+  addLeadContact: (leadId: string, contactId: string, role: string, customRole: string | null, isPrimaryClient: boolean) => void;
+  updateLeadContact: (lcId: string, leadId: string, updates: Partial<Pick<LeadContact, 'role' | 'custom_role' | 'is_primary_client'>>) => void;
+  removeLeadContact: (lcId: string, leadId: string) => void;
+
   // Helpers
   getProject: (id: string) => Project | undefined;
   getTasksByProject: (projectId: string) => Task[];
@@ -134,6 +152,10 @@ interface AppContextType {
   getInteractionsByLead: (leadId: string) => LeadInteraction[];
   getProposalsByLead: (leadId: string) => LeadProposal[];
   getUpcomingFollowUps: (leadId: string) => LeadInteraction[];
+  getFieldsByLead: (leadId: string) => LeadField[];
+  getLeadFieldValue: (leadId: string, fieldKey: string) => string | undefined;
+  getContactsByLead: (leadId: string) => LeadContact[];
+  getPrimaryLeadContact: (leadId: string) => LeadContact | undefined;
 }
 
 const defaultFilters: FilterState = {
@@ -155,6 +177,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [leadInteractions, setLeadInteractions] = useState<LeadInteraction[]>([]);
   const [leadProposals, setLeadProposals] = useState<LeadProposal[]>([]);
+  const [leadFields, setLeadFields] = useState<LeadField[]>([]);
+  const [leadContacts, setLeadContacts] = useState<LeadContact[]>([]);
   const [activities, setActivities] = useState<Activity[]>([]);
   const [filters, setFilters] = useState<FilterState>(defaultFilters);
   const [viewMode, setViewMode] = useState<ViewMode>('board');
@@ -172,7 +196,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     const loadData = async () => {
       try {
-        const [projectsData, tasksData, teamData, contactsData, projectContactsData, leadsData, leadInteractionsData, leadProposalsData, activitiesData] = await Promise.all([
+        const [projectsData, tasksData, teamData, contactsData, projectContactsData, leadsData, leadInteractionsData, leadProposalsData, leadFieldsData, leadContactsData, activitiesData] = await Promise.all([
           fetchProjects(supabase),
           fetchTasks(supabase),
           fetchTeamMembers(supabase),
@@ -181,6 +205,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
           fetchLeads(supabase),
           fetchLeadInteractions(supabase),
           fetchLeadProposals(supabase),
+          fetchLeadFields(supabase),
+          fetchAllLeadContacts(supabase),
           fetchActivities(supabase),
         ]);
 
@@ -192,6 +218,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setLeads(leadsData);
         setLeadInteractions(leadInteractionsData);
         setLeadProposals(leadProposalsData);
+        setLeadFields(leadFieldsData);
+        setLeadContacts(leadContactsData);
         setActivities(activitiesData);
       } catch (err) {
         console.error('Failed to load data:', err);
@@ -661,6 +689,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // Lead CRUD
   const addLead = async (lead: Omit<Lead, 'id' | 'created_at' | 'updated_at'>) => {
+    const memberIds = lead.member_ids || [];
+
     // Auto-create contact when creating a lead
     let contactId = lead.contact_id;
     if (!contactId) {
@@ -682,6 +712,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const optimistic: Lead = {
       ...lead,
       id: optimisticId,
+      member_ids: memberIds,
       contact_id: contactId || null,
       created_at: now,
       updated_at: now,
@@ -690,8 +721,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setLeads(prev => [optimistic, ...prev]);
 
     try {
-      const newLead = await insertLead(supabase, { ...lead, contact_id: contactId || null, created_by: teamMemberId });
+      const newLead = await insertLead(supabase, { ...lead, contact_id: contactId || null, created_by: teamMemberId }, memberIds);
       setLeads(prev => prev.map(l => l.id === optimisticId ? newLead : l));
+
+      // Also create a lead_contacts entry for the primary contact
+      if (contactId) {
+        try {
+          const lc = await addLeadContactQuery(supabase, newLead.id, contactId, 'Client', null, true);
+          setLeadContacts(prev => [...prev, lc]);
+        } catch {
+          // Non-critical: lead was created, contact link is just a bonus
+        }
+      }
     } catch (err) {
       setLeads(prev => prev.filter(l => l.id !== optimisticId));
       toast('error', 'Failed to create lead');
@@ -699,15 +740,45 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   const updateLead = async (id: string, updates: Partial<Lead>) => {
-    const prev = leads;
+    const prevLeads = leads;
+    const prevContacts = contacts;
+    const currentLead = leads.find(l => l.id === id);
+
     setLeads(l => l.map(lead =>
       lead.id === id ? { ...lead, ...updates, updated_at: new Date().toISOString() } : lead
     ));
 
+    // Sync identity fields to the linked primary contact
+    const identityFields: Partial<Contact> = {};
+    if (updates.name !== undefined) identityFields.name = updates.name;
+    if (updates.email !== undefined) identityFields.email = updates.email;
+    if (updates.phone !== undefined) identityFields.phone = updates.phone;
+    if (updates.company !== undefined) identityFields.company = updates.company;
+
+    const contactId = updates.contact_id !== undefined ? updates.contact_id : currentLead?.contact_id;
+    const hasIdentityUpdates = Object.keys(identityFields).length > 0;
+
+    if (hasIdentityUpdates && contactId) {
+      setContacts(c => c.map(contact =>
+        contact.id === contactId ? { ...contact, ...identityFields, updated_at: new Date().toISOString() } : contact
+      ));
+    }
+
     try {
-      await patchLead(supabase, id, updates);
+      await patchLead(supabase, id, updates, updates.member_ids);
+      // Sync identity fields to linked contact in DB
+      if (hasIdentityUpdates && contactId) {
+        try {
+          await patchContact(supabase, contactId, identityFields);
+        } catch {
+          // Non-critical: lead update succeeded
+        }
+      }
     } catch (err) {
-      setLeads(prev);
+      setLeads(prevLeads);
+      if (hasIdentityUpdates && contactId) {
+        setContacts(prevContacts);
+      }
       toast('error', 'Failed to update lead');
     }
   };
@@ -716,9 +787,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const prev = leads;
     const prevInteractions = leadInteractions;
     const prevProposals = leadProposals;
+    const prevFields = leadFields;
+    const prevLeadContacts = leadContacts;
     setLeads(l => l.filter(lead => lead.id !== id));
     setLeadInteractions(i => i.filter(int => int.lead_id !== id));
     setLeadProposals(p => p.filter(prop => prop.lead_id !== id));
+    setLeadFields(f => f.filter(field => field.lead_id !== id));
+    setLeadContacts(lc => lc.filter(c => c.lead_id !== id));
 
     try {
       await removeLead(supabase, id);
@@ -726,6 +801,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setLeads(prev);
       setLeadInteractions(prevInteractions);
       setLeadProposals(prevProposals);
+      setLeadFields(prevFields);
+      setLeadContacts(prevLeadContacts);
       toast('error', 'Failed to delete lead');
     }
   };
@@ -768,7 +845,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       status: 'active',
       start_date: null,
       due_date: null,
-      member_ids: [],
+      member_ids: lead.member_ids || [],
       created_by: teamMemberId,
       created_at: now,
       updated_at: now,
@@ -800,6 +877,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setProjects(prev => prev.map(p => p.id === optimisticProjectId ? result.project : p));
       setProjectContacts(prev => prev.map(pc => pc.id === optimisticPcId ? result.projectContact : pc));
       setLeads(prev => prev.map(l => l.id === leadId ? result.lead : l));
+      // Add additional project contacts from lead contacts
+      if (result.additionalProjectContacts && result.additionalProjectContacts.length > 0) {
+        setProjectContacts(prev => [...prev, ...result.additionalProjectContacts]);
+      }
     } catch (err) {
       // Rollback
       if (optimisticContact) {
@@ -910,6 +991,190 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  // Lead Field CRUD
+  const setLeadFieldAction = async (leadId: string, fieldKey: string, value: string) => {
+    const existing = leadFields.find(f => f.lead_id === leadId && f.field_key === fieldKey);
+    const now = new Date().toISOString();
+
+    if (existing) {
+      // Update existing
+      const prev = leadFields;
+      setLeadFields(f => f.map(field =>
+        field.id === existing.id ? { ...field, value, updated_at: now } : field
+      ));
+
+      try {
+        const updated = await upsertLeadField(supabase, leadId, fieldKey, value);
+        setLeadFields(f => f.map(field =>
+          field.id === existing.id ? updated : field
+        ));
+      } catch (err) {
+        setLeadFields(prev);
+        toast('error', 'Failed to update field');
+      }
+    } else {
+      // Create new
+      const optimisticId = crypto.randomUUID();
+      const optimistic: LeadField = {
+        id: optimisticId,
+        lead_id: leadId,
+        field_key: fieldKey,
+        value,
+        created_at: now,
+        updated_at: now,
+      };
+
+      setLeadFields(prev => [...prev, optimistic]);
+
+      try {
+        const created = await upsertLeadField(supabase, leadId, fieldKey, value);
+        setLeadFields(prev => prev.map(f => f.id === optimisticId ? created : f));
+      } catch (err) {
+        setLeadFields(prev => prev.filter(f => f.id !== optimisticId));
+        toast('error', 'Failed to add field');
+      }
+    }
+  };
+
+  const deleteLeadFieldAction = async (id: string, leadId: string) => {
+    const prev = leadFields;
+    setLeadFields(f => f.filter(field => field.id !== id));
+
+    try {
+      await removeLeadFieldQuery(supabase, id);
+    } catch (err) {
+      setLeadFields(prev);
+      toast('error', 'Failed to remove field');
+    }
+  };
+
+  // Lead Contact CRUD
+  const addLeadContactAction = async (
+    leadId: string,
+    contactId: string,
+    role: string,
+    customRole: string | null,
+    isPrimaryClient: boolean
+  ) => {
+    const optimisticId = crypto.randomUUID();
+    const now = new Date().toISOString();
+    const contact = contacts.find(c => c.id === contactId);
+    const optimistic: LeadContact = {
+      id: optimisticId,
+      lead_id: leadId,
+      contact_id: contactId,
+      role,
+      custom_role: customRole,
+      is_primary_client: isPrimaryClient,
+      created_at: now,
+      contact,
+    };
+
+    setLeadContacts(prev => {
+      let updated = [...prev];
+      if (isPrimaryClient) {
+        updated = updated.map(lc =>
+          lc.lead_id === leadId && lc.is_primary_client
+            ? { ...lc, is_primary_client: false }
+            : lc
+        );
+      }
+      return [...updated, optimistic];
+    });
+
+    // If setting as primary, also update lead.contact_id
+    if (isPrimaryClient) {
+      setLeads(prev => prev.map(l =>
+        l.id === leadId ? { ...l, contact_id: contactId, updated_at: now } : l
+      ));
+    }
+
+    try {
+      const newLc = await addLeadContactQuery(supabase, leadId, contactId, role, customRole, isPrimaryClient);
+      setLeadContacts(prev => prev.map(lc => lc.id === optimisticId ? newLc : lc));
+      // Sync lead.contact_id in DB if primary changed
+      if (isPrimaryClient) {
+        await patchLead(supabase, leadId, { contact_id: contactId });
+      }
+    } catch (err) {
+      setLeadContacts(prev => prev.filter(lc => lc.id !== optimisticId));
+      if (isPrimaryClient) {
+        const lead = leads.find(l => l.id === leadId);
+        if (lead) setLeads(prev => prev.map(l => l.id === leadId ? lead : l));
+      }
+      toast('error', 'Failed to add contact to lead');
+    }
+  };
+
+  const updateLeadContactAction = async (
+    lcId: string,
+    leadId: string,
+    updates: Partial<Pick<LeadContact, 'role' | 'custom_role' | 'is_primary_client'>>
+  ) => {
+    const prev = leadContacts;
+    const prevLeads = leads;
+    setLeadContacts(lcs => {
+      let updated = lcs.map(lc =>
+        lc.id === lcId ? { ...lc, ...updates } : lc
+      );
+      if (updates.is_primary_client) {
+        updated = updated.map(lc =>
+          lc.lead_id === leadId && lc.id !== lcId && lc.is_primary_client
+            ? { ...lc, is_primary_client: false }
+            : lc
+        );
+      }
+      return updated;
+    });
+
+    // If setting as primary, update lead.contact_id
+    if (updates.is_primary_client) {
+      const lc = leadContacts.find(l => l.id === lcId);
+      if (lc) {
+        setLeads(ls => ls.map(l =>
+          l.id === leadId ? { ...l, contact_id: lc.contact_id, updated_at: new Date().toISOString() } : l
+        ));
+      }
+    }
+
+    try {
+      await updateLeadContactQuery(supabase, lcId, leadId, updates);
+      if (updates.is_primary_client) {
+        const lc = leadContacts.find(l => l.id === lcId);
+        if (lc) await patchLead(supabase, leadId, { contact_id: lc.contact_id });
+      }
+    } catch (err) {
+      setLeadContacts(prev);
+      setLeads(prevLeads);
+      toast('error', 'Failed to update lead contact');
+    }
+  };
+
+  const removeLeadContactAction = async (lcId: string, leadId: string) => {
+    const prev = leadContacts;
+    const prevLeads = leads;
+    const removingLc = leadContacts.find(lc => lc.id === lcId);
+    setLeadContacts(lcs => lcs.filter(lc => lc.id !== lcId));
+
+    // If removing primary, clear lead.contact_id
+    if (removingLc?.is_primary_client) {
+      setLeads(ls => ls.map(l =>
+        l.id === leadId ? { ...l, contact_id: null, updated_at: new Date().toISOString() } : l
+      ));
+    }
+
+    try {
+      await removeLeadContactQuery(supabase, lcId);
+      if (removingLc?.is_primary_client) {
+        await patchLead(supabase, leadId, { contact_id: null });
+      }
+    } catch (err) {
+      setLeadContacts(prev);
+      setLeads(prevLeads);
+      toast('error', 'Failed to remove contact from lead');
+    }
+  };
+
   // Helpers
   const getProject = (id: string) => projects.find(p => p.id === id);
   const getTasksByProject = (projectId: string) => tasks.filter(t => t.project_id === projectId);
@@ -934,6 +1199,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     leadInteractions
       .filter(i => i.lead_id === leadId && i.type === 'follow_up' && !i.completed && i.scheduled_at)
       .sort((a, b) => new Date(a.scheduled_at!).getTime() - new Date(b.scheduled_at!).getTime());
+  const getFieldsByLead = (leadId: string) =>
+    leadFields.filter(f => f.lead_id === leadId);
+  const getLeadFieldValue = (leadId: string, fieldKey: string) => {
+    const field = leadFields.find(f => f.lead_id === leadId && f.field_key === fieldKey);
+    return field?.value;
+  };
+  const getContactsByLead = (leadId: string) => leadContacts.filter(lc => lc.lead_id === leadId);
+  const getPrimaryLeadContact = (leadId: string) => leadContacts.find(lc => lc.lead_id === leadId && lc.is_primary_client);
 
   return (
     <AppContext.Provider value={{
@@ -945,6 +1218,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       leads,
       leadInteractions,
       leadProposals,
+      leadFields,
+      leadContacts,
       activities,
       loading,
       filters,
@@ -984,6 +1259,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       addLeadProposal,
       updateLeadProposal,
       deleteLeadProposal,
+      setLeadField: setLeadFieldAction,
+      deleteLeadField: deleteLeadFieldAction,
+      addLeadContact: addLeadContactAction,
+      updateLeadContact: updateLeadContactAction,
+      removeLeadContact: removeLeadContactAction,
       getProject,
       getTasksByProject,
       getTeamMember,
@@ -995,6 +1275,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       getInteractionsByLead,
       getProposalsByLead,
       getUpcomingFollowUps,
+      getFieldsByLead,
+      getLeadFieldValue,
+      getContactsByLead,
+      getPrimaryLeadContact,
     }}>
       {children}
     </AppContext.Provider>

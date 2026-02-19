@@ -1,5 +1,5 @@
 import { SupabaseClient } from '@supabase/supabase-js';
-import type { Project, Task, TeamMember, Subtask, Comment, Activity, Contact, ProjectContact, Lead, LeadInteraction, LeadProposal } from '@/lib/types';
+import type { Project, Task, TeamMember, Subtask, Comment, Activity, Contact, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact } from '@/lib/types';
 
 // ============================================================
 // PROJECTS
@@ -521,16 +521,25 @@ export async function removeProjectContact(supabase: SupabaseClient, id: string)
 export async function fetchLeads(supabase: SupabaseClient) {
   const { data, error } = await supabase
     .from('leads')
-    .select('*')
+    .select(`
+      *,
+      lead_members ( member_id )
+    `)
     .order('created_at', { ascending: false });
 
   if (error) throw error;
-  return (data || []) as Lead[];
+
+  return (data || []).map((l: any) => ({
+    ...l,
+    member_ids: (l.lead_members || []).map((lm: any) => lm.member_id),
+    lead_members: undefined,
+  })) as Lead[];
 }
 
 export async function insertLead(
   supabase: SupabaseClient,
-  lead: Omit<Lead, 'id' | 'created_at' | 'updated_at'>
+  lead: Omit<Lead, 'id' | 'created_at' | 'updated_at' | 'member_ids'>,
+  memberIds: string[]
 ) {
   const { data, error } = await supabase
     .from('leads')
@@ -542,6 +551,7 @@ export async function insertLead(
       source: lead.source,
       status: lead.status,
       value: lead.value,
+      equity: lead.equity,
       notes: lead.notes,
       assigned_to: lead.assigned_to || null,
       contact_id: lead.contact_id || null,
@@ -551,23 +561,57 @@ export async function insertLead(
     .single();
 
   if (error) throw error;
-  return data as Lead;
+
+  if (memberIds.length > 0) {
+    const { error: junctionError } = await supabase
+      .from('lead_members')
+      .insert(memberIds.map(mid => ({ lead_id: data.id, member_id: mid })));
+    if (junctionError) throw junctionError;
+  }
+
+  return { ...data, member_ids: memberIds } as Lead;
 }
 
 export async function patchLead(
   supabase: SupabaseClient,
   id: string,
-  updates: Partial<Lead>
+  updates: Partial<Lead>,
+  memberIds?: string[]
 ) {
+  const { member_ids, lead_members, ...dbUpdates } = updates as any;
+
   const { data, error } = await supabase
     .from('leads')
-    .update(updates)
+    .update(dbUpdates)
     .eq('id', id)
     .select()
     .single();
 
   if (error) throw error;
-  return data as Lead;
+
+  if (memberIds !== undefined) {
+    await supabase.from('lead_members').delete().eq('lead_id', id);
+    if (memberIds.length > 0) {
+      const { error: junctionError } = await supabase
+        .from('lead_members')
+        .insert(memberIds.map(mid => ({ lead_id: id, member_id: mid })));
+      if (junctionError) throw junctionError;
+    }
+  }
+
+  // When memberIds was explicitly passed, use it; otherwise re-fetch from junction table
+  let resolvedMemberIds: string[] = [];
+  if (memberIds !== undefined) {
+    resolvedMemberIds = memberIds;
+  } else {
+    const { data: rows } = await supabase
+      .from('lead_members')
+      .select('member_id')
+      .eq('lead_id', id);
+    resolvedMemberIds = (rows || []).map(r => r.member_id);
+  }
+
+  return { ...data, member_ids: resolvedMemberIds } as Lead;
 }
 
 export async function removeLead(supabase: SupabaseClient, id: string) {
@@ -712,6 +756,126 @@ export async function removeLeadProposal(supabase: SupabaseClient, id: string) {
   if (error) throw error;
 }
 
+// ============================================================
+// LEAD FIELDS
+// ============================================================
+
+export async function fetchLeadFields(supabase: SupabaseClient) {
+  const { data, error } = await supabase
+    .from('lead_fields')
+    .select('*')
+    .order('created_at', { ascending: true });
+
+  if (error) throw error;
+  return (data || []) as LeadField[];
+}
+
+export async function upsertLeadField(
+  supabase: SupabaseClient,
+  leadId: string,
+  fieldKey: string,
+  value: string
+) {
+  const { data, error } = await supabase
+    .from('lead_fields')
+    .upsert(
+      { lead_id: leadId, field_key: fieldKey, value },
+      { onConflict: 'lead_id,field_key' }
+    )
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data as LeadField;
+}
+
+export async function removeLeadField(supabase: SupabaseClient, id: string) {
+  const { error } = await supabase.from('lead_fields').delete().eq('id', id);
+  if (error) throw error;
+}
+
+// ============================================================
+// LEAD CONTACTS
+// ============================================================
+
+export async function fetchAllLeadContacts(supabase: SupabaseClient) {
+  const { data, error } = await supabase
+    .from('lead_contacts')
+    .select('*, contact:contacts(*)')
+    .order('created_at', { ascending: true });
+
+  if (error) throw error;
+  return (data || []) as LeadContact[];
+}
+
+export async function addLeadContact(
+  supabase: SupabaseClient,
+  leadId: string,
+  contactId: string,
+  role: string,
+  customRole: string | null,
+  isPrimaryClient: boolean
+) {
+  // If setting as primary client, unset existing primary on this lead first
+  if (isPrimaryClient) {
+    await supabase
+      .from('lead_contacts')
+      .update({ is_primary_client: false })
+      .eq('lead_id', leadId)
+      .eq('is_primary_client', true);
+  }
+
+  const { data, error } = await supabase
+    .from('lead_contacts')
+    .insert({
+      lead_id: leadId,
+      contact_id: contactId,
+      role,
+      custom_role: customRole,
+      is_primary_client: isPrimaryClient,
+    })
+    .select('*, contact:contacts(*)')
+    .single();
+
+  if (error) throw error;
+  return data as LeadContact;
+}
+
+export async function updateLeadContact(
+  supabase: SupabaseClient,
+  id: string,
+  leadId: string,
+  updates: Partial<Pick<LeadContact, 'role' | 'custom_role' | 'is_primary_client'>>
+) {
+  // If setting as primary client, unset existing primary on this lead first
+  if (updates.is_primary_client) {
+    await supabase
+      .from('lead_contacts')
+      .update({ is_primary_client: false })
+      .eq('lead_id', leadId)
+      .eq('is_primary_client', true);
+  }
+
+  const { data, error } = await supabase
+    .from('lead_contacts')
+    .update(updates)
+    .eq('id', id)
+    .select('*, contact:contacts(*)')
+    .single();
+
+  if (error) throw error;
+  return data as LeadContact;
+}
+
+export async function removeLeadContact(supabase: SupabaseClient, id: string) {
+  const { error } = await supabase.from('lead_contacts').delete().eq('id', id);
+  if (error) throw error;
+}
+
+// ============================================================
+// LEAD CONVERSION
+// ============================================================
+
 export async function convertLead(
   supabase: SupabaseClient,
   lead: Lead,
@@ -770,7 +934,44 @@ export async function convertLead(
 
   if (pcError) throw pcError;
 
-  // 4. Update lead status to won and link contact
+  // 4. Copy additional lead_contacts (non-primary) to project_contacts
+  const { data: additionalLeadContacts } = await supabase
+    .from('lead_contacts')
+    .select('*')
+    .eq('lead_id', lead.id)
+    .eq('is_primary_client', false);
+
+  const additionalProjectContacts: ProjectContact[] = [];
+  if (additionalLeadContacts && additionalLeadContacts.length > 0) {
+    for (const lc of additionalLeadContacts) {
+      const { data: newPc, error: addPcError } = await supabase
+        .from('project_contacts')
+        .insert({
+          project_id: project.id,
+          contact_id: lc.contact_id,
+          role: lc.role,
+          custom_role: lc.custom_role,
+          is_primary_client: false,
+        })
+        .select('*, contact:contacts(*)')
+        .single();
+
+      if (!addPcError && newPc) {
+        additionalProjectContacts.push(newPc as ProjectContact);
+      }
+    }
+  }
+
+  // 5. Copy lead_members to project_members
+  const leadMemberIds = lead.member_ids || [];
+  if (leadMemberIds.length > 0) {
+    const { error: pmError } = await supabase
+      .from('project_members')
+      .insert(leadMemberIds.map(mid => ({ project_id: project.id, member_id: mid })));
+    if (pmError) console.error('Failed to copy lead members to project:', pmError);
+  }
+
+  // 6. Update lead status to won and link contact
   const { data: updatedLead, error: leadError } = await supabase
     .from('leads')
     .update({ status: 'won', contact_id: contactId })
@@ -789,8 +990,9 @@ export async function convertLead(
 
   return {
     contact: contact as Contact,
-    project: { ...project, member_ids: [] } as Project,
+    project: { ...project, member_ids: leadMemberIds } as Project,
     projectContact: projectContact as ProjectContact,
-    lead: updatedLead as Lead,
+    additionalProjectContacts,
+    lead: { ...updatedLead, member_ids: leadMemberIds } as Lead,
   };
 }

@@ -5,6 +5,7 @@ import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { Header } from '@/components/layout/Header';
 import { Button } from '@/components/ui/Button';
+import { Select } from '@/components/ui/Select';
 import { StatusBadge, PriorityBadge } from '@/components/ui/Badge';
 import { AvatarGroup } from '@/components/ui/Avatar';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
@@ -165,15 +166,14 @@ export default function MyTasksPage() {
 
           <div className="flex items-center gap-2">
             <span className="text-xs text-zinc-500">Sort by:</span>
-            <select
-              value={sortField}
-              onChange={(e) => setSortField(e.target.value as SortField)}
-              className="text-sm border border-zinc-200 rounded-lg px-2.5 py-1.5 bg-white text-zinc-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            >
-              {sortOptions.map((opt) => (
-                <option key={opt.id} value={opt.id}>{opt.label}</option>
-              ))}
-            </select>
+            <div className="w-32">
+              <Select
+                value={sortField}
+                onChange={(value) => setSortField(value as SortField)}
+                options={sortOptions.map(opt => ({ value: opt.id, label: opt.label }))}
+                size="sm"
+              />
+            </div>
           </div>
         </div>
 

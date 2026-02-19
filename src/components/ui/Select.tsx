@@ -26,20 +26,27 @@ export function Select({
   size = 'default',
 }: SelectProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const [dropdownPos, setDropdownPos] = useState({ top: 0, left: 0, width: 0 });
+  const [dropdownPos, setDropdownPos] = useState({ top: 0, left: 0, width: 0, maxHeight: 240 });
   const triggerRef = useRef<HTMLButtonElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const selectedOption = options.find((o) => o.value === value);
   const displayLabel = selectedOption?.label || placeholder || 'Select...';
 
+  const maxDropdownHeight = 240;
+
   const updatePosition = useCallback(() => {
     if (!triggerRef.current) return;
     const rect = triggerRef.current.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const spaceAbove = rect.top;
+    // Flip upward if not enough space below but enough above
+    const openAbove = spaceBelow < maxDropdownHeight + 8 && spaceAbove > spaceBelow;
     setDropdownPos({
-      top: rect.bottom + 4,
+      top: openAbove ? rect.top - Math.min(maxDropdownHeight, spaceAbove - 8) - 4 : rect.bottom + 4,
       left: rect.left,
       width: rect.width,
+      maxHeight: openAbove ? Math.min(maxDropdownHeight, spaceAbove - 8) : Math.min(maxDropdownHeight, spaceBelow - 8),
     });
   }, []);
 
@@ -137,8 +144,8 @@ export function Select({
             style={{
               top: dropdownPos.top,
               left: dropdownPos.left,
-              width: dropdownPos.width,
-              maxHeight: 240,
+              minWidth: dropdownPos.width,
+              maxHeight: dropdownPos.maxHeight,
             }}
           >
             {options.map((option) => {
@@ -154,7 +161,7 @@ export function Select({
                       : 'text-zinc-700 hover:bg-zinc-50'
                   }`}
                 >
-                  <span className="flex-1 truncate">{option.label}</span>
+                  <span className="flex-1 whitespace-nowrap">{option.label}</span>
                   {isSelected && (
                     <Check size={14} className="flex-shrink-0 text-indigo-600" />
                   )}
