@@ -147,7 +147,7 @@ create table public.leads (
   email text not null default '',
   phone text not null default '',
   company text not null default '',
-  source text not null default 'other' check (source in ('referral', 'website', 'social', 'cold_outreach', 'event', 'other')),
+  source text not null default 'other' check (source in ('referral', 'website', 'social', 'cold_outreach', 'event', 'network', 'other')),
   status text not null default 'new' check (status in ('new', 'contacted', 'qualified', 'proposal', 'won', 'lost')),
   value numeric(12,2),
   equity numeric(5,2),

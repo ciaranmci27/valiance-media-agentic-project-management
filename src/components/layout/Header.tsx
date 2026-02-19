@@ -9,11 +9,13 @@ interface HeaderProps {
   title: string;
   subtitle?: ReactNode;
   actions?: ReactNode;
+  searchPlaceholder?: string;
+  showFilters?: boolean;
 }
 
-export function Header({ title, subtitle, actions }: HeaderProps) {
+export function Header({ title, subtitle, actions, searchPlaceholder, showFilters = false }: HeaderProps) {
   const { filters, setFilters, team, tasks } = useApp();
-  const [showFilters, setShowFilters] = useState(false);
+  const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
 
   const statusOptions = ['todo', 'in_progress', 'in_review', 'done'];
   const priorityOptions = ['low', 'medium', 'high', 'urgent'];
@@ -36,6 +38,7 @@ export function Header({ title, subtitle, actions }: HeaderProps) {
   const hasActiveFilters = filters.status.length > 0 || filters.priority.length > 0 || filters.assigneeIds.length > 0 || filters.tags.length > 0;
 
   return (
+    <>
     <header className="bg-white border-b border-zinc-200 sticky top-0 z-30">
       {/* Main header row */}
       <div className="h-16 flex items-center justify-between px-4 lg:px-6">
@@ -47,35 +50,40 @@ export function Header({ title, subtitle, actions }: HeaderProps) {
         </div>
 
         <div className="flex items-center gap-2 lg:gap-3">
-          {/* Search */}
-          <div className="hidden md:block relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" size={16} />
-            <input
-              type="text"
-              placeholder="Search..."
-              value={filters.search}
-              onChange={(e) => setFilters({ ...filters, search: e.target.value })}
-              className="pl-9 pr-4 py-2 w-40 lg:w-64 text-sm bg-zinc-50 border border-zinc-200 rounded-lg outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-all"
-            />
-          </div>
+          {searchPlaceholder && (
+            <>
+              {/* Search (desktop) */}
+              <div className="hidden md:block relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" size={16} />
+                <input
+                  type="text"
+                  placeholder={searchPlaceholder}
+                  value={filters.search}
+                  onChange={(e) => setFilters({ ...filters, search: e.target.value })}
+                  className="pl-9 pr-4 py-2 w-40 lg:w-64 text-sm bg-zinc-50 border border-zinc-200 rounded-lg outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-all"
+                />
+              </div>
+            </>
+          )}
 
-          {/* Filter button */}
-          <button 
-            onClick={() => setShowFilters(!showFilters)}
-            className={`flex items-center gap-2 px-3 py-2 text-sm border rounded-lg transition-colors ${
-              hasActiveFilters 
-                ? 'bg-indigo-50 border-indigo-300 text-indigo-700' 
-                : 'bg-zinc-50 border-zinc-200 text-zinc-600 hover:bg-zinc-100'
-            }`}
-          >
-            <Filter size={16} />
-            <span className="hidden sm:inline">Filter</span>
-            {hasActiveFilters && (
-              <span className="bg-indigo-600 text-white text-xs px-1.5 py-0.5 rounded-full">
-                {filters.status.length + filters.priority.length + filters.assigneeIds.length + filters.tags.length}
-              </span>
-            )}
-          </button>
+          {showFilters && (
+            <button
+              onClick={() => setIsFilterPanelOpen(!isFilterPanelOpen)}
+              className={`flex items-center gap-2 px-3 py-2 text-sm border rounded-lg transition-colors ${
+                hasActiveFilters
+                  ? 'bg-indigo-50 border-indigo-300 text-indigo-700'
+                  : 'bg-zinc-50 border-zinc-200 text-zinc-600 hover:bg-zinc-100'
+              }`}
+            >
+              <Filter size={16} />
+              <span className="hidden sm:inline">Filter</span>
+              {hasActiveFilters && (
+                <span className="bg-indigo-600 text-white text-xs px-1.5 py-0.5 rounded-full">
+                  {filters.status.length + filters.priority.length + filters.assigneeIds.length + filters.tags.length}
+                </span>
+              )}
+            </button>
+          )}
 
           {/* Custom actions */}
           {actions}
@@ -83,12 +91,12 @@ export function Header({ title, subtitle, actions }: HeaderProps) {
       </div>
 
       {/* Filter panel */}
-      {showFilters && (
+      {showFilters && isFilterPanelOpen && (
         <div className="border-t border-zinc-200 px-4 lg:px-6 py-4 bg-zinc-50 animate-slideDown">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-medium text-zinc-700">Filters</h3>
             {hasActiveFilters && (
-              <button 
+              <button
                 onClick={clearFilters}
                 className="text-xs text-indigo-600 hover:text-indigo-700"
               >
@@ -192,21 +200,26 @@ export function Header({ title, subtitle, actions }: HeaderProps) {
                 </div>
               </div>
             )}
-
-            {/* Search (mobile) */}
-            <div className="md:hidden">
-              <label className="block text-xs font-medium text-zinc-500 mb-2">Search</label>
-              <input
-                type="text"
-                placeholder="Search tasks..."
-                value={filters.search}
-                onChange={(e) => setFilters({ ...filters, search: e.target.value })}
-                className="w-full px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-indigo-500"
-              />
-            </div>
           </div>
         </div>
       )}
     </header>
+
+    {/* Mobile search — renders below sticky header in page content flow */}
+    {searchPlaceholder && (
+      <div className="md:hidden px-4 pt-3 pb-1">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" size={16} />
+          <input
+            type="text"
+            placeholder={searchPlaceholder}
+            value={filters.search}
+            onChange={(e) => setFilters({ ...filters, search: e.target.value })}
+            className="w-full pl-9 pr-4 py-2 text-sm bg-zinc-50 border border-zinc-200 rounded-lg outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-all"
+          />
+        </div>
+      </div>
+    )}
+    </>
   );
 }

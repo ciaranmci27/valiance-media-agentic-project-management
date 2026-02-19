@@ -158,7 +158,7 @@ interface AppContextType {
   getPrimaryLeadContact: (leadId: string) => LeadContact | undefined;
 }
 
-const defaultFilters: FilterState = {
+export const defaultFilters: FilterState = {
   status: [],
   priority: [],
   assigneeIds: [],

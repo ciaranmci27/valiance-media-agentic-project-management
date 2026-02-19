@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { MoreVertical, Edit, Trash2, ArrowRightCircle, DollarSign, Percent } from 'lucide-react';
+import { MoreVertical, Edit, Trash2, ArrowRightCircle, DollarSign, Percent, Phone, Mail, Clock } from 'lucide-react';
 import { Lead } from '@/lib/types';
 import { useApp } from '@/lib/store';
 import { Badge } from '@/components/ui/Badge';
@@ -14,6 +14,7 @@ const SOURCE_CONFIG: Record<Lead['source'], { label: string; variant: 'default' 
   social: { label: 'Social', variant: 'purple' },
   cold_outreach: { label: 'Cold Outreach', variant: 'warning' },
   event: { label: 'Event', variant: 'default' },
+  network: { label: 'Network', variant: 'info' },
   other: { label: 'Other', variant: 'default' },
 };
 
@@ -47,17 +48,31 @@ export function LeadCard({ lead, onEdit, onDelete, onConvert }: LeadCardProps) {
     return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0 }).format(value);
   };
 
+  const formatTimeAgo = (dateStr: string) => {
+    const now = Date.now();
+    const diff = now - new Date(dateStr).getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return 'just now';
+    if (mins < 60) return `${mins}m ago`;
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    if (days < 7) return `${days}d ago`;
+    return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  };
+
   return (
     <div
       className="bg-white rounded-xl border border-zinc-200 p-4 lg:p-5 hover:shadow-lg hover:border-zinc-300 transition-all duration-200 group cursor-pointer"
       onClick={() => router.push(`/leads/${lead.id}`)}
     >
+      {/* Name + Company */}
       <div className="flex items-start justify-between mb-3">
         <div className="min-w-0 flex-1">
           <h3 className="font-semibold text-zinc-900 truncate text-sm lg:text-base">{lead.name}</h3>
-          {lead.company && (
-            <p className="text-xs lg:text-sm text-zinc-500 truncate">{lead.company}</p>
-          )}
+          <p className={`text-xs lg:text-sm truncate ${lead.company ? 'text-zinc-500' : 'text-zinc-300 italic'}`}>
+            {lead.company || 'No company'}
+          </p>
         </div>
 
         <div className="relative flex-shrink-0">
@@ -101,39 +116,55 @@ export function LeadCard({ lead, onEdit, onDelete, onConvert }: LeadCardProps) {
         </div>
       </div>
 
+      {/* Source + Status badges */}
       <div className="flex items-center gap-2 mb-3 flex-wrap">
         <Badge variant={sourceConfig.variant}>{sourceConfig.label}</Badge>
         <Badge variant={statusConfig.variant}>{statusConfig.label}</Badge>
       </div>
 
-      {(lead.value != null || lead.equity != null) && (
-        <div className="flex items-center gap-3 text-sm font-medium text-zinc-700 mb-3">
-          {lead.value != null && (
-            <span className="flex items-center gap-1">
-              <DollarSign size={14} className="text-emerald-500" />
-              {formatCurrency(lead.value)}
-            </span>
-          )}
-          {lead.equity != null && (
-            <span className="flex items-center gap-1">
-              <Percent size={14} className="text-indigo-500" />
-              {lead.equity}%
-            </span>
-          )}
-        </div>
-      )}
+      {/* Phone + Email */}
+      <div className="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-4 mb-3 text-xs lg:text-sm text-zinc-500">
+        <span className="flex items-center gap-1.5">
+          <Phone size={14} className="flex-shrink-0" />
+          <span className={!lead.phone ? 'text-zinc-300 italic' : ''}>
+            {lead.phone || 'No phone'}
+          </span>
+        </span>
+        <span className="flex items-center gap-1.5 min-w-0">
+          <Mail size={14} className="flex-shrink-0" />
+          <span className={lead.email ? 'truncate' : 'text-zinc-300 italic'}>
+            {lead.email || 'No email'}
+          </span>
+        </span>
+      </div>
 
+      {/* Value + Equity */}
+      <div className="flex items-center gap-3 text-sm font-medium mb-3">
+        <span className={`flex items-center gap-1 ${lead.value != null ? 'text-zinc-700' : 'text-zinc-300 italic font-normal'}`}>
+          <DollarSign size={14} className={lead.value != null ? 'text-emerald-500' : 'text-zinc-300'} />
+          {lead.value != null ? formatCurrency(lead.value) : 'No value'}
+        </span>
+        <span className={`flex items-center gap-1 ${lead.equity != null ? 'text-zinc-700' : 'text-zinc-300 italic font-normal'}`}>
+          <Percent size={14} className={lead.equity != null ? 'text-indigo-500' : 'text-zinc-300'} />
+          {lead.equity != null ? `${lead.equity}%` : 'No equity'}
+        </span>
+      </div>
+
+      {/* Footer: Avatars + Updated time */}
       <div className="flex items-center justify-between pt-3 border-t border-zinc-100">
-        <div className="text-xs text-zinc-500">
-          {lead.email && <span>{lead.email}</span>}
-        </div>
-        {members.length > 0 && (
+        {members.length > 0 ? (
           <div className="flex -space-x-1.5">
             {members.map(m => m && (
               <Avatar key={m.id} name={m.name} size="xs" />
             ))}
           </div>
+        ) : (
+          <span className="text-xs text-zinc-300 italic">No team</span>
         )}
+        <span className="flex items-center gap-1 text-xs text-zinc-400">
+          <Clock size={12} />
+          Updated {formatTimeAgo(lead.updated_at)}
+        </span>
       </div>
     </div>
   );

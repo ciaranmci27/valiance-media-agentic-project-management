@@ -1,13 +1,13 @@
 'use client';
 
-import { useState } from 'react';
-import { useApp } from '@/lib/store';
+import { useState, useEffect } from 'react';
+import { useApp, defaultFilters } from '@/lib/store';
 import { Header } from '@/components/layout/Header';
 import { LeadCard } from '@/components/leads/LeadCard';
 import { LeadForm } from '@/components/leads/LeadForm';
 import { ConvertLeadModal } from '@/components/leads/ConvertLeadModal';
 import { Button } from '@/components/ui/Button';
-import { Plus, Target, Search, DollarSign } from 'lucide-react';
+import { Plus, Target, DollarSign } from 'lucide-react';
 import { Lead } from '@/lib/types';
 import { toast } from '@/components/ui/Toast';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
@@ -20,12 +20,13 @@ const PIPELINE_STAGES: { status: Lead['status']; label: string }[] = [
 ];
 
 export default function LeadsPage() {
-  const { leads, deleteLead } = useApp();
+  const { leads, deleteLead, filters, setFilters } = useApp();
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingLead, setEditingLead] = useState<Lead | null>(null);
   const [convertingLead, setConvertingLead] = useState<Lead | null>(null);
   const [deletingLeadId, setDeletingLeadId] = useState<string | null>(null);
-  const [search, setSearch] = useState('');
+
+  useEffect(() => { setFilters(defaultFilters); }, []);
 
   const handleEdit = (lead: Lead) => {
     setEditingLead(lead);
@@ -47,8 +48,8 @@ export default function LeadsPage() {
     setEditingLead(null);
   };
 
-  const searchLower = search.toLowerCase();
-  const filtered = search
+  const searchLower = filters.search.toLowerCase();
+  const filtered = filters.search
     ? leads.filter(l =>
         l.name.toLowerCase().includes(searchLower) ||
         l.company.toLowerCase().includes(searchLower) ||
@@ -73,7 +74,8 @@ export default function LeadsPage() {
     <div className="animate-fadeIn min-h-screen bg-zinc-50">
       <Header
         title="Leads"
-        subtitle={`${activeLeads.length} active leads`}
+        subtitle={<span className="hidden sm:inline">{activeLeads.length} active leads</span>}
+        searchPlaceholder="Search leads by name, company, or email..."
         actions={
           <Button onClick={() => setIsFormOpen(true)} icon={<Plus size={16} />}>
             Add Lead
@@ -82,43 +84,6 @@ export default function LeadsPage() {
       />
 
       <div className="p-4 lg:p-6 space-y-6 lg:space-y-8">
-        {/* Search + Pipeline Summary */}
-        {leads.length > 0 && (
-          <div className="space-y-4">
-            <div className="relative">
-              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
-              <input
-                type="text"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search leads by name, company, or email..."
-                className="w-full pl-10 pr-4 py-2.5 bg-white border border-zinc-200 rounded-lg text-sm text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-              />
-            </div>
-
-            {totalPipelineValue > 0 && (
-              <div className="bg-white rounded-xl border border-zinc-200 p-4">
-                <div className="flex items-center gap-2 mb-3">
-                  <DollarSign size={16} className="text-emerald-600" />
-                  <span className="text-sm font-medium text-zinc-700">Pipeline Value</span>
-                  <span className="text-lg font-bold text-zinc-900 ml-auto">{formatCurrency(totalPipelineValue)}</span>
-                </div>
-                <div className="grid grid-cols-4 gap-2">
-                  {PIPELINE_STAGES.map((stage) => {
-                    const val = getStageValue(stage.status);
-                    return (
-                      <div key={stage.status} className="text-center p-2 bg-zinc-50 rounded-lg">
-                        <p className="text-xs text-zinc-500">{stage.label}</p>
-                        <p className="text-sm font-semibold text-zinc-800">{val > 0 ? formatCurrency(val) : '$0'}</p>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
         {leads.length === 0 ? (
           <div className="text-center py-16 bg-white rounded-xl border border-zinc-200">
             <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-zinc-100 flex items-center justify-center">
@@ -193,6 +158,28 @@ export default function LeadsPage() {
                   ))}
                 </div>
               </section>
+            )}
+
+            {/* Pipeline Value */}
+            {totalPipelineValue > 0 && (
+              <div className="bg-white rounded-xl border border-zinc-200 p-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <DollarSign size={16} className="text-emerald-600" />
+                  <span className="text-sm font-medium text-zinc-700">Pipeline Value</span>
+                  <span className="text-lg font-bold text-zinc-900 ml-auto">{formatCurrency(totalPipelineValue)}</span>
+                </div>
+                <div className="grid grid-cols-4 gap-2">
+                  {PIPELINE_STAGES.map((stage) => {
+                    const val = getStageValue(stage.status);
+                    return (
+                      <div key={stage.status} className="text-center p-2 bg-zinc-50 rounded-lg">
+                        <p className="text-xs text-zinc-500">{stage.label}</p>
+                        <p className="text-sm font-semibold text-zinc-800">{val > 0 ? formatCurrency(val) : '$0'}</p>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
             )}
           </>
         )}

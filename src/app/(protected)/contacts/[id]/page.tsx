@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import Link from 'next/link';
+
 import { useParams, useRouter } from 'next/navigation';
 import { useApp } from '@/lib/store';
 import { Header } from '@/components/layout/Header';
@@ -10,7 +10,7 @@ import { ProjectForm } from '@/components/projects/ProjectForm';
 import { ContactForm } from '@/components/contacts/ContactForm';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
-import { Edit, Mail, Phone, Building2, StickyNote, Plus, FolderKanban, Target, UserCircle, ChevronRight } from 'lucide-react';
+import { Edit, Mail, Phone, Building2, StickyNote, Plus, FolderKanban, Target, UserCircle } from 'lucide-react';
 import { Project } from '@/lib/types';
 import { toast } from '@/components/ui/Toast';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
@@ -81,22 +81,12 @@ export default function ContactDetailPage() {
 
   return (
     <div className="animate-fadeIn min-h-screen bg-zinc-50">
-      {/* Breadcrumb */}
-      <div className="bg-white border-b border-zinc-100 px-4 lg:px-6 py-2">
-        <nav className="flex items-center gap-1.5 text-sm pl-12 lg:pl-0">
-          <Link href="/contacts" className="text-zinc-400 hover:text-indigo-600 transition-colors">Contacts</Link>
-          <ChevronRight size={14} className="text-zinc-300" />
-          <span className="text-zinc-700 font-medium truncate">{contact.name}</span>
-        </nav>
-      </div>
-
       <Header
-        title={contact.name}
-        subtitle={contact.company || undefined}
+        title="Contact Details"
         actions={
           <div className="flex items-center gap-2">
             <Button variant="secondary" onClick={() => setIsEditOpen(true)} icon={<Edit size={16} />}>
-              Edit
+              <span className="hidden [@media(min-width:400px)]:inline">Edit</span>
             </Button>
           </div>
         }

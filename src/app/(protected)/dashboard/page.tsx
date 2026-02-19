@@ -365,6 +365,7 @@ export default function DashboardPage() {
         )}
 
         {/* Projects Overview */}
+        {projects.length > 0 && (
         <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
           <div className="flex items-center justify-between p-4 border-b border-zinc-100">
             <h2 className="font-semibold text-zinc-900">Projects Overview</h2>
@@ -376,47 +377,41 @@ export default function DashboardPage() {
             </Link>
           </div>
 
-          {projects.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 divide-x divide-zinc-100">
-              {projects.slice(0, 6).map((project) => {
-                const projectTasks = tasks.filter(t => t.project_id === project.id);
-                const done = projectTasks.filter(t => t.status === 'done').length;
-                const progress = projectTasks.length > 0 ? Math.round((done / projectTasks.length) * 100) : 0;
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 divide-x divide-zinc-100">
+            {projects.slice(0, 6).map((project) => {
+              const projectTasks = tasks.filter(t => t.project_id === project.id);
+              const done = projectTasks.filter(t => t.status === 'done').length;
+              const progress = projectTasks.length > 0 ? Math.round((done / projectTasks.length) * 100) : 0;
 
-                return (
-                  <Link
-                    key={project.id}
-                    href={`/projects/${project.id}`}
-                    className="p-4 hover:bg-zinc-50 transition-colors"
-                  >
-                    <div className="flex items-center gap-2 mb-2">
-                      <div
-                        className="w-3 h-3 rounded-full"
-                        style={{ backgroundColor: project.color }}
-                      />
-                      <h3 className="font-medium text-zinc-900 truncate">{project.name}</h3>
-                    </div>
-                    <div className="flex items-center justify-between text-xs lg:text-sm text-zinc-500 mb-2">
-                      <span>{projectTasks.length} tasks</span>
-                      <span>{progress}% done</span>
-                    </div>
-                    <div className="h-1.5 bg-zinc-100 rounded-full overflow-hidden">
-                      <div
-                        className="h-full rounded-full transition-all"
-                        style={{ width: `${progress}%`, backgroundColor: project.color }}
-                      />
-                    </div>
-                  </Link>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="p-8 text-center text-zinc-500">
-              <FolderKanban className="mx-auto mb-2" size={32} />
-              <p>No projects yet</p>
-            </div>
-          )}
+              return (
+                <Link
+                  key={project.id}
+                  href={`/projects/${project.id}`}
+                  className="p-4 hover:bg-zinc-50 transition-colors"
+                >
+                  <div className="flex items-center gap-2 mb-2">
+                    <div
+                      className="w-3 h-3 rounded-full"
+                      style={{ backgroundColor: project.color }}
+                    />
+                    <h3 className="font-medium text-zinc-900 truncate">{project.name}</h3>
+                  </div>
+                  <div className="flex items-center justify-between text-xs lg:text-sm text-zinc-500 mb-2">
+                    <span>{projectTasks.length} tasks</span>
+                    <span>{progress}% done</span>
+                  </div>
+                  <div className="h-1.5 bg-zinc-100 rounded-full overflow-hidden">
+                    <div
+                      className="h-full rounded-full transition-all"
+                      style={{ width: `${progress}%`, backgroundColor: project.color }}
+                    />
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
         </div>
+        )}
       </div>
 
       {/* Project Picker Modal */}

@@ -21,6 +21,7 @@ const sourceOptions = [
   { value: 'social', label: 'Social' },
   { value: 'cold_outreach', label: 'Cold Outreach' },
   { value: 'event', label: 'Event' },
+  { value: 'network', label: 'Network' },
   { value: 'other', label: 'Other' },
 ];
 
@@ -40,8 +41,8 @@ export function LeadForm({ isOpen, onClose, lead }: LeadFormProps) {
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [company, setCompany] = useState('');
-  const [source, setSource] = useState<Lead['source']>('other');
-  const [status, setStatus] = useState<Lead['status']>('new');
+  const [source, setSource] = useState('');
+  const [status, setStatus] = useState('');
   const [value, setValue] = useState('');
   const [equity, setEquity] = useState('');
   const [notes, setNotes] = useState('');
@@ -66,8 +67,8 @@ export function LeadForm({ isOpen, onClose, lead }: LeadFormProps) {
       setEmail('');
       setPhone('');
       setCompany('');
-      setSource('other');
-      setStatus('new');
+      setSource('');
+      setStatus('');
       setValue('');
       setEquity('');
       setNotes('');
@@ -78,6 +79,8 @@ export function LeadForm({ isOpen, onClose, lead }: LeadFormProps) {
   const validate = () => {
     const errs: Record<string, string> = {};
     if (!name.trim()) errs.name = 'Name is required';
+    if (!source) errs.source = 'Source is required';
+    if (!status) errs.status = 'Status is required';
     if (email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
       errs.email = 'Invalid email format';
     }
@@ -106,8 +109,8 @@ export function LeadForm({ isOpen, onClose, lead }: LeadFormProps) {
       email: email.trim(),
       phone: phone.trim(),
       company: company.trim(),
-      source,
-      status,
+      source: source as Lead['source'],
+      status: status as Lead['status'],
       value: value ? parseFloat(value) : null,
       equity: equity ? parseFloat(equity) : null,
       notes,
@@ -134,14 +137,22 @@ export function LeadForm({ isOpen, onClose, lead }: LeadFormProps) {
       size="lg"
     >
       <form onSubmit={handleSubmit} className="space-y-4">
-        <Input
-          label="Name"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="Contact name"
-          required
-          error={errors.name}
-        />
+        <div className="grid grid-cols-2 gap-4">
+          <Input
+            label="Name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Contact name"
+            required
+            error={errors.name}
+          />
+          <Input
+            label="Company"
+            value={company}
+            onChange={(e) => setCompany(e.target.value)}
+            placeholder="Company name"
+          />
+        </div>
 
         <div className="grid grid-cols-2 gap-4">
           <Input
@@ -161,25 +172,22 @@ export function LeadForm({ isOpen, onClose, lead }: LeadFormProps) {
           />
         </div>
 
-        <Input
-          label="Company"
-          value={company}
-          onChange={(e) => setCompany(e.target.value)}
-          placeholder="Company name"
-        />
-
         <div className="grid grid-cols-2 gap-4">
           <Select
             label="Source"
             value={source}
-            onChange={(value) => setSource(value as Lead['source'])}
+            onChange={(value) => setSource(value)}
             options={sourceOptions}
+            placeholder="Select source..."
+            error={errors.source}
           />
           <Select
             label="Status"
             value={status}
-            onChange={(value) => setStatus(value as Lead['status'])}
+            onChange={(value) => setStatus(value)}
             options={statusOptions}
+            placeholder="Select status..."
+            error={errors.status}
           />
         </div>
 
@@ -208,7 +216,16 @@ export function LeadForm({ isOpen, onClose, lead }: LeadFormProps) {
         </div>
 
         <div className="space-y-1.5">
-          <label className="block text-sm font-medium text-zinc-700">Team Members</label>
+          <div className="flex items-center justify-between">
+            <label className="block text-sm font-medium text-zinc-700">Team Members</label>
+            <button
+              type="button"
+              onClick={() => setMemberIds(memberIds.length === team.length ? [] : team.map(m => m.id))}
+              className="text-xs text-indigo-600 hover:text-indigo-700 transition-colors"
+            >
+              {memberIds.length === team.length ? 'Deselect All' : 'Select All'}
+            </button>
+          </div>
           <div className="flex flex-wrap gap-2 p-2 bg-zinc-50 border border-zinc-200 rounded-lg max-h-24 overflow-y-auto">
             {team.map((member) => (
               <button

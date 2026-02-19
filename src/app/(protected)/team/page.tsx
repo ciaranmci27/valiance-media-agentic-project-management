@@ -1,22 +1,23 @@
 'use client';
 
-import { useState } from 'react';
-import { useApp } from '@/lib/store';
+import { useState, useEffect } from 'react';
+import { useApp, defaultFilters } from '@/lib/store';
 import { Header } from '@/components/layout/Header';
 import { Avatar } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import Modal from '@/components/ui/Modal';
-import { Mail, MoreVertical, Edit, Shield, User, UserMinus, Search } from 'lucide-react';
+import { MoreVertical, Edit, Shield, User, UserMinus } from 'lucide-react';
 import { TeamMember } from '@/lib/types';
 import { toast } from '@/components/ui/Toast';
 
 export default function TeamPage() {
-  const { team, updateTeamMember, tasks } = useApp();
+  const { team, updateTeamMember, tasks, filters, setFilters } = useApp();
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingMember, setEditingMember] = useState<TeamMember | null>(null);
-  const [search, setSearch] = useState('');
+
+  useEffect(() => { setFilters(defaultFilters); }, []);
 
   const [name, setName] = useState('');
   const [role, setRole] = useState<TeamMember['role']>('member');
@@ -64,8 +65,8 @@ export default function TeamPage() {
     return tasks.filter(t => t.assignee_ids.includes(memberId)).length;
   };
 
-  const searchLower = search.toLowerCase();
-  const filtered = search
+  const searchLower = filters.search.toLowerCase();
+  const filtered = filters.search
     ? team.filter(m =>
         m.name.toLowerCase().includes(searchLower) ||
         m.email.toLowerCase().includes(searchLower))
@@ -112,18 +113,14 @@ export default function TeamPage() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2 mb-3 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap">
           <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${roleColors[member.role]}`}>
             <RoleIcon size={12} />
             {member.role.charAt(0).toUpperCase() + member.role.slice(1)}
           </span>
-        </div>
-
-        <div className="pt-3 border-t border-zinc-100 flex items-center justify-between text-xs lg:text-sm text-zinc-500">
-          <div className="flex items-center gap-1">
-            <Mail size={14} />
-            <span>{taskCount} task{taskCount !== 1 ? 's' : ''}</span>
-          </div>
+          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-zinc-100 text-zinc-700">
+            {taskCount} task{taskCount !== 1 ? 's' : ''}
+          </span>
         </div>
       </div>
     );
@@ -133,23 +130,11 @@ export default function TeamPage() {
     <div className="animate-fadeIn min-h-screen bg-zinc-50">
       <Header
         title="Team"
-        subtitle={`${team.length} team members`}
+        subtitle={<span className="hidden sm:inline">{team.length} team members</span>}
+        searchPlaceholder="Search team members..."
       />
 
       <div className="p-4 lg:p-6 space-y-4">
-        {team.length > 0 && (
-          <div className="relative">
-            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search team members..."
-              className="w-full pl-10 pr-4 py-2.5 bg-white border border-zinc-200 rounded-lg text-sm text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-            />
-          </div>
-        )}
-
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {filtered.map((member) => (
             <MemberCard key={member.id} member={member} />

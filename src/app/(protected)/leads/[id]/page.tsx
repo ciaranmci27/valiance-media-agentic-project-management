@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import Link from 'next/link';
+
 import { useParams, useRouter } from 'next/navigation';
 import { useApp } from '@/lib/store';
 import { Header } from '@/components/layout/Header';
@@ -19,8 +19,8 @@ import { toast } from '@/components/ui/Toast';
 import { LeadInteraction, LeadProposal } from '@/lib/types';
 import { RichTextEditor } from '@/components/ui/RichTextEditor';
 import {
-  Edit, Trash2, ArrowRightCircle, ChevronRight, Target,
-  Mail, Phone, Building2, StickyNote, DollarSign, Plus, CalendarClock,
+  Edit, Trash2, ArrowRightCircle, Target,
+  Mail, Phone, Building2, User, StickyNote, DollarSign, Plus, CalendarClock,
   PhoneCall, Users, MoreVertical, Check,
 } from 'lucide-react';
 
@@ -39,6 +39,7 @@ const SOURCE_CONFIG: Record<string, { label: string; variant: 'default' | 'succe
   social: { label: 'Social', variant: 'purple' },
   cold_outreach: { label: 'Cold Outreach', variant: 'warning' },
   event: { label: 'Event', variant: 'default' },
+  network: { label: 'Network', variant: 'info' },
   other: { label: 'Other', variant: 'default' },
 };
 
@@ -167,31 +168,18 @@ export default function LeadDetailPage() {
 
   return (
     <div className="animate-fadeIn min-h-screen bg-zinc-50">
-      {/* Breadcrumb */}
-      <div className="bg-white border-b border-zinc-100 px-4 lg:px-6 py-2">
-        <nav className="flex items-center gap-1.5 text-sm pl-12 lg:pl-0">
-          <Link href="/leads" className="text-zinc-400 hover:text-indigo-600 transition-colors">Leads</Link>
-          <ChevronRight size={14} className="text-zinc-300" />
-          <span className="text-zinc-700 font-medium truncate">{lead.name}</span>
-        </nav>
-      </div>
-
       <Header
-        title={lead.name}
-        subtitle={lead.company || undefined}
+        title="Lead Details"
         actions={
           <div className="flex items-center gap-2">
             <Button variant="secondary" onClick={() => setIsEditOpen(true)} icon={<Edit size={16} />}>
-              Edit
+              <span className="hidden [@media(min-width:400px)]:inline">Edit</span>
             </Button>
             {canConvert && (
               <Button variant="secondary" onClick={() => setIsConvertOpen(true)} icon={<ArrowRightCircle size={16} />}>
                 Convert
               </Button>
             )}
-            <Button variant="danger" onClick={() => setIsDeleteOpen(true)} icon={<Trash2 size={16} />}>
-              Delete
-            </Button>
           </div>
         }
       />
@@ -199,7 +187,19 @@ export default function LeadDetailPage() {
       <div className="p-4 lg:p-6 space-y-6">
         {/* Lead Info Card */}
         <div className="bg-white rounded-xl border border-zinc-200 p-5 lg:p-6">
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 mb-4">
+          <div className="flex items-center gap-3 mb-4 flex-wrap">
+            <h2 className="flex items-center gap-2 text-lg font-semibold text-zinc-900">
+              <User size={18} className="text-zinc-400" />
+              {lead.name}
+            </h2>
+            {lead.company && (
+              <span className="flex items-center gap-1.5 text-sm text-zinc-500">
+                <Building2 size={14} className="text-zinc-400" />
+                {lead.company}
+              </span>
+            )}
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-[1fr_1fr_1fr_1fr_3fr] gap-4 mb-4">
             <div>
               <p className="text-xs text-zinc-500 mb-1">Status</p>
               <Badge variant={statusCfg.variant}>{statusCfg.label}</Badge>
@@ -220,7 +220,7 @@ export default function LeadDetailPage() {
                 {lead.equity != null ? `${lead.equity}%` : <span className="text-zinc-400 font-normal">--</span>}
               </p>
             </div>
-            <div>
+            <div className="col-span-2 sm:col-span-4 lg:col-span-1">
               <p className="text-xs text-zinc-500 mb-1">Team Members</p>
               {members.length > 0 ? (
                 <div className="flex items-center gap-1.5 flex-wrap">
@@ -249,12 +249,6 @@ export default function LeadDetailPage() {
                 <Phone size={16} className="text-zinc-400" />
                 <span>{lead.phone}</span>
               </a>
-            )}
-            {lead.company && (
-              <div className="flex items-center gap-2 text-zinc-600">
-                <Building2 size={16} className="text-zinc-400" />
-                <span>{lead.company}</span>
-              </div>
             )}
           </div>
 
@@ -528,6 +522,12 @@ export default function LeadDetailPage() {
 
         {/* Lead Contacts */}
         <LeadContactsSection leadId={leadId} />
+
+        <div className="flex justify-end">
+          <Button variant="danger" onClick={() => setIsDeleteOpen(true)} icon={<Trash2 size={16} />}>
+            Delete Lead
+          </Button>
+        </div>
       </div>
 
       {/* Modals */}

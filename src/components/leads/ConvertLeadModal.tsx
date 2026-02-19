@@ -50,12 +50,12 @@ export function ConvertLeadModal({ isOpen, onClose, lead }: ConvertLeadModalProp
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title="Convert Lead to Contact & Project"
+      title="Convert Lead to Project"
       size="lg"
     >
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="bg-zinc-50 rounded-lg p-4 border border-zinc-200">
-          <h3 className="text-sm font-medium text-zinc-700 mb-2">Contact Info (from lead)</h3>
+          <h3 className="text-sm font-medium text-zinc-700 mb-2">Lead Info</h3>
           <div className="grid grid-cols-2 gap-2 text-sm">
             <div>
               <span className="text-zinc-500">Name:</span>{' '}
@@ -80,7 +80,7 @@ export function ConvertLeadModal({ isOpen, onClose, lead }: ConvertLeadModalProp
           label="Project Name"
           value={projectName}
           onChange={(e) => setProjectName(e.target.value)}
-          placeholder="Enter project name for this contact"
+          placeholder="Enter project name"
           required
         />
 

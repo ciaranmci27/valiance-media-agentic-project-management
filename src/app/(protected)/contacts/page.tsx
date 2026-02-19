@@ -1,23 +1,24 @@
 'use client';
 
-import { useState } from 'react';
-import { useApp } from '@/lib/store';
+import { useState, useEffect } from 'react';
+import { useApp, defaultFilters } from '@/lib/store';
 import { Header } from '@/components/layout/Header';
 import { ContactCard } from '@/components/contacts/ContactCard';
 import { ContactForm } from '@/components/contacts/ContactForm';
 import { Button } from '@/components/ui/Button';
-import { Plus, UserCircle, Search } from 'lucide-react';
+import { Plus, UserCircle } from 'lucide-react';
 import { Contact } from '@/lib/types';
 import { toast } from '@/components/ui/Toast';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 
 export default function ContactsPage() {
-  const { contacts, deleteContact } = useApp();
+  const { contacts, deleteContact, filters, setFilters } = useApp();
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingContact, setEditingContact] = useState<Contact | null>(null);
-  const [search, setSearch] = useState('');
   const [deletingContactId, setDeletingContactId] = useState<string | null>(null);
   const [visibleCount, setVisibleCount] = useState(20);
+
+  useEffect(() => { setFilters(defaultFilters); }, []);
 
   const handleEdit = (contact: Contact) => {
     setEditingContact(contact);
@@ -34,8 +35,8 @@ export default function ContactsPage() {
     toast('success', 'Contact deleted');
   };
 
-  const searchLower = search.toLowerCase();
-  const filtered = search
+  const searchLower = filters.search.toLowerCase();
+  const filtered = filters.search
     ? contacts.filter(c =>
         c.name.toLowerCase().includes(searchLower) ||
         c.company.toLowerCase().includes(searchLower) ||
@@ -51,7 +52,8 @@ export default function ContactsPage() {
     <div className="animate-fadeIn min-h-screen bg-zinc-50">
       <Header
         title="Contacts"
-        subtitle={`${contacts.length} contacts`}
+        subtitle={<span className="hidden sm:inline">{contacts.length} contacts</span>}
+        searchPlaceholder="Search contacts by name, company, or email..."
         actions={
           <Button onClick={() => setIsFormOpen(true)} icon={<Plus size={16} />}>
             Add Contact
@@ -60,19 +62,6 @@ export default function ContactsPage() {
       />
 
       <div className="p-4 lg:p-6 space-y-4">
-        {contacts.length > 0 && (
-          <div className="relative">
-            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search contacts by name, company, or email..."
-              className="w-full pl-10 pr-4 py-2.5 bg-white border border-zinc-200 rounded-lg text-sm text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-            />
-          </div>
-        )}
-
         {contacts.length === 0 ? (
           <div className="text-center py-16 bg-white rounded-xl border border-zinc-200">
             <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-zinc-100 flex items-center justify-center">

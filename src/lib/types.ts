@@ -47,7 +47,7 @@ export interface Lead {
   email: string;
   phone: string;
   company: string;
-  source: 'referral' | 'website' | 'social' | 'cold_outreach' | 'event' | 'other';
+  source: 'referral' | 'website' | 'social' | 'cold_outreach' | 'event' | 'network' | 'other';
   status: 'new' | 'contacted' | 'qualified' | 'proposal' | 'won' | 'lost';
   value: number | null;
   equity: number | null;

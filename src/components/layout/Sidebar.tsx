@@ -7,9 +7,7 @@ import {
   LayoutDashboard,
   FolderKanban,
   Users,
-  Settings,
   Plus,
-  ChevronRight,
   Menu,
   X,
   LogOut,
@@ -21,25 +19,24 @@ import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { Avatar } from '@/components/ui/Avatar';
 
-const navItems = [
-  { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-  { href: '/my-tasks', icon: CheckSquare, label: 'My Tasks' },
-  { href: '/projects', icon: FolderKanban, label: 'Projects' },
-  { href: '/leads', icon: Target, label: 'Leads' },
-  { href: '/contacts', icon: UserCircle, label: 'Contacts' },
-  { href: '/team', icon: Users, label: 'Team' },
-  { href: '/settings', icon: Settings, label: 'Settings' },
-];
-
 export function Sidebar() {
   const pathname = usePathname();
-  const { projects, team } = useApp();
+  const { projects, tasks, team } = useApp();
   const { user, teamMemberId, signOut } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
 
   const currentMember = team.find(m => m.auth_user_id === user?.id);
   const displayName = currentMember?.name || user?.user_metadata?.display_name || user?.email?.split('@')[0] || 'User';
   const displayRole = currentMember?.role || 'Member';
+
+  const navItems = [
+    { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
+    ...(tasks.length > 0 ? [{ href: '/my-tasks', icon: CheckSquare, label: 'My Tasks' }] : []),
+    ...(projects.length > 0 ? [{ href: '/projects', icon: FolderKanban, label: 'Projects' }] : []),
+    { href: '/leads', icon: Target, label: 'Leads' },
+    { href: '/contacts', icon: UserCircle, label: 'Contacts' },
+    { href: '/team', icon: Users, label: 'Team' },
+  ];
 
   const closeSidebar = () => setIsOpen(false);
 
@@ -102,6 +99,7 @@ export function Sidebar() {
           })}
 
           {/* Projects section */}
+          {projects.length > 0 && (
           <div className="pt-4">
             <div className="flex items-center justify-between px-3 mb-2">
               <p className="text-xs text-zinc-600 uppercase tracking-wider font-medium">Projects</p>
@@ -145,6 +143,7 @@ export function Sidebar() {
               )}
             </div>
           </div>
+          )}
         </nav>
 
         {/* User section */}

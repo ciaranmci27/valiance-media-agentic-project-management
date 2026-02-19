@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { useApp } from '@/lib/store';
+import { useApp, defaultFilters } from '@/lib/store';
 import { Header } from '@/components/layout/Header';
 import { BoardView } from '@/components/views/BoardView';
 import { ListView } from '@/components/views/ListView';
@@ -31,8 +31,10 @@ export default function ProjectDetailPage() {
   const {
     getProject, getTasksByProject, getTeamMember,
     getContactsByProject,
-    deleteTask, deleteProject, updateTask, filters,
+    deleteTask, deleteProject, updateTask, filters, setFilters,
   } = useApp();
+
+  useEffect(() => { setFilters(defaultFilters); }, []);
 
   const [viewMode, setViewMode] = useState<ViewMode>('board');
   const [isTaskFormOpen, setIsTaskFormOpen] = useState(false);
@@ -191,18 +193,11 @@ export default function ProjectDetailPage() {
 
   return (
     <div className="animate-fadeIn min-h-screen bg-zinc-50">
-      {/* Breadcrumb */}
-      <div className="bg-white border-b border-zinc-100 px-4 lg:px-6 py-2">
-        <nav className="flex items-center gap-1.5 text-sm pl-12 lg:pl-0">
-          <Link href="/projects" className="text-zinc-400 hover:text-indigo-600 transition-colors">Projects</Link>
-          <ChevronRight size={14} className="text-zinc-300" />
-          <span className="text-zinc-700 font-medium truncate">{project.name}</span>
-        </nav>
-      </div>
-
       {/* Header */}
       <Header
         title={project.name}
+        searchPlaceholder="Search tasks..."
+        showFilters
         subtitle={
           <div className="flex flex-wrap items-center gap-2 text-sm">
             <span
