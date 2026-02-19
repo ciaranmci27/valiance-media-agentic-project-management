@@ -226,7 +226,7 @@ export default function LeadDetailPage() {
                 <div className="flex items-center gap-1.5 flex-wrap">
                   {members.map(m => (
                     <div key={m.id} className="flex items-center gap-1.5 bg-zinc-50 rounded-full px-2 py-0.5">
-                      <Avatar name={m.name} size="xs" />
+                      <Avatar name={m.name} src={m.avatar || undefined} size="xs" />
                       <span className="text-sm text-zinc-700">{m.name}</span>
                     </div>
                   ))}

@@ -9,6 +9,11 @@ function isPublicRoute(pathname: string) {
 }
 
 export async function updateSession(request: NextRequest) {
+  // In env-forced demo mode, skip all auth checks
+  if (process.env.NEXT_PUBLIC_DEMO_MODE === 'true') {
+    return NextResponse.next();
+  }
+
   let supabaseResponse = NextResponse.next({
     request,
   });

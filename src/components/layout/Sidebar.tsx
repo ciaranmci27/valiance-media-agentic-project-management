@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
@@ -8,7 +8,6 @@ import {
   FolderKanban,
   Users,
   Plus,
-  Menu,
   X,
   LogOut,
   Target,
@@ -17,13 +16,22 @@ import {
 } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
+import { useDemo } from '@/lib/demo-context';
 import { Avatar } from '@/components/ui/Avatar';
 
 export function Sidebar() {
   const pathname = usePathname();
   const { projects, tasks, team } = useApp();
   const { user, teamMemberId, signOut } = useAuth();
+  const { isEnvForcedDemo } = useDemo();
   const [isOpen, setIsOpen] = useState(false);
+
+  // Listen for the Header's hamburger button event
+  useEffect(() => {
+    const open = () => setIsOpen(true);
+    window.addEventListener('open-sidebar', open);
+    return () => window.removeEventListener('open-sidebar', open);
+  }, []);
 
   const currentMember = team.find(m => m.auth_user_id === user?.id);
   const displayName = currentMember?.name || user?.user_metadata?.display_name || user?.email?.split('@')[0] || 'User';
@@ -42,14 +50,6 @@ export function Sidebar() {
 
   return (
     <>
-      {/* Mobile menu button */}
-      <button
-        onClick={() => setIsOpen(true)}
-        className="lg:hidden fixed top-4 left-4 z-50 p-2 bg-white border border-zinc-200 rounded-lg"
-      >
-        <Menu size={20} className="text-zinc-700" />
-      </button>
-
       {/* Overlay */}
       {isOpen && (
         <div
@@ -153,19 +153,21 @@ export function Sidebar() {
             onClick={closeSidebar}
             className="flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-white/5 transition-colors"
           >
-            <Avatar name={displayName} size="sm" />
+            <Avatar name={displayName} src={currentMember?.avatar || undefined} size="sm" />
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium text-zinc-200 truncate">{displayName}</p>
               <p className="text-xs text-zinc-500 truncate capitalize">{displayRole}</p>
             </div>
           </Link>
-          <button
-            onClick={signOut}
-            className="w-full flex items-center gap-3 px-2 py-2 mt-1 rounded-lg text-zinc-400 hover:bg-white/5 hover:text-zinc-200 transition-colors"
-          >
-            <LogOut size={16} />
-            <span className="text-sm">Sign out</span>
-          </button>
+          {!isEnvForcedDemo && (
+            <button
+              onClick={signOut}
+              className="w-full flex items-center gap-3 px-2 py-2 mt-1 rounded-lg text-zinc-400 hover:bg-white/5 hover:text-zinc-200 transition-colors"
+            >
+              <LogOut size={16} />
+              <span className="text-sm">Sign out</span>
+            </button>
+          )}
         </div>
       </aside>
     </>

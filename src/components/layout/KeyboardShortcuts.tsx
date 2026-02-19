@@ -34,6 +34,7 @@ export function KeyboardShortcuts() {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (isInputFocused()) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (!e.key) return;
 
       const key = e.key.toLowerCase();
 

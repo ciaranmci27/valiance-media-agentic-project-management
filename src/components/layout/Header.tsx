@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, ReactNode } from 'react';
-import { Search, Filter, X } from 'lucide-react';
+import { Search, Filter, X, Menu } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { Avatar } from '@/components/ui/Avatar';
 
@@ -42,10 +42,16 @@ export function Header({ title, subtitle, actions, searchPlaceholder, showFilter
     <header className="bg-white border-b border-zinc-200 sticky top-0 z-30">
       {/* Main header row */}
       <div className="h-16 flex items-center justify-between px-4 lg:px-6">
-        <div className="flex items-center gap-4">
-          <div className="pl-12 lg:pl-0 flex items-center gap-3">
-            <h1 className="text-lg lg:text-xl font-semibold text-zinc-900 tracking-tight">{title}</h1>
-            {subtitle && <div className="text-sm text-zinc-500">{subtitle}</div>}
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => window.dispatchEvent(new Event('open-sidebar'))}
+            className="lg:hidden p-2 -ml-2 rounded-lg text-zinc-500 hover:text-zinc-700 hover:bg-zinc-100 transition-colors"
+          >
+            <Menu size={20} />
+          </button>
+          <div className="flex items-center gap-3 min-w-0">
+            <h1 className="text-lg lg:text-xl font-semibold text-zinc-900 tracking-tight truncate">{title}</h1>
+            {subtitle && <div className="hidden sm:block text-sm text-zinc-500">{subtitle}</div>}
           </div>
         </div>
 
@@ -166,7 +172,7 @@ export function Header({ title, subtitle, actions, searchPlaceholder, showFilter
                         : 'bg-white text-zinc-600 border border-zinc-200 hover:border-zinc-300'
                     }`}
                   >
-                    <Avatar name={member.name} size="xs" />
+                    <Avatar name={member.name} src={member.avatar || undefined} size="xs" />
                     <span>{member.name.split(' ')[0]}</span>
                   </button>
                 ))}

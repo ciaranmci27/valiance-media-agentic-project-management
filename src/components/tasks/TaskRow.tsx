@@ -196,7 +196,7 @@ export function TaskRowDesktop({ task, onView, onEdit, onDelete, selected, onTog
             checked={selected || false}
             onChange={(e) => { e.stopPropagation(); onToggleSelect(task.id); }}
             onClick={(e) => e.stopPropagation()}
-            className="w-4 h-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+            className="w-4 h-4 rounded border-zinc-300 text-indigo-600 outline-none focus:ring-indigo-500 cursor-pointer"
           />
         </div>
       )}

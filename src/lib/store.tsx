@@ -4,6 +4,12 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 import { Project, Task, TeamMember, FilterState, ViewMode, Subtask, Comment, Contact, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, Activity } from './types';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/lib/auth-context';
+import { useDemo } from '@/lib/demo-context';
+import {
+  demoTeam, demoContacts, demoProjects, demoProjectContacts, demoTasks,
+  demoLeads, demoLeadInteractions, demoLeadProposals, demoLeadFields,
+  demoLeadContacts, demoActivities,
+} from '@/lib/demo-data';
 import {
   fetchProjects,
   insertProject,
@@ -185,10 +191,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   const { user, teamMemberId } = useAuth();
+  const { isDemoMode } = useDemo();
   const supabase = createClient();
+  const skipSupabase = isDemoMode;
 
-  // Fetch all data from Supabase on mount
+  // Fetch all data from Supabase on mount (or load demo data)
   useEffect(() => {
+    if (isDemoMode) {
+      setProjects([...demoProjects]);
+      setTasks([...demoTasks]);
+      setTeam([...demoTeam]);
+      setContacts([...demoContacts]);
+      setProjectContacts([...demoProjectContacts]);
+      setLeads([...demoLeads]);
+      setLeadInteractions([...demoLeadInteractions]);
+      setLeadProposals([...demoLeadProposals]);
+      setLeadFields([...demoLeadFields]);
+      setLeadContacts([...demoLeadContacts]);
+      setActivities([...demoActivities]);
+      setLoading(false);
+      return;
+    }
+
     if (!user) {
       setLoading(false);
       return;
@@ -230,7 +254,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
 
     loadData();
-  }, [user]);
+  }, [user, isDemoMode]);
 
   // Project CRUD
   const addProject = async (project: Omit<Project, 'id' | 'created_at' | 'updated_at'>) => {
@@ -246,6 +270,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
 
     setProjects(prev => [optimistic, ...prev]);
+    if (skipSupabase) return optimistic;
 
     try {
       const newProject = await insertProject(supabase, { ...project, created_by: teamMemberId }, memberIds);
@@ -263,6 +288,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setProjects(p => p.map(proj =>
       proj.id === id ? { ...proj, ...updates, updated_at: new Date().toISOString() } : proj
     ));
+    if (skipSupabase) return;
 
     try {
       await patchProject(supabase, id, updates, updates.member_ids);
@@ -279,6 +305,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setProjects(p => p.filter(proj => proj.id !== id));
     setTasks(t => t.filter(task => task.project_id !== id));
     setProjectContacts(pc => pc.filter(p => p.project_id !== id));
+    if (skipSupabase) return;
 
     try {
       await removeProject(supabase, id);
@@ -306,6 +333,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
 
     setTasks(prev => [optimistic, ...prev]);
+    if (skipSupabase) return;
 
     try {
       const newTask = await insertTask(supabase, { ...task, created_by: teamMemberId }, assigneeIds);
@@ -321,6 +349,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setTasks(t => t.map(task =>
       task.id === id ? { ...task, ...updates, updated_at: new Date().toISOString() } : task
     ));
+    if (skipSupabase) return;
 
     try {
       await patchTask(supabase, id, updates, updates.assignee_ids);
@@ -333,6 +362,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const deleteTask = async (id: string) => {
     const prev = tasks;
     setTasks(t => t.filter(task => task.id !== id));
+    if (skipSupabase) return;
 
     try {
       await removeTask(supabase, id);
@@ -352,6 +382,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         ? { ...t, subtasks: [...t.subtasks, optimistic], updated_at: new Date().toISOString() }
         : t
     ));
+    if (skipSupabase) return;
 
     try {
       const newSubtask = await insertSubtask(supabase, taskId, title);
@@ -386,6 +417,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           }
         : t
     ));
+    if (skipSupabase) return;
 
     try {
       await toggleSubtaskCompleted(supabase, subtaskId, newCompleted);
@@ -409,6 +441,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         ? { ...task, subtasks: task.subtasks.map(s => s.id === subtaskId ? { ...s, title } : s), updated_at: new Date().toISOString() }
         : task
     ));
+    if (skipSupabase) return;
 
     try {
       await patchSubtask(supabase, subtaskId, { title });
@@ -427,6 +460,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         .filter(Boolean) as typeof task.subtasks;
       return { ...task, subtasks: reordered, updated_at: new Date().toISOString() };
     }));
+    if (skipSupabase) return;
 
     try {
       await reorderSubtasksQuery(supabase, subtaskIds);
@@ -443,6 +477,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         ? { ...task, subtasks: task.subtasks.filter(s => s.id !== subtaskId), updated_at: new Date().toISOString() }
         : task
     ));
+    if (skipSupabase) return;
 
     try {
       await removeSubtask(supabase, subtaskId);
@@ -462,6 +497,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         ? { ...t, comments: [...t.comments, optimistic], updated_at: new Date().toISOString() }
         : t
     ));
+    if (skipSupabase) return;
 
     try {
       const newComment = await insertComment(supabase, taskId, userId, text);
@@ -487,6 +523,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         ? { ...task, comments: task.comments.map(c => c.id === commentId ? { ...c, text } : c), updated_at: new Date().toISOString() }
         : task
     ));
+    if (skipSupabase) return;
 
     try {
       await patchComment(supabase, commentId, text);
@@ -503,6 +540,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         ? { ...task, comments: task.comments.filter(c => c.id !== commentId), updated_at: new Date().toISOString() }
         : task
     ));
+    if (skipSupabase) return;
 
     try {
       await removeComment(supabase, commentId);
@@ -518,6 +556,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const optimistic: TeamMember = { ...member, id: optimisticId };
 
     setTeam(prev => [...prev, optimistic]);
+    if (skipSupabase) return;
 
     try {
       const newMember = await insertTeamMember(supabase, member);
@@ -531,6 +570,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const updateTeamMember = async (id: string, updates: Partial<TeamMember>) => {
     const prev = team;
     setTeam(t => t.map(m => m.id === id ? { ...m, ...updates } : m));
+    if (skipSupabase) return;
 
     try {
       await patchTeamMember(supabase, id, updates);
@@ -543,6 +583,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const deleteTeamMember = async (id: string) => {
     const prev = team;
     setTeam(t => t.filter(m => m.id !== id));
+    if (skipSupabase) return;
 
     try {
       await removeTeamMember(supabase, id);
@@ -564,6 +605,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
 
     setContacts(prev => [optimistic, ...prev]);
+    if (skipSupabase) return optimistic;
 
     try {
       const newContact = await insertContact(supabase, { ...contact, created_by: teamMemberId });
@@ -581,6 +623,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setContacts(c => c.map(contact =>
       contact.id === id ? { ...contact, ...updates, updated_at: new Date().toISOString() } : contact
     ));
+    if (skipSupabase) return;
 
     try {
       await patchContact(supabase, id, updates);
@@ -593,6 +636,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const deleteContact = async (id: string) => {
     const prev = contacts;
     setContacts(c => c.filter(contact => contact.id !== id));
+    if (skipSupabase) return;
 
     try {
       await removeContact(supabase, id);
@@ -636,6 +680,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
       return [...updated, optimistic];
     });
+    if (skipSupabase) return;
 
     try {
       const newPc = await addProjectContactQuery(supabase, projectId, contactId, role, customRole, isPrimaryClient);
@@ -666,6 +711,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
       return updated;
     });
+    if (skipSupabase) return;
 
     try {
       await updateProjectContactQuery(supabase, pcId, projectId, updates);
@@ -678,6 +724,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const removeProjectContactAction = async (pcId: string, _projectId: string) => {
     const prev = projectContacts;
     setProjectContacts(pcs => pcs.filter(pc => pc.id !== pcId));
+    if (skipSupabase) return;
 
     try {
       await removeProjectContactQuery(supabase, pcId);
@@ -701,6 +748,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         company: lead.company || '',
         notes: '',
         color: '#6366F1',
+        avatar_url: '',
       });
       if (newContact) {
         contactId = newContact.id;
@@ -719,6 +767,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
 
     setLeads(prev => [optimistic, ...prev]);
+    if (skipSupabase) return;
 
     try {
       const newLead = await insertLead(supabase, { ...lead, contact_id: contactId || null, created_by: teamMemberId }, memberIds);
@@ -763,6 +812,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         contact.id === contactId ? { ...contact, ...identityFields, updated_at: new Date().toISOString() } : contact
       ));
     }
+    if (skipSupabase) return;
 
     try {
       await patchLead(supabase, id, updates, updates.member_ids);
@@ -794,6 +844,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setLeadProposals(p => p.filter(prop => prop.lead_id !== id));
     setLeadFields(f => f.filter(field => field.lead_id !== id));
     setLeadContacts(lc => lc.filter(c => c.lead_id !== id));
+    if (skipSupabase) return;
 
     try {
       await removeLead(supabase, id);
@@ -828,6 +879,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         company: lead.company,
         notes: '',
         color: projectColor,
+        avatar_url: '',
         created_by: teamMemberId,
         created_at: now,
         updated_at: now,
@@ -867,6 +919,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setLeads(prev => prev.map(l =>
       l.id === leadId ? { ...l, status: 'won' as const, contact_id: optimisticContactId, updated_at: now } : l
     ));
+    if (skipSupabase) return;
 
     try {
       const result = await convertLeadQuery(supabase, lead, projectName, projectColor, projectDescription, teamMemberId);
@@ -907,6 +960,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
 
     setLeadInteractions(prev => [optimistic, ...prev]);
+    if (skipSupabase) return;
 
     try {
       const newInteraction = await insertLeadInteraction(supabase, { ...interaction, created_by: teamMemberId });
@@ -922,6 +976,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setLeadInteractions(i => i.map(int =>
       int.id === id ? { ...int, ...updates, updated_at: new Date().toISOString() } : int
     ));
+    if (skipSupabase) return;
 
     try {
       await patchLeadInteraction(supabase, id, updates);
@@ -934,6 +989,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const deleteLeadInteraction = async (id: string) => {
     const prev = leadInteractions;
     setLeadInteractions(i => i.filter(int => int.id !== id));
+    if (skipSupabase) return;
 
     try {
       await removeLeadInteraction(supabase, id);
@@ -955,6 +1011,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
 
     setLeadProposals(prev => [optimistic, ...prev]);
+    if (skipSupabase) return;
 
     try {
       const newProposal = await insertLeadProposal(supabase, { ...proposal, created_by: teamMemberId });
@@ -970,6 +1027,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setLeadProposals(p => p.map(prop =>
       prop.id === id ? { ...prop, ...updates, updated_at: new Date().toISOString() } : prop
     ));
+    if (skipSupabase) return;
 
     try {
       await patchLeadProposal(supabase, id, updates);
@@ -982,6 +1040,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const deleteLeadProposal = async (id: string) => {
     const prev = leadProposals;
     setLeadProposals(p => p.filter(prop => prop.id !== id));
+    if (skipSupabase) return;
 
     try {
       await removeLeadProposal(supabase, id);
@@ -1002,6 +1061,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setLeadFields(f => f.map(field =>
         field.id === existing.id ? { ...field, value, updated_at: now } : field
       ));
+      if (skipSupabase) return;
 
       try {
         const updated = await upsertLeadField(supabase, leadId, fieldKey, value);
@@ -1025,6 +1085,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       };
 
       setLeadFields(prev => [...prev, optimistic]);
+      if (skipSupabase) return;
 
       try {
         const created = await upsertLeadField(supabase, leadId, fieldKey, value);
@@ -1039,6 +1100,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const deleteLeadFieldAction = async (id: string, leadId: string) => {
     const prev = leadFields;
     setLeadFields(f => f.filter(field => field.id !== id));
+    if (skipSupabase) return;
 
     try {
       await removeLeadFieldQuery(supabase, id);
@@ -1088,6 +1150,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         l.id === leadId ? { ...l, contact_id: contactId, updated_at: now } : l
       ));
     }
+    if (skipSupabase) return;
 
     try {
       const newLc = await addLeadContactQuery(supabase, leadId, contactId, role, customRole, isPrimaryClient);
@@ -1136,6 +1199,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         ));
       }
     }
+    if (skipSupabase) return;
 
     try {
       await updateLeadContactQuery(supabase, lcId, leadId, updates);
@@ -1162,6 +1226,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         l.id === leadId ? { ...l, contact_id: null, updated_at: new Date().toISOString() } : l
       ));
     }
+    if (skipSupabase) return;
 
     try {
       await removeLeadContactQuery(supabase, lcId);

@@ -7,16 +7,20 @@ import { createClient } from '@/lib/supabase/client';
 import { Header } from '@/components/layout/Header';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import { Avatar } from '@/components/ui/Avatar';
-import { User, Palette, Lock } from 'lucide-react';
+import { AvatarUpload } from '@/components/ui/AvatarUpload';
+import { User, Lock, FlaskConical } from 'lucide-react';
 import { toast } from '@/components/ui/Toast';
+import { useDemo } from '@/lib/demo-context';
 
 export default function SettingsPage() {
   const { team, updateTeamMember } = useApp();
   const { user, teamMemberId } = useAuth();
   const supabase = createClient();
 
+  const { isDemoMode, isEnvForcedDemo, toggleDemoMode } = useDemo();
+
   const currentMember = team.find(m => m.id === teamMemberId);
+  const isAdmin = currentMember?.role === 'admin';
 
   const [userName, setUserName] = useState('');
   const [userEmail, setUserEmail] = useState('');
@@ -24,6 +28,15 @@ export default function SettingsPage() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [passwordLoading, setPasswordLoading] = useState(false);
   const [profileLoading, setProfileLoading] = useState(false);
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const [avatarSrc, setAvatarSrc] = useState<string | undefined>(undefined);
+
+  // Derive current avatar src from member data or local override
+  const currentAvatarSrc = avatarSrc ?? (
+    currentMember?.avatar && (currentMember.avatar.startsWith('http') || currentMember.avatar.startsWith('blob:'))
+      ? currentMember.avatar
+      : undefined
+  );
 
   useEffect(() => {
     if (currentMember) {
@@ -33,7 +46,44 @@ export default function SettingsPage() {
       setUserName(user.user_metadata?.display_name || '');
       setUserEmail(user.email || '');
     }
-  }, [currentMember, user]);
+  }, [currentMember?.id, user?.id]);
+
+  const handleAvatarCropped = async (blob: Blob) => {
+    if (!teamMemberId) return;
+    setAvatarUploading(true);
+    try {
+      if (isDemoMode) {
+        const blobUrl = URL.createObjectURL(blob);
+        setAvatarSrc(blobUrl);
+        updateTeamMember(teamMemberId, { avatar: blobUrl });
+        toast('success', 'Avatar updated');
+      } else {
+        // Fixed path per member — upsert replaces previous file, no storage bloat
+        const path = `team/${teamMemberId}.jpg`;
+        const { error: uploadError } = await supabase.storage
+          .from('avatars')
+          .upload(path, blob, { upsert: true, contentType: 'image/jpeg' });
+        if (uploadError) throw uploadError;
+
+        const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(path);
+        const url = `${publicUrl}?t=${Date.now()}`;
+        setAvatarSrc(url);
+        await updateTeamMember(teamMemberId, { avatar: url });
+        toast('success', 'Avatar updated');
+      }
+    } catch {
+      toast('error', 'Failed to upload avatar');
+    } finally {
+      setAvatarUploading(false);
+    }
+  };
+
+  const handleRemoveAvatar = () => {
+    if (!teamMemberId) return;
+    setAvatarSrc(undefined);
+    updateTeamMember(teamMemberId, { avatar: '' });
+    toast('success', 'Avatar removed');
+  };
 
   const handleSaveProfile = async () => {
     if (!teamMemberId) return;
@@ -76,7 +126,7 @@ export default function SettingsPage() {
     <div className="animate-fadeIn min-h-screen bg-zinc-50">
       <Header title="Settings" />
 
-      <div className="p-4 lg:p-6 space-y-6 max-w-3xl">
+      <div className="p-4 lg:p-6 space-y-6 max-w-3xl mx-auto">
         {/* Profile Section */}
         <section className="bg-white rounded-xl border border-zinc-200 p-4 lg:p-6">
           <div className="flex items-center gap-3 mb-6">
@@ -90,7 +140,14 @@ export default function SettingsPage() {
           </div>
 
           <div className="flex items-center gap-4 mb-6">
-            <Avatar name={userName || 'User'} size="lg" />
+            <AvatarUpload
+              name={userName || 'User'}
+              currentSrc={currentAvatarSrc}
+              size="lg"
+              onCropped={handleAvatarCropped}
+              uploading={avatarUploading}
+              onRemove={currentAvatarSrc ? handleRemoveAvatar : undefined}
+            />
             <div>
               <p className="font-medium text-zinc-900">{userName || 'Your Name'}</p>
               <p className="text-sm text-zinc-500">{userEmail || 'your@email.com'}</p>
@@ -120,7 +177,45 @@ export default function SettingsPage() {
           </div>
         </section>
 
+        {/* Demo Mode Section — admin only, hidden when env-forced */}
+        {isAdmin && !isEnvForcedDemo && (
+          <section className="bg-white rounded-xl border border-zinc-200 p-4 lg:p-6">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="p-2 bg-amber-50 rounded-lg">
+                <FlaskConical className="text-amber-600" size={20} />
+              </div>
+              <div>
+                <h2 className="font-semibold text-zinc-900">Demo Mode</h2>
+                <p className="text-sm text-zinc-500">View the app with sample data</p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-zinc-700">Enable demo mode</p>
+                <p className="text-xs text-zinc-500 mt-0.5">Replaces live data with sample data. Changes won&apos;t be saved.</p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={isDemoMode}
+                onClick={toggleDemoMode}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                  isDemoMode ? 'bg-amber-500' : 'bg-zinc-200'
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    isDemoMode ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+            </div>
+          </section>
+        )}
+
         {/* Change Password Section */}
+        {!isDemoMode && (
         <section className="bg-white rounded-xl border border-zinc-200 p-4 lg:p-6">
           <div className="flex items-center gap-3 mb-6">
             <div className="p-2 bg-rose-50 rounded-lg">
@@ -155,25 +250,7 @@ export default function SettingsPage() {
             </Button>
           </div>
         </section>
-
-        {/* About Section */}
-        <section className="bg-white rounded-xl border border-zinc-200 p-4 lg:p-6">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="p-2 bg-violet-50 rounded-lg">
-              <Palette className="text-violet-600" size={20} />
-            </div>
-            <div>
-              <h2 className="font-semibold text-zinc-900">About</h2>
-              <p className="text-sm text-zinc-500">Project Management</p>
-            </div>
-          </div>
-
-          <div className="text-sm text-zinc-500 space-y-1">
-            <p>Version 1.0.0</p>
-            <p>Built by ProjectEM</p>
-            <p className="pt-2">&copy; 2026 ProjectEM. All rights reserved.</p>
-          </div>
-        </section>
+        )}
       </div>
     </div>
   );

@@ -10,6 +10,7 @@ import { ProjectForm } from '@/components/projects/ProjectForm';
 import { ContactForm } from '@/components/contacts/ContactForm';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
+import { Avatar } from '@/components/ui/Avatar';
 import { Edit, Mail, Phone, Building2, StickyNote, Plus, FolderKanban, Target, UserCircle } from 'lucide-react';
 import { Project } from '@/lib/types';
 import { toast } from '@/components/ui/Toast';
@@ -96,10 +97,7 @@ export default function ContactDetailPage() {
         {/* Contact Info Card */}
         <div className="bg-white rounded-xl border border-zinc-200 p-5 lg:p-6">
           <div className="flex items-center gap-3 mb-4">
-            <div
-              className="w-4 h-4 rounded-full"
-              style={{ backgroundColor: contact.color }}
-            />
+            <Avatar name={contact.name} src={contact.avatar_url || undefined} size="lg" />
             <h2 className="text-lg font-semibold text-zinc-900">{contact.name}</h2>
           </div>
 

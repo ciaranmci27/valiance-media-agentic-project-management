@@ -6,8 +6,6 @@ import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { StatusBadge, PriorityBadge } from '@/components/ui/Badge';
 import { Avatar, AvatarGroup } from '@/components/ui/Avatar';
-import { Input } from '@/components/ui/Input';
-import { Button } from '@/components/ui/Button';
 import {
   X, Edit, Trash2, Calendar, CheckSquare, MessageSquare, Plus, Tag, Users, Clock, GripVertical,
 } from 'lucide-react';
@@ -246,9 +244,7 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
                   <div className="flex items-center gap-2 flex-wrap">
                     {assignees.map((member) => (
                       <div key={member.id} className="flex items-center gap-1.5 px-2 py-1 bg-zinc-100 rounded-full">
-                        <div className="w-5 h-5 rounded-full bg-indigo-500 flex items-center justify-center text-white text-[10px] font-medium">
-                          {member.avatar || member.name.charAt(0)}
-                        </div>
+                        <Avatar name={member.name} src={member.avatar || undefined} size="xs" />
                         <span className="text-xs text-zinc-700">{member.name}</span>
                       </div>
                     ))}
@@ -343,7 +339,6 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
                       draggedSubtaskId === subtask.id ? 'opacity-50' : ''
                     }`}
                   >
-                    <GripVertical size={14} className="text-zinc-300 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
                     <button
                       onClick={() => toggleSubtask(task.id, subtask.id)}
                       className={`flex-shrink-0 w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
@@ -406,22 +401,26 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
                       >
                         <X size={14} />
                       </button>
+                      <GripVertical size={14} className="text-zinc-300 flex-shrink-0 cursor-grab active:cursor-grabbing" />
                     </div>
                   </div>
                 ))}
               </div>
 
               {/* Add subtask */}
-              <form onSubmit={handleAddSubtask} className="flex gap-2">
-                <Input
+              <form onSubmit={handleAddSubtask} className="flex items-center gap-2 pl-[22px]">
+                <input
                   value={newSubtask}
                   onChange={(e) => setNewSubtask(e.target.value)}
                   placeholder="Add a subtask..."
-                  className="flex-1"
+                  className="flex-1 text-sm py-1.5 px-0 bg-transparent border-b border-dashed border-zinc-200 outline-none focus:border-indigo-400 transition-colors placeholder:text-zinc-400"
                 />
-                <Button type="submit" size="sm" variant="secondary">
+                <button
+                  type="submit"
+                  className="p-1 rounded text-zinc-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors flex-shrink-0"
+                >
                   <Plus size={16} />
-                </Button>
+                </button>
               </form>
             </div>
 
@@ -444,7 +443,7 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
                   const isOwn = comment.user_id === teamMemberId;
                   return (
                     <div key={comment.id} className="flex gap-3 group">
-                      <Avatar name={author?.name || '?'} size="sm" />
+                      <Avatar name={author?.name || '?'} src={author?.avatar || undefined} size="sm" />
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2">
@@ -517,21 +516,27 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
                   );
                 })}
                 {task.comments.length === 0 && (
-                  <p className="text-sm text-zinc-400 text-center py-3">No comments yet</p>
+                  <div className="flex flex-col items-center py-4 text-zinc-400">
+                    <MessageSquare size={20} className="mb-1.5" />
+                    <p className="text-sm">No comments yet</p>
+                  </div>
                 )}
               </div>
 
               {/* Add comment */}
-              <form onSubmit={handleAddComment} className="flex gap-2">
-                <Input
+              <form onSubmit={handleAddComment} className="flex items-center gap-2 border border-zinc-200 rounded-lg px-3 py-2 focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-100 transition-all">
+                <input
                   value={newComment}
                   onChange={(e) => setNewComment(e.target.value)}
                   placeholder="Write a comment..."
-                  className="flex-1"
+                  className="flex-1 text-sm bg-transparent outline-none placeholder:text-zinc-400"
                 />
-                <Button type="submit" size="sm" variant="secondary">
+                <button
+                  type="submit"
+                  className="p-1 rounded text-zinc-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors flex-shrink-0"
+                >
                   <MessageSquare size={16} />
-                </Button>
+                </button>
               </form>
             </div>
           </div>

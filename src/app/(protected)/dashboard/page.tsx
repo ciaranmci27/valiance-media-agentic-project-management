@@ -349,7 +349,7 @@ export default function DashboardPage() {
                     key={activity.id}
                     className="flex items-start gap-3 p-3 lg:p-4"
                   >
-                    <Avatar name={member?.name || 'System'} size="sm" />
+                    <Avatar name={member?.name || 'System'} src={member?.avatar || undefined} size="sm" />
                     <div className="flex-1 min-w-0">
                       <p className="text-sm text-zinc-700">
                         <span className="font-medium text-zinc-900">{member?.name || 'System'}</span>

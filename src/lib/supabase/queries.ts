@@ -406,6 +406,7 @@ export async function insertContact(
       company: contact.company,
       notes: contact.notes,
       color: contact.color,
+      avatar_url: contact.avatar_url || '',
       created_by: contact.created_by || null,
     })
     .select()

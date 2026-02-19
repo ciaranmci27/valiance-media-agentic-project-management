@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useApp, defaultFilters } from '@/lib/store';
 import { Header } from '@/components/layout/Header';
 import { Avatar } from '@/components/ui/Avatar';
+import { AvatarUpload } from '@/components/ui/AvatarUpload';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
@@ -11,11 +12,16 @@ import Modal from '@/components/ui/Modal';
 import { MoreVertical, Edit, Shield, User, UserMinus } from 'lucide-react';
 import { TeamMember } from '@/lib/types';
 import { toast } from '@/components/ui/Toast';
+import { createClient } from '@/lib/supabase/client';
+import { useDemo } from '@/lib/demo-context';
 
 export default function TeamPage() {
   const { team, updateTeamMember, tasks, filters, setFilters } = useApp();
+  const { isDemoMode } = useDemo();
+  const supabase = createClient();
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingMember, setEditingMember] = useState<TeamMember | null>(null);
+  const [avatarUploading, setAvatarUploading] = useState(false);
 
   useEffect(() => { setFilters(defaultFilters); }, []);
 
@@ -38,6 +44,36 @@ export default function TeamPage() {
   const handleCloseForm = () => {
     setIsFormOpen(false);
     resetForm();
+  };
+
+  const handleAvatarCropped = async (blob: Blob) => {
+    if (!editingMember) return;
+    setAvatarUploading(true);
+    try {
+      if (isDemoMode) {
+        const blobUrl = URL.createObjectURL(blob);
+        updateTeamMember(editingMember.id, { avatar: blobUrl });
+        setEditingMember(prev => prev ? { ...prev, avatar: blobUrl } : null);
+        toast('success', 'Avatar updated');
+      } else {
+        // Fixed path per member — upsert replaces previous file, no storage bloat
+        const path = `team/${editingMember.id}.jpg`;
+        const { error: uploadError } = await supabase.storage
+          .from('avatars')
+          .upload(path, blob, { upsert: true, contentType: 'image/jpeg' });
+        if (uploadError) throw uploadError;
+
+        const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(path);
+        const url = `${publicUrl}?t=${Date.now()}`;
+        updateTeamMember(editingMember.id, { avatar: url });
+        setEditingMember(prev => prev ? { ...prev, avatar: url } : null);
+        toast('success', 'Avatar updated');
+      }
+    } catch {
+      toast('error', 'Failed to upload avatar');
+    } finally {
+      setAvatarUploading(false);
+    }
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -81,7 +117,7 @@ export default function TeamPage() {
       <div className="bg-white rounded-xl border border-zinc-200 p-4 lg:p-5 hover:shadow-md transition-shadow group">
         <div className="flex items-start justify-between mb-3 lg:mb-4">
           <div className="flex items-center gap-3">
-            <Avatar name={member.name} size="lg" />
+            <Avatar name={member.name} src={member.avatar || undefined} size="lg" />
             <div className="min-w-0">
               <h3 className="font-semibold text-zinc-900 truncate text-sm lg:text-base">{member.name}</h3>
               <p className="text-xs lg:text-sm text-zinc-500 truncate">{member.email}</p>
@@ -158,6 +194,23 @@ export default function TeamPage() {
         size="md"
       >
         <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="flex justify-center">
+            <AvatarUpload
+              name={editingMember?.name || ''}
+              currentSrc={editingMember?.avatar && (editingMember.avatar.startsWith('http') || editingMember.avatar.startsWith('blob:')) ? editingMember.avatar : undefined}
+              size="lg"
+              onCropped={handleAvatarCropped}
+              uploading={avatarUploading}
+              onRemove={editingMember?.avatar && (editingMember.avatar.startsWith('http') || editingMember.avatar.startsWith('blob:')) ? () => {
+                if (editingMember) {
+                  updateTeamMember(editingMember.id, { avatar: '' });
+                  setEditingMember(prev => prev ? { ...prev, avatar: '' } : null);
+                  toast('success', 'Avatar removed');
+                }
+              } : undefined}
+            />
+          </div>
+
           <Input
             label="Name"
             value={name}

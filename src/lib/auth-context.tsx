@@ -4,6 +4,8 @@ import { createContext, useContext, useEffect, useState, ReactNode } from 'react
 import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
 import type { User } from '@supabase/supabase-js';
+import { useDemo } from '@/lib/demo-context';
+import { DEMO_USER_ID, DEMO_ADMIN_TEAM_MEMBER_ID } from '@/lib/demo-data';
 
 interface AuthContextType {
   user: User | null;
@@ -20,8 +22,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const router = useRouter();
   const supabase = createClient();
+  const { isDemoMode, isEnvForcedDemo } = useDemo();
 
   useEffect(() => {
+    if (isEnvForcedDemo) {
+      setUser({ id: DEMO_USER_ID, email: 'demo@projectem.app' } as User);
+      setTeamMemberId(DEMO_ADMIN_TEAM_MEMBER_ID);
+      setLoading(false);
+      return;
+    }
+
     const getUser = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       setUser(user);
@@ -55,7 +65,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     );
 
     return () => subscription.unsubscribe();
-  }, []);
+  }, [isEnvForcedDemo]);
 
   const signOut = async () => {
     await supabase.auth.signOut();
@@ -64,8 +74,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     router.push('/login');
   };
 
+  // When demo mode is admin-toggled (not env-forced), the real user session
+  // stays active but we override teamMemberId so task filters, dashboard
+  // widgets, etc. reference a demo team member instead of the real one.
+  const effectiveTeamMemberId = isDemoMode && !isEnvForcedDemo
+    ? DEMO_ADMIN_TEAM_MEMBER_ID
+    : teamMemberId;
+
   return (
-    <AuthContext.Provider value={{ user, teamMemberId, loading, signOut }}>
+    <AuthContext.Provider value={{ user, teamMemberId: effectiveTeamMemberId, loading, signOut }}>
       {children}
     </AuthContext.Provider>
   );

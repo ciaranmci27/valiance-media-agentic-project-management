@@ -2,7 +2,9 @@
 
 import { AuthProvider, useAuth } from '@/lib/auth-context';
 import { AppProvider } from '@/lib/store';
+import { DemoProvider } from '@/lib/demo-context';
 import { Sidebar } from '@/components/layout/Sidebar';
+import { DemoBanner } from '@/components/layout/DemoBanner';
 import { KeyboardShortcuts } from '@/components/layout/KeyboardShortcuts';
 import { ToastContainer } from '@/components/ui/Toast';
 import { useRouter } from 'next/navigation';
@@ -36,17 +38,20 @@ function AuthGate({ children }: { children: React.ReactNode }) {
 
 export function ProtectedShell({ children }: { children: React.ReactNode }) {
   return (
-    <AuthProvider>
-      <AuthGate>
-        <AppProvider>
-          <Sidebar />
-          <main className="lg:ml-60 min-h-screen">
-            {children}
-          </main>
-          <KeyboardShortcuts />
-          <ToastContainer />
-        </AppProvider>
-      </AuthGate>
-    </AuthProvider>
+    <DemoProvider>
+      <AuthProvider>
+        <AuthGate>
+          <AppProvider>
+            <Sidebar />
+            <main className="lg:ml-60 min-h-screen">
+              <DemoBanner />
+              {children}
+            </main>
+            <KeyboardShortcuts />
+            <ToastContainer />
+          </AppProvider>
+        </AuthGate>
+      </AuthProvider>
+    </DemoProvider>
   );
 }

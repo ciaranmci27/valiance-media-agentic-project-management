@@ -25,6 +25,7 @@ export interface Contact {
   company: string;
   notes: string;
   color: string;
+  avatar_url: string;
   created_by?: string | null;
   created_at: string;
   updated_at: string;

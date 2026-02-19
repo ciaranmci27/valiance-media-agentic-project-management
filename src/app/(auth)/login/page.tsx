@@ -1,9 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
 import { Loader2, Eye, EyeOff } from 'lucide-react';
+
+const ENV_DEMO = process.env.NEXT_PUBLIC_DEMO_MODE === 'true';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -13,6 +15,12 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const router = useRouter();
   const supabase = createClient();
+
+  useEffect(() => {
+    if (ENV_DEMO) {
+      router.replace('/dashboard');
+    }
+  }, [router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

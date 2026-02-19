@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { MoreVertical, Edit, Trash2, Mail, Phone, FolderKanban, Target } from 'lucide-react';
 import { Contact } from '@/lib/types';
 import { useApp } from '@/lib/store';
+import { Avatar } from '@/components/ui/Avatar';
 
 interface ContactCardProps {
   contact: Contact;
@@ -27,10 +28,7 @@ export function ContactCard({ contact, onEdit, onDelete }: ContactCardProps) {
     >
       <div className="flex items-start justify-between mb-3">
         <div className="flex items-center gap-2 lg:gap-3 min-w-0 flex-1">
-          <div
-            className="w-2.5 lg:w-3 h-2.5 lg:h-3 rounded-full flex-shrink-0"
-            style={{ backgroundColor: contact.color }}
-          />
+          <Avatar name={contact.name} src={contact.avatar_url || undefined} size="sm" />
           <div className="min-w-0 flex-1">
             <span className="font-semibold text-zinc-900 group-hover:text-indigo-600 transition-colors block truncate text-sm lg:text-base">
               {contact.name}
@@ -73,8 +71,8 @@ export function ContactCard({ contact, onEdit, onDelete }: ContactCardProps) {
         </div>
       </div>
 
-      <div className="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-4 mb-3 text-xs lg:text-sm text-zinc-500">
-        <span className="flex items-center gap-1.5">
+      <div className="flex items-center gap-4 mb-3 text-xs lg:text-sm text-zinc-500">
+        <span className="flex items-center gap-1.5 flex-shrink-0">
           <Phone size={14} className="flex-shrink-0" />
           <span className={!contact.phone ? 'text-zinc-300 italic' : ''}>
             {contact.phone || 'No phone'}

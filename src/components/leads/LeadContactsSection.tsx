@@ -4,6 +4,7 @@ import { useState, useMemo } from 'react';
 import Link from 'next/link';
 import { Plus, Edit, Trash2, Star, Users, ExternalLink, Search, X } from 'lucide-react';
 import { useApp } from '@/lib/store';
+import { Avatar } from '@/components/ui/Avatar';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -155,12 +156,7 @@ export function LeadContactsSection({ leadId }: LeadContactsSectionProps) {
                 return (
                   <div key={lc.id} className="p-3 lg:p-4 group">
                     <div className="flex items-center gap-3">
-                      <div
-                        className="w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-medium flex-shrink-0"
-                        style={{ backgroundColor: contact.color }}
-                      >
-                        {contact.name.charAt(0).toUpperCase()}
-                      </div>
+                      <Avatar name={contact.name} src={contact.avatar_url || undefined} size="md" />
 
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
@@ -217,7 +213,7 @@ export function LeadContactsSection({ leadId }: LeadContactsSectionProps) {
                             value={editCustomRole}
                             onChange={(e) => setEditCustomRole(e.target.value)}
                             placeholder="Custom role"
-                            className="px-2 py-1.5 text-sm border border-zinc-200 rounded-lg w-32"
+                            className="px-2 py-1.5 text-sm border border-zinc-200 rounded-lg w-32 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
                           />
                         )}
                         {editRole === 'Client' && (

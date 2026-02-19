@@ -196,42 +196,28 @@ export default function ProjectDetailPage() {
       {/* Header */}
       <Header
         title={project.name}
-        searchPlaceholder="Search tasks..."
-        showFilters
         subtitle={
           <div className="flex flex-wrap items-center gap-2 text-sm">
             <span
-              className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0"
+              className="hidden md:inline-block w-2.5 h-2.5 rounded-full flex-shrink-0"
               style={{ backgroundColor: project.color }}
             />
             <StatusBadge status={project.status} />
             {project.description && (
-              <>
-                <span className="hidden sm:inline text-zinc-300">|</span>
-                <span className="hidden sm:inline text-zinc-500">
-                  {project.description}
-                </span>
-              </>
+              <span className="hidden md:inline text-zinc-500">
+                {project.description}
+              </span>
             )}
           </div>
         }
         actions={
-          <div className="flex items-center gap-2">
-            <Button
-              variant="secondary"
-              icon={<Edit size={16} />}
-              onClick={() => setIsEditProjectOpen(true)}
-            >
-              <span className="hidden sm:inline">Edit</span>
-            </Button>
-            <Button
-              variant="danger"
-              icon={<Trash2 size={16} />}
-              onClick={handleDeleteProject}
-            >
-              <span className="hidden sm:inline">Delete</span>
-            </Button>
-          </div>
+          <Button
+            variant="secondary"
+            icon={<Edit size={16} />}
+            onClick={() => setIsEditProjectOpen(true)}
+          >
+            <span className="hidden sm:inline">Edit</span>
+          </Button>
         }
       />
 
@@ -487,6 +473,15 @@ export default function ProjectDetailPage() {
             )}
           </>
         )}
+      </div>
+
+      {/* Delete Project */}
+      <div className="px-4 lg:px-6 pb-6">
+        <div className="flex justify-end">
+          <Button variant="danger" onClick={handleDeleteProject} icon={<Trash2 size={16} />}>
+            Delete Project
+          </Button>
+        </div>
       </div>
 
       {/* Edit Project Modal */}

@@ -39,7 +39,7 @@ export function Avatar({ name, src, size = 'md', className = '' }: AvatarProps) 
   const initials = getInitials(name);
   const bgColor = stringToColor(name);
 
-  if (src && (src.startsWith('http') || src.startsWith('/'))) {
+  if (src && (src.startsWith('http') || src.startsWith('/') || src.startsWith('blob:'))) {
     return (
       <img
         src={src}

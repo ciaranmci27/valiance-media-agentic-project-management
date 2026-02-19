@@ -76,7 +76,7 @@ export function BoardView({ tasks, onAddTask, onViewTask, onEditTask, onDeleteTa
   };
 
   return (
-    <div className="flex flex-col lg:flex-row gap-3 lg:gap-4 pb-4">
+    <div className="flex flex-col lg:flex-row gap-3 lg:gap-4 pb-4 lg:overflow-x-auto">
       {COLUMNS.map((column) => {
         const columnTasks = tasks.filter(t => t.status === column.id);
         const isOver = dropTarget === column.id && draggedTaskId !== null;

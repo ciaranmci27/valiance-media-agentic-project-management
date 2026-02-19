@@ -1,16 +1,16 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { Contact } from '@/lib/types';
 import { useApp } from '@/lib/store';
+import { useDemo } from '@/lib/demo-context';
+import { createClient } from '@/lib/supabase/client';
 import Modal from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { AvatarUpload } from '@/components/ui/AvatarUpload';
+import { toast } from '@/components/ui/Toast';
 
-const CONTACT_COLORS = [
-  '#6366F1', '#8B5CF6', '#EC4899', '#EF4444',
-  '#F59E0B', '#10B981', '#06B6D4', '#3B82F6',
-];
 
 interface ContactFormProps {
   isOpen: boolean;
@@ -20,15 +20,19 @@ interface ContactFormProps {
 
 export function ContactForm({ isOpen, onClose, contact }: ContactFormProps) {
   const { addContact, updateContact } = useApp();
+  const { isDemoMode } = useDemo();
+  const supabase = createClient();
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [company, setCompany] = useState('');
   const [notes, setNotes] = useState('');
-  const [color, setColor] = useState(CONTACT_COLORS[0]);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  const [avatarBlob, setAvatarBlob] = useState<Blob | null>(null);
+  const [avatarPreview, setAvatarPreview] = useState<string | undefined>(undefined);
+  const [avatarUploading, setAvatarUploading] = useState(false);
 
   const isDirty = name !== (contact?.name || '') || email !== (contact?.email || '') ||
     phone !== (contact?.phone || '') || company !== (contact?.company || '') ||
@@ -48,16 +52,17 @@ export function ContactForm({ isOpen, onClose, contact }: ContactFormProps) {
       setPhone(contact.phone);
       setCompany(contact.company);
       setNotes(contact.notes);
-      setColor(contact.color);
+      setAvatarPreview(contact.avatar_url || undefined);
     } else {
       setName('');
       setEmail('');
       setPhone('');
       setCompany('');
       setNotes('');
-      setColor(CONTACT_COLORS[0]);
+      setAvatarPreview(undefined);
     }
-  }, [contact, isOpen]);
+    setAvatarBlob(null);
+  }, [contact?.id, isOpen]);
 
   const validate = () => {
     const errs: Record<string, string> = {};
@@ -72,6 +77,53 @@ export function ContactForm({ isOpen, onClose, contact }: ContactFormProps) {
     return Object.keys(errs).length === 0;
   };
 
+  const handleAvatarCropped = async (blob: Blob) => {
+    setAvatarBlob(blob);
+    // If editing, upload immediately
+    if (contact) {
+      setAvatarUploading(true);
+      try {
+        if (isDemoMode) {
+          const blobUrl = URL.createObjectURL(blob);
+          setAvatarPreview(blobUrl);
+          await updateContact(contact.id, { avatar_url: blobUrl });
+          toast('success', 'Avatar updated');
+        } else {
+          // Fixed path per contact — upsert replaces previous file, no storage bloat
+          const path = `contacts/${contact.id}.jpg`;
+          const { error: uploadError } = await supabase.storage
+            .from('avatars')
+            .upload(path, blob, { upsert: true, contentType: 'image/jpeg' });
+          if (uploadError) throw uploadError;
+
+          const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(path);
+          const url = `${publicUrl}?t=${Date.now()}`;
+          setAvatarPreview(url);
+          await updateContact(contact.id, { avatar_url: url });
+          toast('success', 'Avatar updated');
+        }
+      } catch {
+        toast('error', 'Failed to upload avatar');
+      } finally {
+        setAvatarUploading(false);
+      }
+    } else {
+      // Creating: show preview, upload after contact is created
+      if (avatarPreview?.startsWith('blob:')) URL.revokeObjectURL(avatarPreview);
+      const blobUrl = URL.createObjectURL(blob);
+      setAvatarPreview(blobUrl);
+    }
+  };
+
+  const handleRemoveAvatar = async () => {
+    setAvatarPreview(undefined);
+    setAvatarBlob(null);
+    if (contact) {
+      await updateContact(contact.id, { avatar_url: '' });
+      toast('success', 'Avatar removed');
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!validate()) return;
@@ -83,13 +135,35 @@ export function ContactForm({ isOpen, onClose, contact }: ContactFormProps) {
       phone: phone.trim(),
       company: company.trim(),
       notes: notes.trim(),
-      color,
+      color: contact?.color || '#6366F1',
+      avatar_url: contact?.avatar_url || '',
     };
 
     if (contact) {
       await updateContact(contact.id, contactData);
     } else {
-      await addContact(contactData);
+      const newContact = await addContact(contactData);
+      // Upload avatar for newly created contact
+      if (newContact && avatarBlob) {
+        try {
+          if (isDemoMode) {
+            const blobUrl = URL.createObjectURL(avatarBlob);
+            await updateContact(newContact.id, { avatar_url: blobUrl });
+          } else {
+            // Fixed path per contact — upsert replaces previous file, no storage bloat
+            const path = `contacts/${newContact.id}.jpg`;
+            const { error: uploadError } = await supabase.storage
+              .from('avatars')
+              .upload(path, avatarBlob, { upsert: true, contentType: 'image/jpeg' });
+            if (!uploadError) {
+              const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(path);
+              await updateContact(newContact.id, { avatar_url: `${publicUrl}?t=${Date.now()}` });
+            }
+          }
+        } catch {
+          // Non-critical — contact was created, avatar upload failed
+        }
+      }
     }
 
     setSaving(false);
@@ -104,6 +178,17 @@ export function ContactForm({ isOpen, onClose, contact }: ContactFormProps) {
       size="lg"
     >
       <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="flex justify-center">
+          <AvatarUpload
+            name={name || 'Contact'}
+            currentSrc={avatarPreview}
+            size="lg"
+            onCropped={handleAvatarCropped}
+            uploading={avatarUploading}
+            onRemove={avatarPreview ? handleRemoveAvatar : undefined}
+          />
+        </div>
+
         <Input
           label="Name"
           value={name}
@@ -137,23 +222,6 @@ export function ContactForm({ isOpen, onClose, contact }: ContactFormProps) {
           onChange={(e) => setCompany(e.target.value)}
           placeholder="Company name"
         />
-
-        <div className="space-y-1.5">
-          <label className="block text-sm font-medium text-zinc-700">Color</label>
-          <div className="flex gap-2">
-            {CONTACT_COLORS.map((c) => (
-              <button
-                key={c}
-                type="button"
-                onClick={() => setColor(c)}
-                className={`w-8 h-8 rounded-lg transition-all ${
-                  color === c ? 'ring-2 ring-offset-2 ring-indigo-500 scale-110' : 'hover:scale-105'
-                }`}
-                style={{ backgroundColor: c }}
-              />
-            ))}
-          </div>
-        </div>
 
         <div className="space-y-1.5">
           <label className="block text-sm font-medium text-zinc-700">Notes</label>
