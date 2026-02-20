@@ -3,7 +3,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import type { PortalData } from '@/lib/types';
 import {
   demoPortalSettings, demoPortalFiles, demoProjects, demoTasks,
-  demoLeads, demoLeadProposals, demoProjectContacts,
+  demoLeads, demoLeadProposals, demoProjectContacts, demoTimeEntries,
+  demoTeam,
 } from '@/lib/demo-data';
 
 function getServiceClient() {
@@ -145,6 +146,42 @@ export async function GET(
     }));
   }
 
+  // Fetch time entries with member names (exclude running timers)
+  let hours: PortalData['hours'] = { total_hours: 0, entries: [] };
+  if (settings.show_hours) {
+    const { data: timeEntries } = await supabase
+      .from('time_entries')
+      .select('id, start_time, end_time, description, member_id')
+      .eq('project_id', settings.project_id)
+      .not('end_time', 'is', null)
+      .order('start_time', { ascending: false });
+
+    if (timeEntries && timeEntries.length > 0) {
+      const memberIds = [...new Set(timeEntries.map((te: any) => te.member_id))];
+      const { data: members } = await supabase
+        .from('team_members')
+        .select('id, name')
+        .in('id', memberIds);
+
+      const memberMap = new Map((members || []).map((m: any) => [m.id, m.name]));
+
+      const computeHours = (start: string, end: string) =>
+        (new Date(end).getTime() - new Date(start).getTime()) / 3_600_000;
+
+      hours = {
+        total_hours: timeEntries.reduce((sum: number, te: any) => sum + computeHours(te.start_time, te.end_time), 0),
+        entries: timeEntries.map((te: any) => ({
+          id: te.id,
+          start_time: te.start_time,
+          end_time: te.end_time,
+          hours: computeHours(te.start_time, te.end_time),
+          description: te.description,
+          member_name: memberMap.get(te.member_id) || 'Unknown',
+        })),
+      };
+    }
+  }
+
   const portalData: PortalData = {
     project: {
       name: project.name,
@@ -158,6 +195,7 @@ export async function GET(
       show_progress: settings.show_progress,
       show_proposals: settings.show_proposals,
       show_files: settings.show_files,
+      show_hours: settings.show_hours,
     },
     progress: {
       total_tasks: totalTasks,
@@ -166,6 +204,7 @@ export async function GET(
     },
     proposals,
     files,
+    hours,
   };
 
   return NextResponse.json(portalData);
@@ -234,6 +273,28 @@ function handleDemoMode(token: string, request: NextRequest) {
         .map(f => ({ id: f.id, name: f.name, file_url: f.file_url, file_size: f.file_size, mime_type: f.mime_type }))
     : [];
 
+  // Build hours from demo data (exclude running timers)
+  let hours: PortalData['hours'] = { total_hours: 0, entries: [] };
+  if (settings.show_hours) {
+    const projectEntries = demoTimeEntries.filter(te => te.project_id === settings.project_id && te.end_time !== null);
+    const computeHours = (start: string, end: string) =>
+      (new Date(end).getTime() - new Date(start).getTime()) / 3_600_000;
+    hours = {
+      total_hours: projectEntries.reduce((sum, te) => sum + computeHours(te.start_time, te.end_time!), 0),
+      entries: projectEntries.map(te => {
+        const member = demoTeam.find(m => m.id === te.member_id);
+        return {
+          id: te.id,
+          start_time: te.start_time,
+          end_time: te.end_time!,
+          hours: computeHours(te.start_time, te.end_time!),
+          description: te.description,
+          member_name: member?.name || 'Unknown',
+        };
+      }),
+    };
+  }
+
   const portalData: PortalData = {
     project: { name: project.name, color: project.color, description: project.description },
     settings: {
@@ -243,10 +304,12 @@ function handleDemoMode(token: string, request: NextRequest) {
       show_progress: settings.show_progress,
       show_proposals: settings.show_proposals,
       show_files: settings.show_files,
+      show_hours: settings.show_hours,
     },
     progress: { total_tasks: totalTasks, done_tasks: doneTasks, percent },
     proposals,
     files,
+    hours,
   };
 
   return NextResponse.json(portalData);

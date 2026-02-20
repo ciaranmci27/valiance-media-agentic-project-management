@@ -1,0 +1,23 @@
+import { z } from 'zod';
+
+// Start a live timer (end_time will be null)
+export const startTimerSchema = z.object({
+  member_id: z.string().uuid('Invalid member'),
+  description: z.string().default(''),
+});
+
+// Manual entry: log a past time range
+export const createTimeEntrySchema = z.object({
+  member_id: z.string().uuid('Invalid member'),
+  start_time: z.string().min(1, 'Start time is required'),
+  end_time: z.string().min(1, 'End time is required'),
+  description: z.string().default(''),
+});
+
+// Update an existing entry
+export const updateTimeEntrySchema = z.object({
+  member_id: z.string().uuid('Invalid member').optional(),
+  start_time: z.string().optional(),
+  end_time: z.string().nullable().optional(),
+  description: z.string().optional(),
+});

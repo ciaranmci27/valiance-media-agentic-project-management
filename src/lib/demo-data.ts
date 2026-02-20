@@ -1,4 +1,4 @@
-import type { TeamMember, Contact, Project, ProjectContact, Task, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, Activity, PortalSettings, PortalFile, Notification } from './types';
+import type { TeamMember, Contact, Project, ProjectContact, Task, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, Activity, PortalSettings, PortalFile, EntityFile, TimeEntry, Notification } from './types';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -67,12 +67,12 @@ const memberMap: Record<string, string[]> = {
 };
 
 export const demoProjects: Project[] = [
-  { id: 'c3c3c3c3-0001-4000-8000-000000000001', name: 'Crest Financial Rebrand',        description: 'Full brand identity refresh — logo, guidelines, collateral, and website.',   color: '#6366F1', status: 'active',    start_date: '2026-01-15', due_date: '2026-04-30', member_ids: memberMap['c3c3c3c3-0001-4000-8000-000000000001'], created_at: daysAgo(35), updated_at: daysAgo(1) },
-  { id: 'c3c3c3c3-0002-4000-8000-000000000002', name: 'Bloomwell Health App',           description: 'Patient portal mobile app — React Native, auth, appointments, messaging.',  color: '#EC4899', status: 'active',    start_date: '2026-02-01', due_date: '2026-06-15', member_ids: memberMap['c3c3c3c3-0002-4000-8000-000000000002'], created_at: daysAgo(18), updated_at: daysAgo(1) },
-  { id: 'c3c3c3c3-0003-4000-8000-000000000003', name: 'NeoForge Website',               description: 'Marketing site for Series B push — Next.js, animations, CMS integration.',  color: '#8B5CF6', status: 'active',    start_date: '2026-01-20', due_date: '2026-03-31', member_ids: memberMap['c3c3c3c3-0003-4000-8000-000000000003'], created_at: daysAgo(30), updated_at: daysAgo(2) },
-  { id: 'c3c3c3c3-0004-4000-8000-000000000004', name: 'Solstice Realty Platform',       description: 'Property search with IDX, lead capture, and agent profiles.',                color: '#F59E0B', status: 'active',    start_date: '2026-02-10', due_date: '2026-05-20', member_ids: memberMap['c3c3c3c3-0004-4000-8000-000000000004'], created_at: daysAgo(9),  updated_at: daysAgo(1) },
-  { id: 'c3c3c3c3-0005-4000-8000-000000000005', name: 'Peak Outdoor Shopify Migration', description: 'Migrate from legacy WooCommerce to Shopify Plus with custom theme.',         color: '#10B981', status: 'completed', start_date: '2025-10-01', due_date: '2026-01-15', member_ids: memberMap['c3c3c3c3-0005-4000-8000-000000000005'], created_at: daysAgo(140), updated_at: daysAgo(35) },
-  { id: 'c3c3c3c3-0006-4000-8000-000000000006', name: 'UrbanPulse Brand Package',       description: 'Logo, color system, typography, and podcast microsite.',                     color: '#EF4444', status: 'archived',  start_date: '2025-08-15', due_date: '2025-11-30', member_ids: memberMap['c3c3c3c3-0006-4000-8000-000000000006'], created_at: daysAgo(190), updated_at: daysAgo(80) },
+  { id: 'c3c3c3c3-0001-4000-8000-000000000001', name: 'Crest Financial Rebrand',        description: 'Full brand identity refresh — logo, guidelines, collateral, and website.',   color: '#6366F1', status: 'active',    start_date: '2026-01-15', due_date: '2026-04-30', hourly_tracking: true,  member_ids: memberMap['c3c3c3c3-0001-4000-8000-000000000001'], created_at: daysAgo(35), updated_at: daysAgo(1) },
+  { id: 'c3c3c3c3-0002-4000-8000-000000000002', name: 'Bloomwell Health App',           description: 'Patient portal mobile app — React Native, auth, appointments, messaging.',  color: '#EC4899', status: 'active',    start_date: '2026-02-01', due_date: '2026-06-15', hourly_tracking: true,  member_ids: memberMap['c3c3c3c3-0002-4000-8000-000000000002'], created_at: daysAgo(18), updated_at: daysAgo(1) },
+  { id: 'c3c3c3c3-0003-4000-8000-000000000003', name: 'NeoForge Website',               description: 'Marketing site for Series B push — Next.js, animations, CMS integration.',  color: '#8B5CF6', status: 'active',    start_date: '2026-01-20', due_date: '2026-03-31', hourly_tracking: false, member_ids: memberMap['c3c3c3c3-0003-4000-8000-000000000003'], created_at: daysAgo(30), updated_at: daysAgo(2) },
+  { id: 'c3c3c3c3-0004-4000-8000-000000000004', name: 'Solstice Realty Platform',       description: 'Property search with IDX, lead capture, and agent profiles.',                color: '#F59E0B', status: 'active',    start_date: '2026-02-10', due_date: '2026-05-20', hourly_tracking: true,  member_ids: memberMap['c3c3c3c3-0004-4000-8000-000000000004'], created_at: daysAgo(9),  updated_at: daysAgo(1) },
+  { id: 'c3c3c3c3-0005-4000-8000-000000000005', name: 'Peak Outdoor Shopify Migration', description: 'Migrate from legacy WooCommerce to Shopify Plus with custom theme.',         color: '#10B981', status: 'completed', start_date: '2025-10-01', due_date: '2026-01-15', hourly_tracking: false, member_ids: memberMap['c3c3c3c3-0005-4000-8000-000000000005'], created_at: daysAgo(140), updated_at: daysAgo(35) },
+  { id: 'c3c3c3c3-0006-4000-8000-000000000006', name: 'UrbanPulse Brand Package',       description: 'Logo, color system, typography, and podcast microsite.',                     color: '#EF4444', status: 'archived',  start_date: '2025-08-15', due_date: '2025-11-30', hourly_tracking: false, member_ids: memberMap['c3c3c3c3-0006-4000-8000-000000000006'], created_at: daysAgo(190), updated_at: daysAgo(80) },
 ];
 
 // ---------------------------------------------------------------------------
@@ -617,6 +617,7 @@ export const demoPortalSettings: PortalSettings[] = [
     show_progress: true,
     show_proposals: true,
     show_files: true,
+    show_hours: true,
     created_at: daysAgo(10),
     updated_at: daysAgo(1),
   },
@@ -632,6 +633,7 @@ export const demoPortalSettings: PortalSettings[] = [
     show_progress: true,
     show_proposals: true,
     show_files: true,
+    show_hours: true,
     created_at: daysAgo(8),
     updated_at: daysAgo(1),
   },
@@ -685,6 +687,109 @@ export const demoPortalFiles: PortalFile[] = [
     created_at: daysAgo(1),
     updated_at: daysAgo(1),
   },
+];
+
+// ---------------------------------------------------------------------------
+// ENTITY FILES (internal attachments for leads, projects, contacts)
+// ---------------------------------------------------------------------------
+export const demoEntityFiles: EntityFile[] = [
+  // Lead files
+  {
+    id: 'ef-0001-4000-8000-000000000001',
+    entity_type: 'lead',
+    entity_id: '77770001-0001-4000-8000-000000000001', // Nathan Cross lead
+    name: 'Cross-Legal-NDA.pdf',
+    file_url: '#',
+    file_size: 145000,
+    mime_type: 'application/pdf',
+    uploaded_by: 'a1a1a1a1-0001-4000-8000-000000000001',
+    created_at: daysAgo(8),
+    updated_at: daysAgo(8),
+  },
+  {
+    id: 'ef-0002-4000-8000-000000000002',
+    entity_type: 'lead',
+    entity_id: '77770001-0002-4000-8000-000000000002', // Yuki Tanaka lead
+    name: 'Kaizen-Brand-Brief.docx',
+    file_url: '#',
+    file_size: 320000,
+    mime_type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    uploaded_by: 'a1a1a1a1-0003-4000-8000-000000000003',
+    created_at: daysAgo(6),
+    updated_at: daysAgo(6),
+  },
+  // Project files
+  {
+    id: 'ef-0003-4000-8000-000000000003',
+    entity_type: 'project',
+    entity_id: 'c3c3c3c3-0001-4000-8000-000000000001', // Crest Financial Rebrand
+    name: 'Meeting-Notes-Kickoff.pdf',
+    file_url: '#',
+    file_size: 89000,
+    mime_type: 'application/pdf',
+    uploaded_by: 'a1a1a1a1-0001-4000-8000-000000000001',
+    created_at: daysAgo(30),
+    updated_at: daysAgo(30),
+  },
+  {
+    id: 'ef-0004-4000-8000-000000000004',
+    entity_type: 'project',
+    entity_id: 'c3c3c3c3-0002-4000-8000-000000000002', // Bloomwell Health App
+    name: 'HIPAA-Compliance-Checklist.xlsx',
+    file_url: '#',
+    file_size: 52000,
+    mime_type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    uploaded_by: 'a1a1a1a1-0004-4000-8000-000000000004',
+    created_at: daysAgo(12),
+    updated_at: daysAgo(12),
+  },
+  // Contact files
+  {
+    id: 'ef-0005-4000-8000-000000000005',
+    entity_type: 'contact',
+    entity_id: 'b2b2b2b2-0001-4000-8000-000000000001', // David Lawson
+    name: 'Crest-MSA-Signed.pdf',
+    file_url: '#',
+    file_size: 210000,
+    mime_type: 'application/pdf',
+    uploaded_by: 'a1a1a1a1-0001-4000-8000-000000000001',
+    created_at: daysAgo(25),
+    updated_at: daysAgo(25),
+  },
+  {
+    id: 'ef-0006-4000-8000-000000000006',
+    entity_type: 'contact',
+    entity_id: 'b2b2b2b2-0003-4000-8000-000000000003', // Andre Williams
+    name: 'NeoForge-Brand-Moodboard.png',
+    file_url: '#',
+    file_size: 4800000,
+    mime_type: 'image/png',
+    uploaded_by: 'a1a1a1a1-0002-4000-8000-000000000002',
+    created_at: daysAgo(20),
+    updated_at: daysAgo(20),
+  },
+];
+
+// ---------------------------------------------------------------------------
+// TIME ENTRIES (start/stop pairs)
+// ---------------------------------------------------------------------------
+function dayAtTime(daysBack: number, hours: number, minutes = 0): string {
+  const d = new Date(Date.now() - daysBack * 86_400_000);
+  d.setHours(hours, minutes, 0, 0);
+  return d.toISOString();
+}
+
+export const demoTimeEntries: TimeEntry[] = [
+  // Crest Financial Rebrand
+  { id: 'te-0001-4000-8000-000000000001', project_id: 'c3c3c3c3-0001-4000-8000-000000000001', member_id: 'a1a1a1a1-0001-4000-8000-000000000001', start_time: dayAtTime(2, 9, 0),  end_time: dayAtTime(2, 12, 30), description: 'Brand strategy workshop',        created_at: daysAgo(2), updated_at: daysAgo(2) },
+  { id: 'te-0002-4000-8000-000000000002', project_id: 'c3c3c3c3-0001-4000-8000-000000000001', member_id: 'a1a1a1a1-0002-4000-8000-000000000002', start_time: dayAtTime(3, 10, 0), end_time: dayAtTime(3, 15, 0),  description: 'Logo concept exploration',       created_at: daysAgo(3), updated_at: daysAgo(3) },
+  { id: 'te-0003-4000-8000-000000000003', project_id: 'c3c3c3c3-0001-4000-8000-000000000001', member_id: 'a1a1a1a1-0003-4000-8000-000000000003', start_time: dayAtTime(5, 13, 0), end_time: dayAtTime(5, 15, 30), description: 'Typography and color system',    created_at: daysAgo(5), updated_at: daysAgo(5) },
+  { id: 'te-0004-4000-8000-000000000004', project_id: 'c3c3c3c3-0001-4000-8000-000000000001', member_id: 'a1a1a1a1-0001-4000-8000-000000000001', start_time: dayAtTime(6, 14, 0), end_time: dayAtTime(6, 15, 30), description: 'Client feedback review',         created_at: daysAgo(6), updated_at: daysAgo(6) },
+  // Bloomwell Health App
+  { id: 'te-0005-4000-8000-000000000005', project_id: 'c3c3c3c3-0002-4000-8000-000000000002', member_id: 'a1a1a1a1-0004-4000-8000-000000000004', start_time: dayAtTime(1, 9, 0),  end_time: dayAtTime(1, 15, 0),  description: 'Homepage wireframes',            created_at: daysAgo(1), updated_at: daysAgo(1) },
+  { id: 'te-0006-4000-8000-000000000006', project_id: 'c3c3c3c3-0002-4000-8000-000000000002', member_id: 'a1a1a1a1-0003-4000-8000-000000000003', start_time: dayAtTime(2, 10, 0), end_time: dayAtTime(2, 14, 0),  description: 'Design review meeting',          created_at: daysAgo(2), updated_at: daysAgo(2) },
+  { id: 'te-0007-4000-8000-000000000007', project_id: 'c3c3c3c3-0002-4000-8000-000000000002', member_id: 'a1a1a1a1-0001-4000-8000-000000000001', start_time: dayAtTime(4, 11, 0), end_time: dayAtTime(4, 13, 0),  description: 'Sprint planning and task setup', created_at: daysAgo(4), updated_at: daysAgo(4) },
+  { id: 'te-0008-4000-8000-000000000008', project_id: 'c3c3c3c3-0002-4000-8000-000000000002', member_id: 'a1a1a1a1-0004-4000-8000-000000000004', start_time: dayAtTime(7, 8, 30), end_time: dayAtTime(7, 16, 0),  description: 'Auth flow implementation',       created_at: daysAgo(7), updated_at: daysAgo(7) },
 ];
 
 // ---------------------------------------------------------------------------

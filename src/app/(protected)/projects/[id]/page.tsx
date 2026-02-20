@@ -13,6 +13,8 @@ import { TaskDetailPanel } from '@/components/tasks/TaskDetailPanel';
 import { ProjectForm } from '@/components/projects/ProjectForm';
 import { ProjectContactsPanel } from '@/components/projects/ProjectContactsPanel';
 import { PortalSettingsPanel } from '@/components/projects/PortalSettingsPanel';
+import { TimeTrackingPanel } from '@/components/projects/TimeTrackingPanel';
+import { FileAttachments } from '@/components/ui/FileAttachments';
 import { Button } from '@/components/ui/Button';
 import { StatusBadge } from '@/components/ui/Badge';
 import { Avatar, AvatarGroup } from '@/components/ui/Avatar';
@@ -476,9 +478,18 @@ export default function ProjectDetailPage() {
         )}
       </div>
 
-      {/* Client Portal */}
+      {/* Management sections: 2-column grid when time tracking enabled */}
       <div className="px-4 lg:px-6 pb-4 lg:pb-6">
-        <PortalSettingsPanel projectId={projectId} />
+        <div className={`grid grid-cols-1 ${project.hourly_tracking ? 'lg:grid-cols-2' : ''} gap-6 items-start`}>
+          {project.hourly_tracking && (
+            <TimeTrackingPanel projectId={projectId} projectColor={project.color} />
+          )}
+
+          <div className="space-y-6">
+            <FileAttachments entityType="project" entityId={projectId} />
+            <PortalSettingsPanel projectId={projectId} />
+          </div>
+        </div>
       </div>
 
       {/* Delete Project */}

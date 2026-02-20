@@ -7,6 +7,7 @@ export const createProjectSchema = z.object({
   status: z.enum(['active', 'completed', 'archived']).default('active'),
   start_date: z.string().nullable().default(null),
   due_date: z.string().nullable().default(null),
+  hourly_tracking: z.boolean().default(false),
   member_ids: z.array(z.string().uuid()).default([]),
 });
 
@@ -17,5 +18,6 @@ export const updateProjectSchema = z.object({
   status: z.enum(['active', 'completed', 'archived']).optional(),
   start_date: z.string().nullable().optional(),
   due_date: z.string().nullable().optional(),
+  hourly_tracking: z.boolean().optional(),
   member_ids: z.array(z.string().uuid()).optional(),
 });

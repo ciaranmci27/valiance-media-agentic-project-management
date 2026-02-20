@@ -1,5 +1,5 @@
 import { SupabaseClient } from '@supabase/supabase-js';
-import type { Project, Task, TeamMember, Subtask, Comment, Activity, Contact, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, PortalSettings, PortalFile, ApiKey, ProjectGoal, TaskSuggestion, AgentActivity, ApiAuditEntry } from '@/lib/types';
+import type { Project, Task, TeamMember, Subtask, Comment, Activity, Contact, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, PortalSettings, PortalFile, EntityFile, ApiKey, ProjectGoal, TaskSuggestion, AgentActivity, ApiAuditEntry, TimeEntry } from '@/lib/types';
 
 // ============================================================
 // PROJECTS
@@ -1064,6 +1064,7 @@ export async function upsertPortalSettings(
         show_progress: settings.show_progress ?? true,
         show_proposals: settings.show_proposals ?? true,
         show_files: settings.show_files ?? true,
+        show_hours: settings.show_hours ?? true,
       })
       .select()
       .single();
@@ -1148,6 +1149,58 @@ export async function renamePortalFile(supabase: SupabaseClient, id: string, nam
 
 export async function removePortalFile(supabase: SupabaseClient, id: string) {
   const { error } = await supabase.from('portal_files').delete().eq('id', id);
+  if (error) throw error;
+}
+
+// ============================================================
+// ENTITY FILES
+// ============================================================
+
+export async function fetchAllEntityFiles(supabase: SupabaseClient) {
+  const { data, error } = await supabase
+    .from('entity_files')
+    .select('*')
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+  return (data || []) as EntityFile[];
+}
+
+export async function insertEntityFile(
+  supabase: SupabaseClient,
+  file: Omit<EntityFile, 'id' | 'created_at' | 'updated_at'>
+) {
+  const { data, error } = await supabase
+    .from('entity_files')
+    .insert({
+      entity_type: file.entity_type,
+      entity_id: file.entity_id,
+      name: file.name,
+      file_url: file.file_url,
+      file_size: file.file_size,
+      mime_type: file.mime_type,
+      uploaded_by: file.uploaded_by || null,
+    })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data as EntityFile;
+}
+
+export async function renameEntityFile(supabase: SupabaseClient, id: string, name: string) {
+  const { data, error } = await supabase
+    .from('entity_files')
+    .update({ name })
+    .eq('id', id)
+    .select()
+    .single();
+  if (error) throw error;
+  return data as EntityFile;
+}
+
+export async function removeEntityFile(supabase: SupabaseClient, id: string) {
+  const { error } = await supabase.from('entity_files').delete().eq('id', id);
   if (error) throw error;
 }
 
@@ -1530,4 +1583,70 @@ export async function fetchAuditLogForEntity(supabase: SupabaseClient, entityTyp
 
   if (error) throw error;
   return (data || []) as ApiAuditEntry[];
+}
+
+// ============================================================
+// TIME ENTRIES
+// ============================================================
+
+export async function fetchAllTimeEntries(supabase: SupabaseClient) {
+  const { data, error } = await supabase
+    .from('time_entries')
+    .select('*')
+    .order('start_time', { ascending: false });
+
+  if (error) throw error;
+  return (data || []) as TimeEntry[];
+}
+
+export async function fetchTimeEntriesByProject(supabase: SupabaseClient, projectId: string) {
+  const { data, error } = await supabase
+    .from('time_entries')
+    .select('*')
+    .eq('project_id', projectId)
+    .order('start_time', { ascending: false });
+
+  if (error) throw error;
+  return (data || []) as TimeEntry[];
+}
+
+export async function insertTimeEntry(
+  supabase: SupabaseClient,
+  entry: Omit<TimeEntry, 'id' | 'created_at' | 'updated_at'>
+) {
+  const { data, error } = await supabase
+    .from('time_entries')
+    .insert({
+      project_id: entry.project_id,
+      member_id: entry.member_id,
+      start_time: entry.start_time,
+      end_time: entry.end_time,
+      description: entry.description,
+    })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data as TimeEntry;
+}
+
+export async function patchTimeEntry(
+  supabase: SupabaseClient,
+  id: string,
+  updates: Partial<Pick<TimeEntry, 'member_id' | 'start_time' | 'end_time' | 'description'>>
+) {
+  const { data, error } = await supabase
+    .from('time_entries')
+    .update(updates)
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data as TimeEntry;
+}
+
+export async function removeTimeEntry(supabase: SupabaseClient, id: string) {
+  const { error } = await supabase.from('time_entries').delete().eq('id', id);
+  if (error) throw error;
 }

@@ -374,6 +374,44 @@ export default function SettingsPage() {
           </div>
         </section>
 
+        {/* Change Password Section */}
+        {!isDemoMode && (
+        <section className="bg-white rounded-xl border border-zinc-200 p-4 lg:p-6">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="p-2 bg-rose-50 rounded-lg">
+              <Lock className="text-rose-600" size={20} />
+            </div>
+            <div>
+              <h2 className="font-semibold text-zinc-900">Change Password</h2>
+              <p className="text-sm text-zinc-500">Update your account password</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Input
+              label="New Password"
+              type="password"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              placeholder="Min. 6 characters"
+            />
+            <Input
+              label="Confirm Password"
+              type="password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              placeholder="Re-enter password"
+            />
+          </div>
+
+          <div className="mt-4">
+            <Button onClick={handleChangePassword} disabled={passwordLoading}>
+              {passwordLoading ? 'Updating...' : 'Update Password'}
+            </Button>
+          </div>
+        </section>
+        )}
+
         {/* Notification Preferences Section */}
         <section className="bg-white rounded-xl border border-zinc-200 p-4 lg:p-6">
           <div className="flex items-center gap-3 mb-6">
@@ -422,43 +460,6 @@ export default function SettingsPage() {
             ))}
           </div>
         </section>
-
-        {/* Demo Mode Section — admin only, hidden when env-forced */}
-        {isAdmin && !isEnvForcedDemo && (
-          <section className="bg-white rounded-xl border border-zinc-200 p-4 lg:p-6">
-            <div className="flex items-center gap-3 mb-6">
-              <div className="p-2 bg-amber-50 rounded-lg">
-                <FlaskConical className="text-amber-600" size={20} />
-              </div>
-              <div>
-                <h2 className="font-semibold text-zinc-900">Demo Mode</h2>
-                <p className="text-sm text-zinc-500">View the app with sample data</p>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-zinc-700">Enable demo mode</p>
-                <p className="text-xs text-zinc-500 mt-0.5">Replaces live data with sample data. Changes won&apos;t be saved.</p>
-              </div>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={isDemoMode}
-                onClick={toggleDemoMode}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                  isDemoMode ? 'bg-amber-500' : 'bg-zinc-200'
-                }`}
-              >
-                <span
-                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                    isDemoMode ? 'translate-x-6' : 'translate-x-1'
-                  }`}
-                />
-              </button>
-            </div>
-          </section>
-        )}
 
         {/* API Keys Section — admin only */}
         {isAdmin && !isDemoMode && (
@@ -630,42 +631,41 @@ export default function SettingsPage() {
           </section>
         )}
 
-        {/* Change Password Section */}
-        {!isDemoMode && (
-        <section className="bg-white rounded-xl border border-zinc-200 p-4 lg:p-6">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="p-2 bg-rose-50 rounded-lg">
-              <Lock className="text-rose-600" size={20} />
+        {/* Demo Mode Section — admin only, hidden when env-forced */}
+        {isAdmin && !isEnvForcedDemo && (
+          <section className="bg-white rounded-xl border border-zinc-200 p-4 lg:p-6">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="p-2 bg-amber-50 rounded-lg">
+                <FlaskConical className="text-amber-600" size={20} />
+              </div>
+              <div>
+                <h2 className="font-semibold text-zinc-900">Demo Mode</h2>
+                <p className="text-sm text-zinc-500">View the app with sample data</p>
+              </div>
             </div>
-            <div>
-              <h2 className="font-semibold text-zinc-900">Change Password</h2>
-              <p className="text-sm text-zinc-500">Update your account password</p>
+
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-zinc-700">Enable demo mode</p>
+                <p className="text-xs text-zinc-500 mt-0.5">Replaces live data with sample data. Changes won&apos;t be saved.</p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={isDemoMode}
+                onClick={toggleDemoMode}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                  isDemoMode ? 'bg-amber-500' : 'bg-zinc-200'
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    isDemoMode ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+              </button>
             </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Input
-              label="New Password"
-              type="password"
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-              placeholder="Min. 6 characters"
-            />
-            <Input
-              label="Confirm Password"
-              type="password"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              placeholder="Re-enter password"
-            />
-          </div>
-
-          <div className="mt-4">
-            <Button onClick={handleChangePassword} disabled={passwordLoading}>
-              {passwordLoading ? 'Updating...' : 'Update Password'}
-            </Button>
-          </div>
-        </section>
+          </section>
         )}
       </div>
 

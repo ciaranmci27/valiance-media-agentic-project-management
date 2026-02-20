@@ -11,6 +11,7 @@ import { ContactForm } from '@/components/contacts/ContactForm';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Avatar } from '@/components/ui/Avatar';
+import { FileAttachments } from '@/components/ui/FileAttachments';
 import { Edit, Mail, Phone, Building2, StickyNote, Plus, FolderKanban, Target, UserCircle } from 'lucide-react';
 import { Project } from '@/lib/types';
 import { toast } from '@/components/ui/Toast';
@@ -239,6 +240,8 @@ export default function ContactDetailPage() {
             </div>
           </div>
         )}
+
+        <FileAttachments entityType="contact" entityId={contactId} />
       </div>
 
       <ContactForm

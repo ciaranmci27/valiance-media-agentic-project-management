@@ -1,7 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { Project, Task, TeamMember, FilterState, ViewMode, Subtask, Comment, Contact, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, Activity, PortalSettings, PortalFile, ApiKey, NotificationCategory, ProjectGoal, TaskSuggestion, AgentActivity } from './types';
+import { Project, Task, TeamMember, FilterState, ViewMode, Subtask, Comment, Contact, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, Activity, PortalSettings, PortalFile, EntityFile, EntityFileType, ApiKey, NotificationCategory, ProjectGoal, TaskSuggestion, AgentActivity, TimeEntry } from './types';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
@@ -9,7 +9,7 @@ import {
   demoTeam, demoContacts, demoProjects, demoProjectContacts, demoTasks,
   demoLeads, demoLeadInteractions, demoLeadProposals, demoLeadFields,
   demoLeadContacts, demoActivities,
-  demoPortalSettings, demoPortalFiles,
+  demoPortalSettings, demoPortalFiles, demoEntityFiles, demoTimeEntries,
 } from '@/lib/demo-data';
 import {
   fetchProjects,
@@ -68,6 +68,10 @@ import {
   insertPortalFile as insertPortalFileQuery,
   renamePortalFile as renamePortalFileQuery,
   removePortalFile as removePortalFileQuery,
+  fetchAllEntityFiles,
+  insertEntityFile as insertEntityFileQuery,
+  renameEntityFile as renameEntityFileQuery,
+  removeEntityFile as removeEntityFileQuery,
   fetchApiKeys,
   insertApiKey as insertApiKeyQuery,
   revokeApiKey as revokeApiKeyQuery,
@@ -80,6 +84,10 @@ import {
   rejectTaskSuggestion as rejectTaskSuggestionQuery,
   requestInfoTaskSuggestion as requestInfoTaskSuggestionQuery,
   fetchAgentActivity,
+  fetchAllTimeEntries,
+  insertTimeEntry as insertTimeEntryQuery,
+  patchTimeEntry as patchTimeEntryQuery,
+  removeTimeEntry as removeTimeEntryQuery,
 } from '@/lib/supabase/queries';
 import { toast } from '@/components/ui/Toast';
 
@@ -98,7 +106,9 @@ interface AppContextType {
   activities: Activity[];
   portalSettings: PortalSettings[];
   portalFiles: PortalFile[];
+  entityFiles: EntityFile[];
   apiKeys: ApiKey[];
+  timeEntries: TimeEntry[];
   loading: boolean;
 
   // Filters
@@ -179,6 +189,12 @@ interface AppContextType {
   renamePortalFile: (id: string, name: string) => void;
   deletePortalFile: (id: string) => void;
 
+  // Entity File CRUD
+  addEntityFile: (file: Omit<EntityFile, 'id' | 'created_at' | 'updated_at'>) => void;
+  renameEntityFile: (id: string, name: string) => void;
+  deleteEntityFile: (id: string) => void;
+  getEntityFiles: (entityType: EntityFileType, entityId: string) => EntityFile[];
+
   // API Key CRUD
   addApiKey: (name: string, keyHash: string, keyPrefix: string, permissions?: string, teamMemberId?: string | null) => Promise<ApiKey | undefined>;
   revokeApiKey: (id: string) => void;
@@ -204,6 +220,15 @@ interface AppContextType {
   getGoalsByProject: (projectId: string) => ProjectGoal[];
   getSuggestionsByGoal: (goalId: string) => TaskSuggestion[];
   getPendingSuggestionCount: () => number;
+
+  // Time Entry CRUD
+  addTimeEntry: (entry: Omit<TimeEntry, 'id' | 'created_at' | 'updated_at'>) => void;
+  updateTimeEntry: (id: string, updates: Partial<Pick<TimeEntry, 'member_id' | 'start_time' | 'end_time' | 'description'>>) => void;
+  deleteTimeEntry: (id: string) => void;
+  getTimeEntriesByProject: (projectId: string) => TimeEntry[];
+  startTimer: (projectId: string, memberId: string, description?: string) => void;
+  stopTimer: (projectId: string) => void;
+  getRunningTimer: (projectId: string) => TimeEntry | undefined;
 
   // Helpers
   getProject: (id: string) => Project | undefined;
@@ -249,7 +274,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [activities, setActivities] = useState<Activity[]>([]);
   const [portalSettings, setPortalSettings] = useState<PortalSettings[]>([]);
   const [portalFiles, setPortalFiles] = useState<PortalFile[]>([]);
+  const [entityFiles, setEntityFiles] = useState<EntityFile[]>([]);
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
+  const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([]);
   const [projectGoals, setProjectGoals] = useState<ProjectGoal[]>([]);
   const [taskSuggestions, setTaskSuggestions] = useState<TaskSuggestion[]>([]);
   const [agentActivityList, setAgentActivityList] = useState<AgentActivity[]>([]);
@@ -307,6 +334,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setActivities([...demoActivities]);
       setPortalSettings([...demoPortalSettings]);
       setPortalFiles([...demoPortalFiles]);
+      setEntityFiles([...demoEntityFiles]);
+      setTimeEntries([...demoTimeEntries]);
       setLoading(false);
       return;
     }
@@ -318,7 +347,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     const loadData = async () => {
       try {
-        const [projectsData, tasksData, teamData, contactsData, projectContactsData, leadsData, leadInteractionsData, leadProposalsData, leadFieldsData, leadContactsData, activitiesData, portalSettingsData, portalFilesData, apiKeysData] = await Promise.all([
+        const [projectsData, tasksData, teamData, contactsData, projectContactsData, leadsData, leadInteractionsData, leadProposalsData, leadFieldsData, leadContactsData, activitiesData, portalSettingsData, portalFilesData, entityFilesData, apiKeysData, timeEntriesData] = await Promise.all([
           fetchProjects(supabase),
           fetchTasks(supabase),
           fetchTeamMembers(supabase),
@@ -332,7 +361,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
           fetchActivities(supabase),
           fetchAllPortalSettings(supabase),
           fetchAllPortalFiles(supabase),
+          fetchAllEntityFiles(supabase),
           fetchApiKeys(supabase),
+          fetchAllTimeEntries(supabase),
         ]);
 
         setProjects(projectsData);
@@ -348,7 +379,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setActivities(activitiesData);
         setPortalSettings(portalSettingsData);
         setPortalFiles(portalFilesData);
+        setEntityFiles(entityFilesData);
         setApiKeys(apiKeysData);
+        setTimeEntries(timeEntriesData);
 
         // Conditionally load agent data when feature is enabled
         if (process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true') {
@@ -1142,6 +1175,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       status: 'active',
       start_date: null,
       due_date: null,
+      hourly_tracking: false,
       member_ids: lead.member_ids || [],
       created_by: teamMemberId,
       created_at: now,
@@ -1587,6 +1621,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         show_progress: settings.show_progress ?? true,
         show_proposals: settings.show_proposals ?? true,
         show_files: settings.show_files ?? true,
+        show_hours: settings.show_hours ?? true,
         created_at: now,
         updated_at: now,
       };
@@ -1669,6 +1704,140 @@ export function AppProvider({ children }: { children: ReactNode }) {
       toast('error', 'Failed to delete file');
     }
   };
+
+  // Entity File CRUD
+  const addEntityFile = async (file: Omit<EntityFile, 'id' | 'created_at' | 'updated_at'>) => {
+    const optimisticId = crypto.randomUUID();
+    const now = new Date().toISOString();
+    const optimistic: EntityFile = {
+      ...file,
+      id: optimisticId,
+      created_at: now,
+      updated_at: now,
+    };
+
+    setEntityFiles(prev => [optimistic, ...prev]);
+    if (skipSupabase) return;
+
+    try {
+      const created = await insertEntityFileQuery(supabase, file);
+      setEntityFiles(prev => prev.map(f => f.id === optimisticId ? created : f));
+    } catch (err) {
+      setEntityFiles(prev => prev.filter(f => f.id !== optimisticId));
+      toast('error', 'Failed to upload file');
+    }
+  };
+
+  const renameEntityFile = async (id: string, name: string) => {
+    const prev = entityFiles;
+    setEntityFiles(f => f.map(file => file.id === id ? { ...file, name } : file));
+    if (skipSupabase) return;
+
+    try {
+      await renameEntityFileQuery(supabase, id, name);
+    } catch (err) {
+      setEntityFiles(prev);
+      toast('error', 'Failed to rename file');
+    }
+  };
+
+  const deleteEntityFile = async (id: string) => {
+    const prev = entityFiles;
+    setEntityFiles(f => f.filter(file => file.id !== id));
+    if (skipSupabase) return;
+
+    try {
+      await removeEntityFileQuery(supabase, id);
+    } catch (err) {
+      setEntityFiles(prev);
+      toast('error', 'Failed to delete file');
+    }
+  };
+
+  const getEntityFiles = (entityType: EntityFileType, entityId: string) =>
+    entityFiles.filter(ef => ef.entity_type === entityType && ef.entity_id === entityId);
+
+  // Time Entry CRUD
+  const addTimeEntry = async (entry: Omit<TimeEntry, 'id' | 'created_at' | 'updated_at'>) => {
+    const optimisticId = crypto.randomUUID();
+    const now = new Date().toISOString();
+    const optimistic: TimeEntry = {
+      ...entry,
+      id: optimisticId,
+      created_at: now,
+      updated_at: now,
+    };
+
+    setTimeEntries(prev => [optimistic, ...prev]);
+    if (skipSupabase) return;
+
+    try {
+      const created = await insertTimeEntryQuery(supabase, entry);
+      setTimeEntries(prev => prev.map(te => te.id === optimisticId ? created : te));
+    } catch (err) {
+      setTimeEntries(prev => prev.filter(te => te.id !== optimisticId));
+      toast('error', 'Failed to add time entry');
+    }
+  };
+
+  const updateTimeEntry = async (id: string, updates: Partial<Pick<TimeEntry, 'member_id' | 'start_time' | 'end_time' | 'description'>>) => {
+    const prev = timeEntries;
+    setTimeEntries(te => te.map(entry =>
+      entry.id === id ? { ...entry, ...updates, updated_at: new Date().toISOString() } : entry
+    ));
+    if (skipSupabase) return;
+
+    try {
+      await patchTimeEntryQuery(supabase, id, updates);
+    } catch (err) {
+      setTimeEntries(prev);
+      toast('error', 'Failed to update time entry');
+    }
+  };
+
+  const deleteTimeEntry = async (id: string) => {
+    const prev = timeEntries;
+    setTimeEntries(te => te.filter(entry => entry.id !== id));
+    if (skipSupabase) return;
+
+    try {
+      await removeTimeEntryQuery(supabase, id);
+    } catch (err) {
+      setTimeEntries(prev);
+      toast('error', 'Failed to delete time entry');
+    }
+  };
+
+  const getTimeEntriesByProject = (projectId: string) =>
+    timeEntries.filter(te => te.project_id === projectId);
+
+  const startTimer = async (projectId: string, memberId: string, description = '') => {
+    // Check if there's already a running timer for this project
+    const existing = timeEntries.find(te => te.project_id === projectId && te.end_time === null);
+    if (existing) {
+      toast('error', 'A timer is already running for this project');
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const entry: Omit<TimeEntry, 'id' | 'created_at' | 'updated_at'> = {
+      project_id: projectId,
+      member_id: memberId,
+      start_time: now,
+      end_time: null,
+      description,
+    };
+    await addTimeEntry(entry);
+  };
+
+  const stopTimer = async (projectId: string) => {
+    const running = timeEntries.find(te => te.project_id === projectId && te.end_time === null);
+    if (!running) return;
+    await updateTimeEntry(running.id, { end_time: new Date().toISOString() });
+  };
+
+  const getRunningTimer = (projectId: string) =>
+    timeEntries.find(te => te.project_id === projectId && te.end_time === null);
 
   // API Key CRUD
   const addApiKeyAction = async (name: string, keyHash: string, keyPrefix: string, permissions = 'full', linkedTeamMemberId?: string | null): Promise<ApiKey | undefined> => {
@@ -1901,7 +2070,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       activities,
       portalSettings,
       portalFiles,
+      entityFiles,
       apiKeys,
+      timeEntries,
       loading,
       filters,
       setFilters,
@@ -1951,6 +2122,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
       addPortalFile,
       renamePortalFile,
       deletePortalFile,
+      addEntityFile,
+      renameEntityFile,
+      deleteEntityFile,
+      getEntityFiles,
+      addTimeEntry,
+      updateTimeEntry,
+      deleteTimeEntry,
+      startTimer,
+      stopTimer,
+      getRunningTimer,
+      getTimeEntriesByProject,
       addApiKey: addApiKeyAction,
       revokeApiKey: revokeApiKeyAction,
       projectGoals,

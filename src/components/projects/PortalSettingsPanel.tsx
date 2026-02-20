@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import {
   Globe, Link2, RefreshCw, Copy, Check, Eye, EyeOff,
   Upload, Trash2, FileText, Image, Archive, File, ExternalLink,
@@ -59,6 +59,27 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
   const renameCancelledRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const logoInputRef = useRef<HTMLInputElement>(null);
+
+  // Local state for text inputs to avoid writing to store on every keystroke
+  const [localPin, setLocalPin] = useState(settings?.pin || '');
+  const [localAccentColor, setLocalAccentColor] = useState(settings?.accent_color || '#6366F1');
+  const [localWelcomeMessage, setLocalWelcomeMessage] = useState(settings?.welcome_message || '');
+
+  // Sync local state when settings change externally
+  useEffect(() => {
+    setLocalPin(settings?.pin || '');
+    setLocalAccentColor(settings?.accent_color || '#6366F1');
+    setLocalWelcomeMessage(settings?.welcome_message || '');
+  }, [settings?.pin, settings?.accent_color, settings?.welcome_message]);
+
+  // Debounced save helper
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const debouncedSettingChange = useCallback((key: string, value: any) => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      upsertPortalSettings(projectId, { [key]: value });
+    }, 500);
+  }, [projectId, upsertPortalSettings]);
 
   const isEnabled = settings?.enabled ?? false;
   const portalUrl = settings?.token
@@ -328,8 +349,11 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
                 <div className="relative">
                   <input
                     type={showPin ? 'text' : 'password'}
-                    value={settings.pin || ''}
-                    onChange={e => handleSettingChange('pin', e.target.value || null)}
+                    value={localPin}
+                    onChange={e => {
+                      setLocalPin(e.target.value);
+                      debouncedSettingChange('pin', e.target.value || null);
+                    }}
                     placeholder="PIN (open access)"
                     className="w-full px-3 py-2 pr-9 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-all placeholder:text-zinc-400"
                   />
@@ -350,8 +374,11 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
                   />
                   <input
                     type="text"
-                    value={settings.accent_color || '#6366F1'}
-                    onChange={e => handleSettingChange('accent_color', e.target.value)}
+                    value={localAccentColor}
+                    onChange={e => {
+                      setLocalAccentColor(e.target.value);
+                      debouncedSettingChange('accent_color', e.target.value);
+                    }}
                     className="flex-1 px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-all min-w-0"
                   />
                 </div>
@@ -363,8 +390,11 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
           <div className="space-y-1.5">
             <label className="block text-sm font-medium text-zinc-700">Welcome Message</label>
             <textarea
-              value={settings.welcome_message || ''}
-              onChange={e => handleSettingChange('welcome_message', e.target.value)}
+              value={localWelcomeMessage}
+              onChange={e => {
+                setLocalWelcomeMessage(e.target.value);
+                debouncedSettingChange('welcome_message', e.target.value);
+              }}
               placeholder="Welcome to your project portal! Here you can track progress and download shared files."
               rows={3}
               className="w-full px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-all placeholder:text-zinc-400 resize-none"
@@ -379,6 +409,7 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
                 { key: 'show_progress', label: 'Progress' },
                 { key: 'show_proposals', label: 'Proposals' },
                 { key: 'show_files', label: 'Files' },
+                { key: 'show_hours', label: 'Hours' },
               ].map(({ key, label }) => {
                 const isActive = (settings as any)[key];
                 return (

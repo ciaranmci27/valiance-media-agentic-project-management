@@ -26,7 +26,7 @@ export function Select({
   size = 'default',
 }: SelectProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const [dropdownPos, setDropdownPos] = useState({ top: 0, left: 0, width: 0, maxHeight: 240 });
+  const [dropdownPos, setDropdownPos] = useState({ top: 0, left: 0, width: 0, maxHeight: 240, openAbove: false });
   const triggerRef = useRef<HTMLButtonElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -43,10 +43,11 @@ export function Select({
     // Flip upward if not enough space below but enough above
     const openAbove = spaceBelow < maxDropdownHeight + 8 && spaceAbove > spaceBelow;
     setDropdownPos({
-      top: openAbove ? rect.top - Math.min(maxDropdownHeight, spaceAbove - 8) - 4 : rect.bottom + 4,
+      top: openAbove ? rect.top - 4 : rect.bottom + 4,
       left: rect.left,
       width: rect.width,
       maxHeight: openAbove ? Math.min(maxDropdownHeight, spaceAbove - 8) : Math.min(maxDropdownHeight, spaceBelow - 8),
+      openAbove,
     });
   }, []);
 
@@ -146,6 +147,7 @@ export function Select({
               left: dropdownPos.left,
               minWidth: dropdownPos.width,
               maxHeight: dropdownPos.maxHeight,
+              transform: dropdownPos.openAbove ? 'translateY(-100%)' : undefined,
             }}
           >
             {options.map((option) => {

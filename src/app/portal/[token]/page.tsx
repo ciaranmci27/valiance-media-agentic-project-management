@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import {
   Lock, Loader2, FileText, Image, Archive, File, Download, ExternalLink, Globe,
-  CheckCircle2, Clock, AlertCircle, Send, FolderOpen,
+  CheckCircle2, Clock, AlertCircle, Send, FolderOpen, Timer,
 } from 'lucide-react';
 import Link from 'next/link';
 import type { PortalData } from '@/lib/types';
@@ -243,7 +243,8 @@ export default function PortalPage() {
   const hasSections =
     (data.settings.show_progress && data.progress.total_tasks > 0) ||
     (data.settings.show_proposals && data.proposals.length > 0) ||
-    (data.settings.show_files && data.files.length > 0);
+    (data.settings.show_files && data.files.length > 0) ||
+    (data.settings.show_hours && data.hours.entries.length > 0);
 
   /* ────────────────────────────────────────────────── */
   /*  MAIN PORTAL                                      */
@@ -320,6 +321,53 @@ export default function PortalPage() {
                 <p className="text-sm text-zinc-400">
                   <span className="font-semibold text-zinc-700">{data.progress.done_tasks}</span> of {data.progress.total_tasks} tasks complete
                 </p>
+              </section>
+            )}
+
+            {/* ── Hours Logged ──────────────────── */}
+            {data.settings.show_hours && data.hours.entries.length > 0 && (
+              <section className="bg-white rounded-2xl border border-zinc-200/80 p-6 sm:p-8">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.15em] text-zinc-400 mb-3">
+                  Hours Logged
+                </p>
+                <div className="flex items-baseline gap-1.5 mb-6">
+                  <span
+                    className="text-6xl sm:text-7xl font-bold tabular-nums tracking-tighter leading-none"
+                    style={{ color: accentColor }}
+                  >
+                    {data.hours.total_hours.toFixed(1)}
+                  </span>
+                  <span className="text-2xl font-semibold text-zinc-200">hrs</span>
+                </div>
+                <div className="space-y-1 max-h-[300px] overflow-y-auto">
+                  {data.hours.entries.map(entry => (
+                    <div
+                      key={entry.id}
+                      className="flex items-center gap-3.5 px-4 py-3.5 rounded-xl hover:bg-zinc-50 transition-all duration-150"
+                    >
+                      <div
+                        className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0"
+                        style={{ backgroundColor: `${accentColor}10` }}
+                      >
+                        <Timer size={16} style={{ color: accentColor }} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-zinc-900 truncate">
+                          {entry.description || 'Work logged'}
+                        </p>
+                        <p className="text-xs text-zinc-400">
+                          {entry.member_name} &middot; {new Date(entry.start_time).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} &middot; {new Date(entry.start_time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} – {new Date(entry.end_time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                        </p>
+                      </div>
+                      <span
+                        className="text-sm font-bold flex-shrink-0 tabular-nums"
+                        style={{ color: accentColor }}
+                      >
+                        {entry.hours.toFixed(1)}h
+                      </span>
+                    </div>
+                  ))}
+                </div>
               </section>
             )}
 

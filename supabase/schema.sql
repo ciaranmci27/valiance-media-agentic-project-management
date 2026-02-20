@@ -43,6 +43,7 @@ create table public.projects (
   status text not null default 'active' check (status in ('active', 'completed', 'archived')),
   start_date text,
   due_date text,
+  hourly_tracking boolean not null default false,
   created_by uuid references public.team_members(id) on delete set null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -282,7 +283,23 @@ create table public.portal_files (
 );
 
 -- ============================================================
--- 19. API KEYS (database-managed API key system)
+-- 19. ENTITY FILES (polymorphic attachments for leads, projects, contacts)
+-- ============================================================
+create table public.entity_files (
+  id uuid primary key default gen_random_uuid(),
+  entity_type text not null check (entity_type in ('lead', 'project', 'contact')),
+  entity_id uuid not null,
+  name text not null,
+  file_url text not null,
+  file_size bigint not null default 0,
+  mime_type text not null default 'application/octet-stream',
+  uploaded_by uuid references public.team_members(id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+-- ============================================================
+-- 20. API KEYS (database-managed API key system)
 -- ============================================================
 create table public.api_keys (
   id uuid primary key default gen_random_uuid(),
@@ -311,6 +328,27 @@ create table public.notifications (
   entity_id text,
   created_at timestamptz not null default now()
 );
+
+-- ============================================================
+-- 21. TIME ENTRIES (start/stop timer + manual entry)
+-- ============================================================
+create table public.time_entries (
+  id uuid primary key default gen_random_uuid(),
+  project_id uuid not null references public.projects(id) on delete cascade,
+  member_id uuid not null references public.team_members(id) on delete cascade,
+  start_time timestamptz not null default now(),
+  end_time timestamptz,
+  description text not null default '',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+-- Only one running timer per project at a time
+create unique index idx_time_entries_running
+  on public.time_entries (project_id) where end_time is null;
+
+-- Add show_hours toggle to portal settings
+alter table public.portal_settings add column if not exists show_hours boolean not null default true;
 
 -- Soft delete support for projects and leads
 alter table public.projects add column if not exists archived_at timestamptz default null;
@@ -352,10 +390,16 @@ create index idx_portal_settings_project_id on public.portal_settings(project_id
 create index idx_portal_settings_token on public.portal_settings(token);
 create index idx_portal_files_project_id on public.portal_files(project_id);
 
+create index idx_entity_files_entity on public.entity_files(entity_type, entity_id);
+
 create index idx_api_keys_key_hash on public.api_keys(key_hash);
 create index idx_api_keys_revoked_at on public.api_keys(revoked_at) where revoked_at is null;
 create index idx_projects_archived_at on public.projects(archived_at) where archived_at is null;
 create index idx_leads_archived_at on public.leads(archived_at) where archived_at is null;
+
+create index idx_time_entries_project on public.time_entries(project_id);
+create index idx_time_entries_member on public.time_entries(member_id);
+create index idx_time_entries_start_time on public.time_entries(start_time desc);
 
 create index idx_notifications_user_id on public.notifications(user_id);
 create index idx_notifications_unread on public.notifications(user_id, is_read) where is_read = false;
@@ -446,8 +490,16 @@ create trigger set_portal_files_updated_at
   before update on public.portal_files
   for each row execute function public.handle_updated_at();
 
+create trigger set_entity_files_updated_at
+  before update on public.entity_files
+  for each row execute function public.handle_updated_at();
+
 create trigger set_api_keys_updated_at
   before update on public.api_keys
+  for each row execute function public.handle_updated_at();
+
+create trigger set_time_entries_updated_at
+  before update on public.time_entries
   for each row execute function public.handle_updated_at();
 
 -- ============================================================
@@ -493,7 +545,9 @@ alter table public.lead_members enable row level security;
 alter table public.lead_contacts enable row level security;
 alter table public.portal_settings enable row level security;
 alter table public.portal_files enable row level security;
+alter table public.entity_files enable row level security;
 alter table public.api_keys enable row level security;
+alter table public.time_entries enable row level security;
 alter table public.notifications enable row level security;
 
 -- All authenticated users get full CRUD on shared data
@@ -551,6 +605,12 @@ create policy "portal_settings_all" on public.portal_settings
 create policy "portal_files_all" on public.portal_files
   for all to authenticated using (true) with check (true);
 
+create policy "entity_files_all" on public.entity_files
+  for all to authenticated using (true) with check (true);
+
+create policy "time_entries_all" on public.time_entries
+  for all to authenticated using (true) with check (true);
+
 create policy "api_keys_all" on public.api_keys
   for all to authenticated using (true) with check (true);
 
@@ -598,6 +658,33 @@ create policy "Public can read portal files"
   on storage.objects for select
   to public
   using (bucket_id = 'portal-files');
+
+-- ============================================================
+-- STORAGE: Entity Files Bucket (public, 50MB limit)
+-- ============================================================
+insert into storage.buckets (id, name, public, file_size_limit)
+values ('entity-files', 'entity-files', true, 52428800)
+on conflict (id) do nothing;
+
+create policy "Authenticated users can upload entity files"
+  on storage.objects for insert
+  to authenticated
+  with check (bucket_id = 'entity-files');
+
+create policy "Authenticated users can update entity files"
+  on storage.objects for update
+  to authenticated
+  using (bucket_id = 'entity-files');
+
+create policy "Authenticated users can delete entity files"
+  on storage.objects for delete
+  to authenticated
+  using (bucket_id = 'entity-files');
+
+create policy "Public can read entity files"
+  on storage.objects for select
+  to public
+  using (bucket_id = 'entity-files');
 
 -- ============================================================
 -- AGENTIC WORKFLOW TABLES (optional, enabled via NEXT_PUBLIC_ENABLE_AGENTS=true)

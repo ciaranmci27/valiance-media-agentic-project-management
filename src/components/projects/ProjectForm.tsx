@@ -30,6 +30,7 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
   const [status, setStatus] = useState<Project['status']>('active');
   const [startDate, setStartDate] = useState('');
   const [dueDate, setDueDate] = useState('');
+  const [hourlyTracking, setHourlyTracking] = useState(false);
   const [memberIds, setMemberIds] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [confirmStatusChange, setConfirmStatusChange] = useState(false);
@@ -50,6 +51,7 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
       setStatus(project.status);
       setStartDate(project.start_date || '');
       setDueDate(project.due_date || '');
+      setHourlyTracking(project.hourly_tracking ?? false);
       setMemberIds(project.member_ids);
       const primaryClient = getPrimaryClient(project.id);
       setSelectedContactId(primaryClient?.contact_id || '');
@@ -60,6 +62,7 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
       setStatus('active');
       setStartDate('');
       setDueDate('');
+      setHourlyTracking(false);
       setMemberIds([]);
       setSelectedContactId('');
     }
@@ -78,6 +81,7 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
       status,
       start_date: startDate || null,
       due_date: dueDate || null,
+      hourly_tracking: hourlyTracking,
       member_ids: memberIds,
     };
 
@@ -342,6 +346,26 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
             value={dueDate}
             onChange={(e) => setDueDate(e.target.value)}
           />
+        </div>
+
+        <div className="flex items-center justify-between py-1">
+          <div>
+            <label className="block text-sm font-medium text-zinc-700">Hourly Tracking</label>
+            <p className="text-xs text-zinc-400">Enable time tracking for this project</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setHourlyTracking(!hourlyTracking)}
+            className={`relative w-10 h-[22px] rounded-full transition-colors ${
+              hourlyTracking ? 'bg-indigo-600' : 'bg-zinc-300'
+            }`}
+          >
+            <span
+              className={`absolute top-0.5 left-0.5 w-[18px] h-[18px] bg-white rounded-full shadow transition-transform ${
+                hourlyTracking ? 'translate-x-[18px]' : 'translate-x-0'
+              }`}
+            />
+          </button>
         </div>
 
         <div className="space-y-1.5">

@@ -9,6 +9,7 @@ export const upsertPortalSettingsSchema = z.object({
   show_progress: z.boolean().optional(),
   show_proposals: z.boolean().optional(),
   show_files: z.boolean().optional(),
+  show_hours: z.boolean().optional(),
 });
 
 export const createPortalFileSchema = z.object({

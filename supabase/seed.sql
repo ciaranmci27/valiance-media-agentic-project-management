@@ -291,3 +291,27 @@ insert into public.activities (id, type, entity_id, entity_type, user_id, descri
   ('99990001-0010-4000-8000-000000000010', 'task_created',    'e5e5e5e5-0019-4000-8000-000000000019', 'task',    'a1a1a1a1-0001-4000-8000-000000000001', 'Created "IDX/MLS integration research"',             '{"project": "Solstice Realty Platform"}',  now() - interval '5 days'),
   ('99990001-0011-4000-8000-000000000011', 'comment_added',   'aabbccdd-0013-4000-8000-000000000013', 'comment', 'a1a1a1a1-0001-4000-8000-000000000001', 'Commented on "IDX/MLS integration research"',       '{"task": "IDX/MLS integration research"}', now() - interval '6 hours'),
   ('99990001-0012-4000-8000-000000000012', 'task_completed',  'e5e5e5e5-0024-4000-8000-000000000024', 'task',    'a1a1a1a1-0004-4000-8000-000000000004', 'Completed "Shopify Plus theme development"',        '{"project": "Peak Outdoor Shopify Migration"}', now() - interval '50 days');
+
+-- ============================================================
+-- 10. ENTITY FILES (internal attachments for leads, projects, contacts)
+-- ============================================================
+insert into public.entity_files (id, entity_type, entity_id, name, file_url, file_size, mime_type, uploaded_by, created_at, updated_at) values
+  ('ef000001-0001-4000-8000-000000000001', 'lead',    '77770001-0001-4000-8000-000000000001', 'Cross-Legal-NDA.pdf',             '#', 145000,  'application/pdf',       'a1a1a1a1-0001-4000-8000-000000000001', now() - interval '8 days',  now() - interval '8 days'),
+  ('ef000001-0002-4000-8000-000000000002', 'lead',    '77770001-0002-4000-8000-000000000002', 'Kaizen-Brand-Brief.docx',         '#', 320000,  'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'a1a1a1a1-0003-4000-8000-000000000003', now() - interval '6 days',  now() - interval '6 days'),
+  ('ef000001-0003-4000-8000-000000000003', 'project', 'c3c3c3c3-0001-4000-8000-000000000001', 'Meeting-Notes-Kickoff.pdf',       '#', 89000,   'application/pdf',       'a1a1a1a1-0001-4000-8000-000000000001', now() - interval '30 days', now() - interval '30 days'),
+  ('ef000001-0004-4000-8000-000000000004', 'project', 'c3c3c3c3-0002-4000-8000-000000000002', 'HIPAA-Compliance-Checklist.xlsx', '#', 52000,   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'a1a1a1a1-0004-4000-8000-000000000004', now() - interval '12 days', now() - interval '12 days'),
+  ('ef000001-0005-4000-8000-000000000005', 'contact', 'b2b2b2b2-0001-4000-8000-000000000001', 'Crest-MSA-Signed.pdf',           '#', 210000,  'application/pdf',       'a1a1a1a1-0001-4000-8000-000000000001', now() - interval '25 days', now() - interval '25 days'),
+  ('ef000001-0006-4000-8000-000000000006', 'contact', 'b2b2b2b2-0003-4000-8000-000000000003', 'NeoForge-Brand-Moodboard.png',   '#', 4800000, 'image/png',             'a1a1a1a1-0002-4000-8000-000000000002', now() - interval '20 days', now() - interval '20 days');
+
+-- ============================================================
+-- 11. TIME ENTRIES (start/stop timer tracking)
+-- ============================================================
+insert into public.time_entries (id, project_id, member_id, start_time, end_time, description, created_at, updated_at) values
+  ('te000001-0001-4000-8000-000000000001', 'c3c3c3c3-0001-4000-8000-000000000001', 'a1a1a1a1-0001-4000-8000-000000000001', (current_date - 2) + time '09:00', (current_date - 2) + time '12:30', 'Brand strategy workshop',        now() - interval '2 days', now() - interval '2 days'),
+  ('te000001-0002-4000-8000-000000000002', 'c3c3c3c3-0001-4000-8000-000000000001', 'a1a1a1a1-0002-4000-8000-000000000002', (current_date - 3) + time '10:00', (current_date - 3) + time '15:00', 'Logo concept exploration',       now() - interval '3 days', now() - interval '3 days'),
+  ('te000001-0003-4000-8000-000000000003', 'c3c3c3c3-0001-4000-8000-000000000001', 'a1a1a1a1-0003-4000-8000-000000000003', (current_date - 5) + time '13:00', (current_date - 5) + time '15:30', 'Typography and color system',    now() - interval '5 days', now() - interval '5 days'),
+  ('te000001-0004-4000-8000-000000000004', 'c3c3c3c3-0001-4000-8000-000000000001', 'a1a1a1a1-0001-4000-8000-000000000001', (current_date - 6) + time '14:00', (current_date - 6) + time '15:30', 'Client feedback review',         now() - interval '6 days', now() - interval '6 days'),
+  ('te000001-0005-4000-8000-000000000005', 'c3c3c3c3-0002-4000-8000-000000000002', 'a1a1a1a1-0004-4000-8000-000000000004', (current_date - 1) + time '09:00', (current_date - 1) + time '15:00', 'Homepage wireframes',            now() - interval '1 day',  now() - interval '1 day'),
+  ('te000001-0006-4000-8000-000000000006', 'c3c3c3c3-0002-4000-8000-000000000002', 'a1a1a1a1-0003-4000-8000-000000000003', (current_date - 2) + time '10:00', (current_date - 2) + time '14:00', 'Design review meeting',          now() - interval '2 days', now() - interval '2 days'),
+  ('te000001-0007-4000-8000-000000000007', 'c3c3c3c3-0002-4000-8000-000000000002', 'a1a1a1a1-0001-4000-8000-000000000001', (current_date - 4) + time '11:00', (current_date - 4) + time '13:00', 'Sprint planning and task setup', now() - interval '4 days', now() - interval '4 days'),
+  ('te000001-0008-4000-8000-000000000008', 'c3c3c3c3-0002-4000-8000-000000000002', 'a1a1a1a1-0004-4000-8000-000000000004', (current_date - 7) + time '08:30', (current_date - 7) + time '16:00', 'Auth flow implementation',       now() - interval '7 days', now() - interval '7 days');

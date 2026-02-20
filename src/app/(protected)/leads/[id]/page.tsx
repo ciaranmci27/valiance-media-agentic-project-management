@@ -11,6 +11,7 @@ import { LeadProposalForm } from '@/components/leads/LeadProposalForm';
 import { ConvertLeadModal } from '@/components/leads/ConvertLeadModal';
 import { LeadFieldsSection } from '@/components/leads/LeadFieldsSection';
 import { LeadContactsSection } from '@/components/leads/LeadContactsSection';
+import { FileAttachments } from '@/components/ui/FileAttachments';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Avatar } from '@/components/ui/Avatar';
@@ -522,6 +523,8 @@ export default function LeadDetailPage() {
 
         {/* Lead Contacts */}
         <LeadContactsSection leadId={leadId} />
+
+        <FileAttachments entityType="lead" entityId={leadId} />
 
         <div className="flex justify-end">
           <Button variant="danger" onClick={() => setIsDeleteOpen(true)} icon={<Trash2 size={16} />}>

@@ -9,6 +9,7 @@ export interface Project {
   status: 'active' | 'completed' | 'archived';
   start_date: string | null;
   due_date: string | null;
+  hourly_tracking: boolean;
   member_ids: string[];
   created_by?: string | null;
   archived_at?: string | null;
@@ -255,6 +256,21 @@ export interface Activity {
 }
 
 // ============================================================
+// TIME ENTRIES
+// ============================================================
+
+export interface TimeEntry {
+  id: string;
+  project_id: string;
+  member_id: string;
+  start_time: string;       // ISO datetime
+  end_time: string | null;  // null = timer currently running
+  description: string;
+  created_at: string;
+  updated_at: string;
+}
+
+// ============================================================
 // CLIENT PORTAL
 // ============================================================
 
@@ -270,6 +286,7 @@ export interface PortalSettings {
   show_progress: boolean;
   show_proposals: boolean;
   show_files: boolean;
+  show_hours: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -277,6 +294,25 @@ export interface PortalSettings {
 export interface PortalFile {
   id: string;
   project_id: string;
+  name: string;
+  file_url: string;
+  file_size: number;
+  mime_type: string;
+  uploaded_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// ============================================================
+// ENTITY FILES (polymorphic attachments)
+// ============================================================
+
+export type EntityFileType = 'lead' | 'project' | 'contact';
+
+export interface EntityFile {
+  id: string;
+  entity_type: EntityFileType;
+  entity_id: string;
   name: string;
   file_url: string;
   file_size: number;
@@ -414,6 +450,7 @@ export interface PortalData {
     show_progress: boolean;
     show_proposals: boolean;
     show_files: boolean;
+    show_hours: boolean;
   };
   progress: {
     total_tasks: number;
@@ -434,4 +471,15 @@ export interface PortalData {
     file_size: number;
     mime_type: string;
   }[];
+  hours: {
+    total_hours: number;
+    entries: {
+      id: string;
+      start_time: string;
+      end_time: string;
+      hours: number;
+      description: string;
+      member_name: string;
+    }[];
+  };
 }
