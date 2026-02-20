@@ -7,6 +7,18 @@ import { checkRateLimit } from './rate-limit';
 import { ApiError, unauthorized, forbidden, tooManyRequests, badRequest } from './errors';
 import { errorResponse } from './response';
 
+function applyRateLimitHeaders(
+  response: Response,
+  rateInfo: { remaining: number; resetAt: number } | null
+): Response {
+  if (rateInfo) {
+    response.headers.set('X-RateLimit-Limit', '120');
+    response.headers.set('X-RateLimit-Remaining', String(rateInfo.remaining));
+    response.headers.set('X-RateLimit-Reset', String(Math.ceil(rateInfo.resetAt / 1000)));
+  }
+  return response;
+}
+
 export interface ApiContext<TBody = unknown, TParams = Record<string, string>> {
   supabase: SupabaseClient;
   params: TParams;
@@ -31,6 +43,8 @@ export function withApi<TBody = unknown, TParams = Record<string, string>>(
     request: NextRequest,
     routeContext?: { params?: Promise<TParams> | TParams }
   ): Promise<Response> => {
+    let rateInfo: { remaining: number; resetAt: number } | null = null;
+
     try {
       // 1. Authenticate via x-api-key header
       const apiKey = request.headers.get('x-api-key');
@@ -50,6 +64,7 @@ export function withApi<TBody = unknown, TParams = Record<string, string>>(
 
       // 2. Rate limit
       const rateResult = checkRateLimit(keyHash);
+      rateInfo = { remaining: rateResult.remaining, resetAt: rateResult.resetAt };
       if (!rateResult.allowed) throw tooManyRequests();
 
       // 3. Permission check — block writes for read_only keys
@@ -83,7 +98,7 @@ export function withApi<TBody = unknown, TParams = Record<string, string>>(
 
       // 7. Execute handler
       const searchParams = request.nextUrl.searchParams;
-      return await handler({
+      const response = await handler({
         supabase,
         params: resolvedParams,
         body,
@@ -92,15 +107,16 @@ export function withApi<TBody = unknown, TParams = Record<string, string>>(
         permissions: keyRow.permissions,
         teamMemberId: keyRow.team_member_id || null,
       });
+      return applyRateLimitHeaders(response, rateInfo);
     } catch (err) {
       if (err instanceof ZodError) {
-        return errorResponse(422, 'VALIDATION_ERROR', 'Validation failed', err.issues);
+        return applyRateLimitHeaders(errorResponse(422, 'VALIDATION_ERROR', 'Validation failed', err.issues), rateInfo);
       }
       if (err instanceof ApiError) {
-        return errorResponse(err.statusCode, err.code, err.message, err.details);
+        return applyRateLimitHeaders(errorResponse(err.statusCode, err.code, err.message, err.details), rateInfo);
       }
       console.error('[API Error]', err);
-      return errorResponse(500, 'INTERNAL_ERROR', 'An unexpected error occurred');
+      return applyRateLimitHeaders(errorResponse(500, 'INTERNAL_ERROR', 'An unexpected error occurred'), rateInfo);
     }
   };
 }

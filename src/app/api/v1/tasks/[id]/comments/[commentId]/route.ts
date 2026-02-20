@@ -6,12 +6,14 @@ import { logAudit } from '@/lib/api/audit';
 
 export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemberId }) => {
   const { id, commentId } = params as any;
-  const { data: before } = await supabase.from('comments').select('*').eq('id', commentId).maybeSingle();
+  const { data: before } = await supabase.from('comments').select('*').eq('id', commentId).eq('task_id', id).maybeSingle();
+  if (!before) throw notFound('Comment');
 
   const { data, error } = await supabase
     .from('comments')
     .update(body)
     .eq('id', commentId)
+    .eq('task_id', id)
     .select()
     .maybeSingle();
 
@@ -23,12 +25,14 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
 
 export const DELETE = withApi(async ({ supabase, params, apiKeyId, teamMemberId }) => {
   const { id, commentId } = params as any;
-  const { data: before } = await supabase.from('comments').select('*').eq('id', commentId).maybeSingle();
+  const { data: before } = await supabase.from('comments').select('*').eq('id', commentId).eq('task_id', id).maybeSingle();
+  if (!before) throw notFound('Comment');
 
   const { error } = await supabase
     .from('comments')
     .delete()
-    .eq('id', commentId);
+    .eq('id', commentId)
+    .eq('task_id', id);
 
   if (error) throw error;
   logAudit(supabase, { method: 'DELETE', endpoint: `/api/v1/tasks/${id}/comments/${commentId}`, entityType: 'comment', entityId: commentId, apiKeyId, teamMemberId, beforeSnapshot: before, statusCode: 200 });

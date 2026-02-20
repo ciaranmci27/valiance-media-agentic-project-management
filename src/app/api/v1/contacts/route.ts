@@ -1,12 +1,12 @@
 import { withApi } from '@/lib/api/middleware';
 import { success, created, paginated } from '@/lib/api/response';
 import { createContactSchema } from '@/lib/schemas';
-import { parsePagination, sanitizeSearch } from '@/lib/api/pagination';
+import { parsePagination, sanitizeSearch, validateSort } from '@/lib/api/pagination';
 import { logAudit } from '@/lib/api/audit';
 
 export const GET = withApi(async ({ supabase, searchParams }) => {
   const { page, limit, offset } = parsePagination(searchParams);
-  const sort = searchParams.get('sort') || 'created_at';
+  const sort = validateSort('contacts', searchParams.get('sort'));
   const order = searchParams.get('order') === 'asc';
   const search = searchParams.get('search');
 

@@ -36,6 +36,7 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
 export const DELETE = withApi(async ({ supabase, params, apiKeyId, teamMemberId }) => {
   const id = (params as any).id;
   const { data: before } = await supabase.from('team_members').select('*').eq('id', id).maybeSingle();
+  if (!before) throw notFound('Team member');
 
   const { error } = await supabase
     .from('team_members')

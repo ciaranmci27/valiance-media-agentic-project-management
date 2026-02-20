@@ -1,20 +1,23 @@
 import { withApi } from '@/lib/api/middleware';
-import { success, created } from '@/lib/api/response';
+import { paginated, created } from '@/lib/api/response';
 import { addProjectContactSchema } from '@/lib/schemas';
 import { addProjectContact } from '@/lib/supabase/queries';
 import { logAudit } from '@/lib/api/audit';
+import { parsePagination } from '@/lib/api/pagination';
 
-export const GET = withApi(async ({ supabase, params }) => {
+export const GET = withApi(async ({ supabase, params, searchParams }) => {
   const { id } = params as any;
+  const { page, limit, offset } = parsePagination(searchParams);
 
-  const { data, error } = await supabase
+  const { data, count, error } = await supabase
     .from('project_contacts')
-    .select('*, contact:contacts(*)')
+    .select('*, contact:contacts(*)', { count: 'exact' })
     .eq('project_id', id)
-    .order('created_at', { ascending: true });
+    .order('created_at', { ascending: true })
+    .range(offset, offset + limit - 1);
 
   if (error) throw error;
-  return success(data || []);
+  return paginated(data || [], { page, limit, total: count || 0 });
 });
 
 export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMemberId }) => {

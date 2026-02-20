@@ -1,13 +1,23 @@
 import { withApi } from '@/lib/api/middleware';
-import { success, created } from '@/lib/api/response';
+import { paginated, created } from '@/lib/api/response';
 import { createPortalFileSchema } from '@/lib/schemas';
-import { fetchPortalFiles, insertPortalFile } from '@/lib/supabase/queries';
+import { insertPortalFile } from '@/lib/supabase/queries';
 import { logAudit } from '@/lib/api/audit';
+import { parsePagination } from '@/lib/api/pagination';
 
-export const GET = withApi(async ({ supabase, params }) => {
+export const GET = withApi(async ({ supabase, params, searchParams }) => {
   const { id } = params as any;
-  const files = await fetchPortalFiles(supabase, id);
-  return success(files);
+  const { page, limit, offset } = parsePagination(searchParams);
+
+  const { data, count, error } = await supabase
+    .from('portal_files')
+    .select('*', { count: 'exact' })
+    .eq('project_id', id)
+    .order('created_at', { ascending: false })
+    .range(offset, offset + limit - 1);
+
+  if (error) throw error;
+  return paginated(data || [], { page, limit, total: count || 0 });
 });
 
 export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMemberId }) => {

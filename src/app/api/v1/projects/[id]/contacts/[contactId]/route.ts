@@ -5,9 +5,24 @@ import { notFound } from '@/lib/api/errors';
 import { updateProjectContact, removeProjectContact } from '@/lib/supabase/queries';
 import { logAudit } from '@/lib/api/audit';
 
+export const GET = withApi(async ({ supabase, params }) => {
+  const { id, contactId } = params as any;
+  const { data, error } = await supabase
+    .from('project_contacts')
+    .select('*, contact:contacts(*)')
+    .eq('id', contactId)
+    .eq('project_id', id)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data) throw notFound('Project contact');
+  return success(data);
+});
+
 export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemberId }) => {
   const { id, contactId } = params as any;
-  const { data: before } = await supabase.from('project_contacts').select('*').eq('id', contactId).maybeSingle();
+  const { data: before } = await supabase.from('project_contacts').select('*').eq('id', contactId).eq('project_id', id).maybeSingle();
+  if (!before) throw notFound('Project contact');
   const pc = await updateProjectContact(supabase, contactId, id, body as any);
   logAudit(supabase, { method: 'PATCH', endpoint: `/api/v1/projects/${id}/contacts/${contactId}`, entityType: 'project_contact', entityId: contactId, apiKeyId, teamMemberId, requestBody: body, beforeSnapshot: before, afterSnapshot: pc, statusCode: 200 });
   return success(pc);
@@ -15,7 +30,8 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
 
 export const DELETE = withApi(async ({ supabase, params, apiKeyId, teamMemberId }) => {
   const { id, contactId } = params as any;
-  const { data: before } = await supabase.from('project_contacts').select('*').eq('id', contactId).maybeSingle();
+  const { data: before } = await supabase.from('project_contacts').select('*').eq('id', contactId).eq('project_id', id).maybeSingle();
+  if (!before) throw notFound('Project contact');
   await removeProjectContact(supabase, contactId);
   logAudit(supabase, { method: 'DELETE', endpoint: `/api/v1/projects/${id}/contacts/${contactId}`, entityType: 'project_contact', entityId: contactId, apiKeyId, teamMemberId, beforeSnapshot: before, statusCode: 200 });
   return success({ deleted: true });

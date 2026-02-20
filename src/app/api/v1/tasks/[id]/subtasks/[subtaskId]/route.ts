@@ -6,12 +6,14 @@ import { logAudit } from '@/lib/api/audit';
 
 export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemberId }) => {
   const { id, subtaskId } = params as any;
-  const { data: before } = await supabase.from('subtasks').select('*').eq('id', subtaskId).maybeSingle();
+  const { data: before } = await supabase.from('subtasks').select('*').eq('id', subtaskId).eq('task_id', id).maybeSingle();
+  if (!before) throw notFound('Subtask');
 
   const { data, error } = await supabase
     .from('subtasks')
     .update(body)
     .eq('id', subtaskId)
+    .eq('task_id', id)
     .select()
     .maybeSingle();
 
@@ -23,12 +25,14 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
 
 export const DELETE = withApi(async ({ supabase, params, apiKeyId, teamMemberId }) => {
   const { id, subtaskId } = params as any;
-  const { data: before } = await supabase.from('subtasks').select('*').eq('id', subtaskId).maybeSingle();
+  const { data: before } = await supabase.from('subtasks').select('*').eq('id', subtaskId).eq('task_id', id).maybeSingle();
+  if (!before) throw notFound('Subtask');
 
   const { error } = await supabase
     .from('subtasks')
     .delete()
-    .eq('id', subtaskId);
+    .eq('id', subtaskId)
+    .eq('task_id', id);
 
   if (error) throw error;
   logAudit(supabase, { method: 'DELETE', endpoint: `/api/v1/tasks/${id}/subtasks/${subtaskId}`, entityType: 'subtask', entityId: subtaskId, apiKeyId, teamMemberId, beforeSnapshot: before, statusCode: 200 });
