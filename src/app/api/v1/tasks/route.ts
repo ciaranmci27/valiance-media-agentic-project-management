@@ -30,6 +30,8 @@ export const GET = withApi(async ({ supabase, searchParams }) => {
   if (assigneeId) query = query.eq('task_assignees.member_id', assigneeId);
   const taskType = searchParams.get('task_type');
   if (taskType) query = query.eq('task_type', taskType);
+  const goalId = searchParams.get('project_goal_id');
+  if (goalId) query = query.eq('project_goal_id', goalId);
   if (search) {
     const s = sanitizeSearch(search);
     query = query.or(`title.ilike.%${s}%,description.ilike.%${s}%`);
