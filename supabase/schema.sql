@@ -307,7 +307,7 @@ create table public.notifications (
   message text,
   link text,
   is_read boolean not null default false,
-  entity_type text check (entity_type in ('task', 'project', 'lead', 'comment', 'member', 'contact')),
+  entity_type text check (entity_type in ('task', 'project', 'lead', 'comment', 'member', 'contact', 'suggestion', 'goal')),
   entity_id text,
   created_at timestamptz not null default now()
 );
@@ -598,3 +598,23 @@ create policy "Public can read portal files"
   on storage.objects for select
   to public
   using (bucket_id = 'portal-files');
+
+-- ============================================================
+-- AGENTIC WORKFLOW TABLES (optional, enabled via NEXT_PUBLIC_ENABLE_AGENTS=true)
+-- ============================================================
+
+-- 1. Extend team_members role check to include 'agent'
+-- ALTER TABLE public.team_members
+--   DROP CONSTRAINT IF EXISTS team_members_role_check,
+--   ADD CONSTRAINT team_members_role_check CHECK (role IN ('admin', 'member', 'guest', 'agent'));
+
+-- 2. Add team_member_id to api_keys (links API key to an agent)
+-- ALTER TABLE public.api_keys
+--   ADD COLUMN IF NOT EXISTS team_member_id uuid REFERENCES public.team_members(id) ON DELETE SET NULL;
+
+-- See migration-agents.sql for the full migration script including:
+-- - project_goals table
+-- - task_suggestions table
+-- - agent_activity table
+-- - api_audit_log table
+-- - tasks.project_goal_id and tasks.source_task_suggestion_id columns

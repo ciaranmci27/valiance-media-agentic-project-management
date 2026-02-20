@@ -3,6 +3,7 @@ import { created, paginated } from '@/lib/api/response';
 import { createTaskSchema } from '@/lib/schemas';
 import { parsePagination, sanitizeSearch } from '@/lib/api/pagination';
 import { insertTask } from '@/lib/supabase/queries';
+import { logAudit } from '@/lib/api/audit';
 
 export const GET = withApi(async ({ supabase, searchParams }) => {
   const { page, limit, offset } = parsePagination(searchParams);
@@ -51,8 +52,9 @@ export const GET = withApi(async ({ supabase, searchParams }) => {
   return paginated(tasks, { page, limit, total: count || 0 });
 });
 
-export const POST = withApi(async ({ supabase, body }) => {
+export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId }) => {
   const { assignee_ids, ...taskData } = body as any;
   const task = await insertTask(supabase, taskData, assignee_ids || []);
+  logAudit(supabase, { method: 'POST', endpoint: '/api/v1/tasks', entityType: 'task', entityId: task.id, apiKeyId, teamMemberId, requestBody: body, afterSnapshot: task, statusCode: 201 });
   return created(task);
 }, { schema: createTaskSchema });

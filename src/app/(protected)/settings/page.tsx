@@ -19,38 +19,58 @@ const NOTIF_GROUPS: { group: string; items: { key: NotificationCategory; label: 
   {
     group: 'Tasks',
     items: [
+      { key: 'task_created', label: 'Task created', desc: 'A new task is created' },
+      { key: 'task_deleted', label: 'Task deleted', desc: 'A task is deleted' },
       { key: 'task_status', label: 'Status changes', desc: 'Task moved to In Progress, Done, etc.' },
-      { key: 'task_assignments', label: 'Assignments', desc: 'When you\'re assigned to a task' },
+      { key: 'task_assignments', label: 'Assignments', desc: 'Someone is assigned to a task' },
       { key: 'task_updates', label: 'General updates', desc: 'Priority, title, and other task changes' },
-      { key: 'task_subtasks', label: 'Subtasks', desc: 'Subtasks added or completed' },
-      { key: 'task_comments', label: 'Comments', desc: 'New comments on tasks' },
-    ],
-  },
-  {
-    group: 'Leads',
-    items: [
-      { key: 'lead_status', label: 'Status changes', desc: 'Lead moved between pipeline stages' },
-      { key: 'lead_updates', label: 'General updates', desc: 'Field changes and detail updates' },
-      { key: 'lead_interactions', label: 'Interactions', desc: 'Calls, emails, meetings logged' },
-      { key: 'lead_proposals', label: 'Proposals', desc: 'Proposals added or updated' },
-      { key: 'lead_contacts', label: 'Contacts', desc: 'Contacts linked or removed from leads' },
-      { key: 'lead_conversions', label: 'Conversions', desc: 'Lead converted to a project' },
+      { key: 'task_subtasks', label: 'Subtasks', desc: 'Subtasks added, completed, or removed' },
+      { key: 'task_comments', label: 'Comments', desc: 'Comments added, edited, or removed' },
     ],
   },
   {
     group: 'Projects',
     items: [
+      { key: 'project_created', label: 'Project created', desc: 'A new project is created' },
+      { key: 'project_deleted', label: 'Project archived', desc: 'A project is archived or deleted' },
       { key: 'project_updates', label: 'Project updates', desc: 'Project details changed' },
       { key: 'project_contacts', label: 'Project contacts', desc: 'Contacts linked or removed' },
     ],
   },
   {
-    group: 'Other',
+    group: 'Team',
     items: [
-      { key: 'contact_updates', label: 'Contact updates', desc: 'Changes to contacts you\'re linked to' },
-      { key: 'team_members', label: 'Team members', desc: 'New team members added' },
+      { key: 'team_members', label: 'Team changes', desc: 'Members added, invited, or removed' },
     ],
   },
+  {
+    group: 'Leads',
+    items: [
+      { key: 'lead_created', label: 'Lead created', desc: 'A new lead is created' },
+      { key: 'lead_deleted', label: 'Lead archived', desc: 'A lead is archived or deleted' },
+      { key: 'lead_status', label: 'Status changes', desc: 'Lead moved between pipeline stages' },
+      { key: 'lead_updates', label: 'General updates', desc: 'Field changes and detail updates' },
+      { key: 'lead_interactions', label: 'Interactions', desc: 'Calls, emails, meetings added or updated' },
+      { key: 'lead_proposals', label: 'Proposals', desc: 'Proposals added, updated, or removed' },
+      { key: 'lead_contacts', label: 'Contacts', desc: 'Contacts linked or removed from leads' },
+      { key: 'lead_conversions', label: 'Conversions', desc: 'Lead converted to a project' },
+    ],
+  },
+  {
+    group: 'Contacts',
+    items: [
+      { key: 'contact_created', label: 'Contact created', desc: 'A new contact is added' },
+      { key: 'contact_deleted', label: 'Contact deleted', desc: 'A contact is removed' },
+      { key: 'contact_updates', label: 'Contact updates', desc: 'Contact details changed' },
+    ],
+  },
+  ...(process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true' ? [{
+    group: 'Agent',
+    items: [
+      { key: 'agent_suggestions' as NotificationCategory, label: 'Suggestions', desc: 'AI agent submits or resubmits suggestions' },
+      { key: 'agent_activity' as NotificationCategory, label: 'Activity', desc: 'AI agent activity and status updates' },
+    ],
+  }] : []),
 ];
 
 export default function SettingsPage() {
@@ -65,6 +85,9 @@ export default function SettingsPage() {
 
   const [userName, setUserName] = useState('');
   const [userEmail, setUserEmail] = useState('');
+  const [originalEmail, setOriginalEmail] = useState('');
+  const [emailError, setEmailError] = useState('');
+  const [showEmailConfirm, setShowEmailConfirm] = useState(false);
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [passwordLoading, setPasswordLoading] = useState(false);
@@ -95,9 +118,11 @@ export default function SettingsPage() {
     if (currentMember) {
       setUserName(currentMember.name || '');
       setUserEmail(currentMember.email || '');
+      setOriginalEmail(currentMember.email || '');
     } else if (user) {
       setUserName(user.user_metadata?.display_name || '');
       setUserEmail(user.email || '');
+      setOriginalEmail(user.email || '');
     }
   }, [currentMember?.id, user?.id]);
 
@@ -160,12 +185,50 @@ export default function SettingsPage() {
 
   const handleSaveProfile = async () => {
     if (!teamMemberId) return;
+
+    const emailChanged = userEmail.trim().toLowerCase() !== originalEmail.toLowerCase();
+
+    if (emailChanged) {
+      setShowEmailConfirm(true);
+      return;
+    }
+
     setProfileLoading(true);
     try {
       await updateTeamMember(teamMemberId, { name: userName });
       toast('success', 'Profile saved');
     } catch {
       toast('error', 'Failed to save profile');
+    } finally {
+      setProfileLoading(false);
+    }
+  };
+
+  const handleConfirmEmailChange = async () => {
+    if (!teamMemberId) return;
+    setShowEmailConfirm(false);
+    setProfileLoading(true);
+    setEmailError('');
+
+    try {
+      const res = await fetch('/api/team-members/update-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ team_member_id: teamMemberId, new_email: userEmail.trim().toLowerCase() }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        setEmailError(data.error || 'Failed to update email');
+        setProfileLoading(false);
+        return;
+      }
+
+      setOriginalEmail(userEmail.trim().toLowerCase());
+      updateTeamMember(teamMemberId, { name: userName, email: userEmail.trim().toLowerCase() });
+      toast('success', 'Profile and email updated');
+    } catch {
+      toast('error', 'Failed to update email');
     } finally {
       setProfileLoading(false);
     }
@@ -297,8 +360,10 @@ export default function SettingsPage() {
               label="Email"
               type="email"
               value={userEmail}
-              disabled
+              onChange={(e) => { setUserEmail(e.target.value); setEmailError(''); }}
               placeholder="your@email.com"
+              error={emailError}
+              disabled={isDemoMode}
             />
           </div>
 
@@ -321,9 +386,9 @@ export default function SettingsPage() {
             </div>
           </div>
 
-          <div className="space-y-6">
+          <div className="lg:columns-2 lg:gap-6 space-y-6 lg:space-y-0">
             {NOTIF_GROUPS.map(({ group, items }) => (
-              <div key={group}>
+              <div key={group} className="break-inside-avoid lg:mb-6">
                 <p className="text-xs font-medium text-zinc-400 uppercase tracking-wide mb-3">{group}</p>
                 <div className="space-y-3">
                   {items.map(({ key, label, desc }) => {
@@ -612,6 +677,17 @@ export default function SettingsPage() {
         message={`This will permanently revoke "${revokeTarget?.name}". Any integrations using this key will stop working immediately.`}
         confirmLabel="Revoke"
         variant="danger"
+      />
+
+      <ConfirmDialog
+        isOpen={showEmailConfirm}
+        onClose={() => setShowEmailConfirm(false)}
+        onConfirm={handleConfirmEmailChange}
+        title="Change Email Address"
+        message={`This will change your login email from "${originalEmail}" to "${userEmail.trim().toLowerCase()}". You'll need to use the new email to sign in.`}
+        confirmLabel="Update Email"
+        variant="default"
+        doubleConfirm={false}
       />
     </div>
   );

@@ -14,6 +14,7 @@ export interface ApiContext<TBody = unknown, TParams = Record<string, string>> {
   searchParams: URLSearchParams;
   apiKeyId: string;
   permissions: string;
+  teamMemberId: string | null;
 }
 
 interface WithApiOptions<TBody> {
@@ -40,7 +41,7 @@ export function withApi<TBody = unknown, TParams = Record<string, string>>(
 
       const { data: keyRow, error: keyError } = await supabase
         .from('api_keys')
-        .select('id, permissions')
+        .select('id, permissions, team_member_id')
         .eq('key_hash', keyHash)
         .is('revoked_at', null)
         .maybeSingle();
@@ -89,6 +90,7 @@ export function withApi<TBody = unknown, TParams = Record<string, string>>(
         searchParams,
         apiKeyId: keyRow.id,
         permissions: keyRow.permissions,
+        teamMemberId: keyRow.team_member_id || null,
       });
     } catch (err) {
       if (err instanceof ZodError) {

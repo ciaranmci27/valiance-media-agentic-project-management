@@ -168,6 +168,8 @@ export interface Task {
   subtasks: Subtask[];
   comments: Comment[];
   created_by?: string | null;
+  project_goal_id?: string | null;
+  source_task_suggestion_id?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -193,21 +195,31 @@ export interface Comment {
 // ============================================================
 
 export type NotificationCategory =
+  | 'task_created'
+  | 'task_deleted'
   | 'task_status'
   | 'task_assignments'
   | 'task_updates'
   | 'task_subtasks'
   | 'task_comments'
+  | 'project_created'
+  | 'project_deleted'
+  | 'project_updates'
+  | 'project_contacts'
+  | 'lead_created'
+  | 'lead_deleted'
   | 'lead_status'
   | 'lead_updates'
   | 'lead_interactions'
   | 'lead_proposals'
   | 'lead_contacts'
   | 'lead_conversions'
-  | 'project_updates'
-  | 'project_contacts'
+  | 'contact_created'
+  | 'contact_deleted'
   | 'contact_updates'
-  | 'team_members';
+  | 'team_members'
+  | 'agent_suggestions'
+  | 'agent_activity';
 
 export type NotificationPreferences = Partial<Record<NotificationCategory, boolean>>;
 
@@ -217,7 +229,7 @@ export interface TeamMember {
   name: string;
   email: string;
   avatar: string;
-  role: 'admin' | 'member' | 'guest';
+  role: 'admin' | 'member' | 'guest' | 'agent';
   notification_prefs?: NotificationPreferences;
 }
 
@@ -278,7 +290,7 @@ export interface PortalFile {
 // NOTIFICATIONS
 // ============================================================
 
-export type NotificationEntityType = 'task' | 'project' | 'lead' | 'comment' | 'member' | 'contact';
+export type NotificationEntityType = 'task' | 'project' | 'lead' | 'comment' | 'member' | 'contact' | 'suggestion' | 'goal';
 
 export interface Notification {
   id: string;
@@ -304,8 +316,89 @@ export interface ApiKey {
   last_used_at: string | null;
   revoked_at: string | null;
   created_by: string | null;
+  team_member_id: string | null;
   created_at: string;
   updated_at: string;
+}
+
+// ============================================================
+// PROJECT GOALS
+// ============================================================
+
+export interface ProjectGoal {
+  id: string;
+  project_id: string;
+  title: string;
+  description: string;
+  target_date: string | null;
+  status: 'active' | 'achieved' | 'paused' | 'abandoned';
+  created_by: string | null;
+  archived_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// ============================================================
+// TASK SUGGESTIONS
+// ============================================================
+
+export interface TaskSuggestion {
+  id: string;
+  project_id: string;
+  goal_id: string;
+  proposed_by: string;
+  assigned_to: string | null;
+  title: string;
+  description: string;
+  reasoning: string;
+  priority: 'low' | 'medium' | 'high' | 'urgent';
+  effort_estimate: 'small' | 'medium' | 'large' | null;
+  status: 'pending' | 'needs_info' | 'approved' | 'rejected';
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  rejection_reason: string | null;
+  info_request: string | null;
+  converted_task_id: string | null;
+  metadata: Record<string, any>;
+  created_at: string;
+  updated_at: string;
+}
+
+// ============================================================
+// AGENT ACTIVITY
+// ============================================================
+
+export interface AgentActivity {
+  id: string;
+  agent_id: string;
+  project_id: string | null;
+  activity_type: 'suggestion_created' | 'task_started' | 'task_completed' | 'task_failed' | 'research_completed' | 'comment_added' | 'status_changed' | 'custom';
+  title: string;
+  description: string;
+  reference_type: string | null;
+  reference_id: string | null;
+  metadata: Record<string, any>;
+  created_at: string;
+}
+
+// ============================================================
+// API AUDIT LOG
+// ============================================================
+
+export interface ApiAuditEntry {
+  id: string;
+  timestamp: string;
+  method: string;
+  endpoint: string;
+  entity_type: string | null;
+  entity_id: string | null;
+  api_key_id: string | null;
+  team_member_id: string | null;
+  request_body: Record<string, any> | null;
+  before_snapshot: Record<string, any> | null;
+  after_snapshot: Record<string, any> | null;
+  status_code: number;
+  error: string | null;
 }
 
 export interface PortalData {

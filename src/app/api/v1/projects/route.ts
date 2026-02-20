@@ -3,6 +3,7 @@ import { created, paginated } from '@/lib/api/response';
 import { createProjectSchema } from '@/lib/schemas';
 import { parsePagination, sanitizeSearch } from '@/lib/api/pagination';
 import { insertProject } from '@/lib/supabase/queries';
+import { logAudit } from '@/lib/api/audit';
 
 export const GET = withApi(async ({ supabase, searchParams }) => {
   const { page, limit, offset } = parsePagination(searchParams);
@@ -38,8 +39,9 @@ export const GET = withApi(async ({ supabase, searchParams }) => {
   return paginated(projects, { page, limit, total: count || 0 });
 });
 
-export const POST = withApi(async ({ supabase, body }) => {
+export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId }) => {
   const { member_ids, ...projectData } = body as any;
   const project = await insertProject(supabase, projectData, member_ids || []);
+  logAudit(supabase, { method: 'POST', endpoint: '/api/v1/projects', entityType: 'project', entityId: project.id, apiKeyId, teamMemberId, requestBody: body, afterSnapshot: project, statusCode: 201 });
   return created(project);
 }, { schema: createProjectSchema });

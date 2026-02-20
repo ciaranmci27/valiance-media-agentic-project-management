@@ -1,5 +1,5 @@
 import { SupabaseClient } from '@supabase/supabase-js';
-import type { Project, Task, TeamMember, Subtask, Comment, Activity, Contact, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, PortalSettings, PortalFile, ApiKey } from '@/lib/types';
+import type { Project, Task, TeamMember, Subtask, Comment, Activity, Contact, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, PortalSettings, PortalFile, ApiKey, ProjectGoal, TaskSuggestion, AgentActivity, ApiAuditEntry } from '@/lib/types';
 
 // ============================================================
 // PROJECTS
@@ -124,18 +124,22 @@ export async function insertTask(
   task: Omit<Task, 'id' | 'created_at' | 'updated_at' | 'assignee_ids' | 'subtasks' | 'comments'>,
   assigneeIds: string[]
 ) {
+  const insertPayload: Record<string, any> = {
+    project_id: task.project_id,
+    title: task.title,
+    description: task.description,
+    status: task.status,
+    priority: task.priority,
+    due_date: task.due_date,
+    tags: task.tags,
+    created_by: task.created_by,
+  };
+  if (task.project_goal_id) insertPayload.project_goal_id = task.project_goal_id;
+  if (task.source_task_suggestion_id) insertPayload.source_task_suggestion_id = task.source_task_suggestion_id;
+
   const { data, error } = await supabase
     .from('tasks')
-    .insert({
-      project_id: task.project_id,
-      title: task.title,
-      description: task.description,
-      status: task.status,
-      priority: task.priority,
-      due_date: task.due_date,
-      tags: task.tags,
-      created_by: task.created_by,
-    })
+    .insert(insertPayload)
     .select()
     .single();
 
@@ -1154,7 +1158,7 @@ export async function removePortalFile(supabase: SupabaseClient, id: string) {
 export async function fetchApiKeys(supabase: SupabaseClient) {
   const { data, error } = await supabase
     .from('api_keys')
-    .select('id, name, key_prefix, permissions, last_used_at, revoked_at, created_by, created_at, updated_at')
+    .select('id, name, key_prefix, permissions, last_used_at, revoked_at, created_by, team_member_id, created_at, updated_at')
     .order('created_at', { ascending: false });
 
   if (error) throw error;
@@ -1163,7 +1167,7 @@ export async function fetchApiKeys(supabase: SupabaseClient) {
 
 export async function insertApiKey(
   supabase: SupabaseClient,
-  apiKey: { name: string; key_prefix: string; key_hash: string; created_by: string | null; permissions?: string }
+  apiKey: { name: string; key_prefix: string; key_hash: string; created_by: string | null; permissions?: string; team_member_id?: string | null }
 ) {
   const { data, error } = await supabase
     .from('api_keys')
@@ -1173,8 +1177,9 @@ export async function insertApiKey(
       key_hash: apiKey.key_hash,
       created_by: apiKey.created_by,
       permissions: apiKey.permissions || 'full',
+      team_member_id: apiKey.team_member_id || null,
     })
-    .select('id, name, key_prefix, permissions, last_used_at, revoked_at, created_by, created_at, updated_at')
+    .select('id, name, key_prefix, permissions, last_used_at, revoked_at, created_by, team_member_id, created_at, updated_at')
     .single();
 
   if (error) throw error;
@@ -1191,4 +1196,338 @@ export async function revokeApiKey(supabase: SupabaseClient, id: string) {
 
   if (error) throw error;
   return data as ApiKey;
+}
+
+// ============================================================
+// PROJECT GOALS
+// ============================================================
+
+export async function fetchGoalsByProject(supabase: SupabaseClient, projectId: string) {
+  const { data, error } = await supabase
+    .from('project_goals')
+    .select('*')
+    .eq('project_id', projectId)
+    .is('archived_at', null)
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+  return (data || []) as ProjectGoal[];
+}
+
+export async function fetchGoals(supabase: SupabaseClient) {
+  const { data, error } = await supabase
+    .from('project_goals')
+    .select('*')
+    .is('archived_at', null)
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+  return (data || []) as ProjectGoal[];
+}
+
+export async function insertGoal(
+  supabase: SupabaseClient,
+  goal: { project_id: string; title: string; description?: string; target_date?: string | null; status?: string; created_by?: string | null }
+) {
+  const { data, error } = await supabase
+    .from('project_goals')
+    .insert({
+      project_id: goal.project_id,
+      title: goal.title,
+      description: goal.description || '',
+      target_date: goal.target_date || null,
+      status: goal.status || 'active',
+      created_by: goal.created_by || null,
+    })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data as ProjectGoal;
+}
+
+export async function patchGoal(
+  supabase: SupabaseClient,
+  id: string,
+  updates: Partial<ProjectGoal>
+) {
+  const { data, error } = await supabase
+    .from('project_goals')
+    .update(updates)
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data as ProjectGoal;
+}
+
+export async function archiveGoal(supabase: SupabaseClient, id: string) {
+  const { data, error } = await supabase
+    .from('project_goals')
+    .update({ archived_at: new Date().toISOString() })
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data as ProjectGoal;
+}
+
+// ============================================================
+// TASK SUGGESTIONS
+// ============================================================
+
+export async function fetchTaskSuggestions(supabase: SupabaseClient, filters?: { status?: string; project_id?: string; goal_id?: string; proposed_by?: string }) {
+  let query = supabase
+    .from('task_suggestions')
+    .select('*')
+    .order('created_at', { ascending: false });
+
+  if (filters?.status) query = query.eq('status', filters.status);
+  if (filters?.project_id) query = query.eq('project_id', filters.project_id);
+  if (filters?.goal_id) query = query.eq('goal_id', filters.goal_id);
+  if (filters?.proposed_by) query = query.eq('proposed_by', filters.proposed_by);
+
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data || []) as TaskSuggestion[];
+}
+
+export async function insertTaskSuggestion(
+  supabase: SupabaseClient,
+  suggestion: Omit<TaskSuggestion, 'id' | 'created_at' | 'updated_at' | 'reviewed_by' | 'reviewed_at' | 'rejection_reason' | 'info_request' | 'converted_task_id'>
+) {
+  const { data, error } = await supabase
+    .from('task_suggestions')
+    .insert({
+      project_id: suggestion.project_id,
+      goal_id: suggestion.goal_id,
+      proposed_by: suggestion.proposed_by,
+      assigned_to: suggestion.assigned_to || null,
+      title: suggestion.title,
+      description: suggestion.description,
+      reasoning: suggestion.reasoning,
+      priority: suggestion.priority,
+      effort_estimate: suggestion.effort_estimate || null,
+      status: suggestion.status || 'pending',
+      metadata: suggestion.metadata || {},
+    })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data as TaskSuggestion;
+}
+
+export async function patchTaskSuggestion(
+  supabase: SupabaseClient,
+  id: string,
+  updates: Partial<TaskSuggestion>
+) {
+  const { data, error } = await supabase
+    .from('task_suggestions')
+    .update(updates)
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data as TaskSuggestion;
+}
+
+export async function approveTaskSuggestion(
+  supabase: SupabaseClient,
+  id: string,
+  taskOverrides: { priority?: string; assigned_to?: string | null; due_date?: string | null; project_id?: string },
+  reviewedBy: string
+) {
+  // Fetch the suggestion
+  const { data: suggestion, error: fetchErr } = await supabase
+    .from('task_suggestions')
+    .select('*')
+    .eq('id', id)
+    .single();
+
+  if (fetchErr || !suggestion) throw fetchErr || new Error('Suggestion not found');
+
+  // Create the task
+  const taskData = {
+    project_id: taskOverrides.project_id || suggestion.project_id,
+    title: suggestion.title,
+    description: suggestion.description,
+    status: 'todo' as const,
+    priority: (taskOverrides.priority || suggestion.priority) as Task['priority'],
+    due_date: taskOverrides.due_date || null,
+    tags: [] as string[],
+    source_task_suggestion_id: id,
+    project_goal_id: suggestion.goal_id,
+  };
+
+  const { data: task, error: taskErr } = await supabase
+    .from('tasks')
+    .insert(taskData)
+    .select()
+    .single();
+
+  if (taskErr) throw taskErr;
+
+  // If assigned_to is set, create task_assignee
+  const assignedTo = taskOverrides.assigned_to || suggestion.assigned_to;
+  if (assignedTo) {
+    await supabase
+      .from('task_assignees')
+      .insert({ task_id: task.id, member_id: assignedTo })
+      .then(() => {}, () => {});
+  }
+
+  // Update the suggestion
+  const { data: updated, error: updateErr } = await supabase
+    .from('task_suggestions')
+    .update({
+      status: 'approved',
+      reviewed_by: reviewedBy,
+      reviewed_at: new Date().toISOString(),
+      converted_task_id: task.id,
+    })
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (updateErr) throw updateErr;
+
+  return {
+    suggestion: updated as TaskSuggestion,
+    task: { ...task, assignee_ids: assignedTo ? [assignedTo] : [], subtasks: [], comments: [] } as Task,
+  };
+}
+
+export async function rejectTaskSuggestion(
+  supabase: SupabaseClient,
+  id: string,
+  reason: string | undefined,
+  reviewedBy: string
+) {
+  const { data, error } = await supabase
+    .from('task_suggestions')
+    .update({
+      status: 'rejected',
+      reviewed_by: reviewedBy,
+      reviewed_at: new Date().toISOString(),
+      rejection_reason: reason || null,
+    })
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data as TaskSuggestion;
+}
+
+export async function requestInfoTaskSuggestion(
+  supabase: SupabaseClient,
+  id: string,
+  infoRequest: string,
+  reviewedBy: string
+) {
+  const { data, error } = await supabase
+    .from('task_suggestions')
+    .update({
+      status: 'needs_info',
+      reviewed_by: reviewedBy,
+      reviewed_at: new Date().toISOString(),
+      info_request: infoRequest,
+    })
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data as TaskSuggestion;
+}
+
+export async function fetchPendingSuggestionCount(supabase: SupabaseClient) {
+  const { count, error } = await supabase
+    .from('task_suggestions')
+    .select('id', { count: 'exact', head: true })
+    .eq('status', 'pending');
+
+  if (error) throw error;
+  return count || 0;
+}
+
+// ============================================================
+// AGENT ACTIVITY
+// ============================================================
+
+export async function fetchAgentActivity(supabase: SupabaseClient, filters?: { agent_id?: string; project_id?: string; activity_type?: string }) {
+  let query = supabase
+    .from('agent_activity')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(100);
+
+  if (filters?.agent_id) query = query.eq('agent_id', filters.agent_id);
+  if (filters?.project_id) query = query.eq('project_id', filters.project_id);
+  if (filters?.activity_type) query = query.eq('activity_type', filters.activity_type);
+
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data || []) as AgentActivity[];
+}
+
+export async function insertAgentActivity(
+  supabase: SupabaseClient,
+  entry: Omit<AgentActivity, 'id' | 'created_at'>
+) {
+  const { data, error } = await supabase
+    .from('agent_activity')
+    .insert({
+      agent_id: entry.agent_id,
+      project_id: entry.project_id || null,
+      activity_type: entry.activity_type,
+      title: entry.title,
+      description: entry.description || '',
+      reference_type: entry.reference_type || null,
+      reference_id: entry.reference_id || null,
+      metadata: entry.metadata || {},
+    })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data as AgentActivity;
+}
+
+// ============================================================
+// API AUDIT LOG
+// ============================================================
+
+export async function fetchAuditLog(supabase: SupabaseClient, filters?: { entity_type?: string; entity_id?: string; team_member_id?: string; method?: string }) {
+  let query = supabase
+    .from('api_audit_log')
+    .select('*', { count: 'exact' })
+    .order('timestamp', { ascending: false })
+    .limit(100);
+
+  if (filters?.entity_type) query = query.eq('entity_type', filters.entity_type);
+  if (filters?.entity_id) query = query.eq('entity_id', filters.entity_id);
+  if (filters?.team_member_id) query = query.eq('team_member_id', filters.team_member_id);
+  if (filters?.method) query = query.eq('method', filters.method);
+
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data || []) as ApiAuditEntry[];
+}
+
+export async function fetchAuditLogForEntity(supabase: SupabaseClient, entityType: string, entityId: string) {
+  const { data, error } = await supabase
+    .from('api_audit_log')
+    .select('*')
+    .eq('entity_type', entityType)
+    .eq('entity_id', entityId)
+    .order('timestamp', { ascending: false });
+
+  if (error) throw error;
+  return (data || []) as ApiAuditEntry[];
 }

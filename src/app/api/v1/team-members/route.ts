@@ -2,6 +2,7 @@ import { withApi } from '@/lib/api/middleware';
 import { success, created, paginated } from '@/lib/api/response';
 import { createTeamMemberSchema } from '@/lib/schemas';
 import { parsePagination, sanitizeSearch } from '@/lib/api/pagination';
+import { logAudit } from '@/lib/api/audit';
 
 export const GET = withApi(async ({ supabase, searchParams }) => {
   const { page, limit, offset } = parsePagination(searchParams);
@@ -22,7 +23,7 @@ export const GET = withApi(async ({ supabase, searchParams }) => {
   return paginated(data || [], { page, limit, total: count || 0 });
 });
 
-export const POST = withApi(async ({ supabase, body }) => {
+export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId }) => {
   const { data, error } = await supabase
     .from('team_members')
     .insert(body)
@@ -30,5 +31,6 @@ export const POST = withApi(async ({ supabase, body }) => {
     .single();
 
   if (error) throw error;
+  logAudit(supabase, { method: 'POST', endpoint: '/api/v1/team-members', entityType: 'team_member', entityId: data.id, apiKeyId, teamMemberId, requestBody: body, afterSnapshot: data, statusCode: 201 });
   return created(data);
 }, { schema: createTeamMemberSchema });

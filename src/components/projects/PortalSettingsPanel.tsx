@@ -4,7 +4,7 @@ import { useState, useRef } from 'react';
 import {
   Globe, Link2, RefreshCw, Copy, Check, Eye, EyeOff,
   Upload, Trash2, FileText, Image, Archive, File, ExternalLink,
-  Camera, Loader2, X, Pencil,
+  Camera, Loader2, X, Pencil, ChevronDown,
 } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
@@ -55,6 +55,7 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
   const [editingFileId, setEditingFileId] = useState<string | null>(null);
   const [editingFileName, setEditingFileName] = useState('');
   const [deleteFileTarget, setDeleteFileTarget] = useState<string | null>(null);
+  const [isExpanded, setIsExpanded] = useState(false);
   const renameCancelledRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const logoInputRef = useRef<HTMLInputElement>(null);
@@ -207,7 +208,10 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
   return (
     <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
       {/* Header with toggle */}
-      <div className="px-5 py-4 flex items-center justify-between border-b border-zinc-100">
+      <div
+        onClick={() => isEnabled && setIsExpanded(e => !e)}
+        className={`px-5 py-4 flex items-center justify-between ${isEnabled ? 'border-b border-zinc-100 cursor-pointer' : ''}`}
+      >
         <div className="flex items-center gap-2.5">
           <div className="p-1.5 bg-indigo-50 rounded-md">
             <Globe size={16} className="text-indigo-600" />
@@ -217,21 +221,29 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
             <p className="text-xs text-zinc-500">Share project progress with your client</p>
           </div>
         </div>
-        <button
-          onClick={handleToggleEnabled}
-          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-            isEnabled ? 'bg-indigo-600' : 'bg-zinc-200'
-          }`}
-        >
-          <span
-            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform shadow-sm ${
-              isEnabled ? 'translate-x-6' : 'translate-x-1'
+        <div className="flex items-center gap-3">
+          {isEnabled && (
+            <ChevronDown
+              size={16}
+              className={`text-zinc-400 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
+            />
+          )}
+          <button
+            onClick={(e) => { e.stopPropagation(); handleToggleEnabled(); }}
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0 ${
+              isEnabled ? 'bg-indigo-600' : 'bg-zinc-200'
             }`}
-          />
-        </button>
+          >
+            <span
+              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform shadow-sm ${
+                isEnabled ? 'translate-x-6' : 'translate-x-1'
+              }`}
+            />
+          </button>
+        </div>
       </div>
 
-      {isEnabled && settings && (
+      {isEnabled && isExpanded && settings && (
         <div className="p-5 space-y-5">
           {/* Portal Logo + Link + PIN + Color */}
           <div className="flex flex-col sm:flex-row items-start gap-4">

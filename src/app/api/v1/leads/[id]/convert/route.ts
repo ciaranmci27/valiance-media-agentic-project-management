@@ -3,8 +3,9 @@ import { success } from '@/lib/api/response';
 import { convertLeadSchema } from '@/lib/schemas';
 import { notFound } from '@/lib/api/errors';
 import { convertLead } from '@/lib/supabase/queries';
+import { logAudit } from '@/lib/api/audit';
 
-export const POST = withApi(async ({ supabase, params, body }) => {
+export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMemberId }) => {
   const { id } = params as any;
   const { project_name, project_color, project_description } = body as any;
 
@@ -32,6 +33,8 @@ export const POST = withApi(async ({ supabase, params, body }) => {
     project_description,
     null
   );
+
+  logAudit(supabase, { method: 'POST', endpoint: `/api/v1/leads/${id}/convert`, entityType: 'lead', entityId: id, apiKeyId, teamMemberId, requestBody: body, beforeSnapshot: lead, afterSnapshot: result, statusCode: 200 });
 
   return success({
     lead: result.lead,

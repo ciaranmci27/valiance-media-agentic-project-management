@@ -3,8 +3,9 @@ import { success } from '@/lib/api/response';
 import { reorderSubtasksSchema } from '@/lib/schemas';
 import { reorderSubtasks } from '@/lib/supabase/queries';
 import { badRequest } from '@/lib/api/errors';
+import { logAudit } from '@/lib/api/audit';
 
-export const PUT = withApi(async ({ supabase, params, body }) => {
+export const PUT = withApi(async ({ supabase, params, body, apiKeyId, teamMemberId }) => {
   const { id: taskId } = params as any;
   const { subtask_ids } = body as any;
 
@@ -20,5 +21,6 @@ export const PUT = withApi(async ({ supabase, params, body }) => {
   }
 
   await reorderSubtasks(supabase, subtask_ids);
+  logAudit(supabase, { method: 'PUT', endpoint: `/api/v1/tasks/${taskId}/subtasks/reorder`, entityType: 'subtask', entityId: taskId, apiKeyId, teamMemberId, requestBody: body, statusCode: 200 });
   return success({ reordered: true });
 }, { schema: reorderSubtasksSchema });

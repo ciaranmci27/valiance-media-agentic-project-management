@@ -13,6 +13,7 @@ import {
   Target,
   UserCircle,
   CheckSquare,
+  Bot,
 } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
@@ -23,7 +24,7 @@ import { siteConfig } from '@/site-config';
 
 export function Sidebar() {
   const pathname = usePathname();
-  const { projects, tasks, team } = useApp();
+  const { projects, tasks, team, getPendingSuggestionCount } = useApp();
   const { user, teamMemberId, signOut } = useAuth();
   const { isEnvForcedDemo } = useDemo();
   const [isOpen, setIsOpen] = useState(false);
@@ -39,13 +40,18 @@ export function Sidebar() {
   const displayName = currentMember?.name || user?.user_metadata?.display_name || user?.email?.split('@')[0] || 'User';
   const displayRole = currentMember?.role || 'Member';
 
+  const isAgentsEnabled = process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true';
+  const isAdmin = currentMember?.role === 'admin';
+  const pendingSuggestionCount = isAgentsEnabled && isAdmin ? getPendingSuggestionCount() : 0;
+
   const navItems = [
-    { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-    ...(tasks.length > 0 ? [{ href: '/my-tasks', icon: CheckSquare, label: 'My Tasks' }] : []),
-    ...(projects.length > 0 ? [{ href: '/projects', icon: FolderKanban, label: 'Projects' }] : []),
-    { href: '/leads', icon: Target, label: 'Leads' },
-    { href: '/contacts', icon: UserCircle, label: 'Contacts' },
-    { href: '/team', icon: Users, label: 'Team' },
+    { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', badge: 0 },
+    ...(tasks.length > 0 ? [{ href: '/my-tasks', icon: CheckSquare, label: 'My Tasks', badge: 0 }] : []),
+    ...(projects.length > 0 ? [{ href: '/projects', icon: FolderKanban, label: 'Projects', badge: 0 }] : []),
+    { href: '/leads', icon: Target, label: 'Leads', badge: 0 },
+    { href: '/contacts', icon: UserCircle, label: 'Contacts', badge: 0 },
+    { href: '/team', icon: Users, label: 'Team', badge: 0 },
+    ...(isAgentsEnabled && isAdmin ? [{ href: '/agent', icon: Bot, label: 'Agent', badge: pendingSuggestionCount }] : []),
   ];
 
   const closeSidebar = () => setIsOpen(false);
@@ -96,7 +102,12 @@ export function Sidebar() {
                 }`}
               >
                 <item.icon size={18} />
-                <span className="text-sm font-medium">{item.label}</span>
+                <span className="text-sm font-medium flex-1">{item.label}</span>
+                {item.badge > 0 && (
+                  <span className="min-w-[20px] h-5 flex items-center justify-center rounded-full bg-indigo-500 text-white text-xs font-medium px-1.5">
+                    {item.badge}
+                  </span>
+                )}
               </Link>
             );
           })}

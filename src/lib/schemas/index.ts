@@ -13,3 +13,6 @@ export * from './lead-proposals';
 export * from './lead-fields';
 export * from './activities';
 export * from './portal';
+export * from './goals';
+export * from './suggestions';
+export * from './agent-activity';

@@ -2,9 +2,14 @@
 
 import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
-import { ArrowLeft, AlertCircle, Lock } from 'lucide-react';
+import { ArrowLeft, AlertCircle, Lock, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { Logo } from '@/components/ui/Logo';
+
+const ACCENT_DEPTH_GRADIENT = [
+  'linear-gradient(135deg, rgba(255,255,255,0.1) 0%, transparent 50%, rgba(0,0,0,0.08) 100%)',
+  'radial-gradient(ellipse at 30% 20%, rgba(255,255,255,0.12), transparent 60%)',
+].join(', ');
 
 interface FileInfo {
   file_url: string;
@@ -32,7 +37,6 @@ export default function PortalFilePage() {
     setPinError(false);
 
     try {
-      // Try to get PIN from sessionStorage if not provided
       const effectivePin = pinValue ?? sessionStorage.getItem(`portal-pin-${token}`) ?? undefined;
       const isDemo = localStorage.getItem('projectem-demo-mode') === 'true' || process.env.NEXT_PUBLIC_DEMO_MODE === 'true';
       const params = new URLSearchParams();
@@ -70,12 +74,10 @@ export default function PortalFilePage() {
       setFile(data);
       setPinRequired(false);
 
-      // Store PIN on success
       if (effectivePin) {
         sessionStorage.setItem(`portal-pin-${token}`, effectivePin);
       }
 
-      // Fetch HTML content for inline rendering
       if (data.mime_type === 'text/html' && data.file_url && data.file_url !== '#') {
         try {
           const htmlRes = await fetch(data.file_url);
@@ -104,31 +106,28 @@ export default function PortalFilePage() {
     fetchFile(pin);
   };
 
-  // Loading state
+  /* ── Loading ───────────────────────────────────── */
   if (loading) {
     return (
-      <div className="min-h-screen bg-zinc-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-8 h-8 border-2 border-zinc-200 border-t-zinc-600 rounded-full animate-spin mx-auto mb-3" />
-          <p className="text-sm text-zinc-500">Loading file...</p>
-        </div>
+      <div className="min-h-screen flex items-center justify-center bg-zinc-50">
+        <Loader2 className="animate-spin text-indigo-600" size={32} />
       </div>
     );
   }
 
-  // Error state
+  /* ── Error ─────────────────────────────────────── */
   if (error) {
     return (
       <div className="min-h-screen bg-zinc-50 flex items-center justify-center px-4">
-        <div className="text-center max-w-sm">
-          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-zinc-100 flex items-center justify-center">
-            <AlertCircle size={32} className="text-zinc-400" />
+        <div className="text-center max-w-sm" style={{ animation: 'portalFadeUp 0.5s ease both' }}>
+          <div className="w-16 h-16 mx-auto mb-5 rounded-2xl bg-zinc-100 flex items-center justify-center">
+            <AlertCircle size={28} className="text-zinc-400" />
           </div>
-          <h1 className="text-lg font-semibold text-zinc-900 mb-2">File Unavailable</h1>
-          <p className="text-sm text-zinc-500 mb-4">{error}</p>
+          <h1 className="text-xl font-bold text-zinc-900 mb-2">File Unavailable</h1>
+          <p className="text-sm text-zinc-500 leading-relaxed mb-5">{error}</p>
           <Link
             href={`/portal/${token}`}
-            className="inline-flex items-center gap-1.5 text-sm text-indigo-600 hover:text-indigo-700"
+            className="inline-flex items-center gap-1.5 text-sm font-semibold text-indigo-600 hover:text-indigo-700 transition-colors"
           >
             <ArrowLeft size={14} />
             Back to portal
@@ -138,50 +137,66 @@ export default function PortalFilePage() {
     );
   }
 
-  // PIN entry
+  /* ── PIN ────────────────────────────────────────── */
   if (pinRequired) {
     const pinAccent = branding?.accent_color || '#6366F1';
     return (
-      <div className="min-h-screen bg-zinc-50 flex items-center justify-center px-4">
-        <div className="w-full max-w-sm">
-          <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm p-8 text-center">
+      <div
+        className="min-h-screen flex items-center justify-center px-4"
+        style={{ backgroundColor: pinAccent }}
+      >
+        <div
+          className="fixed inset-0 pointer-events-none"
+          style={{ background: ACCENT_DEPTH_GRADIENT }}
+        />
+
+        <div className="w-full max-w-sm relative" style={{ animation: 'portalFadeUp 0.5s ease both' }}>
+          <div
+            className="bg-white rounded-2xl shadow-2xl shadow-black/15 p-8 sm:p-10 text-center"
+            style={pinError ? { animation: 'portalShake 0.5s ease' } : undefined}
+          >
             {branding?.logo_url ? (
               <img
                 src={branding.logo_url}
                 alt="Logo"
-                className="w-14 h-14 mx-auto mb-4 rounded-xl object-contain"
+                className="w-14 h-14 mx-auto mb-5 rounded-xl object-contain"
               />
             ) : (
               <div
-                className="w-14 h-14 mx-auto mb-4 rounded-xl flex items-center justify-center text-white text-lg font-bold"
+                className="w-14 h-14 mx-auto mb-5 rounded-xl flex items-center justify-center text-white text-lg font-bold"
                 style={{ backgroundColor: pinAccent }}
               >
-                {branding?.project_name?.charAt(0) || <Lock size={24} />}
+                {branding?.project_name?.charAt(0) || <Lock size={22} />}
               </div>
             )}
-            <h1 className="text-lg font-semibold text-zinc-900 mb-1">
+
+            <h1 className="text-xl font-bold text-zinc-900 mb-1">
               {branding?.project_name || 'Enter PIN'}
             </h1>
-            <p className="text-sm text-zinc-500 mb-6">This portal is protected. Enter the PIN to continue.</p>
+            <p className="text-sm text-zinc-500 mb-6">
+              This portal is protected. Enter the PIN to continue.
+            </p>
+
             <form onSubmit={handlePinSubmit} className="space-y-4">
               <input
                 type="password"
                 value={pin}
                 onChange={e => { setPin(e.target.value); setPinError(false); }}
-                placeholder="Enter PIN"
+                placeholder="&bull; &bull; &bull; &bull; &bull; &bull;"
                 autoFocus
-                className={`w-full px-4 py-3 text-center text-lg tracking-widest bg-white border rounded-xl outline-none transition-all ${
+                className={`w-full px-4 py-3.5 text-center text-lg tracking-[0.3em] bg-zinc-50 border-2 rounded-xl outline-none transition-all font-medium ${
                   pinError
-                    ? 'border-red-400 focus:border-red-500 focus:ring-2 focus:ring-red-100'
-                    : 'border-zinc-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100'
+                    ? 'border-red-300 bg-red-50/50 focus:border-red-400 focus:ring-4 focus:ring-red-100'
+                    : 'border-zinc-200 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100 focus:bg-white'
                 }`}
               />
               {pinError && (
-                <p className="text-sm text-red-500">Incorrect PIN. Please try again.</p>
+                <p className="text-sm text-red-500 font-medium">Incorrect PIN. Please try again.</p>
               )}
               <button
                 type="submit"
-                className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-xl transition-colors"
+                className="w-full py-3 text-white text-sm font-semibold rounded-xl transition-all hover:brightness-[0.92] active:scale-[0.98]"
+                style={{ backgroundColor: pinAccent, boxShadow: `0 4px 14px -2px ${pinAccent}50` }}
               >
                 Continue
               </button>
@@ -194,13 +209,14 @@ export default function PortalFilePage() {
 
   if (!file) return null;
 
+  /* ── File viewer ───────────────────────────────── */
   return (
-    <div className="min-h-screen bg-zinc-50 flex flex-col">
+    <div className="min-h-screen bg-zinc-50 flex flex-col" style={{ animation: 'fadeIn 0.3s ease both' }}>
       {/* Header */}
-      <header className="bg-white border-b border-zinc-200 px-4 sm:px-6 py-3 flex items-center gap-3">
+      <header className="bg-white border-b border-zinc-200/80 px-5 sm:px-6 py-3.5 flex items-center gap-3">
         <Link
           href={`/portal/${token}`}
-          className="p-1.5 text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 rounded-lg transition-colors"
+          className="p-1.5 text-zinc-400 hover:text-zinc-900 hover:bg-zinc-100 rounded-lg transition-all"
         >
           <ArrowLeft size={18} />
         </Link>
@@ -227,10 +243,10 @@ export default function PortalFilePage() {
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-zinc-200 bg-white">
-        <div className="px-4 sm:px-6 py-3 flex items-center justify-center gap-1.5">
-          <span className="text-xs text-zinc-400">Powered by</span>
-          <Logo className="h-3.5 w-auto opacity-40" />
+      <footer className="border-t border-zinc-100 bg-white">
+        <div className="px-5 sm:px-6 py-3.5 flex items-center justify-center gap-2">
+          <span className="text-xs text-zinc-300 font-medium">Powered by</span>
+          <Logo className="h-3.5 w-auto opacity-25" />
         </div>
       </footer>
     </div>

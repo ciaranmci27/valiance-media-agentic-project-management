@@ -9,6 +9,7 @@ export const createTaskSchema = z.object({
   due_date: z.string().nullable().default(null),
   tags: z.array(z.string()).default([]),
   assignee_ids: z.array(z.string().uuid()).default([]),
+  project_goal_id: z.string().uuid().nullable().optional(),
 });
 
 export const updateTaskSchema = z.object({
@@ -20,4 +21,5 @@ export const updateTaskSchema = z.object({
   tags: z.array(z.string()).optional(),
   assignee_ids: z.array(z.string().uuid()).optional(),
   project_id: z.string().uuid().optional(),
+  project_goal_id: z.string().uuid().nullable().optional(),
 });

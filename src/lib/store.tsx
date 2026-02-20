@@ -1,7 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { Project, Task, TeamMember, FilterState, ViewMode, Subtask, Comment, Contact, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, Activity, PortalSettings, PortalFile, ApiKey, NotificationCategory } from './types';
+import { Project, Task, TeamMember, FilterState, ViewMode, Subtask, Comment, Contact, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, Activity, PortalSettings, PortalFile, ApiKey, NotificationCategory, ProjectGoal, TaskSuggestion, AgentActivity } from './types';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
@@ -71,6 +71,15 @@ import {
   fetchApiKeys,
   insertApiKey as insertApiKeyQuery,
   revokeApiKey as revokeApiKeyQuery,
+  fetchGoals,
+  insertGoal as insertGoalQuery,
+  patchGoal as patchGoalQuery,
+  archiveGoal as archiveGoalQuery,
+  fetchTaskSuggestions,
+  approveTaskSuggestion as approveTaskSuggestionQuery,
+  rejectTaskSuggestion as rejectTaskSuggestionQuery,
+  requestInfoTaskSuggestion as requestInfoTaskSuggestionQuery,
+  fetchAgentActivity,
 } from '@/lib/supabase/queries';
 import { toast } from '@/components/ui/Toast';
 
@@ -124,6 +133,7 @@ interface AppContextType {
   addTeamMember: (member: Omit<TeamMember, 'id'>) => void;
   updateTeamMember: (id: string, updates: Partial<TeamMember>) => void;
   deleteTeamMember: (id: string) => void;
+  upsertLocalTeamMember: (member: TeamMember) => void;
 
   // Contact CRUD
   addContact: (contact: Omit<Contact, 'id' | 'created_at' | 'updated_at'>) => Promise<Contact | undefined>;
@@ -170,8 +180,30 @@ interface AppContextType {
   deletePortalFile: (id: string) => void;
 
   // API Key CRUD
-  addApiKey: (name: string, keyHash: string, keyPrefix: string, permissions?: string) => Promise<ApiKey | undefined>;
+  addApiKey: (name: string, keyHash: string, keyPrefix: string, permissions?: string, teamMemberId?: string | null) => Promise<ApiKey | undefined>;
   revokeApiKey: (id: string) => void;
+
+  // Agent data (conditionally loaded when NEXT_PUBLIC_ENABLE_AGENTS=true)
+  projectGoals: ProjectGoal[];
+  taskSuggestions: TaskSuggestion[];
+  agentActivity: AgentActivity[];
+
+  // Project Goal CRUD
+  addGoal: (goal: { project_id: string; title: string; description?: string; target_date?: string | null; status?: string }) => Promise<ProjectGoal | undefined>;
+  updateGoal: (id: string, updates: Partial<ProjectGoal>) => void;
+  archiveGoal: (id: string) => void;
+
+  // Task Suggestion review actions
+  approveSuggestion: (id: string, taskOverrides: { priority?: string; assigned_to?: string | null; due_date?: string | null; project_id?: string }, reviewedBy: string) => void;
+  rejectSuggestion: (id: string, reason: string | undefined, reviewedBy: string) => void;
+  requestInfoOnSuggestion: (id: string, infoRequest: string, reviewedBy: string) => void;
+  bulkApproveSuggestions: (ids: string[]) => void;
+  bulkRejectSuggestions: (ids: string[], reason?: string) => void;
+
+  // Agent helpers
+  getGoalsByProject: (projectId: string) => ProjectGoal[];
+  getSuggestionsByGoal: (goalId: string) => TaskSuggestion[];
+  getPendingSuggestionCount: () => number;
 
   // Helpers
   getProject: (id: string) => Project | undefined;
@@ -218,6 +250,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [portalSettings, setPortalSettings] = useState<PortalSettings[]>([]);
   const [portalFiles, setPortalFiles] = useState<PortalFile[]>([]);
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
+  const [projectGoals, setProjectGoals] = useState<ProjectGoal[]>([]);
+  const [taskSuggestions, setTaskSuggestions] = useState<TaskSuggestion[]>([]);
+  const [agentActivityList, setAgentActivityList] = useState<AgentActivity[]>([]);
   const [filters, setFilters] = useState<FilterState>(defaultFilters);
   const [viewMode, setViewMode] = useState<ViewMode>('board');
   const [loading, setLoading] = useState(true);
@@ -228,14 +263,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const skipSupabase = isDemoMode;
 
   // Fire-and-forget notification helper — uses upsert RPC for dedup
-  const notify = (userIds: string[], title: string, message: string, link: string | null, entityType: string | null, entityId: string | null, category?: NotificationCategory) => {
+  const allMemberIds = () => team.map(m => m.id);
+
+  const notify = (userIds: string[], title: string, message: string, link: string | null, entityType: string | null, entityId: string | null, category: NotificationCategory) => {
     if (skipSupabase) return;
     const recipients = userIds.filter(id => {
       if (id === teamMemberId) return false;
-      if (category) {
-        const member = team.find(m => m.id === id);
-        if (member?.notification_prefs?.[category] === false) return false;
-      }
+      const member = team.find(m => m.id === id);
+      if (member?.notification_prefs?.[category] === false) return false;
       return true;
     });
     for (const userId of recipients) {
@@ -314,6 +349,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setPortalSettings(portalSettingsData);
         setPortalFiles(portalFilesData);
         setApiKeys(apiKeysData);
+
+        // Conditionally load agent data when feature is enabled
+        if (process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true') {
+          try {
+            const [goalsData, suggestionsData, activityData] = await Promise.all([
+              fetchGoals(supabase),
+              fetchTaskSuggestions(supabase),
+              fetchAgentActivity(supabase),
+            ]);
+            setProjectGoals(goalsData);
+            setTaskSuggestions(suggestionsData);
+            setAgentActivityList(activityData);
+          } catch (agentErr) {
+            console.error('Failed to load agent data:', agentErr);
+          }
+        }
       } catch (err) {
         console.error('Failed to load data:', err);
         toast('error', 'Failed to load data from server');
@@ -344,6 +395,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       const newProject = await insertProject(supabase, { ...project, created_by: teamMemberId }, memberIds);
       setProjects(prev => prev.map(p => p.id === optimisticId ? newProject : p));
+      notify(allMemberIds(), `New project: "${newProject.name}"`, `${actorName()} created a new project.`, `/projects/${newProject.id}`, 'project', newProject.id, 'project_created');
       return newProject;
     } catch (err) {
       setProjects(prev => prev.filter(p => p.id !== optimisticId));
@@ -364,7 +416,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       const project = projects.find(p => p.id === id);
       if (project) {
-        notify(project.member_ids, `"${project.name}" was updated`, `${actorName()} updated the project.`, `/projects/${id}`, 'project', id, 'project_updates');
+        notify(allMemberIds(), `"${project.name}" was updated`, `${actorName()} updated the project.`, `/projects/${id}`, 'project', id, 'project_updates');
       }
     } catch (err) {
       setProjects(prev);
@@ -376,6 +428,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const prev = projects;
     const prevTasks = tasks;
     const prevPc = projectContacts;
+    const deletedProject = projects.find(p => p.id === id);
     setProjects(p => p.filter(proj => proj.id !== id));
     setTasks(t => t.filter(task => task.project_id !== id));
     setProjectContacts(pc => pc.filter(p => p.project_id !== id));
@@ -383,6 +436,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     try {
       await removeProject(supabase, id);
+      if (deletedProject) {
+        notify(allMemberIds(), `Project "${deletedProject.name}" was archived`, `${actorName()} archived the project.`, '/projects', 'project', id, 'project_deleted');
+      }
     } catch (err) {
       setProjects(prev);
       setTasks(prevTasks);
@@ -412,6 +468,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       const newTask = await insertTask(supabase, { ...task, created_by: teamMemberId }, assigneeIds);
       setTasks(prev => prev.map(t => t.id === optimisticId ? newTask : t));
+      const project = projects.find(p => p.id === task.project_id);
+      notify(allMemberIds(), `New task: "${newTask.title}"`, `${actorName()} created a task${project ? ` in ${project.name}` : ''}.`, `/projects/${task.project_id}`, 'task', newTask.id, 'task_created');
     } catch (err) {
       setTasks(prev => prev.filter(t => t.id !== optimisticId));
       toast('error', 'Failed to create task');
@@ -435,17 +493,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
         if (updates.status && updates.status !== existingTask.status) {
           const statusLabel = updates.status.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
-          notify(existingTask.assignee_ids, `"${existingTask.title}" moved to ${statusLabel}`, `${actorName()} updated the task status.`, projectLink, 'task', id, 'task_status');
+          notify(allMemberIds(), `"${existingTask.title}" moved to ${statusLabel}`, `${actorName()} updated the task status.`, projectLink, 'task', id, 'task_status');
         } else if (updates.assignee_ids) {
           const newAssignees = updates.assignee_ids.filter(aid => !existingTask.assignee_ids.includes(aid));
           if (newAssignees.length > 0) {
-            notify(newAssignees, `You were assigned to "${existingTask.title}"`, `${actorName()} assigned you to a task${project ? ` in ${project.name}` : ''}.`, projectLink, 'task', id, 'task_assignments');
+            notify(allMemberIds(), `"${existingTask.title}" assignees changed`, `${actorName()} updated task assignments${project ? ` in ${project.name}` : ''}.`, projectLink, 'task', id, 'task_assignments');
           }
-          // Notify existing assignees about the change too
-          const existingAssignees = existingTask.assignee_ids;
-          notify(existingAssignees, `"${existingTask.title}" was updated`, `${actorName()} updated the task.`, projectLink, 'task', id, 'task_updates');
+          notify(allMemberIds(), `"${existingTask.title}" was updated`, `${actorName()} updated the task.`, projectLink, 'task', id, 'task_updates');
         } else {
-          notify(existingTask.assignee_ids, `"${existingTask.title}" was updated`, `${actorName()} updated the task.`, projectLink, 'task', id, 'task_updates');
+          notify(allMemberIds(), `"${existingTask.title}" was updated`, `${actorName()} updated the task.`, projectLink, 'task', id, 'task_updates');
         }
       }
     } catch (err) {
@@ -456,11 +512,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const deleteTask = async (id: string) => {
     const prev = tasks;
+    const deletedTask = tasks.find(t => t.id === id);
     setTasks(t => t.filter(task => task.id !== id));
     if (skipSupabase) return;
 
     try {
       await removeTask(supabase, id);
+      if (deletedTask) {
+        notify(allMemberIds(), `Task "${deletedTask.title}" was deleted`, `${actorName()} deleted a task.`, deletedTask.project_id ? `/projects/${deletedTask.project_id}` : null, 'task', id, 'task_deleted');
+      }
     } catch (err) {
       setTasks(prev);
       toast('error', 'Failed to delete task');
@@ -489,7 +549,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       const task = tasks.find(t => t.id === taskId);
       if (task) {
-        notify(task.assignee_ids, `"${task.title}" was updated`, `${actorName()} added a subtask.`, `/projects/${task.project_id}`, 'task', taskId, 'task_subtasks');
+        notify(allMemberIds(), `"${task.title}" was updated`, `${actorName()} added a subtask.`, `/projects/${task.project_id}`, 'task', taskId, 'task_subtasks');
       }
     } catch (err) {
       setTasks(prev => prev.map(t =>
@@ -525,7 +585,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const parentTask = tasks.find(t => t.id === taskId);
       if (parentTask) {
         const msg = newCompleted ? `${actorName()} completed a subtask.` : `${actorName()} reopened a subtask.`;
-        notify(parentTask.assignee_ids, `"${parentTask.title}" was updated`, msg, `/projects/${parentTask.project_id}`, 'task', taskId, 'task_subtasks');
+        notify(allMemberIds(), `"${parentTask.title}" was updated`, msg, `/projects/${parentTask.project_id}`, 'task', taskId, 'task_subtasks');
       }
     } catch (err) {
       setTasks(prev => prev.map(t =>
@@ -617,7 +677,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const task = tasks.find(t => t.id === taskId);
       if (task) {
         const preview = text.length > 60 ? text.slice(0, 60) + '...' : text;
-        notify(task.assignee_ids, `New comment on "${task.title}"`, `${actorName()}: "${preview}"`, `/projects/${task.project_id}`, 'task', taskId, 'task_comments');
+        notify(allMemberIds(), `New comment on "${task.title}"`, `${actorName()}: "${preview}"`, `/projects/${task.project_id}`, 'task', taskId, 'task_comments');
       }
     } catch (err) {
       setTasks(prev => prev.map(t =>
@@ -676,9 +736,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setTeam(prev => prev.map(m => m.id === optimisticId ? newMember : m));
 
       // Notify all existing team members
-      const allMemberIds = team.map(m => m.id);
       notify(
-        allMemberIds,
+        allMemberIds(),
         'New team member joined',
         `${member.name} was added to the team as ${member.role === 'admin' ? 'an admin' : `a ${member.role}`}.`,
         '/team', 'member', newMember.id,
@@ -705,15 +764,38 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const deleteTeamMember = async (id: string) => {
     const prev = team;
+    const removedMember = team.find(m => m.id === id);
     setTeam(t => t.filter(m => m.id !== id));
     if (skipSupabase) return;
 
     try {
       await removeTeamMember(supabase, id);
+      if (removedMember) {
+        notify(allMemberIds(), `${removedMember.name} was removed from the team`, `${actorName()} removed a team member.`, '/team', 'member', id, 'team_members');
+      }
     } catch (err) {
       setTeam(prev);
       toast('error', 'Failed to remove team member');
     }
+  };
+
+  const upsertLocalTeamMember = (member: TeamMember) => {
+    setTeam(prev => {
+      const idx = prev.findIndex(m => m.id === member.id);
+      if (idx >= 0) {
+        const updated = [...prev];
+        updated[idx] = member;
+        return updated;
+      }
+      return [...prev, member];
+    });
+    notify(
+      allMemberIds(),
+      'New team member joined',
+      `${member.name} was added to the team as ${member.role === 'admin' ? 'an admin' : `a ${member.role}`}.`,
+      '/team', 'member', member.id,
+      'team_members'
+    );
   };
 
   // Contact CRUD
@@ -733,6 +815,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       const newContact = await insertContact(supabase, { ...contact, created_by: teamMemberId });
       setContacts(prev => prev.map(c => c.id === optimisticId ? newContact : c));
+      notify(allMemberIds(), `New contact: "${newContact.name}"`, `${actorName()} added a new contact.`, null, 'contact', newContact.id, 'contact_created');
       return newContact;
     } catch (err) {
       setContacts(prev => prev.filter(c => c.id !== optimisticId));
@@ -752,16 +835,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       await patchContact(supabase, id, updates);
 
-      // Notify members of linked projects + leads
       if (existingContact) {
-        const linkedProjectIds = projectContacts.filter(pc => pc.contact_id === id).map(pc => pc.project_id);
-        const projectMemberIds = projects.filter(p => linkedProjectIds.includes(p.id)).flatMap(p => p.member_ids);
-        const linkedLeadIds = leadContacts.filter(lc => lc.contact_id === id).map(lc => lc.lead_id);
-        const leadMemberIds = leads.filter(l => linkedLeadIds.includes(l.id)).flatMap(l => l.member_ids);
-        const allRecipients = [...new Set([...projectMemberIds, ...leadMemberIds])];
-        if (allRecipients.length > 0) {
-          notify(allRecipients, `Contact "${existingContact.name}" was updated`, `${actorName()} updated the contact.`, null, 'contact', id, 'contact_updates');
-        }
+        notify(allMemberIds(), `Contact "${existingContact.name}" was updated`, `${actorName()} updated the contact.`, null, 'contact', id, 'contact_updates');
       }
     } catch (err) {
       setContacts(prev);
@@ -771,11 +846,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const deleteContact = async (id: string) => {
     const prev = contacts;
+    const deletedContact = contacts.find(c => c.id === id);
     setContacts(c => c.filter(contact => contact.id !== id));
     if (skipSupabase) return;
 
     try {
       await removeContact(supabase, id);
+      if (deletedContact) {
+        notify(allMemberIds(), `Contact "${deletedContact.name}" was deleted`, `${actorName()} removed a contact.`, null, 'contact', id, 'contact_deleted');
+      }
     } catch (err) {
       setContacts(prev);
       toast('error', 'Failed to delete contact');
@@ -824,7 +903,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       const project = projects.find(p => p.id === projectId);
       if (project) {
-        notify(project.member_ids, `"${project.name}" contacts updated`, `${actorName()} linked a contact.`, `/projects/${projectId}`, 'project', projectId, 'project_contacts');
+        notify(allMemberIds(), `"${project.name}" contacts updated`, `${actorName()} linked a contact.`, `/projects/${projectId}`, 'project', projectId, 'project_contacts');
       }
     } catch (err) {
       setProjectContacts(prev => prev.filter(pc => pc.id !== optimisticId));
@@ -859,7 +938,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       const project = projects.find(p => p.id === projectId);
       if (project) {
-        notify(project.member_ids, `"${project.name}" contacts updated`, `${actorName()} updated a contact role.`, `/projects/${projectId}`, 'project', projectId, 'project_contacts');
+        notify(allMemberIds(), `"${project.name}" contacts updated`, `${actorName()} updated a contact role.`, `/projects/${projectId}`, 'project', projectId, 'project_contacts');
       }
     } catch (err) {
       setProjectContacts(prev);
@@ -877,7 +956,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       const project = projects.find(p => p.id === projectId);
       if (project) {
-        notify(project.member_ids, `"${project.name}" contacts updated`, `${actorName()} removed a contact.`, `/projects/${projectId}`, 'project', projectId, 'project_contacts');
+        notify(allMemberIds(), `"${project.name}" contacts updated`, `${actorName()} removed a contact.`, `/projects/${projectId}`, 'project', projectId, 'project_contacts');
       }
     } catch (err) {
       setProjectContacts(prev);
@@ -933,6 +1012,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
           // Non-critical: lead was created, contact link is just a bonus
         }
       }
+
+      notify(allMemberIds(), `New lead "${lead.name}" created`, `${actorName()} created a new lead.`, `/leads/${newLead.id}`, 'lead', newLead.id, 'lead_created');
     } catch (err) {
       setLeads(prev => prev.filter(l => l.id !== optimisticId));
       toast('error', 'Failed to create lead');
@@ -979,9 +1060,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (currentLead) {
         if (updates.status && updates.status !== currentLead.status) {
           const statusLabel = updates.status.charAt(0).toUpperCase() + updates.status.slice(1);
-          notify(currentLead.member_ids, `Lead "${currentLead.name}" moved to ${statusLabel}`, `${actorName()} updated the lead status.`, `/leads/${id}`, 'lead', id, 'lead_status');
+          notify(allMemberIds(), `Lead "${currentLead.name}" moved to ${statusLabel}`, `${actorName()} updated the lead status.`, `/leads/${id}`, 'lead', id, 'lead_status');
         } else {
-          notify(currentLead.member_ids, `Lead "${currentLead.name}" was updated`, `${actorName()} updated the lead.`, `/leads/${id}`, 'lead', id, 'lead_updates');
+          notify(allMemberIds(), `Lead "${currentLead.name}" was updated`, `${actorName()} updated the lead.`, `/leads/${id}`, 'lead', id, 'lead_updates');
         }
       }
     } catch (err) {
@@ -995,6 +1076,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const deleteLead = async (id: string) => {
     const prev = leads;
+    const deletedLead = leads.find(l => l.id === id);
     const prevInteractions = leadInteractions;
     const prevProposals = leadProposals;
     const prevFields = leadFields;
@@ -1008,6 +1090,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     try {
       await removeLead(supabase, id);
+      if (deletedLead) {
+        notify(allMemberIds(), `Lead "${deletedLead.name}" was deleted`, `${actorName()} removed a lead.`, null, 'lead', id, 'lead_deleted');
+      }
     } catch (err) {
       setLeads(prev);
       setLeadInteractions(prevInteractions);
@@ -1095,7 +1180,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setProjectContacts(prev => [...prev, ...result.additionalProjectContacts]);
       }
 
-      notify(lead.member_ids, `Lead "${lead.name}" converted to project`, `${actorName()} converted the lead.`, `/leads/${leadId}`, 'lead', leadId, 'lead_conversions');
+      notify(allMemberIds(), `Lead "${lead.name}" converted to project`, `${actorName()} converted the lead.`, `/leads/${leadId}`, 'lead', leadId, 'lead_conversions');
     } catch (err) {
       // Rollback
       if (optimisticContact) {
@@ -1131,7 +1216,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const lead = leads.find(l => l.id === interaction.lead_id);
       if (lead) {
         const typeLabel = interaction.type.replace('_', ' ');
-        notify(lead.member_ids, `New ${typeLabel} on lead "${lead.name}"`, `${actorName()} logged a ${typeLabel}.`, `/leads/${interaction.lead_id}`, 'lead', interaction.lead_id, 'lead_interactions');
+        notify(allMemberIds(), `New ${typeLabel} on lead "${lead.name}"`, `${actorName()} logged a ${typeLabel}.`, `/leads/${interaction.lead_id}`, 'lead', interaction.lead_id, 'lead_interactions');
       }
     } catch (err) {
       setLeadInteractions(prev => prev.filter(i => i.id !== optimisticId));
@@ -1153,7 +1238,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (interaction) {
         const lead = leads.find(l => l.id === interaction.lead_id);
         if (lead) {
-          notify(lead.member_ids, `Lead "${lead.name}" was updated`, `${actorName()} updated an interaction.`, `/leads/${lead.id}`, 'lead', lead.id, 'lead_interactions');
+          notify(allMemberIds(), `Lead "${lead.name}" was updated`, `${actorName()} updated an interaction.`, `/leads/${lead.id}`, 'lead', lead.id, 'lead_interactions');
         }
       }
     } catch (err) {
@@ -1164,11 +1249,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const deleteLeadInteraction = async (id: string) => {
     const prev = leadInteractions;
+    const deletedInteraction = leadInteractions.find(i => i.id === id);
     setLeadInteractions(i => i.filter(int => int.id !== id));
     if (skipSupabase) return;
 
     try {
       await removeLeadInteraction(supabase, id);
+      if (deletedInteraction) {
+        const lead = leads.find(l => l.id === deletedInteraction.lead_id);
+        if (lead) {
+          notify(allMemberIds(), `Lead "${lead.name}" interaction removed`, `${actorName()} deleted an interaction.`, `/leads/${lead.id}`, 'lead', lead.id, 'lead_interactions');
+        }
+      }
     } catch (err) {
       setLeadInteractions(prev);
       toast('error', 'Failed to delete interaction');
@@ -1195,7 +1287,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       const lead = leads.find(l => l.id === proposal.lead_id);
       if (lead) {
-        notify(lead.member_ids, `New proposal for "${lead.name}"`, `${actorName()} added a proposal.`, `/leads/${proposal.lead_id}`, 'lead', proposal.lead_id, 'lead_proposals');
+        notify(allMemberIds(), `New proposal for "${lead.name}"`, `${actorName()} added a proposal.`, `/leads/${proposal.lead_id}`, 'lead', proposal.lead_id, 'lead_proposals');
       }
     } catch (err) {
       setLeadProposals(prev => prev.filter(p => p.id !== optimisticId));
@@ -1217,7 +1309,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (proposal) {
         const lead = leads.find(l => l.id === proposal.lead_id);
         if (lead) {
-          notify(lead.member_ids, `Lead "${lead.name}" proposal updated`, `${actorName()} updated a proposal.`, `/leads/${lead.id}`, 'lead', lead.id, 'lead_proposals');
+          notify(allMemberIds(), `Lead "${lead.name}" proposal updated`, `${actorName()} updated a proposal.`, `/leads/${lead.id}`, 'lead', lead.id, 'lead_proposals');
         }
       }
     } catch (err) {
@@ -1228,11 +1320,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const deleteLeadProposal = async (id: string) => {
     const prev = leadProposals;
+    const deletedProposal = leadProposals.find(p => p.id === id);
     setLeadProposals(p => p.filter(prop => prop.id !== id));
     if (skipSupabase) return;
 
     try {
       await removeLeadProposal(supabase, id);
+      if (deletedProposal) {
+        const lead = leads.find(l => l.id === deletedProposal.lead_id);
+        if (lead) {
+          notify(allMemberIds(), `Lead "${lead.name}" proposal removed`, `${actorName()} deleted a proposal.`, `/leads/${lead.id}`, 'lead', lead.id, 'lead_proposals');
+        }
+      }
     } catch (err) {
       setLeadProposals(prev);
       toast('error', 'Failed to delete proposal');
@@ -1258,7 +1357,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           field.id === existing.id ? updated : field
         ));
         const lead = leads.find(l => l.id === leadId);
-        if (lead) notify(lead.member_ids, `Lead "${lead.name}" was updated`, `${actorName()} updated lead details.`, `/leads/${leadId}`, 'lead', leadId, 'lead_updates');
+        if (lead) notify(allMemberIds(), `Lead "${lead.name}" was updated`, `${actorName()} updated lead details.`, `/leads/${leadId}`, 'lead', leadId, 'lead_updates');
       } catch (err) {
         setLeadFields(prev);
         toast('error', 'Failed to update field');
@@ -1282,7 +1381,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const created = await upsertLeadField(supabase, leadId, fieldKey, value);
         setLeadFields(prev => prev.map(f => f.id === optimisticId ? created : f));
         const lead = leads.find(l => l.id === leadId);
-        if (lead) notify(lead.member_ids, `Lead "${lead.name}" was updated`, `${actorName()} updated lead details.`, `/leads/${leadId}`, 'lead', leadId, 'lead_updates');
+        if (lead) notify(allMemberIds(), `Lead "${lead.name}" was updated`, `${actorName()} updated lead details.`, `/leads/${leadId}`, 'lead', leadId, 'lead_updates');
       } catch (err) {
         setLeadFields(prev => prev.filter(f => f.id !== optimisticId));
         toast('error', 'Failed to add field');
@@ -1297,6 +1396,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     try {
       await removeLeadFieldQuery(supabase, id);
+      const lead = leads.find(l => l.id === leadId);
+      if (lead) {
+        notify(allMemberIds(), `Lead "${lead.name}" field removed`, `${actorName()} removed a lead field.`, `/leads/${leadId}`, 'lead', leadId, 'lead_updates');
+      }
     } catch (err) {
       setLeadFields(prev);
       toast('error', 'Failed to remove field');
@@ -1354,7 +1457,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       const lead = leads.find(l => l.id === leadId);
       if (lead) {
-        notify(lead.member_ids, `Lead "${lead.name}" contacts updated`, `${actorName()} linked a contact.`, `/leads/${leadId}`, 'lead', leadId, 'lead_contacts');
+        notify(allMemberIds(), `Lead "${lead.name}" contacts updated`, `${actorName()} linked a contact.`, `/leads/${leadId}`, 'lead', leadId, 'lead_contacts');
       }
     } catch (err) {
       setLeadContacts(prev => prev.filter(lc => lc.id !== optimisticId));
@@ -1404,6 +1507,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const lc = leadContacts.find(l => l.id === lcId);
         if (lc) await patchLead(supabase, leadId, { contact_id: lc.contact_id });
       }
+
+      const lead = leads.find(l => l.id === leadId);
+      if (lead) {
+        notify(allMemberIds(), `Lead "${lead.name}" contacts updated`, `${actorName()} updated a contact role.`, `/leads/${leadId}`, 'lead', leadId, 'lead_contacts');
+      }
     } catch (err) {
       setLeadContacts(prev);
       setLeads(prevLeads);
@@ -1433,7 +1541,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       const lead = leads.find(l => l.id === leadId);
       if (lead) {
-        notify(lead.member_ids, `Lead "${lead.name}" contacts updated`, `${actorName()} removed a contact.`, `/leads/${leadId}`, 'lead', leadId, 'lead_contacts');
+        notify(allMemberIds(), `Lead "${lead.name}" contacts updated`, `${actorName()} removed a contact.`, `/leads/${leadId}`, 'lead', leadId, 'lead_contacts');
       }
     } catch (err) {
       setLeadContacts(prev);
@@ -1563,7 +1671,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   // API Key CRUD
-  const addApiKeyAction = async (name: string, keyHash: string, keyPrefix: string, permissions = 'full'): Promise<ApiKey | undefined> => {
+  const addApiKeyAction = async (name: string, keyHash: string, keyPrefix: string, permissions = 'full', linkedTeamMemberId?: string | null): Promise<ApiKey | undefined> => {
     if (skipSupabase) return undefined;
 
     try {
@@ -1573,6 +1681,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         key_hash: keyHash,
         created_by: teamMemberId,
         permissions,
+        team_member_id: linkedTeamMemberId || null,
       });
       setApiKeys(prev => [newKey, ...prev]);
       return newKey;
@@ -1594,6 +1703,153 @@ export function AppProvider({ children }: { children: ReactNode }) {
       toast('error', 'Failed to revoke API key');
     }
   };
+
+  // Project Goal CRUD
+  const addGoalAction = async (goal: { project_id: string; title: string; description?: string; target_date?: string | null; status?: string }): Promise<ProjectGoal | undefined> => {
+    const optimisticId = crypto.randomUUID();
+    const now = new Date().toISOString();
+    const optimistic: ProjectGoal = {
+      id: optimisticId,
+      project_id: goal.project_id,
+      title: goal.title,
+      description: goal.description || '',
+      target_date: goal.target_date || null,
+      status: (goal.status as ProjectGoal['status']) || 'active',
+      created_by: teamMemberId,
+      archived_at: null,
+      created_at: now,
+      updated_at: now,
+    };
+
+    setProjectGoals(prev => [optimistic, ...prev]);
+    if (skipSupabase) return optimistic;
+
+    try {
+      const newGoal = await insertGoalQuery(supabase, { ...goal, created_by: teamMemberId });
+      setProjectGoals(prev => prev.map(g => g.id === optimisticId ? newGoal : g));
+      return newGoal;
+    } catch (err) {
+      setProjectGoals(prev => prev.filter(g => g.id !== optimisticId));
+      toast('error', 'Failed to create goal');
+      return undefined;
+    }
+  };
+
+  const updateGoalAction = async (id: string, updates: Partial<ProjectGoal>) => {
+    const prev = projectGoals;
+    setProjectGoals(g => g.map(goal =>
+      goal.id === id ? { ...goal, ...updates, updated_at: new Date().toISOString() } : goal
+    ));
+    if (skipSupabase) return;
+
+    try {
+      await patchGoalQuery(supabase, id, updates);
+    } catch (err) {
+      setProjectGoals(prev);
+      toast('error', 'Failed to update goal');
+    }
+  };
+
+  const archiveGoalAction = async (id: string) => {
+    const prev = projectGoals;
+    setProjectGoals(g => g.filter(goal => goal.id !== id));
+    if (skipSupabase) return;
+
+    try {
+      await archiveGoalQuery(supabase, id);
+    } catch (err) {
+      setProjectGoals(prev);
+      toast('error', 'Failed to archive goal');
+    }
+  };
+
+  // Task Suggestion review actions
+  const approveSuggestionAction = async (
+    id: string,
+    taskOverrides: { priority?: string; assigned_to?: string | null; due_date?: string | null; project_id?: string },
+    reviewedBy: string
+  ) => {
+    const prevSuggestions = taskSuggestions;
+    const suggestion = taskSuggestions.find(s => s.id === id);
+    if (!suggestion) return;
+
+    setTaskSuggestions(s => s.map(sug =>
+      sug.id === id ? { ...sug, status: 'approved' as const, reviewed_by: reviewedBy, reviewed_at: new Date().toISOString() } : sug
+    ));
+    if (skipSupabase) return;
+
+    try {
+      const result = await approveTaskSuggestionQuery(supabase, id, taskOverrides, reviewedBy);
+      setTaskSuggestions(s => s.map(sug => sug.id === id ? result.suggestion : sug));
+      setTasks(prev => [result.task, ...prev]);
+
+      // Notify all members that a suggestion was approved
+      notify(allMemberIds(), `Suggestion "${suggestion.title}" approved`, `${actorName()} approved the suggestion and created a task.`, null, 'suggestion', id, 'agent_suggestions');
+    } catch (err) {
+      setTaskSuggestions(prevSuggestions);
+      toast('error', 'Failed to approve suggestion');
+    }
+  };
+
+  const rejectSuggestionAction = async (id: string, reason: string | undefined, reviewedBy: string) => {
+    const prev = taskSuggestions;
+    const suggestion = taskSuggestions.find(s => s.id === id);
+
+    setTaskSuggestions(s => s.map(sug =>
+      sug.id === id ? { ...sug, status: 'rejected' as const, reviewed_by: reviewedBy, reviewed_at: new Date().toISOString(), rejection_reason: reason || null } : sug
+    ));
+    if (skipSupabase) return;
+
+    try {
+      const updated = await rejectTaskSuggestionQuery(supabase, id, reason, reviewedBy);
+      setTaskSuggestions(s => s.map(sug => sug.id === id ? updated : sug));
+
+      if (suggestion) {
+        notify(allMemberIds(), `Suggestion "${suggestion.title}" rejected`, reason ? `Reason: ${reason}` : `${actorName()} rejected the suggestion.`, null, 'suggestion', id, 'agent_suggestions');
+      }
+    } catch (err) {
+      setTaskSuggestions(prev);
+      toast('error', 'Failed to reject suggestion');
+    }
+  };
+
+  const requestInfoOnSuggestionAction = async (id: string, infoRequest: string, reviewedBy: string) => {
+    const prev = taskSuggestions;
+    const suggestion = taskSuggestions.find(s => s.id === id);
+    setTaskSuggestions(s => s.map(sug =>
+      sug.id === id ? { ...sug, status: 'needs_info' as const, reviewed_by: reviewedBy, reviewed_at: new Date().toISOString(), info_request: infoRequest } : sug
+    ));
+    if (skipSupabase) return;
+
+    try {
+      const updated = await requestInfoTaskSuggestionQuery(supabase, id, infoRequest, reviewedBy);
+      setTaskSuggestions(s => s.map(sug => sug.id === id ? updated : sug));
+
+      if (suggestion) {
+        notify(allMemberIds(), `Info requested on "${suggestion.title}"`, `${actorName()} requested more info on a suggestion.`, null, 'suggestion', id, 'agent_suggestions');
+      }
+    } catch (err) {
+      setTaskSuggestions(prev);
+      toast('error', 'Failed to request info');
+    }
+  };
+
+  const bulkApproveSuggestionsAction = async (ids: string[]) => {
+    for (const id of ids) {
+      await approveSuggestionAction(id, {}, teamMemberId || '');
+    }
+  };
+
+  const bulkRejectSuggestionsAction = async (ids: string[], reason?: string) => {
+    for (const id of ids) {
+      await rejectSuggestionAction(id, reason, teamMemberId || '');
+    }
+  };
+
+  // Agent helpers
+  const getGoalsByProject = (projectId: string) => projectGoals.filter(g => g.project_id === projectId);
+  const getSuggestionsByGoal = (goalId: string) => taskSuggestions.filter(s => s.goal_id === goalId);
+  const getPendingSuggestionCount = () => taskSuggestions.filter(s => s.status === 'pending').length;
 
   // Helpers
   const getProject = (id: string) => projects.find(p => p.id === id);
@@ -1668,6 +1924,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       addTeamMember,
       updateTeamMember,
       deleteTeamMember,
+      upsertLocalTeamMember,
       addContact,
       updateContact,
       deleteContact,
@@ -1696,6 +1953,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
       deletePortalFile,
       addApiKey: addApiKeyAction,
       revokeApiKey: revokeApiKeyAction,
+      projectGoals,
+      taskSuggestions,
+      agentActivity: agentActivityList,
+      addGoal: addGoalAction,
+      updateGoal: updateGoalAction,
+      archiveGoal: archiveGoalAction,
+      approveSuggestion: approveSuggestionAction,
+      rejectSuggestion: rejectSuggestionAction,
+      requestInfoOnSuggestion: requestInfoOnSuggestionAction,
+      bulkApproveSuggestions: bulkApproveSuggestionsAction,
+      bulkRejectSuggestions: bulkRejectSuggestionsAction,
+      getGoalsByProject,
+      getSuggestionsByGoal,
+      getPendingSuggestionCount,
       getProject,
       getTasksByProject,
       getTeamMember,

@@ -9,34 +9,51 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import Modal from '@/components/ui/Modal';
-import { MoreVertical, Edit, Shield, User, UserMinus } from 'lucide-react';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { MoreVertical, Edit, Shield, User, UserMinus, Bot, UserPlus } from 'lucide-react';
 import { TeamMember } from '@/lib/types';
 import { toast } from '@/components/ui/Toast';
 import { createClient } from '@/lib/supabase/client';
 import { useDemo } from '@/lib/demo-context';
+import { useAuth } from '@/lib/auth-context';
+import InviteMemberModal from '@/components/team/InviteMemberModal';
 
 export default function TeamPage() {
-  const { team, updateTeamMember, tasks, filters, setFilters } = useApp();
+  const { team, updateTeamMember, upsertLocalTeamMember, tasks, filters, setFilters, getTeamMember } = useApp();
+  const { teamMemberId: currentTeamMemberId } = useAuth();
   const { isDemoMode } = useDemo();
   const supabase = createClient();
   const [isFormOpen, setIsFormOpen] = useState(false);
+  const [isInviteOpen, setIsInviteOpen] = useState(false);
   const [editingMember, setEditingMember] = useState<TeamMember | null>(null);
   const [avatarUploading, setAvatarUploading] = useState(false);
+  const [showEmailConfirm, setShowEmailConfirm] = useState(false);
+
+  const currentMember = getTeamMember(currentTeamMemberId || '');
+  const isAdmin = currentMember?.role === 'admin';
 
   useEffect(() => { setFilters(defaultFilters); }, []);
 
   const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [emailError, setEmailError] = useState('');
   const [role, setRole] = useState<TeamMember['role']>('member');
+  const [formLoading, setFormLoading] = useState(false);
 
   const resetForm = () => {
     setName('');
+    setEmail('');
+    setEmailError('');
     setRole('member');
+    setFormLoading(false);
     setEditingMember(null);
   };
 
   const handleOpenForm = (member: TeamMember) => {
     setEditingMember(member);
     setName(member.name);
+    setEmail(member.email);
+    setEmailError('');
     setRole(member.role);
     setIsFormOpen(true);
   };
@@ -76,25 +93,63 @@ export default function TeamPage() {
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !editingMember) return;
+
+    const emailChanged = email.trim().toLowerCase() !== editingMember.email.toLowerCase();
+
+    if (emailChanged) {
+      setShowEmailConfirm(true);
+      return;
+    }
 
     updateTeamMember(editingMember.id, { name: name.trim(), role });
     toast('success', 'Team member updated');
     handleCloseForm();
   };
 
-  const roleIcons = {
+  const handleConfirmEmailChange = async () => {
+    if (!editingMember) return;
+    setShowEmailConfirm(false);
+    setEmailError('');
+    setFormLoading(true);
+
+    try {
+      const res = await fetch('/api/team-members/update-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ team_member_id: editingMember.id, new_email: email.trim().toLowerCase() }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        setEmailError(data.error || 'Failed to update email');
+        return;
+      }
+
+      updateTeamMember(editingMember.id, { name: name.trim(), role, email: email.trim().toLowerCase() });
+      toast('success', 'Team member updated');
+      handleCloseForm();
+    } catch {
+      toast('error', 'Failed to update email');
+    } finally {
+      setFormLoading(false);
+    }
+  };
+
+  const roleIcons: Record<string, any> = {
     admin: Shield,
     member: User,
     guest: UserMinus,
+    agent: Bot,
   };
 
-  const roleColors = {
+  const roleColors: Record<string, string> = {
     admin: 'bg-indigo-100 text-indigo-700',
     member: 'bg-zinc-100 text-zinc-700',
     guest: 'bg-amber-100 text-amber-700',
+    agent: 'bg-purple-100 text-purple-700',
   };
 
   const getTaskCount = (memberId: string) => {
@@ -124,29 +179,31 @@ export default function TeamPage() {
             </div>
           </div>
 
-          <div className="relative">
-            <button
-              onClick={() => setShowMenu(!showMenu)}
-              className="lg:opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 transition-all"
-            >
-              <MoreVertical size={16} />
-            </button>
+          {(isAdmin || member.id === currentTeamMemberId) && (
+            <div className="relative">
+              <button
+                onClick={() => setShowMenu(!showMenu)}
+                className="lg:opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 transition-all"
+              >
+                <MoreVertical size={16} />
+              </button>
 
-            {showMenu && (
-              <>
-                <div className="fixed inset-0 z-10 cursor-default" onClick={(e) => { e.stopPropagation(); setShowMenu(false); }} />
-                <div className="absolute right-0 top-10 bg-white rounded-lg shadow-xl border border-zinc-200 py-1 z-20 min-w-[140px] cursor-pointer">
-                  <button
-                    onClick={() => { handleOpenForm(member); setShowMenu(false); }}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-100"
-                  >
-                    <Edit size={14} />
-                    Edit
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
+              {showMenu && (
+                <>
+                  <div className="fixed inset-0 z-10 cursor-default" onClick={(e) => { e.stopPropagation(); setShowMenu(false); }} />
+                  <div className="absolute right-0 top-10 bg-white rounded-lg shadow-xl border border-zinc-200 py-1 z-20 min-w-[140px] cursor-pointer">
+                    <button
+                      onClick={() => { handleOpenForm(member); setShowMenu(false); }}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-100"
+                    >
+                      <Edit size={14} />
+                      Edit
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
@@ -168,6 +225,11 @@ export default function TeamPage() {
         title="Team"
         subtitle={<span className="hidden sm:inline">{team.length} team members</span>}
         searchPlaceholder="Search team members..."
+        actions={isAdmin && !isDemoMode ? (
+          <Button icon={<UserPlus size={16} />} onClick={() => setIsInviteOpen(true)}>
+            Invite
+          </Button>
+        ) : undefined}
       />
 
       <div className="p-4 lg:p-6 space-y-4">
@@ -185,6 +247,17 @@ export default function TeamPage() {
           </div>
         )}
       </div>
+
+      {/* Invite Member Modal */}
+      <InviteMemberModal
+        isOpen={isInviteOpen}
+        onClose={() => setIsInviteOpen(false)}
+        onSuccess={(member) => {
+          upsertLocalTeamMember(member);
+          toast('success', `${member.name} has been invited`);
+        }}
+        showAgentRole={isAdmin && process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true'}
+      />
 
       {/* Edit Member Modal */}
       <Modal
@@ -219,33 +292,52 @@ export default function TeamPage() {
             required
           />
 
-          <div>
-            <label className="block text-sm font-medium text-zinc-700 mb-1">Email</label>
-            <p className="px-3 py-2 text-sm text-zinc-500 bg-zinc-50 border border-zinc-200 rounded-lg">{editingMember?.email}</p>
-            <p className="text-xs text-zinc-400 mt-1">Email is managed through Supabase</p>
-          </div>
+          <Input
+            label="Email"
+            type="email"
+            value={email}
+            onChange={(e) => { setEmail(e.target.value); setEmailError(''); }}
+            placeholder="name@example.com"
+            error={emailError}
+            disabled={formLoading}
+          />
 
           <Select
             label="Role"
             value={role}
             onChange={(value) => setRole(value as TeamMember['role'])}
+            disabled={!isAdmin}
             options={[
               { value: 'admin', label: 'Admin' },
               { value: 'member', label: 'Member' },
               { value: 'guest', label: 'Guest' },
+              ...(isAdmin && process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true'
+                ? [{ value: 'agent', label: 'Agent' }]
+                : []),
             ]}
           />
 
           <div className="flex justify-end gap-3 pt-4">
-            <Button type="button" variant="ghost" onClick={handleCloseForm}>
+            <Button type="button" variant="ghost" onClick={handleCloseForm} disabled={formLoading}>
               Cancel
             </Button>
-            <Button type="submit">
-              Save Changes
+            <Button type="submit" disabled={formLoading}>
+              {formLoading ? 'Saving...' : 'Save Changes'}
             </Button>
           </div>
         </form>
       </Modal>
+
+      <ConfirmDialog
+        isOpen={showEmailConfirm}
+        onClose={() => setShowEmailConfirm(false)}
+        onConfirm={handleConfirmEmailChange}
+        title="Change Email Address"
+        message={`This will change the login email for ${editingMember?.name || 'this member'} from "${editingMember?.email}" to "${email.trim().toLowerCase()}". They'll need to use the new email to sign in.`}
+        confirmLabel="Update Email"
+        variant="default"
+        doubleConfirm={false}
+      />
     </div>
   );
 }
