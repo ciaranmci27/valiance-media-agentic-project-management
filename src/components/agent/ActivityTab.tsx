@@ -1,9 +1,8 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useMemo } from 'react';
 import { useApp } from '@/lib/store';
 import { Avatar } from '@/components/ui/Avatar';
-import { Select } from '@/components/ui/Select';
 import {
   Activity, Lightbulb, PlayCircle, CheckCircle2, XCircle,
   Search, MessageSquare, RefreshCw, Zap,
@@ -31,14 +30,16 @@ const activityColors: Record<string, string> = {
   custom: 'bg-cyan-100 text-cyan-600',
 };
 
-export function ActivityTab() {
+export interface ActivityFilters {
+  filterAgent: string;
+  filterProject: string;
+  filterType: string;
+}
+
+export function ActivityTab({ filters }: { filters: ActivityFilters }) {
   const { agentActivity, team, projects } = useApp();
 
-  const [filterAgent, setFilterAgent] = useState('');
-  const [filterProject, setFilterProject] = useState('');
-  const [filterType, setFilterType] = useState('');
-
-  const agents = team.filter(m => m.role === 'agent');
+  const { filterAgent, filterProject, filterType } = filters;
 
   const filtered = useMemo(() => {
     return agentActivity.filter(a => {
@@ -73,45 +74,8 @@ export function ActivityTab() {
 
   return (
     <div className="space-y-4">
-      {/* Filters */}
-      <div className="flex gap-3 flex-wrap">
-        {agents.length > 0 && (
-          <Select
-            value={filterAgent}
-            onChange={setFilterAgent}
-            options={[
-              { value: '', label: 'All Agents' },
-              ...agents.map(a => ({ value: a.id, label: a.name })),
-            ]}
-          />
-        )}
-        <Select
-          value={filterProject}
-          onChange={setFilterProject}
-          options={[
-            { value: '', label: 'All Projects' },
-            ...projects.map(p => ({ value: p.id, label: p.name })),
-          ]}
-        />
-        <Select
-          value={filterType}
-          onChange={setFilterType}
-          options={[
-            { value: '', label: 'All Types' },
-            { value: 'suggestion_created', label: 'Suggestion Created' },
-            { value: 'task_started', label: 'Task Started' },
-            { value: 'task_completed', label: 'Task Completed' },
-            { value: 'task_failed', label: 'Task Failed' },
-            { value: 'research_completed', label: 'Research Completed' },
-            { value: 'comment_added', label: 'Comment Added' },
-            { value: 'status_changed', label: 'Status Changed' },
-            { value: 'custom', label: 'Custom' },
-          ]}
-        />
-      </div>
-
       {/* Activity feed */}
-      <div className="space-y-3">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
         {filtered.map((entry) => {
           const Icon = activityIcons[entry.activity_type] || Zap;
           const colorClass = activityColors[entry.activity_type] || 'bg-zinc-100 text-zinc-600';

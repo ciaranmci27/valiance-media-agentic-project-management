@@ -10,6 +10,7 @@ export interface Project {
   start_date: string | null;
   due_date: string | null;
   hourly_tracking: boolean;
+  autonomous_enabled: boolean;
   member_ids: string[];
   created_by?: string | null;
   archived_at?: string | null;
@@ -156,6 +157,9 @@ export interface LeadContact {
   contact?: Contact;
 }
 
+export const TASK_TYPES = ['engineering', 'research', 'audit', 'marketing', 'copywriting', 'operations', 'general'] as const;
+export type TaskType = typeof TASK_TYPES[number];
+
 export interface Task {
   id: string;
   project_id: string;
@@ -168,6 +172,7 @@ export interface Task {
   tags: string[];
   subtasks: Subtask[];
   comments: Comment[];
+  task_type?: TaskType | null;
   created_by?: string | null;
   project_goal_id?: string | null;
   source_task_suggestion_id?: string | null;
@@ -220,7 +225,9 @@ export type NotificationCategory =
   | 'contact_updates'
   | 'team_members'
   | 'agent_suggestions'
-  | 'agent_activity';
+  | 'agent_activity'
+  | 'agent_goals'
+  | 'agent_autonomous';
 
 export type NotificationPreferences = Partial<Record<NotificationCategory, boolean>>;
 
@@ -389,6 +396,7 @@ export interface TaskSuggestion {
   reasoning: string;
   priority: 'low' | 'medium' | 'high' | 'urgent';
   effort_estimate: 'small' | 'medium' | 'large' | null;
+  task_type?: TaskType | null;
   status: 'pending' | 'needs_info' | 'approved' | 'rejected';
   reviewed_by: string | null;
   reviewed_at: string | null;

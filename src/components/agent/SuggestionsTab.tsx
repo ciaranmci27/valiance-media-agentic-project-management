@@ -8,16 +8,23 @@ import { ApproveModal } from './ApproveModal';
 import { SwipeSuggestionCard } from './SwipeSuggestionCard';
 import { Avatar } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
-import { Select } from '@/components/ui/Select';
 import {
-  Check, X, HelpCircle, Lightbulb, ChevronDown,
-  AlertCircle, Clock, CheckCircle2, XCircle,
+  Check, X, HelpCircle, Lightbulb,
 } from 'lucide-react';
 import { toast } from '@/components/ui/Toast';
 
-type SubTab = 'pending' | 'needs_info' | 'approved' | 'rejected';
+export type StatusFilter = '' | 'pending' | 'needs_info' | 'approved' | 'rejected';
 
-export function SuggestionsTab() {
+export interface SuggestionsFilters {
+  statusFilter: StatusFilter;
+  filterProject: string;
+  filterGoal: string;
+  filterPriority: string;
+  filterAgent: string;
+  filterTaskType: string;
+}
+
+export function SuggestionsTab({ filters }: { filters: SuggestionsFilters }) {
   const {
     taskSuggestions, projects, projectGoals, team,
     approveSuggestion, rejectSuggestion, requestInfoOnSuggestion,
@@ -25,7 +32,8 @@ export function SuggestionsTab() {
   } = useApp();
   const { teamMemberId } = useAuth();
 
-  const [subTab, setSubTab] = useState<SubTab>('pending');
+  const { statusFilter, filterProject, filterGoal, filterPriority, filterAgent, filterTaskType } = filters;
+
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [approveModalId, setApproveModalId] = useState<string | null>(null);
   const [rejectInputId, setRejectInputId] = useState<string | null>(null);
@@ -33,31 +41,17 @@ export function SuggestionsTab() {
   const [infoInputId, setInfoInputId] = useState<string | null>(null);
   const [infoText, setInfoText] = useState('');
 
-  // Filters
-  const [filterProject, setFilterProject] = useState('');
-  const [filterGoal, setFilterGoal] = useState('');
-  const [filterPriority, setFilterPriority] = useState('');
-  const [filterAgent, setFilterAgent] = useState('');
-
-  const agents = team.filter(m => m.role === 'agent');
-
   const filtered = useMemo(() => {
     return taskSuggestions.filter(s => {
-      if (s.status !== subTab) return false;
+      if (statusFilter && s.status !== statusFilter) return false;
       if (filterProject && s.project_id !== filterProject) return false;
       if (filterGoal && s.goal_id !== filterGoal) return false;
       if (filterPriority && s.priority !== filterPriority) return false;
       if (filterAgent && s.proposed_by !== filterAgent) return false;
+      if (filterTaskType && s.task_type !== filterTaskType) return false;
       return true;
     });
-  }, [taskSuggestions, subTab, filterProject, filterGoal, filterPriority, filterAgent]);
-
-  const subTabItems: { key: SubTab; label: string; icon: any; count: number }[] = [
-    { key: 'pending', label: 'Pending', icon: Clock, count: taskSuggestions.filter(s => s.status === 'pending').length },
-    { key: 'needs_info', label: 'Needs Info', icon: HelpCircle, count: taskSuggestions.filter(s => s.status === 'needs_info').length },
-    { key: 'approved', label: 'Approved', icon: CheckCircle2, count: taskSuggestions.filter(s => s.status === 'approved').length },
-    { key: 'rejected', label: 'Rejected', icon: XCircle, count: taskSuggestions.filter(s => s.status === 'rejected').length },
-  ];
+  }, [taskSuggestions, statusFilter, filterProject, filterGoal, filterPriority, filterAgent, filterTaskType]);
 
   const toggleSelect = (id: string) => {
     setSelectedIds(prev => {
@@ -132,70 +126,6 @@ export function SuggestionsTab() {
 
   return (
     <div className="space-y-4">
-      {/* Sub-tabs */}
-      <div className="flex flex-wrap gap-2">
-        {subTabItems.map((tab) => (
-          <button
-            key={tab.key}
-            onClick={() => { setSubTab(tab.key); setSelectedIds(new Set()); }}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-all ${
-              subTab === tab.key
-                ? 'bg-zinc-900 text-white'
-                : 'bg-white text-zinc-600 border border-zinc-200 hover:bg-zinc-50'
-            }`}
-          >
-            <tab.icon size={14} />
-            {tab.label}
-            {tab.count > 0 && (
-              <span className={`ml-1 text-xs ${subTab === tab.key ? 'text-white/70' : 'text-zinc-400'}`}>
-                {tab.count}
-              </span>
-            )}
-          </button>
-        ))}
-      </div>
-
-      {/* Filters */}
-      <div className="hidden md:flex gap-3 flex-wrap">
-        <Select
-          value={filterProject}
-          onChange={setFilterProject}
-          options={[
-            { value: '', label: 'All Projects' },
-            ...projects.map(p => ({ value: p.id, label: p.name })),
-          ]}
-        />
-        <Select
-          value={filterGoal}
-          onChange={setFilterGoal}
-          options={[
-            { value: '', label: 'All Goals' },
-            ...projectGoals.map(g => ({ value: g.id, label: g.title })),
-          ]}
-        />
-        <Select
-          value={filterPriority}
-          onChange={setFilterPriority}
-          options={[
-            { value: '', label: 'All Priorities' },
-            { value: 'low', label: 'Low' },
-            { value: 'medium', label: 'Medium' },
-            { value: 'high', label: 'High' },
-            { value: 'urgent', label: 'Urgent' },
-          ]}
-        />
-        {agents.length > 0 && (
-          <Select
-            value={filterAgent}
-            onChange={setFilterAgent}
-            options={[
-              { value: '', label: 'All Agents' },
-              ...agents.map(a => ({ value: a.id, label: a.name })),
-            ]}
-          />
-        )}
-      </div>
-
       {/* Bulk actions */}
       {selectedIds.size > 0 && (
         <div className="flex items-center gap-3 bg-indigo-50 border border-indigo-200 rounded-lg px-4 py-3">
@@ -236,9 +166,9 @@ export function SuggestionsTab() {
         ))}
       </div>
 
-      {/* Desktop: Card list */}
+      {/* Desktop: Card grid */}
       <div className="hidden md:block space-y-3">
-        {subTab === 'pending' && filtered.length > 0 && (
+        {(statusFilter === '' || statusFilter === 'pending') && filtered.length > 0 && (
           <div className="flex items-center gap-2 px-1">
             <input
               type="checkbox"
@@ -250,13 +180,14 @@ export function SuggestionsTab() {
           </div>
         )}
 
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
         {filtered.map((suggestion) => (
           <div
             key={suggestion.id}
             className="bg-white rounded-xl border border-zinc-200 p-5 hover:shadow-md transition-shadow"
           >
             <div className="flex items-start gap-3">
-              {subTab === 'pending' && (
+              {(statusFilter === '' || statusFilter === 'pending') && suggestion.status === 'pending' && (
                 <input
                   type="checkbox"
                   checked={selectedIds.has(suggestion.id)}
@@ -274,6 +205,11 @@ export function SuggestionsTab() {
                   {suggestion.effort_estimate && (
                     <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${effortColors[suggestion.effort_estimate]}`}>
                       {suggestion.effort_estimate}
+                    </span>
+                  )}
+                  {suggestion.task_type && (
+                    <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-violet-100 text-violet-700">
+                      {suggestion.task_type}
                     </span>
                   )}
                 </div>
@@ -349,7 +285,7 @@ export function SuggestionsTab() {
               </div>
 
               {/* Action buttons */}
-              {(subTab === 'pending' || subTab === 'needs_info') && rejectInputId !== suggestion.id && infoInputId !== suggestion.id && (
+              {(suggestion.status === 'pending' || suggestion.status === 'needs_info') && rejectInputId !== suggestion.id && infoInputId !== suggestion.id && (
                 <div className="flex items-center gap-1.5 flex-shrink-0">
                   <button
                     onClick={() => setApproveModalId(suggestion.id)}
@@ -358,7 +294,7 @@ export function SuggestionsTab() {
                   >
                     <Check size={18} />
                   </button>
-                  {subTab === 'pending' && (
+                  {suggestion.status === 'pending' && (
                     <button
                       onClick={() => { setInfoInputId(suggestion.id); setInfoText(''); }}
                       className="p-2 rounded-lg text-amber-600 hover:bg-amber-50 transition-colors"
@@ -379,17 +315,20 @@ export function SuggestionsTab() {
             </div>
           </div>
         ))}
+        </div>
       </div>
 
       {/* Empty state */}
       {filtered.length === 0 && (
         <div className="text-center py-12 bg-white rounded-xl border border-zinc-200">
           <Lightbulb className="mx-auto mb-3 text-zinc-400" size={40} />
-          <h3 className="font-medium text-zinc-700 mb-1">No {subTab.replace('_', ' ')} suggestions</h3>
+          <h3 className="font-medium text-zinc-700 mb-1">
+            {statusFilter ? `No ${statusFilter.replace('_', ' ')} suggestions` : 'No suggestions'}
+          </h3>
           <p className="text-sm text-zinc-500">
-            {subTab === 'pending'
+            {!statusFilter
               ? 'Suggestions from AI agents will appear here for your review.'
-              : `No suggestions with "${subTab.replace('_', ' ')}" status.`}
+              : `No suggestions with "${statusFilter.replace('_', ' ')}" status.`}
           </p>
         </div>
       )}

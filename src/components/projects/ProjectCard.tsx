@@ -1,9 +1,10 @@
 'use client';
 
 import Link from 'next/link';
-import { Calendar, Users, MoreVertical, Edit, Trash2 } from 'lucide-react';
+import { Calendar, Users, MoreVertical, Edit, Trash2, Bot } from 'lucide-react';
 import { Project } from '@/lib/types';
 import { useApp } from '@/lib/store';
+import { useAuth } from '@/lib/auth-context';
 import { StatusBadge } from '@/components/ui/Badge';
 import { AvatarGroup } from '@/components/ui/Avatar';
 import { useState } from 'react';
@@ -16,7 +17,12 @@ interface ProjectCardProps {
 
 export function ProjectCard({ project, onEdit, onDelete }: ProjectCardProps) {
   const { team, getTasksByProject, getPrimaryClient } = useApp();
+  const { teamMemberId } = useAuth();
   const [showMenu, setShowMenu] = useState(false);
+
+  const isAgentsEnabled = process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true';
+  const currentMember = team.find(m => m.id === teamMemberId);
+  const isAdmin = currentMember?.role === 'admin';
 
   const projectTasks = getTasksByProject(project.id);
   const completedTasks = projectTasks.filter(t => t.status === 'done').length;
@@ -47,6 +53,11 @@ export function ProjectCard({ project, onEdit, onDelete }: ProjectCardProps) {
             </span>
             <div className="mt-1 flex items-center gap-1.5 flex-wrap">
               <StatusBadge status={project.status} />
+              {isAgentsEnabled && isAdmin && project.autonomous_enabled && (
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-violet-100 text-violet-700" title="Autonomous agents enabled">
+                  <Bot size={12} />
+                </span>
+              )}
               {primaryClient?.contact && (
                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-violet-100 text-violet-700">
                   {primaryClient.contact.name}

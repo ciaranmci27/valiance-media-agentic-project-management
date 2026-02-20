@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Project } from '@/lib/types';
 import { useApp } from '@/lib/store';
+import { useAuth } from '@/lib/auth-context';
 import Modal from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -23,6 +24,11 @@ interface ProjectFormProps {
 
 export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
   const { team, contacts, addProject, updateProject, addProjectContact, getPrimaryClient } = useApp();
+  const { teamMemberId } = useAuth();
+
+  const isAgentsEnabled = process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true';
+  const currentMember = team.find(m => m.id === teamMemberId);
+  const isAdmin = currentMember?.role === 'admin';
 
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -31,6 +37,7 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
   const [startDate, setStartDate] = useState('');
   const [dueDate, setDueDate] = useState('');
   const [hourlyTracking, setHourlyTracking] = useState(false);
+  const [autonomousEnabled, setAutonomousEnabled] = useState(false);
   const [memberIds, setMemberIds] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [confirmStatusChange, setConfirmStatusChange] = useState(false);
@@ -52,6 +59,7 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
       setStartDate(project.start_date || '');
       setDueDate(project.due_date || '');
       setHourlyTracking(project.hourly_tracking ?? false);
+      setAutonomousEnabled(project.autonomous_enabled ?? false);
       setMemberIds(project.member_ids);
       const primaryClient = getPrimaryClient(project.id);
       setSelectedContactId(primaryClient?.contact_id || '');
@@ -63,6 +71,7 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
       setStartDate('');
       setDueDate('');
       setHourlyTracking(false);
+      setAutonomousEnabled(false);
       setMemberIds([]);
       setSelectedContactId('');
     }
@@ -82,6 +91,7 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
       start_date: startDate || null,
       due_date: dueDate || null,
       hourly_tracking: hourlyTracking,
+      autonomous_enabled: autonomousEnabled,
       member_ids: memberIds,
     };
 
@@ -367,6 +377,28 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
             />
           </button>
         </div>
+
+        {isAgentsEnabled && isAdmin && (
+          <div className="flex items-center justify-between py-1">
+            <div>
+              <label className="block text-sm font-medium text-zinc-700">Autonomous Agents</label>
+              <p className="text-xs text-zinc-400">When enabled, AI agents will actively research and generate task suggestions for this project&apos;s goals</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setAutonomousEnabled(!autonomousEnabled)}
+              className={`relative w-10 h-[22px] rounded-full transition-colors ${
+                autonomousEnabled ? 'bg-indigo-600' : 'bg-zinc-300'
+              }`}
+            >
+              <span
+                className={`absolute top-0.5 left-0.5 w-[18px] h-[18px] bg-white rounded-full shadow transition-transform ${
+                  autonomousEnabled ? 'translate-x-[18px]' : 'translate-x-0'
+                }`}
+              />
+            </button>
+          </div>
+        )}
 
         <div className="space-y-1.5">
           <label className="block text-sm font-medium text-zinc-700">Color</label>

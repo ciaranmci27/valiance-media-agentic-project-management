@@ -136,6 +136,7 @@ export async function insertTask(
   };
   if (task.project_goal_id) insertPayload.project_goal_id = task.project_goal_id;
   if (task.source_task_suggestion_id) insertPayload.source_task_suggestion_id = task.source_task_suggestion_id;
+  if (task.task_type) insertPayload.task_type = task.task_type;
 
   const { data, error } = await supabase
     .from('tasks')
@@ -1363,6 +1364,7 @@ export async function insertTaskSuggestion(
       reasoning: suggestion.reasoning,
       priority: suggestion.priority,
       effort_estimate: suggestion.effort_estimate || null,
+      task_type: suggestion.task_type || null,
       status: suggestion.status || 'pending',
       metadata: suggestion.metadata || {},
     })
@@ -1392,7 +1394,7 @@ export async function patchTaskSuggestion(
 export async function approveTaskSuggestion(
   supabase: SupabaseClient,
   id: string,
-  taskOverrides: { priority?: string; assigned_to?: string | null; due_date?: string | null; project_id?: string },
+  taskOverrides: { priority?: string; assigned_to?: string | null; due_date?: string | null; project_id?: string; task_type?: string | null },
   reviewedBy: string
 ) {
   // Fetch the suggestion
@@ -1405,7 +1407,8 @@ export async function approveTaskSuggestion(
   if (fetchErr || !suggestion) throw fetchErr || new Error('Suggestion not found');
 
   // Create the task
-  const taskData = {
+  const resolvedTaskType = taskOverrides.task_type !== undefined ? taskOverrides.task_type : suggestion.task_type || null;
+  const taskData: Record<string, any> = {
     project_id: taskOverrides.project_id || suggestion.project_id,
     title: suggestion.title,
     description: suggestion.description,
@@ -1416,6 +1419,7 @@ export async function approveTaskSuggestion(
     source_task_suggestion_id: id,
     project_goal_id: suggestion.goal_id,
   };
+  if (resolvedTaskType) taskData.task_type = resolvedTaskType;
 
   const { data: task, error: taskErr } = await supabase
     .from('tasks')

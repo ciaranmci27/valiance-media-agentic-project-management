@@ -154,3 +154,20 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- If pg_cron is available:
 -- SELECT cron.schedule('cleanup-audit-log', '0 3 * * *', 'SELECT public.cleanup_api_audit_log()');
+
+-- ============================================================
+-- 7. AUTONOMOUS MODE FOR PROJECTS
+-- ============================================================
+ALTER TABLE public.projects
+  ADD COLUMN IF NOT EXISTS autonomous_enabled boolean NOT NULL DEFAULT false;
+
+-- ============================================================
+-- 8. TASK TYPE FOR TASKS AND SUGGESTIONS
+-- ============================================================
+ALTER TABLE public.tasks
+  ADD COLUMN IF NOT EXISTS task_type text
+    CHECK (task_type IN ('engineering','research','audit','marketing','copywriting','operations','general') OR task_type IS NULL);
+
+ALTER TABLE public.task_suggestions
+  ADD COLUMN IF NOT EXISTS task_type text
+    CHECK (task_type IN ('engineering','research','audit','marketing','copywriting','operations','general') OR task_type IS NULL);

@@ -72,6 +72,7 @@ export const endpoints: EndpointDoc[] = [
       { name: 'status', type: 'string', description: 'Filter by status (active, completed, archived)' },
       { name: 'include_archived', type: 'boolean', description: 'Include soft-deleted projects' },
       { name: 'search', type: 'string', description: 'Search by name or description' },
+      { name: 'autonomous_enabled', type: 'boolean', description: 'Filter by autonomous agents enabled/disabled' },
     ],
   },
   { method: 'POST', path: '/api/v1/projects', description: 'Create a project', group: 'Projects',
@@ -81,10 +82,16 @@ export const endpoints: EndpointDoc[] = [
       { name: 'color', type: 'string', required: false, description: 'Hex color' },
       { name: 'status', type: 'string', required: false, description: 'Status (default active)' },
       { name: 'member_ids', type: 'uuid[]', required: false, description: 'Team member IDs' },
+      { name: 'autonomous_enabled', type: 'boolean', required: false, description: 'Enable autonomous agents (default false)' },
     ],
   },
   { method: 'GET', path: '/api/v1/projects/:id', description: 'Get a project', group: 'Projects' },
-  { method: 'PATCH', path: '/api/v1/projects/:id', description: 'Update a project', group: 'Projects' },
+  { method: 'PATCH', path: '/api/v1/projects/:id', description: 'Update a project', group: 'Projects',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'Project ID' }],
+    body: [
+      { name: 'autonomous_enabled', type: 'boolean', required: false, description: 'Enable/disable autonomous agents' },
+    ],
+  },
   { method: 'DELETE', path: '/api/v1/projects/:id', description: 'Soft-delete (archive) a project', group: 'Projects' },
 
   // Project Contacts
@@ -96,6 +103,7 @@ export const endpoints: EndpointDoc[] = [
       { name: 'is_primary_client', type: 'boolean', required: false, description: 'Set as primary client' },
     ],
   },
+  { method: 'GET', path: '/api/v1/projects/:id/contacts/:contactId', description: 'Get a project contact', group: 'Project Contacts' },
   { method: 'PATCH', path: '/api/v1/projects/:id/contacts/:contactId', description: 'Update project contact role', group: 'Project Contacts' },
   { method: 'DELETE', path: '/api/v1/projects/:id/contacts/:contactId', description: 'Remove contact from project', group: 'Project Contacts' },
 
@@ -108,6 +116,56 @@ export const endpoints: EndpointDoc[] = [
   { method: 'PATCH', path: '/api/v1/projects/:id/portal/files/:fileId', description: 'Rename a portal file', group: 'Portal' },
   { method: 'DELETE', path: '/api/v1/projects/:id/portal/files/:fileId', description: 'Delete a portal file', group: 'Portal' },
 
+  // Time Entries
+  { method: 'GET', path: '/api/v1/projects/:id/time-entries', description: 'List time entries for a project', group: 'Time Entries',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'Project ID' }],
+    queryParams: [
+      { name: 'page', type: 'number', description: 'Page number (default 1)' },
+      { name: 'limit', type: 'number', description: 'Items per page (default 25, max 100)' },
+      { name: 'member_id', type: 'uuid', description: 'Filter by team member' },
+      { name: 'running', type: 'boolean', description: 'Filter by running timers (true = only running, false = only completed)' },
+    ],
+  },
+  { method: 'POST', path: '/api/v1/projects/:id/time-entries', description: 'Create a manual time entry or start a live timer', group: 'Time Entries',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'Project ID (must have hourly_tracking enabled)' }],
+    body: [
+      { name: 'member_id', type: 'uuid', required: true, description: 'Team member ID' },
+      { name: 'start_time', type: 'string', required: false, description: 'ISO datetime (omit to start a live timer with current time)' },
+      { name: 'end_time', type: 'string', required: false, description: 'ISO datetime (omit to start a live timer)' },
+      { name: 'description', type: 'string', required: false, description: 'Entry description' },
+    ],
+  },
+  { method: 'GET', path: '/api/v1/projects/:id/time-entries/:entryId', description: 'Get a single time entry', group: 'Time Entries',
+    params: [
+      { name: 'id', type: 'uuid', required: true, description: 'Project ID' },
+      { name: 'entryId', type: 'uuid', required: true, description: 'Time entry ID' },
+    ],
+  },
+  { method: 'PATCH', path: '/api/v1/projects/:id/time-entries/:entryId', description: 'Update a time entry', group: 'Time Entries',
+    params: [
+      { name: 'id', type: 'uuid', required: true, description: 'Project ID' },
+      { name: 'entryId', type: 'uuid', required: true, description: 'Time entry ID' },
+    ],
+    body: [
+      { name: 'member_id', type: 'uuid', required: false, description: 'Team member ID' },
+      { name: 'start_time', type: 'string', required: false, description: 'ISO datetime' },
+      { name: 'end_time', type: 'string|null', required: false, description: 'ISO datetime or null to re-open timer' },
+      { name: 'description', type: 'string', required: false, description: 'Entry description' },
+    ],
+  },
+  { method: 'DELETE', path: '/api/v1/projects/:id/time-entries/:entryId', description: 'Delete a time entry', group: 'Time Entries',
+    params: [
+      { name: 'id', type: 'uuid', required: true, description: 'Project ID' },
+      { name: 'entryId', type: 'uuid', required: true, description: 'Time entry ID' },
+    ],
+  },
+  { method: 'POST', path: '/api/v1/projects/:id/time-entries/:entryId/stop', description: 'Stop a running timer (sets end_time to now)', group: 'Time Entries',
+    params: [
+      { name: 'id', type: 'uuid', required: true, description: 'Project ID' },
+      { name: 'entryId', type: 'uuid', required: true, description: 'Time entry ID (must be a running timer)' },
+    ],
+  },
+
   // Tasks
   { method: 'GET', path: '/api/v1/tasks', description: 'List all tasks', group: 'Tasks',
     queryParams: [
@@ -115,6 +173,7 @@ export const endpoints: EndpointDoc[] = [
       { name: 'priority', type: 'string', description: 'Filter by priority (low, medium, high, urgent)' },
       { name: 'project_id', type: 'uuid', description: 'Filter by project' },
       { name: 'assignee_id', type: 'uuid', description: 'Filter by assignee' },
+      { name: 'task_type', type: 'string', description: 'Filter by task type (engineering, research, audit, marketing, copywriting, operations, general)' },
     ],
   },
   { method: 'POST', path: '/api/v1/tasks', description: 'Create a task', group: 'Tasks',
@@ -124,6 +183,7 @@ export const endpoints: EndpointDoc[] = [
       { name: 'status', type: 'string', required: false, description: 'Status (default todo)' },
       { name: 'priority', type: 'string', required: false, description: 'Priority (default medium)' },
       { name: 'assignee_ids', type: 'uuid[]', required: false, description: 'Assignee member IDs' },
+      { name: 'task_type', type: 'string', required: false, description: 'Task type (engineering, research, audit, marketing, copywriting, operations, general)' },
     ],
   },
   { method: 'GET', path: '/api/v1/tasks/:id', description: 'Get a task with subtasks and comments', group: 'Tasks' },
@@ -185,6 +245,7 @@ export const endpoints: EndpointDoc[] = [
   // Lead Contacts
   { method: 'GET', path: '/api/v1/leads/:id/contacts', description: 'List lead contacts', group: 'Lead Contacts' },
   { method: 'POST', path: '/api/v1/leads/:id/contacts', description: 'Add contact to lead', group: 'Lead Contacts' },
+  { method: 'GET', path: '/api/v1/leads/:id/contacts/:contactId', description: 'Get a lead contact', group: 'Lead Contacts' },
   { method: 'PATCH', path: '/api/v1/leads/:id/contacts/:contactId', description: 'Update lead contact', group: 'Lead Contacts' },
   { method: 'DELETE', path: '/api/v1/leads/:id/contacts/:contactId', description: 'Remove contact from lead', group: 'Lead Contacts' },
 
@@ -196,6 +257,7 @@ export const endpoints: EndpointDoc[] = [
     ],
   },
   { method: 'POST', path: '/api/v1/leads/:id/interactions', description: 'Create an interaction', group: 'Lead Interactions' },
+  { method: 'GET', path: '/api/v1/leads/:id/interactions/:interactionId', description: 'Get an interaction', group: 'Lead Interactions' },
   { method: 'PATCH', path: '/api/v1/leads/:id/interactions/:interactionId', description: 'Update an interaction', group: 'Lead Interactions' },
   { method: 'DELETE', path: '/api/v1/leads/:id/interactions/:interactionId', description: 'Delete an interaction', group: 'Lead Interactions' },
 
@@ -204,6 +266,7 @@ export const endpoints: EndpointDoc[] = [
     queryParams: [{ name: 'status', type: 'string', description: 'Filter by status (draft, sent, accepted, rejected)' }],
   },
   { method: 'POST', path: '/api/v1/leads/:id/proposals', description: 'Create a proposal', group: 'Lead Proposals' },
+  { method: 'GET', path: '/api/v1/leads/:id/proposals/:proposalId', description: 'Get a proposal', group: 'Lead Proposals' },
   { method: 'PATCH', path: '/api/v1/leads/:id/proposals/:proposalId', description: 'Update a proposal', group: 'Lead Proposals' },
   { method: 'DELETE', path: '/api/v1/leads/:id/proposals/:proposalId', description: 'Delete a proposal', group: 'Lead Proposals' },
 
@@ -212,6 +275,7 @@ export const endpoints: EndpointDoc[] = [
   { method: 'PUT', path: '/api/v1/leads/:id/fields', description: 'Upsert lead fields', group: 'Lead Fields',
     body: [{ name: 'fields', type: 'array', required: true, description: 'Array of { field_key, value }' }],
   },
+  { method: 'GET', path: '/api/v1/leads/:id/fields/:fieldId', description: 'Get a lead field', group: 'Lead Fields' },
   { method: 'DELETE', path: '/api/v1/leads/:id/fields/:fieldId', description: 'Delete a lead field', group: 'Lead Fields' },
 
   // Project Goals (requires NEXT_PUBLIC_ENABLE_AGENTS=true)
@@ -241,6 +305,7 @@ export const endpoints: EndpointDoc[] = [
       { name: 'project_id', type: 'uuid', description: 'Filter by project' },
       { name: 'goal_id', type: 'uuid', description: 'Filter by goal' },
       { name: 'proposed_by', type: 'uuid', description: 'Filter by agent member ID' },
+      { name: 'task_type', type: 'string', description: 'Filter by task type (engineering, research, audit, marketing, copywriting, operations, general)' },
       { name: 'page', type: 'number', description: 'Page number' },
       { name: 'limit', type: 'number', description: 'Items per page' },
     ],
@@ -255,6 +320,7 @@ export const endpoints: EndpointDoc[] = [
       { name: 'priority', type: 'string', required: false, description: 'Priority (default medium)' },
       { name: 'effort_estimate', type: 'string', required: false, description: 'Effort (small, medium, large)' },
       { name: 'assigned_to', type: 'uuid', required: false, description: 'Suggested assignee' },
+      { name: 'task_type', type: 'string', required: false, description: 'Task type (engineering, research, audit, marketing, copywriting, operations, general)' },
       { name: 'metadata', type: 'object', required: false, description: 'Arbitrary metadata' },
     ],
   },
@@ -266,6 +332,7 @@ export const endpoints: EndpointDoc[] = [
       { name: 'assigned_to', type: 'uuid', required: false, description: 'Override assignee' },
       { name: 'due_date', type: 'string', required: false, description: 'Set due date' },
       { name: 'project_id', type: 'uuid', required: false, description: 'Override project' },
+      { name: 'task_type', type: 'string', required: false, description: 'Set task type for the created task' },
     ],
   },
   { method: 'POST', path: '/api/v1/task-suggestions/:id/reject', description: 'Reject a suggestion', group: 'Task Suggestions',
@@ -318,6 +385,39 @@ export const endpoints: EndpointDoc[] = [
     ],
   },
   { method: 'GET', path: '/api/v1/audit-log/:entityType/:entityId', description: 'Get change history for an entity', group: 'Audit Log' },
+
+  // Entity Files (file attachments for contacts, leads, projects)
+  { method: 'GET', path: '/api/v1/entity-files', description: 'List file attachments for an entity', group: 'Entity Files',
+    queryParams: [
+      { name: 'entity_type', type: 'string', description: 'Entity type: lead, project, or contact (required)' },
+      { name: 'entity_id', type: 'uuid', description: 'Entity ID (required)' },
+      { name: 'page', type: 'number', description: 'Page number (default 1)' },
+      { name: 'limit', type: 'number', description: 'Items per page (default 25, max 100)' },
+    ],
+  },
+  { method: 'POST', path: '/api/v1/entity-files', description: 'Attach a file to an entity', group: 'Entity Files',
+    body: [
+      { name: 'entity_type', type: 'string', required: true, description: 'Entity type: lead, project, or contact' },
+      { name: 'entity_id', type: 'uuid', required: true, description: 'Entity ID' },
+      { name: 'name', type: 'string', required: true, description: 'File display name' },
+      { name: 'file_url', type: 'string', required: true, description: 'URL to the file' },
+      { name: 'file_size', type: 'number', required: false, description: 'File size in bytes (default 0)' },
+      { name: 'mime_type', type: 'string', required: false, description: 'MIME type (default application/octet-stream)' },
+      { name: 'uploaded_by', type: 'uuid|null', required: false, description: 'Team member ID of uploader' },
+    ],
+  },
+  { method: 'GET', path: '/api/v1/entity-files/:fileId', description: 'Get a file attachment by ID', group: 'Entity Files',
+    params: [{ name: 'fileId', type: 'uuid', required: true, description: 'Entity file ID' }],
+  },
+  { method: 'PATCH', path: '/api/v1/entity-files/:fileId', description: 'Rename a file attachment', group: 'Entity Files',
+    params: [{ name: 'fileId', type: 'uuid', required: true, description: 'Entity file ID' }],
+    body: [
+      { name: 'name', type: 'string', required: true, description: 'New file name' },
+    ],
+  },
+  { method: 'DELETE', path: '/api/v1/entity-files/:fileId', description: 'Delete a file attachment', group: 'Entity Files',
+    params: [{ name: 'fileId', type: 'uuid', required: true, description: 'Entity file ID' }],
+  },
 ];
 
 export const groups = [...new Set(endpoints.map(e => e.group))];

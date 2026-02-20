@@ -10,6 +10,7 @@ import {
   demoLeads, demoLeadInteractions, demoLeadProposals, demoLeadFields,
   demoLeadContacts, demoActivities,
   demoPortalSettings, demoPortalFiles, demoEntityFiles, demoTimeEntries,
+  demoProjectGoals, demoTaskSuggestions, demoAgentActivity,
 } from '@/lib/demo-data';
 import {
   fetchProjects,
@@ -210,7 +211,7 @@ interface AppContextType {
   archiveGoal: (id: string) => void;
 
   // Task Suggestion review actions
-  approveSuggestion: (id: string, taskOverrides: { priority?: string; assigned_to?: string | null; due_date?: string | null; project_id?: string }, reviewedBy: string) => void;
+  approveSuggestion: (id: string, taskOverrides: { priority?: string; assigned_to?: string | null; due_date?: string | null; project_id?: string; task_type?: string | null }, reviewedBy: string) => void;
   rejectSuggestion: (id: string, reason: string | undefined, reviewedBy: string) => void;
   requestInfoOnSuggestion: (id: string, infoRequest: string, reviewedBy: string) => void;
   bulkApproveSuggestions: (ids: string[]) => void;
@@ -291,6 +292,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // Fire-and-forget notification helper — uses upsert RPC for dedup
   const allMemberIds = () => team.map(m => m.id);
+  const adminMemberIds = () => team.filter(m => m.role === 'admin').map(m => m.id);
 
   const notify = (userIds: string[], title: string, message: string, link: string | null, entityType: string | null, entityId: string | null, category: NotificationCategory) => {
     if (skipSupabase) return;
@@ -336,6 +338,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setPortalFiles([...demoPortalFiles]);
       setEntityFiles([...demoEntityFiles]);
       setTimeEntries([...demoTimeEntries]);
+      if (process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true') {
+        setProjectGoals([...demoProjectGoals]);
+        setTaskSuggestions([...demoTaskSuggestions]);
+        setAgentActivityList([...demoAgentActivity]);
+      }
       setLoading(false);
       return;
     }
@@ -439,6 +446,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const updateProject = async (id: string, updates: Partial<Project>) => {
     const prev = projects;
+    const projectBefore = projects.find(p => p.id === id);
     setProjects(p => p.map(proj =>
       proj.id === id ? { ...proj, ...updates, updated_at: new Date().toISOString() } : proj
     ));
@@ -447,9 +455,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       await patchProject(supabase, id, updates, updates.member_ids);
 
-      const project = projects.find(p => p.id === id);
-      if (project) {
-        notify(allMemberIds(), `"${project.name}" was updated`, `${actorName()} updated the project.`, `/projects/${id}`, 'project', id, 'project_updates');
+      if (projectBefore) {
+        notify(allMemberIds(), `"${projectBefore.name}" was updated`, `${actorName()} updated the project.`, `/projects/${id}`, 'project', id, 'project_updates');
+
+        // Notify when autonomous agents are toggled
+        if (updates.autonomous_enabled !== undefined && updates.autonomous_enabled !== projectBefore.autonomous_enabled) {
+          const action = updates.autonomous_enabled ? 'enabled' : 'disabled';
+          notify(adminMemberIds(), `Autonomous agents ${action} on "${projectBefore.name}"`, `${actorName()} ${action} autonomous agents for this project.`, '/agent', 'project', id, 'agent_autonomous');
+        }
       }
     } catch (err) {
       setProjects(prev);
@@ -680,6 +693,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     try {
       await removeSubtask(supabase, subtaskId);
+      const task = tasks.find(t => t.id === taskId);
+      if (task) {
+        notify(allMemberIds(), `"${task.title}" was updated`, `${actorName()} removed a subtask.`, `/projects/${task.project_id}`, 'task', taskId, 'task_subtasks');
+      }
     } catch (err) {
       setTasks(prev);
       toast('error', 'Failed to delete subtask');
@@ -733,6 +750,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     try {
       await patchComment(supabase, commentId, text);
+      const task = tasks.find(t => t.id === taskId);
+      if (task) {
+        const preview = text.length > 60 ? text.slice(0, 60) + '...' : text;
+        notify(allMemberIds(), `Comment edited on "${task.title}"`, `${actorName()}: "${preview}"`, `/projects/${task.project_id}`, 'task', taskId, 'task_comments');
+      }
     } catch (err) {
       setTasks(prev);
       toast('error', 'Failed to update comment');
@@ -750,6 +772,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     try {
       await removeComment(supabase, commentId);
+      const task = tasks.find(t => t.id === taskId);
+      if (task) {
+        notify(allMemberIds(), `Comment removed on "${task.title}"`, `${actorName()} deleted a comment.`, `/projects/${task.project_id}`, 'task', taskId, 'task_comments');
+      }
     } catch (err) {
       setTasks(prev);
       toast('error', 'Failed to delete comment');
@@ -1176,6 +1202,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       start_date: null,
       due_date: null,
       hourly_tracking: false,
+      autonomous_enabled: false,
       member_ids: lead.member_ids || [],
       created_by: teamMemberId,
       created_at: now,
@@ -1896,6 +1923,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       const newGoal = await insertGoalQuery(supabase, { ...goal, created_by: teamMemberId });
       setProjectGoals(prev => prev.map(g => g.id === optimisticId ? newGoal : g));
+
+      const project = projects.find(p => p.id === goal.project_id);
+      notify(adminMemberIds(), `New goal for "${project?.name || 'project'}"`, `${actorName()} created goal "${goal.title}".`, '/agent', 'goal', newGoal.id, 'agent_goals');
+
       return newGoal;
     } catch (err) {
       setProjectGoals(prev => prev.filter(g => g.id !== optimisticId));
@@ -1906,13 +1937,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const updateGoalAction = async (id: string, updates: Partial<ProjectGoal>) => {
     const prev = projectGoals;
-    setProjectGoals(g => g.map(goal =>
-      goal.id === id ? { ...goal, ...updates, updated_at: new Date().toISOString() } : goal
+    const goal = projectGoals.find(g => g.id === id);
+    setProjectGoals(g => g.map(gl =>
+      gl.id === id ? { ...gl, ...updates, updated_at: new Date().toISOString() } : gl
     ));
     if (skipSupabase) return;
 
     try {
       await patchGoalQuery(supabase, id, updates);
+
+      if (goal) {
+        notify(adminMemberIds(), `Goal "${goal.title}" updated`, `${actorName()} updated the goal.`, '/agent', 'goal', id, 'agent_goals');
+      }
     } catch (err) {
       setProjectGoals(prev);
       toast('error', 'Failed to update goal');
@@ -1921,11 +1957,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const archiveGoalAction = async (id: string) => {
     const prev = projectGoals;
-    setProjectGoals(g => g.filter(goal => goal.id !== id));
+    const goal = projectGoals.find(g => g.id === id);
+    setProjectGoals(g => g.filter(gl => gl.id !== id));
     if (skipSupabase) return;
 
     try {
       await archiveGoalQuery(supabase, id);
+
+      if (goal) {
+        notify(adminMemberIds(), `Goal "${goal.title}" archived`, `${actorName()} archived the goal.`, '/agent', 'goal', id, 'agent_goals');
+      }
     } catch (err) {
       setProjectGoals(prev);
       toast('error', 'Failed to archive goal');
@@ -1935,7 +1976,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // Task Suggestion review actions
   const approveSuggestionAction = async (
     id: string,
-    taskOverrides: { priority?: string; assigned_to?: string | null; due_date?: string | null; project_id?: string },
+    taskOverrides: { priority?: string; assigned_to?: string | null; due_date?: string | null; project_id?: string; task_type?: string | null },
     reviewedBy: string
   ) => {
     const prevSuggestions = taskSuggestions;
@@ -1953,7 +1994,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setTasks(prev => [result.task, ...prev]);
 
       // Notify all members that a suggestion was approved
-      notify(allMemberIds(), `Suggestion "${suggestion.title}" approved`, `${actorName()} approved the suggestion and created a task.`, null, 'suggestion', id, 'agent_suggestions');
+      notify(adminMemberIds(), `Suggestion "${suggestion.title}" approved`, `${actorName()} approved the suggestion and created a task.`, null, 'suggestion', id, 'agent_suggestions');
     } catch (err) {
       setTaskSuggestions(prevSuggestions);
       toast('error', 'Failed to approve suggestion');
@@ -1974,7 +2015,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setTaskSuggestions(s => s.map(sug => sug.id === id ? updated : sug));
 
       if (suggestion) {
-        notify(allMemberIds(), `Suggestion "${suggestion.title}" rejected`, reason ? `Reason: ${reason}` : `${actorName()} rejected the suggestion.`, null, 'suggestion', id, 'agent_suggestions');
+        notify(adminMemberIds(), `Suggestion "${suggestion.title}" rejected`, reason ? `Reason: ${reason}` : `${actorName()} rejected the suggestion.`, null, 'suggestion', id, 'agent_suggestions');
       }
     } catch (err) {
       setTaskSuggestions(prev);
@@ -1995,7 +2036,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setTaskSuggestions(s => s.map(sug => sug.id === id ? updated : sug));
 
       if (suggestion) {
-        notify(allMemberIds(), `Info requested on "${suggestion.title}"`, `${actorName()} requested more info on a suggestion.`, null, 'suggestion', id, 'agent_suggestions');
+        notify(adminMemberIds(), `Info requested on "${suggestion.title}"`, `${actorName()} requested more info on a suggestion.`, null, 'suggestion', id, 'agent_suggestions');
       }
     } catch (err) {
       setTaskSuggestions(prev);

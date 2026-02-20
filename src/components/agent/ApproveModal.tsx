@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useApp } from '@/lib/store';
-import { TaskSuggestion } from '@/lib/types';
+import { TaskSuggestion, TASK_TYPES, TaskType } from '@/lib/types';
 import Modal from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -11,7 +11,7 @@ import { Select } from '@/components/ui/Select';
 interface ApproveModalProps {
   suggestion: TaskSuggestion;
   onClose: () => void;
-  onApprove: (overrides: { priority?: string; assigned_to?: string | null; due_date?: string | null; project_id?: string }) => void;
+  onApprove: (overrides: { priority?: string; assigned_to?: string | null; due_date?: string | null; project_id?: string; task_type?: string | null }) => void;
 }
 
 export function ApproveModal({ suggestion, onClose, onApprove }: ApproveModalProps) {
@@ -21,6 +21,7 @@ export function ApproveModal({ suggestion, onClose, onApprove }: ApproveModalPro
   const [assignedTo, setAssignedTo] = useState(suggestion.assigned_to || '');
   const [dueDate, setDueDate] = useState('');
   const [projectId, setProjectId] = useState(suggestion.project_id);
+  const [taskType, setTaskType] = useState<TaskType | ''>(suggestion.task_type || '');
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -29,6 +30,7 @@ export function ApproveModal({ suggestion, onClose, onApprove }: ApproveModalPro
       assigned_to: assignedTo || null,
       due_date: dueDate || null,
       project_id: projectId,
+      task_type: taskType || null,
     });
   };
 
@@ -71,6 +73,16 @@ export function ApproveModal({ suggestion, onClose, onApprove }: ApproveModalPro
           options={[
             { value: '', label: 'Unassigned' },
             ...team.filter(m => m.role !== 'agent').map(m => ({ value: m.id, label: m.name })),
+          ]}
+        />
+
+        <Select
+          label="Task Type"
+          value={taskType}
+          onChange={(v) => setTaskType(v as TaskType | '')}
+          options={[
+            { value: '', label: 'None' },
+            ...TASK_TYPES.map(t => ({ value: t, label: t.charAt(0).toUpperCase() + t.slice(1) })),
           ]}
         />
 

@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+const taskTypeEnum = z.enum(['engineering', 'research', 'audit', 'marketing', 'copywriting', 'operations', 'general']);
+
 export const createTaskSchema = z.object({
   project_id: z.string().uuid('project_id must be a UUID'),
   title: z.string().min(1, 'Title is required'),
@@ -10,6 +12,7 @@ export const createTaskSchema = z.object({
   tags: z.array(z.string()).default([]),
   assignee_ids: z.array(z.string().uuid()).default([]),
   project_goal_id: z.string().uuid().nullable().optional(),
+  task_type: taskTypeEnum.nullable().optional(),
 });
 
 export const updateTaskSchema = z.object({
@@ -22,4 +25,5 @@ export const updateTaskSchema = z.object({
   assignee_ids: z.array(z.string().uuid()).optional(),
   project_id: z.string().uuid().optional(),
   project_goal_id: z.string().uuid().nullable().optional(),
+  task_type: taskTypeEnum.nullable().optional(),
 });

@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+const taskTypeEnum = z.enum(['engineering', 'research', 'audit', 'marketing', 'copywriting', 'operations', 'general']);
+
 export const createSuggestionSchema = z.object({
   project_id: z.string().uuid('project_id must be a UUID'),
   goal_id: z.string().uuid('goal_id must be a UUID'),
@@ -9,6 +11,7 @@ export const createSuggestionSchema = z.object({
   priority: z.enum(['low', 'medium', 'high', 'urgent']).default('medium'),
   effort_estimate: z.enum(['small', 'medium', 'large']).nullable().default(null),
   assigned_to: z.string().uuid().nullable().default(null),
+  task_type: taskTypeEnum.nullable().optional(),
   metadata: z.record(z.string(), z.any()).default({}),
 });
 
@@ -21,6 +24,7 @@ export const approveSuggestionSchema = z.object({
   assigned_to: z.string().uuid().nullable().optional(),
   due_date: z.string().nullable().optional(),
   project_id: z.string().uuid().optional(),
+  task_type: taskTypeEnum.nullable().optional(),
 });
 
 export const rejectSuggestionSchema = z.object({

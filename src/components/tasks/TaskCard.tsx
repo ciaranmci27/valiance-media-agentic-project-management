@@ -2,7 +2,8 @@
 
 import { Task } from '@/lib/types';
 import { useApp } from '@/lib/store';
-import { StatusBadge, PriorityBadge } from '@/components/ui/Badge';
+import { useAuth } from '@/lib/auth-context';
+import { StatusBadge, PriorityBadge, TaskTypeBadge } from '@/components/ui/Badge';
 import { AvatarGroup } from '@/components/ui/Avatar';
 import { Calendar, MessageSquare, CheckSquare, MoreVertical, Edit, Trash2, Clock } from 'lucide-react';
 import { useState } from 'react';
@@ -29,8 +30,13 @@ interface TaskCardProps {
 
 export function TaskCard({ task, onView, onEdit, onDelete }: TaskCardProps) {
   const { team } = useApp();
+  const { teamMemberId } = useAuth();
   const [showMenu, setShowMenu] = useState(false);
-  
+
+  const isAgentsEnabled = process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true';
+  const currentMember = team.find(m => m.id === teamMemberId);
+  const isAdmin = currentMember?.role === 'admin';
+
   const assignees = team.filter(m => task.assignee_ids.includes(m.id));
   const completedSubtasks = task.subtasks.filter(s => s.completed).length;
   const hasComments = task.comments.length > 0;
@@ -57,6 +63,9 @@ export function TaskCard({ task, onView, onEdit, onDelete }: TaskCardProps) {
         <div className="flex items-center gap-1.5 lg:gap-2 flex-wrap">
           <StatusBadge status={task.status} />
           <PriorityBadge priority={task.priority} />
+          {isAgentsEnabled && isAdmin && task.task_type && (
+            <TaskTypeBadge taskType={task.task_type} />
+          )}
         </div>
         
         <div className="relative">

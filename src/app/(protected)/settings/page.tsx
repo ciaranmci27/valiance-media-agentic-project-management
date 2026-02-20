@@ -15,7 +15,7 @@ import { useDemo } from '@/lib/demo-context';
 import { hashApiKey, generateApiKey } from '@/lib/api/crypto';
 import type { ApiKey, NotificationCategory, NotificationPreferences } from '@/lib/types';
 
-const NOTIF_GROUPS: { group: string; items: { key: NotificationCategory; label: string; desc: string }[] }[] = [
+const NOTIF_GROUPS: { group: string; adminOnly?: boolean; agentOnly?: boolean; items: { key: NotificationCategory; label: string; desc: string }[] }[] = [
   {
     group: 'Tasks',
     items: [
@@ -38,6 +38,14 @@ const NOTIF_GROUPS: { group: string; items: { key: NotificationCategory; label: 
     ],
   },
   {
+    group: 'Contacts',
+    items: [
+      { key: 'contact_created', label: 'Contact created', desc: 'A new contact is added' },
+      { key: 'contact_deleted', label: 'Contact deleted', desc: 'A contact is removed' },
+      { key: 'contact_updates', label: 'Contact updates', desc: 'Contact details changed' },
+    ],
+  },
+  {
     group: 'Team',
     items: [
       { key: 'team_members', label: 'Team changes', desc: 'Members added, invited, or removed' },
@@ -57,20 +65,16 @@ const NOTIF_GROUPS: { group: string; items: { key: NotificationCategory; label: 
     ],
   },
   {
-    group: 'Contacts',
-    items: [
-      { key: 'contact_created', label: 'Contact created', desc: 'A new contact is added' },
-      { key: 'contact_deleted', label: 'Contact deleted', desc: 'A contact is removed' },
-      { key: 'contact_updates', label: 'Contact updates', desc: 'Contact details changed' },
-    ],
-  },
-  ...(process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true' ? [{
     group: 'Agent',
+    adminOnly: true,
+    agentOnly: true,
     items: [
       { key: 'agent_suggestions' as NotificationCategory, label: 'Suggestions', desc: 'AI agent submits or resubmits suggestions' },
-      { key: 'agent_activity' as NotificationCategory, label: 'Activity', desc: 'AI agent activity and status updates' },
+      { key: 'agent_goals' as NotificationCategory, label: 'Goals', desc: 'Agent goals created, updated, or archived' },
+      { key: 'agent_autonomous' as NotificationCategory, label: 'Autonomous toggle', desc: 'Autonomous agents enabled or disabled on a project' },
+      { key: 'agent_activity' as NotificationCategory, label: 'Activity', desc: 'General AI agent activity and status updates' },
     ],
-  }] : []),
+  },
 ];
 
 export default function SettingsPage() {
@@ -425,7 +429,11 @@ export default function SettingsPage() {
           </div>
 
           <div className="lg:columns-2 lg:gap-6 space-y-6 lg:space-y-0">
-            {NOTIF_GROUPS.map(({ group, items }) => (
+            {NOTIF_GROUPS.filter(g => {
+              if (g.agentOnly && process.env.NEXT_PUBLIC_ENABLE_AGENTS !== 'true') return false;
+              if (g.adminOnly && !isAdmin) return false;
+              return true;
+            }).map(({ group, items }) => (
               <div key={group} className="break-inside-avoid lg:mb-6">
                 <p className="text-xs font-medium text-zinc-400 uppercase tracking-wide mb-3">{group}</p>
                 <div className="space-y-3">
@@ -461,8 +469,8 @@ export default function SettingsPage() {
           </div>
         </section>
 
-        {/* API Keys Section — admin only */}
-        {isAdmin && !isDemoMode && (
+        {/* API Keys Section — admin and agent only */}
+        {(isAdmin || currentMember?.role === 'agent') && !isDemoMode && (
           <section className="bg-white rounded-xl border border-zinc-200 p-4 lg:p-6">
             <div className="flex items-center justify-between mb-6">
               <div className="flex items-center gap-3">

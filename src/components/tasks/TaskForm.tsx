@@ -1,8 +1,9 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Task } from '@/lib/types';
+import { Task, TASK_TYPES, TaskType } from '@/lib/types';
 import { useApp } from '@/lib/store';
+import { useAuth } from '@/lib/auth-context';
 import Modal from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -17,6 +18,11 @@ interface TaskFormProps {
 
 export function TaskForm({ isOpen, onClose, projectId, task }: TaskFormProps) {
   const { team, addTask, updateTask } = useApp();
+  const { teamMemberId } = useAuth();
+
+  const isAgentsEnabled = process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true';
+  const currentMember = team.find(m => m.id === teamMemberId);
+  const isAdmin = currentMember?.role === 'admin';
 
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -25,6 +31,7 @@ export function TaskForm({ isOpen, onClose, projectId, task }: TaskFormProps) {
   const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
   const [dueDate, setDueDate] = useState('');
   const [tags, setTags] = useState('');
+  const [taskType, setTaskType] = useState<TaskType | ''>('');
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -36,6 +43,7 @@ export function TaskForm({ isOpen, onClose, projectId, task }: TaskFormProps) {
       setAssigneeIds(task.assignee_ids);
       setDueDate(task.due_date || '');
       setTags(task.tags.join(', '));
+      setTaskType(task.task_type || '');
     } else {
       setTitle('');
       setDescription('');
@@ -44,6 +52,7 @@ export function TaskForm({ isOpen, onClose, projectId, task }: TaskFormProps) {
       setAssigneeIds([]);
       setDueDate('');
       setTags('');
+      setTaskType('');
     }
   }, [task, isOpen]);
 
@@ -62,6 +71,7 @@ export function TaskForm({ isOpen, onClose, projectId, task }: TaskFormProps) {
       assignee_ids: assigneeIds,
       due_date: dueDate || null,
       tags: tags.split(',').map(t => t.trim()).filter(Boolean),
+      task_type: taskType || null,
       subtasks: task?.subtasks || [],
       comments: task?.comments || [],
     };
@@ -177,6 +187,18 @@ export function TaskForm({ isOpen, onClose, projectId, task }: TaskFormProps) {
             ))}
           </div>
         </div>
+
+        {isAgentsEnabled && isAdmin && (
+          <Select
+            label="Task Type"
+            value={taskType}
+            onChange={(value) => setTaskType(value as TaskType | '')}
+            options={[
+              { value: '', label: 'None' },
+              ...TASK_TYPES.map(t => ({ value: t, label: t.charAt(0).toUpperCase() + t.slice(1) })),
+            ]}
+          />
+        )}
 
         <Input
           label="Tags (comma-separated)"

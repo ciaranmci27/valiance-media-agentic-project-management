@@ -24,6 +24,8 @@ export const GET = withApi(async ({ supabase, searchParams }) => {
   if (projectId) query = query.eq('project_id', projectId);
   if (goalId) query = query.eq('goal_id', goalId);
   if (proposedBy) query = query.eq('proposed_by', proposedBy);
+  const taskType = searchParams.get('task_type');
+  if (taskType) query = query.eq('task_type', taskType);
 
   const { data, count, error } = await query
     .order('created_at', { ascending: false })
@@ -69,21 +71,25 @@ export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId }) =
     statusCode: 201,
   });
 
-  // Notify all admin team members about the new suggestion
+  // Notify admin team members about the new suggestion (respects notification prefs)
   const { data: admins } = await supabase
     .from('team_members')
-    .select('id, name')
+    .select('id, name, notification_prefs')
     .eq('role', 'admin');
 
   if (admins && admins.length > 0) {
     for (const admin of admins) {
+      // Skip if admin explicitly disabled agent_suggestions notifications
+      const prefs = (admin as any).notification_prefs;
+      if (prefs?.agent_suggestions === false) continue;
+
       supabase.rpc('upsert_notification', {
         p_user_id: admin.id,
         p_title: `New suggestion from ${member.name || 'Agent'}`,
         p_message: suggestion.title,
         p_link: '/agent',
         p_entity_type: 'suggestion',
-        p_entity_id: teamMemberId,
+        p_entity_id: suggestion.id,
       }).then(() => {}, () => {});
     }
   }

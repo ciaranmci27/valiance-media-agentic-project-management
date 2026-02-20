@@ -65,6 +65,12 @@ export function ProjectStatusBadge({ status }: { status: string }) {
   return <StatusBadge status={status} />;
 }
 
+// Task type badge
+export function TaskTypeBadge({ taskType }: { taskType: string }) {
+  const label = taskType.charAt(0).toUpperCase() + taskType.slice(1);
+  return <Badge variant="purple">{label}</Badge>;
+}
+
 // Tag badge
 export function TagBadge({ tag }: { tag: string }) {
   return (

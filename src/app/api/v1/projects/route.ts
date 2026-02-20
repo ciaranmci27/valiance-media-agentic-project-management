@@ -19,6 +19,10 @@ export const GET = withApi(async ({ supabase, searchParams }) => {
     query = query.is('archived_at', null);
   }
   if (status) query = query.eq('status', status);
+  const autonomousEnabled = searchParams.get('autonomous_enabled');
+  if (autonomousEnabled === 'true' || autonomousEnabled === 'false') {
+    query = query.eq('autonomous_enabled', autonomousEnabled === 'true');
+  }
   if (search) {
     const s = sanitizeSearch(search);
     query = query.or(`name.ilike.%${s}%,description.ilike.%${s}%`);
