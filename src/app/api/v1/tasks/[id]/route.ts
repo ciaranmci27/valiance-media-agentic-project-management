@@ -11,8 +11,8 @@ export const GET = withApi(async ({ supabase, params }) => {
     .select(`
       *,
       task_assignees(member_id),
-      subtasks(id, task_id, title, completed, sort_order),
-      comments(id, task_id, user_id, text, created_at)
+      subtasks:task_subtasks(id, task_id, title, completed, sort_order),
+      comments:task_comments(id, task_id, user_id, text, created_at)
     `)
     .eq('id', (params as any).id)
     .maybeSingle();

@@ -105,7 +105,7 @@ create table public.task_assignees (
 -- ============================================================
 -- 8. SUBTASKS
 -- ============================================================
-create table public.subtasks (
+create table public.task_subtasks (
   id uuid primary key default gen_random_uuid(),
   task_id uuid not null references public.tasks(id) on delete cascade,
   title text not null,
@@ -118,7 +118,7 @@ create table public.subtasks (
 -- ============================================================
 -- 9. COMMENTS
 -- ============================================================
-create table public.comments (
+create table public.task_comments (
   id uuid primary key default gen_random_uuid(),
   task_id uuid not null references public.tasks(id) on delete cascade,
   user_id uuid not null references public.team_members(id) on delete cascade,
@@ -317,7 +317,7 @@ create table public.api_keys (
 -- ============================================================
 -- 20. NOTIFICATIONS
 -- ============================================================
-create table public.notifications (
+create table public.team_member_notifications (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.team_members(id) on delete cascade,
   title text not null,
@@ -332,7 +332,7 @@ create table public.notifications (
 -- ============================================================
 -- 21. TIME ENTRIES (start/stop timer + manual entry)
 -- ============================================================
-create table public.time_entries (
+create table public.project_time_entries (
   id uuid primary key default gen_random_uuid(),
   project_id uuid not null references public.projects(id) on delete cascade,
   member_id uuid not null references public.team_members(id) on delete cascade,
@@ -344,8 +344,8 @@ create table public.time_entries (
 );
 
 -- Only one running timer per project at a time
-create unique index idx_time_entries_running
-  on public.time_entries (project_id) where end_time is null;
+create unique index idx_project_time_entries_running
+  on public.project_time_entries (project_id) where end_time is null;
 
 -- Add show_hours toggle to portal settings
 alter table public.portal_settings add column if not exists show_hours boolean not null default true;
@@ -367,9 +367,9 @@ create index idx_tasks_project_id on public.tasks(project_id);
 create index idx_tasks_status on public.tasks(status);
 create index idx_tasks_created_by on public.tasks(created_by);
 create index idx_task_assignees_member_id on public.task_assignees(member_id);
-create index idx_subtasks_task_id on public.subtasks(task_id);
-create index idx_comments_task_id on public.comments(task_id);
-create index idx_comments_user_id on public.comments(user_id);
+create index idx_task_subtasks_task_id on public.task_subtasks(task_id);
+create index idx_task_comments_task_id on public.task_comments(task_id);
+create index idx_task_comments_user_id on public.task_comments(user_id);
 create index idx_activities_entity_id on public.activities(entity_id);
 create index idx_activities_user_id on public.activities(user_id);
 create index idx_leads_status on public.leads(status);
@@ -397,17 +397,17 @@ create index idx_api_keys_revoked_at on public.api_keys(revoked_at) where revoke
 create index idx_projects_archived_at on public.projects(archived_at) where archived_at is null;
 create index idx_leads_archived_at on public.leads(archived_at) where archived_at is null;
 
-create index idx_time_entries_project on public.time_entries(project_id);
-create index idx_time_entries_member on public.time_entries(member_id);
-create index idx_time_entries_start_time on public.time_entries(start_time desc);
+create index idx_project_time_entries_project on public.project_time_entries(project_id);
+create index idx_project_time_entries_member on public.project_time_entries(member_id);
+create index idx_project_time_entries_start_time on public.project_time_entries(start_time desc);
 
-create index idx_notifications_user_id on public.notifications(user_id);
-create index idx_notifications_unread on public.notifications(user_id, is_read) where is_read = false;
-create index idx_notifications_created_at on public.notifications(created_at desc);
+create index idx_team_member_notifications_user_id on public.team_member_notifications(user_id);
+create index idx_team_member_notifications_unread on public.team_member_notifications(user_id, is_read) where is_read = false;
+create index idx_team_member_notifications_created_at on public.team_member_notifications(created_at desc);
 
 -- Dedup index for upsert_notification: one unread notification per user+entity
-create unique index idx_notifications_dedup
-  on public.notifications (user_id, entity_type, entity_id) where is_read = false;
+create unique index idx_team_member_notifications_dedup
+  on public.team_member_notifications (user_id, entity_type, entity_id) where is_read = false;
 
 -- ============================================================
 -- UPSERT NOTIFICATION (SECURITY DEFINER — bypasses RLS for dedup check)
@@ -421,7 +421,7 @@ create or replace function public.upsert_notification(
   p_entity_id text
 ) returns void as $$
 begin
-  update public.notifications
+  update public.team_member_notifications
   set title = p_title, message = p_message, link = p_link, created_at = now()
   where user_id = p_user_id
     and entity_type = p_entity_type
@@ -429,7 +429,7 @@ begin
     and is_read = false;
 
   if not found then
-    insert into public.notifications (user_id, title, message, link, entity_type, entity_id)
+    insert into public.team_member_notifications (user_id, title, message, link, entity_type, entity_id)
     values (p_user_id, p_title, p_message, p_link, p_entity_type, p_entity_id);
   end if;
 end;
@@ -462,8 +462,8 @@ create trigger set_tasks_updated_at
   before update on public.tasks
   for each row execute function public.handle_updated_at();
 
-create trigger set_subtasks_updated_at
-  before update on public.subtasks
+create trigger set_task_subtasks_updated_at
+  before update on public.task_subtasks
   for each row execute function public.handle_updated_at();
 
 create trigger set_leads_updated_at
@@ -498,8 +498,8 @@ create trigger set_api_keys_updated_at
   before update on public.api_keys
   for each row execute function public.handle_updated_at();
 
-create trigger set_time_entries_updated_at
-  before update on public.time_entries
+create trigger set_project_time_entries_updated_at
+  before update on public.project_time_entries
   for each row execute function public.handle_updated_at();
 
 -- ============================================================
@@ -534,8 +534,8 @@ alter table public.project_members enable row level security;
 alter table public.project_contacts enable row level security;
 alter table public.tasks enable row level security;
 alter table public.task_assignees enable row level security;
-alter table public.subtasks enable row level security;
-alter table public.comments enable row level security;
+alter table public.task_subtasks enable row level security;
+alter table public.task_comments enable row level security;
 alter table public.activities enable row level security;
 alter table public.leads enable row level security;
 alter table public.lead_interactions enable row level security;
@@ -547,8 +547,8 @@ alter table public.portal_settings enable row level security;
 alter table public.portal_files enable row level security;
 alter table public.entity_files enable row level security;
 alter table public.api_keys enable row level security;
-alter table public.time_entries enable row level security;
-alter table public.notifications enable row level security;
+alter table public.project_time_entries enable row level security;
+alter table public.team_member_notifications enable row level security;
 
 -- All authenticated users get full CRUD on shared data
 create policy "team_members_all" on public.team_members
@@ -572,10 +572,10 @@ create policy "tasks_all" on public.tasks
 create policy "task_assignees_all" on public.task_assignees
   for all to authenticated using (true) with check (true);
 
-create policy "subtasks_all" on public.subtasks
+create policy "task_subtasks_all" on public.task_subtasks
   for all to authenticated using (true) with check (true);
 
-create policy "comments_all" on public.comments
+create policy "task_comments_all" on public.task_comments
   for all to authenticated using (true) with check (true);
 
 create policy "activities_all" on public.activities
@@ -608,7 +608,7 @@ create policy "portal_files_all" on public.portal_files
 create policy "entity_files_all" on public.entity_files
   for all to authenticated using (true) with check (true);
 
-create policy "time_entries_all" on public.time_entries
+create policy "project_time_entries_all" on public.project_time_entries
   for all to authenticated using (true) with check (true);
 
 create policy "api_keys_all" on public.api_keys
@@ -616,19 +616,19 @@ create policy "api_keys_all" on public.api_keys
 
 -- Users can only read/update/delete their own notifications.
 -- Any authenticated user can insert (the store creates notifications for other users).
-create policy "notifications_select_own" on public.notifications
+create policy "team_member_notifications_select_own" on public.team_member_notifications
   for select to authenticated
   using (user_id in (select id from public.team_members where auth_user_id = auth.uid()));
 
-create policy "notifications_update_own" on public.notifications
+create policy "team_member_notifications_update_own" on public.team_member_notifications
   for update to authenticated
   using (user_id in (select id from public.team_members where auth_user_id = auth.uid()));
 
-create policy "notifications_delete_own" on public.notifications
+create policy "team_member_notifications_delete_own" on public.team_member_notifications
   for delete to authenticated
   using (user_id in (select id from public.team_members where auth_user_id = auth.uid()));
 
-create policy "notifications_insert" on public.notifications
+create policy "team_member_notifications_insert" on public.team_member_notifications
   for insert to authenticated
   with check (true);
 

@@ -6,8 +6,8 @@
 
 -- Clean slate (order matters due to foreign keys)
 truncate public.activities cascade;
-truncate public.comments cascade;
-truncate public.subtasks cascade;
+truncate public.task_comments cascade;
+truncate public.task_subtasks cascade;
 truncate public.task_assignees cascade;
 truncate public.tasks cascade;
 truncate public.project_contacts cascade;
@@ -190,7 +190,7 @@ insert into public.task_assignees (task_id, member_id) values
 -- ============================================================
 -- 6. SUBTASKS
 -- ============================================================
-insert into public.subtasks (id, task_id, title, completed, sort_order) values
+insert into public.task_subtasks (id, task_id, title, completed, sort_order) values
   -- Brand guidelines document subtasks
   ('f6f6f6f6-0001-4000-8000-000000000001', 'e5e5e5e5-0003-4000-8000-000000000003', 'Define primary & secondary color palette',  true,  0),
   ('f6f6f6f6-0002-4000-8000-000000000002', 'e5e5e5e5-0003-4000-8000-000000000003', 'Select brand typefaces (heading + body)',    true,  1),
@@ -232,7 +232,7 @@ insert into public.subtasks (id, task_id, title, completed, sort_order) values
 -- ============================================================
 -- 7. COMMENTS
 -- ============================================================
-insert into public.comments (id, task_id, user_id, text, created_at) values
+insert into public.task_comments (id, task_id, user_id, text, created_at) values
   -- Brand guidelines
   ('aabbccdd-0001-4000-8000-000000000001', 'e5e5e5e5-0003-4000-8000-000000000003', 'a1a1a1a1-0001-4000-8000-000000000001', 'David approved the color palette in yesterday''s call. Moving to typography next.',           now() - interval '3 days'),
   ('aabbccdd-0002-4000-8000-000000000002', 'e5e5e5e5-0003-4000-8000-000000000003', 'a1a1a1a1-0003-4000-8000-000000000003', 'I''m leaning toward Inter for body and Fraunces for headings. Sending samples today.',        now() - interval '2 days'),
@@ -306,7 +306,7 @@ insert into public.entity_files (id, entity_type, entity_id, name, file_url, fil
 -- ============================================================
 -- 11. TIME ENTRIES (start/stop timer tracking)
 -- ============================================================
-insert into public.time_entries (id, project_id, member_id, start_time, end_time, description, created_at, updated_at) values
+insert into public.project_time_entries (id, project_id, member_id, start_time, end_time, description, created_at, updated_at) values
   ('te000001-0001-4000-8000-000000000001', 'c3c3c3c3-0001-4000-8000-000000000001', 'a1a1a1a1-0001-4000-8000-000000000001', (current_date - 2) + time '09:00', (current_date - 2) + time '12:30', 'Brand strategy workshop',        now() - interval '2 days', now() - interval '2 days'),
   ('te000001-0002-4000-8000-000000000002', 'c3c3c3c3-0001-4000-8000-000000000001', 'a1a1a1a1-0002-4000-8000-000000000002', (current_date - 3) + time '10:00', (current_date - 3) + time '15:00', 'Logo concept exploration',       now() - interval '3 days', now() - interval '3 days'),
   ('te000001-0003-4000-8000-000000000003', 'c3c3c3c3-0001-4000-8000-000000000001', 'a1a1a1a1-0003-4000-8000-000000000003', (current_date - 5) + time '13:00', (current_date - 5) + time '15:30', 'Typography and color system',    now() - interval '5 days', now() - interval '5 days'),

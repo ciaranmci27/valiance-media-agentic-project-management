@@ -7,7 +7,7 @@ export const POST = withApi(async ({ supabase, params, apiKeyId, teamMemberId })
   const { id, entryId } = params as any;
 
   const { data: before } = await supabase
-    .from('time_entries')
+    .from('project_time_entries')
     .select('*')
     .eq('id', entryId)
     .eq('project_id', id)
@@ -17,7 +17,7 @@ export const POST = withApi(async ({ supabase, params, apiKeyId, teamMemberId })
   if (before.end_time) throw badRequest('Timer is not running');
 
   const { data, error } = await supabase
-    .from('time_entries')
+    .from('project_time_entries')
     .update({ end_time: new Date().toISOString() })
     .eq('id', entryId)
     .eq('project_id', id)

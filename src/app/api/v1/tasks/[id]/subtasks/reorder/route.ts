@@ -11,7 +11,7 @@ export const PUT = withApi(async ({ supabase, params, body, apiKeyId, teamMember
 
   // Verify all subtask_ids belong to this task
   const { data: existing } = await supabase
-    .from('subtasks')
+    .from('task_subtasks')
     .select('id')
     .eq('task_id', taskId)
     .in('id', subtask_ids);

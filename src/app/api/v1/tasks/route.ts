@@ -20,8 +20,8 @@ export const GET = withApi(async ({ supabase, searchParams }) => {
   let query = supabase.from('tasks').select(`
     *,
     ${assigneeJoin},
-    subtasks(id, task_id, title, completed, sort_order),
-    comments(id, task_id, user_id, text, created_at)
+    subtasks:task_subtasks(id, task_id, title, completed, sort_order),
+    comments:task_comments(id, task_id, user_id, text, created_at)
   `, { count: 'exact' });
 
   if (status) query = query.eq('status', status);

@@ -11,7 +11,7 @@ export const GET = withApi(async ({ supabase, params, searchParams }) => {
   const { page, limit, offset } = parsePagination(searchParams);
 
   const { data, count, error } = await supabase
-    .from('comments')
+    .from('task_comments')
     .select('*', { count: 'exact' })
     .eq('task_id', id)
     .order('created_at', { ascending: true })

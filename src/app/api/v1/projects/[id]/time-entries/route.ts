@@ -22,7 +22,7 @@ export const GET = withApi(async ({ supabase, params, searchParams }) => {
   const running = searchParams.get('running'); // "true" = only running timers
 
   let query = supabase
-    .from('time_entries')
+    .from('project_time_entries')
     .select('*', { count: 'exact' })
     .eq('project_id', id)
     .order('start_time', { ascending: false });
@@ -51,7 +51,7 @@ export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMembe
   // If starting a timer, check no running timer exists for this member+project
   if (isTimer) {
     const { data: existing } = await supabase
-      .from('time_entries')
+      .from('project_time_entries')
       .select('id')
       .eq('project_id', id)
       .eq('member_id', entry.member_id)
@@ -70,7 +70,7 @@ export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMembe
   };
 
   const { data, error } = await supabase
-    .from('time_entries')
+    .from('project_time_entries')
     .insert(insertPayload)
     .select()
     .single();

@@ -6,11 +6,11 @@ import { logAudit } from '@/lib/api/audit';
 
 export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemberId }) => {
   const { id, commentId } = params as any;
-  const { data: before } = await supabase.from('comments').select('*').eq('id', commentId).eq('task_id', id).maybeSingle();
+  const { data: before } = await supabase.from('task_comments').select('*').eq('id', commentId).eq('task_id', id).maybeSingle();
   if (!before) throw notFound('Comment');
 
   const { data, error } = await supabase
-    .from('comments')
+    .from('task_comments')
     .update(body)
     .eq('id', commentId)
     .eq('task_id', id)
@@ -25,11 +25,11 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
 
 export const DELETE = withApi(async ({ supabase, params, apiKeyId, teamMemberId }) => {
   const { id, commentId } = params as any;
-  const { data: before } = await supabase.from('comments').select('*').eq('id', commentId).eq('task_id', id).maybeSingle();
+  const { data: before } = await supabase.from('task_comments').select('*').eq('id', commentId).eq('task_id', id).maybeSingle();
   if (!before) throw notFound('Comment');
 
   const { error } = await supabase
-    .from('comments')
+    .from('task_comments')
     .delete()
     .eq('id', commentId)
     .eq('task_id', id);

@@ -6,11 +6,11 @@ import { logAudit } from '@/lib/api/audit';
 
 export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemberId }) => {
   const { id, subtaskId } = params as any;
-  const { data: before } = await supabase.from('subtasks').select('*').eq('id', subtaskId).eq('task_id', id).maybeSingle();
+  const { data: before } = await supabase.from('task_subtasks').select('*').eq('id', subtaskId).eq('task_id', id).maybeSingle();
   if (!before) throw notFound('Subtask');
 
   const { data, error } = await supabase
-    .from('subtasks')
+    .from('task_subtasks')
     .update(body)
     .eq('id', subtaskId)
     .eq('task_id', id)
@@ -25,11 +25,11 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
 
 export const DELETE = withApi(async ({ supabase, params, apiKeyId, teamMemberId }) => {
   const { id, subtaskId } = params as any;
-  const { data: before } = await supabase.from('subtasks').select('*').eq('id', subtaskId).eq('task_id', id).maybeSingle();
+  const { data: before } = await supabase.from('task_subtasks').select('*').eq('id', subtaskId).eq('task_id', id).maybeSingle();
   if (!before) throw notFound('Subtask');
 
   const { error } = await supabase
-    .from('subtasks')
+    .from('task_subtasks')
     .delete()
     .eq('id', subtaskId)
     .eq('task_id', id);

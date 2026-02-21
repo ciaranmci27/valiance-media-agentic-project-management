@@ -54,7 +54,7 @@ export function NotificationDropdown() {
       const supabase = createClient();
       try {
         const { count } = await supabase
-          .from('notifications')
+          .from('team_member_notifications')
           .select('*', { count: 'exact', head: true })
           .eq('is_read', false);
         if (count !== null) setUnreadCount(count);
@@ -91,12 +91,12 @@ export function NotificationDropdown() {
     try {
       const [notifResult, countResult] = await Promise.all([
         supabase
-          .from('notifications')
+          .from('team_member_notifications')
           .select('*')
           .order('created_at', { ascending: false })
           .limit(10),
         supabase
-          .from('notifications')
+          .from('team_member_notifications')
           .select('*', { count: 'exact', head: true })
           .eq('is_read', false),
       ]);
@@ -125,7 +125,7 @@ export function NotificationDropdown() {
 
     const supabase = createClient();
     try {
-      await supabase.from('notifications').update({ is_read: true }).eq('id', id);
+      await supabase.from('team_member_notifications').update({ is_read: true }).eq('id', id);
       setNotifications(prev => prev.map(n => n.id === id ? { ...n, is_read: true } : n));
       setUnreadCount(prev => Math.max(0, prev - 1));
     } catch (error) {
@@ -145,7 +145,7 @@ export function NotificationDropdown() {
 
     const supabase = createClient();
     try {
-      await supabase.from('notifications').update({ is_read: true }).in('id', unreadIds);
+      await supabase.from('team_member_notifications').update({ is_read: true }).in('id', unreadIds);
       setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
       setUnreadCount(prev => Math.max(0, prev - unreadIds.length));
     } catch (error) {

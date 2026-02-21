@@ -354,7 +354,7 @@ export const endpoints: EndpointDoc[] = [
   },
 
   // Agent Activity (requires NEXT_PUBLIC_ENABLE_AGENTS=true)
-  { method: 'GET', path: '/api/v1/agent-activity', description: 'List agent activity', group: 'Agent Activity',
+  { method: 'GET', path: '/api/v1/agent-activities', description: 'List agent activity', group: 'Agent Activity',
     queryParams: [
       { name: 'agent_id', type: 'uuid', description: 'Filter by agent' },
       { name: 'project_id', type: 'uuid', description: 'Filter by project' },
@@ -363,7 +363,7 @@ export const endpoints: EndpointDoc[] = [
       { name: 'limit', type: 'number', description: 'Items per page' },
     ],
   },
-  { method: 'POST', path: '/api/v1/agent-activity', description: 'Log agent activity (agent only)', group: 'Agent Activity',
+  { method: 'POST', path: '/api/v1/agent-activities', description: 'Log agent activity (agent only)', group: 'Agent Activity',
     body: [
       { name: 'activity_type', type: 'string', required: true, description: 'Activity type (suggestion_created, task_started, task_completed, task_failed, research_completed, comment_added, status_changed, custom)' },
       { name: 'title', type: 'string', required: true, description: 'Activity title' },

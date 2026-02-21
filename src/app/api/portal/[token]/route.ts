@@ -150,7 +150,7 @@ export async function GET(
   let hours: PortalData['hours'] = { total_hours: 0, entries: [] };
   if (settings.show_hours) {
     const { data: timeEntries } = await supabase
-      .from('time_entries')
+      .from('project_time_entries')
       .select('id, start_time, end_time, description, member_id')
       .eq('project_id', settings.project_id)
       .not('end_time', 'is', null)

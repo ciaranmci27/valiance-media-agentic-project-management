@@ -101,8 +101,8 @@ export async function fetchTasks(supabase: SupabaseClient) {
     .select(`
       *,
       task_assignees ( member_id ),
-      subtasks ( id, task_id, title, completed, sort_order ),
-      comments ( id, task_id, user_id, text, created_at )
+      subtasks:task_subtasks ( id, task_id, title, completed, sort_order ),
+      comments:task_comments ( id, task_id, user_id, text, created_at )
     `)
     .order('created_at', { ascending: false });
 
@@ -202,7 +202,7 @@ export async function insertSubtask(
 ) {
   // Get current max sort_order
   const { data: existing } = await supabase
-    .from('subtasks')
+    .from('task_subtasks')
     .select('sort_order')
     .eq('task_id', taskId)
     .order('sort_order', { ascending: false })
@@ -211,7 +211,7 @@ export async function insertSubtask(
   const sortOrder = existing && existing.length > 0 ? existing[0].sort_order + 1 : 0;
 
   const { data, error } = await supabase
-    .from('subtasks')
+    .from('task_subtasks')
     .insert({ task_id: taskId, title, sort_order: sortOrder })
     .select()
     .single();
@@ -226,7 +226,7 @@ export async function toggleSubtaskCompleted(
   completed: boolean
 ) {
   const { error } = await supabase
-    .from('subtasks')
+    .from('task_subtasks')
     .update({ completed })
     .eq('id', subtaskId);
 
@@ -239,7 +239,7 @@ export async function reorderSubtasks(
 ) {
   // Update sort_order for each subtask
   const updates = subtaskIds.map((id, index) =>
-    supabase.from('subtasks').update({ sort_order: index }).eq('id', id)
+    supabase.from('task_subtasks').update({ sort_order: index }).eq('id', id)
   );
   await Promise.all(updates);
 }
@@ -250,7 +250,7 @@ export async function patchSubtask(
   updates: Partial<Pick<Subtask, 'title' | 'completed' | 'sort_order'>>
 ) {
   const { error } = await supabase
-    .from('subtasks')
+    .from('task_subtasks')
     .update(updates)
     .eq('id', subtaskId);
 
@@ -258,7 +258,7 @@ export async function patchSubtask(
 }
 
 export async function removeSubtask(supabase: SupabaseClient, subtaskId: string) {
-  const { error } = await supabase.from('subtasks').delete().eq('id', subtaskId);
+  const { error } = await supabase.from('task_subtasks').delete().eq('id', subtaskId);
   if (error) throw error;
 }
 
@@ -273,7 +273,7 @@ export async function insertComment(
   text: string
 ) {
   const { data, error } = await supabase
-    .from('comments')
+    .from('task_comments')
     .insert({ task_id: taskId, user_id: userId, text })
     .select()
     .single();
@@ -288,7 +288,7 @@ export async function patchComment(
   text: string
 ) {
   const { error } = await supabase
-    .from('comments')
+    .from('task_comments')
     .update({ text })
     .eq('id', commentId);
 
@@ -296,7 +296,7 @@ export async function patchComment(
 }
 
 export async function removeComment(supabase: SupabaseClient, commentId: string) {
-  const { error } = await supabase.from('comments').delete().eq('id', commentId);
+  const { error } = await supabase.from('task_comments').delete().eq('id', commentId);
   if (error) throw error;
 }
 
@@ -1519,7 +1519,7 @@ export async function fetchPendingSuggestionCount(supabase: SupabaseClient) {
 
 export async function fetchAgentActivity(supabase: SupabaseClient, filters?: { agent_id?: string; project_id?: string; activity_type?: string }) {
   let query = supabase
-    .from('agent_activity')
+    .from('agent_activities')
     .select('*')
     .order('created_at', { ascending: false })
     .limit(100);
@@ -1538,7 +1538,7 @@ export async function insertAgentActivity(
   entry: Omit<AgentActivity, 'id' | 'created_at'>
 ) {
   const { data, error } = await supabase
-    .from('agent_activity')
+    .from('agent_activities')
     .insert({
       agent_id: entry.agent_id,
       project_id: entry.project_id || null,
@@ -1595,7 +1595,7 @@ export async function fetchAuditLogForEntity(supabase: SupabaseClient, entityTyp
 
 export async function fetchAllTimeEntries(supabase: SupabaseClient) {
   const { data, error } = await supabase
-    .from('time_entries')
+    .from('project_time_entries')
     .select('*')
     .order('start_time', { ascending: false });
 
@@ -1605,7 +1605,7 @@ export async function fetchAllTimeEntries(supabase: SupabaseClient) {
 
 export async function fetchTimeEntriesByProject(supabase: SupabaseClient, projectId: string) {
   const { data, error } = await supabase
-    .from('time_entries')
+    .from('project_time_entries')
     .select('*')
     .eq('project_id', projectId)
     .order('start_time', { ascending: false });
@@ -1619,7 +1619,7 @@ export async function insertTimeEntry(
   entry: Omit<TimeEntry, 'id' | 'created_at' | 'updated_at'>
 ) {
   const { data, error } = await supabase
-    .from('time_entries')
+    .from('project_time_entries')
     .insert({
       project_id: entry.project_id,
       member_id: entry.member_id,
@@ -1640,7 +1640,7 @@ export async function patchTimeEntry(
   updates: Partial<Pick<TimeEntry, 'member_id' | 'start_time' | 'end_time' | 'description'>>
 ) {
   const { data, error } = await supabase
-    .from('time_entries')
+    .from('project_time_entries')
     .update(updates)
     .eq('id', id)
     .select()
@@ -1651,6 +1651,6 @@ export async function patchTimeEntry(
 }
 
 export async function removeTimeEntry(supabase: SupabaseClient, id: string) {
-  const { error } = await supabase.from('time_entries').delete().eq('id', id);
+  const { error } = await supabase.from('project_time_entries').delete().eq('id', id);
   if (error) throw error;
 }

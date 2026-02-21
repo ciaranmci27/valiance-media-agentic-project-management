@@ -14,11 +14,11 @@ ALTER TABLE public.api_keys
 
 CREATE INDEX IF NOT EXISTS idx_api_keys_team_member_id ON public.api_keys(team_member_id);
 
--- 1c. Add 'suggestion' and 'goal' to notifications entity_type
-ALTER TABLE public.notifications
-  DROP CONSTRAINT IF EXISTS notifications_entity_type_check;
-ALTER TABLE public.notifications
-  ADD CONSTRAINT notifications_entity_type_check
+-- 1c. Add 'suggestion' and 'goal' to team_member_notifications entity_type
+ALTER TABLE public.team_member_notifications
+  DROP CONSTRAINT IF EXISTS team_member_notifications_entity_type_check;
+ALTER TABLE public.team_member_notifications
+  ADD CONSTRAINT team_member_notifications_entity_type_check
     CHECK (entity_type IN ('task', 'project', 'lead', 'comment', 'member', 'contact', 'suggestion', 'goal'));
 
 -- ============================================================
@@ -93,7 +93,7 @@ CREATE INDEX IF NOT EXISTS idx_tasks_source_task_suggestion_id ON public.tasks(s
 -- ============================================================
 -- 5. AGENT ACTIVITY
 -- ============================================================
-CREATE TABLE public.agent_activity (
+CREATE TABLE public.agent_activities (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   agent_id uuid NOT NULL REFERENCES public.team_members(id) ON DELETE CASCADE,
   project_id uuid REFERENCES public.projects(id) ON DELETE SET NULL,
@@ -109,13 +109,13 @@ CREATE TABLE public.agent_activity (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_agent_activity_agent_id ON public.agent_activity(agent_id);
-CREATE INDEX idx_agent_activity_project_id ON public.agent_activity(project_id);
-CREATE INDEX idx_agent_activity_activity_type ON public.agent_activity(activity_type);
-CREATE INDEX idx_agent_activity_created_at ON public.agent_activity(created_at DESC);
+CREATE INDEX idx_agent_activities_agent_id ON public.agent_activities(agent_id);
+CREATE INDEX idx_agent_activities_project_id ON public.agent_activities(project_id);
+CREATE INDEX idx_agent_activities_activity_type ON public.agent_activities(activity_type);
+CREATE INDEX idx_agent_activities_created_at ON public.agent_activities(created_at DESC);
 
-ALTER TABLE public.agent_activity ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "agent_activity_all" ON public.agent_activity FOR ALL TO authenticated USING (true) WITH CHECK (true);
+ALTER TABLE public.agent_activities ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "agent_activities_all" ON public.agent_activities FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
 -- ============================================================
 -- 6. API AUDIT LOG (NOT gated behind ENABLE_AGENTS)

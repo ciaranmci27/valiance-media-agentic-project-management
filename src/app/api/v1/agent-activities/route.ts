@@ -16,7 +16,7 @@ export const GET = withApi(async ({ supabase, searchParams }) => {
   const activityType = searchParams.get('activity_type');
 
   let query = supabase
-    .from('agent_activity')
+    .from('agent_activities')
     .select('*', { count: 'exact' });
 
   if (agentId) query = query.eq('agent_id', agentId);
@@ -56,8 +56,8 @@ export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId }) =
 
   logAudit(supabase, {
     method: 'POST',
-    endpoint: '/api/v1/agent-activity',
-    entityType: 'agent_activity',
+    endpoint: '/api/v1/agent-activities',
+    entityType: 'agent_activities',
     entityId: entry.id,
     apiKeyId,
     teamMemberId,

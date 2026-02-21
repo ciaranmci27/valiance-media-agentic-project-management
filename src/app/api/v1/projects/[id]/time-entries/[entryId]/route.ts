@@ -8,7 +8,7 @@ export const GET = withApi(async ({ supabase, params }) => {
   const { id, entryId } = params as any;
 
   const { data, error } = await supabase
-    .from('time_entries')
+    .from('project_time_entries')
     .select('*')
     .eq('id', entryId)
     .eq('project_id', id)
@@ -23,7 +23,7 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
   const { id, entryId } = params as any;
 
   const { data: before } = await supabase
-    .from('time_entries')
+    .from('project_time_entries')
     .select('*')
     .eq('id', entryId)
     .eq('project_id', id)
@@ -32,7 +32,7 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
   if (!before) throw notFound('Time entry');
 
   const { data, error } = await supabase
-    .from('time_entries')
+    .from('project_time_entries')
     .update(body as any)
     .eq('id', entryId)
     .eq('project_id', id)
@@ -61,7 +61,7 @@ export const DELETE = withApi(async ({ supabase, params, apiKeyId, teamMemberId 
   const { id, entryId } = params as any;
 
   const { data: before } = await supabase
-    .from('time_entries')
+    .from('project_time_entries')
     .select('*')
     .eq('id', entryId)
     .eq('project_id', id)
@@ -70,7 +70,7 @@ export const DELETE = withApi(async ({ supabase, params, apiKeyId, teamMemberId 
   if (!before) throw notFound('Time entry');
 
   const { error } = await supabase
-    .from('time_entries')
+    .from('project_time_entries')
     .delete()
     .eq('id', entryId)
     .eq('project_id', id);
