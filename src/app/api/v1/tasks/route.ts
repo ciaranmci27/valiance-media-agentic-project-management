@@ -58,7 +58,7 @@ export const GET = withApi(async ({ supabase, searchParams }) => {
 
 export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId }) => {
   const { assignee_ids, ...taskData } = body as any;
-  const task = await insertTask(supabase, taskData, assignee_ids || []);
+  const task = await insertTask(supabase, { ...taskData, created_by: teamMemberId || null }, assignee_ids || []);
   logAudit(supabase, { method: 'POST', endpoint: '/api/v1/tasks', entityType: 'task', entityId: task.id, apiKeyId, teamMemberId, requestBody: body, afterSnapshot: task, statusCode: 201 });
   return created(task);
 }, { schema: createTaskSchema });

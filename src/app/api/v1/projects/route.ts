@@ -44,8 +44,29 @@ export const GET = withApi(async ({ supabase, searchParams }) => {
 });
 
 export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId }) => {
-  const { member_ids, ...projectData } = body as any;
-  const project = await insertProject(supabase, projectData, member_ids || []);
+  const { member_ids, contact_id, contact, ...projectData } = body as any;
+
+  // Resolve contact: use existing contact_id, or create a new contact inline
+  let resolvedContactId = contact_id || null;
+  if (!resolvedContactId && contact) {
+    const { data: newContact, error: contactError } = await supabase
+      .from('contacts')
+      .insert({
+        name: contact.name,
+        email: contact.email || '',
+        phone: contact.phone || '',
+        company: contact.company || '',
+        color: projectData.color,
+        created_by: teamMemberId || null,
+      })
+      .select()
+      .single();
+
+    if (contactError) throw contactError;
+    resolvedContactId = newContact.id;
+  }
+
+  const project = await insertProject(supabase, projectData, member_ids || [], resolvedContactId);
   logAudit(supabase, { method: 'POST', endpoint: '/api/v1/projects', entityType: 'project', entityId: project.id, apiKeyId, teamMemberId, requestBody: body, afterSnapshot: project, statusCode: 201 });
   return created(project);
 }, { schema: createProjectSchema });

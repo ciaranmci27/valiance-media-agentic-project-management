@@ -27,6 +27,7 @@ create table public.contacts (
   company text not null default '',
   notes text not null default '',
   color text not null default '#6366F1',
+  avatar_url text not null default '',
   created_by uuid references public.team_members(id) on delete set null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()

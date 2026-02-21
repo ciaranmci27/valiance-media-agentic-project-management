@@ -1028,30 +1028,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const addLead = async (lead: Omit<Lead, 'id' | 'created_at' | 'updated_at'>) => {
     const memberIds = lead.member_ids || [];
 
-    // Auto-create contact when creating a lead
-    let contactId = lead.contact_id;
-    if (!contactId) {
-      const newContact = await addContact({
-        name: lead.name,
-        email: lead.email || '',
-        phone: lead.phone || '',
-        company: lead.company || '',
-        notes: '',
-        color: siteConfig.colors.brand[500],
-        avatar_url: '',
-      });
-      if (newContact) {
-        contactId = newContact.id;
-      }
-    }
-
     const optimisticId = crypto.randomUUID();
     const now = new Date().toISOString();
     const optimistic: Lead = {
       ...lead,
       id: optimisticId,
       member_ids: memberIds,
-      contact_id: contactId || null,
+      contact_id: lead.contact_id || null,
       created_at: now,
       updated_at: now,
     };
@@ -1060,17 +1043,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (skipSupabase) return;
 
     try {
-      const newLead = await insertLead(supabase, { ...lead, contact_id: contactId || null, created_by: teamMemberId }, memberIds);
+      // insertLead auto-creates a contact + lead_contacts junction when no contact_id is provided
+      const newLead = await insertLead(supabase, { ...lead, contact_id: lead.contact_id || null, created_by: teamMemberId }, memberIds);
       setLeads(prev => prev.map(l => l.id === optimisticId ? newLead : l));
 
-      // Also create a lead_contacts entry for the primary contact
-      if (contactId) {
-        try {
-          const lc = await addLeadContactQuery(supabase, newLead.id, contactId, 'Client', null, true);
-          setLeadContacts(prev => [...prev, lc]);
-        } catch {
-          // Non-critical: lead was created, contact link is just a bonus
-        }
+      // Refresh contacts so the auto-created contact appears in the UI
+      if (!lead.contact_id && newLead.contact_id) {
+        const freshContacts = await fetchContacts(supabase);
+        setContacts(freshContacts);
+        const freshLeadContacts = await fetchAllLeadContacts(supabase);
+        setLeadContacts(freshLeadContacts);
       }
 
       notify(allMemberIds(), `New lead "${lead.name}" created`, `${actorName()} created a new lead.`, `/leads/${newLead.id}`, 'lead', newLead.id, 'lead_created');

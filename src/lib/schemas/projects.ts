@@ -11,6 +11,13 @@ export const createProjectSchema = z.object({
   hourly_tracking: z.boolean().default(false),
   autonomous_enabled: z.boolean().default(false),
   member_ids: z.array(z.string().uuid()).default([]),
+  contact_id: z.string().uuid().nullable().default(null),
+  contact: z.object({
+    name: z.string().min(1),
+    email: z.string().default(''),
+    phone: z.string().default(''),
+    company: z.string().default(''),
+  }).optional(),
 });
 
 export const updateProjectSchema = z.object({

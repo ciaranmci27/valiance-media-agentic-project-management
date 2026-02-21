@@ -26,9 +26,19 @@ export const GET = withApi(async ({ supabase, searchParams }) => {
 });
 
 export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId }) => {
+  const contact = body as any;
   const { data, error } = await supabase
     .from('contacts')
-    .insert(body)
+    .insert({
+      name: contact.name,
+      email: contact.email,
+      phone: contact.phone,
+      company: contact.company,
+      notes: contact.notes,
+      color: contact.color,
+      avatar_url: contact.avatar_url || '',
+      created_by: teamMemberId || null,
+    })
     .select()
     .single();
 

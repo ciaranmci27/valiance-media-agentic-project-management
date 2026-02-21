@@ -27,7 +27,8 @@ export async function fetchProjects(supabase: SupabaseClient) {
 export async function insertProject(
   supabase: SupabaseClient,
   project: Omit<Project, 'id' | 'created_at' | 'updated_at' | 'member_ids'>,
-  memberIds: string[]
+  memberIds: string[],
+  contactId?: string | null
 ) {
   const { data, error } = await supabase
     .from('projects')
@@ -38,6 +39,8 @@ export async function insertProject(
       status: project.status,
       start_date: project.start_date,
       due_date: project.due_date,
+      hourly_tracking: project.hourly_tracking ?? false,
+      autonomous_enabled: project.autonomous_enabled ?? false,
       created_by: project.created_by,
     })
     .select()
@@ -50,6 +53,19 @@ export async function insertProject(
       .from('project_members')
       .insert(memberIds.map(mid => ({ project_id: data.id, member_id: mid })));
     if (junctionError) throw junctionError;
+  }
+
+  // Link contact as primary client if contact_id was provided
+  if (contactId) {
+    const { error: pcError } = await supabase
+      .from('project_contacts')
+      .insert({
+        project_id: data.id,
+        contact_id: contactId,
+        role: 'Client',
+        is_primary_client: true,
+      });
+    if (pcError) throw pcError;
   }
 
   return { ...data, member_ids: memberIds } as Project;
@@ -548,6 +564,26 @@ export async function insertLead(
   lead: Omit<Lead, 'id' | 'created_at' | 'updated_at' | 'member_ids'>,
   memberIds: string[]
 ) {
+  // Auto-create a contact from lead data if no contact_id is provided
+  let contactId = lead.contact_id || null;
+  if (!contactId) {
+    const { data: contact, error: contactError } = await supabase
+      .from('contacts')
+      .insert({
+        name: lead.name,
+        email: lead.email,
+        phone: lead.phone,
+        company: lead.company,
+        color: siteConfig.colors.brand[500],
+        created_by: lead.created_by || null,
+      })
+      .select()
+      .single();
+
+    if (contactError) throw contactError;
+    contactId = contact.id;
+  }
+
   const { data, error } = await supabase
     .from('leads')
     .insert({
@@ -561,13 +597,26 @@ export async function insertLead(
       equity: lead.equity,
       notes: lead.notes,
       assigned_to: lead.assigned_to || null,
-      contact_id: lead.contact_id || null,
+      contact_id: contactId,
       created_by: lead.created_by || null,
     })
     .select()
     .single();
 
   if (error) throw error;
+
+  // Link the contact to the lead via the lead_contacts junction table
+  if (contactId) {
+    const { error: lcError } = await supabase
+      .from('lead_contacts')
+      .insert({
+        lead_id: data.id,
+        contact_id: contactId,
+        role: 'Client',
+        is_primary_client: true,
+      });
+    if (lcError) throw lcError;
+  }
 
   if (memberIds.length > 0) {
     const { error: junctionError } = await supabase
