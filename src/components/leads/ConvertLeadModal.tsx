@@ -6,9 +6,10 @@ import { useApp } from '@/lib/store';
 import Modal from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { siteConfig } from '@/site-config';
 
 const PROJECT_COLORS = [
-  '#6366F1', '#8B5CF6', '#EC4899', '#EF4444',
+  siteConfig.colors.brand[500], '#8B5CF6', '#EC4899', '#EF4444',
   '#F59E0B', '#10B981', '#06B6D4', '#3B82F6',
 ];
 
@@ -93,7 +94,7 @@ export function ConvertLeadModal({ isOpen, onClose, lead }: ConvertLeadModalProp
                 type="button"
                 onClick={() => setProjectColor(c)}
                 className={`w-8 h-8 rounded-lg transition-all ${
-                  projectColor === c ? 'ring-2 ring-offset-2 ring-indigo-500 scale-110' : 'hover:scale-105'
+                  projectColor === c ? 'ring-2 ring-offset-2 ring-brand-500 scale-110' : 'hover:scale-105'
                 }`}
                 style={{ backgroundColor: c }}
               />
@@ -108,7 +109,7 @@ export function ConvertLeadModal({ isOpen, onClose, lead }: ConvertLeadModalProp
             onChange={(e) => setProjectDescription(e.target.value)}
             placeholder="Describe the project..."
             rows={3}
-            className="w-full px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-all resize-none"
+            className="w-full px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 transition-all resize-none"
           />
         </div>
 

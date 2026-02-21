@@ -133,7 +133,7 @@ export function TaskForm({ isOpen, onClose, projectId, task }: TaskFormProps) {
             onChange={(e) => setDescription(e.target.value)}
             placeholder="Describe the task..."
             rows={3}
-            className="w-full px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 resize-none"
+            className="w-full px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 resize-none"
           />
         </div>
 
@@ -165,7 +165,7 @@ export function TaskForm({ isOpen, onClose, projectId, task }: TaskFormProps) {
             <button
               type="button"
               onClick={() => setAssigneeIds(assigneeIds.length === team.length ? [] : team.map(m => m.id))}
-              className="text-xs text-indigo-600 hover:text-indigo-700 transition-colors"
+              className="text-xs text-brand-600 hover:text-brand-700 transition-colors"
             >
               {assigneeIds.length === team.length ? 'Deselect All' : 'Select All'}
             </button>
@@ -178,7 +178,7 @@ export function TaskForm({ isOpen, onClose, projectId, task }: TaskFormProps) {
                 onClick={() => toggleAssignee(member.id)}
                 className={`px-2 py-1 text-xs rounded-full transition-all ${
                   assigneeIds.includes(member.id)
-                    ? 'bg-indigo-100 text-indigo-700 border border-indigo-300'
+                    ? 'bg-brand-100 text-brand-700 border border-brand-300'
                     : 'bg-white text-zinc-600 border border-zinc-200 hover:border-zinc-300'
                 }`}
               >

@@ -81,8 +81,8 @@ export function ListView({ tasks, onViewTask, onEditTask, onDeleteTask, selected
   const SortIcon = ({ field }: { field: SortField }) => {
     if (sortField !== field) return <ArrowUpDown size={12} className="text-zinc-300" />;
     return sortDir === 'asc'
-      ? <ArrowUp size={12} className="text-indigo-600" />
-      : <ArrowDown size={12} className="text-indigo-600" />;
+      ? <ArrowUp size={12} className="text-brand-600" />
+      : <ArrowDown size={12} className="text-brand-600" />;
   };
 
   const headerClass = "flex items-center gap-1 cursor-pointer hover:text-zinc-700 select-none transition-colors";

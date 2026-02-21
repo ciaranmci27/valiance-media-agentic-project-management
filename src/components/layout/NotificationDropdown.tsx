@@ -172,7 +172,7 @@ export function NotificationDropdown() {
       >
         <Bell size={20} />
         {unreadCount > 0 && (
-          <span className="absolute top-1 right-1 flex h-4 w-4 items-center justify-center rounded-full bg-indigo-600 text-[10px] font-medium text-white">
+          <span className="absolute top-1 right-1 flex h-4 w-4 items-center justify-center rounded-full bg-brand-600 text-[10px] font-medium text-white">
             {unreadCount > 9 ? '9+' : unreadCount}
           </span>
         )}
@@ -187,7 +187,7 @@ export function NotificationDropdown() {
             {unreadCount > 0 && (
               <button
                 onClick={handleMarkAllAsRead}
-                className="text-xs text-indigo-600 hover:text-indigo-700 font-medium"
+                className="text-xs text-brand-600 hover:text-brand-700 font-medium"
               >
                 Mark all as read
               </button>
@@ -198,7 +198,7 @@ export function NotificationDropdown() {
           <div className="max-h-96 overflow-y-auto">
             {isLoading ? (
               <div className="py-10 text-center text-zinc-400">
-                <div className="animate-spin h-5 w-5 border-2 border-indigo-600 border-t-transparent rounded-full mx-auto mb-2" />
+                <div className="animate-spin h-5 w-5 border-2 border-brand-600 border-t-transparent rounded-full mx-auto mb-2" />
                 <p className="text-sm">Loading...</p>
               </div>
             ) : notifications.length === 0 ? (
@@ -215,14 +215,14 @@ export function NotificationDropdown() {
                       key={notification.id}
                       onClick={() => handleNotificationClick(notification)}
                       className={`w-full text-left px-4 py-3 hover:bg-zinc-50 transition-colors ${
-                        !notification.is_read ? 'bg-indigo-50/50' : ''
+                        !notification.is_read ? 'bg-brand-50/50' : ''
                       }`}
                     >
                       <div className="flex items-start gap-3">
                         <div
                           className={`flex h-8 w-8 items-center justify-center rounded-lg shrink-0 ${
                             !notification.is_read
-                              ? 'bg-indigo-100 text-indigo-600'
+                              ? 'bg-brand-100 text-brand-600'
                               : 'bg-zinc-100 text-zinc-400'
                           }`}
                         >
@@ -248,7 +248,7 @@ export function NotificationDropdown() {
                           </p>
                         </div>
                         {!notification.is_read && (
-                          <div className="h-2 w-2 rounded-full bg-indigo-600 shrink-0 mt-2" />
+                          <div className="h-2 w-2 rounded-full bg-brand-600 shrink-0 mt-2" />
                         )}
                       </div>
                     </button>

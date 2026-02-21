@@ -123,8 +123,8 @@ export function Select({
           error
             ? 'border-red-400 focus:border-red-500 focus:ring-2 focus:ring-red-100'
             : isOpen
-              ? 'border-indigo-500 ring-2 ring-indigo-100'
-              : 'border-zinc-200 hover:border-zinc-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100'
+              ? 'border-brand-500 ring-2 ring-brand-100'
+              : 'border-zinc-200 hover:border-zinc-300 focus:border-brand-500 focus:ring-2 focus:ring-brand-100'
         } ${disabled ? 'opacity-50 cursor-not-allowed bg-zinc-50' : 'cursor-pointer'}`}
       >
         <span className={`truncate ${selectedOption ? 'text-zinc-900' : 'text-zinc-400'}`}>
@@ -159,13 +159,13 @@ export function Select({
                   onClick={() => handleSelect(option.value)}
                   className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left transition-colors ${
                     isSelected
-                      ? 'bg-indigo-50 text-indigo-700'
+                      ? 'bg-brand-50 text-brand-700'
                       : 'text-zinc-700 hover:bg-zinc-50'
                   }`}
                 >
                   <span className="flex-1 whitespace-nowrap">{option.label}</span>
                   {isSelected && (
-                    <Check size={14} className="flex-shrink-0 text-indigo-600" />
+                    <Check size={14} className="flex-shrink-0 text-brand-600" />
                   )}
                 </button>
               );

@@ -145,7 +145,7 @@ export function LeadCard({ lead, onEdit, onDelete, onConvert }: LeadCardProps) {
           {lead.value != null ? formatCurrency(lead.value) : 'No value'}
         </span>
         <span className={`flex items-center gap-1 ${lead.equity != null ? 'text-zinc-700' : 'text-zinc-300 italic font-normal'}`}>
-          <Percent size={14} className={lead.equity != null ? 'text-indigo-500' : 'text-zinc-300'} />
+          <Percent size={14} className={lead.equity != null ? 'text-brand-500' : 'text-zinc-300'} />
           {lead.equity != null ? `${lead.equity}%` : 'No equity'}
         </span>
       </div>

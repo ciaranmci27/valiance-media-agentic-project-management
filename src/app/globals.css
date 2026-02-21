@@ -5,10 +5,16 @@
   --font-sans: 'DM Sans', system-ui, sans-serif;
   --font-mono: 'DM Mono', monospace;
 
-  /* Brand accents */
-  --color-brand-indigo: #6366F1;
-  --color-brand-indigo-hover: #4F46E5;
-  --color-brand-purple: #8B5CF6;
+  /* Brand color scale — defaults match site-config.ts; ThemeProvider overrides at runtime */
+  --color-brand-50:  #EEF2FF;
+  --color-brand-100: #E0E7FF;
+  --color-brand-200: #C7D2FE;
+  --color-brand-300: #A5B4FC;
+  --color-brand-400: #818CF8;
+  --color-brand-500: #6366F1;
+  --color-brand-600: #4F46E5;
+  --color-brand-700: #4338CA;
+  --color-accent:    #7C3AED;
 
   /* Sidebar palette */
   --color-sidebar: #0F0F12;
@@ -131,7 +137,7 @@ body {
 /* Focus ring — inside @layer base so Tailwind utilities (outline-none) can override it */
 @layer base {
   *:focus-visible {
-    outline: 2px solid #6366F1;
+    outline: 2px solid var(--color-brand-500);
     outline-offset: 2px;
   }
 }

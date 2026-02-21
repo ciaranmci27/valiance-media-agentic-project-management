@@ -89,7 +89,7 @@ export default function ContactsPage() {
               <div className="text-center pt-2">
                 <button
                   onClick={() => setVisibleCount(prev => prev + 20)}
-                  className="text-sm text-indigo-600 hover:text-indigo-700 font-medium transition-colors"
+                  className="text-sm text-brand-600 hover:text-brand-700 font-medium transition-colors"
                 >
                   Show more ({filtered.length - visibleCount} remaining)
                 </button>

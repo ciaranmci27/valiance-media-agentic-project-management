@@ -13,6 +13,7 @@ import { toast } from '@/components/ui/Toast';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { AvatarCropModal } from '@/components/ui/AvatarCropModal';
 import { createClient } from '@/lib/supabase/client';
+import { siteConfig } from '@/site-config';
 
 interface PortalSettingsPanelProps {
   projectId: string;
@@ -62,13 +63,13 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
 
   // Local state for text inputs to avoid writing to store on every keystroke
   const [localPin, setLocalPin] = useState(settings?.pin || '');
-  const [localAccentColor, setLocalAccentColor] = useState(settings?.accent_color || '#6366F1');
+  const [localAccentColor, setLocalAccentColor] = useState(settings?.accent_color || siteConfig.colors.brand[500]);
   const [localWelcomeMessage, setLocalWelcomeMessage] = useState(settings?.welcome_message || '');
 
   // Sync local state when settings change externally
   useEffect(() => {
     setLocalPin(settings?.pin || '');
-    setLocalAccentColor(settings?.accent_color || '#6366F1');
+    setLocalAccentColor(settings?.accent_color || siteConfig.colors.brand[500]);
     setLocalWelcomeMessage(settings?.welcome_message || '');
   }, [settings?.pin, settings?.accent_color, settings?.welcome_message]);
 
@@ -89,7 +90,7 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
   const handleToggleEnabled = () => {
     upsertPortalSettings(projectId, {
       enabled: !isEnabled,
-      accent_color: project?.color || '#6366F1',
+      accent_color: project?.color || siteConfig.colors.brand[500],
     });
   };
 
@@ -234,8 +235,8 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
         className={`px-5 py-4 flex items-center justify-between ${isEnabled ? 'border-b border-zinc-100 cursor-pointer' : ''}`}
       >
         <div className="flex items-center gap-2.5">
-          <div className="p-1.5 bg-indigo-50 rounded-md">
-            <Globe size={16} className="text-indigo-600" />
+          <div className="p-1.5 bg-brand-50 rounded-md">
+            <Globe size={16} className="text-brand-600" />
           </div>
           <div>
             <h3 className="text-sm font-semibold text-zinc-900">Client Portal</h3>
@@ -252,7 +253,7 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
           <button
             onClick={(e) => { e.stopPropagation(); handleToggleEnabled(); }}
             className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0 ${
-              isEnabled ? 'bg-indigo-600' : 'bg-zinc-200'
+              isEnabled ? 'bg-brand-600' : 'bg-zinc-200'
             }`}
           >
             <span
@@ -276,7 +277,7 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
                 ) : (
                   <div
                     className="w-full h-full flex items-center justify-center text-white text-lg font-bold"
-                    style={{ backgroundColor: settings.accent_color || '#6366F1' }}
+                    style={{ backgroundColor: settings.accent_color || siteConfig.colors.brand[500] }}
                   >
                     {project?.name?.charAt(0) || 'P'}
                   </div>
@@ -330,7 +331,7 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
                 </div>
                 <button
                   onClick={handleCopyLink}
-                  className="p-2 text-zinc-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                  className="p-2 text-zinc-500 hover:text-brand-600 hover:bg-brand-50 rounded-lg transition-colors"
                   title="Copy link"
                 >
                   {copied ? <Check size={16} className="text-green-600" /> : <Copy size={16} />}
@@ -355,7 +356,7 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
                       debouncedSettingChange('pin', e.target.value || null);
                     }}
                     placeholder="PIN (open access)"
-                    className="w-full px-3 py-2 pr-9 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-all placeholder:text-zinc-400"
+                    className="w-full px-3 py-2 pr-9 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 transition-all placeholder:text-zinc-400"
                   />
                   <button
                     type="button"
@@ -368,7 +369,7 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
                 <div className="flex items-center gap-2">
                   <input
                     type="color"
-                    value={settings.accent_color || '#6366F1'}
+                    value={settings.accent_color || siteConfig.colors.brand[500]}
                     onChange={e => handleSettingChange('accent_color', e.target.value)}
                     className="w-[38px] h-[38px] rounded-lg border border-zinc-200 cursor-pointer p-0.5 flex-shrink-0"
                   />
@@ -379,7 +380,7 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
                       setLocalAccentColor(e.target.value);
                       debouncedSettingChange('accent_color', e.target.value);
                     }}
-                    className="flex-1 px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-all min-w-0"
+                    className="flex-1 px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 transition-all min-w-0"
                   />
                 </div>
               </div>
@@ -397,7 +398,7 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
               }}
               placeholder="Welcome to your project portal! Here you can track progress and download shared files."
               rows={3}
-              className="w-full px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-all placeholder:text-zinc-400 resize-none"
+              className="w-full px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 transition-all placeholder:text-zinc-400 resize-none"
             />
           </div>
 
@@ -418,7 +419,7 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
                     onClick={() => handleSettingChange(key, !isActive)}
                     className={`px-3 py-1.5 text-sm rounded-lg border transition-colors ${
                       isActive
-                        ? 'bg-indigo-50 border-indigo-200 text-indigo-700'
+                        ? 'bg-brand-50 border-brand-200 text-brand-700'
                         : 'bg-zinc-50 border-zinc-200 text-zinc-400'
                     }`}
                   >
@@ -444,7 +445,7 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
                   onChange={handleFileUpload}
                   disabled={uploading}
                 />
-                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors cursor-pointer">
+                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-brand-600 bg-brand-50 hover:bg-brand-100 rounded-lg transition-colors cursor-pointer">
                   <Upload size={14} />
                   {uploading ? 'Uploading...' : 'Upload'}
                 </span>
@@ -491,7 +492,7 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
                                 }
                                 setEditingFileId(null);
                               }}
-                              className="text-sm text-zinc-700 bg-white border border-indigo-300 rounded px-1.5 py-0.5 outline-none focus:ring-2 focus:ring-indigo-100 min-w-0 w-full"
+                              className="text-sm text-zinc-700 bg-white border border-brand-300 rounded px-1.5 py-0.5 outline-none focus:ring-2 focus:ring-brand-100 min-w-0 w-full"
                             />
                           ) : (
                             <p
@@ -503,7 +504,7 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
                             </p>
                           )}
                           {!isEditing && isHtml && (
-                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium bg-indigo-50 text-indigo-600 rounded flex-shrink-0">
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium bg-brand-50 text-brand-600 rounded flex-shrink-0">
                               Web Page
                             </span>
                           )}
@@ -516,7 +517,7 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
                                 toast('success', 'Page link copied!');
                                 setTimeout(() => setCopiedFileId(null), 2000);
                               }}
-                              className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium bg-zinc-100 text-zinc-500 hover:bg-indigo-50 hover:text-indigo-600 rounded transition-colors flex-shrink-0"
+                              className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium bg-zinc-100 text-zinc-500 hover:bg-brand-50 hover:text-brand-600 rounded transition-colors flex-shrink-0"
                               title="Copy page link"
                             >
                               {copiedFileId === file.id ? <Check size={10} /> : <Copy size={10} />}
@@ -529,7 +530,7 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
                       {!isEditing && (
                         <button
                           onClick={() => { setEditingFileId(file.id); setEditingFileName(file.name); }}
-                          className="p-1.5 text-zinc-300 hover:text-indigo-500 opacity-0 group-hover:opacity-100 transition-all"
+                          className="p-1.5 text-zinc-300 hover:text-brand-500 opacity-0 group-hover:opacity-100 transition-all"
                           title="Rename file"
                         >
                           <Pencil size={14} />
@@ -540,7 +541,7 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
                           href={`/portal/${settings.token}/page/${file.id}`}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="p-1.5 text-zinc-300 hover:text-indigo-500 opacity-0 group-hover:opacity-100 transition-all"
+                          className="p-1.5 text-zinc-300 hover:text-brand-500 opacity-0 group-hover:opacity-100 transition-all"
                           title="View as web page"
                         >
                           <ExternalLink size={14} />

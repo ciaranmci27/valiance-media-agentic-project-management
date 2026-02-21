@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/Button';
 
 const COLUMNS = [
   { id: 'todo', title: 'To Do', color: 'bg-zinc-400' },
-  { id: 'in_progress', title: 'In Progress', color: 'bg-indigo-500' },
+  { id: 'in_progress', title: 'In Progress', color: 'bg-brand-500' },
   { id: 'in_review', title: 'In Review', color: 'bg-amber-500' },
   { id: 'done', title: 'Done', color: 'bg-emerald-500' },
 ];
@@ -101,7 +101,7 @@ export function BoardView({ tasks, onAddTask, onViewTask, onEditTask, onDeleteTa
 
             <div className={`space-y-2 lg:space-y-3 min-h-[200px] p-1 rounded-lg transition-colors duration-150 ${
               isOver && !isDragSource
-                ? 'bg-indigo-50 ring-2 ring-indigo-300 ring-dashed'
+                ? 'bg-brand-50 ring-2 ring-brand-300 ring-dashed'
                 : ''
             }`}>
               {columnTasks.map((task) => (
@@ -124,8 +124,8 @@ export function BoardView({ tasks, onAddTask, onViewTask, onEditTask, onDeleteTa
 
               {/* Drop indicator when column is empty and being dragged over */}
               {isOver && !isDragSource && columnTasks.length === 0 && (
-                <div className="h-20 border-2 border-dashed border-indigo-300 rounded-lg flex items-center justify-center">
-                  <span className="text-sm text-indigo-400">Drop here</span>
+                <div className="h-20 border-2 border-dashed border-brand-300 rounded-lg flex items-center justify-center">
+                  <span className="text-sm text-brand-400">Drop here</span>
                 </div>
               )}
 
@@ -139,7 +139,7 @@ export function BoardView({ tasks, onAddTask, onViewTask, onEditTask, onDeleteTa
               {column.id === 'todo' && (
                 <button
                   onClick={onAddTask}
-                  className="w-full p-3 flex items-center justify-center gap-2 text-sm text-zinc-500 border border-dashed border-zinc-300 rounded-lg hover:border-indigo-400 hover:text-indigo-600 hover:bg-indigo-50 transition-all"
+                  className="w-full p-3 flex items-center justify-center gap-2 text-sm text-zinc-500 border border-dashed border-zinc-300 rounded-lg hover:border-brand-400 hover:text-brand-600 hover:bg-brand-50 transition-all"
                 >
                   <Plus size={16} />
                   <span className="hidden sm:inline">Add Task</span>

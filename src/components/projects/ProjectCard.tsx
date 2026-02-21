@@ -48,7 +48,7 @@ export function ProjectCard({ project, onEdit, onDelete }: ProjectCardProps) {
             style={{ backgroundColor: project.color }}
           />
           <div className="min-w-0 flex-1">
-            <span className="font-semibold text-zinc-900 group-hover:text-indigo-600 transition-colors block truncate text-sm lg:text-base">
+            <span className="font-semibold text-zinc-900 group-hover:text-brand-600 transition-colors block truncate text-sm lg:text-base">
               {project.name}
             </span>
             <div className="mt-1 flex items-center gap-1.5 flex-wrap">

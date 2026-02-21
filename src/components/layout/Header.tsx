@@ -69,7 +69,7 @@ export function Header({ title, subtitle, actions, searchPlaceholder, showFilter
                   placeholder={searchPlaceholder}
                   value={filters.search}
                   onChange={(e) => setFilters({ ...filters, search: e.target.value })}
-                  className="pl-9 pr-4 py-2 w-40 lg:w-64 text-sm bg-zinc-50 border border-zinc-200 rounded-lg outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-all"
+                  className="pl-9 pr-4 py-2 w-40 lg:w-64 text-sm bg-zinc-50 border border-zinc-200 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 transition-all"
                 />
               </div>
             </>
@@ -80,14 +80,14 @@ export function Header({ title, subtitle, actions, searchPlaceholder, showFilter
               onClick={() => setIsFilterPanelOpen(!isFilterPanelOpen)}
               className={`flex items-center gap-2 px-3 py-2 text-sm border rounded-lg transition-colors ${
                 hasActiveFilters
-                  ? 'bg-indigo-50 border-indigo-300 text-indigo-700'
+                  ? 'bg-brand-50 border-brand-300 text-brand-700'
                   : 'bg-zinc-50 border-zinc-200 text-zinc-600 hover:bg-zinc-100'
               }`}
             >
               <Filter size={16} />
               <span className="hidden sm:inline">Filter</span>
               {hasActiveFilters && (
-                <span className="bg-indigo-600 text-white text-xs px-1.5 py-0.5 rounded-full">
+                <span className="bg-brand-600 text-white text-xs px-1.5 py-0.5 rounded-full">
                   {filters.status.length + filters.priority.length + filters.assigneeIds.length + filters.tags.length}
                 </span>
               )}
@@ -107,7 +107,7 @@ export function Header({ title, subtitle, actions, searchPlaceholder, showFilter
             {hasActiveFilters && (
               <button
                 onClick={clearFilters}
-                className="text-xs text-indigo-600 hover:text-indigo-700"
+                className="text-xs text-brand-600 hover:text-brand-700"
               >
                 Clear all
               </button>
@@ -125,7 +125,7 @@ export function Header({ title, subtitle, actions, searchPlaceholder, showFilter
                     onClick={() => toggleFilter('status', status)}
                     className={`px-2 py-1 text-xs rounded-full transition-all ${
                       filters.status.includes(status)
-                        ? 'bg-indigo-100 text-indigo-700 border border-indigo-300'
+                        ? 'bg-brand-100 text-brand-700 border border-brand-300'
                         : 'bg-white text-zinc-600 border border-zinc-200 hover:border-zinc-300'
                     }`}
                   >
@@ -145,7 +145,7 @@ export function Header({ title, subtitle, actions, searchPlaceholder, showFilter
                     onClick={() => toggleFilter('priority', priority)}
                     className={`px-2 py-1 text-xs rounded-full transition-all ${
                       filters.priority.includes(priority)
-                        ? 'bg-indigo-100 text-indigo-700 border border-indigo-300'
+                        ? 'bg-brand-100 text-brand-700 border border-brand-300'
                         : 'bg-white text-zinc-600 border border-zinc-200 hover:border-zinc-300'
                     }`}
                   >
@@ -171,7 +171,7 @@ export function Header({ title, subtitle, actions, searchPlaceholder, showFilter
                     }}
                     className={`px-2 py-1 text-xs rounded-full transition-all flex items-center gap-1 ${
                       filters.assigneeIds.includes(member.id)
-                        ? 'bg-indigo-100 text-indigo-700 border border-indigo-300'
+                        ? 'bg-brand-100 text-brand-700 border border-brand-300'
                         : 'bg-white text-zinc-600 border border-zinc-200 hover:border-zinc-300'
                     }`}
                   >
@@ -199,7 +199,7 @@ export function Header({ title, subtitle, actions, searchPlaceholder, showFilter
                       }}
                       className={`px-2 py-1 text-xs rounded-full transition-all ${
                         filters.tags.includes(tag)
-                          ? 'bg-indigo-100 text-indigo-700 border border-indigo-300'
+                          ? 'bg-brand-100 text-brand-700 border border-brand-300'
                           : 'bg-white text-zinc-600 border border-zinc-200 hover:border-zinc-300'
                       }`}
                     >
@@ -224,7 +224,7 @@ export function Header({ title, subtitle, actions, searchPlaceholder, showFilter
             placeholder={searchPlaceholder}
             value={filters.search}
             onChange={(e) => setFilters({ ...filters, search: e.target.value })}
-            className="w-full pl-9 pr-4 py-2 text-sm bg-zinc-50 border border-zinc-200 rounded-lg outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-all"
+            className="w-full pl-9 pr-4 py-2 text-sm bg-zinc-50 border border-zinc-200 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 transition-all"
           />
         </div>
       </div>

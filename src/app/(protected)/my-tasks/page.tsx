@@ -210,7 +210,7 @@ export default function MyTasksPage() {
                   {/* Status dot */}
                   <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
                     task.status === 'done' ? 'bg-emerald-500' :
-                    task.status === 'in_progress' ? 'bg-indigo-500' :
+                    task.status === 'in_progress' ? 'bg-brand-500' :
                     task.status === 'in_review' ? 'bg-amber-500' :
                     'bg-zinc-300'
                   }`} />

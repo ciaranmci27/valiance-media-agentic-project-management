@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import './globals.css';
 import { DM_Sans } from 'next/font/google';
 import { siteConfig } from '@/site-config';
+import { ThemeProvider } from '@/components/ui/ThemeProvider';
 
 const dmSans = DM_Sans({
   subsets: ['latin'],
@@ -11,7 +12,7 @@ const dmSans = DM_Sans({
 export const metadata: Metadata = {
   title: `${siteConfig.name} | ${siteConfig.tagline}`,
   description: siteConfig.description,
-  icons: { icon: '/logos/logo.svg' },
+  icons: { icon: [{ url: '/logos/logo.svg' }, { url: '/logos/logo.png' }] },
 };
 
 export default function RootLayout({
@@ -22,7 +23,7 @@ export default function RootLayout({
   return (
     <html lang="en" className={dmSans.variable}>
       <body className="antialiased bg-[#FAFAFA] font-sans">
-        {children}
+        <ThemeProvider>{children}</ThemeProvider>
       </body>
     </html>
   );

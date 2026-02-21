@@ -19,7 +19,7 @@ const PRIORITY_DOT: Record<string, string> = {
 
 const STATUS_STYLE: Record<string, { bg: string; text: string; border: string }> = {
   done: { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-l-emerald-500' },
-  in_progress: { bg: 'bg-indigo-50', text: 'text-indigo-700', border: 'border-l-indigo-500' },
+  in_progress: { bg: 'bg-brand-50', text: 'text-brand-700', border: 'border-l-brand-500' },
   in_review: { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-l-amber-500' },
   todo: { bg: 'bg-zinc-50', text: 'text-zinc-600', border: 'border-l-zinc-400' },
 };
@@ -147,7 +147,7 @@ export function CalendarView({ tasks, onViewTask }: CalendarViewProps) {
       <div
         key={day}
         className={`min-h-[5rem] lg:min-h-[7rem] p-1 lg:p-1.5 border-b border-r border-zinc-100 transition-colors relative ${
-          todayHighlight ? 'bg-indigo-50/60' :
+          todayHighlight ? 'bg-brand-50/60' :
           isWeekend(dayOfWeek) ? 'bg-zinc-50/50' :
           past ? 'bg-zinc-50/30' :
           'bg-white'
@@ -157,7 +157,7 @@ export function CalendarView({ tasks, onViewTask }: CalendarViewProps) {
         <div className="flex items-center justify-between mb-0.5 lg:mb-1">
           <div className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-semibold ${
             todayHighlight
-              ? 'bg-indigo-600 text-white'
+              ? 'bg-brand-600 text-white'
               : past
                 ? 'text-zinc-400'
                 : 'text-zinc-700'
@@ -213,7 +213,7 @@ export function CalendarView({ tasks, onViewTask }: CalendarViewProps) {
           {!isExpanded && hiddenCount > 0 && (
             <button
               onClick={(e) => { e.stopPropagation(); setExpandedDay(day); }}
-              className="text-[10px] text-indigo-600 hover:text-indigo-700 font-medium pl-1 hover:underline"
+              className="text-[10px] text-brand-600 hover:text-brand-700 font-medium pl-1 hover:underline"
             >
               +{hiddenCount} more
             </button>
@@ -259,7 +259,7 @@ export function CalendarView({ tasks, onViewTask }: CalendarViewProps) {
             {!isCurrentMonth && (
               <button
                 onClick={goToToday}
-                className="px-2 lg:px-3 py-1 text-xs lg:text-sm font-medium text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                className="px-2 lg:px-3 py-1 text-xs lg:text-sm font-medium text-brand-600 hover:bg-brand-50 rounded-lg transition-colors"
               >
                 Today
               </button>

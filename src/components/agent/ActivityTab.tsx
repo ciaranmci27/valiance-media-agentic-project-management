@@ -20,7 +20,7 @@ const activityIcons: Record<string, any> = {
 };
 
 const activityColors: Record<string, string> = {
-  suggestion_created: 'bg-indigo-100 text-indigo-600',
+  suggestion_created: 'bg-brand-100 text-brand-600',
   task_started: 'bg-blue-100 text-blue-600',
   task_completed: 'bg-emerald-100 text-emerald-600',
   task_failed: 'bg-red-100 text-red-600',

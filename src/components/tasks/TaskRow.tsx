@@ -66,7 +66,7 @@ export function TaskRow({ task, onView, onEdit, onDelete }: TaskRowProps) {
         <div className="pt-1">
           <div className={`w-2.5 h-2.5 rounded-full ${
             task.status === 'done' ? 'bg-emerald-500' :
-            task.status === 'in_progress' ? 'bg-indigo-500' :
+            task.status === 'in_progress' ? 'bg-brand-500' :
             task.status === 'in_review' ? 'bg-amber-500' :
             'bg-zinc-300'
           }`} />
@@ -210,7 +210,7 @@ export function TaskRowDesktop({ task, onView, onEdit, onDelete, selected, onTog
             checked={selected || false}
             onChange={(e) => { e.stopPropagation(); onToggleSelect(task.id); }}
             onClick={(e) => e.stopPropagation()}
-            className="w-4 h-4 rounded border-zinc-300 text-indigo-600 outline-none focus:ring-indigo-500 cursor-pointer"
+            className="w-4 h-4 rounded border-zinc-300 text-brand-600 outline-none focus:ring-brand-500 cursor-pointer"
           />
         </div>
       )}
@@ -219,7 +219,7 @@ export function TaskRowDesktop({ task, onView, onEdit, onDelete, selected, onTog
       <div className="w-3">
         <div className={`w-2.5 h-2.5 rounded-full ${
           task.status === 'done' ? 'bg-emerald-500' :
-          task.status === 'in_progress' ? 'bg-indigo-500' :
+          task.status === 'in_progress' ? 'bg-brand-500' :
           task.status === 'in_review' ? 'bg-amber-500' :
           'bg-zinc-300'
         }`} />

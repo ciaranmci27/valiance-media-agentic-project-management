@@ -132,7 +132,7 @@ export function FileAttachments({ entityType, entityId }: FileAttachmentsProps) 
               onChange={handleFileUpload}
               disabled={uploading}
             />
-            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors cursor-pointer">
+            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition-colors cursor-pointer">
               <Upload size={14} />
               {uploading ? 'Uploading...' : 'Upload'}
             </span>
@@ -177,7 +177,7 @@ export function FileAttachments({ entityType, entityId }: FileAttachmentsProps) 
                           }
                           setEditingFileId(null);
                         }}
-                        className="text-sm text-zinc-700 bg-white border border-indigo-300 rounded px-1.5 py-0.5 outline-none focus:ring-2 focus:ring-indigo-100 min-w-0 w-full"
+                        className="text-sm text-zinc-700 bg-white border border-brand-300 rounded px-1.5 py-0.5 outline-none focus:ring-2 focus:ring-brand-100 min-w-0 w-full"
                       />
                     ) : (
                       <p
@@ -193,7 +193,7 @@ export function FileAttachments({ entityType, entityId }: FileAttachmentsProps) 
                   {!isEditing && (
                     <button
                       onClick={() => { setEditingFileId(file.id); setEditingFileName(file.name); }}
-                      className="p-1.5 text-zinc-300 hover:text-indigo-500 opacity-0 group-hover:opacity-100 transition-all"
+                      className="p-1.5 text-zinc-300 hover:text-brand-500 opacity-0 group-hover:opacity-100 transition-all"
                       title="Rename file"
                     >
                       <Pencil size={14} />

@@ -103,7 +103,7 @@ export function LeadProposalForm({ isOpen, onClose, leadId, proposal }: LeadProp
             onChange={(e) => setDescription(e.target.value)}
             placeholder="Proposal details..."
             rows={3}
-            className="w-full px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-all resize-none"
+            className="w-full px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 transition-all resize-none"
           />
         </div>
 

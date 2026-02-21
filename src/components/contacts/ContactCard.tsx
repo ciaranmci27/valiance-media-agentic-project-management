@@ -30,7 +30,7 @@ export function ContactCard({ contact, onEdit, onDelete }: ContactCardProps) {
         <div className="flex items-center gap-2 lg:gap-3 min-w-0 flex-1">
           <Avatar name={contact.name} src={contact.avatar_url || undefined} size="sm" />
           <div className="min-w-0 flex-1">
-            <span className="font-semibold text-zinc-900 group-hover:text-indigo-600 transition-colors block truncate text-sm lg:text-base">
+            <span className="font-semibold text-zinc-900 group-hover:text-brand-600 transition-colors block truncate text-sm lg:text-base">
               {contact.name}
             </span>
             {contact.company && (

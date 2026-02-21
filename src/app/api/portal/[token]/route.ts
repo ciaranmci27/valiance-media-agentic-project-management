@@ -6,6 +6,7 @@ import {
   demoLeads, demoLeadProposals, demoProjectContacts, demoTimeEntries,
   demoTeam,
 } from '@/lib/demo-data';
+import { siteConfig } from '@/site-config';
 
 function getServiceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -62,7 +63,7 @@ export async function GET(
         pin_required: true,
         branding: {
           logo_url: settings.logo_url || '',
-          accent_color: settings.accent_color || '#6366F1',
+          accent_color: settings.accent_color || siteConfig.colors.brand[500],
           project_name: proj?.name || '',
         },
       }, { status: 401 });
@@ -231,7 +232,7 @@ function handleDemoMode(token: string, request: NextRequest) {
         pin_required: true,
         branding: {
           logo_url: settings.logo_url || '',
-          accent_color: settings.accent_color || '#6366F1',
+          accent_color: settings.accent_color || siteConfig.colors.brand[500],
           project_name: project.name || '',
         },
       }, { status: 401 });

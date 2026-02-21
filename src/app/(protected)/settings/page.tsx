@@ -329,8 +329,8 @@ export default function SettingsPage() {
         {/* Profile Section */}
         <section className="bg-white rounded-xl border border-zinc-200 p-4 lg:p-6">
           <div className="flex items-center gap-3 mb-6">
-            <div className="p-2 bg-indigo-50 rounded-lg">
-              <User className="text-indigo-600" size={20} />
+            <div className="p-2 bg-brand-50 rounded-lg">
+              <User className="text-brand-600" size={20} />
             </div>
             <div>
               <h2 className="font-semibold text-zinc-900">Profile</h2>
@@ -548,7 +548,7 @@ export default function SettingsPage() {
                       onClick={() => setKeyPermissions('full')}
                       className={`px-3 py-1.5 text-sm rounded-lg border transition-colors ${
                         keyPermissions === 'full'
-                          ? 'bg-indigo-50 border-indigo-200 text-indigo-700'
+                          ? 'bg-brand-50 border-brand-200 text-brand-700'
                           : 'bg-white border-zinc-200 text-zinc-600 hover:border-zinc-300'
                       }`}
                     >
@@ -558,7 +558,7 @@ export default function SettingsPage() {
                       onClick={() => setKeyPermissions('read_only')}
                       className={`px-3 py-1.5 text-sm rounded-lg border transition-colors ${
                         keyPermissions === 'read_only'
-                          ? 'bg-indigo-50 border-indigo-200 text-indigo-700'
+                          ? 'bg-brand-50 border-brand-200 text-brand-700'
                           : 'bg-white border-zinc-200 text-zinc-600 hover:border-zinc-300'
                       }`}
                     >
@@ -588,7 +588,7 @@ export default function SettingsPage() {
                         <code className="text-xs text-zinc-500 font-mono">{key.key_prefix}...****</code>
                         <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${
                           key.permissions === 'full'
-                            ? 'bg-indigo-50 text-indigo-600'
+                            ? 'bg-brand-50 text-brand-600'
                             : 'bg-zinc-100 text-zinc-500'
                         }`}>
                           {key.permissions === 'full' ? 'Full' : 'Read Only'}

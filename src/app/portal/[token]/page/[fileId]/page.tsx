@@ -5,6 +5,7 @@ import { useParams } from 'next/navigation';
 import { ArrowLeft, AlertCircle, Lock, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { Logo } from '@/components/ui/Logo';
+import { siteConfig } from '@/site-config';
 
 const ACCENT_DEPTH_GRADIENT = [
   'linear-gradient(135deg, rgba(255,255,255,0.1) 0%, transparent 50%, rgba(0,0,0,0.08) 100%)',
@@ -110,7 +111,7 @@ export default function PortalFilePage() {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-zinc-50">
-        <Loader2 className="animate-spin text-indigo-600" size={32} />
+        <Loader2 className="animate-spin text-brand-600" size={32} />
       </div>
     );
   }
@@ -127,7 +128,7 @@ export default function PortalFilePage() {
           <p className="text-sm text-zinc-500 leading-relaxed mb-5">{error}</p>
           <Link
             href={`/portal/${token}`}
-            className="inline-flex items-center gap-1.5 text-sm font-semibold text-indigo-600 hover:text-indigo-700 transition-colors"
+            className="inline-flex items-center gap-1.5 text-sm font-semibold text-brand-600 hover:text-brand-700 transition-colors"
           >
             <ArrowLeft size={14} />
             Back to portal
@@ -139,7 +140,7 @@ export default function PortalFilePage() {
 
   /* ── PIN ────────────────────────────────────────── */
   if (pinRequired) {
-    const pinAccent = branding?.accent_color || '#6366F1';
+    const pinAccent = branding?.accent_color || siteConfig.colors.brand[500];
     return (
       <div
         className="min-h-screen flex items-center justify-center px-4"
@@ -187,7 +188,7 @@ export default function PortalFilePage() {
                 className={`w-full px-4 py-3.5 text-center text-lg tracking-[0.3em] bg-zinc-50 border-2 rounded-xl outline-none transition-all font-medium ${
                   pinError
                     ? 'border-red-300 bg-red-50/50 focus:border-red-400 focus:ring-4 focus:ring-red-100'
-                    : 'border-zinc-200 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100 focus:bg-white'
+                    : 'border-zinc-200 focus:border-brand-500 focus:ring-4 focus:ring-brand-100 focus:bg-white'
                 }`}
               />
               {pinError && (
@@ -246,7 +247,7 @@ export default function PortalFilePage() {
       <footer className="border-t border-zinc-100 bg-white">
         <div className="px-5 sm:px-6 py-3.5 flex items-center justify-center gap-2">
           <span className="text-xs text-zinc-300 font-medium">Powered by</span>
-          <Logo className="h-3.5 w-auto opacity-25" />
+          <Logo className="h-3.5 w-auto" />
         </div>
       </footer>
     </div>

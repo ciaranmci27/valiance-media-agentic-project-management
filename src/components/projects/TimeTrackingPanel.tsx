@@ -9,6 +9,7 @@ import { Avatar, AvatarGroup } from '@/components/ui/Avatar';
 import { Select } from '@/components/ui/Select';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { TimeEntry } from '@/lib/types';
+import { siteConfig } from '@/site-config';
 
 /* ── Types ── */
 
@@ -60,7 +61,7 @@ function getStorageKey(projectId: string) {
 
 /* ── Component ── */
 
-export function TimeTrackingPanel({ projectId, projectColor = '#6366F1' }: TimeTrackingPanelProps) {
+export function TimeTrackingPanel({ projectId, projectColor = siteConfig.colors.brand[500] }: TimeTrackingPanelProps) {
   const {
     getTimeEntriesByProject, team, getProject,
     addTimeEntry, updateTimeEntry, deleteTimeEntry,
@@ -262,7 +263,7 @@ export function TimeTrackingPanel({ projectId, projectColor = '#6366F1' }: TimeT
     if (deleteTarget) { deleteTimeEntry(deleteTarget); toast('success', 'Time entry removed'); }
   };
 
-  const inputClass = 'px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-all';
+  const inputClass = 'px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 transition-all';
   const dateGroups = Object.entries(groupedByDate);
 
   /* ================================================================
@@ -624,7 +625,7 @@ export function TimeTrackingPanel({ projectId, projectColor = '#6366F1' }: TimeT
                           <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                             <button
                               onClick={() => startEdit(entry)}
-                              className="p-1.5 text-zinc-300 hover:text-indigo-600 transition-colors"
+                              className="p-1.5 text-zinc-300 hover:text-brand-600 transition-colors"
                               title="Edit"
                             >
                               <Pencil size={13} />

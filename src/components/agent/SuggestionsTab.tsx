@@ -128,8 +128,8 @@ export function SuggestionsTab({ filters }: { filters: SuggestionsFilters }) {
     <div className="space-y-4">
       {/* Bulk actions */}
       {selectedIds.size > 0 && (
-        <div className="flex items-center gap-3 bg-indigo-50 border border-indigo-200 rounded-lg px-4 py-3">
-          <span className="text-sm font-medium text-indigo-700">{selectedIds.size} selected</span>
+        <div className="flex items-center gap-3 bg-brand-50 border border-brand-200 rounded-lg px-4 py-3">
+          <span className="text-sm font-medium text-brand-700">{selectedIds.size} selected</span>
           <Button size="sm" onClick={handleBulkApprove}>
             <Check size={14} className="mr-1" />
             Approve All
@@ -140,7 +140,7 @@ export function SuggestionsTab({ filters }: { filters: SuggestionsFilters }) {
           </Button>
           <button
             onClick={() => setSelectedIds(new Set())}
-            className="ml-auto text-sm text-indigo-600 hover:text-indigo-800"
+            className="ml-auto text-sm text-brand-600 hover:text-brand-800"
           >
             Clear
           </button>
@@ -174,7 +174,7 @@ export function SuggestionsTab({ filters }: { filters: SuggestionsFilters }) {
               type="checkbox"
               checked={selectedIds.size === filtered.length && filtered.length > 0}
               onChange={selectAll}
-              className="w-4 h-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500"
+              className="w-4 h-4 rounded border-zinc-300 text-brand-600 focus:ring-brand-500"
             />
             <span className="text-xs text-zinc-500">Select all</span>
           </div>
@@ -192,7 +192,7 @@ export function SuggestionsTab({ filters }: { filters: SuggestionsFilters }) {
                   type="checkbox"
                   checked={selectedIds.has(suggestion.id)}
                   onChange={() => toggleSelect(suggestion.id)}
-                  className="mt-1 w-4 h-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500"
+                  className="mt-1 w-4 h-4 rounded border-zinc-300 text-brand-600 focus:ring-brand-500"
                 />
               )}
 
@@ -259,7 +259,7 @@ export function SuggestionsTab({ filters }: { filters: SuggestionsFilters }) {
                       value={rejectReason}
                       onChange={(e) => setRejectReason(e.target.value)}
                       placeholder="Rejection reason (optional)"
-                      className="flex-1 px-3 py-2 text-sm border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      className="flex-1 px-3 py-2 text-sm border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
                       autoFocus
                     />
                     <Button size="sm" onClick={() => handleReject(suggestion.id)}>Reject</Button>
@@ -275,7 +275,7 @@ export function SuggestionsTab({ filters }: { filters: SuggestionsFilters }) {
                       value={infoText}
                       onChange={(e) => setInfoText(e.target.value)}
                       placeholder="What info do you need?"
-                      className="flex-1 px-3 py-2 text-sm border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      className="flex-1 px-3 py-2 text-sm border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
                       autoFocus
                     />
                     <Button size="sm" onClick={() => handleRequestInfo(suggestion.id)}>Send</Button>

@@ -91,6 +91,7 @@ import {
   removeTimeEntry as removeTimeEntryQuery,
 } from '@/lib/supabase/queries';
 import { toast } from '@/components/ui/Toast';
+import { siteConfig } from '@/site-config';
 
 interface AppContextType {
   // Data
@@ -1036,7 +1037,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         phone: lead.phone || '',
         company: lead.company || '',
         notes: '',
-        color: '#6366F1',
+        color: siteConfig.colors.brand[500],
         avatar_url: '',
       });
       if (newContact) {
@@ -1644,7 +1645,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         pin: settings.pin ?? null,
         welcome_message: settings.welcome_message ?? '',
         logo_url: settings.logo_url ?? '',
-        accent_color: settings.accent_color ?? '#6366F1',
+        accent_color: settings.accent_color ?? siteConfig.colors.brand[500],
         show_progress: settings.show_progress ?? true,
         show_proposals: settings.show_proposals ?? true,
         show_files: settings.show_files ?? true,

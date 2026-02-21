@@ -93,7 +93,7 @@ export function SwipeSuggestionCard({
         </p>
         <button
           onClick={handleUndo}
-          className="text-sm font-medium text-indigo-600 underline"
+          className="text-sm font-medium text-brand-600 underline"
         >
           Undo
         </button>

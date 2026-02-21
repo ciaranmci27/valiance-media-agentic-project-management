@@ -30,7 +30,7 @@ function slugify(name: string) {
 /* ── Static group icon + color mapping (full Tailwind classes for purge safety) ── */
 
 const GROUP_META: Record<string, { icon: typeof Users; bg: string; text: string }> = {
-  Contacts:             { icon: Users,         bg: 'bg-indigo-50',  text: 'text-indigo-600'  },
+  Contacts:             { icon: Users,         bg: 'bg-brand-50',  text: 'text-brand-600'  },
   'Team Members':       { icon: UserCog,       bg: 'bg-violet-50',  text: 'text-violet-600'  },
   Activities:           { icon: Activity,       bg: 'bg-sky-50',     text: 'text-sky-600'     },
   Projects:             { icon: FolderKanban,   bg: 'bg-blue-50',    text: 'text-blue-600'    },
@@ -77,7 +77,7 @@ function ParamTable({
             {params.map((p) => (
               <tr key={p.name} className="border-b border-zinc-50 last:border-0">
                 <td className="py-2 px-3">
-                  <code className="text-indigo-600 font-mono text-xs">{p.name}</code>
+                  <code className="text-brand-600 font-mono text-xs">{p.name}</code>
                 </td>
                 <td className="py-2 px-3">
                   <code className="text-zinc-400 font-mono text-xs">{p.type}</code>
@@ -138,13 +138,13 @@ export default async function ApiDocsPage() {
       <header className="bg-white border-b border-zinc-200">
         <div className="max-w-7xl mx-auto px-4 lg:px-6 py-6">
           <div className="flex items-center gap-3.5">
-            <div className="p-2.5 bg-indigo-50 rounded-xl">
-              <BookOpen className="text-indigo-600" size={24} />
+            <div className="p-2.5 bg-brand-50 rounded-xl">
+              <BookOpen className="text-brand-600" size={24} />
             </div>
             <div>
               <div className="flex items-center gap-2.5 flex-wrap">
                 <h1 className="text-2xl font-bold text-zinc-900">API Reference</h1>
-                <span className="px-2 py-0.5 text-xs font-semibold bg-indigo-50 text-indigo-600 rounded-full">
+                <span className="px-2 py-0.5 text-xs font-semibold bg-brand-50 text-brand-600 rounded-full">
                   v1
                 </span>
                 <span className="px-2 py-0.5 text-xs font-medium bg-zinc-100 text-zinc-500 rounded-full">
@@ -181,7 +181,7 @@ export default async function ApiDocsPage() {
                 header of every request. Keys can be generated in{' '}
                 <a
                   href="/settings"
-                  className="text-indigo-600 hover:text-indigo-700 underline underline-offset-2"
+                  className="text-brand-600 hover:text-brand-700 underline underline-offset-2"
                 >
                   Settings
                 </a>

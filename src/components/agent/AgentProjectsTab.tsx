@@ -127,12 +127,12 @@ export function AgentProjectsTab() {
               </div>
 
               <div className="flex items-center gap-2 flex-shrink-0">
-                <Bot size={14} className={project.autonomous_enabled ? 'text-indigo-600' : 'text-zinc-400'} />
+                <Bot size={14} className={project.autonomous_enabled ? 'text-brand-600' : 'text-zinc-400'} />
                 <button
                   type="button"
                   onClick={() => handleToggleAutonomous(project.id, project.autonomous_enabled)}
                   className={`relative w-10 h-[22px] rounded-full transition-colors ${
-                    project.autonomous_enabled ? 'bg-indigo-600' : 'bg-zinc-300'
+                    project.autonomous_enabled ? 'bg-brand-600' : 'bg-zinc-300'
                   }`}
                   title={project.autonomous_enabled ? 'Disable autonomous agents' : 'Enable autonomous agents'}
                 >
@@ -231,7 +231,7 @@ export function AgentProjectsTab() {
 
               <button
                 onClick={() => handleOpenCreate(project.id)}
-                className="flex items-center gap-1.5 text-sm text-indigo-600 hover:text-indigo-700 font-medium mt-1 transition-colors"
+                className="flex items-center gap-1.5 text-sm text-brand-600 hover:text-brand-700 font-medium mt-1 transition-colors"
               >
                 <Plus size={14} />
                 Add Goal
@@ -291,7 +291,7 @@ export function AgentProjectsTab() {
               value={formDescription}
               onChange={(e) => setFormDescription(e.target.value)}
               placeholder="Describe the goal..."
-              className="w-full px-3 py-2 text-sm border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 min-h-[80px] resize-y"
+              className="w-full px-3 py-2 text-sm border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 min-h-[80px] resize-y"
             />
           </div>
 

@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { Task, ViewMode, TeamMember } from '@/lib/types';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { siteConfig } from '@/site-config';
 
 export default function ProjectDetailPage() {
   const params = useParams();
@@ -238,7 +239,7 @@ export default function ProjectDetailPage() {
                 <p className="text-xs text-zinc-500 font-medium">Start Date</p>
                 <p className="text-sm text-zinc-900">
                   {formatDate(project.start_date) || (
-                    <button onClick={() => setIsEditProjectOpen(true)} className="text-indigo-600 hover:text-indigo-700 transition-colors">Not set</button>
+                    <button onClick={() => setIsEditProjectOpen(true)} className="text-brand-600 hover:text-brand-700 transition-colors">Not set</button>
                   )}
                 </p>
               </div>
@@ -253,7 +254,7 @@ export default function ProjectDetailPage() {
                 <p className="text-xs text-zinc-500 font-medium">Due Date</p>
                 <p className="text-sm text-zinc-900">
                   {formatDate(project.due_date) || (
-                    <button onClick={() => setIsEditProjectOpen(true)} className="text-indigo-600 hover:text-indigo-700 transition-colors">Not set</button>
+                    <button onClick={() => setIsEditProjectOpen(true)} className="text-brand-600 hover:text-brand-700 transition-colors">Not set</button>
                   )}
                 </p>
               </div>
@@ -277,7 +278,7 @@ export default function ProjectDetailPage() {
                 ) : (
                   <button
                     onClick={() => setIsEditProjectOpen(true)}
-                    className="text-sm text-zinc-400 hover:text-indigo-600 transition-colors"
+                    className="text-sm text-zinc-400 hover:text-brand-600 transition-colors"
                   >
                     Add members...
                   </button>
@@ -299,7 +300,7 @@ export default function ProjectDetailPage() {
                         <div
                           key={pc.id}
                           className="w-6 h-6 rounded-full flex items-center justify-center text-white text-[10px] font-medium ring-2 ring-white"
-                          style={{ backgroundColor: pc.contact?.color || '#6366F1' }}
+                          style={{ backgroundColor: pc.contact?.color || siteConfig.colors.brand[500] }}
                           title={`${pc.contact?.name || 'Contact'} (${pc.role})`}
                         >
                           {pc.contact?.name?.charAt(0).toUpperCase() || '?'}
@@ -315,7 +316,7 @@ export default function ProjectDetailPage() {
                 ) : (
                   <button
                     onClick={() => setIsContactsPanelOpen(true)}
-                    className="text-sm text-zinc-400 hover:text-indigo-600 transition-colors"
+                    className="text-sm text-zinc-400 hover:text-brand-600 transition-colors"
                   >
                     Add contacts...
                   </button>
@@ -359,7 +360,7 @@ export default function ProjectDetailPage() {
             {projectTasks.length > 0 && viewMode === 'list' && (
               <button
                 onClick={selectAllTasks}
-                className="text-xs text-indigo-600 hover:text-indigo-700 transition-colors"
+                className="text-xs text-brand-600 hover:text-brand-700 transition-colors"
               >
                 {selectedTaskIds.size === projectTasks.length ? 'Deselect all' : 'Select all'}
               </button>
@@ -371,7 +372,7 @@ export default function ProjectDetailPage() {
               <div className="relative">
                 <button
                   onClick={() => setShowBulkMenu(!showBulkMenu)}
-                  className="flex items-center gap-2 px-3 py-1.5 text-sm bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition-colors"
+                  className="flex items-center gap-2 px-3 py-1.5 text-sm bg-brand-50 text-brand-700 border border-brand-200 rounded-lg hover:bg-brand-100 transition-colors"
                 >
                   {selectedTaskIds.size} selected
                   <ChevronRight size={14} className="rotate-90" />

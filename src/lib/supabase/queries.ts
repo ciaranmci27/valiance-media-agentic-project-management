@@ -1,5 +1,6 @@
 import { SupabaseClient } from '@supabase/supabase-js';
 import type { Project, Task, TeamMember, Subtask, Comment, Activity, Contact, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, PortalSettings, PortalFile, EntityFile, ApiKey, ProjectGoal, TaskSuggestion, AgentActivity, ApiAuditEntry, TimeEntry } from '@/lib/types';
+import { siteConfig } from '@/site-config';
 
 // ============================================================
 // PROJECTS
@@ -1061,7 +1062,7 @@ export async function upsertPortalSettings(
         pin: settings.pin ?? null,
         welcome_message: settings.welcome_message ?? '',
         logo_url: settings.logo_url ?? '',
-        accent_color: settings.accent_color ?? '#6366F1',
+        accent_color: settings.accent_color ?? siteConfig.colors.brand[500],
         show_progress: settings.show_progress ?? true,
         show_proposals: settings.show_proposals ?? true,
         show_files: settings.show_files ?? true,

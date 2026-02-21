@@ -69,8 +69,8 @@ export default function DashboardPage() {
       label: 'Active Projects',
       value: activeProjects.length,
       icon: FolderKanban,
-      color: 'text-indigo-600',
-      bg: 'bg-indigo-50',
+      color: 'text-brand-600',
+      bg: 'bg-brand-50',
     },
     {
       label: 'In Progress',
@@ -110,11 +110,11 @@ export default function DashboardPage() {
 
       <div className="p-4 lg:p-6 space-y-4 lg:space-y-6">
         {/* Welcome message */}
-        <div className="bg-gradient-to-r from-indigo-600 to-violet-600 rounded-xl p-4 lg:p-6 text-white">
+        <div className="bg-gradient-to-r from-brand-600 to-accent rounded-xl p-4 lg:p-6 text-white">
           <h2 className="text-xl lg:text-2xl font-bold mb-2">
             Welcome back, {displayName.split(' ')[0]}!
           </h2>
-          <p className="text-indigo-100 text-sm lg:text-base">
+          <p className="text-brand-100 text-sm lg:text-base">
             You have {inProgressTasks.length} tasks in progress{dueThisWeek.length > 0 && <>, {dueThisWeek.length} due this week</>}
             {overdue.length > 0 && <>, and <span className="text-red-200 font-semibold">{overdue.length} overdue</span></>}.
           </p>
@@ -191,7 +191,7 @@ export default function DashboardPage() {
               <h2 className="font-semibold text-zinc-900">Recent Tasks</h2>
               <Link
                 href="/projects"
-                className="text-sm text-indigo-600 hover:text-indigo-700 flex items-center gap-1"
+                className="text-sm text-brand-600 hover:text-brand-700 flex items-center gap-1"
               >
                 View all <ArrowRight size={14} />
               </Link>
@@ -208,7 +208,7 @@ export default function DashboardPage() {
                   >
                     <div className={`w-2 h-2 rounded-full flex-shrink-0 ${
                       task.status === 'done' ? 'bg-emerald-500' :
-                      task.status === 'in_progress' ? 'bg-indigo-500' :
+                      task.status === 'in_progress' ? 'bg-brand-500' :
                       task.status === 'in_review' ? 'bg-amber-500' :
                       'bg-zinc-300'
                     }`} />
@@ -238,7 +238,7 @@ export default function DashboardPage() {
               <div className="space-y-2">
                 <Link
                   href="/projects?new=true"
-                  className="flex items-center gap-3 p-3 rounded-lg bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition-colors"
+                  className="flex items-center gap-3 p-3 rounded-lg bg-brand-50 text-brand-700 hover:bg-brand-100 transition-colors"
                 >
                   <Plus size={18} />
                   <span className="font-medium text-sm lg:text-base">New Project</span>
@@ -304,7 +304,7 @@ export default function DashboardPage() {
               <h2 className="font-semibold text-zinc-900">Leads Pipeline</h2>
               <Link
                 href="/leads"
-                className="text-sm text-indigo-600 hover:text-indigo-700 flex items-center gap-1"
+                className="text-sm text-brand-600 hover:text-brand-700 flex items-center gap-1"
               >
                 View all <ArrowRight size={14} />
               </Link>
@@ -335,7 +335,7 @@ export default function DashboardPage() {
         {activities.length > 0 && (
           <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
             <div className="flex items-center gap-2 p-4 border-b border-zinc-100">
-              <Activity size={16} className="text-indigo-600" />
+              <Activity size={16} className="text-brand-600" />
               <h2 className="font-semibold text-zinc-900">Recent Activity</h2>
             </div>
 
@@ -371,7 +371,7 @@ export default function DashboardPage() {
             <h2 className="font-semibold text-zinc-900">Projects Overview</h2>
             <Link
               href="/projects"
-              className="text-sm text-indigo-600 hover:text-indigo-700 flex items-center gap-1"
+              className="text-sm text-brand-600 hover:text-brand-700 flex items-center gap-1"
             >
               View all <ArrowRight size={14} />
             </Link>

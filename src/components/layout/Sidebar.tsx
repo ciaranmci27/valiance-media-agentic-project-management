@@ -75,8 +75,10 @@ export function Sidebar() {
         {/* Logo */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-white/5">
           <Link href="/dashboard" className="flex flex-col" onClick={closeSidebar}>
-            <Logo className="h-9 w-full invert" />
-            <span className="text-white font-semibold text-[7px] tracking-[0.2em] uppercase w-full text-center">{siteConfig.name}</span>
+            <Logo className={`h-9 w-full${siteConfig.invertLogoInSidebar ? ' invert' : ''}`} />
+            {siteConfig.showNameInSidebar && (
+              <span className="text-white font-semibold text-[7px] tracking-[0.2em] uppercase w-full text-center">{siteConfig.name}</span>
+            )}
           </Link>
           <button
             onClick={closeSidebar}
@@ -97,14 +99,14 @@ export function Sidebar() {
                 onClick={closeSidebar}
                 className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-150 ${
                   isActive
-                    ? 'bg-indigo-600 text-white'
+                    ? 'bg-brand-600 text-white'
                     : 'text-zinc-400 hover:bg-white/5 hover:text-zinc-200'
                 }`}
               >
                 <item.icon size={18} />
                 <span className="text-sm font-medium flex-1">{item.label}</span>
                 {item.badge > 0 && (
-                  <span className="min-w-[20px] h-5 flex items-center justify-center rounded-full bg-indigo-500 text-white text-xs font-medium px-1.5">
+                  <span className="min-w-[20px] h-5 flex items-center justify-center rounded-full bg-brand-500 text-white text-xs font-medium px-1.5">
                     {item.badge}
                   </span>
                 )}

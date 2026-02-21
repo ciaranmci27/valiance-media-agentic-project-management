@@ -102,7 +102,7 @@ export default function AgentPage() {
                   <span className={`min-w-[20px] h-5 flex items-center justify-center rounded-full text-xs font-medium px-1.5 ${
                     activeTab === tab.key
                       ? 'bg-white/20 text-white'
-                      : 'bg-indigo-100 text-indigo-700'
+                      : 'bg-brand-100 text-brand-700'
                   }`}>
                     {tab.count}
                   </span>

@@ -114,7 +114,7 @@ export default function LeadDetailPage() {
           <h3 className="font-medium text-zinc-700 mb-1">Lead not found</h3>
           <button
             onClick={() => router.push('/leads')}
-            className="text-sm text-indigo-600 hover:text-indigo-700"
+            className="text-sm text-brand-600 hover:text-brand-700"
           >
             Back to leads
           </button>
@@ -240,13 +240,13 @@ export default function LeadDetailPage() {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
             {lead.email && (
-              <a href={`mailto:${lead.email}`} className="flex items-center gap-2 text-zinc-600 hover:text-indigo-600 transition-colors">
+              <a href={`mailto:${lead.email}`} className="flex items-center gap-2 text-zinc-600 hover:text-brand-600 transition-colors">
                 <Mail size={16} className="text-zinc-400" />
                 <span>{lead.email}</span>
               </a>
             )}
             {lead.phone && (
-              <a href={`tel:${lead.phone}`} className="flex items-center gap-2 text-zinc-600 hover:text-indigo-600 transition-colors">
+              <a href={`tel:${lead.phone}`} className="flex items-center gap-2 text-zinc-600 hover:text-brand-600 transition-colors">
                 <Phone size={16} className="text-zinc-400" />
                 <span>{lead.phone}</span>
               </a>
@@ -263,7 +263,7 @@ export default function LeadDetailPage() {
               {!isEditingNotes && (
                 <button
                   onClick={() => { setNotesValue(lead.notes || ''); setIsEditingNotes(true); }}
-                  className="text-xs text-indigo-600 hover:text-indigo-700 transition-colors"
+                  className="text-xs text-brand-600 hover:text-brand-700 transition-colors"
                 >
                   {lead.notes ? 'Edit' : 'Add notes'}
                 </button>
@@ -290,7 +290,7 @@ export default function LeadDetailPage() {
                       setIsEditingNotes(false);
                       toast('success', 'Notes updated');
                     }}
-                    className="px-3 py-1.5 text-xs text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors"
+                    className="px-3 py-1.5 text-xs text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition-colors"
                   >
                     Save
                   </button>
@@ -395,7 +395,7 @@ export default function LeadDetailPage() {
                     <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${
                       isCompletedFollowUp ? 'bg-emerald-100 text-emerald-600' :
                       interaction.type === 'call' ? 'bg-blue-100 text-blue-600' :
-                      interaction.type === 'email' ? 'bg-indigo-100 text-indigo-600' :
+                      interaction.type === 'email' ? 'bg-brand-100 text-brand-600' :
                       interaction.type === 'meeting' ? 'bg-violet-100 text-violet-600' :
                       interaction.type === 'follow_up' ? 'bg-amber-100 text-amber-600' :
                       'bg-zinc-100 text-zinc-600'

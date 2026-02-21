@@ -1,4 +1,5 @@
 import type { TeamMember, Contact, Project, ProjectContact, Task, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, Activity, PortalSettings, PortalFile, EntityFile, TimeEntry, Notification, ProjectGoal, TaskSuggestion, AgentActivity } from './types';
+import { siteConfig } from '@/site-config';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -34,7 +35,7 @@ export const demoTeam: TeamMember[] = [
 // 2. CONTACTS
 // ---------------------------------------------------------------------------
 export const demoContacts: Contact[] = [
-  { id: 'b2b2b2b2-0001-4000-8000-000000000001', name: 'David Lawson',    email: 'david@crestfinancial.com',    phone: '(312) 555-0147', company: 'Crest Financial Group',  notes: 'CFO — prefers email. Budget-conscious but values quality.',           color: '#6366F1', avatar_url: '', created_at: daysAgo(90), updated_at: daysAgo(10) },
+  { id: 'b2b2b2b2-0001-4000-8000-000000000001', name: 'David Lawson',    email: 'david@crestfinancial.com',    phone: '(312) 555-0147', company: 'Crest Financial Group',  notes: 'CFO — prefers email. Budget-conscious but values quality.',           color: siteConfig.colors.brand[500], avatar_url: '', created_at: daysAgo(90), updated_at: daysAgo(10) },
   { id: 'b2b2b2b2-0002-4000-8000-000000000002', name: 'Monica Reeves',   email: 'monica@bloomwell.co',         phone: '(415) 555-0293', company: 'Bloomwell Health',       notes: 'Head of Marketing. Very hands-on with creative direction.',          color: '#EC4899', avatar_url: '', created_at: daysAgo(85), updated_at: daysAgo(5) },
   { id: 'b2b2b2b2-0003-4000-8000-000000000003', name: 'Andre Williams',  email: 'andre@neoforge.io',           phone: '(646) 555-0184', company: 'NeoForge Technologies',  notes: 'CTO. Wants a modern web presence to attract Series B.',              color: '#8B5CF6', avatar_url: '', created_at: daysAgo(80), updated_at: daysAgo(3) },
   { id: 'b2b2b2b2-0004-4000-8000-000000000004', name: 'Rachel Kim',      email: 'rachel@solsticerealty.com',    phone: '(213) 555-0362', company: 'Solstice Realty',        notes: 'Broker-owner. Needs IDX integration and lead capture.',              color: '#F59E0B', avatar_url: '', created_at: daysAgo(75), updated_at: daysAgo(2) },
@@ -53,7 +54,7 @@ export const demoContacts: Contact[] = [
   { id: 'b2b2b2b2-0017-4000-8000-000000000017', name: 'Patricia Vega',   email: 'patricia@vegadental.com',     phone: '(305) 555-0399', company: 'Vega Dental Group',        notes: 'Practice manager. Looking for patient-facing website + booking.',    color: '#EC4899', avatar_url: '', created_at: daysAgo(8),  updated_at: daysAgo(2) },
   { id: 'b2b2b2b2-0018-4000-8000-000000000018', name: 'Derek Holt',      email: 'derek@holtconstruction.com',  phone: '(404) 555-0512', company: 'Holt Construction',        notes: 'Owner. Wants project showcase site + lead gen.',                     color: '#F59E0B', avatar_url: '', created_at: daysAgo(6),  updated_at: daysAgo(1) },
   { id: 'b2b2b2b2-0019-4000-8000-000000000019', name: 'Mei-Lin Chang',   email: 'meiling@savorstreet.co',      phone: '(212) 555-0678', company: 'Savor Street Food Hall',   notes: 'Founder. Multi-vendor food hall. Needs site + vendor portal.',       color: '#EF4444', avatar_url: '', created_at: daysAgo(2),  updated_at: daysAgo(1) },
-  { id: 'b2b2b2b2-0020-4000-8000-000000000020', name: 'Jordan Blake',    email: 'jordan@crestfinancial.com',   phone: '(312) 555-0221', company: 'Crest Financial Group',   notes: 'IT director. Technical approvals for the website project.',          color: '#6366F1', avatar_url: '', created_at: daysAgo(33), updated_at: daysAgo(5) },
+  { id: 'b2b2b2b2-0020-4000-8000-000000000020', name: 'Jordan Blake',    email: 'jordan@crestfinancial.com',   phone: '(312) 555-0221', company: 'Crest Financial Group',   notes: 'IT director. Technical approvals for the website project.',          color: siteConfig.colors.brand[500], avatar_url: '', created_at: daysAgo(33), updated_at: daysAgo(5) },
 ];
 
 // ---------------------------------------------------------------------------
@@ -69,7 +70,7 @@ const memberMap: Record<string, string[]> = {
 };
 
 export const demoProjects: Project[] = [
-  { id: 'c3c3c3c3-0001-4000-8000-000000000001', name: 'Crest Financial Rebrand',        description: 'Full brand identity refresh — logo, guidelines, collateral, and website.',   color: '#6366F1', status: 'active',    start_date: '2026-01-15', due_date: '2026-04-30', hourly_tracking: true,  autonomous_enabled: true,  member_ids: memberMap['c3c3c3c3-0001-4000-8000-000000000001'], created_at: daysAgo(35), updated_at: daysAgo(1) },
+  { id: 'c3c3c3c3-0001-4000-8000-000000000001', name: 'Crest Financial Rebrand',        description: 'Full brand identity refresh — logo, guidelines, collateral, and website.',   color: siteConfig.colors.brand[500], status: 'active',    start_date: '2026-01-15', due_date: '2026-04-30', hourly_tracking: true,  autonomous_enabled: true,  member_ids: memberMap['c3c3c3c3-0001-4000-8000-000000000001'], created_at: daysAgo(35), updated_at: daysAgo(1) },
   { id: 'c3c3c3c3-0002-4000-8000-000000000002', name: 'Bloomwell Health App',           description: 'Patient portal mobile app — React Native, auth, appointments, messaging.',  color: '#EC4899', status: 'active',    start_date: '2026-02-01', due_date: '2026-06-15', hourly_tracking: true,  autonomous_enabled: true,  member_ids: memberMap['c3c3c3c3-0002-4000-8000-000000000002'], created_at: daysAgo(18), updated_at: daysAgo(1) },
   { id: 'c3c3c3c3-0003-4000-8000-000000000003', name: 'NeoForge Website',               description: 'Marketing site for Series B push — Next.js, animations, CMS integration.',  color: '#8B5CF6', status: 'active',    start_date: '2026-01-20', due_date: '2026-03-31', hourly_tracking: false, autonomous_enabled: false, member_ids: memberMap['c3c3c3c3-0003-4000-8000-000000000003'], created_at: daysAgo(30), updated_at: daysAgo(2) },
   { id: 'c3c3c3c3-0004-4000-8000-000000000004', name: 'Solstice Realty Platform',       description: 'Property search with IDX, lead capture, and agent profiles.',                color: '#F59E0B', status: 'active',    start_date: '2026-02-10', due_date: '2026-05-20', hourly_tracking: true,  autonomous_enabled: false, member_ids: memberMap['c3c3c3c3-0004-4000-8000-000000000004'], created_at: daysAgo(9),  updated_at: daysAgo(1) },
@@ -615,7 +616,7 @@ export const demoPortalSettings: PortalSettings[] = [
     pin: null,
     welcome_message: 'Welcome to the Crest Financial project portal! Here you can track our progress and download shared files.',
     logo_url: '',
-    accent_color: '#6366F1',
+    accent_color: siteConfig.colors.brand[500],
     show_progress: true,
     show_proposals: true,
     show_files: true,

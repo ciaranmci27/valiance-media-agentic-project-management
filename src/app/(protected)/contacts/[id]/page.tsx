@@ -40,7 +40,7 @@ export default function ContactDetailPage() {
           <h3 className="font-medium text-zinc-700 mb-1">Contact not found</h3>
           <button
             onClick={() => router.push('/contacts')}
-            className="text-sm text-indigo-600 hover:text-indigo-700"
+            className="text-sm text-brand-600 hover:text-brand-700"
           >
             Back to contacts
           </button>
@@ -110,13 +110,13 @@ export default function ContactDetailPage() {
               </div>
             )}
             {contact.email && (
-              <a href={`mailto:${contact.email}`} className="flex items-center gap-2 text-zinc-600 hover:text-indigo-600 transition-colors">
+              <a href={`mailto:${contact.email}`} className="flex items-center gap-2 text-zinc-600 hover:text-brand-600 transition-colors">
                 <Mail size={16} className="text-zinc-400" />
                 <span>{contact.email}</span>
               </a>
             )}
             {contact.phone && (
-              <a href={`tel:${contact.phone}`} className="flex items-center gap-2 text-zinc-600 hover:text-indigo-600 transition-colors">
+              <a href={`tel:${contact.phone}`} className="flex items-center gap-2 text-zinc-600 hover:text-brand-600 transition-colors">
                 <Phone size={16} className="text-zinc-400" />
                 <span>{contact.phone}</span>
               </a>
@@ -132,7 +132,7 @@ export default function ContactDetailPage() {
               {!isEditingNotes && (
                 <button
                   onClick={() => { setNotesValue(contact.notes || ''); setIsEditingNotes(true); }}
-                  className="text-xs text-indigo-600 hover:text-indigo-700 transition-colors"
+                  className="text-xs text-brand-600 hover:text-brand-700 transition-colors"
                 >
                   {contact.notes ? 'Edit' : 'Add notes'}
                 </button>
@@ -145,7 +145,7 @@ export default function ContactDetailPage() {
                   onChange={(e) => setNotesValue(e.target.value)}
                   rows={3}
                   autoFocus
-                  className="w-full px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 resize-none"
+                  className="w-full px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 resize-none"
                   placeholder="Add notes about this contact..."
                 />
                 <div className="flex justify-end gap-2">
@@ -161,7 +161,7 @@ export default function ContactDetailPage() {
                       setIsEditingNotes(false);
                       toast('success', 'Notes updated');
                     }}
-                    className="px-3 py-1.5 text-xs text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors"
+                    className="px-3 py-1.5 text-xs text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition-colors"
                   >
                     Save
                   </button>

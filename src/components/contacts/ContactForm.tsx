@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { AvatarUpload } from '@/components/ui/AvatarUpload';
 import { toast } from '@/components/ui/Toast';
+import { siteConfig } from '@/site-config';
 
 
 interface ContactFormProps {
@@ -135,7 +136,7 @@ export function ContactForm({ isOpen, onClose, contact }: ContactFormProps) {
       phone: phone.trim(),
       company: company.trim(),
       notes: notes.trim(),
-      color: contact?.color || '#6366F1',
+      color: contact?.color || siteConfig.colors.brand[500],
       avatar_url: contact?.avatar_url || '',
     };
 
@@ -230,7 +231,7 @@ export function ContactForm({ isOpen, onClose, contact }: ContactFormProps) {
             onChange={(e) => setNotes(e.target.value)}
             placeholder="Additional notes..."
             rows={3}
-            className="w-full px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-all resize-none"
+            className="w-full px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 transition-all resize-none"
           />
         </div>
 

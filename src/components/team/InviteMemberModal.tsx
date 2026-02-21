@@ -136,7 +136,7 @@ export default function InviteMemberModal({ isOpen, onClose, onSuccess, showAgen
                 setShowPassword(true);
               }}
               disabled={loading}
-              className="text-xs text-indigo-600 hover:text-indigo-700 font-medium disabled:opacity-50"
+              className="text-xs text-brand-600 hover:text-brand-700 font-medium disabled:opacity-50"
             >
               Generate
             </button>
@@ -151,7 +151,7 @@ export default function InviteMemberModal({ isOpen, onClose, onSuccess, showAgen
               className={`w-full px-3 py-2 pr-10 text-sm border rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-offset-0 ${
                 errors.password
                   ? 'border-red-300 focus:ring-red-500/20 focus:border-red-500'
-                  : 'border-zinc-300 focus:ring-indigo-500/20 focus:border-indigo-500'
+                  : 'border-zinc-300 focus:ring-brand-500/20 focus:border-brand-500'
               } disabled:opacity-50`}
             />
             <button

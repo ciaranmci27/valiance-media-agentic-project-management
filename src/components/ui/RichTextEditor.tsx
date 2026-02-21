@@ -32,7 +32,7 @@ function ToolbarButton({
       title={title}
       className={`p-1.5 rounded transition-colors ${
         active
-          ? 'bg-indigo-100 text-indigo-700'
+          ? 'bg-brand-100 text-brand-700'
           : 'text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700'
       }`}
     >
@@ -82,7 +82,7 @@ export function RichTextEditor({
   const minHeight = rows * 24;
 
   return (
-    <div className="border border-zinc-200 rounded-lg focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-100 transition-all bg-white">
+    <div className="border border-zinc-200 rounded-lg focus-within:border-brand-500 focus-within:ring-2 focus-within:ring-brand-100 transition-all bg-white">
       {/* Toolbar */}
       <div className="flex items-center gap-0.5 px-2 py-1 border-b border-zinc-100">
         <ToolbarButton

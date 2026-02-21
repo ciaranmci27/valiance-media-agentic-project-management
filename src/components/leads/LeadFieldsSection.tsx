@@ -86,7 +86,7 @@ export function LeadFieldsSection({ leadId }: LeadFieldsSectionProps) {
         <h2 className="font-semibold text-zinc-900">Lead Details</h2>
         <button
           onClick={() => setIsAddOpen(true)}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-brand-600 hover:bg-brand-50 rounded-lg transition-colors"
         >
           <Plus size={14} />
           Add Field
@@ -276,7 +276,7 @@ function LeadFieldItem({ definition, value, isEditing, onStartEdit, onStopEdit, 
 
   // Edit mode
   return (
-    <div className="px-4 py-3 bg-indigo-50/30">
+    <div className="px-4 py-3 bg-brand-50/30">
       <p className="text-[11px] font-medium uppercase tracking-wider mb-1.5 text-zinc-400">{definition.label}</p>
       {definition.type === 'text' || definition.type === 'url' ? (
         <div className="flex items-center gap-2">
@@ -287,7 +287,7 @@ function LeadFieldItem({ definition, value, isEditing, onStartEdit, onStopEdit, 
             onChange={(e) => setEditValue(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={definition.placeholder || ''}
-            className="flex-1 px-3 py-1.5 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+            className="flex-1 px-3 py-1.5 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
           />
           <button onClick={handleSave} className="p-1.5 rounded-lg text-emerald-600 hover:bg-emerald-50 transition-all">
             <Check size={16} />
@@ -305,13 +305,13 @@ function LeadFieldItem({ definition, value, isEditing, onStartEdit, onStopEdit, 
             onKeyDown={(e) => { if (e.key === 'Escape') onStopEdit(); }}
             placeholder={definition.placeholder || ''}
             rows={3}
-            className="w-full px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 resize-none"
+            className="w-full px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 resize-none"
           />
           <div className="flex justify-end gap-2">
             <button onClick={onStopEdit} className="px-3 py-1.5 text-xs text-zinc-600 hover:bg-zinc-100 rounded-lg transition-colors">
               Cancel
             </button>
-            <button onClick={handleSave} className="px-3 py-1.5 text-xs text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors">
+            <button onClick={handleSave} className="px-3 py-1.5 text-xs text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition-colors">
               Save
             </button>
           </div>
@@ -361,7 +361,7 @@ function FieldValueDisplay({
           href={value.startsWith('http') ? value : `https://${value}`}
           target="_blank"
           rel="noopener noreferrer"
-          className="text-sm text-indigo-600 hover:text-indigo-700 flex items-center gap-1.5 transition-colors"
+          className="text-sm text-brand-600 hover:text-brand-700 flex items-center gap-1.5 transition-colors"
         >
           {value.replace(/^https?:\/\//, '')}
           <ExternalLink size={12} />
@@ -435,7 +435,7 @@ function SelectEditor({
         {options.map(opt => {
           const isSelected = value === opt;
           let colorClass = isSelected
-            ? 'bg-indigo-100 text-indigo-700 border-indigo-300'
+            ? 'bg-brand-100 text-brand-700 border-brand-300'
             : 'bg-white text-zinc-700 border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50';
 
           // Priority gets special colors
@@ -529,7 +529,7 @@ function MultiSelectEditor({
               onClick={() => toggle(opt)}
               className={`px-2.5 py-1 text-xs font-medium border rounded-full transition-all ${
                 isSelected
-                  ? 'bg-indigo-100 text-indigo-700 border-indigo-300'
+                  ? 'bg-brand-100 text-brand-700 border-brand-300'
                   : 'bg-white text-zinc-600 border-zinc-200 hover:border-zinc-300'
               }`}
             >
@@ -565,12 +565,12 @@ function MultiSelectEditor({
             onChange={(e) => setCustomInput(e.target.value)}
             onKeyDown={handleCustomKeyDown}
             placeholder="Add custom tag..."
-            className="flex-1 px-3 py-1.5 text-xs bg-white border border-zinc-200 rounded-lg outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+            className="flex-1 px-3 py-1.5 text-xs bg-white border border-zinc-200 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
           />
           <button
             onClick={addCustom}
             disabled={!customInput.trim()}
-            className="px-2.5 py-1.5 text-xs font-medium text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors disabled:opacity-50"
+            className="px-2.5 py-1.5 text-xs font-medium text-brand-600 hover:bg-brand-50 rounded-lg transition-colors disabled:opacity-50"
           >
             Add
           </button>
@@ -583,7 +583,7 @@ function MultiSelectEditor({
         </button>
         <button
           onClick={() => onSave(JSON.stringify(selected))}
-          className="px-3 py-1.5 text-xs text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors"
+          className="px-3 py-1.5 text-xs text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition-colors"
         >
           Save
         </button>
@@ -633,7 +633,7 @@ function AddFieldDropdown({
                     <button
                       key={def.key}
                       onClick={() => onSelect(def)}
-                      className="w-full flex items-center justify-between px-3 py-2 text-sm text-zinc-700 hover:bg-indigo-50 hover:text-indigo-700 rounded-lg transition-colors"
+                      className="w-full flex items-center justify-between px-3 py-2 text-sm text-zinc-700 hover:bg-brand-50 hover:text-brand-700 rounded-lg transition-colors"
                     >
                       <span>{def.label}</span>
                       <span className="text-xs text-zinc-400">

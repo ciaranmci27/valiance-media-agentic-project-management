@@ -140,7 +140,7 @@ export function DocsTocNav({
                   aria-current={activeId === s.id ? 'true' : undefined}
                   className={`block px-2.5 py-1.5 text-sm rounded-lg transition-colors ${
                     activeId === s.id
-                      ? 'bg-indigo-50 text-indigo-700 font-medium'
+                      ? 'bg-brand-50 text-brand-700 font-medium'
                       : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100'
                   }`}
                 >
@@ -157,7 +157,7 @@ export function DocsTocNav({
                   aria-current={activeId === s.id ? 'true' : undefined}
                   className={`flex items-center justify-between px-2.5 py-1.5 text-sm rounded-lg transition-colors ${
                     activeId === s.id
-                      ? 'bg-indigo-50 text-indigo-700 font-medium'
+                      ? 'bg-brand-50 text-brand-700 font-medium'
                       : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100'
                   }`}
                 >
@@ -165,7 +165,7 @@ export function DocsTocNav({
                   {s.count !== undefined && (
                     <span
                       className={`text-[11px] tabular-nums ${
-                        activeId === s.id ? 'text-indigo-400' : 'text-zinc-400'
+                        activeId === s.id ? 'text-brand-400' : 'text-zinc-400'
                       }`}
                     >
                       {s.count}

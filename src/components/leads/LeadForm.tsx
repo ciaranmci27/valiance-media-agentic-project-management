@@ -245,7 +245,7 @@ export function LeadForm({ isOpen, onClose, lead, onConvertRequested }: LeadForm
             <button
               type="button"
               onClick={() => setMemberIds(memberIds.length === team.length ? [] : team.map(m => m.id))}
-              className="text-xs text-indigo-600 hover:text-indigo-700 transition-colors"
+              className="text-xs text-brand-600 hover:text-brand-700 transition-colors"
             >
               {memberIds.length === team.length ? 'Deselect All' : 'Select All'}
             </button>
@@ -262,7 +262,7 @@ export function LeadForm({ isOpen, onClose, lead, onConvertRequested }: LeadForm
                 )}
                 className={`px-2 py-1 text-xs rounded-full transition-all ${
                   memberIds.includes(member.id)
-                    ? 'bg-indigo-100 text-indigo-700 border border-indigo-300'
+                    ? 'bg-brand-100 text-brand-700 border border-brand-300'
                     : 'bg-white text-zinc-600 border border-zinc-200 hover:border-zinc-300'
                 }`}
               >

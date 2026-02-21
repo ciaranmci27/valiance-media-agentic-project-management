@@ -146,7 +146,7 @@ export default function TeamPage() {
   };
 
   const roleColors: Record<string, string> = {
-    admin: 'bg-indigo-100 text-indigo-700',
+    admin: 'bg-brand-100 text-brand-700',
     member: 'bg-zinc-100 text-zinc-700',
     guest: 'bg-amber-100 text-amber-700',
     agent: 'bg-purple-100 text-purple-700',

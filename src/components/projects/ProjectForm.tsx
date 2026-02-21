@@ -10,9 +10,10 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { ContactForm } from '@/components/contacts/ContactForm';
+import { siteConfig } from '@/site-config';
 
 const PROJECT_COLORS = [
-  '#6366F1', '#8B5CF6', '#EC4899', '#EF4444',
+  siteConfig.colors.brand[500], '#8B5CF6', '#EC4899', '#EF4444',
   '#F59E0B', '#10B981', '#06B6D4', '#3B82F6',
 ];
 
@@ -200,7 +201,7 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
             placeholder="Describe the project..."
             rows={2}
             maxLength={100}
-            className="w-full px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-all resize-none"
+            className="w-full px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 transition-all resize-none"
           />
         </div>
 
@@ -218,12 +219,12 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
               className={`w-full px-3 py-2 text-sm text-left bg-white border rounded-lg outline-none transition-all ${
                 clientError && !selectedContactId
                   ? 'border-red-400 focus:border-red-500 focus:ring-2 focus:ring-red-100'
-                  : 'border-zinc-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100'
+                  : 'border-zinc-200 focus:border-brand-500 focus:ring-2 focus:ring-brand-100'
               }`}
             >
               {selectedContact ? (
                 <span className="flex items-center gap-2">
-                  <span className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-[10px] font-semibold shrink-0">
+                  <span className="w-5 h-5 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center text-[10px] font-semibold shrink-0">
                     {selectedContact.name.charAt(0).toUpperCase()}
                   </span>
                   <span className="truncate">{selectedContact.name}</span>
@@ -244,7 +245,7 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
                       value={contactSearch}
                       onChange={(e) => setContactSearch(e.target.value)}
                       placeholder="Search contacts..."
-                      className="w-full px-2 py-1.5 text-sm bg-zinc-50 border border-zinc-200 rounded-md outline-none focus:border-indigo-500"
+                      className="w-full px-2 py-1.5 text-sm bg-zinc-50 border border-zinc-200 rounded-md outline-none focus:border-brand-500"
                       autoFocus
                     />
                   </div>
@@ -262,11 +263,11 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
                           setContactDropdownOpen(false);
                           setClientError(false);
                         }}
-                        className={`w-full px-3 py-2 text-sm text-left hover:bg-indigo-50 flex items-center gap-2 transition-colors ${
-                          c.id === selectedContactId ? 'bg-indigo-50 text-indigo-700' : 'text-zinc-700'
+                        className={`w-full px-3 py-2 text-sm text-left hover:bg-brand-50 flex items-center gap-2 transition-colors ${
+                          c.id === selectedContactId ? 'bg-brand-50 text-brand-700' : 'text-zinc-700'
                         }`}
                       >
-                        <span className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-[10px] font-semibold shrink-0">
+                        <span className="w-5 h-5 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center text-[10px] font-semibold shrink-0">
                           {c.name.charAt(0).toUpperCase()}
                         </span>
                         <span className="truncate">{c.name}</span>
@@ -284,9 +285,9 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
                       setContactSearchVisible(!contactSearchVisible);
                       if (contactSearchVisible) setContactSearch('');
                     }}
-                    className="w-full px-3 py-2 text-sm text-left text-indigo-600 hover:bg-indigo-50 flex items-center gap-2 transition-colors font-medium"
+                    className="w-full px-3 py-2 text-sm text-left text-brand-600 hover:bg-brand-50 flex items-center gap-2 transition-colors font-medium"
                   >
-                    <span className="w-4 h-4 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center shrink-0">
+                    <span className="w-4 h-4 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center shrink-0">
                       <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                       </svg>
@@ -300,9 +301,9 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
                       setContactDropdownOpen(false);
                       setShowNewContactForm(true);
                     }}
-                    className="w-full px-3 py-2 text-sm text-left text-indigo-600 hover:bg-indigo-50 flex items-center gap-2 transition-colors font-medium"
+                    className="w-full px-3 py-2 text-sm text-left text-brand-600 hover:bg-brand-50 flex items-center gap-2 transition-colors font-medium"
                   >
-                    <span className="w-4 h-4 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-xs shrink-0">+</span>
+                    <span className="w-4 h-4 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center text-xs shrink-0">+</span>
                     Create new contact
                   </button>
                 </div>
@@ -320,7 +321,7 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
             <button
               type="button"
               onClick={() => setMemberIds(memberIds.length === team.length ? [] : team.map(m => m.id))}
-              className="text-xs text-indigo-600 hover:text-indigo-700 transition-colors"
+              className="text-xs text-brand-600 hover:text-brand-700 transition-colors"
             >
               {memberIds.length === team.length ? 'Deselect All' : 'Select All'}
             </button>
@@ -333,7 +334,7 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
                 onClick={() => toggleMember(member.id)}
                 className={`px-2 py-1 text-xs rounded-full transition-all ${
                   memberIds.includes(member.id)
-                    ? 'bg-indigo-100 text-indigo-700 border border-indigo-300'
+                    ? 'bg-brand-100 text-brand-700 border border-brand-300'
                     : 'bg-white text-zinc-600 border border-zinc-200 hover:border-zinc-300'
                 }`}
               >
@@ -367,7 +368,7 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
             type="button"
             onClick={() => setHourlyTracking(!hourlyTracking)}
             className={`relative w-10 h-[22px] rounded-full transition-colors ${
-              hourlyTracking ? 'bg-indigo-600' : 'bg-zinc-300'
+              hourlyTracking ? 'bg-brand-600' : 'bg-zinc-300'
             }`}
           >
             <span
@@ -388,7 +389,7 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
               type="button"
               onClick={() => setAutonomousEnabled(!autonomousEnabled)}
               className={`relative w-10 h-[22px] rounded-full transition-colors ${
-                autonomousEnabled ? 'bg-indigo-600' : 'bg-zinc-300'
+                autonomousEnabled ? 'bg-brand-600' : 'bg-zinc-300'
               }`}
             >
               <span
@@ -409,7 +410,7 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
                 type="button"
                 onClick={() => setColor(c)}
                 className={`w-8 h-8 rounded-lg transition-all ${
-                  color === c ? 'ring-2 ring-offset-2 ring-indigo-500 scale-110' : 'hover:scale-105'
+                  color === c ? 'ring-2 ring-offset-2 ring-brand-500 scale-110' : 'hover:scale-105'
                 }`}
                 style={{ backgroundColor: c }}
               />

@@ -192,7 +192,7 @@ export function AvatarCropModal({ file, onCrop, onCancel }: AvatarCropModalProps
             step={0.01}
             value={zoom}
             onChange={(e) => handleZoom(parseFloat(e.target.value))}
-            className="flex-1 accent-indigo-600 h-1.5"
+            className="flex-1 accent-brand-600 h-1.5"
           />
           <button
             type="button"

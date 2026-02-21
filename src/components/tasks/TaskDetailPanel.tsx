@@ -20,7 +20,7 @@ interface TaskDetailPanelProps {
 
 const STATUS_OPTIONS: { value: Task['status']; label: string; color: string }[] = [
   { value: 'todo', label: 'To Do', color: 'bg-zinc-400' },
-  { value: 'in_progress', label: 'In Progress', color: 'bg-indigo-500' },
+  { value: 'in_progress', label: 'In Progress', color: 'bg-brand-500' },
   { value: 'in_review', label: 'In Review', color: 'bg-amber-500' },
   { value: 'done', label: 'Done', color: 'bg-emerald-500' },
 ];
@@ -133,7 +133,7 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
           <div className="flex items-center gap-1.5 flex-shrink-0">
             <button
               onClick={() => onEdit(task)}
-              className="p-1.5 rounded-lg text-zinc-500 hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
+              className="p-1.5 rounded-lg text-zinc-500 hover:text-brand-600 hover:bg-brand-50 transition-colors"
               title="Edit task"
             >
               <Edit size={16} />
@@ -163,7 +163,7 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
               <div className="relative">
                 <button
                   onClick={() => setShowStatusMenu(!showStatusMenu)}
-                  className="hover:ring-2 hover:ring-indigo-200 rounded-full transition-all"
+                  className="hover:ring-2 hover:ring-brand-200 rounded-full transition-all"
                 >
                   <StatusBadge status={task.status} />
                 </button>
@@ -195,7 +195,7 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
               <div className="relative">
                 <button
                   onClick={() => setShowPriorityMenu(!showPriorityMenu)}
-                  className="hover:ring-2 hover:ring-indigo-200 rounded-full transition-all"
+                  className="hover:ring-2 hover:ring-brand-200 rounded-full transition-all"
                 >
                   <PriorityBadge priority={task.priority} />
                 </button>
@@ -372,7 +372,7 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
                             setEditingSubtaskId(null);
                           }}
                           autoFocus
-                          className="w-full text-sm px-1 py-0.5 border border-indigo-300 rounded outline-none focus:ring-1 focus:ring-indigo-300"
+                          className="w-full text-sm px-1 py-0.5 border border-brand-300 rounded outline-none focus:ring-1 focus:ring-brand-300"
                         />
                       </form>
                     ) : (
@@ -393,7 +393,7 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
                           setEditingSubtaskId(subtask.id);
                           setEditingSubtaskTitle(subtask.title);
                         }}
-                        className="p-1 text-zinc-400 hover:text-indigo-500"
+                        className="p-1 text-zinc-400 hover:text-brand-500"
                       >
                         <Edit size={12} />
                       </button>
@@ -415,11 +415,11 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
                   value={newSubtask}
                   onChange={(e) => setNewSubtask(e.target.value)}
                   placeholder="Add a subtask..."
-                  className="flex-1 text-sm py-1.5 px-0 bg-transparent border-b border-dashed border-zinc-200 outline-none focus:border-indigo-400 transition-colors placeholder:text-zinc-400"
+                  className="flex-1 text-sm py-1.5 px-0 bg-transparent border-b border-dashed border-zinc-200 outline-none focus:border-brand-400 transition-colors placeholder:text-zinc-400"
                 />
                 <button
                   type="submit"
-                  className="p-1 rounded text-zinc-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors flex-shrink-0"
+                  className="p-1 rounded text-zinc-400 hover:text-brand-600 hover:bg-brand-50 transition-colors flex-shrink-0"
                 >
                   <Plus size={16} />
                 </button>
@@ -463,7 +463,7 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
                                   setEditingCommentId(comment.id);
                                   setEditingCommentText(comment.text);
                                 }}
-                                className="p-1 text-zinc-400 hover:text-indigo-500"
+                                className="p-1 text-zinc-400 hover:text-brand-500"
                               >
                                 <Edit size={12} />
                               </button>
@@ -492,12 +492,12 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
                               onChange={(e) => setEditingCommentText(e.target.value)}
                               autoFocus
                               rows={2}
-                              className="w-full text-sm px-2 py-1.5 border border-indigo-300 rounded-lg outline-none focus:ring-1 focus:ring-indigo-300 resize-none"
+                              className="w-full text-sm px-2 py-1.5 border border-brand-300 rounded-lg outline-none focus:ring-1 focus:ring-brand-300 resize-none"
                             />
                             <div className="flex gap-1.5">
                               <button
                                 type="submit"
-                                className="px-2.5 py-1 text-xs text-white bg-indigo-600 hover:bg-indigo-700 rounded-md transition-colors"
+                                className="px-2.5 py-1 text-xs text-white bg-brand-600 hover:bg-brand-700 rounded-md transition-colors"
                               >
                                 Save
                               </button>
@@ -526,7 +526,7 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
               </div>
 
               {/* Add comment */}
-              <form onSubmit={handleAddComment} className="flex items-center gap-2 border border-zinc-200 rounded-lg px-3 py-2 focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-100 transition-all">
+              <form onSubmit={handleAddComment} className="flex items-center gap-2 border border-zinc-200 rounded-lg px-3 py-2 focus-within:border-brand-400 focus-within:ring-2 focus-within:ring-brand-100 transition-all">
                 <input
                   value={newComment}
                   onChange={(e) => setNewComment(e.target.value)}
@@ -535,7 +535,7 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
                 />
                 <button
                   type="submit"
-                  className="p-1 rounded text-zinc-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors flex-shrink-0"
+                  className="p-1 rounded text-zinc-400 hover:text-brand-600 hover:bg-brand-50 transition-colors flex-shrink-0"
                 >
                   <MessageSquare size={16} />
                 </button>

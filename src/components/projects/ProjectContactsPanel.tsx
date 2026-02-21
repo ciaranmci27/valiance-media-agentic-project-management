@@ -145,7 +145,7 @@ export function ProjectContactsPanel({ isOpen, onClose, projectId }: ProjectCont
                         <div className="flex items-center gap-2">
                           <Link
                             href={`/contacts/${contact.id}`}
-                            className="font-medium text-zinc-900 text-sm hover:text-indigo-600 transition-colors truncate inline-flex items-center gap-1"
+                            className="font-medium text-zinc-900 text-sm hover:text-brand-600 transition-colors truncate inline-flex items-center gap-1"
                           >
                             {contact.name}
                             <ExternalLink size={11} className="flex-shrink-0 opacity-50" />
@@ -196,7 +196,7 @@ export function ProjectContactsPanel({ isOpen, onClose, projectId }: ProjectCont
                             value={editCustomRole}
                             onChange={(e) => setEditCustomRole(e.target.value)}
                             placeholder="Custom role"
-                            className="px-2 py-1.5 text-sm border border-zinc-200 rounded-lg w-32 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+                            className="px-2 py-1.5 text-sm border border-zinc-200 rounded-lg w-32 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
                           />
                         )}
                         {editRole === 'Client' && (
@@ -255,7 +255,7 @@ export function ProjectContactsPanel({ isOpen, onClose, projectId }: ProjectCont
                   value={addSearch}
                   onChange={(e) => setAddSearch(e.target.value)}
                   placeholder="Search contacts..."
-                  className="w-full pl-9 pr-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-all"
+                  className="w-full pl-9 pr-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 transition-all"
                 />
               </div>
 
@@ -273,7 +273,7 @@ export function ProjectContactsPanel({ isOpen, onClose, projectId }: ProjectCont
                       onClick={() => setAddContactId(c.id)}
                       className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left transition-colors ${
                         addContactId === c.id
-                          ? 'bg-indigo-50 text-indigo-700'
+                          ? 'bg-brand-50 text-brand-700'
                           : 'text-zinc-700 hover:bg-zinc-50'
                       }`}
                     >
@@ -295,7 +295,7 @@ export function ProjectContactsPanel({ isOpen, onClose, projectId }: ProjectCont
               <button
                 type="button"
                 onClick={() => setShowNewContactForm(true)}
-                className="text-sm text-indigo-600 hover:text-indigo-700 font-medium"
+                className="text-sm text-brand-600 hover:text-brand-700 font-medium"
               >
                 + Create new contact
               </button>

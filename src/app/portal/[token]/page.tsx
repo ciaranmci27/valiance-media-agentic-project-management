@@ -9,6 +9,7 @@ import {
 import Link from 'next/link';
 import type { PortalData } from '@/lib/types';
 import { Logo } from '@/components/ui/Logo';
+import { siteConfig } from '@/site-config';
 
 /* ── Helpers ─────────────────────────────────────── */
 
@@ -130,7 +131,7 @@ export default function PortalPage() {
     fetchPortal(pin);
   };
 
-  const accentColor = data?.settings.accent_color || '#6366F1';
+  const accentColor = data?.settings.accent_color || siteConfig.colors.brand[500];
 
   /* ────────────────────────────────────────────────── */
   /*  LOADING                                          */
@@ -138,7 +139,7 @@ export default function PortalPage() {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-zinc-50">
-        <Loader2 className="animate-spin text-indigo-600" size={32} />
+        <Loader2 className="animate-spin text-brand-600" size={32} />
       </div>
     );
   }
@@ -164,7 +165,7 @@ export default function PortalPage() {
   /*  PIN ENTRY — accent color owns the entire page    */
   /* ────────────────────────────────────────────────── */
   if (pinRequired) {
-    const pinAccent = branding?.accent_color || '#6366F1';
+    const pinAccent = branding?.accent_color || siteConfig.colors.brand[500];
     return (
       <div
         className="min-h-screen flex items-center justify-center px-4"
@@ -218,7 +219,7 @@ export default function PortalPage() {
                 className={`w-full px-4 py-3.5 text-center text-lg tracking-[0.3em] bg-zinc-50 border-2 rounded-xl outline-none transition-all font-medium ${
                   pinError
                     ? 'border-red-300 bg-red-50/50 focus:border-red-400 focus:ring-4 focus:ring-red-100'
-                    : 'border-zinc-200 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100 focus:bg-white'
+                    : 'border-zinc-200 focus:border-brand-500 focus:ring-4 focus:ring-brand-100 focus:bg-white'
                 }`}
               />
               {pinError && (
@@ -495,7 +496,7 @@ export default function PortalPage() {
         </div>
         <div className="max-w-3xl mx-auto px-5 sm:px-8 py-8 flex items-center justify-center gap-2">
           <span className="text-xs text-zinc-300 font-medium">Powered by</span>
-          <Logo className="h-4 w-auto opacity-25" />
+          <Logo className="h-4 w-auto" />
         </div>
       </footer>
     </div>
