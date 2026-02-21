@@ -1,4 +1,4 @@
-# Projectem
+# Valiance Media Agentic Project Management
 
 Open-source agentic project management software. Manage projects, track leads, coordinate teams, and let AI agents propose and execute work — all from a single dashboard.
 

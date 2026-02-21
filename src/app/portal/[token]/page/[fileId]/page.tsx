@@ -39,7 +39,7 @@ export default function PortalFilePage() {
 
     try {
       const effectivePin = pinValue ?? sessionStorage.getItem(`portal-pin-${token}`) ?? undefined;
-      const isDemo = localStorage.getItem('projectem-demo-mode') === 'true' || process.env.NEXT_PUBLIC_DEMO_MODE === 'true';
+      const isDemo = localStorage.getItem('valiance-demo-mode') === 'true' || process.env.NEXT_PUBLIC_DEMO_MODE === 'true';
       const params = new URLSearchParams();
       if (effectivePin) params.set('pin', effectivePin);
       if (isDemo) params.set('demo', 'true');

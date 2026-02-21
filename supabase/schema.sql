@@ -1,4 +1,4 @@
--- ProjectEM Full Schema
+-- Valiance Media Full Schema
 -- Run this in your Supabase SQL Editor
 
 -- ============================================================

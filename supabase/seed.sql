@@ -1,5 +1,5 @@
 -- ============================================================
--- ProjectEM Seed Data
+-- Valiance Media Seed Data
 -- Run this in your Supabase SQL Editor AFTER schema.sql
 -- Populates every table with realistic agency/media data
 -- ============================================================

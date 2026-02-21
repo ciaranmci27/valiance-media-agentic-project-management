@@ -9,7 +9,7 @@ interface DemoContextType {
 
 const DemoContext = createContext<DemoContextType | undefined>(undefined);
 
-const STORAGE_KEY = 'projectem-demo-mode';
+const STORAGE_KEY = 'valiance-demo-mode';
 const ENV_FORCED = process.env.NEXT_PUBLIC_DEMO_MODE === 'true';
 
 export function DemoProvider({ children }: { children: ReactNode }) {

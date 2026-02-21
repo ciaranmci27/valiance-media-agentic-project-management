@@ -75,7 +75,7 @@ export default function PortalPage() {
     setPinError(false);
 
     try {
-      const isDemo = localStorage.getItem('projectem-demo-mode') === 'true' || process.env.NEXT_PUBLIC_DEMO_MODE === 'true';
+      const isDemo = localStorage.getItem('valiance-demo-mode') === 'true' || process.env.NEXT_PUBLIC_DEMO_MODE === 'true';
       const params = new URLSearchParams();
       if (pinValue) params.set('pin', pinValue);
       if (isDemo) params.set('demo', 'true');
