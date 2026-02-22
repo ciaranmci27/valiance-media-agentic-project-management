@@ -224,6 +224,12 @@ export type NotificationCategory =
   | 'contact_deleted'
   | 'contact_updates'
   | 'team_members'
+  | 'portal_updates'
+  | 'portal_settings'
+  | 'portal_files'
+  | 'time_entries'
+  | 'entity_files'
+  | 'api_keys'
   | 'agent_suggestions'
   | 'agent_activity'
   | 'agent_goals'
@@ -238,6 +244,7 @@ export interface TeamMember {
   email: string;
   avatar: string;
   role: 'admin' | 'member' | 'guest' | 'agent';
+  timezone?: string;
   notification_prefs?: NotificationPreferences;
 }
 
@@ -294,6 +301,22 @@ export interface PortalSettings {
   show_proposals: boolean;
   show_files: boolean;
   show_hours: boolean;
+  show_updates: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export const PORTAL_UPDATE_TYPES = ['general', 'milestone', 'deliverable', 'note'] as const;
+export type PortalUpdateType = typeof PORTAL_UPDATE_TYPES[number];
+
+export interface PortalUpdate {
+  id: string;
+  project_id: string;
+  title: string;
+  content: string;
+  update_type: PortalUpdateType;
+  author_id: string | null;
+  pinned: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -459,6 +482,7 @@ export interface PortalData {
     show_proposals: boolean;
     show_files: boolean;
     show_hours: boolean;
+    show_updates: boolean;
   };
   progress: {
     total_tasks: number;
@@ -490,4 +514,13 @@ export interface PortalData {
       member_name: string;
     }[];
   };
+  updates: {
+    id: string;
+    title: string;
+    content: string;
+    update_type: PortalUpdateType;
+    author_name: string;
+    pinned: boolean;
+    created_at: string;
+  }[];
 }

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { Project, Task, TeamMember, FilterState, ViewMode, Subtask, Comment, Contact, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, Activity, PortalSettings, PortalFile, EntityFile, EntityFileType, ApiKey, NotificationCategory, ProjectGoal, TaskSuggestion, AgentActivity, TimeEntry } from './types';
+import { Project, Task, TeamMember, FilterState, ViewMode, Subtask, Comment, Contact, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, Activity, PortalSettings, PortalFile, PortalUpdate, EntityFile, EntityFileType, ApiKey, NotificationCategory, ProjectGoal, TaskSuggestion, AgentActivity, TimeEntry } from './types';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
@@ -9,7 +9,7 @@ import {
   demoTeam, demoContacts, demoProjects, demoProjectContacts, demoTasks,
   demoLeads, demoLeadInteractions, demoLeadProposals, demoLeadFields,
   demoLeadContacts, demoActivities,
-  demoPortalSettings, demoPortalFiles, demoEntityFiles, demoTimeEntries,
+  demoPortalSettings, demoPortalFiles, demoPortalUpdates, demoEntityFiles, demoTimeEntries,
   demoProjectGoals, demoTaskSuggestions, demoAgentActivity,
 } from '@/lib/demo-data';
 import {
@@ -69,6 +69,10 @@ import {
   insertPortalFile as insertPortalFileQuery,
   renamePortalFile as renamePortalFileQuery,
   removePortalFile as removePortalFileQuery,
+  fetchAllPortalUpdates,
+  insertPortalUpdate as insertPortalUpdateQuery,
+  patchPortalUpdate as patchPortalUpdateQuery,
+  removePortalUpdate as removePortalUpdateQuery,
   fetchAllEntityFiles,
   insertEntityFile as insertEntityFileQuery,
   renameEntityFile as renameEntityFileQuery,
@@ -108,6 +112,7 @@ interface AppContextType {
   activities: Activity[];
   portalSettings: PortalSettings[];
   portalFiles: PortalFile[];
+  portalUpdates: PortalUpdate[];
   entityFiles: EntityFile[];
   apiKeys: ApiKey[];
   timeEntries: TimeEntry[];
@@ -190,6 +195,12 @@ interface AppContextType {
   addPortalFile: (file: Omit<PortalFile, 'id' | 'created_at' | 'updated_at'>) => void;
   renamePortalFile: (id: string, name: string) => void;
   deletePortalFile: (id: string) => void;
+
+  // Portal Update CRUD
+  addPortalUpdate: (update: Omit<PortalUpdate, 'id' | 'created_at' | 'updated_at'>) => void;
+  updatePortalUpdate: (id: string, updates: Partial<Pick<PortalUpdate, 'title' | 'content' | 'update_type' | 'pinned'>>) => void;
+  deletePortalUpdate: (id: string) => void;
+  getPortalUpdates: (projectId: string) => PortalUpdate[];
 
   // Entity File CRUD
   addEntityFile: (file: Omit<EntityFile, 'id' | 'created_at' | 'updated_at'>) => void;
@@ -276,6 +287,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [activities, setActivities] = useState<Activity[]>([]);
   const [portalSettings, setPortalSettings] = useState<PortalSettings[]>([]);
   const [portalFiles, setPortalFiles] = useState<PortalFile[]>([]);
+  const [portalUpdates, setPortalUpdates] = useState<PortalUpdate[]>([]);
   const [entityFiles, setEntityFiles] = useState<EntityFile[]>([]);
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
   const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([]);
@@ -337,6 +349,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setActivities([...demoActivities]);
       setPortalSettings([...demoPortalSettings]);
       setPortalFiles([...demoPortalFiles]);
+      setPortalUpdates([...demoPortalUpdates]);
       setEntityFiles([...demoEntityFiles]);
       setTimeEntries([...demoTimeEntries]);
       if (process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true') {
@@ -355,7 +368,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     const loadData = async () => {
       try {
-        const [projectsData, tasksData, teamData, contactsData, projectContactsData, leadsData, leadInteractionsData, leadProposalsData, leadFieldsData, leadContactsData, activitiesData, portalSettingsData, portalFilesData, entityFilesData, apiKeysData, timeEntriesData] = await Promise.all([
+        const [projectsData, tasksData, teamData, contactsData, projectContactsData, leadsData, leadInteractionsData, leadProposalsData, leadFieldsData, leadContactsData, activitiesData, portalSettingsData, portalFilesData, portalUpdatesData, entityFilesData, apiKeysData, timeEntriesData] = await Promise.all([
           fetchProjects(supabase),
           fetchTasks(supabase),
           fetchTeamMembers(supabase),
@@ -369,6 +382,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           fetchActivities(supabase),
           fetchAllPortalSettings(supabase),
           fetchAllPortalFiles(supabase),
+          fetchAllPortalUpdates(supabase),
           fetchAllEntityFiles(supabase),
           fetchApiKeys(supabase),
           fetchAllTimeEntries(supabase),
@@ -387,6 +401,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setActivities(activitiesData);
         setPortalSettings(portalSettingsData);
         setPortalFiles(portalFilesData);
+        setPortalUpdates(portalUpdatesData);
         setEntityFiles(entityFilesData);
         setApiKeys(apiKeysData);
         setTimeEntries(timeEntriesData);
@@ -1612,6 +1627,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       try {
         const updated = await upsertPortalSettingsQuery(supabase, projectId, settings);
         setPortalSettings(ps => ps.map(s => s.project_id === projectId ? updated : s));
+        if (settings.enabled !== undefined && settings.enabled !== existing.enabled) {
+          const project = projects.find(p => p.id === projectId);
+          const action = settings.enabled ? 'enabled' : 'disabled';
+          notify(allMemberIds(), `Portal ${action} for "${project?.name || 'project'}"`, `${actorName()} ${action} the client portal.`, `/projects/${projectId}`, 'project', projectId, 'portal_settings');
+        }
       } catch (err) {
         setPortalSettings(prev);
         toast('error', 'Failed to update portal settings');
@@ -1632,6 +1652,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         show_proposals: settings.show_proposals ?? true,
         show_files: settings.show_files ?? true,
         show_hours: settings.show_hours ?? true,
+        show_updates: settings.show_updates ?? true,
         created_at: now,
         updated_at: now,
       };
@@ -1660,6 +1681,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       const updated = await regeneratePortalTokenQuery(supabase, projectId);
       setPortalSettings(ps => ps.map(s => s.project_id === projectId ? updated : s));
+      const project = projects.find(p => p.id === projectId);
+      notify(allMemberIds(), `Portal token regenerated for "${project?.name || 'project'}"`, `${actorName()} regenerated the portal token.`, `/projects/${projectId}`, 'project', projectId, 'portal_settings');
     } catch (err) {
       setPortalSettings(prev);
       toast('error', 'Failed to regenerate portal token');
@@ -1683,6 +1706,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       const created = await insertPortalFileQuery(supabase, file);
       setPortalFiles(prev => prev.map(f => f.id === optimisticId ? created : f));
+      notify(allMemberIds(), 'New portal file uploaded', `${actorName()} added a file to the portal.`, `/projects/${file.project_id}`, 'project', file.project_id, 'portal_files');
     } catch (err) {
       setPortalFiles(prev => prev.filter(f => f.id !== optimisticId));
       toast('error', 'Failed to upload file');
@@ -1704,14 +1728,76 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const deletePortalFile = async (id: string) => {
     const prev = portalFiles;
+    const existing = portalFiles.find(f => f.id === id);
     setPortalFiles(f => f.filter(file => file.id !== id));
     if (skipSupabase) return;
 
     try {
       await removePortalFileQuery(supabase, id);
+      if (existing) {
+        notify(allMemberIds(), 'Portal file deleted', `${actorName()} removed a portal file.`, `/projects/${existing.project_id}`, 'project', existing.project_id, 'portal_files');
+      }
     } catch (err) {
       setPortalFiles(prev);
       toast('error', 'Failed to delete file');
+    }
+  };
+
+  // Portal Update CRUD
+  const addPortalUpdate = async (update: Omit<PortalUpdate, 'id' | 'created_at' | 'updated_at'>) => {
+    const optimisticId = crypto.randomUUID();
+    const now = new Date().toISOString();
+    const optimistic: PortalUpdate = {
+      ...update,
+      id: optimisticId,
+      created_at: now,
+      updated_at: now,
+    };
+
+    setPortalUpdates(prev => [optimistic, ...prev]);
+    if (skipSupabase) return;
+
+    try {
+      const created = await insertPortalUpdateQuery(supabase, update);
+      setPortalUpdates(prev => prev.map(u => u.id === optimisticId ? created : u));
+      notify(allMemberIds(), `New portal update: "${update.title}"`, `${actorName()} posted a portal update.`, `/projects/${update.project_id}`, 'project', update.project_id, 'portal_updates');
+    } catch (err) {
+      setPortalUpdates(prev => prev.filter(u => u.id !== optimisticId));
+      toast('error', 'Failed to add update');
+    }
+  };
+
+  const updatePortalUpdate = async (id: string, updates: Partial<Pick<PortalUpdate, 'title' | 'content' | 'update_type' | 'pinned'>>) => {
+    const prev = portalUpdates;
+    const existing = portalUpdates.find(u => u.id === id);
+    setPortalUpdates(u => u.map(upd => upd.id === id ? { ...upd, ...updates } : upd));
+    if (skipSupabase) return;
+
+    try {
+      await patchPortalUpdateQuery(supabase, id, updates);
+      if (existing) {
+        notify(allMemberIds(), 'Portal update edited', `${actorName()} edited a portal update.`, `/projects/${existing.project_id}`, 'project', existing.project_id, 'portal_updates');
+      }
+    } catch (err) {
+      setPortalUpdates(prev);
+      toast('error', 'Failed to update');
+    }
+  };
+
+  const deletePortalUpdate = async (id: string) => {
+    const prev = portalUpdates;
+    const existing = portalUpdates.find(u => u.id === id);
+    setPortalUpdates(u => u.filter(upd => upd.id !== id));
+    if (skipSupabase) return;
+
+    try {
+      await removePortalUpdateQuery(supabase, id);
+      if (existing) {
+        notify(allMemberIds(), 'Portal update deleted', `${actorName()} removed a portal update.`, `/projects/${existing.project_id}`, 'project', existing.project_id, 'portal_updates');
+      }
+    } catch (err) {
+      setPortalUpdates(prev);
+      toast('error', 'Failed to delete update');
     }
   };
 
@@ -1732,6 +1818,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       const created = await insertEntityFileQuery(supabase, file);
       setEntityFiles(prev => prev.map(f => f.id === optimisticId ? created : f));
+      const link = file.entity_type === 'project' ? `/projects/${file.entity_id}` : file.entity_type === 'lead' ? `/leads/${file.entity_id}` : `/contacts/${file.entity_id}`;
+      notify(allMemberIds(), `File attached to ${file.entity_type}`, `${actorName()} uploaded a file.`, link, file.entity_type, file.entity_id, 'entity_files');
     } catch (err) {
       setEntityFiles(prev => prev.filter(f => f.id !== optimisticId));
       toast('error', 'Failed to upload file');
@@ -1753,11 +1841,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const deleteEntityFile = async (id: string) => {
     const prev = entityFiles;
+    const existing = entityFiles.find(f => f.id === id);
     setEntityFiles(f => f.filter(file => file.id !== id));
     if (skipSupabase) return;
 
     try {
       await removeEntityFileQuery(supabase, id);
+      if (existing) {
+        const link = existing.entity_type === 'project' ? `/projects/${existing.entity_id}` : existing.entity_type === 'lead' ? `/leads/${existing.entity_id}` : `/contacts/${existing.entity_id}`;
+        notify(allMemberIds(), `File removed from ${existing.entity_type}`, `${actorName()} deleted an attachment.`, link, existing.entity_type, existing.entity_id, 'entity_files');
+      }
     } catch (err) {
       setEntityFiles(prev);
       toast('error', 'Failed to delete file');
@@ -1784,6 +1877,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       const created = await insertTimeEntryQuery(supabase, entry);
       setTimeEntries(prev => prev.map(te => te.id === optimisticId ? created : te));
+      const project = projects.find(p => p.id === entry.project_id);
+      notify(allMemberIds(), `Time logged on "${project?.name || 'project'}"`, `${actorName()} logged time.`, `/projects/${entry.project_id}`, 'project', entry.project_id, 'time_entries');
     } catch (err) {
       setTimeEntries(prev => prev.filter(te => te.id !== optimisticId));
       toast('error', 'Failed to add time entry');
@@ -1792,6 +1887,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const updateTimeEntry = async (id: string, updates: Partial<Pick<TimeEntry, 'member_id' | 'start_time' | 'end_time' | 'description'>>) => {
     const prev = timeEntries;
+    const existing = timeEntries.find(te => te.id === id);
     setTimeEntries(te => te.map(entry =>
       entry.id === id ? { ...entry, ...updates, updated_at: new Date().toISOString() } : entry
     ));
@@ -1799,6 +1895,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     try {
       await patchTimeEntryQuery(supabase, id, updates);
+      if (existing) {
+        const project = projects.find(p => p.id === existing.project_id);
+        notify(allMemberIds(), `Time entry updated on "${project?.name || 'project'}"`, `${actorName()} updated a time entry.`, `/projects/${existing.project_id}`, 'project', existing.project_id, 'time_entries');
+      }
     } catch (err) {
       setTimeEntries(prev);
       toast('error', 'Failed to update time entry');
@@ -1807,11 +1907,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const deleteTimeEntry = async (id: string) => {
     const prev = timeEntries;
+    const existing = timeEntries.find(te => te.id === id);
     setTimeEntries(te => te.filter(entry => entry.id !== id));
     if (skipSupabase) return;
 
     try {
       await removeTimeEntryQuery(supabase, id);
+      if (existing) {
+        const project = projects.find(p => p.id === existing.project_id);
+        notify(allMemberIds(), `Time entry deleted on "${project?.name || 'project'}"`, `${actorName()} removed a time entry.`, `/projects/${existing.project_id}`, 'project', existing.project_id, 'time_entries');
+      }
     } catch (err) {
       setTimeEntries(prev);
       toast('error', 'Failed to delete time entry');
@@ -1863,6 +1968,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         team_member_id: linkedTeamMemberId || null,
       });
       setApiKeys(prev => [newKey, ...prev]);
+      notify(adminMemberIds(), `New API key created: "${name}"`, `${actorName()} generated an API key.`, '/settings', 'member', null, 'api_keys');
       return newKey;
     } catch (err) {
       toast('error', 'Failed to create API key');
@@ -1872,11 +1978,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const revokeApiKeyAction = async (id: string) => {
     const prev = apiKeys;
+    const existing = apiKeys.find(k => k.id === id);
     setApiKeys(keys => keys.map(k => k.id === id ? { ...k, revoked_at: new Date().toISOString() } : k));
     if (skipSupabase) return;
 
     try {
       await revokeApiKeyQuery(supabase, id);
+      if (existing) {
+        notify(adminMemberIds(), `API key revoked: "${existing.name}"`, `${actorName()} revoked an API key.`, '/settings', 'member', null, 'api_keys');
+      }
     } catch (err) {
       setApiKeys(prev);
       toast('error', 'Failed to revoke API key');
@@ -2078,6 +2188,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const getPrimaryLeadContact = (leadId: string) => leadContacts.find(lc => lc.lead_id === leadId && lc.is_primary_client);
   const getPortalSettings = (projectId: string) => portalSettings.find(ps => ps.project_id === projectId);
   const getPortalFiles = (projectId: string) => portalFiles.filter(pf => pf.project_id === projectId);
+  const getPortalUpdates = (projectId: string) => portalUpdates.filter(pu => pu.project_id === projectId);
 
   return (
     <AppContext.Provider value={{
@@ -2094,6 +2205,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       activities,
       portalSettings,
       portalFiles,
+      portalUpdates,
       entityFiles,
       apiKeys,
       timeEntries,
@@ -2146,6 +2258,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       addPortalFile,
       renamePortalFile,
       deletePortalFile,
+      addPortalUpdate,
+      updatePortalUpdate,
+      deletePortalUpdate,
+      getPortalUpdates,
       addEntityFile,
       renameEntityFile,
       deleteEntityFile,

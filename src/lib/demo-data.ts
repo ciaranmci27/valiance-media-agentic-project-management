@@ -1,4 +1,4 @@
-import type { TeamMember, Contact, Project, ProjectContact, Task, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, Activity, PortalSettings, PortalFile, EntityFile, TimeEntry, Notification, ProjectGoal, TaskSuggestion, AgentActivity } from './types';
+import type { TeamMember, Contact, Project, ProjectContact, Task, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, Activity, PortalSettings, PortalFile, PortalUpdate, EntityFile, TimeEntry, Notification, ProjectGoal, TaskSuggestion, AgentActivity } from './types';
 import { siteConfig } from '@/site-config';
 
 // ---------------------------------------------------------------------------
@@ -22,13 +22,13 @@ export const DEMO_ADMIN_TEAM_MEMBER_ID = 'a1a1a1a1-0001-4000-8000-000000000001';
 // 1. TEAM MEMBERS
 // ---------------------------------------------------------------------------
 export const demoTeam: TeamMember[] = [
-  { id: 'a1a1a1a1-0001-4000-8000-000000000001', auth_user_id: DEMO_USER_ID, name: 'Sarah Chen',     email: 'sarah@valiancemedia.com',  avatar: '', role: 'admin' },
-  { id: 'a1a1a1a1-0002-4000-8000-000000000002', auth_user_id: null, name: 'Marcus Johnson',  email: 'marcus@valiancemedia.com', avatar: '', role: 'member' },
-  { id: 'a1a1a1a1-0003-4000-8000-000000000003', auth_user_id: null, name: 'Emily Rodriguez', email: 'emily@valiancemedia.com',  avatar: '', role: 'member' },
-  { id: 'a1a1a1a1-0004-4000-8000-000000000004', auth_user_id: null, name: 'Jake Thompson',   email: 'jake@valiancemedia.com',   avatar: '', role: 'member' },
-  { id: 'a1a1a1a1-0005-4000-8000-000000000005', auth_user_id: null, name: 'Priya Patel',     email: 'priya@valiancemedia.com',  avatar: '', role: 'guest' },
-  { id: 'a1a1a1a1-0006-4000-8000-000000000006', auth_user_id: null, name: 'Atlas',           email: 'atlas@agent.local',        avatar: '', role: 'agent' },
-  { id: 'a1a1a1a1-0007-4000-8000-000000000007', auth_user_id: null, name: 'Scout',           email: 'scout@agent.local',        avatar: '', role: 'agent' },
+  { id: 'a1a1a1a1-0001-4000-8000-000000000001', auth_user_id: DEMO_USER_ID, name: 'Sarah Chen',     email: 'sarah@valiancemedia.com',  avatar: '', role: 'admin',  timezone: 'America/Phoenix' },
+  { id: 'a1a1a1a1-0002-4000-8000-000000000002', auth_user_id: null, name: 'Marcus Johnson',  email: 'marcus@valiancemedia.com', avatar: '', role: 'member', timezone: 'America/New_York' },
+  { id: 'a1a1a1a1-0003-4000-8000-000000000003', auth_user_id: null, name: 'Emily Rodriguez', email: 'emily@valiancemedia.com',  avatar: '', role: 'member', timezone: 'America/Los_Angeles' },
+  { id: 'a1a1a1a1-0004-4000-8000-000000000004', auth_user_id: null, name: 'Jake Thompson',   email: 'jake@valiancemedia.com',   avatar: '', role: 'member', timezone: 'America/Chicago' },
+  { id: 'a1a1a1a1-0005-4000-8000-000000000005', auth_user_id: null, name: 'Priya Patel',     email: 'priya@valiancemedia.com',  avatar: '', role: 'guest',  timezone: 'Asia/Kolkata' },
+  { id: 'a1a1a1a1-0006-4000-8000-000000000006', auth_user_id: null, name: 'Atlas',           email: 'atlas@agent.local',        avatar: '', role: 'agent',  timezone: 'UTC' },
+  { id: 'a1a1a1a1-0007-4000-8000-000000000007', auth_user_id: null, name: 'Scout',           email: 'scout@agent.local',        avatar: '', role: 'agent',  timezone: 'UTC' },
 ];
 
 // ---------------------------------------------------------------------------
@@ -621,6 +621,7 @@ export const demoPortalSettings: PortalSettings[] = [
     show_proposals: true,
     show_files: true,
     show_hours: true,
+    show_updates: true,
     created_at: daysAgo(10),
     updated_at: daysAgo(1),
   },
@@ -637,7 +638,58 @@ export const demoPortalSettings: PortalSettings[] = [
     show_proposals: true,
     show_files: true,
     show_hours: true,
+    show_updates: true,
     created_at: daysAgo(8),
+    updated_at: daysAgo(1),
+  },
+];
+
+// ---------------------------------------------------------------------------
+// PORTAL UPDATES
+// ---------------------------------------------------------------------------
+export const demoPortalUpdates: PortalUpdate[] = [
+  {
+    id: 'pu-0001-4000-8000-000000000001',
+    project_id: 'c3c3c3c3-0001-4000-8000-000000000001',
+    title: 'Brand strategy finalized',
+    content: 'We\'ve completed the brand strategy phase. The positioning statement, tone of voice, and audience personas are locked in. Moving on to visual identity exploration.',
+    update_type: 'milestone',
+    author_id: 'a1a1a1a1-0001-4000-8000-000000000001',
+    pinned: false,
+    created_at: daysAgo(14),
+    updated_at: daysAgo(14),
+  },
+  {
+    id: 'pu-0002-4000-8000-000000000002',
+    project_id: 'c3c3c3c3-0001-4000-8000-000000000001',
+    title: 'Logo concepts ready for review',
+    content: 'Three logo directions have been uploaded to the portal files section. Please review and share your feedback by end of week.',
+    update_type: 'deliverable',
+    author_id: 'a1a1a1a1-0002-4000-8000-000000000002',
+    pinned: false,
+    created_at: daysAgo(7),
+    updated_at: daysAgo(7),
+  },
+  {
+    id: 'pu-0003-4000-8000-000000000003',
+    project_id: 'c3c3c3c3-0001-4000-8000-000000000001',
+    title: 'Website wireframes in progress',
+    content: 'The team has started on homepage and key landing page wireframes. Expect a first draft next week.',
+    update_type: 'general',
+    author_id: 'a1a1a1a1-0003-4000-8000-000000000003',
+    pinned: false,
+    created_at: daysAgo(3),
+    updated_at: daysAgo(3),
+  },
+  {
+    id: 'pu-0004-4000-8000-000000000004',
+    project_id: 'c3c3c3c3-0001-4000-8000-000000000001',
+    title: 'Client feedback incorporated',
+    content: 'We\'ve incorporated your feedback on the color palette. The revised brand guidelines PDF has been uploaded.',
+    update_type: 'note',
+    author_id: 'a1a1a1a1-0001-4000-8000-000000000001',
+    pinned: false,
+    created_at: daysAgo(1),
     updated_at: daysAgo(1),
   },
 ];

@@ -117,10 +117,12 @@ export function ActivityTab({ filters }: { filters: ActivityFilters }) {
 
       {/* Empty state */}
       {filtered.length === 0 && (
-        <div className="text-center py-12 bg-white rounded-xl border border-zinc-200">
-          <Activity className="mx-auto mb-3 text-zinc-400" size={40} />
-          <h3 className="font-medium text-zinc-700 mb-1">No agent activity yet</h3>
-          <p className="text-sm text-zinc-500">Activity from AI agents will appear here.</p>
+        <div className="bg-white rounded-xl border border-zinc-200 flex flex-col items-center justify-center p-8 text-center">
+          <div className="w-10 h-10 rounded-full bg-zinc-100 flex items-center justify-center mb-3">
+            <Activity size={18} className="text-zinc-400" />
+          </div>
+          <p className="text-sm font-medium text-zinc-500">No agent activity yet</p>
+          <p className="text-xs text-zinc-400 mt-1">Activity from AI agents will appear here</p>
         </div>
       )}
     </div>

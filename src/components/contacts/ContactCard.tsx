@@ -6,6 +6,7 @@ import { MoreVertical, Edit, Trash2, Mail, Phone, FolderKanban, Target } from 'l
 import { Contact } from '@/lib/types';
 import { useApp } from '@/lib/store';
 import { Avatar } from '@/components/ui/Avatar';
+import { formatPhone } from '@/lib/format-phone';
 
 interface ContactCardProps {
   contact: Contact;
@@ -75,7 +76,7 @@ export function ContactCard({ contact, onEdit, onDelete }: ContactCardProps) {
         <span className="flex items-center gap-1.5 flex-shrink-0">
           <Phone size={14} className="flex-shrink-0" />
           <span className={!contact.phone ? 'text-zinc-300 italic' : ''}>
-            {contact.phone || 'No phone'}
+            {contact.phone ? formatPhone(contact.phone) : 'No phone'}
           </span>
         </span>
         <span className="flex items-center gap-1.5 min-w-0">

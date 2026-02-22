@@ -48,7 +48,9 @@ export default function LoginPage() {
       <div className="text-center mb-4">
         <div className="flex flex-col items-center mb-4">
           <Logo className="h-12 w-auto" />
-          <span className="text-zinc-900 font-semibold text-[7px] tracking-[0.2em] uppercase">{siteConfig.name}</span>
+          {siteConfig.showNameUnderLogo && (
+            <span className="text-zinc-900 font-semibold text-[7px] tracking-[0.2em] uppercase">{siteConfig.name}</span>
+          )}
         </div>
         <h1 className="text-2xl font-bold text-zinc-900">Welcome back</h1>
         <p className="text-sm text-zinc-500 mt-1">Sign in to {siteConfig.name}</p>

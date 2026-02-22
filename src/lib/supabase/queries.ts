@@ -1,5 +1,5 @@
 import { SupabaseClient } from '@supabase/supabase-js';
-import type { Project, Task, TeamMember, Subtask, Comment, Activity, Contact, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, PortalSettings, PortalFile, EntityFile, ApiKey, ProjectGoal, TaskSuggestion, AgentActivity, ApiAuditEntry, TimeEntry } from '@/lib/types';
+import type { Project, Task, TeamMember, Subtask, Comment, Activity, Contact, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, PortalSettings, PortalFile, PortalUpdate, EntityFile, ApiKey, ProjectGoal, TaskSuggestion, AgentActivity, ApiAuditEntry, TimeEntry } from '@/lib/types';
 import { siteConfig } from '@/site-config';
 
 // ============================================================
@@ -1116,6 +1116,7 @@ export async function upsertPortalSettings(
         show_proposals: settings.show_proposals ?? true,
         show_files: settings.show_files ?? true,
         show_hours: settings.show_hours ?? true,
+        show_updates: settings.show_updates ?? true,
       })
       .select()
       .single();
@@ -1200,6 +1201,73 @@ export async function renamePortalFile(supabase: SupabaseClient, id: string, nam
 
 export async function removePortalFile(supabase: SupabaseClient, id: string) {
   const { error } = await supabase.from('portal_files').delete().eq('id', id);
+  if (error) throw error;
+}
+
+// ============================================================
+// PORTAL UPDATES
+// ============================================================
+
+export async function fetchAllPortalUpdates(supabase: SupabaseClient) {
+  const { data, error } = await supabase
+    .from('portal_updates')
+    .select('*')
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+  return (data || []) as PortalUpdate[];
+}
+
+export async function fetchPortalUpdates(supabase: SupabaseClient, projectId: string) {
+  const { data, error } = await supabase
+    .from('portal_updates')
+    .select('*')
+    .eq('project_id', projectId)
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+  return (data || []) as PortalUpdate[];
+}
+
+export async function insertPortalUpdate(
+  supabase: SupabaseClient,
+  update: Omit<PortalUpdate, 'id' | 'created_at' | 'updated_at'>
+) {
+  const { data, error } = await supabase
+    .from('portal_updates')
+    .insert({
+      project_id: update.project_id,
+      title: update.title,
+      content: update.content,
+      update_type: update.update_type,
+      author_id: update.author_id || null,
+      pinned: update.pinned ?? false,
+    })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data as PortalUpdate;
+}
+
+export async function patchPortalUpdate(
+  supabase: SupabaseClient,
+  id: string,
+  updates: Partial<Pick<PortalUpdate, 'title' | 'content' | 'update_type' | 'pinned'>>
+) {
+  const { data, error } = await supabase
+    .from('portal_updates')
+    .update(updates)
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data as PortalUpdate;
+}
+
+export async function removePortalUpdate(supabase: SupabaseClient, id: string) {
+  const { error } = await supabase.from('portal_updates').delete().eq('id', id);
   if (error) throw error;
 }
 

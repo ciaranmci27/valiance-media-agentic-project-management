@@ -10,7 +10,8 @@ create table public.team_members (
   name text not null,
   email text not null,
   avatar text not null default '',
-  role text not null default 'member' check (role in ('admin', 'member', 'guest')),
+  role text not null default 'member' check (role in ('admin', 'member', 'guest', 'agent')),
+  timezone text not null default 'UTC',
   notification_prefs jsonb not null default '{}',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -46,6 +47,7 @@ create table public.projects (
   due_date text,
   hourly_tracking boolean not null default false,
   created_by uuid references public.team_members(id) on delete set null,
+  archived_at timestamptz default null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -158,6 +160,7 @@ create table public.leads (
   assigned_to uuid references public.team_members(id) on delete set null,
   contact_id uuid references public.contacts(id) on delete set null,
   created_by uuid references public.team_members(id) on delete set null,
+  archived_at timestamptz default null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -262,6 +265,8 @@ create table public.portal_settings (
   show_progress boolean not null default true,
   show_proposals boolean not null default true,
   show_files boolean not null default true,
+  show_hours boolean not null default true,
+  show_updates boolean not null default true,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   unique(project_id),
@@ -348,12 +353,20 @@ create table public.project_time_entries (
 create unique index idx_project_time_entries_running
   on public.project_time_entries (project_id) where end_time is null;
 
--- Add show_hours toggle to portal settings
-alter table public.portal_settings add column if not exists show_hours boolean not null default true;
-
--- Soft delete support for projects and leads
-alter table public.projects add column if not exists archived_at timestamptz default null;
-alter table public.leads add column if not exists archived_at timestamptz default null;
+-- ============================================================
+-- 22. PORTAL UPDATES (team-posted timeline updates for client portal)
+-- ============================================================
+create table public.portal_updates (
+  id uuid primary key default gen_random_uuid(),
+  project_id uuid not null references public.projects(id) on delete cascade,
+  title text not null,
+  content text not null default '',
+  update_type text not null default 'general' check (update_type in ('general', 'milestone', 'deliverable', 'note')),
+  author_id uuid references public.team_members(id) on delete set null,
+  pinned boolean not null default false,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
 
 -- ============================================================
 -- INDEXES
@@ -390,6 +403,9 @@ create index idx_lead_contacts_contact_id on public.lead_contacts(contact_id);
 create index idx_portal_settings_project_id on public.portal_settings(project_id);
 create index idx_portal_settings_token on public.portal_settings(token);
 create index idx_portal_files_project_id on public.portal_files(project_id);
+
+create index idx_portal_updates_project_id on public.portal_updates(project_id);
+create index idx_portal_updates_created_at on public.portal_updates(created_at desc);
 
 create index idx_entity_files_entity on public.entity_files(entity_type, entity_id);
 
@@ -503,6 +519,10 @@ create trigger set_project_time_entries_updated_at
   before update on public.project_time_entries
   for each row execute function public.handle_updated_at();
 
+create trigger set_portal_updates_updated_at
+  before update on public.portal_updates
+  for each row execute function public.handle_updated_at();
+
 -- ============================================================
 -- AUTO-CREATE TEAM MEMBER ON SIGNUP
 -- ============================================================
@@ -548,6 +568,7 @@ alter table public.portal_settings enable row level security;
 alter table public.portal_files enable row level security;
 alter table public.entity_files enable row level security;
 alter table public.api_keys enable row level security;
+alter table public.portal_updates enable row level security;
 alter table public.project_time_entries enable row level security;
 alter table public.team_member_notifications enable row level security;
 
@@ -607,6 +628,9 @@ create policy "portal_files_all" on public.portal_files
   for all to authenticated using (true) with check (true);
 
 create policy "entity_files_all" on public.entity_files
+  for all to authenticated using (true) with check (true);
+
+create policy "portal_updates_all" on public.portal_updates
   for all to authenticated using (true) with check (true);
 
 create policy "project_time_entries_all" on public.project_time_entries

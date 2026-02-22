@@ -3,8 +3,8 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import {
   Globe, Link2, RefreshCw, Copy, Check, Eye, EyeOff,
-  Upload, Trash2, FileText, Image, Archive, File, ExternalLink,
-  Camera, Loader2, X, Pencil, ChevronDown,
+  Upload, Download, Trash2, FileText, Image, Archive, File, ExternalLink,
+  Camera, Loader2, X, Pencil,
 } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
@@ -56,7 +56,6 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
   const [editingFileId, setEditingFileId] = useState<string | null>(null);
   const [editingFileName, setEditingFileName] = useState('');
   const [deleteFileTarget, setDeleteFileTarget] = useState<string | null>(null);
-  const [isExpanded, setIsExpanded] = useState(false);
   const renameCancelledRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const logoInputRef = useRef<HTMLInputElement>(null);
@@ -88,9 +87,14 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
     : '';
 
   const handleToggleEnabled = () => {
+    const turning_on = !isEnabled;
+    const needsDefaultMessage = turning_on && !settings?.welcome_message;
     upsertPortalSettings(projectId, {
-      enabled: !isEnabled,
+      enabled: turning_on,
       accent_color: project?.color || siteConfig.colors.brand[500],
+      ...(needsDefaultMessage && {
+        welcome_message: `Welcome to your project portal. Here you'll find the latest updates, files, and progress.`,
+      }),
     });
   };
 
@@ -228,11 +232,10 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
   };
 
   return (
-    <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
+    <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden flex flex-col max-h-[600px]">
       {/* Header with toggle */}
       <div
-        onClick={() => isEnabled && setIsExpanded(e => !e)}
-        className={`px-5 py-4 flex items-center justify-between ${isEnabled ? 'border-b border-zinc-100 cursor-pointer' : ''}`}
+        className={`px-5 py-4 flex items-center justify-between flex-shrink-0 ${isEnabled ? 'border-b border-zinc-100' : ''}`}
       >
         <div className="flex items-center gap-2.5">
           <div className="p-1.5 bg-brand-50 rounded-md">
@@ -243,30 +246,22 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
             <p className="text-xs text-zinc-500">Share project progress with your client</p>
           </div>
         </div>
-        <div className="flex items-center gap-3">
-          {isEnabled && (
-            <ChevronDown
-              size={16}
-              className={`text-zinc-400 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
-            />
-          )}
-          <button
-            onClick={(e) => { e.stopPropagation(); handleToggleEnabled(); }}
-            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0 ${
-              isEnabled ? 'bg-brand-600' : 'bg-zinc-200'
+        <button
+          onClick={handleToggleEnabled}
+          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0 ${
+            isEnabled ? 'bg-brand-600' : 'bg-zinc-200'
+          }`}
+        >
+          <span
+            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform shadow-sm ${
+              isEnabled ? 'translate-x-6' : 'translate-x-1'
             }`}
-          >
-            <span
-              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform shadow-sm ${
-                isEnabled ? 'translate-x-6' : 'translate-x-1'
-              }`}
-            />
-          </button>
-        </div>
+          />
+        </button>
       </div>
 
-      {isEnabled && isExpanded && settings && (
-        <div className="p-5 space-y-5">
+      {isEnabled && settings && (
+        <div className="p-5 space-y-5 flex-1 overflow-y-auto">
           {/* Portal Logo + Link + PIN + Color */}
           <div className="flex flex-col sm:flex-row items-start gap-4">
             {/* Logo */}
@@ -411,6 +406,7 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
                 { key: 'show_proposals', label: 'Proposals' },
                 { key: 'show_files', label: 'Files' },
                 { key: 'show_hours', label: 'Hours' },
+                { key: 'show_updates', label: 'Updates' },
               ].filter(item => item.key !== 'show_hours' || project?.hourly_tracking).map(({ key, label }) => {
                 const isActive = (settings as any)[key];
                 return (
@@ -435,7 +431,7 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <label className="block text-xs font-medium text-zinc-500 uppercase tracking-wide">
-                Shared Files ({files.length})
+                Shared Portal Files ({files.length})
               </label>
               <label className="cursor-pointer">
                 <input
@@ -528,13 +524,24 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
                         <p className="text-xs text-zinc-400">{formatFileSize(file.file_size)}</p>
                       </div>
                       {!isEditing && (
-                        <button
-                          onClick={() => { setEditingFileId(file.id); setEditingFileName(file.name); }}
-                          className="p-1.5 text-zinc-300 hover:text-brand-500 opacity-0 group-hover:opacity-100 transition-all"
-                          title="Rename file"
-                        >
-                          <Pencil size={14} />
-                        </button>
+                        <>
+                          <a
+                            href={file.file_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="p-1.5 text-zinc-300 hover:text-brand-500 opacity-0 group-hover:opacity-100 transition-all"
+                            title="Download file"
+                          >
+                            <Download size={14} />
+                          </a>
+                          <button
+                            onClick={() => { setEditingFileId(file.id); setEditingFileName(file.name); }}
+                            className="p-1.5 text-zinc-300 hover:text-brand-500 opacity-0 group-hover:opacity-100 transition-all"
+                            title="Rename file"
+                          >
+                            <Pencil size={14} />
+                          </button>
+                        </>
                       )}
                       {isHtml && settings?.token && (
                         <a

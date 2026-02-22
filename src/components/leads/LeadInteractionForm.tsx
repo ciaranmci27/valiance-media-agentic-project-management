@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react';
 import { LeadInteraction, LEAD_INTERACTION_TYPES } from '@/lib/types';
 import { useApp } from '@/lib/store';
+import { useAuth } from '@/lib/auth-context';
+import { toLocalDatetimeString } from '@/lib/date-utils';
 import Modal from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -24,7 +26,9 @@ const typeOptions = [
 ];
 
 export function LeadInteractionForm({ isOpen, onClose, leadId, interaction }: LeadInteractionFormProps) {
-  const { addLeadInteraction, updateLeadInteraction } = useApp();
+  const { addLeadInteraction, updateLeadInteraction, team } = useApp();
+  const { teamMemberId } = useAuth();
+  const tz = team.find(m => m.id === teamMemberId)?.timezone;
 
   const [type, setType] = useState<LeadInteraction['type']>('note');
   const [title, setTitle] = useState('');
@@ -39,13 +43,13 @@ export function LeadInteractionForm({ isOpen, onClose, leadId, interaction }: Le
       setType(interaction.type);
       setTitle(interaction.title);
       setDescription(interaction.description);
-      setOccurredAt(interaction.occurred_at ? new Date(interaction.occurred_at).toISOString().slice(0, 16) : '');
-      setScheduledAt(interaction.scheduled_at ? new Date(interaction.scheduled_at).toISOString().slice(0, 16) : '');
+      setOccurredAt(interaction.occurred_at ? toLocalDatetimeString(interaction.occurred_at, tz) : '');
+      setScheduledAt(interaction.scheduled_at ? toLocalDatetimeString(interaction.scheduled_at, tz) : '');
     } else {
       setType('note');
       setTitle('');
       setDescription('');
-      setOccurredAt(new Date().toISOString().slice(0, 16));
+      setOccurredAt(toLocalDatetimeString(new Date().toISOString(), tz));
       setScheduledAt('');
     }
     setErrors({});

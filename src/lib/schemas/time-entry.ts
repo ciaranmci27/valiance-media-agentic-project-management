@@ -12,6 +12,7 @@ export const createTimeEntrySchema = z.object({
   start_time: z.string().min(1, 'Start time is required'),
   end_time: z.string().min(1, 'End time is required'),
   description: z.string().default(''),
+  timezone: z.string().optional(), // e.g. 'America/Phoenix'
 });
 
 // Update an existing entry

@@ -10,6 +10,20 @@ export const upsertPortalSettingsSchema = z.object({
   show_proposals: z.boolean().optional(),
   show_files: z.boolean().optional(),
   show_hours: z.boolean().optional(),
+  show_updates: z.boolean().optional(),
+});
+
+export const createPortalUpdateSchema = z.object({
+  title: z.string().min(1, 'Title is required'),
+  content: z.string().default(''),
+  update_type: z.enum(['general', 'milestone', 'deliverable', 'note']).default('general'),
+});
+
+export const updatePortalUpdateSchema = z.object({
+  title: z.string().min(1).optional(),
+  content: z.string().optional(),
+  update_type: z.enum(['general', 'milestone', 'deliverable', 'note']).optional(),
+  pinned: z.boolean().optional(),
 });
 
 export const createPortalFileSchema = z.object({

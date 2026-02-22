@@ -2,7 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import type { PortalData } from '@/lib/types';
 import {
-  demoPortalSettings, demoPortalFiles, demoProjects, demoTasks,
+  demoPortalSettings, demoPortalFiles, demoPortalUpdates, demoProjects, demoTasks,
   demoLeads, demoLeadProposals, demoProjectContacts, demoTimeEntries,
   demoTeam,
 } from '@/lib/demo-data';
@@ -65,6 +65,7 @@ export async function GET(
           logo_url: settings.logo_url || '',
           accent_color: settings.accent_color || siteConfig.colors.brand[500],
           project_name: proj?.name || '',
+          welcome_message: settings.welcome_message || '',
         },
       }, { status: 401 });
     }
@@ -183,6 +184,35 @@ export async function GET(
     }
   }
 
+  // Fetch portal updates with author names
+  let updates: PortalData['updates'] = [];
+  if (settings.show_updates) {
+    const { data: portalUpdates } = await supabase
+      .from('portal_updates')
+      .select('id, title, content, update_type, author_id, pinned, created_at')
+      .eq('project_id', settings.project_id)
+      .order('created_at', { ascending: false });
+
+    if (portalUpdates && portalUpdates.length > 0) {
+      const authorIds = [...new Set(portalUpdates.map((u: any) => u.author_id).filter(Boolean))];
+      const { data: authors } = authorIds.length > 0
+        ? await supabase.from('team_members').select('id, name').in('id', authorIds)
+        : { data: [] };
+
+      const authorMap = new Map((authors || []).map((a: any) => [a.id, a.name]));
+
+      updates = portalUpdates.map((u: any) => ({
+        id: u.id,
+        title: u.title,
+        content: u.content,
+        update_type: u.update_type,
+        author_name: authorMap.get(u.author_id) || 'Team',
+        pinned: u.pinned,
+        created_at: u.created_at,
+      }));
+    }
+  }
+
   const portalData: PortalData = {
     project: {
       name: project.name,
@@ -197,6 +227,7 @@ export async function GET(
       show_proposals: settings.show_proposals,
       show_files: settings.show_files,
       show_hours: settings.show_hours,
+      show_updates: settings.show_updates ?? true,
     },
     progress: {
       total_tasks: totalTasks,
@@ -206,6 +237,7 @@ export async function GET(
     proposals,
     files,
     hours,
+    updates,
   };
 
   return NextResponse.json(portalData);
@@ -234,6 +266,7 @@ function handleDemoMode(token: string, request: NextRequest) {
           logo_url: settings.logo_url || '',
           accent_color: settings.accent_color || siteConfig.colors.brand[500],
           project_name: project.name || '',
+          welcome_message: settings.welcome_message || '',
         },
       }, { status: 401 });
     }
@@ -296,6 +329,25 @@ function handleDemoMode(token: string, request: NextRequest) {
     };
   }
 
+  // Build updates from demo data
+  let updates: PortalData['updates'] = [];
+  if (settings.show_updates !== false) {
+    updates = demoPortalUpdates
+      .filter(u => u.project_id === settings.project_id)
+      .map(u => {
+        const author = demoTeam.find(m => m.id === u.author_id);
+        return {
+          id: u.id,
+          title: u.title,
+          content: u.content,
+          update_type: u.update_type,
+          author_name: author?.name || 'Team',
+          pinned: u.pinned,
+          created_at: u.created_at,
+        };
+      });
+  }
+
   const portalData: PortalData = {
     project: { name: project.name, color: project.color, description: project.description },
     settings: {
@@ -306,11 +358,13 @@ function handleDemoMode(token: string, request: NextRequest) {
       show_proposals: settings.show_proposals,
       show_files: settings.show_files,
       show_hours: settings.show_hours,
+      show_updates: settings.show_updates ?? true,
     },
     progress: { total_tasks: totalTasks, done_tasks: doneTasks, percent },
     proposals,
     files,
     hours,
+    updates,
   };
 
   return NextResponse.json(portalData);

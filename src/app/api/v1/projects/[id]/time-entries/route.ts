@@ -37,6 +37,45 @@ export const GET = withApi(async ({ supabase, params, searchParams }) => {
   return paginated(data || [], { page, limit, total: count || 0 });
 });
 
+/**
+ * If a timezone is provided and the timestamp has no offset indicator
+ * (no 'Z', '+', or '-' after the time), interpret the bare timestamp
+ * in the given timezone and convert to UTC ISO string.
+ */
+function applyTimezone(timestamp: string, timezone: string): string {
+  // Already has an offset — leave it alone
+  if (/[Zz]$/.test(timestamp) || /[+-]\d{2}:\d{2}$/.test(timestamp)) {
+    return timestamp;
+  }
+
+  // Parse the bare datetime as UTC so the algorithm is server-timezone-independent
+  const d = new Date(timestamp.endsWith('Z') ? timestamp : timestamp + 'Z');
+  if (isNaN(d.getTime())) return timestamp;
+
+  // Use Intl to find the UTC offset for this timezone at the given instant.
+  // We format in the target timezone, then compute the difference.
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+    hour12: false,
+  }).formatToParts(d);
+
+  const get = (type: string) => parts.find(p => p.type === type)?.value || '0';
+  const tzDate = new Date(
+    `${get('year')}-${get('month')}-${get('day')}T${get('hour')}:${get('minute')}:${get('second')}Z`
+  );
+
+  // offset = tzDate(UTC-interpreted) - d(UTC-interpreted)
+  // This tells us how far ahead the timezone is from UTC
+  const offsetMs = tzDate.getTime() - d.getTime();
+
+  // The bare timestamp represents local time in the given timezone.
+  // To convert to UTC, subtract the offset.
+  const utc = new Date(d.getTime() - offsetMs);
+  return utc.toISOString();
+}
+
 export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMemberId }) => {
   const { id } = params as any;
   const entry = body as z.infer<typeof postSchema>;
@@ -61,11 +100,32 @@ export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMembe
     if (existing) throw badRequest('A timer is already running for this member on this project');
   }
 
+  // Resolve timezone: explicit request field → user's stored preference → no conversion
+  let timezone = 'timezone' in entry ? (entry as any).timezone as string | undefined : undefined;
+  if (!timezone && teamMemberId) {
+    const { data: member } = await supabase
+      .from('team_members')
+      .select('timezone')
+      .eq('id', teamMemberId)
+      .maybeSingle();
+    if (member?.timezone && member.timezone !== 'UTC') {
+      timezone = member.timezone;
+    }
+  }
+
+  let startTime = isTimer ? new Date().toISOString() : (entry as any).start_time;
+  let endTime = isTimer ? null : (entry as any).end_time;
+
+  if (!isTimer && timezone) {
+    startTime = applyTimezone(startTime, timezone);
+    if (endTime) endTime = applyTimezone(endTime, timezone);
+  }
+
   const insertPayload = {
     project_id: id,
     member_id: entry.member_id,
-    start_time: isTimer ? new Date().toISOString() : (entry as any).start_time,
-    end_time: isTimer ? null : (entry as any).end_time,
+    start_time: startTime,
+    end_time: endTime,
     description: entry.description || '',
   };
 

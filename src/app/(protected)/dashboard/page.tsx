@@ -186,8 +186,8 @@ export default function DashboardPage() {
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6">
           {/* Recent Tasks */}
-          <div className="lg:col-span-2 bg-white rounded-xl border border-zinc-200 overflow-hidden">
-            <div className="flex items-center justify-between p-4 border-b border-zinc-100">
+          <div className="lg:col-span-2 bg-white rounded-xl border border-zinc-200 overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between p-4 border-b border-zinc-100 flex-shrink-0">
               <h2 className="font-semibold text-zinc-900">Recent Tasks</h2>
               <Link
                 href="/projects"
@@ -197,7 +197,7 @@ export default function DashboardPage() {
               </Link>
             </div>
 
-            <div className="divide-y divide-zinc-100">
+            <div className="divide-y divide-zinc-100 flex-1 flex flex-col">
               {recentTasks.length > 0 ? recentTasks.map((task) => {
                 const project = projects.find(p => p.id === task.project_id);
                 return (
@@ -222,9 +222,12 @@ export default function DashboardPage() {
                   </Link>
                 );
               }) : (
-                <div className="p-8 text-center text-zinc-500">
-                  <Clock className="mx-auto mb-2" size={24} />
-                  <p>No tasks yet</p>
+                <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
+                  <div className="w-10 h-10 rounded-full bg-zinc-100 flex items-center justify-center mb-3">
+                    <CheckCircle size={18} className="text-zinc-400" />
+                  </div>
+                  <p className="text-sm font-medium text-zinc-500">No tasks yet</p>
+                  <p className="text-xs text-zinc-400 mt-1">Tasks will appear here as they&apos;re created</p>
                 </div>
               )}
             </div>

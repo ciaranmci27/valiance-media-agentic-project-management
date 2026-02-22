@@ -5,6 +5,7 @@ import { useApp } from '@/lib/store';
 import { LEAD_FIELD_DEFINITIONS, LeadFieldDefinition, LeadFieldCategory } from '@/lib/types';
 import Modal from '@/components/ui/Modal';
 import { Badge } from '@/components/ui/Badge';
+import { Button } from '@/components/ui/Button';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import {
   Plus, X, ExternalLink, Edit, Trash2, Check,
@@ -84,13 +85,12 @@ export function LeadFieldsSection({ leadId }: LeadFieldsSectionProps) {
     <div>
       <div className="flex items-center justify-between mb-4">
         <h2 className="font-semibold text-zinc-900">Lead Details</h2>
-        <button
+        <Button
           onClick={() => setIsAddOpen(true)}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-brand-600 hover:bg-brand-50 rounded-lg transition-colors"
+          icon={<Plus size={16} />}
         >
-          <Plus size={14} />
           Add Field
-        </button>
+        </Button>
       </div>
 
       {grouped.length > 0 ? (
@@ -181,9 +181,12 @@ export function LeadFieldsSection({ leadId }: LeadFieldsSectionProps) {
           })}
         </div>
       ) : (
-        <div className="bg-white rounded-xl border border-zinc-200 p-8 text-center text-zinc-500">
-          <Briefcase className="mx-auto mb-2" size={24} />
-          <p>No details added yet</p>
+        <div className="bg-white rounded-xl border border-zinc-200 flex flex-col items-center justify-center p-8 text-center">
+          <div className="w-10 h-10 rounded-full bg-zinc-100 flex items-center justify-center mb-3">
+            <Briefcase size={18} className="text-zinc-400" />
+          </div>
+          <p className="text-sm font-medium text-zinc-500">No details added yet</p>
+          <p className="text-xs text-zinc-400 mt-1">Add fields to track lead information</p>
         </div>
       )}
 

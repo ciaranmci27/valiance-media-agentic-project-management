@@ -34,7 +34,7 @@ Open-source agentic project management software. Manage projects, track leads, c
 - Role-based access: Admin, Member, Guest, Agent
 - Email invitations with role selection
 - Avatar upload with crop modal
-- Per-member notification preferences
+- Per-member timezone and notification preferences
 
 ### Agentic Workflows
 - **AI agents as team members** — agents get API keys and propose work through the suggestions system
@@ -48,19 +48,22 @@ Open-source agentic project management software. Manage projects, track leads, c
 ### Client Portal
 - Token-based public portal per project (no login required)
 - Optional PIN protection
-- Configurable visibility: progress, proposals, files, hours
+- Configurable visibility: progress, proposals, files, hours, updates
 - Custom branding: logo, accent color, welcome message
 - File sharing with download links
+- **Portal updates**: post timeline updates (milestones, deliverables, notes) visible to clients
 
 ### REST API
-- **50+ endpoints** covering tasks, projects, leads, contacts, team, agents, files, and portal
+- **109 endpoints** covering tasks, projects, leads, contacts, team, agents, files, portal, notifications, and API keys
 - API key authentication with full and read-only permission levels
 - Pagination, filtering, sorting, and search on all list endpoints
+- Timezone-aware time entry creation
 - Rate limiting and audit logging
 - Interactive API documentation at `/api/docs`
 
 ### Notifications & Audit
-- Granular notification preferences per category (tasks, projects, leads, contacts, team, agent)
+- Granular notification preferences per category (tasks, projects, leads, contacts, team, portal, time entries, agent)
+- API-accessible notifications with mark-as-read and bulk mark-all-read
 - Full audit log with before/after snapshots on every data change
 - Activity feed on the dashboard
 

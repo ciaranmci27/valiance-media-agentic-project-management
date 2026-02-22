@@ -518,9 +518,12 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
                   );
                 })}
                 {task.comments.length === 0 && (
-                  <div className="flex flex-col items-center py-4 text-zinc-400">
-                    <MessageSquare size={20} className="mb-1.5" />
-                    <p className="text-sm">No comments yet</p>
+                  <div className="flex flex-col items-center justify-center p-8 text-center">
+                    <div className="w-10 h-10 rounded-full bg-zinc-100 flex items-center justify-center mb-3">
+                      <MessageSquare size={18} className="text-zinc-400" />
+                    </div>
+                    <p className="text-sm font-medium text-zinc-500">No comments yet</p>
+                    <p className="text-xs text-zinc-400 mt-1">Add a comment below</p>
                   </div>
                 )}
               </div>

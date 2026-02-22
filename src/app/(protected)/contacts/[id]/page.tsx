@@ -14,6 +14,7 @@ import { Avatar } from '@/components/ui/Avatar';
 import { FileAttachments } from '@/components/ui/FileAttachments';
 import { Edit, Mail, Phone, Building2, StickyNote, Plus, FolderKanban, Target, UserCircle } from 'lucide-react';
 import { Project } from '@/lib/types';
+import { formatPhone } from '@/lib/format-phone';
 import { toast } from '@/components/ui/Toast';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 
@@ -118,7 +119,7 @@ export default function ContactDetailPage() {
             {contact.phone && (
               <a href={`tel:${contact.phone}`} className="flex items-center gap-2 text-zinc-600 hover:text-brand-600 transition-colors">
                 <Phone size={16} className="text-zinc-400" />
-                <span>{contact.phone}</span>
+                <span>{formatPhone(contact.phone)}</span>
               </a>
             )}
           </div>
@@ -177,41 +178,51 @@ export default function ContactDetailPage() {
           </div>
         </div>
 
-        {/* Linked Projects */}
-        <div>
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2">
-              <FolderKanban size={18} className="text-zinc-500" />
-              <h2 className="font-semibold text-zinc-900">
-                Linked Projects ({linkedProjects.length})
-              </h2>
+        {/* Linked Projects + Files row */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
+          {/* Linked Projects */}
+          <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden flex flex-col max-h-[600px]">
+            <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-200 flex-shrink-0">
+              <div className="flex items-center gap-2">
+                <FolderKanban size={18} className="text-zinc-500" />
+                <h2 className="font-semibold text-zinc-900">
+                  Projects ({linkedProjects.length})
+                </h2>
+              </div>
+              <Button
+                size="sm"
+                onClick={() => setIsProjectFormOpen(true)}
+                icon={<Plus size={14} />}
+              >
+                New Project
+              </Button>
             </div>
-            <Button
-              size="sm"
-              onClick={() => setIsProjectFormOpen(true)}
-              icon={<Plus size={14} />}
-            >
-              New Project
-            </Button>
+
+            {linkedProjects.length > 0 ? (
+              <div className="flex-1 overflow-y-auto p-5">
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                  {linkedProjects.map((project) => (
+                    <ProjectCard
+                      key={project.id}
+                      project={project}
+                      onEdit={handleEditProject}
+                      onDelete={handleDeleteProject}
+                    />
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
+                <div className="w-10 h-10 rounded-full bg-zinc-100 flex items-center justify-center mb-3">
+                  <FolderKanban size={18} className="text-zinc-400" />
+                </div>
+                <p className="text-sm font-medium text-zinc-500">No projects linked yet</p>
+                <p className="text-xs text-zinc-400 mt-1">Create a project to link it to this contact</p>
+              </div>
+            )}
           </div>
 
-          {linkedProjects.length > 0 ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 gap-4">
-              {linkedProjects.map((project) => (
-                <ProjectCard
-                  key={project.id}
-                  project={project}
-                  onEdit={handleEditProject}
-                  onDelete={handleDeleteProject}
-                />
-              ))}
-            </div>
-          ) : (
-            <div className="bg-white rounded-xl border border-zinc-200 p-8 text-center text-zinc-500">
-              <FolderKanban className="mx-auto mb-2" size={24} />
-              <p>No projects linked to this contact</p>
-            </div>
-          )}
+          <FileAttachments entityType="contact" entityId={contactId} />
         </div>
 
         {/* Linked Leads (conversion history) */}
@@ -240,8 +251,6 @@ export default function ContactDetailPage() {
             </div>
           </div>
         )}
-
-        <FileAttachments entityType="contact" entityId={contactId} />
       </div>
 
       <ContactForm

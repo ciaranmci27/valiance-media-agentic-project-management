@@ -207,7 +207,7 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
 
         <div className="space-y-1.5" ref={contactDropdownRef}>
           <label className="block text-sm font-medium text-zinc-700">
-            Client {!project && <span className="text-red-500">*</span>}
+            Primary Client {!project && <span className="text-red-500">*</span>}
           </label>
           <div className="relative">
             <button
@@ -233,7 +233,7 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
                   )}
                 </span>
               ) : (
-                <span className="text-zinc-400">Select a client...</span>
+                <span className="text-zinc-400">Select primary client...</span>
               )}
             </button>
             {contactDropdownOpen && (
@@ -311,7 +311,7 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
             )}
           </div>
           {clientError && !selectedContactId && (
-            <p className="text-xs text-red-500">Please select a client for this project</p>
+            <p className="text-xs text-red-500">Please select a primary client for this project</p>
           )}
         </div>
 
@@ -379,27 +379,6 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
           </button>
         </div>
 
-        {isAgentsEnabled && isAdmin && (
-          <div className="flex items-center justify-between py-1">
-            <div>
-              <label className="block text-sm font-medium text-zinc-700">Autonomous Agents</label>
-              <p className="text-xs text-zinc-400">When enabled, AI agents will actively research and generate task suggestions for this project&apos;s goals</p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setAutonomousEnabled(!autonomousEnabled)}
-              className={`relative w-10 h-[22px] rounded-full transition-colors ${
-                autonomousEnabled ? 'bg-brand-600' : 'bg-zinc-300'
-              }`}
-            >
-              <span
-                className={`absolute top-0.5 left-0.5 w-[18px] h-[18px] bg-white rounded-full shadow transition-transform ${
-                  autonomousEnabled ? 'translate-x-[18px]' : 'translate-x-0'
-                }`}
-              />
-            </button>
-          </div>
-        )}
 
         <div className="space-y-1.5">
           <label className="block text-sm font-medium text-zinc-700">Color</label>

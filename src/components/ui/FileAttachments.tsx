@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useRef } from 'react';
-import { Upload, Trash2, Pencil, File, FileText, Image, Archive, Globe, Paperclip } from 'lucide-react';
+import { Upload, Download, Trash2, Pencil, File, FileText, Image, Archive, Globe, Paperclip } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
@@ -116,12 +116,12 @@ export function FileAttachments({ entityType, entityId }: FileAttachmentsProps) 
 
   return (
     <>
-      <div>
-        <div className="flex items-center justify-between mb-4">
+      <div className="bg-white rounded-xl border border-zinc-200 flex flex-col max-h-[600px]">
+        <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-200 flex-shrink-0">
           <div className="flex items-center gap-2">
             <Paperclip size={18} className="text-zinc-500" />
             <h2 className="font-semibold text-zinc-900">
-              Files ({files.length})
+              Project Files ({files.length})
             </h2>
           </div>
           <label className="cursor-pointer">
@@ -132,7 +132,7 @@ export function FileAttachments({ entityType, entityId }: FileAttachmentsProps) 
               onChange={handleFileUpload}
               disabled={uploading}
             />
-            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition-colors cursor-pointer">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition-colors cursor-pointer">
               <Upload size={14} />
               {uploading ? 'Uploading...' : 'Upload'}
             </span>
@@ -140,16 +140,18 @@ export function FileAttachments({ entityType, entityId }: FileAttachmentsProps) 
         </div>
 
         {files.length > 0 ? (
-          <div className="bg-white rounded-xl border border-zinc-200 divide-y divide-zinc-100">
+          <div className="flex-1 overflow-y-auto p-3 space-y-1">
             {files.map(file => {
               const FileIcon = getFileIcon(file.mime_type);
               const isEditing = editingFileId === file.id;
               return (
                 <div
                   key={file.id}
-                  className="flex items-center gap-3 px-4 py-3 group"
+                  className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-zinc-50 hover:bg-zinc-100 transition-colors group"
                 >
-                  <FileIcon size={16} className="text-zinc-400 flex-shrink-0" />
+                  <div className="w-8 h-8 rounded-lg bg-white border border-zinc-200 flex items-center justify-center flex-shrink-0">
+                    <FileIcon size={14} className="text-zinc-400" />
+                  </div>
                   <div className="flex-1 min-w-0">
                     {isEditing ? (
                       <input
@@ -188,16 +190,27 @@ export function FileAttachments({ entityType, entityId }: FileAttachmentsProps) 
                         {file.name}
                       </p>
                     )}
-                    <p className="text-xs text-zinc-400">{formatFileSize(file.file_size)}</p>
+                    <p className="text-xs text-zinc-400">{formatFileSize(file.file_size)} &middot; {new Date(file.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p>
                   </div>
                   {!isEditing && (
-                    <button
-                      onClick={() => { setEditingFileId(file.id); setEditingFileName(file.name); }}
-                      className="p-1.5 text-zinc-300 hover:text-brand-500 opacity-0 group-hover:opacity-100 transition-all"
-                      title="Rename file"
-                    >
-                      <Pencil size={14} />
-                    </button>
+                    <>
+                      <a
+                        href={file.file_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="p-1.5 text-zinc-300 hover:text-brand-500 opacity-0 group-hover:opacity-100 transition-all"
+                        title="Download file"
+                      >
+                        <Download size={14} />
+                      </a>
+                      <button
+                        onClick={() => { setEditingFileId(file.id); setEditingFileName(file.name); }}
+                        className="p-1.5 text-zinc-300 hover:text-brand-500 opacity-0 group-hover:opacity-100 transition-all"
+                        title="Rename file"
+                      >
+                        <Pencil size={14} />
+                      </button>
+                    </>
                   )}
                   <button
                     onClick={() => handleDeleteFile(file.id)}
@@ -211,9 +224,12 @@ export function FileAttachments({ entityType, entityId }: FileAttachmentsProps) 
             })}
           </div>
         ) : (
-          <div className="bg-white rounded-xl border border-zinc-200 p-8 text-center text-zinc-500">
-            <Paperclip className="mx-auto mb-2" size={24} />
-            <p>No files attached yet</p>
+          <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
+            <div className="w-10 h-10 rounded-full bg-zinc-100 flex items-center justify-center mb-3">
+              <Paperclip size={18} className="text-zinc-400" />
+            </div>
+            <p className="text-sm font-medium text-zinc-500">No files attached yet</p>
+            <p className="text-xs text-zinc-400 mt-1">Upload files to attach them to this project</p>
           </div>
         )}
       </div>

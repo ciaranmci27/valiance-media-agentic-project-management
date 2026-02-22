@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { RichTextEditor } from '@/components/ui/RichTextEditor';
+import { formatPhone } from '@/lib/format-phone';
 
 interface LeadFormProps {
   isOpen: boolean;
@@ -55,7 +56,7 @@ export function LeadForm({ isOpen, onClose, lead, onConvertRequested }: LeadForm
     if (lead) {
       setName(lead.name);
       setEmail(lead.email);
-      setPhone(lead.phone);
+      setPhone(formatPhone(lead.phone));
       setCompany(lead.company);
       setSource(lead.source);
       setStatus(lead.status);
@@ -190,8 +191,8 @@ export function LeadForm({ isOpen, onClose, lead, onConvertRequested }: LeadForm
           <Input
             label="Phone"
             value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            placeholder="Phone number"
+            onChange={(e) => setPhone(formatPhone(e.target.value))}
+            placeholder="(555) 555-5555"
             error={errors.phone}
           />
         </div>

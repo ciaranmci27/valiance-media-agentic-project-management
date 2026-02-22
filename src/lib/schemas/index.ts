@@ -18,3 +18,5 @@ export * from './goals';
 export * from './suggestions';
 export * from './agent-activity';
 export * from './time-entry';
+export * from './notifications';
+export * from './api-keys';

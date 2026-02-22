@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useApp, defaultFilters } from '@/lib/store';
 import { Header } from '@/components/layout/Header';
 import { Avatar } from '@/components/ui/Avatar';
@@ -10,7 +10,7 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import Modal from '@/components/ui/Modal';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import { MoreVertical, Edit, Shield, User, UserMinus, Bot, UserPlus } from 'lucide-react';
+import { MoreVertical, Edit, Shield, User, UserMinus, Bot, UserPlus, Globe, Check } from 'lucide-react';
 import { TeamMember } from '@/lib/types';
 import { toast } from '@/components/ui/Toast';
 import { createClient } from '@/lib/supabase/client';
@@ -38,13 +38,53 @@ export default function TeamPage() {
   const [email, setEmail] = useState('');
   const [emailError, setEmailError] = useState('');
   const [role, setRole] = useState<TeamMember['role']>('member');
+  const [memberTz, setMemberTz] = useState('UTC');
+  const [tzSearch, setTzSearch] = useState('');
+  const [tzOpen, setTzOpen] = useState(false);
   const [formLoading, setFormLoading] = useState(false);
+  const tzDropdownRef = useRef<HTMLDivElement>(null);
+
+  const tzEntries = useMemo(() => {
+    let zones: string[];
+    try { zones = Intl.supportedValuesOf('timeZone'); } catch { zones = ['UTC']; }
+    const now = Date.now();
+    return zones.map(tz => {
+      try {
+        const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'shortOffset' }).formatToParts(now);
+        const raw = parts.find(p => p.type === 'timeZoneName')?.value || 'GMT';
+        const label = raw === 'GMT' ? 'UTC+0' : raw.replace('GMT', 'UTC');
+        const match = label.match(/UTC([+-])(\d+)(?::(\d+))?/);
+        const offsetMin = match ? (match[1] === '+' ? 1 : -1) * (parseInt(match[2]) * 60 + parseInt(match[3] || '0')) : 0;
+        return { id: tz, label, offsetMin };
+      } catch { return { id: tz, label: 'UTC+0', offsetMin: 0 }; }
+    }).sort((a, b) => a.offsetMin - b.offsetMin || a.id.localeCompare(b.id));
+  }, []);
+
+  const filteredTz = useMemo(() => {
+    const list = tzSearch
+      ? tzEntries.filter(e => e.id.toLowerCase().includes(tzSearch.toLowerCase()) || e.label.toLowerCase().includes(tzSearch.toLowerCase()))
+      : tzEntries;
+    const groups: { label: string; items: typeof list }[] = [];
+    let cur = '';
+    for (const e of list) { if (e.label !== cur) { cur = e.label; groups.push({ label: cur, items: [] }); } groups[groups.length - 1].items.push(e); }
+    return groups;
+  }, [tzEntries, tzSearch]);
+
+  useEffect(() => {
+    if (!tzOpen) return;
+    const handler = (e: MouseEvent) => { if (tzDropdownRef.current && !tzDropdownRef.current.contains(e.target as Node)) { setTzOpen(false); setTzSearch(''); } };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [tzOpen]);
 
   const resetForm = () => {
     setName('');
     setEmail('');
     setEmailError('');
     setRole('member');
+    setMemberTz('UTC');
+    setTzSearch('');
+    setTzOpen(false);
     setFormLoading(false);
     setEditingMember(null);
   };
@@ -55,6 +95,7 @@ export default function TeamPage() {
     setEmail(member.email);
     setEmailError('');
     setRole(member.role);
+    setMemberTz(member.timezone || 'UTC');
     setIsFormOpen(true);
   };
 
@@ -104,7 +145,7 @@ export default function TeamPage() {
       return;
     }
 
-    updateTeamMember(editingMember.id, { name: name.trim(), role });
+    updateTeamMember(editingMember.id, { name: name.trim(), role, timezone: memberTz });
     toast('success', 'Team member updated');
     handleCloseForm();
   };
@@ -128,7 +169,7 @@ export default function TeamPage() {
         return;
       }
 
-      updateTeamMember(editingMember.id, { name: name.trim(), role, email: email.trim().toLowerCase() });
+      updateTeamMember(editingMember.id, { name: name.trim(), role, timezone: memberTz, email: email.trim().toLowerCase() });
       toast('success', 'Team member updated');
       handleCloseForm();
     } catch {
@@ -316,6 +357,63 @@ export default function TeamPage() {
                 : []),
             ]}
           />
+
+          <div>
+            <label className="block text-sm font-medium text-zinc-700 mb-1.5">Timezone</label>
+            <div className="relative" ref={tzDropdownRef}>
+              <button
+                type="button"
+                onClick={() => setTzOpen(!tzOpen)}
+                className="w-full flex items-center justify-between px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg hover:border-zinc-300 transition-colors text-left"
+              >
+                <span className="flex items-center gap-2 text-zinc-900">
+                  <Globe size={14} className="text-zinc-400" />
+                  {memberTz.replace(/_/g, ' ')}
+                </span>
+                <span className="text-zinc-400 text-xs font-mono">
+                  {tzEntries.find(e => e.id === memberTz)?.label || 'UTC+0'}
+                </span>
+              </button>
+              {tzOpen && (
+                <div className="absolute z-50 mt-1 w-full bg-white border border-zinc-200 rounded-lg shadow-lg">
+                  <div className="p-2 border-b border-zinc-100">
+                    <input
+                      type="text"
+                      value={tzSearch}
+                      onChange={e => setTzSearch(e.target.value)}
+                      placeholder="Search timezones..."
+                      className="w-full px-3 py-1.5 text-sm bg-zinc-50 border border-zinc-200 rounded-md outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-100"
+                      autoFocus
+                    />
+                  </div>
+                  <div className="max-h-48 overflow-y-auto">
+                    {filteredTz.length === 0 ? (
+                      <p className="px-3 py-2 text-sm text-zinc-400">No matching timezones</p>
+                    ) : filteredTz.map(group => (
+                      <div key={group.label}>
+                        <div className="sticky top-0 bg-zinc-50 px-3 py-1 text-[11px] font-semibold text-zinc-400 uppercase tracking-wide font-mono border-b border-zinc-100">
+                          {group.label}
+                        </div>
+                        {group.items.map(entry => (
+                          <button
+                            key={entry.id}
+                            type="button"
+                            onClick={() => { setMemberTz(entry.id); setTzOpen(false); setTzSearch(''); }}
+                            className={`w-full text-left px-3 py-1.5 text-sm hover:bg-zinc-50 transition-colors flex items-center justify-between ${
+                              entry.id === memberTz ? 'text-brand-600 font-medium bg-brand-50/50' : 'text-zinc-700'
+                            }`}
+                          >
+                            <span>{entry.id.replace(/_/g, ' ')}</span>
+                            {entry.id === memberTz && <Check size={14} className="text-brand-600 flex-shrink-0" />}
+                          </button>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
 
           <div className="flex justify-end gap-3 pt-4">
             <Button type="button" variant="ghost" onClick={handleCloseForm} disabled={formLoading}>

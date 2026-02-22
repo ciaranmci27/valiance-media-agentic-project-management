@@ -71,9 +71,12 @@ export function ListView({ tasks, onViewTask, onEditTask, onDeleteTask, selected
 
   if (tasks.length === 0) {
     return (
-      <div className="text-center py-12 bg-white rounded-xl border border-zinc-200">
-        <LayoutGrid className="mx-auto mb-3 text-zinc-400" size={32} />
-        <p className="text-zinc-500">No tasks found</p>
+      <div className="bg-white rounded-xl border border-zinc-200 flex flex-col items-center justify-center p-8 text-center">
+        <div className="w-10 h-10 rounded-full bg-zinc-100 flex items-center justify-center mb-3">
+          <LayoutGrid size={18} className="text-zinc-400" />
+        </div>
+        <p className="text-sm font-medium text-zinc-500">No tasks found</p>
+        <p className="text-xs text-zinc-400 mt-1">Try adjusting your filters</p>
       </div>
     );
   }

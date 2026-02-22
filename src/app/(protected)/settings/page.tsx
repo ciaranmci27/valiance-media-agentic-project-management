@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { createClient } from '@/lib/supabase/client';
@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { AvatarUpload } from '@/components/ui/AvatarUpload';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import { User, Lock, FlaskConical, Key, Copy, Check, Plus, Ban, ExternalLink, Bell } from 'lucide-react';
+import { User, Lock, FlaskConical, Key, Copy, Check, Plus, Ban, ExternalLink, Bell, Globe } from 'lucide-react';
 import { toast } from '@/components/ui/Toast';
 import { useDemo } from '@/lib/demo-context';
 import { hashApiKey, generateApiKey } from '@/lib/api/crypto';
@@ -35,6 +35,11 @@ const NOTIF_GROUPS: { group: string; adminOnly?: boolean; agentOnly?: boolean; i
       { key: 'project_deleted', label: 'Project archived', desc: 'A project is archived or deleted' },
       { key: 'project_updates', label: 'Project updates', desc: 'Project details changed' },
       { key: 'project_contacts', label: 'Project contacts', desc: 'Contacts linked or removed' },
+      { key: 'portal_settings', label: 'Portal settings', desc: 'Portal enabled, disabled, or configured' },
+      { key: 'portal_updates', label: 'Portal updates', desc: 'Timeline updates posted, edited, or removed' },
+      { key: 'portal_files', label: 'Portal files', desc: 'Files added or removed from portal' },
+      { key: 'time_entries', label: 'Time tracking', desc: 'Time entries logged, updated, or deleted' },
+      { key: 'entity_files', label: 'File attachments', desc: 'Files attached or removed from entities' },
     ],
   },
   {
@@ -49,6 +54,7 @@ const NOTIF_GROUPS: { group: string; adminOnly?: boolean; agentOnly?: boolean; i
     group: 'Team',
     items: [
       { key: 'team_members', label: 'Team changes', desc: 'Members added, invited, or removed' },
+      { key: 'api_keys', label: 'API keys', desc: 'API keys created or revoked' },
     ],
   },
   {
@@ -111,6 +117,63 @@ export default function SettingsPage() {
   // Notification prefs state
   const [notifPrefs, setNotifPrefs] = useState<NotificationPreferences>({});
 
+  // Timezone state
+  const [timezone, setTimezone] = useState('UTC');
+  const [tzSearch, setTzSearch] = useState('');
+  const [tzDropdownOpen, setTzDropdownOpen] = useState(false);
+
+  const tzEntries = useMemo(() => {
+    let zones: string[];
+    try {
+      zones = Intl.supportedValuesOf('timeZone');
+    } catch {
+      zones = ['UTC', 'America/New_York', 'America/Chicago', 'America/Denver', 'America/Phoenix', 'America/Los_Angeles', 'America/Anchorage', 'Pacific/Honolulu', 'Europe/London', 'Europe/Berlin', 'Europe/Paris', 'Asia/Tokyo', 'Asia/Shanghai', 'Asia/Kolkata', 'Australia/Sydney'];
+    }
+
+    const now = Date.now();
+    return zones.map(tz => {
+      // Extract the UTC offset label (e.g. "GMT-7", "GMT+5:30")
+      try {
+        const parts = new Intl.DateTimeFormat('en-US', {
+          timeZone: tz,
+          timeZoneName: 'shortOffset',
+        }).formatToParts(now);
+        const raw = parts.find(p => p.type === 'timeZoneName')?.value || 'GMT';
+        // Convert "GMT" → "UTC+0", "GMT-7" → "UTC-7", "GMT+5:30" → "UTC+5:30"
+        const label = raw === 'GMT' ? 'UTC+0' : raw.replace('GMT', 'UTC');
+        // Parse offset to minutes for sorting
+        const match = label.match(/UTC([+-])(\d+)(?::(\d+))?/);
+        const offsetMin = match
+          ? (match[1] === '+' ? 1 : -1) * (parseInt(match[2]) * 60 + parseInt(match[3] || '0'))
+          : 0;
+        return { id: tz, label, offsetMin };
+      } catch {
+        return { id: tz, label: 'UTC+0', offsetMin: 0 };
+      }
+    }).sort((a, b) => a.offsetMin - b.offsetMin || a.id.localeCompare(b.id));
+  }, []);
+
+  const filteredTzEntries = useMemo(() => {
+    const entries = tzSearch
+      ? tzEntries.filter(e => {
+          const q = tzSearch.toLowerCase();
+          return e.id.toLowerCase().includes(q) || e.label.toLowerCase().includes(q);
+        })
+      : tzEntries;
+
+    // Group by offset label
+    const groups: { label: string; items: typeof entries }[] = [];
+    let currentLabel = '';
+    for (const entry of entries) {
+      if (entry.label !== currentLabel) {
+        currentLabel = entry.label;
+        groups.push({ label: currentLabel, items: [] });
+      }
+      groups[groups.length - 1].items.push(entry);
+    }
+    return groups;
+  }, [tzEntries, tzSearch]);
+
   // Derive current avatar src from member data or local override
   const currentAvatarSrc = avatarSrc ?? (
     currentMember?.avatar && (currentMember.avatar.startsWith('http') || currentMember.avatar.startsWith('blob:'))
@@ -134,6 +197,9 @@ export default function SettingsPage() {
     if (currentMember?.notification_prefs) {
       setNotifPrefs(currentMember.notification_prefs);
     }
+    if (currentMember?.timezone) {
+      setTimezone(currentMember.timezone);
+    }
   }, [currentMember?.id]);
 
   const handleToggleNotif = (category: NotificationCategory) => {
@@ -149,6 +215,29 @@ export default function SettingsPage() {
     updateTeamMember(teamMemberId, { notification_prefs: newPrefs });
     toast('success', isCurrentlyEnabled ? 'Notification disabled' : 'Notification enabled');
   };
+
+  const handleTimezoneChange = (tz: string) => {
+    if (!teamMemberId) return;
+    setTimezone(tz);
+    setTzDropdownOpen(false);
+    setTzSearch('');
+    updateTeamMember(teamMemberId, { timezone: tz });
+    toast('success', `Timezone set to ${tz}`);
+  };
+
+  // Close timezone dropdown when clicking outside
+  const tzRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!tzDropdownOpen) return;
+    const handleClick = (e: MouseEvent) => {
+      if (tzRef.current && !tzRef.current.contains(e.target as Node)) {
+        setTzDropdownOpen(false);
+        setTzSearch('');
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [tzDropdownOpen]);
 
   const handleAvatarCropped = async (blob: Blob) => {
     if (!teamMemberId) return;
@@ -375,6 +464,85 @@ export default function SettingsPage() {
             <Button onClick={handleSaveProfile} disabled={profileLoading}>
               {profileLoading ? 'Saving...' : 'Save Changes'}
             </Button>
+          </div>
+        </section>
+
+        {/* Timezone Section */}
+        <section className={`rounded-xl border p-4 lg:p-6 ${
+          timezone === 'UTC' ? 'bg-amber-50/50 border-amber-300' : 'bg-white border-zinc-200'
+        }`}>
+          <div className="flex items-center gap-3 mb-4">
+            <div className={`p-2 rounded-lg ${timezone === 'UTC' ? 'bg-amber-100' : 'bg-emerald-50'}`}>
+              <Globe className={timezone === 'UTC' ? 'text-amber-600' : 'text-emerald-600'} size={20} />
+            </div>
+            <div className="flex-1">
+              <h2 className="font-semibold text-zinc-900">Timezone</h2>
+              <p className="text-sm text-zinc-500">All times in the app will be shown in this timezone</p>
+            </div>
+          </div>
+
+          {timezone === 'UTC' && (
+            <div className="flex items-start gap-2.5 mb-4 px-3 py-2.5 bg-amber-100/70 border border-amber-200 rounded-lg">
+              <span className="text-amber-600 mt-0.5 flex-shrink-0">&#9888;</span>
+              <p className="text-sm text-amber-800">
+                Your timezone is set to <span className="font-semibold">UTC</span>. Times may appear incorrect. Select your local timezone below so all dates and times display accurately.
+              </p>
+            </div>
+          )}
+
+          <div className="relative" ref={tzRef}>
+            <button
+              type="button"
+              onClick={() => setTzDropdownOpen(!tzDropdownOpen)}
+              className={`w-full md:w-96 flex items-center justify-between px-3 py-2 text-sm border rounded-lg hover:border-zinc-300 transition-colors text-left ${
+                timezone === 'UTC' ? 'bg-white border-amber-300' : 'bg-white border-zinc-200'
+              }`}
+            >
+              <span className="text-zinc-900">{timezone.replace(/_/g, ' ')}</span>
+              <span className="text-zinc-400 text-xs font-mono">
+                {tzEntries.find(e => e.id === timezone)?.label || 'UTC+0'}
+              </span>
+            </button>
+
+            {tzDropdownOpen && (
+              <div className="absolute z-50 mt-1 w-full md:w-96 bg-white border border-zinc-200 rounded-lg shadow-lg">
+                <div className="p-2 border-b border-zinc-100">
+                  <input
+                    type="text"
+                    value={tzSearch}
+                    onChange={e => setTzSearch(e.target.value)}
+                    placeholder="Search timezones or offset (e.g. UTC-7)..."
+                    className="w-full px-3 py-1.5 text-sm bg-zinc-50 border border-zinc-200 rounded-md outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-100"
+                    autoFocus
+                  />
+                </div>
+                <div className="max-h-72 overflow-y-auto">
+                  {filteredTzEntries.length === 0 ? (
+                    <p className="px-3 py-2 text-sm text-zinc-400">No matching timezones</p>
+                  ) : (
+                    filteredTzEntries.map(group => (
+                      <div key={group.label}>
+                        <div className="sticky top-0 bg-zinc-50 px-3 py-1 text-[11px] font-semibold text-zinc-400 uppercase tracking-wide font-mono border-b border-zinc-100">
+                          {group.label}
+                        </div>
+                        {group.items.map(entry => (
+                          <button
+                            key={entry.id}
+                            onClick={() => handleTimezoneChange(entry.id)}
+                            className={`w-full text-left px-3 py-1.5 text-sm hover:bg-zinc-50 transition-colors flex items-center justify-between ${
+                              entry.id === timezone ? 'text-brand-600 font-medium bg-brand-50/50' : 'text-zinc-700'
+                            }`}
+                          >
+                            <span>{entry.id.replace(/_/g, ' ')}</span>
+                            {entry.id === timezone && <Check size={14} className="text-brand-600 flex-shrink-0" />}
+                          </button>
+                        ))}
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </section>
 

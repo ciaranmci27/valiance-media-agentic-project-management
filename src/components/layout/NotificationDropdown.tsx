@@ -202,9 +202,12 @@ export function NotificationDropdown() {
                 <p className="text-sm">Loading...</p>
               </div>
             ) : notifications.length === 0 ? (
-              <div className="py-10 text-center text-zinc-400">
-                <Bell className="mx-auto mb-2 opacity-40" size={28} />
-                <p className="text-sm">No notifications yet</p>
+              <div className="flex flex-col items-center justify-center p-8 text-center">
+                <div className="w-10 h-10 rounded-full bg-zinc-100 flex items-center justify-center mb-3">
+                  <Bell size={18} className="text-zinc-400" />
+                </div>
+                <p className="text-sm font-medium text-zinc-500">No notifications yet</p>
+                <p className="text-xs text-zinc-400 mt-1">You&apos;re all caught up</p>
               </div>
             ) : (
               <div className="divide-y divide-zinc-100">

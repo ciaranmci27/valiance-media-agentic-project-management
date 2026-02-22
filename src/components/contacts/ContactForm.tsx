@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { AvatarUpload } from '@/components/ui/AvatarUpload';
 import { toast } from '@/components/ui/Toast';
+import { formatPhone } from '@/lib/format-phone';
 import { siteConfig } from '@/site-config';
 
 
@@ -50,7 +51,7 @@ export function ContactForm({ isOpen, onClose, contact }: ContactFormProps) {
     if (contact) {
       setName(contact.name);
       setEmail(contact.email);
-      setPhone(contact.phone);
+      setPhone(formatPhone(contact.phone));
       setCompany(contact.company);
       setNotes(contact.notes);
       setAvatarPreview(contact.avatar_url || undefined);
@@ -211,8 +212,8 @@ export function ContactForm({ isOpen, onClose, contact }: ContactFormProps) {
           <Input
             label="Phone"
             value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            placeholder="Phone number"
+            onChange={(e) => setPhone(formatPhone(e.target.value))}
+            placeholder="(555) 555-5555"
             error={errors.phone}
           />
         </div>

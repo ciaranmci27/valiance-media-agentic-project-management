@@ -22,8 +22,9 @@ import { RichTextEditor } from '@/components/ui/RichTextEditor';
 import {
   Edit, Trash2, ArrowRightCircle, Target,
   Mail, Phone, Building2, User, StickyNote, DollarSign, Plus, CalendarClock,
-  PhoneCall, Users, MoreVertical, Check,
+  PhoneCall, Users, Check,
 } from 'lucide-react';
+import { formatPhone } from '@/lib/format-phone';
 
 const STATUS_CONFIG: Record<string, { label: string; variant: 'default' | 'success' | 'warning' | 'danger' | 'info' | 'purple' }> = {
   new: { label: 'New', variant: 'info' },
@@ -101,7 +102,6 @@ export default function LeadDetailPage() {
   const [deletingProposalId, setDeletingProposalId] = useState<string | null>(null);
   const [isEditingNotes, setIsEditingNotes] = useState(false);
   const [notesValue, setNotesValue] = useState('');
-  const [proposalMenuId, setProposalMenuId] = useState<string | null>(null);
 
   const leadId = params.id as string;
   const lead = getLead(leadId);
@@ -150,7 +150,6 @@ export default function LeadDetailPage() {
   const handleEditProposal = (proposal: LeadProposal) => {
     setEditingProposal(proposal);
     setIsProposalFormOpen(true);
-    setProposalMenuId(null);
   };
 
   const executeDeleteInteraction = () => {
@@ -248,7 +247,7 @@ export default function LeadDetailPage() {
             {lead.phone && (
               <a href={`tel:${lead.phone}`} className="flex items-center gap-2 text-zinc-600 hover:text-brand-600 transition-colors">
                 <Phone size={16} className="text-zinc-400" />
-                <span>{lead.phone}</span>
+                <span>{formatPhone(lead.phone)}</span>
               </a>
             )}
           </div>
@@ -366,165 +365,168 @@ export default function LeadDetailPage() {
           </div>
         )}
 
-        {/* Interactions Timeline */}
-        <div>
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="font-semibold text-zinc-900">
-              Interactions ({interactions.length})
-            </h2>
-            <Button
-              size="sm"
-              onClick={() => { setEditingInteraction(null); setIsInteractionFormOpen(true); }}
-              icon={<Plus size={14} />}
-            >
-              Add Interaction
-            </Button>
-          </div>
-
-          {interactions.length > 0 ? (
-            <div className="bg-white rounded-xl border border-zinc-200 divide-y divide-zinc-100">
-              {interactions.map((interaction) => {
-                const author = interaction.created_by ? getTeamMember(interaction.created_by) : null;
-                const isCompletedFollowUp = interaction.type === 'follow_up' && interaction.completed;
-
-                return (
-                  <div
-                    key={interaction.id}
-                    className={`p-4 flex items-start gap-3 group ${isCompletedFollowUp ? 'opacity-60' : ''}`}
-                  >
-                    <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${
-                      isCompletedFollowUp ? 'bg-emerald-100 text-emerald-600' :
-                      interaction.type === 'call' ? 'bg-blue-100 text-blue-600' :
-                      interaction.type === 'email' ? 'bg-brand-100 text-brand-600' :
-                      interaction.type === 'meeting' ? 'bg-violet-100 text-violet-600' :
-                      interaction.type === 'follow_up' ? 'bg-amber-100 text-amber-600' :
-                      'bg-zinc-100 text-zinc-600'
-                    }`}>
-                      {isCompletedFollowUp ? <Check size={16} /> : INTERACTION_ICONS[interaction.type]}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <p className="text-sm font-medium text-zinc-900 truncate">{interaction.title}</p>
-                        <Badge variant={interaction.type === 'follow_up' ? 'warning' : 'default'}>
-                          {interaction.type === 'follow_up' ? 'Follow-up' : interaction.type.charAt(0).toUpperCase() + interaction.type.slice(1)}
-                        </Badge>
-                        {isCompletedFollowUp && <Badge variant="success">Completed</Badge>}
-                      </div>
-                      {interaction.description && (
-                        <p className="text-sm text-zinc-600 mt-1">{interaction.description}</p>
-                      )}
-                      <div className="flex items-center gap-3 mt-1.5 text-xs text-zinc-400">
-                        <span>{formatRelativeDate(interaction.occurred_at)}</span>
-                        {author && <span>by {author.name}</span>}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button
-                        onClick={() => handleEditInteraction(interaction)}
-                        className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 transition-all"
-                      >
-                        <Edit size={14} />
-                      </button>
-                      <button
-                        onClick={() => setDeletingInteractionId(interaction.id)}
-                        className="p-1.5 rounded-lg text-zinc-400 hover:text-red-600 hover:bg-red-50 transition-all"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
+        {/* Interactions + Proposals row */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
+          {/* Interactions Timeline */}
+          <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden flex flex-col max-h-[600px]">
+            <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-200 flex-shrink-0">
+              <div className="flex items-center gap-2">
+                <StickyNote size={18} className="text-zinc-500" />
+                <h2 className="font-semibold text-zinc-900">
+                  Interactions ({interactions.length})
+                </h2>
+              </div>
+              <Button
+                size="sm"
+                onClick={() => { setEditingInteraction(null); setIsInteractionFormOpen(true); }}
+                icon={<Plus size={14} />}
+              >
+                Add
+              </Button>
             </div>
-          ) : (
-            <div className="bg-white rounded-xl border border-zinc-200 p-8 text-center text-zinc-500">
-              <StickyNote className="mx-auto mb-2" size={24} />
-              <p>No interactions recorded yet</p>
-            </div>
-          )}
-        </div>
 
-        {/* Proposals */}
-        <div>
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="font-semibold text-zinc-900">
-              Proposals ({proposals.length})
-            </h2>
-            <Button
-              size="sm"
-              onClick={() => { setEditingProposal(null); setIsProposalFormOpen(true); }}
-              icon={<Plus size={14} />}
-            >
-              Add Proposal
-            </Button>
-          </div>
+            {interactions.length > 0 ? (
+              <div className="flex-1 overflow-y-auto p-3 space-y-1">
+                {interactions.map((interaction) => {
+                  const author = interaction.created_by ? getTeamMember(interaction.created_by) : null;
+                  const isCompletedFollowUp = interaction.type === 'follow_up' && interaction.completed;
 
-          {proposals.length > 0 ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {proposals.map((proposal) => {
-                const pStatus = PROPOSAL_STATUS_CONFIG[proposal.status] || PROPOSAL_STATUS_CONFIG.draft;
-                return (
-                  <div key={proposal.id} className="bg-white rounded-xl border border-zinc-200 p-4 group">
-                    <div className="flex items-start justify-between mb-2">
-                      <h3 className="text-sm font-semibold text-zinc-900 truncate flex-1">{proposal.title}</h3>
-                      <div className="relative flex-shrink-0">
+                  return (
+                    <div
+                      key={interaction.id}
+                      className={`flex items-start gap-3 px-3 py-2.5 rounded-lg bg-zinc-50 hover:bg-zinc-100 transition-colors group ${isCompletedFollowUp ? 'opacity-60' : ''}`}
+                    >
+                      <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${
+                        isCompletedFollowUp ? 'bg-emerald-100 text-emerald-600' :
+                        interaction.type === 'call' ? 'bg-blue-100 text-blue-600' :
+                        interaction.type === 'email' ? 'bg-brand-100 text-brand-600' :
+                        interaction.type === 'meeting' ? 'bg-violet-100 text-violet-600' :
+                        interaction.type === 'follow_up' ? 'bg-amber-100 text-amber-600' :
+                        'bg-zinc-100 text-zinc-600'
+                      }`}>
+                        {isCompletedFollowUp ? <Check size={16} /> : INTERACTION_ICONS[interaction.type]}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="text-sm font-medium text-zinc-900 truncate">{interaction.title}</p>
+                          <Badge variant={interaction.type === 'follow_up' ? 'warning' : 'default'}>
+                            {interaction.type === 'follow_up' ? 'Follow-up' : interaction.type.charAt(0).toUpperCase() + interaction.type.slice(1)}
+                          </Badge>
+                          {isCompletedFollowUp && <Badge variant="success">Completed</Badge>}
+                        </div>
+                        {interaction.description && (
+                          <p className="text-sm text-zinc-600 mt-1 line-clamp-2">{interaction.description}</p>
+                        )}
+                        <div className="flex items-center gap-3 mt-1.5 text-xs text-zinc-400">
+                          <span>{formatRelativeDate(interaction.occurred_at)}</span>
+                          {author && <span>by {author.name}</span>}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
                         <button
-                          onClick={() => setProposalMenuId(proposalMenuId === proposal.id ? null : proposal.id)}
-                          className="lg:opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 transition-all"
+                          onClick={() => handleEditInteraction(interaction)}
+                          className="p-1.5 text-zinc-300 hover:text-brand-500 transition-all"
                         >
-                          <MoreVertical size={16} />
+                          <Edit size={14} />
                         </button>
-                        {proposalMenuId === proposal.id && (
-                          <>
-                            <div className="fixed inset-0 z-10" onClick={() => setProposalMenuId(null)} />
-                            <div className="absolute right-0 top-10 bg-white rounded-lg shadow-xl border border-zinc-200 py-1 z-20 min-w-[140px]">
-                              <button
-                                onClick={() => handleEditProposal(proposal)}
-                                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-100"
-                              >
-                                <Edit size={14} />
-                                Edit
-                              </button>
-                              <button
-                                onClick={() => { setDeletingProposalId(proposal.id); setProposalMenuId(null); }}
-                                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50"
-                              >
-                                <Trash2 size={14} />
-                                Delete
-                              </button>
-                            </div>
-                          </>
+                        <button
+                          onClick={() => setDeletingInteractionId(interaction.id)}
+                          className="p-1.5 text-zinc-300 hover:text-red-500 transition-all"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
+                <div className="w-10 h-10 rounded-full bg-zinc-100 flex items-center justify-center mb-3">
+                  <StickyNote size={18} className="text-zinc-400" />
+                </div>
+                <p className="text-sm font-medium text-zinc-500">No interactions yet</p>
+                <p className="text-xs text-zinc-400 mt-1">Record calls, emails, and meetings</p>
+              </div>
+            )}
+          </div>
+
+          {/* Proposals */}
+          <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden flex flex-col max-h-[600px]">
+            <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-200 flex-shrink-0">
+              <div className="flex items-center gap-2">
+                <DollarSign size={18} className="text-zinc-500" />
+                <h2 className="font-semibold text-zinc-900">
+                  Proposals ({proposals.length})
+                </h2>
+              </div>
+              <Button
+                size="sm"
+                onClick={() => { setEditingProposal(null); setIsProposalFormOpen(true); }}
+                icon={<Plus size={14} />}
+              >
+                Add
+              </Button>
+            </div>
+
+            {proposals.length > 0 ? (
+              <div className="flex-1 overflow-y-auto p-3 space-y-1">
+                {proposals.map((proposal) => {
+                  const pStatus = PROPOSAL_STATUS_CONFIG[proposal.status] || PROPOSAL_STATUS_CONFIG.draft;
+                  return (
+                    <div key={proposal.id} className="flex items-start gap-3 px-3 py-2.5 rounded-lg bg-zinc-50 hover:bg-zinc-100 transition-colors group">
+                      <div className="w-8 h-8 rounded-lg bg-white border border-zinc-200 flex items-center justify-center flex-shrink-0">
+                        <DollarSign size={14} className="text-zinc-400" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="text-sm font-medium text-zinc-900 truncate">{proposal.title}</p>
+                          <Badge variant={pStatus.variant}>{pStatus.label}</Badge>
+                        </div>
+                        {proposal.description && (
+                          <p className="text-xs text-zinc-500 mt-1 line-clamp-2">{proposal.description}</p>
+                        )}
+                        {proposal.estimated_value != null && (
+                          <p className="text-xs text-zinc-400 mt-1">
+                            {formatCurrency(proposal.estimated_value)}
+                          </p>
                         )}
                       </div>
+                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+                        <button
+                          onClick={() => handleEditProposal(proposal)}
+                          className="p-1.5 text-zinc-300 hover:text-brand-500 transition-all"
+                        >
+                          <Edit size={14} />
+                        </button>
+                        <button
+                          onClick={() => setDeletingProposalId(proposal.id)}
+                          className="p-1.5 text-zinc-300 hover:text-red-500 transition-all"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
                     </div>
-                    {proposal.description && (
-                      <p className="text-xs text-zinc-500 mb-3 line-clamp-2">{proposal.description}</p>
-                    )}
-                    <div className="flex items-center justify-between">
-                      <Badge variant={pStatus.variant}>{pStatus.label}</Badge>
-                      {proposal.estimated_value != null && (
-                        <span className="text-sm font-semibold text-zinc-700 flex items-center gap-1">
-                          <DollarSign size={14} className="text-emerald-500" />
-                          {formatCurrency(proposal.estimated_value)}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="bg-white rounded-xl border border-zinc-200 p-8 text-center text-zinc-500">
-              <DollarSign className="mx-auto mb-2" size={24} />
-              <p>No proposals yet</p>
-            </div>
-          )}
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
+                <div className="w-10 h-10 rounded-full bg-zinc-100 flex items-center justify-center mb-3">
+                  <DollarSign size={18} className="text-zinc-400" />
+                </div>
+                <p className="text-sm font-medium text-zinc-500">No proposals yet</p>
+                <p className="text-xs text-zinc-400 mt-1">Create proposals for this lead</p>
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* Lead Contacts */}
-        <LeadContactsSection leadId={leadId} />
-
-        <FileAttachments entityType="lead" entityId={leadId} />
+        {/* Contacts + Files row */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
+          <LeadContactsSection leadId={leadId} />
+          <FileAttachments entityType="lead" entityId={leadId} />
+        </div>
 
         <div className="flex justify-end">
           <Button variant="danger" onClick={() => setIsDeleteOpen(true)} icon={<Trash2 size={16} />}>

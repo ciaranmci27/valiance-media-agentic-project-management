@@ -10,6 +10,7 @@ import { Select } from '@/components/ui/Select';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { TimeEntry } from '@/lib/types';
 import { siteConfig } from '@/site-config';
+import { toLocalTimeString, toLocalDateString } from '@/lib/date-utils';
 
 /* ── Types ── */
 
@@ -35,8 +36,8 @@ function formatHM(decimal: number): string {
   return `${h}h ${m}m`;
 }
 
-function formatTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+function formatTime(iso: string, timezone?: string): string {
+  return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', ...(timezone ? { timeZone: timezone } : {}) });
 }
 
 function formatElapsed(seconds: number): string {
@@ -46,8 +47,8 @@ function formatElapsed(seconds: number): string {
   return [h, m, s].map(v => String(v).padStart(2, '0')).join(':');
 }
 
-function getDateKey(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-CA');
+function getDateKey(iso: string, timezone?: string): string {
+  return new Date(iso).toLocaleDateString('en-CA', timezone ? { timeZone: timezone } : undefined);
 }
 
 function formatDateHeader(dateStr: string): string {
@@ -69,6 +70,7 @@ export function TimeTrackingPanel({ projectId, projectColor = siteConfig.colors.
   } = useApp();
   const { teamMemberId } = useAuth();
 
+  const tz = team.find(m => m.id === teamMemberId)?.timezone;
   const entries = getTimeEntriesByProject(projectId);
   const project = getProject(projectId);
   const projectMembers = team.filter(m => project?.member_ids?.includes(m.id));
@@ -129,7 +131,7 @@ export function TimeTrackingPanel({ projectId, projectColor = siteConfig.colors.
   const descDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Manual entry form state ──
-  const [manualDate, setManualDate] = useState(new Date().toISOString().slice(0, 10));
+  const [manualDate, setManualDate] = useState(toLocalDateString(tz));
   const [manualStartTime, setManualStartTime] = useState('');
   const [manualEndTime, setManualEndTime] = useState('');
   const [manualMemberId, setManualMemberId] = useState('');
@@ -176,7 +178,7 @@ export function TimeTrackingPanel({ projectId, projectColor = siteConfig.colors.
     );
     const groups: Record<string, TimeEntry[]> = {};
     for (const entry of completed) {
-      const dateKey = getDateKey(entry.start_time);
+      const dateKey = getDateKey(entry.start_time, tz);
       if (!groups[dateKey]) groups[dateKey] = [];
       groups[dateKey].push(entry);
     }
@@ -226,17 +228,15 @@ export function TimeTrackingPanel({ projectId, projectColor = siteConfig.colors.
     setManualDescription('');
     setManualStartTime('');
     setManualEndTime('');
-    setManualDate(new Date().toISOString().slice(0, 10));
+    setManualDate(toLocalDateString(tz));
   };
 
   const startEdit = (entry: TimeEntry) => {
-    const start = new Date(entry.start_time);
-    const end = entry.end_time ? new Date(entry.end_time) : new Date();
     setEditingId(entry.id);
     setEditState({
-      date: getDateKey(entry.start_time),
-      startTime: `${String(start.getHours()).padStart(2, '0')}:${String(start.getMinutes()).padStart(2, '0')}`,
-      endTime: `${String(end.getHours()).padStart(2, '0')}:${String(end.getMinutes()).padStart(2, '0')}`,
+      date: getDateKey(entry.start_time, tz),
+      startTime: toLocalTimeString(entry.start_time, tz),
+      endTime: toLocalTimeString(entry.end_time || new Date().toISOString(), tz),
       description: entry.description,
       memberId: entry.member_id,
     });
@@ -270,16 +270,16 @@ export function TimeTrackingPanel({ projectId, projectColor = siteConfig.colors.
      RENDER
   ================================================================ */
   return (
-    <div className="bg-white rounded-xl border border-zinc-200">
+    <div className="bg-white rounded-xl border border-zinc-200 flex flex-col max-h-[600px]">
       {/* ── Header ── */}
-      <div className="px-5 py-3 border-b border-zinc-200 flex items-center gap-2.5">
-        <div className="p-1.5 rounded-md" style={{ backgroundColor: projectColor + '1A' }}>
-          <Clock size={16} style={{ color: projectColor }} />
+      <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-200 flex-shrink-0">
+        <div className="flex items-center gap-2">
+          <Clock size={18} className="text-zinc-500" />
+          <h2 className="font-semibold text-zinc-900">Time Tracking</h2>
         </div>
-        <h3 className="text-sm font-semibold text-zinc-900">Time Tracking</h3>
         <button
           onClick={toggleMode}
-          className="ml-auto text-xs text-zinc-500 hover:text-zinc-700 transition-colors flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg hover:bg-zinc-100"
+          className="text-xs text-zinc-500 hover:text-zinc-700 transition-colors flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg hover:bg-zinc-100"
         >
           {mode === 'manual' ? (
             <>
@@ -295,6 +295,7 @@ export function TimeTrackingPanel({ projectId, projectColor = siteConfig.colors.
         </button>
       </div>
 
+      <div className="flex-1 overflow-y-auto">
       {/* ═══════════════════════════════════════════════════════
            STATS ROW
          ═══════════════════════════════════════════════════════ */}
@@ -351,7 +352,7 @@ export function TimeTrackingPanel({ projectId, projectColor = siteConfig.colors.
                     </span>
                     <div className="flex-1 min-w-0">
                       <p className="text-xs text-zinc-400 truncate">
-                        {getMember(runningTimer.member_id)?.name} &middot; Started {formatTime(runningTimer.start_time)}
+                        {getMember(runningTimer.member_id)?.name} &middot; Started {formatTime(runningTimer.start_time, tz)}
                       </p>
                     </div>
                   </div>
@@ -392,10 +393,7 @@ export function TimeTrackingPanel({ projectId, projectColor = siteConfig.colors.
                     </div>
                     <button
                       onClick={handleStartTimer}
-                      className="px-4 h-[38px] rounded-lg text-white font-medium text-sm transition-colors flex items-center gap-2 flex-shrink-0"
-                      style={{ backgroundColor: projectColor }}
-                      onMouseEnter={e => (e.currentTarget.style.opacity = '0.85')}
-                      onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
+                      className="px-4 h-[38px] rounded-lg text-white font-medium text-sm transition-colors flex items-center gap-2 flex-shrink-0 bg-brand-600 hover:bg-brand-700"
                     >
                       <Play size={14} />
                       Start Timer
@@ -428,7 +426,7 @@ export function TimeTrackingPanel({ projectId, projectColor = siteConfig.colors.
                     {runningTimer.description || <span className="text-zinc-400 italic">No description</span>}
                   </p>
                   <p className="text-xs text-zinc-400">
-                    {getMember(runningTimer.member_id)?.name} &middot; Started {formatTime(runningTimer.start_time)}
+                    {getMember(runningTimer.member_id)?.name} &middot; Started {formatTime(runningTimer.start_time, tz)}
                   </p>
                 </div>
                 <span
@@ -520,10 +518,7 @@ export function TimeTrackingPanel({ projectId, projectColor = siteConfig.colors.
                 />
                 <button
                   type="submit"
-                  className="px-2.5 h-[38px] rounded-lg text-white transition-colors flex-shrink-0 flex items-center justify-center"
-                  style={{ backgroundColor: projectColor }}
-                  onMouseEnter={e => (e.currentTarget.style.opacity = '0.85')}
-                  onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
+                  className="px-2.5 h-[38px] rounded-lg text-white transition-colors flex-shrink-0 flex items-center justify-center bg-brand-600 hover:bg-brand-700"
                 >
                   <Plus size={18} />
                 </button>
@@ -535,7 +530,7 @@ export function TimeTrackingPanel({ projectId, projectColor = siteConfig.colors.
                ENTRY LIST (shared between modes)
              ═══════════════════════════════════════════════════════ */}
           {dateGroups.length > 0 ? (
-            <div className="p-5 pt-3 space-y-4 max-h-[300px] overflow-y-auto">
+            <div className="p-5 pt-3 space-y-4">
               {dateGroups.map(([date, dateEntries]) => (
                 <div key={date}>
                   <p className="text-xs uppercase tracking-wide font-medium text-zinc-400 mb-2">
@@ -613,7 +608,7 @@ export function TimeTrackingPanel({ projectId, projectColor = siteConfig.colors.
                               {entry.description || <span className="text-zinc-400 italic">No description</span>}
                             </p>
                             <p className="text-xs text-zinc-400">
-                              {member?.name} &middot; {formatTime(entry.start_time)} – {entry.end_time ? formatTime(entry.end_time) : '...'}{' '}
+                              {member?.name} &middot; {formatTime(entry.start_time, tz)} – {entry.end_time ? formatTime(entry.end_time, tz) : '...'}{' '}
                               <span
                                 className="font-semibold tabular-nums px-1.5 py-0.5 rounded-md"
                                 style={{ color: projectColor, backgroundColor: projectColor + '14' }}
@@ -646,14 +641,17 @@ export function TimeTrackingPanel({ projectId, projectColor = siteConfig.colors.
               ))}
             </div>
           ) : !runningTimer ? (
-            <div className="py-10 text-center">
-              <Clock size={32} className="mx-auto mb-2 text-zinc-300" />
+            <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
+              <div className="w-10 h-10 rounded-full bg-zinc-100 flex items-center justify-center mb-3">
+                <Clock size={18} className="text-zinc-400" />
+              </div>
               <p className="text-sm font-medium text-zinc-500">No hours logged yet</p>
               <p className="text-xs text-zinc-400 mt-1">
                 {mode === 'timer' ? 'Start a timer to begin tracking' : 'Use the form above to log your first entry'}
               </p>
             </div>
           ) : null}
+      </div>
 
       <ConfirmDialog
         isOpen={!!deleteTarget}

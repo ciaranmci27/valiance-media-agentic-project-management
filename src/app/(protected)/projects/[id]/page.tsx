@@ -13,6 +13,7 @@ import { TaskDetailPanel } from '@/components/tasks/TaskDetailPanel';
 import { ProjectForm } from '@/components/projects/ProjectForm';
 import { ProjectContactsPanel } from '@/components/projects/ProjectContactsPanel';
 import { PortalSettingsPanel } from '@/components/projects/PortalSettingsPanel';
+import { PortalUpdatesPanel } from '@/components/projects/PortalUpdatesPanel';
 import { TimeTrackingPanel } from '@/components/projects/TimeTrackingPanel';
 import { FileAttachments } from '@/components/ui/FileAttachments';
 import { Button } from '@/components/ui/Button';
@@ -229,7 +230,7 @@ export default function ProjectDetailPage() {
       <div className="px-4 lg:px-6 pt-4 lg:pt-6">
         <div className="bg-white rounded-xl border border-zinc-200 p-5 lg:p-6">
           {/* Info Grid */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             {/* Start Date */}
             <div className="flex items-start gap-2.5">
               <div className="mt-0.5 p-1.5 bg-zinc-100 rounded-md">
@@ -405,22 +406,24 @@ export default function ProjectDetailPage() {
             )}
 
             {/* View Mode Toggle */}
-            <div className="flex items-center bg-zinc-100 rounded-lg p-1 overflow-x-auto">
-              {viewModes.map((mode) => (
-                <button
-                  key={mode.id}
-                  onClick={() => setViewMode(mode.id)}
-                  className={`flex items-center gap-1.5 px-2 lg:px-3 py-1.5 rounded-md text-sm font-medium transition-all whitespace-nowrap ${
-                    viewMode === mode.id
-                      ? 'bg-white text-zinc-900 shadow-sm'
-                      : 'text-zinc-500 hover:text-zinc-700'
-                  }`}
-                >
-                  <mode.icon size={16} />
-                  <span className="hidden sm:inline">{mode.label}</span>
-                </button>
-              ))}
-            </div>
+            {allProjectTasks.length > 0 && (
+              <div className="flex items-center bg-zinc-100 rounded-lg p-1 overflow-x-auto">
+                {viewModes.map((mode) => (
+                  <button
+                    key={mode.id}
+                    onClick={() => setViewMode(mode.id)}
+                    className={`flex items-center gap-1.5 px-2 lg:px-3 py-1.5 rounded-md text-sm font-medium transition-all whitespace-nowrap ${
+                      viewMode === mode.id
+                        ? 'bg-white text-zinc-900 shadow-sm'
+                        : 'text-zinc-500 hover:text-zinc-700'
+                    }`}
+                  >
+                    <mode.icon size={16} />
+                    <span className="hidden sm:inline">{mode.label}</span>
+                  </button>
+                ))}
+              </div>
+            )}
 
             <Button
               onClick={() => setIsTaskFormOpen(true)}
@@ -434,15 +437,12 @@ export default function ProjectDetailPage() {
 
         {/* Task Views */}
         {projectTasks.length === 0 ? (
-          <div className="text-center py-12 bg-white rounded-xl border border-zinc-200">
-            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-zinc-100 flex items-center justify-center">
-              <LayoutGrid className="text-zinc-400" size={32} />
+          <div className="bg-white rounded-xl border border-zinc-200 flex flex-col items-center justify-center p-8 text-center">
+            <div className="w-10 h-10 rounded-full bg-zinc-100 flex items-center justify-center mb-3">
+              <LayoutGrid size={18} className="text-zinc-400" />
             </div>
-            <h3 className="text-lg font-semibold text-zinc-900 mb-2">No tasks yet</h3>
-            <p className="text-zinc-500 mb-4">Create your first task to get started</p>
-            <Button onClick={() => setIsTaskFormOpen(true)}>
-              Create Task
-            </Button>
+            <p className="text-sm font-medium text-zinc-500">No tasks yet</p>
+            <p className="text-xs text-zinc-400 mt-1">Create your first task to get started</p>
           </div>
         ) : (
           <>
@@ -481,15 +481,17 @@ export default function ProjectDetailPage() {
 
       {/* Management sections: 2-column grid when time tracking enabled */}
       <div className="px-4 lg:px-6 pb-4 lg:pb-6">
-        <div className={`grid grid-cols-1 ${project.hourly_tracking ? 'lg:grid-cols-2' : ''} gap-6 items-start`}>
+        <div className={`grid grid-cols-1 ${project.hourly_tracking ? 'lg:grid-cols-2' : ''} gap-6 items-stretch`}>
           {project.hourly_tracking && (
             <TimeTrackingPanel projectId={projectId} projectColor={project.color} />
           )}
 
-          <div className="space-y-6">
-            <FileAttachments entityType="project" entityId={projectId} />
-            <PortalSettingsPanel projectId={projectId} />
-          </div>
+          <FileAttachments entityType="project" entityId={projectId} />
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch mt-6">
+          <PortalSettingsPanel projectId={projectId} />
+          <PortalUpdatesPanel projectId={projectId} />
         </div>
       </div>
 

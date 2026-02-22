@@ -123,8 +123,8 @@ export function LeadContactsSection({ leadId }: LeadContactsSectionProps) {
 
   return (
     <>
-      <div>
-        <div className="flex items-center justify-between mb-4">
+      <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden flex flex-col max-h-[600px]">
+        <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-200 flex-shrink-0">
           <div className="flex items-center gap-2">
             <Users size={18} className="text-zinc-500" />
             <h2 className="font-semibold text-zinc-900">
@@ -137,15 +137,15 @@ export function LeadContactsSection({ leadId }: LeadContactsSectionProps) {
               onClick={() => setShowAddForm(true)}
               icon={<Plus size={14} />}
             >
-              Add Contact
+              Add
             </Button>
           )}
         </div>
 
-        <div className="space-y-3">
+        <div className="flex-1 flex flex-col overflow-y-auto">
           {/* Existing contacts list */}
           {leadContactsList.length > 0 ? (
-            <div className="bg-white rounded-xl border border-zinc-200 divide-y divide-zinc-100">
+            <div className="p-3 space-y-1">
               {leadContactsList.map((lc) => {
                 const contact = lc.contact;
                 if (!contact) return null;
@@ -154,7 +154,7 @@ export function LeadContactsSection({ leadId }: LeadContactsSectionProps) {
                 const displayRole = lc.role === 'Other' && lc.custom_role ? lc.custom_role : lc.role;
 
                 return (
-                  <div key={lc.id} className="p-3 lg:p-4 group">
+                  <div key={lc.id} className="px-3 py-2.5 rounded-lg bg-zinc-50 hover:bg-zinc-100 transition-colors group">
                     <div className="flex items-center gap-3">
                       <Avatar name={contact.name} src={contact.avatar_url || undefined} size="md" />
 
@@ -186,13 +186,13 @@ export function LeadContactsSection({ leadId }: LeadContactsSectionProps) {
                           <Badge variant="default">{displayRole}</Badge>
                           <button
                             onClick={() => handleStartEdit(lc)}
-                            className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 transition-all lg:opacity-0 group-hover:opacity-100"
+                            className="p-1.5 text-zinc-300 hover:text-brand-500 transition-all opacity-0 group-hover:opacity-100"
                           >
                             <Edit size={14} />
                           </button>
                           <button
                             onClick={() => handleRemove(lc.id)}
-                            className="p-1.5 rounded-lg text-zinc-400 hover:text-red-600 hover:bg-red-50 transition-all lg:opacity-0 group-hover:opacity-100"
+                            className="p-1.5 text-zinc-300 hover:text-red-500 transition-all opacity-0 group-hover:opacity-100"
                           >
                             <Trash2 size={14} />
                           </button>
@@ -245,15 +245,18 @@ export function LeadContactsSection({ leadId }: LeadContactsSectionProps) {
               })}
             </div>
           ) : !showAddForm ? (
-            <div className="bg-white rounded-xl border border-zinc-200 p-8 text-center text-zinc-500">
-              <Users className="mx-auto mb-2" size={24} />
-              <p className="text-sm">No contacts linked to this lead yet</p>
+            <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
+              <div className="w-10 h-10 rounded-full bg-zinc-100 flex items-center justify-center mb-3">
+                <Users size={18} className="text-zinc-400" />
+              </div>
+              <p className="text-sm font-medium text-zinc-500">No contacts linked yet</p>
+              <p className="text-xs text-zinc-400 mt-1">Add contacts to this lead</p>
             </div>
           ) : null}
 
           {/* Inline add contact form */}
           {showAddForm && (
-            <div className="bg-white rounded-xl border border-zinc-200 p-4 space-y-3">
+            <div className="p-4 space-y-3 border-t border-zinc-100">
               <div className="flex items-center justify-between">
                 <h4 className="text-sm font-medium text-zinc-900">Add Contact</h4>
                 <button

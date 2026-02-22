@@ -228,9 +228,12 @@ export function ProjectContactsPanel({ isOpen, onClose, projectId }: ProjectCont
               })}
             </div>
           ) : !showAddForm ? (
-            <div className="text-center py-8 text-zinc-500">
-              <UserCircle className="mx-auto mb-2" size={28} />
-              <p className="text-sm">No contacts linked to this project yet</p>
+            <div className="flex flex-col items-center justify-center p-8 text-center">
+              <div className="w-10 h-10 rounded-full bg-zinc-100 flex items-center justify-center mb-3">
+                <UserCircle size={18} className="text-zinc-400" />
+              </div>
+              <p className="text-sm font-medium text-zinc-500">No contacts linked yet</p>
+              <p className="text-xs text-zinc-400 mt-1">Add contacts to this project</p>
             </div>
           ) : null}
 

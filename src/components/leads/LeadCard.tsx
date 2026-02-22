@@ -7,6 +7,7 @@ import { Lead } from '@/lib/types';
 import { useApp } from '@/lib/store';
 import { Badge } from '@/components/ui/Badge';
 import { Avatar } from '@/components/ui/Avatar';
+import { formatPhone } from '@/lib/format-phone';
 
 const SOURCE_CONFIG: Record<Lead['source'], { label: string; variant: 'default' | 'success' | 'warning' | 'danger' | 'info' | 'purple' }> = {
   referral: { label: 'Referral', variant: 'success' },
@@ -127,7 +128,7 @@ export function LeadCard({ lead, onEdit, onDelete, onConvert }: LeadCardProps) {
         <span className="flex items-center gap-1.5">
           <Phone size={14} className="flex-shrink-0" />
           <span className={!lead.phone ? 'text-zinc-300 italic' : ''}>
-            {lead.phone || 'No phone'}
+            {lead.phone ? formatPhone(lead.phone) : 'No phone'}
           </span>
         </span>
         <span className="flex items-center gap-1.5 min-w-0">

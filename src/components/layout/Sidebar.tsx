@@ -76,7 +76,7 @@ export function Sidebar() {
         <div className="flex items-center justify-between px-5 py-4 border-b border-white/5">
           <Link href="/dashboard" className="flex flex-col" onClick={closeSidebar}>
             <Logo className={`h-9 w-full${siteConfig.invertLogoInSidebar ? ' invert' : ''}`} />
-            {siteConfig.showNameInSidebar && (
+            {siteConfig.showNameUnderLogo && (
               <span className="text-white font-semibold text-[7px] tracking-[0.2em] uppercase w-full text-center">{siteConfig.name}</span>
             )}
           </Link>

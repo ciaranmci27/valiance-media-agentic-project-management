@@ -255,10 +255,12 @@ export function AgentProjectsTab() {
       })}
 
       {activeProjects.length === 0 && (
-        <div className="text-center py-12 bg-white rounded-xl border border-zinc-200 lg:col-span-2">
-          <FolderKanban className="mx-auto mb-3 text-zinc-400" size={40} />
-          <h3 className="font-medium text-zinc-700 mb-1">No projects</h3>
-          <p className="text-sm text-zinc-500">Create projects and add goals to start using agent workflows.</p>
+        <div className="bg-white rounded-xl border border-zinc-200 flex flex-col items-center justify-center p-8 text-center lg:col-span-2">
+          <div className="w-10 h-10 rounded-full bg-zinc-100 flex items-center justify-center mb-3">
+            <FolderKanban size={18} className="text-zinc-400" />
+          </div>
+          <p className="text-sm font-medium text-zinc-500">No projects</p>
+          <p className="text-xs text-zinc-400 mt-1">Create projects and add goals to start using agent workflows</p>
         </div>
       )}
 

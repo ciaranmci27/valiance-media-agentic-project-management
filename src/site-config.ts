@@ -1,10 +1,10 @@
 export const siteConfig = {
   name: 'Valiance Media',
-  tagline: 'Management Portal',
+  tagline: 'Client Portal',
   description:
     'Manage projects, track leads, and collaborate with our team, all in one place.',
   invertLogoInSidebar: false,
-  showNameInSidebar: false,
+  showNameUnderLogo: false,
   colors: {
     brand: {
       50: '#F0F5F5',

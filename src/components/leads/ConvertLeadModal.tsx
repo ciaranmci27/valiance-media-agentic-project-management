@@ -7,6 +7,7 @@ import Modal from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { siteConfig } from '@/site-config';
+import { formatPhone } from '@/lib/format-phone';
 
 const PROJECT_COLORS = [
   siteConfig.colors.brand[500], '#8B5CF6', '#EC4899', '#EF4444',
@@ -20,7 +21,7 @@ interface ConvertLeadModalProps {
 }
 
 export function ConvertLeadModal({ isOpen, onClose, lead }: ConvertLeadModalProps) {
-  const { convertLead } = useApp();
+  const { convertLead, updateLead } = useApp();
 
   const [projectName, setProjectName] = useState('');
   const [projectColor, setProjectColor] = useState(PROJECT_COLORS[0]);
@@ -42,6 +43,12 @@ export function ConvertLeadModal({ isOpen, onClose, lead }: ConvertLeadModalProp
     setProjectName('');
     setProjectColor(PROJECT_COLORS[0]);
     setProjectDescription('');
+    onClose();
+  };
+
+  const handleSkip = () => {
+    if (!lead) return;
+    updateLead(lead.id, { status: 'won' });
     onClose();
   };
 
@@ -72,7 +79,7 @@ export function ConvertLeadModal({ isOpen, onClose, lead }: ConvertLeadModalProp
             </div>
             <div>
               <span className="text-zinc-500">Phone:</span>{' '}
-              <span className="text-zinc-900">{lead.phone || '—'}</span>
+              <span className="text-zinc-900">{lead.phone ? formatPhone(lead.phone) : '—'}</span>
             </div>
           </div>
         </div>
@@ -113,13 +120,18 @@ export function ConvertLeadModal({ isOpen, onClose, lead }: ConvertLeadModalProp
           />
         </div>
 
-        <div className="flex justify-end gap-3 pt-4">
+        <div className="flex items-center justify-between pt-4">
           <Button type="button" variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit">
-            Convert
-          </Button>
+          <div className="flex gap-3">
+            <Button type="button" variant="secondary" onClick={handleSkip}>
+              Skip
+            </Button>
+            <Button type="submit">
+              Convert to Project
+            </Button>
+          </div>
         </div>
       </form>
     </Modal>
