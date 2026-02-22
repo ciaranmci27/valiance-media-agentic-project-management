@@ -363,7 +363,7 @@ export default function SettingsPage() {
       const keyHash = await hashApiKey(fullKey);
       const keyPrefix = fullKey.slice(0, 15);
 
-      const result = await addApiKey(keyName.trim(), keyHash, keyPrefix, keyPermissions);
+      const result = await addApiKey(keyName.trim(), keyHash, keyPrefix, keyPermissions, teamMemberId);
       if (result) {
         setRevealedKey(fullKey);
         setKeyName('');
@@ -761,6 +761,14 @@ export default function SettingsPage() {
                         }`}>
                           {key.permissions === 'full' ? 'Full' : 'Read Only'}
                         </span>
+                        {key.team_member_id && (() => {
+                          const linked = team.find(m => m.id === key.team_member_id);
+                          return linked ? (
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-violet-50 text-violet-600">
+                              {linked.name}
+                            </span>
+                          ) : null;
+                        })()}
                       </div>
                     </div>
                     <div className="text-right flex-shrink-0">

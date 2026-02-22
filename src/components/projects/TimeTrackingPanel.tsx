@@ -62,7 +62,8 @@ function getStorageKey(projectId: string) {
 
 /* ── Component ── */
 
-export function TimeTrackingPanel({ projectId, projectColor = siteConfig.colors.brand[500] }: TimeTrackingPanelProps) {
+export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTrackingPanelProps) {
+  const projectColor = rawColor || '#A1A1AA';
   const {
     getTimeEntriesByProject, team, getProject,
     addTimeEntry, updateTimeEntry, deleteTimeEntry,

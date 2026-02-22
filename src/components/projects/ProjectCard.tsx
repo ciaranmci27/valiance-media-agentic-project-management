@@ -43,10 +43,12 @@ export function ProjectCard({ project, onEdit, onDelete }: ProjectCardProps) {
     >
       <div className="flex items-start justify-between mb-3 lg:mb-4">
         <div className="flex items-center gap-2 lg:gap-3 min-w-0 flex-1">
-          <div
-            className="w-2.5 lg:w-3 h-2.5 lg:h-3 rounded-full flex-shrink-0"
-            style={{ backgroundColor: project.color }}
-          />
+          {project.color && (
+            <div
+              className="w-2.5 lg:w-3 h-2.5 lg:h-3 rounded-full flex-shrink-0"
+              style={{ backgroundColor: project.color }}
+            />
+          )}
           <div className="min-w-0 flex-1">
             <span className="font-semibold text-zinc-900 group-hover:text-brand-600 transition-colors block truncate text-sm lg:text-base">
               {project.name}
@@ -112,7 +114,7 @@ export function ProjectCard({ project, onEdit, onDelete }: ProjectCardProps) {
         <div className="h-1.5 bg-zinc-100 rounded-full overflow-hidden">
           <div
             className="h-full rounded-full transition-all duration-500"
-            style={{ width: `${progress}%`, backgroundColor: project.color }}
+            style={{ width: `${progress}%`, backgroundColor: project.color || '#A1A1AA' }}
           />
         </div>
       </div>

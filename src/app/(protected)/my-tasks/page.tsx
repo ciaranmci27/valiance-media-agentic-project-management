@@ -223,10 +223,12 @@ export default function MyTasksPage() {
                     <div className="flex items-center gap-2 mt-0.5">
                       {project && (
                         <span className="flex items-center gap-1 text-xs text-zinc-500">
-                          <span
-                            className="w-2 h-2 rounded-full inline-block"
-                            style={{ backgroundColor: project.color }}
-                          />
+                          {project.color && (
+                            <span
+                              className="w-2 h-2 rounded-full inline-block"
+                              style={{ backgroundColor: project.color }}
+                            />
+                          )}
                           {project.name}
                         </span>
                       )}

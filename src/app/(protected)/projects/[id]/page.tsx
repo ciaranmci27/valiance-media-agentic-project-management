@@ -203,10 +203,12 @@ export default function ProjectDetailPage() {
         title={project.name}
         subtitle={
           <div className="flex flex-wrap items-center gap-2 text-sm">
-            <span
-              className="hidden md:inline-block w-2.5 h-2.5 rounded-full flex-shrink-0"
-              style={{ backgroundColor: project.color }}
-            />
+            {project.color && (
+              <span
+                className="hidden md:inline-block w-2.5 h-2.5 rounded-full flex-shrink-0"
+                style={{ backgroundColor: project.color }}
+              />
+            )}
             <StatusBadge status={project.status} />
             {project.description && (
               <span className="hidden md:inline text-zinc-500">
@@ -340,7 +342,7 @@ export default function ProjectDetailPage() {
                   className="h-full rounded-full transition-all duration-500"
                   style={{
                     width: `${progressPercent}%`,
-                    backgroundColor: project.color,
+                    backgroundColor: project.color || '#A1A1AA',
                   }}
                 />
               </div>

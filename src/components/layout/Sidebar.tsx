@@ -140,10 +140,12 @@ export function Sidebar() {
                       : 'text-zinc-400 hover:bg-white/5 hover:text-zinc-200'
                   }`}
                 >
-                  <div
-                    className="w-2 h-2 rounded-full flex-shrink-0"
-                    style={{ backgroundColor: project.color }}
-                  />
+                  {project.color && (
+                    <div
+                      className="w-2 h-2 rounded-full flex-shrink-0"
+                      style={{ backgroundColor: project.color }}
+                    />
+                  )}
                   <span className="text-sm truncate">{project.name}</span>
                 </Link>
               ))}

@@ -122,7 +122,7 @@ export function AgentProjectsTab() {
             {/* Project header */}
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2 min-w-0 flex-1">
-                <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: project.color }} />
+                {project.color && <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: project.color }} />}
                 <h3 className="font-semibold text-zinc-900 truncate">{project.name}</h3>
               </div>
 

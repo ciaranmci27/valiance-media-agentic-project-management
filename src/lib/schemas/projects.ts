@@ -4,7 +4,7 @@ import { siteConfig } from '@/site-config';
 export const createProjectSchema = z.object({
   name: z.string().min(1, 'Name is required'),
   description: z.string().default(''),
-  color: z.string().regex(/^#[0-9a-fA-F]{6}$/).default(siteConfig.colors.brand[500]),
+  color: z.string().regex(/^(#[0-9a-fA-F]{6})?$/).default(''),
   status: z.enum(['active', 'completed', 'archived']).default('active'),
   start_date: z.string().nullable().default(null),
   due_date: z.string().nullable().default(null),
@@ -23,7 +23,7 @@ export const createProjectSchema = z.object({
 export const updateProjectSchema = z.object({
   name: z.string().min(1).optional(),
   description: z.string().optional(),
-  color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+  color: z.string().regex(/^(#[0-9a-fA-F]{6})?$/).optional(),
   status: z.enum(['active', 'completed', 'archived']).optional(),
   start_date: z.string().nullable().optional(),
   due_date: z.string().nullable().optional(),

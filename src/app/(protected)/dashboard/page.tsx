@@ -393,10 +393,12 @@ export default function DashboardPage() {
                   className="p-4 hover:bg-zinc-50 transition-colors"
                 >
                   <div className="flex items-center gap-2 mb-2">
-                    <div
-                      className="w-3 h-3 rounded-full"
-                      style={{ backgroundColor: project.color }}
-                    />
+                    {project.color && (
+                      <div
+                        className="w-3 h-3 rounded-full"
+                        style={{ backgroundColor: project.color }}
+                      />
+                    )}
                     <h3 className="font-medium text-zinc-900 truncate">{project.name}</h3>
                   </div>
                   <div className="flex items-center justify-between text-xs lg:text-sm text-zinc-500 mb-2">
@@ -406,7 +408,7 @@ export default function DashboardPage() {
                   <div className="h-1.5 bg-zinc-100 rounded-full overflow-hidden">
                     <div
                       className="h-full rounded-full transition-all"
-                      style={{ width: `${progress}%`, backgroundColor: project.color }}
+                      style={{ width: `${progress}%`, backgroundColor: project.color || '#A1A1AA' }}
                     />
                   </div>
                 </Link>
@@ -435,7 +437,7 @@ export default function DashboardPage() {
               }}
               className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left hover:bg-zinc-50 transition-colors"
             >
-              <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: p.color }} />
+              {p.color && <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: p.color }} />}
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium text-zinc-900 truncate">{p.name}</p>
                 {p.description && (

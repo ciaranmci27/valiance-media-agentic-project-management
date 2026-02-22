@@ -12,9 +12,10 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { ContactForm } from '@/components/contacts/ContactForm';
 import { siteConfig } from '@/site-config';
 
+const DEFAULT_PROJECT_COLOR = '';
 const PROJECT_COLORS = [
-  siteConfig.colors.brand[500], '#8B5CF6', '#EC4899', '#EF4444',
-  '#F59E0B', '#10B981', '#06B6D4', '#3B82F6',
+  '#8B5CF6', '#EC4899', '#EF4444', '#F59E0B',
+  '#10B981', '#06B6D4', '#3B82F6', siteConfig.colors.brand[500],
 ];
 
 interface ProjectFormProps {
@@ -33,7 +34,7 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
 
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [color, setColor] = useState(PROJECT_COLORS[0]);
+  const [color, setColor] = useState(DEFAULT_PROJECT_COLOR);
   const [status, setStatus] = useState<Project['status']>('active');
   const [startDate, setStartDate] = useState('');
   const [dueDate, setDueDate] = useState('');
@@ -67,7 +68,7 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
     } else {
       setName('');
       setDescription('');
-      setColor(PROJECT_COLORS[0]);
+      setColor(DEFAULT_PROJECT_COLOR);
       setStatus('active');
       setStartDate('');
       setDueDate('');
@@ -381,13 +382,13 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
 
 
         <div className="space-y-1.5">
-          <label className="block text-sm font-medium text-zinc-700">Color</label>
+          <label className="block text-sm font-medium text-zinc-700">Color <span className="font-normal text-zinc-400">(optional)</span></label>
           <div className="flex gap-2">
             {PROJECT_COLORS.map((c) => (
               <button
                 key={c}
                 type="button"
-                onClick={() => setColor(c)}
+                onClick={() => setColor(color === c ? DEFAULT_PROJECT_COLOR : c)}
                 className={`w-8 h-8 rounded-lg transition-all ${
                   color === c ? 'ring-2 ring-offset-2 ring-brand-500 scale-110' : 'hover:scale-105'
                 }`}
