@@ -364,8 +364,11 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
                 <div className="flex items-center gap-2">
                   <input
                     type="color"
-                    value={settings.accent_color || siteConfig.colors.brand[500]}
-                    onChange={e => handleSettingChange('accent_color', e.target.value)}
+                    value={localAccentColor}
+                    onChange={e => {
+                      setLocalAccentColor(e.target.value);
+                      debouncedSettingChange('accent_color', e.target.value);
+                    }}
                     className="w-[38px] h-[38px] rounded-lg border border-zinc-200 cursor-pointer p-0.5 flex-shrink-0"
                   />
                   <input

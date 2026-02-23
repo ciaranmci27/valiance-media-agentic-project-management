@@ -658,6 +658,33 @@ create policy "team_member_notifications_insert" on public.team_member_notificat
   with check (true);
 
 -- ============================================================
+-- STORAGE: Avatars Bucket (public, 5MB limit)
+-- ============================================================
+insert into storage.buckets (id, name, public, file_size_limit)
+values ('avatars', 'avatars', true, 5242880)
+on conflict (id) do nothing;
+
+create policy "Authenticated users can upload avatars"
+  on storage.objects for insert
+  to authenticated
+  with check (bucket_id = 'avatars');
+
+create policy "Authenticated users can update avatars"
+  on storage.objects for update
+  to authenticated
+  using (bucket_id = 'avatars');
+
+create policy "Authenticated users can delete avatars"
+  on storage.objects for delete
+  to authenticated
+  using (bucket_id = 'avatars');
+
+create policy "Public can read avatars"
+  on storage.objects for select
+  to public
+  using (bucket_id = 'avatars');
+
+-- ============================================================
 -- STORAGE: Portal Files Bucket (public, 50MB limit)
 -- ============================================================
 insert into storage.buckets (id, name, public, file_size_limit)
