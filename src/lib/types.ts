@@ -439,7 +439,7 @@ export interface AgentActivity {
   id: string;
   agent_id: string;
   project_id: string | null;
-  activity_type: 'suggestion_created' | 'task_started' | 'task_completed' | 'task_failed' | 'research_completed' | 'comment_added' | 'status_changed' | 'custom';
+  activity_type: 'suggestion_created' | 'task_started' | 'task_completed' | 'task_failed' | 'research_started' | 'research_completed' | 'suggestion_reviewed' | 'comment_added' | 'status_changed' | 'agent_spawned' | 'agent_completed' | 'agent_failed' | 'heartbeat' | 'system_check' | 'custom';
   title: string;
   description: string;
   reference_type: string | null;

@@ -1,5 +1,6 @@
 import { SupabaseClient } from '@supabase/supabase-js';
 import type { Project, Task, TeamMember, Subtask, Comment, Activity, Contact, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, PortalSettings, PortalFile, PortalUpdate, EntityFile, ApiKey, ProjectGoal, TaskSuggestion, AgentActivity, ApiAuditEntry, TimeEntry } from '@/lib/types';
+import { notFound } from '@/lib/api/errors';
 import { siteConfig } from '@/site-config';
 
 // ============================================================
@@ -258,7 +259,9 @@ export async function reorderSubtasks(
   const updates = subtaskIds.map((id, index) =>
     supabase.from('task_subtasks').update({ sort_order: index }).eq('id', id)
   );
-  await Promise.all(updates);
+  const results = await Promise.all(updates);
+  const failed = results.find(r => r.error);
+  if (failed?.error) throw failed.error;
 }
 
 export async function patchSubtask(
@@ -1024,7 +1027,7 @@ export async function convertLead(
     const { error: pmError } = await supabase
       .from('project_members')
       .insert(leadMemberIds.map(mid => ({ project_id: project.id, member_id: mid })));
-    if (pmError) console.error('Failed to copy lead members to project:', pmError);
+    if (pmError) throw pmError;
   }
 
   // 6. Update lead status to won and link contact
@@ -1136,9 +1139,10 @@ export async function regeneratePortalToken(supabase: SupabaseClient, projectId:
     .update({ token })
     .eq('project_id', projectId)
     .select()
-    .single();
+    .maybeSingle();
 
   if (error) throw error;
+  if (!data) throw notFound('Portal settings');
   return data as PortalSettings;
 }
 

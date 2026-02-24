@@ -27,6 +27,7 @@ export const GET = withApi(async ({ supabase, params }) => {
 export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemberId }) => {
   const id = (params as any).id;
   const { data: before } = await supabase.from('leads').select('*').eq('id', id).maybeSingle();
+  if (!before) throw notFound('Lead');
   const { member_ids, ...updates } = body as any;
   const lead = await patchLead(supabase, id, updates, member_ids);
   logAudit(supabase, { method: 'PATCH', endpoint: `/api/v1/leads/${id}`, entityType: 'lead', entityId: id, apiKeyId, teamMemberId, requestBody: body, beforeSnapshot: before, afterSnapshot: lead, statusCode: 200 });

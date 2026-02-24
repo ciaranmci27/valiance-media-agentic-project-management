@@ -15,6 +15,9 @@ export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId }) =
 
   for (const id of ids) {
     try {
+      const { data: suggestion } = await supabase.from('task_suggestions').select('status').eq('id', id).maybeSingle();
+      if (!suggestion) { results.push({ id, success: false, error: 'Suggestion not found' }); continue; }
+      if (suggestion.status === 'approved' || suggestion.status === 'rejected') { results.push({ id, success: false, error: `Cannot reject a suggestion with status "${suggestion.status}"` }); continue; }
       const updated = await rejectTaskSuggestion(supabase, id, rejection_reason, reviewedBy);
       results.push({ id, success: true });
 

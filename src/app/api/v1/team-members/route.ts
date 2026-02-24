@@ -32,6 +32,7 @@ export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId }) =
       email: member.email,
       avatar: member.avatar || '',
       role: member.role || 'member',
+      timezone: member.timezone || 'UTC',
       auth_user_id: member.auth_user_id || null,
     })
     .select()

@@ -99,7 +99,11 @@ CREATE TABLE public.agent_activities (
   project_id uuid REFERENCES public.projects(id) ON DELETE SET NULL,
   activity_type text NOT NULL CHECK (activity_type IN (
     'suggestion_created', 'task_started', 'task_completed', 'task_failed',
-    'research_completed', 'comment_added', 'status_changed', 'custom'
+    'research_started', 'research_completed', 'suggestion_reviewed',
+    'comment_added', 'status_changed',
+    'agent_spawned', 'agent_completed', 'agent_failed',
+    'heartbeat', 'system_check',
+    'custom'
   )),
   title text NOT NULL,
   description text NOT NULL DEFAULT '',
