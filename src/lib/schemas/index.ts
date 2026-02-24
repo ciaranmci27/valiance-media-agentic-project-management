@@ -20,3 +20,4 @@ export * from './agent-activity';
 export * from './time-entry';
 export * from './notifications';
 export * from './api-keys';
+export * from './credentials';

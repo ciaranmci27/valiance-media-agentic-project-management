@@ -15,6 +15,7 @@ import { ProjectContactsPanel } from '@/components/projects/ProjectContactsPanel
 import { PortalSettingsPanel } from '@/components/projects/PortalSettingsPanel';
 import { PortalUpdatesPanel } from '@/components/projects/PortalUpdatesPanel';
 import { TimeTrackingPanel } from '@/components/projects/TimeTrackingPanel';
+import { CredentialsPanel } from '@/components/projects/CredentialsPanel';
 import { FileAttachments } from '@/components/ui/FileAttachments';
 import { Button } from '@/components/ui/Button';
 import { StatusBadge } from '@/components/ui/Badge';
@@ -494,6 +495,10 @@ export default function ProjectDetailPage() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch mt-6">
           <PortalSettingsPanel projectId={projectId} />
           <PortalUpdatesPanel projectId={projectId} />
+        </div>
+
+        <div className="mt-6">
+          <CredentialsPanel projectId={projectId} />
         </div>
       </div>
 

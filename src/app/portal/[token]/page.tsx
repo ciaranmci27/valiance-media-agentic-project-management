@@ -5,10 +5,12 @@ import { useParams } from 'next/navigation';
 import {
   Lock, Loader2, FileText, Image, Archive, File, Download, ExternalLink, Globe,
   CheckCircle2, Clock, AlertCircle, Send, FolderOpen, Timer,
+  Flag, Package, MessageCircle, Pin, ChevronDown, KeyRound, Eye, EyeOff, Plus, Pencil, ShieldCheck,
 } from 'lucide-react';
 import Link from 'next/link';
 import type { PortalData } from '@/lib/types';
 import { Logo } from '@/components/ui/Logo';
+import { Select } from '@/components/ui/Select';
 import { siteConfig } from '@/site-config';
 
 /* ── Helpers ─────────────────────────────────────── */
@@ -45,6 +47,36 @@ function getFileIconBg(mimeType: string): string {
   if (mimeType.includes('zip') || mimeType.includes('archive')) return '#FFFBEB';
   if (mimeType === 'text/html') return '#EFF6FF';
   return '#F4F4F5';
+}
+
+function relativeTime(dateStr: string): string {
+  const now = Date.now();
+  const then = new Date(dateStr).getTime();
+  const diff = now - then;
+  const seconds = Math.floor(diff / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+  const weeks = Math.floor(days / 7);
+  const months = Math.floor(days / 30);
+
+  if (seconds < 60) return 'Just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  if (hours < 24) return `${hours}h ago`;
+  if (days === 1) return 'Yesterday';
+  if (days < 7) return `${days}d ago`;
+  if (weeks < 5) return `${weeks}w ago`;
+  if (months < 12) return `${months}mo ago`;
+  return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function getUpdateIcon(type: string) {
+  switch (type) {
+    case 'milestone': return Flag;
+    case 'deliverable': return Package;
+    case 'note': return MessageCircle;
+    default: return Clock;
+  }
 }
 
 function getProposalStatusIcon(status: string) {
@@ -110,6 +142,567 @@ function ProgressRing({ percent, color }: { percent: number; color: string }) {
         {percent}%
       </text>
     </svg>
+  );
+}
+
+/* ── Expandable Update Content ────────────────────── */
+const CONTENT_TRUNCATE_LENGTH = 180;
+
+function UpdateContent({ content }: { content: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const needsTruncation = content.length > CONTENT_TRUNCATE_LENGTH;
+
+  if (!needsTruncation || expanded) {
+    return (
+      <div>
+        <p className="text-sm text-zinc-500 leading-relaxed mb-1.5">{content}</p>
+        {needsTruncation && (
+          <button
+            onClick={() => setExpanded(false)}
+            className="text-xs font-medium text-zinc-400 hover:text-zinc-600 transition-colors"
+          >
+            Show less
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <p className="text-sm text-zinc-500 leading-relaxed mb-1.5">
+        {content.slice(0, CONTENT_TRUNCATE_LENGTH).trimEnd()}&hellip;
+      </p>
+      <button
+        onClick={() => setExpanded(true)}
+        className="text-xs font-medium text-zinc-400 hover:text-zinc-600 transition-colors"
+      >
+        Read more
+      </button>
+    </div>
+  );
+}
+
+/* ── Updates Timeline Component ──────────────────── */
+const UPDATES_INITIAL_COUNT = 5;
+
+function UpdatesTimeline({ updates, accentColor }: {
+  updates: PortalData['updates'];
+  accentColor: string;
+}) {
+  const [showAll, setShowAll] = useState(false);
+  const visible = showAll ? updates : updates.slice(0, UPDATES_INITIAL_COUNT);
+  const hiddenCount = updates.length - UPDATES_INITIAL_COUNT;
+
+  return (
+    <section className="bg-white rounded-xl border border-zinc-200 p-5 sm:p-6">
+      <SectionHeader
+        icon={Clock}
+        iconBg="#EFF6FF"
+        title="Updates"
+        right={<span className="text-xs text-zinc-400">{updates.length}</span>}
+      />
+      <div className="relative">
+        <div className="space-y-1">
+          {visible.map((update, updateIndex) => {
+            const isLast = updateIndex === visible.length - 1;
+            const isMilestone = update.update_type === 'milestone';
+            const iconColor =
+              isMilestone ? '#10B981' :
+              update.update_type === 'deliverable' ? '#3B82F6' :
+              update.update_type === 'note' ? '#F59E0B' :
+              '#A1A1AA';
+            const iconBg =
+              isMilestone ? '#ECFDF5' :
+              update.update_type === 'deliverable' ? '#EFF6FF' :
+              update.update_type === 'note' ? '#FFFBEB' :
+              '#F4F4F5';
+            const typeBadge =
+              update.update_type === 'milestone' ? { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200' } :
+              update.update_type === 'deliverable' ? { bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200' } :
+              update.update_type === 'note' ? { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200' } :
+              null;
+            const UpdateIcon = getUpdateIcon(update.update_type);
+            const fullDate = new Date(update.created_at).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+
+            return (
+              <div
+                key={update.id}
+                className="relative flex gap-4 py-3"
+              >
+                {/* Connecting line (skip last item) */}
+                {!isLast && (
+                  <div className="absolute left-[13px] top-[27px] bottom-0 w-px bg-zinc-200" />
+                )}
+                {/* Icon */}
+                <div className="relative z-10 flex-shrink-0 mt-0.5">
+                  <div
+                    className="w-[27px] h-[27px] rounded-full flex items-center justify-center ring-[3px] ring-white"
+                    style={{ backgroundColor: iconBg }}
+                  >
+                    <UpdateIcon size={13} style={{ color: iconColor }} />
+                  </div>
+                </div>
+                {/* Content */}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                    {update.pinned && (
+                      <Pin size={11} className="text-amber-500 fill-amber-500 flex-shrink-0" />
+                    )}
+                    <h3 className={`text-sm font-semibold ${isMilestone ? 'text-emerald-900' : 'text-zinc-900'}`}>
+                      {update.title}
+                    </h3>
+                    {typeBadge && (
+                      <span className={`inline-flex items-center px-1.5 py-0.5 text-[10px] font-semibold border rounded-full ${typeBadge.bg} ${typeBadge.text} ${typeBadge.border}`}>
+                        {update.update_type.charAt(0).toUpperCase() + update.update_type.slice(1)}
+                      </span>
+                    )}
+                  </div>
+                  {update.content && <UpdateContent content={update.content} />}
+                  {/* Attachments */}
+                  {update.attachments && update.attachments.length > 0 && (() => {
+                    const images = update.attachments.filter(a => a.mime_type.startsWith('image/'));
+                    const files = update.attachments.filter(a => !a.mime_type.startsWith('image/'));
+                    return (
+                      <div className="mt-2 space-y-2">
+                        {images.length > 0 && (
+                          <div className="flex flex-wrap gap-2">
+                            {images.map(a => (
+                              <div key={a.id} className="group/img relative">
+                                <img
+                                  src={a.file_url}
+                                  alt={a.name}
+                                  className="max-w-[200px] max-h-[120px] rounded-lg border border-zinc-200 object-cover"
+                                />
+                                <div className="absolute inset-0 rounded-lg bg-black/0 group-hover/img:bg-black/40 transition-colors flex items-center justify-center gap-1.5 opacity-0 group-hover/img:opacity-100">
+                                  <button
+                                    onClick={() => window.open(a.file_url, '_blank', 'noopener,noreferrer')}
+                                    className="p-1.5 bg-white/90 rounded-md text-zinc-700 hover:bg-white transition-colors"
+                                    title="Preview"
+                                  >
+                                    <Eye size={13} />
+                                  </button>
+                                  <button
+                                    onClick={async () => {
+                                      try {
+                                        const res = await fetch(a.file_url);
+                                        const blob = await res.blob();
+                                        const url = URL.createObjectURL(blob);
+                                        const el = document.createElement('a');
+                                        el.href = url;
+                                        el.download = a.name;
+                                        document.body.appendChild(el);
+                                        el.click();
+                                        el.remove();
+                                        URL.revokeObjectURL(url);
+                                      } catch { /* silent */ }
+                                    }}
+                                    className="p-1.5 bg-white/90 rounded-md text-zinc-700 hover:bg-white transition-colors"
+                                    title="Download"
+                                  >
+                                    <Download size={13} />
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {files.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5">
+                            {files.map(a => {
+                              const isHtml = a.mime_type === 'text/html';
+                              const FileIcon = isHtml ? Globe : a.mime_type === 'application/pdf' ? FileText : File;
+                              return (
+                                <span key={a.id} className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium bg-zinc-100 text-zinc-600 rounded-lg">
+                                  <FileIcon size={12} className="text-zinc-400 flex-shrink-0" />
+                                  <span className="max-w-[140px] truncate">{a.name}</span>
+                                  <span className="text-zinc-400">{formatFileSize(a.file_size)}</span>
+                                  <button
+                                    onClick={() => window.open(a.file_url, '_blank', 'noopener,noreferrer')}
+                                    className="p-0.5 text-zinc-400 hover:text-zinc-700 transition-colors"
+                                    title="Preview"
+                                  >
+                                    <Eye size={12} />
+                                  </button>
+                                  {!isHtml && (
+                                    <button
+                                      onClick={async () => {
+                                        try {
+                                          const res = await fetch(a.file_url);
+                                          const blob = await res.blob();
+                                          const url = URL.createObjectURL(blob);
+                                          const el = document.createElement('a');
+                                          el.href = url;
+                                          el.download = a.name;
+                                          document.body.appendChild(el);
+                                          el.click();
+                                          el.remove();
+                                          URL.revokeObjectURL(url);
+                                        } catch { /* silent */ }
+                                      }}
+                                      className="p-0.5 text-zinc-400 hover:text-zinc-700 transition-colors"
+                                      title="Download"
+                                    >
+                                      <Download size={12} />
+                                    </button>
+                                  )}
+                                </span>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+                  <p className="text-xs text-zinc-400" title={fullDate}>
+                    {update.author_name} &middot; {relativeTime(update.created_at)}
+                  </p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Show more / Show less */}
+      {updates.length > UPDATES_INITIAL_COUNT && (
+        <button
+          onClick={() => setShowAll(!showAll)}
+          className="mt-4 w-full flex items-center justify-center gap-1.5 py-2.5 text-xs font-semibold text-zinc-400 hover:text-zinc-600 bg-zinc-50 hover:bg-zinc-100 rounded-lg transition-colors"
+        >
+          <ChevronDown size={14} className={`transition-transform ${showAll ? 'rotate-180' : ''}`} />
+          {showAll ? 'Show less' : `Show ${hiddenCount} more update${hiddenCount === 1 ? '' : 's'}`}
+        </button>
+      )}
+    </section>
+  );
+}
+
+/* ── Portal Credential Form ─────────────────────── */
+
+const CREDENTIAL_CATEGORIES = [
+  { value: 'login', label: 'Login' },
+  { value: 'api_key', label: 'API Key' },
+  { value: 'ssh_key', label: 'SSH Key' },
+  { value: 'database', label: 'Database' },
+  { value: 'hosting', label: 'Hosting' },
+  { value: 'cms', label: 'CMS' },
+  { value: 'ftp', label: 'FTP' },
+  { value: 'dns', label: 'DNS' },
+  { value: 'email', label: 'Email' },
+  { value: 'other', label: 'Other' },
+];
+
+const CATEGORY_STYLE: Record<string, { bg: string; iconColor: string }> = {
+  login:    { bg: '#F5F3FF', iconColor: '#8B5CF6' },
+  api_key:  { bg: '#EFF6FF', iconColor: '#3B82F6' },
+  ssh_key:  { bg: '#ECFDF5', iconColor: '#10B981' },
+  database: { bg: '#FFFBEB', iconColor: '#F59E0B' },
+  hosting:  { bg: '#FEF2F2', iconColor: '#EF4444' },
+  cms:      { bg: '#ECFEFF', iconColor: '#06B6D4' },
+  ftp:      { bg: '#FFF7ED', iconColor: '#F97316' },
+  dns:      { bg: '#EEF2FF', iconColor: '#6366F1' },
+  email:    { bg: '#FDF2F8', iconColor: '#EC4899' },
+  other:    { bg: '#F4F4F5', iconColor: '#71717A' },
+};
+
+type SubmittedCredential = PortalData['credentials_submitted'][number];
+
+/* Credential form — shown as its own view, not mixed with the list */
+function CredentialFormView({ token, pin, accentColor, editingCredential, onDone, onCancel }: {
+  token: string;
+  pin?: string;
+  accentColor: string;
+  editingCredential: SubmittedCredential | null;
+  onDone: (cred: SubmittedCredential, mode: 'add' | 'edit') => void;
+  onCancel: () => void;
+}) {
+  const isEditing = editingCredential !== null;
+  const [label, setLabel] = useState(editingCredential?.label ?? '');
+  const [category, setCategory] = useState<string>(editingCredential?.category ?? 'login');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [url, setUrl] = useState('');
+  const [notes, setNotes] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [loadingFields, setLoadingFields] = useState(isEditing);
+
+  const buildQs = () => {
+    const p = new URLSearchParams();
+    if (pin) p.set('pin', pin);
+    const qs = p.toString();
+    return qs ? `?${qs}` : '';
+  };
+
+  // Fetch existing field values when editing
+  useEffect(() => {
+    if (!isEditing) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/portal/${token}/credentials/${editingCredential.id}${buildQs()}`);
+        if (!res.ok) throw new Error();
+        const data = await res.json();
+        if (cancelled) return;
+        setUsername(data.username || '');
+        setUrl(data.url || '');
+        setNotes(data.notes || '');
+      } catch {
+        // If fetch fails, fields stay empty — they can still re-enter
+      } finally {
+        if (!cancelled) setLoadingFields(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!label.trim()) return;
+    setSubmitting(true);
+
+    try {
+      if (isEditing) {
+        // Always send username, url, notes (pre-filled or edited).
+        // Only send password if the client typed one — otherwise omit to preserve existing.
+        const payload: Record<string, string | undefined> = {
+          label: label.trim(),
+          category,
+          username: username.trim(),
+          url: url.trim(),
+          notes: notes.trim(),
+        };
+        if (password) payload.password = password;
+
+        const res = await fetch(`/api/portal/${token}/credentials/${editingCredential.id}${buildQs()}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) throw new Error();
+        const json = await res.json();
+        onDone({ ...editingCredential, ...json.data }, 'edit');
+      } else {
+        const res = await fetch(`/api/portal/${token}/credentials${buildQs()}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            label: label.trim(), category,
+            username: username.trim(), password: password.trim(),
+            url: url.trim(), notes: notes.trim(),
+            submitted_by_name: '',
+          }),
+        });
+        if (!res.ok) throw new Error();
+        onDone({
+          id: crypto.randomUUID(),
+          label: label.trim(),
+          category: category as SubmittedCredential['category'],
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }, 'add');
+      }
+    } catch {
+      // silent fail on portal
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const inputClass = 'px-3 py-2.5 text-sm bg-zinc-50 border border-zinc-200 rounded-lg outline-none focus:border-zinc-400 focus:ring-2 focus:ring-zinc-100 transition-all placeholder:text-zinc-400';
+
+  return (
+    <div style={{ animation: 'portalFadeUp 0.2s ease both' }}>
+      <div className="flex items-center gap-3 mb-4">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="p-1.5 -ml-1.5 text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 rounded-lg transition-colors"
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M10 12L6 8l4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+        </button>
+        <h3 className="text-sm font-semibold text-zinc-900">
+          {isEditing ? 'Update Credential' : 'New Credential'}
+        </h3>
+      </div>
+
+      {loadingFields ? (
+        <div className="flex items-center justify-center py-10">
+          <Loader2 size={20} className="animate-spin text-zinc-300" />
+        </div>
+      ) : (
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <input autoFocus type="text" value={label} onChange={e => setLabel(e.target.value)} placeholder="Name (e.g. Email Login)" required className={inputClass} />
+            <Select value={category} onChange={v => setCategory(v)} options={CREDENTIAL_CATEGORIES} />
+          </div>
+          <input type="text" value={username} onChange={e => setUsername(e.target.value)} placeholder="Username" autoComplete="off" data-1p-ignore data-lpignore="true" className={`w-full ${inputClass}`} />
+          <div>
+            <div className="relative">
+              <input
+                type="text"
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                placeholder={isEditing ? 'Enter new password to replace' : 'Password / Secret'}
+                autoComplete="off"
+                data-1p-ignore
+                data-lpignore="true"
+                style={showPassword ? undefined : { WebkitTextSecurity: 'disc' } as React.CSSProperties}
+                className={`w-full pr-10 ${inputClass}`}
+              />
+              <button type="button" onClick={() => setShowPassword(v => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600">
+                {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+              </button>
+            </div>
+            {isEditing && (
+              <p className="text-[11px] text-zinc-400 mt-1 ml-0.5">
+                {password ? 'This will replace the existing password.' : 'Leave blank to keep your current password.'}
+              </p>
+            )}
+          </div>
+          <input type="text" value={url} onChange={e => setUrl(e.target.value)} placeholder="URL (optional)" className={`w-full ${inputClass}`} />
+          <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Notes (optional)" rows={2} className={`w-full resize-none ${inputClass}`} />
+          <div className="flex items-center gap-2 justify-end pt-1">
+            <button type="button" onClick={onCancel} className="px-4 py-2.5 text-sm font-medium text-zinc-500 hover:text-zinc-700 transition-colors">
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={!label.trim() || submitting}
+              className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-semibold text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              style={{ backgroundColor: accentColor }}
+            >
+              {submitting ? <Loader2 size={14} className="animate-spin" /> : <KeyRound size={14} />}
+              {isEditing ? 'Update' : 'Submit'}
+            </button>
+          </div>
+        </form>
+      )}
+    </div>
+  );
+}
+
+/* Main credentials section — two distinct views: list vs form */
+function PortalCredentialForm({ token, pin, accentColor, credentialsSubmitted }: {
+  token: string;
+  pin?: string;
+  accentColor: string;
+  credentialsSubmitted: SubmittedCredential[];
+}) {
+  const [localCredentials, setLocalCredentials] = useState<SubmittedCredential[]>(credentialsSubmitted);
+  const [view, setView] = useState<'list' | 'add' | 'edit'>('list');
+  const [editTarget, setEditTarget] = useState<SubmittedCredential | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  const showSuccess = (msg: string) => {
+    setSuccessMsg(msg);
+    setTimeout(() => setSuccessMsg(null), 4000);
+  };
+
+  const handleDone = (cred: SubmittedCredential, mode: 'add' | 'edit') => {
+    if (mode === 'add') {
+      setLocalCredentials(prev => [cred, ...prev]);
+      showSuccess('Credentials submitted securely');
+    } else {
+      setLocalCredentials(prev => prev.map(c => c.id === cred.id ? cred : c));
+      showSuccess('Credential updated');
+    }
+    setView('list');
+    setEditTarget(null);
+  };
+
+  const handleCancel = () => {
+    setView('list');
+    setEditTarget(null);
+  };
+
+  return (
+    <section className="bg-white rounded-xl border border-zinc-200 p-5 sm:p-6">
+      {/* ── List view ──────────────────────────── */}
+      {view === 'list' && (
+        <>
+          <SectionHeader
+            icon={ShieldCheck}
+            iconBg="#F0FDF4"
+            title="Credentials"
+            right={
+              <button
+                onClick={() => setView('add')}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white rounded-lg transition-colors hover:brightness-[0.92]"
+                style={{ backgroundColor: accentColor }}
+              >
+                <Plus size={13} />
+                Add
+              </button>
+            }
+          />
+
+          {/* Success toast */}
+          {successMsg && (
+            <div
+              className="flex items-center gap-2.5 px-3.5 py-3 mb-4 rounded-lg border"
+              style={{ backgroundColor: accentColor + '08', borderColor: accentColor + '20', animation: 'portalFadeUp 0.25s ease both' }}
+            >
+              <CheckCircle2 size={16} style={{ color: accentColor }} className="flex-shrink-0" />
+              <p className="text-sm font-medium text-zinc-700">{successMsg}</p>
+            </div>
+          )}
+
+          {localCredentials.length > 0 ? (
+            <div className="space-y-1.5">
+              {localCredentials.map(cred => {
+                const catStyle = CATEGORY_STYLE[cred.category] || CATEGORY_STYLE.other;
+                const catLabel = CREDENTIAL_CATEGORIES.find(c => c.value === cred.category)?.label || cred.category;
+                return (
+                  <div
+                    key={cred.id}
+                    className="group flex items-center gap-3 px-3.5 py-3 rounded-lg bg-zinc-50 hover:bg-zinc-100/80 transition-colors"
+                  >
+                    <div
+                      className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
+                      style={{ backgroundColor: catStyle.bg }}
+                    >
+                      <KeyRound size={14} style={{ color: catStyle.iconColor }} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-zinc-900 truncate">{cred.label}</p>
+                      <p className="text-xs text-zinc-400">
+                        {catLabel} &middot; {relativeTime(cred.updated_at || cred.created_at)}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => { setEditTarget(cred); setView('edit'); }}
+                      className="flex-shrink-0 p-1.5 text-zinc-300 group-hover:text-zinc-500 hover:!text-zinc-700 hover:bg-white rounded-md transition-all"
+                      title="Edit"
+                    >
+                      <Pencil size={14} />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          ) : !successMsg ? (
+            <p className="text-sm text-zinc-500">
+              Securely share login credentials or access information with the team.
+            </p>
+          ) : null}
+        </>
+      )}
+
+      {/* ── Add / Edit form view ──────────────── */}
+      {(view === 'add' || view === 'edit') && (
+        <CredentialFormView
+          key={view === 'edit' ? editTarget?.id : 'add'}
+          token={token}
+          pin={pin}
+          accentColor={accentColor}
+          editingCredential={view === 'edit' ? editTarget : null}
+          onDone={handleDone}
+          onCancel={handleCancel}
+        />
+      )}
+    </section>
   );
 }
 
@@ -360,7 +953,8 @@ export default function PortalPage() {
     (data.settings.show_updates && updates.length > 0) ||
     (data.settings.show_proposals && data.proposals.length > 0) ||
     (data.settings.show_files && data.files.length > 0) ||
-    (data.settings.show_hours && data.hours.entries.length > 0);
+    (data.settings.show_hours && data.hours.entries.length > 0) ||
+    (data.settings.show_credentials);
 
   /* ── Hours: member aggregation ───────────────── */
   const memberHours: { name: string; hours: number; color: string }[] = [];
@@ -451,63 +1045,18 @@ export default function PortalPage() {
             )}
 
             {/* ── Updates Timeline ──────────────── */}
-            {data.settings.show_updates && updates.length > 0 && (
-              <section className="bg-white rounded-xl border border-zinc-200 p-5 sm:p-6">
-                <SectionHeader
-                  icon={Clock}
-                  iconBg="#EFF6FF"
-                  title="Updates"
-                  right={<span className="text-xs text-zinc-400">{updates.length}</span>}
-                />
-                <div className="relative">
-                  {/* Connecting line */}
-                  <div className="absolute left-[5px] top-3 bottom-3 w-px bg-zinc-200" />
-                  <div className="space-y-0">
-                    {updates.map((update) => {
-                      const dotColor =
-                        update.update_type === 'milestone' ? '#10B981' :
-                        update.update_type === 'deliverable' ? '#3B82F6' :
-                        update.update_type === 'note' ? '#F59E0B' :
-                        '#A1A1AA';
-                      const typeBadge =
-                        update.update_type === 'milestone' ? { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200' } :
-                        update.update_type === 'deliverable' ? { bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200' } :
-                        update.update_type === 'note' ? { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200' } :
-                        null;
+            {data.settings.show_updates && updates.length > 0 && (() => {
+              // Sort: pinned first, then by date descending
+              const sorted = [...updates].sort((a, b) => {
+                if (a.pinned && !b.pinned) return -1;
+                if (!a.pinned && b.pinned) return 1;
+                return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+              });
 
-                      return (
-                        <div key={update.id} className="relative flex gap-4 pb-6 last:pb-0">
-                          {/* Dot */}
-                          <div className="relative z-10 flex-shrink-0 mt-1">
-                            <div
-                              className="w-[11px] h-[11px] rounded-full ring-[3px] ring-white"
-                              style={{ backgroundColor: dotColor }}
-                            />
-                          </div>
-                          {/* Content */}
-                          <div className="flex-1 min-w-0 pt-0">
-                            <div className="flex items-center gap-2 mb-1 flex-wrap">
-                              <h3 className="text-sm font-semibold text-zinc-900">{update.title}</h3>
-                              {typeBadge && (
-                                <span className={`inline-flex items-center px-1.5 py-0.5 text-[10px] font-semibold border rounded-full ${typeBadge.bg} ${typeBadge.text} ${typeBadge.border}`}>
-                                  {update.update_type.charAt(0).toUpperCase() + update.update_type.slice(1)}
-                                </span>
-                              )}
-                            </div>
-                            {update.content && (
-                              <p className="text-sm text-zinc-500 leading-relaxed mb-1.5">{update.content}</p>
-                            )}
-                            <p className="text-xs text-zinc-400">
-                              {update.author_name} &middot; {new Date(update.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                            </p>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              </section>
-            )}
+              return (
+                <UpdatesTimeline updates={sorted} accentColor={accentColor} />
+              );
+            })()}
 
             {/* ── Hours Logged ──────────────────── */}
             {data.settings.show_hours && data.hours.entries.length > 0 && (
@@ -641,25 +1190,49 @@ export default function PortalPage() {
                           <div className="flex-1 min-w-0">
                             <p className="text-sm font-semibold text-zinc-900 truncate">{file.name}</p>
                             <p className="text-xs text-zinc-400 mb-3">{formatFileSize(file.file_size)}</p>
-                            {isHtml ? (
-                              <Link
-                                href={`/portal/${token}/page/${file.id}`}
-                                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-zinc-100 text-zinc-700 hover:bg-zinc-200 transition-colors"
-                              >
-                                <ExternalLink size={12} />
-                                View
-                              </Link>
-                            ) : (
-                              <a
-                                href={file.file_url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-zinc-100 text-zinc-700 hover:bg-zinc-200 transition-colors"
-                              >
-                                <Download size={12} />
-                                Download
-                              </a>
-                            )}
+                            <div className="flex items-center gap-2">
+                              {isHtml ? (
+                                <Link
+                                  href={`/portal/${token}/page/${file.id}`}
+                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-zinc-100 text-zinc-700 hover:bg-zinc-200 transition-colors"
+                                >
+                                  <ExternalLink size={12} />
+                                  View
+                                </Link>
+                              ) : (
+                                <>
+                                  <button
+                                    onClick={() => window.open(file.file_url, '_blank', 'noopener,noreferrer')}
+                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-zinc-100 text-zinc-700 hover:bg-zinc-200 transition-colors"
+                                  >
+                                    <Eye size={12} />
+                                    Preview
+                                  </button>
+                                  <button
+                                    onClick={async () => {
+                                      try {
+                                        const res = await fetch(file.file_url);
+                                        const blob = await res.blob();
+                                        const url = URL.createObjectURL(blob);
+                                        const a = document.createElement('a');
+                                        a.href = url;
+                                        a.download = file.name;
+                                        document.body.appendChild(a);
+                                        a.click();
+                                        a.remove();
+                                        URL.revokeObjectURL(url);
+                                      } catch {
+                                        // silent fail
+                                      }
+                                    }}
+                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-zinc-100 text-zinc-700 hover:bg-zinc-200 transition-colors"
+                                  >
+                                    <Download size={12} />
+                                    Download
+                                  </button>
+                                </>
+                              )}
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -668,6 +1241,11 @@ export default function PortalPage() {
                 </div>
               </section>
             )}
+
+            {/* ── Submit Credentials ──────────────── */}
+            {data.settings.show_credentials && (() => {
+              return <PortalCredentialForm token={token} pin={sessionStorage.getItem(`portal-pin-${token}`) || undefined} accentColor={accentColor} credentialsSubmitted={data.credentials_submitted} />;
+            })()}
           </div>
         ) : (
           /* Empty state */

@@ -267,6 +267,7 @@ create table public.portal_settings (
   show_files boolean not null default true,
   show_hours boolean not null default true,
   show_updates boolean not null default true,
+  show_credentials boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   unique(project_id),
@@ -369,6 +370,39 @@ create table public.portal_updates (
 );
 
 -- ============================================================
+-- 22b. PORTAL UPDATE ATTACHMENTS (files attached to portal updates)
+-- ============================================================
+create table public.portal_update_attachments (
+  id          uuid primary key default gen_random_uuid(),
+  update_id   uuid not null references public.portal_updates(id) on delete cascade,
+  name        text not null,
+  file_url    text not null,
+  file_size   bigint not null default 0,
+  mime_type   text not null default 'application/octet-stream',
+  uploaded_by uuid references public.team_members(id) on delete set null,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now()
+);
+
+-- ============================================================
+-- 23. PROJECT CREDENTIALS (encrypted client credentials)
+-- ============================================================
+create table public.project_credentials (
+  id uuid primary key default gen_random_uuid(),
+  project_id uuid not null references public.projects(id) on delete cascade,
+  label text not null,
+  category text not null default 'login'
+    check (category in ('login', 'api_key', 'ssh_key', 'database', 'hosting', 'cms', 'ftp', 'dns', 'email', 'other')),
+  encrypted_data text not null,
+  iv text not null,
+  submitted_by_client boolean not null default false,
+  submitted_by_name text not null default '',
+  created_by uuid references public.team_members(id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+-- ============================================================
 -- INDEXES
 -- ============================================================
 create unique index idx_team_members_auth_user_id on public.team_members(auth_user_id) where auth_user_id is not null;
@@ -407,10 +441,14 @@ create index idx_portal_files_project_id on public.portal_files(project_id);
 create index idx_portal_updates_project_id on public.portal_updates(project_id);
 create index idx_portal_updates_created_at on public.portal_updates(created_at desc);
 
+create index idx_portal_update_attachments_update_id on public.portal_update_attachments(update_id);
+
 create index idx_entity_files_entity on public.entity_files(entity_type, entity_id);
 
 create index idx_api_keys_key_hash on public.api_keys(key_hash);
 create index idx_api_keys_revoked_at on public.api_keys(revoked_at) where revoked_at is null;
+
+create index idx_project_credentials_project on public.project_credentials(project_id);
 create index idx_projects_archived_at on public.projects(archived_at) where archived_at is null;
 create index idx_leads_archived_at on public.leads(archived_at) where archived_at is null;
 
@@ -515,12 +553,20 @@ create trigger set_api_keys_updated_at
   before update on public.api_keys
   for each row execute function public.handle_updated_at();
 
+create trigger set_project_credentials_updated_at
+  before update on public.project_credentials
+  for each row execute function public.handle_updated_at();
+
 create trigger set_project_time_entries_updated_at
   before update on public.project_time_entries
   for each row execute function public.handle_updated_at();
 
 create trigger set_portal_updates_updated_at
   before update on public.portal_updates
+  for each row execute function public.handle_updated_at();
+
+create trigger set_portal_update_attachments_updated_at
+  before update on public.portal_update_attachments
   for each row execute function public.handle_updated_at();
 
 -- ============================================================
@@ -569,7 +615,9 @@ alter table public.portal_files enable row level security;
 alter table public.entity_files enable row level security;
 alter table public.api_keys enable row level security;
 alter table public.portal_updates enable row level security;
+alter table public.portal_update_attachments enable row level security;
 alter table public.project_time_entries enable row level security;
+alter table public.project_credentials enable row level security;
 alter table public.team_member_notifications enable row level security;
 
 -- All authenticated users get full CRUD on shared data
@@ -633,10 +681,16 @@ create policy "entity_files_all" on public.entity_files
 create policy "portal_updates_all" on public.portal_updates
   for all to authenticated using (true) with check (true);
 
+create policy "portal_update_attachments_all" on public.portal_update_attachments
+  for all to authenticated using (true) with check (true);
+
 create policy "project_time_entries_all" on public.project_time_entries
   for all to authenticated using (true) with check (true);
 
 create policy "api_keys_all" on public.api_keys
+  for all to authenticated using (true) with check (true);
+
+create policy "project_credentials_all" on public.project_credentials
   for all to authenticated using (true) with check (true);
 
 -- Users can only read/update/delete their own notifications.

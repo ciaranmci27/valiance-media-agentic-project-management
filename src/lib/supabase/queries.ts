@@ -1,5 +1,5 @@
 import { SupabaseClient } from '@supabase/supabase-js';
-import type { Project, Task, TeamMember, Subtask, Comment, Activity, Contact, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, PortalSettings, PortalFile, PortalUpdate, EntityFile, ApiKey, ProjectGoal, TaskSuggestion, AgentActivity, ApiAuditEntry, TimeEntry } from '@/lib/types';
+import type { Project, Task, TeamMember, Subtask, Comment, Activity, Contact, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, PortalSettings, PortalFile, PortalUpdate, PortalUpdateAttachment, EntityFile, ApiKey, ProjectGoal, TaskSuggestion, AgentActivity, ApiAuditEntry, TimeEntry, ProjectCredential, ProjectCredentialListItem } from '@/lib/types';
 import { notFound } from '@/lib/api/errors';
 import { siteConfig } from '@/site-config';
 
@@ -1276,6 +1276,45 @@ export async function removePortalUpdate(supabase: SupabaseClient, id: string) {
 }
 
 // ============================================================
+// PORTAL UPDATE ATTACHMENTS
+// ============================================================
+
+export async function fetchAllPortalUpdateAttachments(supabase: SupabaseClient) {
+  const { data, error } = await supabase
+    .from('portal_update_attachments')
+    .select('*')
+    .order('created_at', { ascending: true });
+
+  if (error) throw error;
+  return (data || []) as PortalUpdateAttachment[];
+}
+
+export async function insertPortalUpdateAttachments(
+  supabase: SupabaseClient,
+  attachments: Omit<PortalUpdateAttachment, 'id' | 'created_at' | 'updated_at'>[]
+) {
+  const { data, error } = await supabase
+    .from('portal_update_attachments')
+    .insert(attachments.map(a => ({
+      update_id: a.update_id,
+      name: a.name,
+      file_url: a.file_url,
+      file_size: a.file_size,
+      mime_type: a.mime_type,
+      uploaded_by: a.uploaded_by || null,
+    })))
+    .select();
+
+  if (error) throw error;
+  return (data || []) as PortalUpdateAttachment[];
+}
+
+export async function removePortalUpdateAttachment(supabase: SupabaseClient, id: string) {
+  const { error } = await supabase.from('portal_update_attachments').delete().eq('id', id);
+  if (error) throw error;
+}
+
+// ============================================================
 // ENTITY FILES
 // ============================================================
 
@@ -1774,5 +1813,85 @@ export async function patchTimeEntry(
 
 export async function removeTimeEntry(supabase: SupabaseClient, id: string) {
   const { error } = await supabase.from('project_time_entries').delete().eq('id', id);
+  if (error) throw error;
+}
+
+// ============================================================
+// PROJECT CREDENTIALS
+// ============================================================
+
+const CREDENTIAL_LIST_COLUMNS = 'id, project_id, label, category, submitted_by_client, submitted_by_name, created_by, created_at, updated_at';
+
+export async function fetchAllProjectCredentials(supabase: SupabaseClient) {
+  const { data, error } = await supabase
+    .from('project_credentials')
+    .select(CREDENTIAL_LIST_COLUMNS)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return (data || []) as ProjectCredentialListItem[];
+}
+
+export async function fetchProjectCredentials(supabase: SupabaseClient, projectId: string) {
+  const { data, error } = await supabase
+    .from('project_credentials')
+    .select(CREDENTIAL_LIST_COLUMNS)
+    .eq('project_id', projectId)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return (data || []) as ProjectCredentialListItem[];
+}
+
+export async function fetchCredentialWithEncryptedData(supabase: SupabaseClient, id: string, projectId?: string) {
+  let query = supabase.from('project_credentials').select('*').eq('id', id);
+  if (projectId) query = query.eq('project_id', projectId);
+  const { data, error } = await query.single();
+  if (error) throw error;
+  return data as ProjectCredential;
+}
+
+export async function insertProjectCredential(
+  supabase: SupabaseClient,
+  credential: {
+    project_id: string;
+    label: string;
+    category: string;
+    encrypted_data: string;
+    iv: string;
+    submitted_by_client?: boolean;
+    submitted_by_name?: string;
+    created_by?: string | null;
+  },
+) {
+  const { data, error } = await supabase
+    .from('project_credentials')
+    .insert(credential)
+    .select(CREDENTIAL_LIST_COLUMNS)
+    .single();
+  if (error) throw error;
+  return data as ProjectCredentialListItem;
+}
+
+export async function patchProjectCredential(
+  supabase: SupabaseClient,
+  id: string,
+  updates: {
+    label?: string;
+    category?: string;
+    encrypted_data?: string;
+    iv?: string;
+  },
+) {
+  const { data, error } = await supabase
+    .from('project_credentials')
+    .update(updates)
+    .eq('id', id)
+    .select(CREDENTIAL_LIST_COLUMNS)
+    .single();
+  if (error) throw error;
+  return data as ProjectCredentialListItem;
+}
+
+export async function removeProjectCredential(supabase: SupabaseClient, id: string) {
+  const { error } = await supabase.from('project_credentials').delete().eq('id', id);
   if (error) throw error;
 }

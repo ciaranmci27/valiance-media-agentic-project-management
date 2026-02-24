@@ -11,13 +11,19 @@ export const GET = withApi(async ({ supabase, params, searchParams }) => {
 
   const { data, count, error } = await supabase
     .from('portal_updates')
-    .select('*', { count: 'exact' })
+    .select('*, portal_update_attachments(id, name, file_url, file_size, mime_type, uploaded_by, created_at)', { count: 'exact' })
     .eq('project_id', id)
     .order('created_at', { ascending: false })
     .range(offset, offset + limit - 1);
 
   if (error) throw error;
-  return paginated(data || [], { page, limit, total: count || 0 });
+
+  const mapped = (data || []).map((u: any) => {
+    const { portal_update_attachments, ...rest } = u;
+    return { ...rest, attachments: portal_update_attachments || [] };
+  });
+
+  return paginated(mapped, { page, limit, total: count || 0 });
 });
 
 export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMemberId }) => {

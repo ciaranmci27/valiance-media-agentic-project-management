@@ -13,6 +13,12 @@ interface ConfirmDialogProps {
   confirmLabel?: string;
   variant?: 'danger' | 'default';
   doubleConfirm?: boolean;
+  /** Custom title for the second confirmation step (defaults to "Are you absolutely sure?") */
+  doubleConfirmTitle?: string;
+  /** Custom message for the second confirmation step */
+  doubleConfirmMessage?: string;
+  /** Custom button label for the second confirmation step */
+  doubleConfirmLabel?: string;
 }
 
 export function ConfirmDialog({
@@ -24,6 +30,9 @@ export function ConfirmDialog({
   confirmLabel = 'Delete',
   variant = 'danger',
   doubleConfirm = variant === 'danger',
+  doubleConfirmTitle = 'Are you absolutely sure?',
+  doubleConfirmMessage = 'This action is permanent and cannot be undone.',
+  doubleConfirmLabel,
 }: ConfirmDialogProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
   const [step, setStep] = useState(1);
@@ -79,12 +88,10 @@ export function ConfirmDialog({
           </div>
 
           <h3 className="text-lg font-semibold text-zinc-900 mb-2">
-            {isStep2 ? 'Are you absolutely sure?' : title}
+            {isStep2 ? doubleConfirmTitle : title}
           </h3>
           <p className="text-sm text-zinc-500 leading-relaxed">
-            {isStep2
-              ? 'This action is permanent and cannot be undone.'
-              : message}
+            {isStep2 ? doubleConfirmMessage : message}
           </p>
         </div>
 
@@ -97,7 +104,7 @@ export function ConfirmDialog({
             onClick={handleConfirmClick}
             className="flex-1"
           >
-            {isStep2 ? 'Permanently Delete' : confirmLabel}
+            {isStep2 ? (doubleConfirmLabel ?? confirmLabel) : confirmLabel}
           </Button>
         </div>
       </div>

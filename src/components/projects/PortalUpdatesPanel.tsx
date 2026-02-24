@@ -1,16 +1,26 @@
 'use client';
 
-import { useState } from 'react';
-import { MessageSquarePlus, Plus, Pencil, Trash2, X } from 'lucide-react';
+import { useState, useRef } from 'react';
+import { MessageSquarePlus, Plus, Pencil, Trash2, X, Paperclip, Image, FileText, File, Loader2, Eye, Download, Globe } from 'lucide-react';
 import { Select } from '@/components/ui/Select';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
+import { useDemo } from '@/lib/demo-context';
+import { createClient } from '@/lib/supabase/client';
 import { toast } from '@/components/ui/Toast';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import type { PortalUpdate, PortalUpdateType } from '@/lib/types';
+import type { PortalUpdate, PortalUpdateType, PortalUpdateAttachment } from '@/lib/types';
 
 interface PortalUpdatesPanelProps {
   projectId: string;
+}
+
+interface PendingFile {
+  id: string;
+  file: globalThis.File;
+  name: string;
+  mime_type: string;
+  file_size: number;
 }
 
 const TYPE_CONFIG: Record<PortalUpdateType, { label: string; bg: string; text: string; dot: string }> = {
@@ -19,6 +29,19 @@ const TYPE_CONFIG: Record<PortalUpdateType, { label: string; bg: string; text: s
   note: { label: 'Note', bg: 'bg-amber-50', text: 'text-amber-700', dot: 'bg-amber-500' },
   general: { label: 'General', bg: 'bg-zinc-100', text: 'text-zinc-600', dot: 'bg-zinc-400' },
 };
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function getAttachmentIcon(mimeType: string) {
+  if (mimeType.startsWith('image/')) return Image;
+  if (mimeType === 'text/html') return Globe;
+  if (mimeType === 'application/pdf') return FileText;
+  return File;
+}
 
 function timeAgo(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -32,9 +55,146 @@ function timeAgo(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
+function AttachmentChips({ attachments, onRemove }: { attachments: PortalUpdateAttachment[]; onRemove?: (id: string) => void }) {
+  if (attachments.length === 0) return null;
+  const images = attachments.filter(a => a.mime_type.startsWith('image/'));
+  const files = attachments.filter(a => !a.mime_type.startsWith('image/'));
+
+  const downloadFile = async (url: string, name: string) => {
+    try {
+      const res = await fetch(url);
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const el = document.createElement('a');
+      el.href = blobUrl;
+      el.download = name;
+      document.body.appendChild(el);
+      el.click();
+      el.remove();
+      URL.revokeObjectURL(blobUrl);
+    } catch { /* silent */ }
+  };
+
+  return (
+    <div className="mt-2 space-y-2">
+      {images.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {images.map(a => (
+            <div key={a.id} className="relative group/att">
+              {a.file_url !== '#' ? (
+                <img src={a.file_url} alt={a.name} className="h-16 w-auto rounded-md border border-zinc-200 object-cover" />
+              ) : (
+                <div className="h-16 w-20 rounded-md border border-zinc-200 bg-zinc-100 flex items-center justify-center">
+                  <Image size={16} className="text-zinc-400" />
+                </div>
+              )}
+              {onRemove ? (
+                <button
+                  onClick={() => onRemove(a.id)}
+                  className="absolute -top-1.5 -right-1.5 p-0.5 bg-white border border-zinc-200 rounded-full text-zinc-400 hover:text-red-500 shadow-sm opacity-0 group-hover/att:opacity-100 transition-opacity"
+                >
+                  <X size={10} />
+                </button>
+              ) : a.file_url !== '#' && (
+                <div className="absolute inset-0 rounded-md bg-black/0 group-hover/att:bg-black/40 transition-colors flex items-center justify-center gap-1 opacity-0 group-hover/att:opacity-100">
+                  <button
+                    onClick={() => window.open(a.file_url, '_blank', 'noopener,noreferrer')}
+                    className="p-1 bg-white/90 rounded text-zinc-700 hover:bg-white transition-colors"
+                    title="Preview"
+                  >
+                    <Eye size={11} />
+                  </button>
+                  <button
+                    onClick={() => downloadFile(a.file_url, a.name)}
+                    className="p-1 bg-white/90 rounded text-zinc-700 hover:bg-white transition-colors"
+                    title="Download"
+                  >
+                    <Download size={11} />
+                  </button>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      {files.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {files.map(a => {
+            const isHtml = a.mime_type === 'text/html';
+            const Icon = getAttachmentIcon(a.mime_type);
+            return (
+              <span key={a.id} className="inline-flex items-center gap-1.5 px-2 py-1 text-xs bg-zinc-100 text-zinc-600 rounded-md group/att">
+                <Icon size={12} className="text-zinc-400" />
+                <span className="max-w-[120px] truncate">{a.name}</span>
+                <span className="text-zinc-400">{formatFileSize(a.file_size)}</span>
+                {onRemove ? (
+                  <button
+                    onClick={() => onRemove(a.id)}
+                    className="p-0.5 text-zinc-400 hover:text-red-500 transition-colors"
+                  >
+                    <X size={10} />
+                  </button>
+                ) : (
+                  <>
+                    {a.file_url !== '#' && (
+                      <button
+                        onClick={() => window.open(a.file_url, '_blank', 'noopener,noreferrer')}
+                        className="p-0.5 text-zinc-400 hover:text-brand-600 transition-colors"
+                        title="Preview"
+                      >
+                        <Eye size={11} />
+                      </button>
+                    )}
+                    {!isHtml && a.file_url !== '#' && (
+                      <button
+                        onClick={() => downloadFile(a.file_url, a.name)}
+                        className="p-0.5 text-zinc-400 hover:text-brand-600 transition-colors"
+                        title="Download"
+                      >
+                        <Download size={11} />
+                      </button>
+                    )}
+                  </>
+                )}
+              </span>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PendingFileChips({ files, onRemove }: { files: PendingFile[]; onRemove: (id: string) => void }) {
+  if (files.length === 0) return null;
+
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {files.map(f => {
+        const isImage = f.mime_type.startsWith('image/');
+        const Icon = getAttachmentIcon(f.mime_type);
+        return (
+          <span key={f.id} className="inline-flex items-center gap-1.5 px-2 py-1 text-xs bg-zinc-100 text-zinc-600 rounded-md">
+            {isImage ? <Image size={12} className="text-violet-400" /> : <Icon size={12} className="text-zinc-400" />}
+            <span className="max-w-[120px] truncate">{f.name}</span>
+            <span className="text-zinc-400">{formatFileSize(f.file_size)}</span>
+            <button
+              onClick={() => onRemove(f.id)}
+              className="p-0.5 text-zinc-400 hover:text-red-500 transition-colors"
+            >
+              <X size={10} />
+            </button>
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
 export function PortalUpdatesPanel({ projectId }: PortalUpdatesPanelProps) {
-  const { getPortalUpdates, addPortalUpdate, updatePortalUpdate, deletePortalUpdate, getTeamMember, getPortalSettings } = useApp();
+  const { getPortalUpdates, addPortalUpdate, updatePortalUpdate, deletePortalUpdate, getTeamMember, getPortalSettings, getPortalUpdateAttachments } = useApp();
   const { teamMemberId } = useAuth();
+  const { isDemoMode } = useDemo();
 
   const portalSettings = getPortalSettings(projectId);
   const isPortalEnabled = portalSettings?.enabled ?? false;
@@ -43,31 +203,110 @@ export function PortalUpdatesPanel({ projectId }: PortalUpdatesPanelProps) {
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
 
   // Form state
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [updateType, setUpdateType] = useState<PortalUpdateType>('general');
+  const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
+
+  // Edit-mode attachment state
+  const [removedAttachmentIds, setRemovedAttachmentIds] = useState<string[]>([]);
+  const [editPendingFiles, setEditPendingFiles] = useState<PendingFile[]>([]);
+
+  const addFileRef = useRef<HTMLInputElement>(null);
+  const editFileRef = useRef<HTMLInputElement>(null);
 
   const resetForm = () => {
     setTitle('');
     setContent('');
     setUpdateType('general');
+    setPendingFiles([]);
+    setRemovedAttachmentIds([]);
+    setEditPendingFiles([]);
   };
 
-  const handleAdd = () => {
+  const handleFilePick = (files: FileList | null, target: 'add' | 'edit') => {
+    if (!files) return;
+    const newPending: PendingFile[] = Array.from(files).map(f => ({
+      id: crypto.randomUUID(),
+      file: f,
+      name: f.name,
+      mime_type: f.type || 'application/octet-stream',
+      file_size: f.size,
+    }));
+    if (target === 'add') {
+      setPendingFiles(prev => [...prev, ...newPending]);
+    } else {
+      setEditPendingFiles(prev => [...prev, ...newPending]);
+    }
+  };
+
+  const uploadFiles = async (files: PendingFile[]): Promise<{ name: string; file_url: string; file_size: number; mime_type: string }[]> => {
+    if (files.length === 0) return [];
+
+    if (isDemoMode) {
+      return files.map(f => ({
+        name: f.name,
+        file_url: '#',
+        file_size: f.file_size,
+        mime_type: f.mime_type,
+      }));
+    }
+
+    const supabase = createClient();
+    const results: { name: string; file_url: string; file_size: number; mime_type: string }[] = [];
+
+    for (const f of files) {
+      const path = `updates/${projectId}/${Date.now()}-${f.name}`;
+      const { error: uploadError } = await supabase.storage
+        .from('portal-files')
+        .upload(path, f.file);
+
+      if (uploadError) throw uploadError;
+
+      const { data: urlData } = supabase.storage
+        .from('portal-files')
+        .getPublicUrl(path);
+
+      results.push({
+        name: f.name,
+        file_url: urlData.publicUrl,
+        file_size: f.file_size,
+        mime_type: f.mime_type,
+      });
+    }
+
+    return results;
+  };
+
+  const handleAdd = async () => {
     if (!title.trim()) return;
-    addPortalUpdate({
-      project_id: projectId,
-      title: title.trim(),
-      content: content.trim(),
-      update_type: updateType,
-      author_id: teamMemberId,
-      pinned: false,
-    });
-    resetForm();
-    setIsAdding(false);
-    toast('success', 'Update posted');
+    setUploading(true);
+
+    try {
+      const uploaded = await uploadFiles(pendingFiles);
+
+      addPortalUpdate(
+        {
+          project_id: projectId,
+          title: title.trim(),
+          content: content.trim(),
+          update_type: updateType,
+          author_id: teamMemberId,
+          pinned: false,
+        },
+        uploaded.length > 0 ? uploaded : undefined,
+      );
+      resetForm();
+      setIsAdding(false);
+      toast('success', 'Update posted');
+    } catch {
+      toast('error', 'Failed to upload files');
+    } finally {
+      setUploading(false);
+    }
   };
 
   const handleStartEdit = (update: PortalUpdate) => {
@@ -75,18 +314,35 @@ export function PortalUpdatesPanel({ projectId }: PortalUpdatesPanelProps) {
     setTitle(update.title);
     setContent(update.content);
     setUpdateType(update.update_type);
+    setRemovedAttachmentIds([]);
+    setEditPendingFiles([]);
   };
 
-  const handleSaveEdit = () => {
+  const handleSaveEdit = async () => {
     if (!editingId || !title.trim()) return;
-    updatePortalUpdate(editingId, {
-      title: title.trim(),
-      content: content.trim(),
-      update_type: updateType,
-    });
-    resetForm();
-    setEditingId(null);
-    toast('success', 'Update saved');
+    setUploading(true);
+
+    try {
+      const uploaded = await uploadFiles(editPendingFiles);
+
+      updatePortalUpdate(
+        editingId,
+        {
+          title: title.trim(),
+          content: content.trim(),
+          update_type: updateType,
+        },
+        uploaded.length > 0 ? uploaded : undefined,
+        removedAttachmentIds.length > 0 ? removedAttachmentIds : undefined,
+      );
+      resetForm();
+      setEditingId(null);
+      toast('success', 'Update saved');
+    } catch {
+      toast('error', 'Failed to upload files');
+    } finally {
+      setUploading(false);
+    }
   };
 
   const handleCancelEdit = () => {
@@ -101,6 +357,26 @@ export function PortalUpdatesPanel({ projectId }: PortalUpdatesPanelProps) {
       toast('success', 'Update deleted');
     }
   };
+
+  const renderAttachFileButton = (inputRef: React.RefObject<HTMLInputElement | null>, target: 'add' | 'edit') => (
+    <>
+      <input
+        ref={inputRef}
+        type="file"
+        multiple
+        className="hidden"
+        onChange={e => { handleFilePick(e.target.files, target); if (inputRef.current) inputRef.current.value = ''; }}
+      />
+      <button
+        type="button"
+        onClick={() => inputRef.current?.click()}
+        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-zinc-500 hover:text-zinc-700 bg-zinc-100 hover:bg-zinc-200 rounded-lg transition-colors"
+      >
+        <Paperclip size={12} />
+        Attach
+      </button>
+    </>
+  );
 
   return (
     <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden flex flex-col max-h-[600px]">
@@ -165,20 +441,26 @@ export function PortalUpdatesPanel({ projectId }: PortalUpdatesPanelProps) {
                 rows={3}
                 className="w-full px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 transition-all resize-none"
               />
-              <div className="flex items-center gap-2 justify-end">
-                <button
-                  onClick={handleCancelEdit}
-                  className="px-3 py-1.5 text-sm text-zinc-500 hover:text-zinc-700 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleAdd}
-                  disabled={!title.trim()}
-                  className="px-4 py-1.5 text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Post
-                </button>
+              {/* Pending files */}
+              <PendingFileChips files={pendingFiles} onRemove={id => setPendingFiles(f => f.filter(p => p.id !== id))} />
+              <div className="flex items-center gap-2 justify-between">
+                {renderAttachFileButton(addFileRef, 'add')}
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleCancelEdit}
+                    className="px-3 py-1.5 text-sm text-zinc-500 hover:text-zinc-700 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleAdd}
+                    disabled={!title.trim() || uploading}
+                    className="px-4 py-1.5 text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-1.5"
+                  >
+                    {uploading && <Loader2 size={14} className="animate-spin" />}
+                    Post
+                  </button>
+                </div>
               </div>
             </div>
           )}
@@ -190,8 +472,11 @@ export function PortalUpdatesPanel({ projectId }: PortalUpdatesPanelProps) {
                 const config = TYPE_CONFIG[update.update_type];
                 const author = update.author_id ? getTeamMember(update.author_id) : null;
                 const isEditing = editingId === update.id;
+                const attachments = getPortalUpdateAttachments(update.id);
 
                 if (isEditing) {
+                  const visibleExisting = attachments.filter(a => !removedAttachmentIds.includes(a.id));
+
                   return (
                     <div key={update.id} className="border border-brand-200 bg-brand-50/30 rounded-lg p-4 space-y-3">
                       <div className="flex gap-2">
@@ -221,20 +506,28 @@ export function PortalUpdatesPanel({ projectId }: PortalUpdatesPanelProps) {
                         rows={3}
                         className="w-full px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 transition-all resize-none"
                       />
-                      <div className="flex items-center gap-2 justify-end">
-                        <button
-                          onClick={handleCancelEdit}
-                          className="px-3 py-1.5 text-sm text-zinc-500 hover:text-zinc-700 transition-colors"
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          onClick={handleSaveEdit}
-                          disabled={!title.trim()}
-                          className="px-4 py-1.5 text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          Save
-                        </button>
+                      {/* Existing attachments (removable) */}
+                      <AttachmentChips attachments={visibleExisting} onRemove={id => setRemovedAttachmentIds(prev => [...prev, id])} />
+                      {/* Newly picked files */}
+                      <PendingFileChips files={editPendingFiles} onRemove={id => setEditPendingFiles(f => f.filter(p => p.id !== id))} />
+                      <div className="flex items-center gap-2 justify-between">
+                        {renderAttachFileButton(editFileRef, 'edit')}
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={handleCancelEdit}
+                            className="px-3 py-1.5 text-sm text-zinc-500 hover:text-zinc-700 transition-colors"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            onClick={handleSaveEdit}
+                            disabled={!title.trim() || uploading}
+                            className="px-4 py-1.5 text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-1.5"
+                          >
+                            {uploading && <Loader2 size={14} className="animate-spin" />}
+                            Save
+                          </button>
+                        </div>
                       </div>
                     </div>
                   );
@@ -256,6 +549,8 @@ export function PortalUpdatesPanel({ projectId }: PortalUpdatesPanelProps) {
                       {update.content && (
                         <p className="text-sm text-zinc-500 leading-relaxed line-clamp-2">{update.content}</p>
                       )}
+                      {/* Read-only attachments */}
+                      <AttachmentChips attachments={attachments} />
                       <p className="text-xs text-zinc-400 mt-1">
                         {author?.name || 'Team'} &middot; {timeAgo(update.created_at)}
                       </p>

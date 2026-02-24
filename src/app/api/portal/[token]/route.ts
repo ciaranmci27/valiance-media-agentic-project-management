@@ -2,7 +2,8 @@ import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import type { PortalData } from '@/lib/types';
 import {
-  demoPortalSettings, demoPortalFiles, demoPortalUpdates, demoProjects, demoTasks,
+  demoPortalSettings, demoPortalFiles, demoPortalUpdates, demoPortalUpdateAttachments,
+  demoProjects, demoTasks,
   demoLeads, demoLeadProposals, demoProjectContacts, demoTimeEntries,
   demoTeam,
 } from '@/lib/demo-data';
@@ -184,7 +185,26 @@ export async function GET(
     }
   }
 
-  // Fetch portal updates with author names
+  // Fetch client-submitted credentials
+  let credentials_submitted: PortalData['credentials_submitted'] = [];
+  if (settings.show_credentials) {
+    const { data: creds } = await supabase
+      .from('project_credentials')
+      .select('id, label, category, created_at, updated_at')
+      .eq('project_id', settings.project_id)
+      .eq('submitted_by_client', true)
+      .order('created_at', { ascending: false });
+    credentials_submitted = (creds || []).map((c: any) => ({
+      id: c.id,
+      label: c.label,
+      category: c.category,
+      created_at: c.created_at,
+      updated_at: c.updated_at,
+    }));
+  }
+  const credentials_submitted_count = credentials_submitted.length;
+
+  // Fetch portal updates with author names and attachments
   let updates: PortalData['updates'] = [];
   if (settings.show_updates) {
     const { data: portalUpdates } = await supabase
@@ -201,6 +221,21 @@ export async function GET(
 
       const authorMap = new Map((authors || []).map((a: any) => [a.id, a.name]));
 
+      // Fetch attachments for all updates
+      const updateIds = portalUpdates.map((u: any) => u.id);
+      const { data: allAttachments } = await supabase
+        .from('portal_update_attachments')
+        .select('id, update_id, name, file_url, file_size, mime_type')
+        .in('update_id', updateIds)
+        .order('created_at', { ascending: true });
+
+      const attachmentMap = new Map<string, typeof allAttachments>();
+      for (const att of allAttachments || []) {
+        const list = attachmentMap.get(att.update_id) || [];
+        list.push(att);
+        attachmentMap.set(att.update_id, list);
+      }
+
       updates = portalUpdates.map((u: any) => ({
         id: u.id,
         title: u.title,
@@ -209,6 +244,13 @@ export async function GET(
         author_name: authorMap.get(u.author_id) || 'Team',
         pinned: u.pinned,
         created_at: u.created_at,
+        attachments: (attachmentMap.get(u.id) || []).map((a: any) => ({
+          id: a.id,
+          name: a.name,
+          file_url: a.file_url,
+          file_size: a.file_size,
+          mime_type: a.mime_type,
+        })),
       }));
     }
   }
@@ -228,6 +270,7 @@ export async function GET(
       show_files: settings.show_files,
       show_hours: settings.show_hours,
       show_updates: settings.show_updates ?? true,
+      show_credentials: settings.show_credentials ?? false,
     },
     progress: {
       total_tasks: totalTasks,
@@ -238,6 +281,8 @@ export async function GET(
     files,
     hours,
     updates,
+    credentials_submitted_count,
+    credentials_submitted,
   };
 
   return NextResponse.json(portalData);
@@ -336,6 +381,9 @@ function handleDemoMode(token: string, request: NextRequest) {
       .filter(u => u.project_id === settings.project_id)
       .map(u => {
         const author = demoTeam.find(m => m.id === u.author_id);
+        const attachments = demoPortalUpdateAttachments
+          .filter(a => a.update_id === u.id)
+          .map(a => ({ id: a.id, name: a.name, file_url: a.file_url, file_size: a.file_size, mime_type: a.mime_type }));
         return {
           id: u.id,
           title: u.title,
@@ -344,6 +392,7 @@ function handleDemoMode(token: string, request: NextRequest) {
           author_name: author?.name || 'Team',
           pinned: u.pinned,
           created_at: u.created_at,
+          attachments,
         };
       });
   }
@@ -359,12 +408,15 @@ function handleDemoMode(token: string, request: NextRequest) {
       show_files: settings.show_files,
       show_hours: settings.show_hours,
       show_updates: settings.show_updates ?? true,
+      show_credentials: (settings as any).show_credentials ?? false,
     },
     progress: { total_tasks: totalTasks, done_tasks: doneTasks, percent },
     proposals,
     files,
     hours,
     updates,
+    credentials_submitted_count: 0,
+    credentials_submitted: [],
   };
 
   return NextResponse.json(portalData);

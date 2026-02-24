@@ -302,6 +302,7 @@ export interface PortalSettings {
   show_files: boolean;
   show_hours: boolean;
   show_updates: boolean;
+  show_credentials: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -317,6 +318,18 @@ export interface PortalUpdate {
   update_type: PortalUpdateType;
   author_id: string | null;
   pinned: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PortalUpdateAttachment {
+  id: string;
+  update_id: string;
+  name: string;
+  file_url: string;
+  file_size: number;
+  mime_type: string;
+  uploaded_by: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -483,6 +496,7 @@ export interface PortalData {
     show_files: boolean;
     show_hours: boolean;
     show_updates: boolean;
+    show_credentials: boolean;
   };
   progress: {
     total_tasks: number;
@@ -522,5 +536,59 @@ export interface PortalData {
     author_name: string;
     pinned: boolean;
     created_at: string;
+    attachments: { id: string; name: string; file_url: string; file_size: number; mime_type: string }[];
   }[];
+  credentials_submitted_count: number;
+  credentials_submitted: {
+    id: string;
+    label: string;
+    category: CredentialCategory;
+    created_at: string;
+    updated_at: string;
+  }[];
+}
+
+// ============================================================
+// PROJECT CREDENTIALS
+// ============================================================
+
+export const CREDENTIAL_CATEGORIES = [
+  'login', 'api_key', 'ssh_key', 'database', 'hosting',
+  'cms', 'ftp', 'dns', 'email', 'other',
+] as const;
+export type CredentialCategory = typeof CREDENTIAL_CATEGORIES[number];
+
+export interface ProjectCredential {
+  id: string;
+  project_id: string;
+  label: string;
+  category: CredentialCategory;
+  encrypted_data: string;
+  iv: string;
+  submitted_by_client: boolean;
+  submitted_by_name: string;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Metadata-only view (no encrypted fields) — used in store and list views. */
+export interface ProjectCredentialListItem {
+  id: string;
+  project_id: string;
+  label: string;
+  category: CredentialCategory;
+  submitted_by_client: boolean;
+  submitted_by_name: string;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** The decrypted payload returned by the reveal endpoint. */
+export interface CredentialPayload {
+  username: string;
+  password: string;
+  url: string;
+  notes: string;
 }

@@ -56,6 +56,10 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
   const [editingFileId, setEditingFileId] = useState<string | null>(null);
   const [editingFileName, setEditingFileName] = useState('');
   const [deleteFileTarget, setDeleteFileTarget] = useState<string | null>(null);
+  const [showRegenerateConfirm, setShowRegenerateConfirm] = useState(false);
+  const [pinConfirmed, setPinConfirmed] = useState(false);
+  const [showPinConfirm, setShowPinConfirm] = useState(false);
+  const pinInputRef = useRef<HTMLInputElement>(null);
   const renameCancelledRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const logoInputRef = useRef<HTMLInputElement>(null);
@@ -110,6 +114,7 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
     if (!settings) return;
     regeneratePortalToken(projectId);
     toast('success', 'Portal link regenerated');
+    setShowRegenerateConfirm(false);
   };
 
   const handleSettingChange = (key: string, value: any) => {
@@ -332,7 +337,14 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
                   {copied ? <Check size={16} className="text-green-600" /> : <Copy size={16} />}
                 </button>
                 <button
-                  onClick={handleRegenerateToken}
+                  onClick={() => portalUrl && window.open(portalUrl, '_blank', 'noopener,noreferrer')}
+                  className="p-2 text-zinc-500 hover:text-brand-600 hover:bg-brand-50 rounded-lg transition-colors"
+                  title="View portal"
+                >
+                  <Eye size={16} />
+                </button>
+                <button
+                  onClick={() => setShowRegenerateConfirm(true)}
                   className="p-2 text-zinc-500 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
                   title="Regenerate link"
                 >
@@ -344,13 +356,24 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="relative">
                   <input
-                    type={showPin ? 'text' : 'password'}
+                    ref={pinInputRef}
+                    type="text"
                     value={localPin}
+                    onFocus={e => {
+                      if (!pinConfirmed) {
+                        e.target.blur();
+                        setShowPinConfirm(true);
+                      }
+                    }}
                     onChange={e => {
                       setLocalPin(e.target.value);
                       debouncedSettingChange('pin', e.target.value || null);
                     }}
                     placeholder="PIN (open access)"
+                    autoComplete="off"
+                    data-1p-ignore
+                    data-lpignore="true"
+                    style={showPin ? undefined : { WebkitTextSecurity: 'disc' } as React.CSSProperties}
                     className="w-full px-3 py-2 pr-9 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 transition-all placeholder:text-zinc-400"
                   />
                   <button
@@ -410,6 +433,7 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
                 { key: 'show_files', label: 'Files' },
                 { key: 'show_hours', label: 'Hours' },
                 { key: 'show_updates', label: 'Updates' },
+                { key: 'show_credentials', label: 'Credentials' },
               ].filter(item => item.key !== 'show_hours' || project?.hourly_tracking).map(({ key, label }) => {
                 const isActive = (settings as any)[key];
                 return (
@@ -528,15 +552,35 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
                       </div>
                       {!isEditing && (
                         <>
-                          <a
-                            href={file.file_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
+                          <button
+                            onClick={() => window.open(file.file_url, '_blank', 'noopener,noreferrer')}
+                            className="p-1.5 text-zinc-300 hover:text-brand-500 opacity-0 group-hover:opacity-100 transition-all"
+                            title="Preview file"
+                          >
+                            <Eye size={14} />
+                          </button>
+                          <button
+                            onClick={async () => {
+                              try {
+                                const res = await fetch(file.file_url);
+                                const blob = await res.blob();
+                                const url = URL.createObjectURL(blob);
+                                const a = document.createElement('a');
+                                a.href = url;
+                                a.download = file.name;
+                                document.body.appendChild(a);
+                                a.click();
+                                a.remove();
+                                URL.revokeObjectURL(url);
+                              } catch {
+                                toast('error', 'Failed to download file');
+                              }
+                            }}
                             className="p-1.5 text-zinc-300 hover:text-brand-500 opacity-0 group-hover:opacity-100 transition-all"
                             title="Download file"
                           >
                             <Download size={14} />
-                          </a>
+                          </button>
                           <button
                             onClick={() => { setEditingFileId(file.id); setEditingFileName(file.name); }}
                             className="p-1.5 text-zinc-300 hover:text-brand-500 opacity-0 group-hover:opacity-100 transition-all"
@@ -587,6 +631,31 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
         message="Are you sure you want to remove this file from the portal?"
         confirmLabel="Delete"
         variant="danger"
+      />
+      <ConfirmDialog
+        isOpen={showRegenerateConfirm}
+        onClose={() => setShowRegenerateConfirm(false)}
+        onConfirm={handleRegenerateToken}
+        title="Regenerate Portal Link"
+        message="This will create a new portal URL. Anyone with the current link will no longer be able to access the portal."
+        confirmLabel="Regenerate"
+        variant="danger"
+        doubleConfirmTitle="Are you sure?"
+        doubleConfirmMessage="The old link will stop working immediately. You'll need to share the new link with your client."
+        doubleConfirmLabel="Regenerate Link"
+      />
+      <ConfirmDialog
+        isOpen={showPinConfirm}
+        onClose={() => setShowPinConfirm(false)}
+        onConfirm={() => {
+          setPinConfirmed(true);
+          setShowPinConfirm(false);
+          setTimeout(() => pinInputRef.current?.focus(), 50);
+        }}
+        title="Edit Portal PIN"
+        message="Any value you enter will auto-save and require clients to enter a PIN before accessing the portal. Clearing the field will remove the PIN and make the portal open access."
+        confirmLabel="Continue"
+        variant="default"
       />
     </div>
   );

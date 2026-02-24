@@ -1,4 +1,4 @@
-import type { TeamMember, Contact, Project, ProjectContact, Task, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, Activity, PortalSettings, PortalFile, PortalUpdate, EntityFile, TimeEntry, Notification, ProjectGoal, TaskSuggestion, AgentActivity } from './types';
+import type { TeamMember, Contact, Project, ProjectContact, Task, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, Activity, PortalSettings, PortalFile, PortalUpdate, PortalUpdateAttachment, EntityFile, TimeEntry, Notification, ProjectGoal, TaskSuggestion, AgentActivity } from './types';
 import { siteConfig } from '@/site-config';
 
 // ---------------------------------------------------------------------------
@@ -622,6 +622,7 @@ export const demoPortalSettings: PortalSettings[] = [
     show_files: true,
     show_hours: true,
     show_updates: true,
+    show_credentials: false,
     created_at: daysAgo(10),
     updated_at: daysAgo(1),
   },
@@ -639,6 +640,7 @@ export const demoPortalSettings: PortalSettings[] = [
     show_files: true,
     show_hours: true,
     show_updates: true,
+    show_credentials: false,
     created_at: daysAgo(8),
     updated_at: daysAgo(1),
   },
@@ -689,6 +691,45 @@ export const demoPortalUpdates: PortalUpdate[] = [
     update_type: 'note',
     author_id: 'a1a1a1a1-0001-4000-8000-000000000001',
     pinned: false,
+    created_at: daysAgo(1),
+    updated_at: daysAgo(1),
+  },
+];
+
+// ---------------------------------------------------------------------------
+// PORTAL UPDATE ATTACHMENTS
+// ---------------------------------------------------------------------------
+export const demoPortalUpdateAttachments: PortalUpdateAttachment[] = [
+  {
+    id: 'pua-0001-4000-8000-000000000001',
+    update_id: 'pu-0002-4000-8000-000000000002', // Logo concepts
+    name: 'logo-concept-A.png',
+    file_url: '#',
+    file_size: 540000,
+    mime_type: 'image/png',
+    uploaded_by: 'a1a1a1a1-0002-4000-8000-000000000002',
+    created_at: daysAgo(7),
+    updated_at: daysAgo(7),
+  },
+  {
+    id: 'pua-0002-4000-8000-000000000002',
+    update_id: 'pu-0002-4000-8000-000000000002', // Logo concepts
+    name: 'logo-concept-B.png',
+    file_url: '#',
+    file_size: 620000,
+    mime_type: 'image/png',
+    uploaded_by: 'a1a1a1a1-0002-4000-8000-000000000002',
+    created_at: daysAgo(7),
+    updated_at: daysAgo(7),
+  },
+  {
+    id: 'pua-0003-4000-8000-000000000003',
+    update_id: 'pu-0004-4000-8000-000000000004', // Client feedback
+    name: 'Revised-Brand-Guidelines.pdf',
+    file_url: '#',
+    file_size: 2100000,
+    mime_type: 'application/pdf',
+    uploaded_by: 'a1a1a1a1-0001-4000-8000-000000000001',
     created_at: daysAgo(1),
     updated_at: daysAgo(1),
   },

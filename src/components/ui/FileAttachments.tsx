@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useRef } from 'react';
-import { Upload, Download, Trash2, Pencil, File, FileText, Image, Archive, Globe, Paperclip } from 'lucide-react';
+import { Upload, Download, Trash2, Pencil, File, FileText, Image, Archive, Globe, Paperclip, Eye } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
@@ -194,15 +194,35 @@ export function FileAttachments({ entityType, entityId }: FileAttachmentsProps) 
                   </div>
                   {!isEditing && (
                     <>
-                      <a
-                        href={file.file_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
+                      <button
+                        onClick={() => window.open(file.file_url, '_blank', 'noopener,noreferrer')}
+                        className="p-1.5 text-zinc-300 hover:text-brand-500 opacity-0 group-hover:opacity-100 transition-all"
+                        title="Preview file"
+                      >
+                        <Eye size={14} />
+                      </button>
+                      <button
+                        onClick={async () => {
+                          try {
+                            const res = await fetch(file.file_url);
+                            const blob = await res.blob();
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = file.name;
+                            document.body.appendChild(a);
+                            a.click();
+                            a.remove();
+                            URL.revokeObjectURL(url);
+                          } catch {
+                            toast('error', 'Failed to download file');
+                          }
+                        }}
                         className="p-1.5 text-zinc-300 hover:text-brand-500 opacity-0 group-hover:opacity-100 transition-all"
                         title="Download file"
                       >
                         <Download size={14} />
-                      </a>
+                      </button>
                       <button
                         onClick={() => { setEditingFileId(file.id); setEditingFileName(file.name); }}
                         className="p-1.5 text-zinc-300 hover:text-brand-500 opacity-0 group-hover:opacity-100 transition-all"

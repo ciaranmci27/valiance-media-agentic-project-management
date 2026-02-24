@@ -1,7 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { Project, Task, TeamMember, FilterState, ViewMode, Subtask, Comment, Contact, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, Activity, PortalSettings, PortalFile, PortalUpdate, EntityFile, EntityFileType, ApiKey, NotificationCategory, ProjectGoal, TaskSuggestion, AgentActivity, TimeEntry } from './types';
+import { Project, Task, TeamMember, FilterState, ViewMode, Subtask, Comment, Contact, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, Activity, PortalSettings, PortalFile, PortalUpdate, PortalUpdateAttachment, EntityFile, EntityFileType, ApiKey, NotificationCategory, ProjectGoal, TaskSuggestion, AgentActivity, TimeEntry, ProjectCredentialListItem, CredentialPayload, CredentialCategory } from './types';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
@@ -9,7 +9,7 @@ import {
   demoTeam, demoContacts, demoProjects, demoProjectContacts, demoTasks,
   demoLeads, demoLeadInteractions, demoLeadProposals, demoLeadFields,
   demoLeadContacts, demoActivities,
-  demoPortalSettings, demoPortalFiles, demoPortalUpdates, demoEntityFiles, demoTimeEntries,
+  demoPortalSettings, demoPortalFiles, demoPortalUpdates, demoPortalUpdateAttachments, demoEntityFiles, demoTimeEntries,
   demoProjectGoals, demoTaskSuggestions, demoAgentActivity,
 } from '@/lib/demo-data';
 import {
@@ -73,6 +73,9 @@ import {
   insertPortalUpdate as insertPortalUpdateQuery,
   patchPortalUpdate as patchPortalUpdateQuery,
   removePortalUpdate as removePortalUpdateQuery,
+  fetchAllPortalUpdateAttachments,
+  insertPortalUpdateAttachments as insertPortalUpdateAttachmentsQuery,
+  removePortalUpdateAttachment as removePortalUpdateAttachmentQuery,
   fetchAllEntityFiles,
   insertEntityFile as insertEntityFileQuery,
   renameEntityFile as renameEntityFileQuery,
@@ -93,6 +96,7 @@ import {
   insertTimeEntry as insertTimeEntryQuery,
   patchTimeEntry as patchTimeEntryQuery,
   removeTimeEntry as removeTimeEntryQuery,
+  fetchAllProjectCredentials,
 } from '@/lib/supabase/queries';
 import { toast } from '@/components/ui/Toast';
 import { siteConfig } from '@/site-config';
@@ -116,6 +120,7 @@ interface AppContextType {
   entityFiles: EntityFile[];
   apiKeys: ApiKey[];
   timeEntries: TimeEntry[];
+  projectCredentials: ProjectCredentialListItem[];
   loading: boolean;
 
   // Filters
@@ -197,10 +202,15 @@ interface AppContextType {
   deletePortalFile: (id: string) => void;
 
   // Portal Update CRUD
-  addPortalUpdate: (update: Omit<PortalUpdate, 'id' | 'created_at' | 'updated_at'>) => void;
-  updatePortalUpdate: (id: string, updates: Partial<Pick<PortalUpdate, 'title' | 'content' | 'update_type' | 'pinned'>>) => void;
+  addPortalUpdate: (update: Omit<PortalUpdate, 'id' | 'created_at' | 'updated_at'>, attachments?: { name: string; file_url: string; file_size: number; mime_type: string }[]) => void;
+  updatePortalUpdate: (id: string, updates: Partial<Pick<PortalUpdate, 'title' | 'content' | 'update_type' | 'pinned'>>, newAttachments?: { name: string; file_url: string; file_size: number; mime_type: string }[], removedAttachmentIds?: string[]) => void;
   deletePortalUpdate: (id: string) => void;
   getPortalUpdates: (projectId: string) => PortalUpdate[];
+
+  // Portal Update Attachment CRUD
+  portalUpdateAttachments: PortalUpdateAttachment[];
+  getPortalUpdateAttachments: (updateId: string) => PortalUpdateAttachment[];
+  deletePortalUpdateAttachment: (id: string) => void;
 
   // Entity File CRUD
   addEntityFile: (file: Omit<EntityFile, 'id' | 'created_at' | 'updated_at'>) => void;
@@ -242,6 +252,13 @@ interface AppContextType {
   startTimer: (projectId: string, memberId: string, description?: string) => void;
   stopTimer: (projectId: string) => void;
   getRunningTimer: (projectId: string) => TimeEntry | undefined;
+
+  // Credential CRUD
+  addCredential: (projectId: string, data: { label: string; category: string; username: string; password: string; url: string; notes: string }) => Promise<ProjectCredentialListItem | undefined>;
+  updateCredential: (id: string, data: { label?: string; category?: string; username?: string; password?: string; url?: string; notes?: string }) => Promise<void>;
+  deleteCredential: (id: string) => void;
+  revealCredential: (id: string) => Promise<CredentialPayload | null>;
+  getCredentialsByProject: (projectId: string) => ProjectCredentialListItem[];
 
   // Helpers
   getProject: (id: string) => Project | undefined;
@@ -288,9 +305,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [portalSettings, setPortalSettings] = useState<PortalSettings[]>([]);
   const [portalFiles, setPortalFiles] = useState<PortalFile[]>([]);
   const [portalUpdates, setPortalUpdates] = useState<PortalUpdate[]>([]);
+  const [portalUpdateAttachments, setPortalUpdateAttachments] = useState<PortalUpdateAttachment[]>([]);
   const [entityFiles, setEntityFiles] = useState<EntityFile[]>([]);
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
   const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([]);
+  const [projectCredentials, setProjectCredentials] = useState<ProjectCredentialListItem[]>([]);
   const [projectGoals, setProjectGoals] = useState<ProjectGoal[]>([]);
   const [taskSuggestions, setTaskSuggestions] = useState<TaskSuggestion[]>([]);
   const [agentActivityList, setAgentActivityList] = useState<AgentActivity[]>([]);
@@ -350,8 +369,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setPortalSettings([...demoPortalSettings]);
       setPortalFiles([...demoPortalFiles]);
       setPortalUpdates([...demoPortalUpdates]);
+      setPortalUpdateAttachments([...demoPortalUpdateAttachments]);
       setEntityFiles([...demoEntityFiles]);
       setTimeEntries([...demoTimeEntries]);
+      setProjectCredentials([]);
       if (process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true') {
         setProjectGoals([...demoProjectGoals]);
         setTaskSuggestions([...demoTaskSuggestions]);
@@ -368,7 +389,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     const loadData = async () => {
       try {
-        const [projectsData, tasksData, teamData, contactsData, projectContactsData, leadsData, leadInteractionsData, leadProposalsData, leadFieldsData, leadContactsData, activitiesData, portalSettingsData, portalFilesData, portalUpdatesData, entityFilesData, apiKeysData, timeEntriesData] = await Promise.all([
+        const [projectsData, tasksData, teamData, contactsData, projectContactsData, leadsData, leadInteractionsData, leadProposalsData, leadFieldsData, leadContactsData, activitiesData, portalSettingsData, portalFilesData, portalUpdatesData, portalUpdateAttachmentsData, entityFilesData, apiKeysData, timeEntriesData, projectCredentialsData] = await Promise.all([
           fetchProjects(supabase),
           fetchTasks(supabase),
           fetchTeamMembers(supabase),
@@ -383,9 +404,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
           fetchAllPortalSettings(supabase),
           fetchAllPortalFiles(supabase),
           fetchAllPortalUpdates(supabase),
+          fetchAllPortalUpdateAttachments(supabase),
           fetchAllEntityFiles(supabase),
           fetchApiKeys(supabase),
           fetchAllTimeEntries(supabase),
+          fetchAllProjectCredentials(supabase),
         ]);
 
         setProjects(projectsData);
@@ -402,9 +425,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setPortalSettings(portalSettingsData);
         setPortalFiles(portalFilesData);
         setPortalUpdates(portalUpdatesData);
+        setPortalUpdateAttachments(portalUpdateAttachmentsData);
         setEntityFiles(entityFilesData);
         setApiKeys(apiKeysData);
         setTimeEntries(timeEntriesData);
+        setProjectCredentials(projectCredentialsData);
 
         // Conditionally load agent data when feature is enabled
         if (process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true') {
@@ -1653,6 +1678,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         show_files: settings.show_files ?? true,
         show_hours: settings.show_hours ?? true,
         show_updates: settings.show_updates ?? true,
+        show_credentials: settings.show_credentials ?? false,
         created_at: now,
         updated_at: now,
       };
@@ -1744,7 +1770,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   // Portal Update CRUD
-  const addPortalUpdate = async (update: Omit<PortalUpdate, 'id' | 'created_at' | 'updated_at'>) => {
+  const addPortalUpdate = async (
+    update: Omit<PortalUpdate, 'id' | 'created_at' | 'updated_at'>,
+    attachments?: { name: string; file_url: string; file_size: number; mime_type: string }[]
+  ) => {
     const optimisticId = crypto.randomUUID();
     const now = new Date().toISOString();
     const optimistic: PortalUpdate = {
@@ -1755,39 +1784,131 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
 
     setPortalUpdates(prev => [optimistic, ...prev]);
+
+    // Optimistic attachments
+    const optimisticAttachments: PortalUpdateAttachment[] = (attachments || []).map(a => ({
+      id: crypto.randomUUID(),
+      update_id: optimisticId,
+      name: a.name,
+      file_url: a.file_url,
+      file_size: a.file_size,
+      mime_type: a.mime_type,
+      uploaded_by: teamMemberId,
+      created_at: now,
+      updated_at: now,
+    }));
+    if (optimisticAttachments.length > 0) {
+      setPortalUpdateAttachments(prev => [...prev, ...optimisticAttachments]);
+    }
+
     if (skipSupabase) return;
 
     try {
       const created = await insertPortalUpdateQuery(supabase, update);
       setPortalUpdates(prev => prev.map(u => u.id === optimisticId ? created : u));
+
+      // Insert real attachments with the real update ID
+      if (attachments && attachments.length > 0) {
+        const realAttachments = await insertPortalUpdateAttachmentsQuery(supabase, attachments.map(a => ({
+          update_id: created.id,
+          name: a.name,
+          file_url: a.file_url,
+          file_size: a.file_size,
+          mime_type: a.mime_type,
+          uploaded_by: teamMemberId,
+        })));
+        setPortalUpdateAttachments(prev => [
+          ...prev.filter(a => a.update_id !== optimisticId),
+          ...realAttachments,
+        ]);
+      }
+
       notify(allMemberIds(), `New portal update: "${update.title}"`, `${actorName()} posted a portal update.`, `/projects/${update.project_id}`, 'project', update.project_id, 'portal_updates');
     } catch (err) {
       setPortalUpdates(prev => prev.filter(u => u.id !== optimisticId));
+      setPortalUpdateAttachments(prev => prev.filter(a => a.update_id !== optimisticId));
       toast('error', 'Failed to add update');
     }
   };
 
-  const updatePortalUpdate = async (id: string, updates: Partial<Pick<PortalUpdate, 'title' | 'content' | 'update_type' | 'pinned'>>) => {
+  const updatePortalUpdate = async (
+    id: string,
+    updates: Partial<Pick<PortalUpdate, 'title' | 'content' | 'update_type' | 'pinned'>>,
+    newAttachments?: { name: string; file_url: string; file_size: number; mime_type: string }[],
+    removedAttachmentIds?: string[]
+  ) => {
     const prev = portalUpdates;
+    const prevAttachments = portalUpdateAttachments;
     const existing = portalUpdates.find(u => u.id === id);
     setPortalUpdates(u => u.map(upd => upd.id === id ? { ...upd, ...updates } : upd));
+
+    // Optimistic: remove deleted attachments
+    if (removedAttachmentIds && removedAttachmentIds.length > 0) {
+      setPortalUpdateAttachments(a => a.filter(att => !removedAttachmentIds.includes(att.id)));
+    }
+
+    // Optimistic: add new attachments
+    const now = new Date().toISOString();
+    const optimisticNew: PortalUpdateAttachment[] = (newAttachments || []).map(a => ({
+      id: crypto.randomUUID(),
+      update_id: id,
+      name: a.name,
+      file_url: a.file_url,
+      file_size: a.file_size,
+      mime_type: a.mime_type,
+      uploaded_by: teamMemberId,
+      created_at: now,
+      updated_at: now,
+    }));
+    if (optimisticNew.length > 0) {
+      setPortalUpdateAttachments(a => [...a, ...optimisticNew]);
+    }
+
     if (skipSupabase) return;
 
     try {
       await patchPortalUpdateQuery(supabase, id, updates);
+
+      // Remove attachments
+      if (removedAttachmentIds) {
+        for (const attId of removedAttachmentIds) {
+          await removePortalUpdateAttachmentQuery(supabase, attId);
+        }
+      }
+
+      // Insert new attachments
+      if (newAttachments && newAttachments.length > 0) {
+        const created = await insertPortalUpdateAttachmentsQuery(supabase, newAttachments.map(a => ({
+          update_id: id,
+          name: a.name,
+          file_url: a.file_url,
+          file_size: a.file_size,
+          mime_type: a.mime_type,
+          uploaded_by: teamMemberId,
+        })));
+        const optimisticIds = optimisticNew.map(o => o.id);
+        setPortalUpdateAttachments(a => [
+          ...a.filter(att => !optimisticIds.includes(att.id)),
+          ...created,
+        ]);
+      }
+
       if (existing) {
         notify(allMemberIds(), 'Portal update edited', `${actorName()} edited a portal update.`, `/projects/${existing.project_id}`, 'project', existing.project_id, 'portal_updates');
       }
     } catch (err) {
       setPortalUpdates(prev);
+      setPortalUpdateAttachments(prevAttachments);
       toast('error', 'Failed to update');
     }
   };
 
   const deletePortalUpdate = async (id: string) => {
     const prev = portalUpdates;
+    const prevAttachments = portalUpdateAttachments;
     const existing = portalUpdates.find(u => u.id === id);
     setPortalUpdates(u => u.filter(upd => upd.id !== id));
+    setPortalUpdateAttachments(a => a.filter(att => att.update_id !== id));
     if (skipSupabase) return;
 
     try {
@@ -1797,7 +1918,120 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
     } catch (err) {
       setPortalUpdates(prev);
+      setPortalUpdateAttachments(prevAttachments);
       toast('error', 'Failed to delete update');
+    }
+  };
+
+  const deletePortalUpdateAttachment = async (id: string) => {
+    const prev = portalUpdateAttachments;
+    setPortalUpdateAttachments(a => a.filter(att => att.id !== id));
+    if (skipSupabase) return;
+
+    try {
+      await removePortalUpdateAttachmentQuery(supabase, id);
+    } catch (err) {
+      setPortalUpdateAttachments(prev);
+      toast('error', 'Failed to delete attachment');
+    }
+  };
+
+  // Credential CRUD (encryption happens server-side via internal API routes)
+  const addCredential = async (
+    projectId: string,
+    data: { label: string; category: string; username: string; password: string; url: string; notes: string },
+  ): Promise<ProjectCredentialListItem | undefined> => {
+    const optimisticId = crypto.randomUUID();
+    const now = new Date().toISOString();
+    const optimistic: ProjectCredentialListItem = {
+      id: optimisticId,
+      project_id: projectId,
+      label: data.label,
+      category: data.category as CredentialCategory,
+      submitted_by_client: false,
+      submitted_by_name: '',
+      created_by: teamMemberId,
+      created_at: now,
+      updated_at: now,
+    };
+    setProjectCredentials(prev => [optimistic, ...prev]);
+    if (skipSupabase) return optimistic;
+
+    try {
+      const res = await fetch('/api/credentials/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project_id: projectId, ...data, created_by: teamMemberId }),
+      });
+      if (!res.ok) throw new Error('Failed to create credential');
+      const result = await res.json();
+      setProjectCredentials(prev => prev.map(c => c.id === optimisticId ? result.data : c));
+      const project = projects.find(p => p.id === projectId);
+      notify(allMemberIds(), 'New credential added', `${actorName()} added a credential to "${project?.name || 'project'}".`, `/projects/${projectId}`, 'project', projectId, 'portal_settings');
+      return result.data;
+    } catch {
+      setProjectCredentials(prev => prev.filter(c => c.id !== optimisticId));
+      toast('error', 'Failed to save credential');
+      return undefined;
+    }
+  };
+
+  const updateCredential = async (
+    id: string,
+    data: { label?: string; category?: string; username?: string; password?: string; url?: string; notes?: string },
+  ) => {
+    const prev = projectCredentials;
+    setProjectCredentials(creds =>
+      creds.map(c => c.id === id ? { ...c, ...('label' in data ? { label: data.label! } : {}), ...('category' in data ? { category: data.category as CredentialCategory } : {}), updated_at: new Date().toISOString() } : c),
+    );
+    if (skipSupabase) return;
+
+    try {
+      const res = await fetch(`/api/credentials/${id}/update`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) throw new Error();
+      const result = await res.json();
+      setProjectCredentials(creds => creds.map(c => c.id === id ? result.data : c));
+    } catch {
+      setProjectCredentials(prev);
+      toast('error', 'Failed to update credential');
+    }
+  };
+
+  const deleteCredential = async (id: string) => {
+    const prev = projectCredentials;
+    const existing = projectCredentials.find(c => c.id === id);
+    setProjectCredentials(creds => creds.filter(c => c.id !== id));
+    if (skipSupabase) return;
+
+    try {
+      const res = await fetch(`/api/credentials/${id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error();
+      if (existing) {
+        const project = projects.find(p => p.id === existing.project_id);
+        notify(allMemberIds(), 'Credential deleted', `${actorName()} removed a credential from "${project?.name || 'project'}".`, `/projects/${existing.project_id}`, 'project', existing.project_id, 'portal_settings');
+      }
+    } catch {
+      setProjectCredentials(prev);
+      toast('error', 'Failed to delete credential');
+    }
+  };
+
+  const revealCredential = async (id: string): Promise<CredentialPayload | null> => {
+    if (skipSupabase) {
+      return { username: 'demo_user', password: 'demo_pass', url: 'https://example.com', notes: 'Demo credential' };
+    }
+    try {
+      const res = await fetch(`/api/credentials/${id}/reveal`);
+      if (!res.ok) throw new Error();
+      const result = await res.json();
+      return result.data;
+    } catch {
+      toast('error', 'Failed to reveal credential');
+      return null;
     }
   };
 
@@ -2189,6 +2423,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const getPortalSettings = (projectId: string) => portalSettings.find(ps => ps.project_id === projectId);
   const getPortalFiles = (projectId: string) => portalFiles.filter(pf => pf.project_id === projectId);
   const getPortalUpdates = (projectId: string) => portalUpdates.filter(pu => pu.project_id === projectId);
+  const getPortalUpdateAttachments = (updateId: string) => portalUpdateAttachments.filter(a => a.update_id === updateId);
+  const getCredentialsByProject = (projectId: string) => projectCredentials.filter(c => c.project_id === projectId);
 
   return (
     <AppContext.Provider value={{
@@ -2209,6 +2445,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       entityFiles,
       apiKeys,
       timeEntries,
+      projectCredentials,
       loading,
       filters,
       setFilters,
@@ -2262,6 +2499,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       updatePortalUpdate,
       deletePortalUpdate,
       getPortalUpdates,
+      portalUpdateAttachments,
+      getPortalUpdateAttachments,
+      deletePortalUpdateAttachment,
       addEntityFile,
       renameEntityFile,
       deleteEntityFile,
@@ -2304,6 +2544,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       getLeadFieldValue,
       getContactsByLead,
       getPrimaryLeadContact,
+      addCredential,
+      updateCredential,
+      deleteCredential,
+      revealCredential,
+      getCredentialsByProject,
       getPortalSettings,
       getPortalFiles,
     }}>
