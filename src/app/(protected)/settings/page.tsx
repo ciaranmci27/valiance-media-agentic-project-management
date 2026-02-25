@@ -12,6 +12,7 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { User, Lock, FlaskConical, Key, Copy, Check, Plus, Ban, ExternalLink, Bell, Globe } from 'lucide-react';
 import { toast } from '@/components/ui/Toast';
 import { useDemo } from '@/lib/demo-context';
+import { SmtpSection } from '@/components/settings/SmtpSection';
 import { hashApiKey, generateApiKey } from '@/lib/api/crypto';
 import type { ApiKey, NotificationCategory, NotificationPreferences } from '@/lib/types';
 
@@ -814,6 +815,9 @@ export default function SettingsPage() {
             )}
           </section>
         )}
+
+        {/* SMTP Email Section — admin only, hidden in demo mode */}
+        {isAdmin && !isDemoMode && <SmtpSection />}
 
         {/* Demo Mode Section — admin only, hidden when env-forced */}
         {isAdmin && !isEnvForcedDemo && (

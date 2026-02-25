@@ -403,6 +403,33 @@ create table public.project_credentials (
 );
 
 -- ============================================================
+-- 24. SMTP ACCOUNTS (encrypted SMTP credentials)
+-- ============================================================
+create table public.smtp_accounts (
+  id uuid primary key default gen_random_uuid(),
+  label text not null,
+  host text not null,
+  port integer not null default 465,
+  secure boolean not null default true,
+  username text not null,
+  encrypted_password text not null,
+  from_name text not null,
+  from_email text not null,
+  reply_to text not null default '',
+  is_default boolean not null default false,
+  created_by uuid references public.team_members(id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index idx_smtp_accounts_is_default on public.smtp_accounts(is_default) where is_default = true;
+
+alter table public.smtp_accounts enable row level security;
+
+create policy "smtp_accounts_all" on public.smtp_accounts
+  for all to authenticated using (true) with check (true);
+
+-- ============================================================
 -- INDEXES
 -- ============================================================
 create unique index idx_team_members_auth_user_id on public.team_members(auth_user_id) where auth_user_id is not null;
@@ -567,6 +594,10 @@ create trigger set_portal_updates_updated_at
 
 create trigger set_portal_update_attachments_updated_at
   before update on public.portal_update_attachments
+  for each row execute function public.handle_updated_at();
+
+create trigger set_smtp_accounts_updated_at
+  before update on public.smtp_accounts
   for each row execute function public.handle_updated_at();
 
 -- ============================================================
