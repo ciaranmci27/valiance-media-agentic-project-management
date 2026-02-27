@@ -9,10 +9,11 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { AvatarUpload } from '@/components/ui/AvatarUpload';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import { User, Lock, FlaskConical, Key, Copy, Check, Plus, Ban, ExternalLink, Bell, Globe } from 'lucide-react';
+import { User, Lock, FlaskConical, Key, Copy, Check, Plus, Ban, BookOpen, Bell, Globe } from 'lucide-react';
 import { toast } from '@/components/ui/Toast';
 import { useDemo } from '@/lib/demo-context';
 import { SmtpSection } from '@/components/settings/SmtpSection';
+import Link from 'next/link';
 import { hashApiKey, generateApiKey } from '@/lib/api/crypto';
 import type { ApiKey, NotificationCategory, NotificationPreferences } from '@/lib/types';
 
@@ -652,15 +653,11 @@ export default function SettingsPage() {
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <a
-                  href="/api/docs"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-violet-600 hover:bg-violet-50 rounded-lg transition-colors"
-                >
-                  <ExternalLink size={14} />
-                  View Docs
-                </a>
+                <Link href="/api/docs">
+                  <Button size="sm" variant="secondary" icon={<BookOpen size={14} />}>
+                    Docs
+                  </Button>
+                </Link>
                 {!showKeyForm && !revealedKey && (
                   <Button
                     size="sm"

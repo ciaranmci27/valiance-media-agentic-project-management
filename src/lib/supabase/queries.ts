@@ -1,5 +1,5 @@
 import { SupabaseClient } from '@supabase/supabase-js';
-import type { Project, Task, TeamMember, Subtask, Comment, Activity, Contact, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, PortalSettings, PortalFile, PortalUpdate, PortalUpdateAttachment, EntityFile, ApiKey, ProjectGoal, TaskSuggestion, AgentActivity, ApiAuditEntry, TimeEntry, ProjectCredential, ProjectCredentialListItem } from '@/lib/types';
+import type { Project, Task, TeamMember, Subtask, Comment, Activity, Contact, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, PortalSettings, PortalFile, PortalUpdate, PortalUpdateAttachment, EntityFile, ApiKey, ProjectGoal, TaskSuggestion, AgentActivity, ApiAuditEntry, TimeEntry, ProjectCredential, ProjectCredentialListItem, ProjectInvoice } from '@/lib/types';
 import { notFound } from '@/lib/api/errors';
 import { siteConfig } from '@/site-config';
 
@@ -1893,5 +1893,66 @@ export async function patchProjectCredential(
 
 export async function removeProjectCredential(supabase: SupabaseClient, id: string) {
   const { error } = await supabase.from('project_credentials').delete().eq('id', id);
+  if (error) throw error;
+}
+
+// ============================================================
+// PROJECT INVOICES
+// ============================================================
+
+export async function fetchAllProjectInvoices(supabase: SupabaseClient) {
+  const { data, error } = await supabase
+    .from('project_invoices')
+    .select('*')
+    .order('date', { ascending: false });
+  if (error) throw error;
+  return (data || []) as ProjectInvoice[];
+}
+
+export async function insertProjectInvoice(
+  supabase: SupabaseClient,
+  invoice: Omit<ProjectInvoice, 'id' | 'created_at' | 'updated_at'>
+) {
+  const { data, error } = await supabase
+    .from('project_invoices')
+    .insert({
+      project_id: invoice.project_id,
+      invoice_number: invoice.invoice_number,
+      amount: invoice.amount,
+      status: invoice.status,
+      date: invoice.date,
+      due_date: invoice.due_date,
+      paid_date: invoice.paid_date,
+      description: invoice.description,
+      file_url: invoice.file_url,
+      file_name: invoice.file_name,
+      file_size: invoice.file_size,
+      mime_type: invoice.mime_type,
+      created_by: invoice.created_by,
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return data as ProjectInvoice;
+}
+
+export async function patchProjectInvoice(
+  supabase: SupabaseClient,
+  id: string,
+  updates: Partial<ProjectInvoice>
+) {
+  const { id: _id, created_at, updated_at, ...rest } = updates as any;
+  const { data, error } = await supabase
+    .from('project_invoices')
+    .update(rest)
+    .eq('id', id)
+    .select()
+    .single();
+  if (error) throw error;
+  return data as ProjectInvoice;
+}
+
+export async function removeProjectInvoice(supabase: SupabaseClient, id: string) {
+  const { error } = await supabase.from('project_invoices').delete().eq('id', id);
   if (error) throw error;
 }

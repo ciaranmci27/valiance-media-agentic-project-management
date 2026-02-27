@@ -93,6 +93,8 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
       start_date: startDate || null,
       due_date: dueDate || null,
       hourly_tracking: hourlyTracking,
+      hourly_rate: project?.hourly_rate ?? null,
+      fixed_price: project?.fixed_price ?? null,
       autonomous_enabled: autonomousEnabled,
       member_ids: memberIds,
     };

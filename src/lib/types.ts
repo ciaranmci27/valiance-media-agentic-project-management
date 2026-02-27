@@ -10,6 +10,8 @@ export interface Project {
   start_date: string | null;
   due_date: string | null;
   hourly_tracking: boolean;
+  hourly_rate: number | null;
+  fixed_price: number | null;
   autonomous_enabled: boolean;
   member_ids: string[];
   created_by?: string | null;
@@ -285,6 +287,32 @@ export interface TimeEntry {
 }
 
 // ============================================================
+// PROJECT INVOICES
+// ============================================================
+
+export const INVOICE_STATUSES = ['draft', 'sent', 'paid', 'overdue', 'cancelled'] as const;
+export type InvoiceStatus = typeof INVOICE_STATUSES[number];
+
+export interface ProjectInvoice {
+  id: string;
+  project_id: string;
+  invoice_number: string;
+  amount: number;
+  status: InvoiceStatus;
+  date: string;
+  due_date: string | null;
+  paid_date: string | null;
+  description: string;
+  file_url: string | null;
+  file_name: string | null;
+  file_size: number | null;
+  mime_type: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// ============================================================
 // CLIENT PORTAL
 // ============================================================
 
@@ -303,6 +331,7 @@ export interface PortalSettings {
   show_hours: boolean;
   show_updates: boolean;
   show_credentials: boolean;
+  show_invoices: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -497,6 +526,7 @@ export interface PortalData {
     show_hours: boolean;
     show_updates: boolean;
     show_credentials: boolean;
+    show_invoices: boolean;
   };
   progress: {
     total_tasks: number;
@@ -537,6 +567,20 @@ export interface PortalData {
     pinned: boolean;
     created_at: string;
     attachments: { id: string; name: string; file_url: string; file_size: number; mime_type: string }[];
+  }[];
+  invoices: {
+    id: string;
+    invoice_number: string;
+    amount: number;
+    status: string;
+    date: string;
+    due_date: string | null;
+    paid_date: string | null;
+    description: string;
+    file_url: string | null;
+    file_name: string | null;
+    file_size: number | null;
+    mime_type: string | null;
   }[];
   credentials_submitted_count: number;
   credentials_submitted: {

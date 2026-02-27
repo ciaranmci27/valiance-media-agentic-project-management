@@ -1,7 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { Project, Task, TeamMember, FilterState, ViewMode, Subtask, Comment, Contact, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, Activity, PortalSettings, PortalFile, PortalUpdate, PortalUpdateAttachment, EntityFile, EntityFileType, ApiKey, NotificationCategory, ProjectGoal, TaskSuggestion, AgentActivity, TimeEntry, ProjectCredentialListItem, CredentialPayload, CredentialCategory } from './types';
+import { Project, Task, TeamMember, FilterState, ViewMode, Subtask, Comment, Contact, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, Activity, PortalSettings, PortalFile, PortalUpdate, PortalUpdateAttachment, EntityFile, EntityFileType, ApiKey, NotificationCategory, ProjectGoal, TaskSuggestion, AgentActivity, TimeEntry, ProjectCredentialListItem, CredentialPayload, CredentialCategory, ProjectInvoice, InvoiceStatus } from './types';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
@@ -10,7 +10,7 @@ import {
   demoLeads, demoLeadInteractions, demoLeadProposals, demoLeadFields,
   demoLeadContacts, demoActivities,
   demoPortalSettings, demoPortalFiles, demoPortalUpdates, demoPortalUpdateAttachments, demoEntityFiles, demoTimeEntries,
-  demoProjectGoals, demoTaskSuggestions, demoAgentActivity,
+  demoProjectGoals, demoTaskSuggestions, demoAgentActivity, demoProjectInvoices,
 } from '@/lib/demo-data';
 import {
   fetchProjects,
@@ -97,6 +97,10 @@ import {
   patchTimeEntry as patchTimeEntryQuery,
   removeTimeEntry as removeTimeEntryQuery,
   fetchAllProjectCredentials,
+  fetchAllProjectInvoices,
+  insertProjectInvoice as insertProjectInvoiceQuery,
+  patchProjectInvoice as patchProjectInvoiceQuery,
+  removeProjectInvoice as removeProjectInvoiceQuery,
 } from '@/lib/supabase/queries';
 import { toast } from '@/components/ui/Toast';
 import { siteConfig } from '@/site-config';
@@ -121,6 +125,7 @@ interface AppContextType {
   apiKeys: ApiKey[];
   timeEntries: TimeEntry[];
   projectCredentials: ProjectCredentialListItem[];
+  projectInvoices: ProjectInvoice[];
   loading: boolean;
 
   // Filters
@@ -260,6 +265,13 @@ interface AppContextType {
   revealCredential: (id: string) => Promise<CredentialPayload | null>;
   getCredentialsByProject: (projectId: string) => ProjectCredentialListItem[];
 
+  // Invoice CRUD
+  addInvoice: (invoice: Omit<ProjectInvoice, 'id' | 'created_at' | 'updated_at'>) => Promise<ProjectInvoice | undefined>;
+  updateInvoice: (id: string, updates: Partial<ProjectInvoice>) => void;
+  deleteInvoice: (id: string) => void;
+  getInvoicesByProject: (projectId: string) => ProjectInvoice[];
+  getInvoicesByContact: (contactId: string) => ProjectInvoice[];
+
   // Helpers
   getProject: (id: string) => Project | undefined;
   getTasksByProject: (projectId: string) => Task[];
@@ -310,6 +322,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
   const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([]);
   const [projectCredentials, setProjectCredentials] = useState<ProjectCredentialListItem[]>([]);
+  const [projectInvoices, setProjectInvoices] = useState<ProjectInvoice[]>([]);
   const [projectGoals, setProjectGoals] = useState<ProjectGoal[]>([]);
   const [taskSuggestions, setTaskSuggestions] = useState<TaskSuggestion[]>([]);
   const [agentActivityList, setAgentActivityList] = useState<AgentActivity[]>([]);
@@ -372,6 +385,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setPortalUpdateAttachments([...demoPortalUpdateAttachments]);
       setEntityFiles([...demoEntityFiles]);
       setTimeEntries([...demoTimeEntries]);
+      setProjectInvoices([...demoProjectInvoices]);
       setProjectCredentials([]);
       if (process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true') {
         setProjectGoals([...demoProjectGoals]);
@@ -389,7 +403,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     const loadData = async () => {
       try {
-        const [projectsData, tasksData, teamData, contactsData, projectContactsData, leadsData, leadInteractionsData, leadProposalsData, leadFieldsData, leadContactsData, activitiesData, portalSettingsData, portalFilesData, portalUpdatesData, portalUpdateAttachmentsData, entityFilesData, apiKeysData, timeEntriesData, projectCredentialsData] = await Promise.all([
+        const [projectsData, tasksData, teamData, contactsData, projectContactsData, leadsData, leadInteractionsData, leadProposalsData, leadFieldsData, leadContactsData, activitiesData, portalSettingsData, portalFilesData, portalUpdatesData, portalUpdateAttachmentsData, entityFilesData, apiKeysData, timeEntriesData, projectCredentialsData, projectInvoicesData] = await Promise.all([
           fetchProjects(supabase),
           fetchTasks(supabase),
           fetchTeamMembers(supabase),
@@ -409,6 +423,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           fetchApiKeys(supabase),
           fetchAllTimeEntries(supabase),
           fetchAllProjectCredentials(supabase),
+          fetchAllProjectInvoices(supabase),
         ]);
 
         setProjects(projectsData);
@@ -430,6 +445,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setApiKeys(apiKeysData);
         setTimeEntries(timeEntriesData);
         setProjectCredentials(projectCredentialsData);
+        setProjectInvoices(projectInvoicesData);
 
         // Conditionally load agent data when feature is enabled
         if (process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true') {
@@ -1225,6 +1241,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       start_date: null,
       due_date: null,
       hourly_tracking: false,
+      hourly_rate: null,
+      fixed_price: null,
       autonomous_enabled: false,
       member_ids: lead.member_ids || [],
       created_by: teamMemberId,
@@ -1679,6 +1697,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         show_hours: settings.show_hours ?? true,
         show_updates: settings.show_updates ?? true,
         show_credentials: settings.show_credentials ?? false,
+        show_invoices: settings.show_invoices ?? false,
         created_at: now,
         updated_at: now,
       };
@@ -2426,6 +2445,78 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const getPortalUpdateAttachments = (updateId: string) => portalUpdateAttachments.filter(a => a.update_id === updateId);
   const getCredentialsByProject = (projectId: string) => projectCredentials.filter(c => c.project_id === projectId);
 
+  // Invoice CRUD
+  const addInvoice = async (invoice: Omit<ProjectInvoice, 'id' | 'created_at' | 'updated_at'>): Promise<ProjectInvoice | undefined> => {
+    const optimisticId = crypto.randomUUID();
+    const now = new Date().toISOString();
+    const optimistic: ProjectInvoice = { ...invoice, id: optimisticId, created_at: now, updated_at: now };
+    setProjectInvoices(prev => [optimistic, ...prev]);
+    if (skipSupabase) return optimistic;
+
+    try {
+      const created = await insertProjectInvoiceQuery(supabase, invoice);
+      setProjectInvoices(prev => prev.map(i => i.id === optimisticId ? created : i));
+      const project = projects.find(p => p.id === invoice.project_id);
+      notify(allMemberIds(), `Invoice added to "${project?.name || 'project'}"`, `${actorName()} created invoice ${invoice.invoice_number}.`, `/projects/${invoice.project_id}`, 'project', invoice.project_id, 'portal_settings');
+      return created;
+    } catch {
+      setProjectInvoices(prev => prev.filter(i => i.id !== optimisticId));
+      toast('error', 'Failed to create invoice');
+      return undefined;
+    }
+  };
+
+  const updateInvoice = async (id: string, updates: Partial<ProjectInvoice>) => {
+    const prev = projectInvoices;
+    setProjectInvoices(invoices =>
+      invoices.map(i => i.id === id ? { ...i, ...updates, updated_at: new Date().toISOString() } : i),
+    );
+    if (skipSupabase) return;
+
+    try {
+      const updated = await patchProjectInvoiceQuery(supabase, id, updates);
+      setProjectInvoices(invoices => invoices.map(i => i.id === id ? updated : i));
+    } catch {
+      setProjectInvoices(prev);
+      toast('error', 'Failed to update invoice');
+    }
+  };
+
+  const deleteInvoice = async (id: string) => {
+    const prev = projectInvoices;
+    const existing = projectInvoices.find(i => i.id === id);
+    setProjectInvoices(invoices => invoices.filter(i => i.id !== id));
+    if (skipSupabase) return;
+
+    try {
+      // Remove file from storage if present
+      if (existing?.file_url) {
+        const path = existing.file_url.split('/entity-files/')[1];
+        if (path) {
+          supabase.storage.from('entity-files').remove([decodeURIComponent(path)]).then(() => {}, () => {});
+        }
+      }
+      await removeProjectInvoiceQuery(supabase, id);
+      if (existing) {
+        const project = projects.find(p => p.id === existing.project_id);
+        notify(allMemberIds(), `Invoice deleted from "${project?.name || 'project'}"`, `${actorName()} removed invoice ${existing.invoice_number}.`, `/projects/${existing.project_id}`, 'project', existing.project_id, 'portal_settings');
+      }
+    } catch {
+      setProjectInvoices(prev);
+      toast('error', 'Failed to delete invoice');
+    }
+  };
+
+  const getInvoicesByProject = (projectId: string) =>
+    projectInvoices.filter(i => i.project_id === projectId);
+
+  const getInvoicesByContact = (contactId: string) => {
+    const contactProjectIds = projectContacts
+      .filter(pc => pc.contact_id === contactId)
+      .map(pc => pc.project_id);
+    return projectInvoices.filter(i => contactProjectIds.includes(i.project_id));
+  };
+
   return (
     <AppContext.Provider value={{
       projects,
@@ -2549,6 +2640,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       deleteCredential,
       revealCredential,
       getCredentialsByProject,
+      projectInvoices,
+      addInvoice,
+      updateInvoice,
+      deleteInvoice,
+      getInvoicesByProject,
+      getInvoicesByContact,
       getPortalSettings,
       getPortalFiles,
     }}>

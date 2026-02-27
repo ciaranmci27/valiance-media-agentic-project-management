@@ -5,7 +5,7 @@ import {
   demoPortalSettings, demoPortalFiles, demoPortalUpdates, demoPortalUpdateAttachments,
   demoProjects, demoTasks,
   demoLeads, demoLeadProposals, demoProjectContacts, demoTimeEntries,
-  demoTeam,
+  demoTeam, demoProjectInvoices,
 } from '@/lib/demo-data';
 import { siteConfig } from '@/site-config';
 
@@ -204,6 +204,18 @@ export async function GET(
   }
   const credentials_submitted_count = credentials_submitted.length;
 
+  // Fetch invoices
+  let invoices: PortalData['invoices'] = [];
+  if (settings.show_invoices) {
+    const { data: invoiceData } = await supabase
+      .from('project_invoices')
+      .select('id, invoice_number, amount, status, date, due_date, paid_date, description, file_url, file_name, file_size, mime_type')
+      .eq('project_id', settings.project_id)
+      .neq('status', 'draft')
+      .order('date', { ascending: false });
+    invoices = invoiceData || [];
+  }
+
   // Fetch portal updates with author names and attachments
   let updates: PortalData['updates'] = [];
   if (settings.show_updates) {
@@ -271,6 +283,7 @@ export async function GET(
       show_hours: settings.show_hours,
       show_updates: settings.show_updates ?? true,
       show_credentials: settings.show_credentials ?? false,
+      show_invoices: settings.show_invoices ?? false,
     },
     progress: {
       total_tasks: totalTasks,
@@ -283,6 +296,7 @@ export async function GET(
     updates,
     credentials_submitted_count,
     credentials_submitted,
+    invoices,
   };
 
   return NextResponse.json(portalData);
@@ -397,6 +411,13 @@ function handleDemoMode(token: string, request: NextRequest) {
       });
   }
 
+  // Build invoices from demo data (exclude drafts)
+  const invoices: PortalData['invoices'] = settings.show_invoices
+    ? demoProjectInvoices
+        .filter(i => i.project_id === settings.project_id && i.status !== 'draft')
+        .map(i => ({ id: i.id, invoice_number: i.invoice_number, amount: i.amount, status: i.status, date: i.date, due_date: i.due_date, paid_date: i.paid_date, description: i.description, file_url: i.file_url, file_name: i.file_name, file_size: i.file_size, mime_type: i.mime_type }))
+    : [];
+
   const portalData: PortalData = {
     project: { name: project.name, color: project.color, description: project.description },
     settings: {
@@ -408,7 +429,8 @@ function handleDemoMode(token: string, request: NextRequest) {
       show_files: settings.show_files,
       show_hours: settings.show_hours,
       show_updates: settings.show_updates ?? true,
-      show_credentials: (settings as any).show_credentials ?? false,
+      show_credentials: settings.show_credentials ?? false,
+      show_invoices: settings.show_invoices ?? false,
     },
     progress: { total_tasks: totalTasks, done_tasks: doneTasks, percent },
     proposals,
@@ -417,6 +439,7 @@ function handleDemoMode(token: string, request: NextRequest) {
     updates,
     credentials_submitted_count: 0,
     credentials_submitted: [],
+    invoices,
   };
 
   return NextResponse.json(portalData);

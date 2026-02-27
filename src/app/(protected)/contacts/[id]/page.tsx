@@ -12,7 +12,7 @@ import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Avatar } from '@/components/ui/Avatar';
 import { FileAttachments } from '@/components/ui/FileAttachments';
-import { Edit, Mail, Phone, Building2, StickyNote, Plus, FolderKanban, Target, UserCircle } from 'lucide-react';
+import { Edit, Mail, Phone, Building2, StickyNote, Plus, FolderKanban, Target, UserCircle, Receipt } from 'lucide-react';
 import { Project } from '@/lib/types';
 import { formatPhone } from '@/lib/format-phone';
 import { toast } from '@/components/ui/Toast';
@@ -21,7 +21,7 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 export default function ContactDetailPage() {
   const params = useParams();
   const router = useRouter();
-  const { getContact, getProjectsByContact, leads, deleteProject, addProjectContact, updateContact } = useApp();
+  const { getContact, getProjectsByContact, getInvoicesByContact, getProject, leads, deleteProject, addProjectContact, updateContact } = useApp();
 
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isProjectFormOpen, setIsProjectFormOpen] = useState(false);
@@ -96,36 +96,36 @@ export default function ContactDetailPage() {
       />
 
       <div className="p-4 lg:p-6 space-y-6">
-        {/* Contact Info Card */}
-        <div className="bg-white rounded-xl border border-zinc-200 p-5 lg:p-6">
-          <div className="flex items-center gap-3 mb-4">
+        {/* Contact Info + Invoices row */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
+        <div className="bg-white rounded-xl border border-zinc-200 p-6 lg:p-7 flex flex-col">
+          <div className="flex items-center gap-4 mb-6">
             <Avatar name={contact.name} src={contact.avatar_url || undefined} size="lg" />
-            <h2 className="text-lg font-semibold text-zinc-900">{contact.name}</h2>
+            <div>
+              <h2 className="text-lg font-semibold text-zinc-900">{contact.name}</h2>
+              {contact.company && (
+                <p className="text-sm text-zinc-500 mt-0.5">{contact.company}</p>
+              )}
+            </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
-            {contact.company && (
-              <div className="flex items-center gap-2 text-zinc-600">
-                <Building2 size={16} className="text-zinc-400" />
-                <span>{contact.company}</span>
-              </div>
-            )}
+          <div className="flex flex-wrap gap-x-6 gap-y-3 text-sm mb-6">
             {contact.email && (
               <a href={`mailto:${contact.email}`} className="flex items-center gap-2 text-zinc-600 hover:text-brand-600 transition-colors">
-                <Mail size={16} className="text-zinc-400" />
+                <Mail size={15} className="text-zinc-400" />
                 <span>{contact.email}</span>
               </a>
             )}
             {contact.phone && (
               <a href={`tel:${contact.phone}`} className="flex items-center gap-2 text-zinc-600 hover:text-brand-600 transition-colors">
-                <Phone size={16} className="text-zinc-400" />
+                <Phone size={15} className="text-zinc-400" />
                 <span>{formatPhone(contact.phone)}</span>
               </a>
             )}
           </div>
 
-          <div className="mt-4 pt-4 border-t border-zinc-100">
-            <div className="flex items-center justify-between mb-1">
+          <div className="flex-1 pt-5 border-t border-zinc-100">
+            <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2 text-zinc-500 text-sm">
                 <StickyNote size={14} />
                 <span>Notes</span>
@@ -144,7 +144,7 @@ export default function ContactDetailPage() {
                 <textarea
                   value={notesValue}
                   onChange={(e) => setNotesValue(e.target.value)}
-                  rows={3}
+                  rows={4}
                   autoFocus
                   className="w-full px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 resize-none"
                   placeholder="Add notes about this contact..."
@@ -176,6 +176,77 @@ export default function ContactDetailPage() {
               )
             )}
           </div>
+        </div>
+
+        {/* Invoices (shares row with contact card) */}
+        {(() => {
+          const contactInvoices = getInvoicesByContact(contactId);
+          if (contactInvoices.length === 0) return null;
+          const statusColors: Record<string, string> = {
+            draft: 'bg-zinc-100 text-zinc-600',
+            sent: 'bg-blue-50 text-blue-700',
+            paid: 'bg-emerald-50 text-emerald-700',
+            overdue: 'bg-red-50 text-red-700',
+            cancelled: 'bg-zinc-100 text-zinc-400',
+          };
+          const fmtDate = (dateStr: string) => {
+            const [y, m, d] = dateStr.split('-').map(Number);
+            const date = new Date(y, m - 1, d);
+            const month = date.toLocaleString('en-US', { month: 'short' });
+            return y !== new Date().getFullYear() ? `${month} ${d}, ${y}` : `${month} ${d}`;
+          };
+          const totalPaid = contactInvoices.filter(i => i.status === 'paid').reduce((s, i) => s + i.amount, 0);
+          const totalOutstanding = contactInvoices.filter(i => i.status !== 'paid' && i.status !== 'cancelled' && i.status !== 'draft').reduce((s, i) => s + i.amount, 0);
+          return (
+            <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden flex flex-col">
+              <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-200 flex-shrink-0">
+                <div className="flex items-center gap-2">
+                  <Receipt size={18} className="text-zinc-500" />
+                  <h2 className="font-semibold text-zinc-900">Invoices ({contactInvoices.length})</h2>
+                </div>
+                <div className="flex items-center gap-4 text-xs">
+                  <div>
+                    <span className="text-zinc-400">Paid</span>
+                    <span className="ml-1.5 font-semibold text-emerald-600">${totalPaid.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                  </div>
+                  <div>
+                    <span className="text-zinc-400">Outstanding</span>
+                    <span className="ml-1.5 font-semibold text-zinc-900">${totalOutstanding.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                  </div>
+                </div>
+              </div>
+              {/* Invoice cards */}
+              <div className="flex-1 overflow-y-auto p-4 space-y-2" style={{ maxHeight: '250px' }}>
+                {contactInvoices.map((invoice) => {
+                  const project = getProject(invoice.project_id);
+                  return (
+                    <div key={invoice.id} className="p-3 rounded-lg border border-zinc-200 hover:border-zinc-300 transition-colors">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          <span className={`inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-full ${statusColors[invoice.status] || 'bg-zinc-100 text-zinc-600'}`}>
+                            {invoice.status.charAt(0).toUpperCase() + invoice.status.slice(1)}
+                          </span>
+                          <span className="text-sm font-semibold text-zinc-900">{invoice.invoice_number}</span>
+                        </div>
+                        <span className="text-sm font-semibold text-zinc-900">
+                          ${invoice.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-3 text-xs text-zinc-500">
+                        <span>Issued: {fmtDate(invoice.date)}</span>
+                        {invoice.due_date && invoice.due_date !== invoice.date && <span>Due: {fmtDate(invoice.due_date)}</span>}
+                        {invoice.paid_date && <span className="text-emerald-600">Paid: {fmtDate(invoice.paid_date)}</span>}
+                      </div>
+                      {project && (
+                        <p className="mt-1.5 text-xs text-zinc-400">{project.name}</p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })()}
         </div>
 
         {/* Linked Projects + Files row */}
@@ -251,6 +322,7 @@ export default function ContactDetailPage() {
             </div>
           </div>
         )}
+
       </div>
 
       <ContactForm

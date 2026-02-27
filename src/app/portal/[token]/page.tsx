@@ -6,6 +6,7 @@ import {
   Lock, Loader2, FileText, Image, Archive, File, Download, ExternalLink, Globe,
   CheckCircle2, Clock, AlertCircle, Send, FolderOpen, Timer,
   Flag, Package, MessageCircle, Pin, ChevronDown, KeyRound, Eye, EyeOff, Plus, Pencil, ShieldCheck,
+  Receipt, FileDown,
 } from 'lucide-react';
 import Link from 'next/link';
 import type { PortalData } from '@/lib/types';
@@ -954,6 +955,7 @@ export default function PortalPage() {
     (data.settings.show_proposals && data.proposals.length > 0) ||
     (data.settings.show_files && data.files.length > 0) ||
     (data.settings.show_hours && data.hours.entries.length > 0) ||
+    (data.settings.show_invoices && data.invoices.length > 0) ||
     (data.settings.show_credentials);
 
   /* ── Hours: member aggregation ───────────────── */
@@ -1235,6 +1237,61 @@ export default function PortalPage() {
                             </div>
                           </div>
                         </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            )}
+
+            {/* ── Invoices ──────────────────────────── */}
+            {data.settings.show_invoices && data.invoices.length > 0 && (
+              <section>
+                <div className="flex items-center gap-2 mb-4">
+                  <Receipt size={20} style={{ color: accentColor }} />
+                  <h2 className="text-lg font-semibold text-zinc-900">Invoices</h2>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {data.invoices.map((invoice) => {
+                    const statusStyle: Record<string, string> = {
+                      sent: 'bg-blue-50 text-blue-700',
+                      paid: 'bg-emerald-50 text-emerald-700',
+                      overdue: 'bg-red-50 text-red-700',
+                      cancelled: 'bg-zinc-100 text-zinc-400',
+                    };
+                    return (
+                      <div key={invoice.id} className="bg-white rounded-xl border border-zinc-200 p-4">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <span className={`inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-full ${statusStyle[invoice.status] || 'bg-zinc-100 text-zinc-600'}`}>
+                              {invoice.status.charAt(0).toUpperCase() + invoice.status.slice(1)}
+                            </span>
+                            <span className="text-sm font-semibold text-zinc-900">{invoice.invoice_number}</span>
+                          </div>
+                          <span className="text-sm font-bold text-zinc-900">
+                            ${invoice.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-3 text-xs text-zinc-500">
+                          <span>{new Date(invoice.date + 'T00:00:00').toLocaleDateString()}</span>
+                          {invoice.due_date && <span>Due: {new Date(invoice.due_date + 'T00:00:00').toLocaleDateString()}</span>}
+                          {invoice.paid_date && <span className="text-emerald-600">Paid: {new Date(invoice.paid_date + 'T00:00:00').toLocaleDateString()}</span>}
+                        </div>
+                        {invoice.description && (
+                          <p className="mt-2 text-sm text-zinc-600 line-clamp-2">{invoice.description}</p>
+                        )}
+                        {invoice.file_url && (
+                          <a
+                            href={invoice.file_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1.5 mt-3 text-xs font-medium rounded-lg px-3 py-1.5 transition-colors"
+                            style={{ color: accentColor, backgroundColor: accentColor + '10' }}
+                          >
+                            <FileDown size={13} />
+                            {invoice.file_name || 'Download'}
+                          </a>
+                        )}
                       </div>
                     );
                   })}

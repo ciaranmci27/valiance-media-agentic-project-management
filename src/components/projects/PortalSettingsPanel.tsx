@@ -434,6 +434,7 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
                 { key: 'show_hours', label: 'Hours' },
                 { key: 'show_updates', label: 'Updates' },
                 { key: 'show_credentials', label: 'Credentials' },
+                { key: 'show_invoices', label: 'Invoices' },
               ].filter(item => item.key !== 'show_hours' || project?.hourly_tracking).map(({ key, label }) => {
                 const isActive = (settings as any)[key];
                 return (

@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { Mail, Plus, Copy, Check, Pencil, Trash2, Send, Loader2, RefreshCw } from 'lucide-react';
+import { Mail, Plus, Copy, Check, Pencil, Trash2, Send, Loader2, RefreshCw, BookOpen } from 'lucide-react';
+import Link from 'next/link';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
@@ -347,9 +348,16 @@ export function SmtpSection() {
             </div>
           </div>
           {!showForm && (
-            <Button size="sm" onClick={() => { resetForm(); setShowForm(true); }} icon={<Plus size={14} />}>
-              Add Account
-            </Button>
+            <div className="flex items-center gap-2">
+              <Link href="/smtp/docs">
+                <Button size="sm" variant="secondary" icon={<BookOpen size={14} />}>
+                  Docs
+                </Button>
+              </Link>
+              <Button size="sm" onClick={() => { resetForm(); setShowForm(true); }} icon={<Plus size={14} />}>
+                Add Account
+              </Button>
+            </div>
           )}
         </div>
 

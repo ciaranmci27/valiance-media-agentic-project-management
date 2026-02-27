@@ -46,6 +46,8 @@ create table public.projects (
   start_date text,
   due_date text,
   hourly_tracking boolean not null default false,
+  hourly_rate numeric(10,2) default null,
+  fixed_price numeric(12,2) default null,
   created_by uuid references public.team_members(id) on delete set null,
   archived_at timestamptz default null,
   created_at timestamptz not null default now(),
@@ -268,6 +270,7 @@ create table public.portal_settings (
   show_hours boolean not null default true,
   show_updates boolean not null default true,
   show_credentials boolean not null default false,
+  show_invoices boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   unique(project_id),
@@ -403,7 +406,30 @@ create table public.project_credentials (
 );
 
 -- ============================================================
--- 24. SMTP ACCOUNTS (encrypted SMTP credentials)
+-- 24b. PROJECT INVOICES (invoice tracking per project)
+-- ============================================================
+create table public.project_invoices (
+  id uuid primary key default gen_random_uuid(),
+  project_id uuid not null references public.projects(id) on delete cascade,
+  invoice_number text not null,
+  amount numeric(12,2) not null default 0,
+  status text not null default 'draft'
+    check (status in ('draft', 'sent', 'paid', 'overdue', 'cancelled')),
+  date text not null,
+  due_date text,
+  description text not null default '',
+  paid_date text,
+  file_url text,
+  file_name text,
+  file_size bigint,
+  mime_type text,
+  created_by uuid references public.team_members(id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+-- ============================================================
+-- 25. SMTP ACCOUNTS (encrypted SMTP credentials)
 -- ============================================================
 create table public.smtp_accounts (
   id uuid primary key default gen_random_uuid(),
@@ -476,6 +502,9 @@ create index idx_api_keys_key_hash on public.api_keys(key_hash);
 create index idx_api_keys_revoked_at on public.api_keys(revoked_at) where revoked_at is null;
 
 create index idx_project_credentials_project on public.project_credentials(project_id);
+create index idx_project_invoices_project on public.project_invoices(project_id);
+create index idx_project_invoices_status on public.project_invoices(status);
+create index idx_project_invoices_date on public.project_invoices(date desc);
 create index idx_projects_archived_at on public.projects(archived_at) where archived_at is null;
 create index idx_leads_archived_at on public.leads(archived_at) where archived_at is null;
 
@@ -596,6 +625,10 @@ create trigger set_portal_update_attachments_updated_at
   before update on public.portal_update_attachments
   for each row execute function public.handle_updated_at();
 
+create trigger set_project_invoices_updated_at
+  before update on public.project_invoices
+  for each row execute function public.handle_updated_at();
+
 create trigger set_smtp_accounts_updated_at
   before update on public.smtp_accounts
   for each row execute function public.handle_updated_at();
@@ -649,6 +682,7 @@ alter table public.portal_updates enable row level security;
 alter table public.portal_update_attachments enable row level security;
 alter table public.project_time_entries enable row level security;
 alter table public.project_credentials enable row level security;
+alter table public.project_invoices enable row level security;
 alter table public.team_member_notifications enable row level security;
 
 -- All authenticated users get full CRUD on shared data
@@ -722,6 +756,9 @@ create policy "api_keys_all" on public.api_keys
   for all to authenticated using (true) with check (true);
 
 create policy "project_credentials_all" on public.project_credentials
+  for all to authenticated using (true) with check (true);
+
+create policy "project_invoices_all" on public.project_invoices
   for all to authenticated using (true) with check (true);
 
 -- Users can only read/update/delete their own notifications.

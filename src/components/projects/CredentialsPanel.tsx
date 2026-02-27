@@ -474,7 +474,7 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
   );
 
   return (
-    <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden flex flex-col">
+    <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden flex flex-col max-h-[600px]">
       {/* Header */}
       <div className="px-5 py-4 flex items-center justify-between flex-shrink-0 border-b border-zinc-100">
         <div className="flex items-center gap-2.5">
@@ -593,17 +593,17 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
                     {/* Footer: time + actions */}
                     <div className="flex items-center justify-between">
                       <p className="text-xs text-zinc-400">{timeAgo(cred.created_at)}</p>
-                      <div className="flex items-center gap-0.5" onClick={e => e.stopPropagation()}>
+                      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
                         <button
                           onClick={() => handleStartEdit(cred)}
-                          className="p-1.5 text-zinc-300 group-hover:text-zinc-400 hover:!text-brand-600 transition-colors rounded-md hover:bg-zinc-50"
+                          className="p-1.5 text-zinc-400 hover:text-brand-600 transition-colors rounded-md hover:bg-zinc-50"
                           title="Edit"
                         >
                           <Pencil size={14} />
                         </button>
                         <button
                           onClick={() => setDeleteTarget(cred.id)}
-                          className="p-1.5 text-zinc-300 group-hover:text-zinc-400 hover:!text-red-500 transition-colors rounded-md hover:bg-zinc-50"
+                          className="p-1.5 text-zinc-400 hover:text-red-500 transition-colors rounded-md hover:bg-zinc-50"
                           title="Delete"
                         >
                           <Trash2 size={14} />
