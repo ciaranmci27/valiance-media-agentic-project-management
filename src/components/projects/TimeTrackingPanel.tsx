@@ -215,9 +215,16 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
   const handleManualAdd = (e: React.FormEvent) => {
     e.preventDefault();
     if (!manualMemberId) { toast('error', 'Please select a team member'); return; }
-    const startISO = new Date(`${manualDate}T${manualStartTime}`).toISOString();
-    const endISO = new Date(`${manualDate}T${manualEndTime}`).toISOString();
-    if (new Date(endISO) <= new Date(startISO)) { toast('error', 'End time must be after start time'); return; }
+    const start = new Date(`${manualDate}T${manualStartTime}`);
+    const end = new Date(`${manualDate}T${manualEndTime}`);
+    // If end time is earlier than start time, the shift crosses midnight; bump end to next day
+    if (end < start) {
+      end.setDate(end.getDate() + 1);
+    } else if (end.getTime() === start.getTime()) {
+      toast('error', 'End time must be after start time'); return;
+    }
+    const startISO = start.toISOString();
+    const endISO = end.toISOString();
     addTimeEntry({
       project_id: projectId,
       member_id: manualMemberId,
@@ -247,9 +254,16 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
 
   const saveEdit = () => {
     if (!editingId || !editState) return;
-    const startISO = new Date(`${editState.date}T${editState.startTime}`).toISOString();
-    const endISO = new Date(`${editState.date}T${editState.endTime}`).toISOString();
-    if (new Date(endISO) <= new Date(startISO)) { toast('error', 'End time must be after start time'); return; }
+    const start = new Date(`${editState.date}T${editState.startTime}`);
+    const end = new Date(`${editState.date}T${editState.endTime}`);
+    // If end time is earlier than start time, the shift crosses midnight; bump end to next day
+    if (end < start) {
+      end.setDate(end.getDate() + 1);
+    } else if (end.getTime() === start.getTime()) {
+      toast('error', 'End time must be after start time'); return;
+    }
+    const startISO = start.toISOString();
+    const endISO = end.toISOString();
     updateTimeEntry(editingId, {
       start_time: startISO,
       end_time: endISO,

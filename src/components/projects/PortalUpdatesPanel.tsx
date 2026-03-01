@@ -402,7 +402,7 @@ export function PortalUpdatesPanel({ projectId }: PortalUpdatesPanelProps) {
             className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition-colors"
           >
             <Plus size={14} />
-            Add Update
+            Add
           </button>
         )}
       </div>
