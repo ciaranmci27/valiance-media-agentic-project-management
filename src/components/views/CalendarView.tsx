@@ -3,6 +3,7 @@
 import { useState, useMemo } from 'react';
 import { Task } from '@/lib/types';
 import { ChevronLeft, ChevronRight, AlertCircle } from 'lucide-react';
+import { Tooltip } from '@/components/ui/Tooltip';
 
 interface CalendarViewProps {
   tasks: Task[];
@@ -193,21 +194,21 @@ export function CalendarView({ tasks, onViewTask }: CalendarViewProps) {
             const taskDueToday = dueToday && !isDone;
 
             return (
-              <div
-                key={task.id}
-                onClick={(e) => { e.stopPropagation(); onViewTask?.(task); }}
-                className={`flex items-center gap-1 text-[10px] lg:text-[11px] px-1.5 py-0.5 rounded border-l-2 truncate cursor-pointer hover:shadow-sm transition-shadow ${
-                  taskOverdue
-                    ? 'bg-red-50 text-red-700 border-l-red-500'
-                    : taskDueToday
-                    ? 'bg-amber-50 text-amber-800 border-l-amber-500 font-medium'
-                    : `${style.bg} ${style.text} ${style.border}`
-                } ${isDone ? 'line-through opacity-60' : ''}`}
-                title={`${task.title} — ${task.priority} priority`}
-              >
-                <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${PRIORITY_DOT[task.priority] || PRIORITY_DOT.medium}`} />
-                <span className="truncate">{task.title}</span>
-              </div>
+              <Tooltip key={task.id} content={`${task.title} - ${task.priority} priority`} position="bottom">
+                <div
+                  onClick={(e) => { e.stopPropagation(); onViewTask?.(task); }}
+                  className={`flex items-center gap-1 text-[10px] lg:text-[11px] px-1.5 py-0.5 rounded border-l-2 truncate cursor-pointer hover:shadow-sm transition-shadow ${
+                    taskOverdue
+                      ? 'bg-red-50 text-red-700 border-l-red-500'
+                      : taskDueToday
+                      ? 'bg-amber-50 text-amber-800 border-l-amber-500 font-medium'
+                      : `${style.bg} ${style.text} ${style.border}`
+                  } ${isDone ? 'line-through opacity-60' : ''}`}
+                >
+                  <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${PRIORITY_DOT[task.priority] || PRIORITY_DOT.medium}`} />
+                  <span className="truncate">{task.title}</span>
+                </div>
+              </Tooltip>
             );
           })}
           {!isExpanded && hiddenCount > 0 && (

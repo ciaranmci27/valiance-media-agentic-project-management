@@ -1,17 +1,21 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import {
   Lock, Loader2, FileText, Image, Archive, File, Download, ExternalLink, Globe,
-  CheckCircle2, Clock, AlertCircle, Send, FolderOpen, Timer,
+  CheckCircle2, Clock, AlertCircle, FolderOpen, Timer, Upload,
   Flag, Package, MessageCircle, Pin, ChevronDown, KeyRound, Eye, EyeOff, Plus, Pencil, ShieldCheck,
   Receipt, FileDown,
 } from 'lucide-react';
 import Link from 'next/link';
-import type { PortalData } from '@/lib/types';
+import type { PortalData, PortalSectionKey } from '@/lib/types';
+import { DEFAULT_SECTION_ORDER } from '@/lib/types';
 import { Logo } from '@/components/ui/Logo';
 import { Select } from '@/components/ui/Select';
+import { PinInput, type PinInputRef } from '@/components/ui/PinInput';
+import { Tooltip } from '@/components/ui/Tooltip';
+import { toast } from '@/components/ui/Toast';
 import { siteConfig } from '@/site-config';
 
 /* ── Helpers ─────────────────────────────────────── */
@@ -80,41 +84,22 @@ function getUpdateIcon(type: string) {
   }
 }
 
-function getProposalStatusIcon(status: string) {
-  switch (status) {
-    case 'accepted': return CheckCircle2;
-    case 'sent': return Send;
-    case 'rejected': return AlertCircle;
-    default: return Clock;
-  }
-}
-
-function getProposalStatusColor(status: string) {
-  switch (status) {
-    case 'accepted': return 'bg-emerald-50 text-emerald-700 border-emerald-200';
-    case 'sent': return 'bg-blue-50 text-blue-700 border-blue-200';
-    case 'rejected': return 'bg-red-50 text-red-700 border-red-200';
-    default: return 'bg-zinc-100 text-zinc-600 border-zinc-200';
-  }
-}
 
 /* ── Member bar colors ───────────────────────────── */
 const MEMBER_COLORS = ['#5B8A8A', '#C5A68F', '#6366F1', '#F59E0B', '#EC4899', '#14B8A6'];
 
 /* ── Section header component ────────────────────── */
-function SectionHeader({ icon: Icon, iconBg, title, right }: {
-  icon: React.ComponentType<{ size?: number; className?: string }>;
-  iconBg: string;
+function SectionHeader({ icon: Icon, title, accentColor, right }: {
+  icon: React.ComponentType<{ size?: number; style?: React.CSSProperties }>;
   title: string;
+  accentColor: string;
   right?: React.ReactNode;
 }) {
   return (
     <div className="flex items-center justify-between mb-4">
-      <div className="flex items-center gap-3">
-        <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ backgroundColor: iconBg }}>
-          <Icon size={16} className="text-zinc-600" />
-        </div>
-        <h2 className="text-sm font-semibold text-zinc-900">{title}</h2>
+      <div className="flex items-center gap-2">
+        <Icon size={20} style={{ color: accentColor }} />
+        <h2 className="text-lg font-semibold text-zinc-900">{title}</h2>
       </div>
       {right}
     </div>
@@ -196,13 +181,14 @@ function UpdatesTimeline({ updates, accentColor }: {
   const hiddenCount = updates.length - UPDATES_INITIAL_COUNT;
 
   return (
-    <section className="bg-white rounded-xl border border-zinc-200 p-5 sm:p-6">
+    <section>
       <SectionHeader
         icon={Clock}
-        iconBg="#EFF6FF"
         title="Updates"
+        accentColor={accentColor}
         right={<span className="text-xs text-zinc-400">{updates.length}</span>}
       />
+      <div className="bg-white rounded-xl border border-zinc-200 p-5 sm:p-6">
       <div className="relative">
         <div className="space-y-1">
           {visible.map((update, updateIndex) => {
@@ -276,56 +262,15 @@ function UpdatesTimeline({ updates, accentColor }: {
                                   className="max-w-[200px] max-h-[120px] rounded-lg border border-zinc-200 object-cover"
                                 />
                                 <div className="absolute inset-0 rounded-lg bg-black/0 group-hover/img:bg-black/40 transition-colors flex items-center justify-center gap-1.5 opacity-0 group-hover/img:opacity-100">
-                                  <button
-                                    onClick={() => window.open(a.file_url, '_blank', 'noopener,noreferrer')}
-                                    className="p-1.5 bg-white/90 rounded-md text-zinc-700 hover:bg-white transition-colors"
-                                    title="Preview"
-                                  >
-                                    <Eye size={13} />
-                                  </button>
-                                  <button
-                                    onClick={async () => {
-                                      try {
-                                        const res = await fetch(a.file_url);
-                                        const blob = await res.blob();
-                                        const url = URL.createObjectURL(blob);
-                                        const el = document.createElement('a');
-                                        el.href = url;
-                                        el.download = a.name;
-                                        document.body.appendChild(el);
-                                        el.click();
-                                        el.remove();
-                                        URL.revokeObjectURL(url);
-                                      } catch { /* silent */ }
-                                    }}
-                                    className="p-1.5 bg-white/90 rounded-md text-zinc-700 hover:bg-white transition-colors"
-                                    title="Download"
-                                  >
-                                    <Download size={13} />
-                                  </button>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                        {files.length > 0 && (
-                          <div className="flex flex-wrap gap-1.5">
-                            {files.map(a => {
-                              const isHtml = a.mime_type === 'text/html';
-                              const FileIcon = isHtml ? Globe : a.mime_type === 'application/pdf' ? FileText : File;
-                              return (
-                                <span key={a.id} className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium bg-zinc-100 text-zinc-600 rounded-lg">
-                                  <FileIcon size={12} className="text-zinc-400 flex-shrink-0" />
-                                  <span className="max-w-[140px] truncate">{a.name}</span>
-                                  <span className="text-zinc-400">{formatFileSize(a.file_size)}</span>
-                                  <button
-                                    onClick={() => window.open(a.file_url, '_blank', 'noopener,noreferrer')}
-                                    className="p-0.5 text-zinc-400 hover:text-zinc-700 transition-colors"
-                                    title="Preview"
-                                  >
-                                    <Eye size={12} />
-                                  </button>
-                                  {!isHtml && (
+                                  <Tooltip content="Preview">
+                                    <button
+                                      onClick={() => window.open(a.file_url, '_blank', 'noopener,noreferrer')}
+                                      className="p-1.5 bg-white/90 rounded-md text-zinc-700 hover:bg-white transition-colors"
+                                    >
+                                      <Eye size={13} />
+                                    </button>
+                                  </Tooltip>
+                                  <Tooltip content="Download">
                                     <button
                                       onClick={async () => {
                                         try {
@@ -341,11 +286,56 @@ function UpdatesTimeline({ updates, accentColor }: {
                                           URL.revokeObjectURL(url);
                                         } catch { /* silent */ }
                                       }}
-                                      className="p-0.5 text-zinc-400 hover:text-zinc-700 transition-colors"
-                                      title="Download"
+                                      className="p-1.5 bg-white/90 rounded-md text-zinc-700 hover:bg-white transition-colors"
                                     >
-                                      <Download size={12} />
+                                      <Download size={13} />
                                     </button>
+                                  </Tooltip>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {files.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5">
+                            {files.map(a => {
+                              const isHtml = a.mime_type === 'text/html';
+                              const FileIcon = isHtml ? Globe : a.mime_type === 'application/pdf' ? FileText : File;
+                              return (
+                                <span key={a.id} className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium bg-zinc-100 text-zinc-600 rounded-lg">
+                                  <FileIcon size={12} className="text-zinc-400 flex-shrink-0" />
+                                  <span className="max-w-[140px] truncate">{a.name}</span>
+                                  <span className="text-zinc-400">{formatFileSize(a.file_size)}</span>
+                                  <Tooltip content="Preview">
+                                    <button
+                                      onClick={() => window.open(a.file_url, '_blank', 'noopener,noreferrer')}
+                                      className="p-0.5 text-zinc-400 hover:text-zinc-700 transition-colors"
+                                    >
+                                      <Eye size={12} />
+                                    </button>
+                                  </Tooltip>
+                                  {!isHtml && (
+                                    <Tooltip content="Download">
+                                      <button
+                                        onClick={async () => {
+                                          try {
+                                            const res = await fetch(a.file_url);
+                                            const blob = await res.blob();
+                                            const url = URL.createObjectURL(blob);
+                                            const el = document.createElement('a');
+                                            el.href = url;
+                                            el.download = a.name;
+                                            document.body.appendChild(el);
+                                            el.click();
+                                            el.remove();
+                                            URL.revokeObjectURL(url);
+                                          } catch { /* silent */ }
+                                        }}
+                                        className="p-0.5 text-zinc-400 hover:text-zinc-700 transition-colors"
+                                      >
+                                        <Download size={12} />
+                                      </button>
+                                    </Tooltip>
                                   )}
                                 </span>
                               );
@@ -355,9 +345,11 @@ function UpdatesTimeline({ updates, accentColor }: {
                       </div>
                     );
                   })()}
-                  <p className="text-xs text-zinc-400" title={fullDate}>
-                    {update.author_name} &middot; {relativeTime(update.created_at)}
-                  </p>
+                  <Tooltip content={fullDate}>
+                    <p className="text-xs text-zinc-400">
+                      {update.author_name} &middot; {relativeTime(update.created_at)}
+                    </p>
+                  </Tooltip>
                 </div>
               </div>
             );
@@ -375,6 +367,7 @@ function UpdatesTimeline({ updates, accentColor }: {
           {showAll ? 'Show less' : `Show ${hiddenCount} more update${hiddenCount === 1 ? '' : 's'}`}
         </button>
       )}
+      </div>
     </section>
   );
 }
@@ -429,11 +422,10 @@ function CredentialFormView({ token, pin, accentColor, editingCredential, onDone
   const [submitting, setSubmitting] = useState(false);
   const [loadingFields, setLoadingFields] = useState(isEditing);
 
-  const buildQs = () => {
-    const p = new URLSearchParams();
-    if (pin) p.set('pin', pin);
-    const qs = p.toString();
-    return qs ? `?${qs}` : '';
+  const pinHeaders = (): Record<string, string> => {
+    const h: Record<string, string> = {};
+    if (pin) h['x-portal-pin'] = pin;
+    return h;
   };
 
   // Fetch existing field values when editing
@@ -442,7 +434,7 @@ function CredentialFormView({ token, pin, accentColor, editingCredential, onDone
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(`/api/portal/${token}/credentials/${editingCredential.id}${buildQs()}`);
+        const res = await fetch(`/api/portal/${token}/credentials/${editingCredential.id}`, { headers: pinHeaders() });
         if (!res.ok) throw new Error();
         const data = await res.json();
         if (cancelled) return;
@@ -476,18 +468,18 @@ function CredentialFormView({ token, pin, accentColor, editingCredential, onDone
         };
         if (password) payload.password = password;
 
-        const res = await fetch(`/api/portal/${token}/credentials/${editingCredential.id}${buildQs()}`, {
+        const res = await fetch(`/api/portal/${token}/credentials/${editingCredential.id}`, {
           method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...pinHeaders() },
           body: JSON.stringify(payload),
         });
         if (!res.ok) throw new Error();
         const json = await res.json();
         onDone({ ...editingCredential, ...json.data }, 'edit');
       } else {
-        const res = await fetch(`/api/portal/${token}/credentials${buildQs()}`, {
+        const res = await fetch(`/api/portal/${token}/credentials`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...pinHeaders() },
           body: JSON.stringify({
             label: label.trim(), category,
             username: username.trim(), password: password.trim(),
@@ -594,20 +586,14 @@ function PortalCredentialForm({ token, pin, accentColor, credentialsSubmitted }:
   const [localCredentials, setLocalCredentials] = useState<SubmittedCredential[]>(credentialsSubmitted);
   const [view, setView] = useState<'list' | 'add' | 'edit'>('list');
   const [editTarget, setEditTarget] = useState<SubmittedCredential | null>(null);
-  const [successMsg, setSuccessMsg] = useState<string | null>(null);
-
-  const showSuccess = (msg: string) => {
-    setSuccessMsg(msg);
-    setTimeout(() => setSuccessMsg(null), 4000);
-  };
 
   const handleDone = (cred: SubmittedCredential, mode: 'add' | 'edit') => {
     if (mode === 'add') {
       setLocalCredentials(prev => [cred, ...prev]);
-      showSuccess('Credentials submitted securely');
+      toast('success', 'Credentials submitted securely');
     } else {
       setLocalCredentials(prev => prev.map(c => c.id === cred.id ? cred : c));
-      showSuccess('Credential updated');
+      toast('success', 'Credential updated');
     }
     setView('list');
     setEditTarget(null);
@@ -619,14 +605,14 @@ function PortalCredentialForm({ token, pin, accentColor, credentialsSubmitted }:
   };
 
   return (
-    <section className="bg-white rounded-xl border border-zinc-200 p-5 sm:p-6">
+    <section>
       {/* ── List view ──────────────────────────── */}
       {view === 'list' && (
         <>
           <SectionHeader
             icon={ShieldCheck}
-            iconBg="#F0FDF4"
             title="Credentials"
+            accentColor={accentColor}
             right={
               <button
                 onClick={() => setView('add')}
@@ -639,69 +625,64 @@ function PortalCredentialForm({ token, pin, accentColor, credentialsSubmitted }:
             }
           />
 
-          {/* Success toast */}
-          {successMsg && (
-            <div
-              className="flex items-center gap-2.5 px-3.5 py-3 mb-4 rounded-lg border"
-              style={{ backgroundColor: accentColor + '08', borderColor: accentColor + '20', animation: 'portalFadeUp 0.25s ease both' }}
-            >
-              <CheckCircle2 size={16} style={{ color: accentColor }} className="flex-shrink-0" />
-              <p className="text-sm font-medium text-zinc-700">{successMsg}</p>
-            </div>
-          )}
-
-          {localCredentials.length > 0 ? (
-            <div className="space-y-1.5">
-              {localCredentials.map(cred => {
-                const catStyle = CATEGORY_STYLE[cred.category] || CATEGORY_STYLE.other;
-                const catLabel = CREDENTIAL_CATEGORIES.find(c => c.value === cred.category)?.label || cred.category;
-                return (
-                  <div
-                    key={cred.id}
-                    className="group flex items-center gap-3 px-3.5 py-3 rounded-lg bg-zinc-50 hover:bg-zinc-100/80 transition-colors"
-                  >
+          <div className="bg-white rounded-xl border border-zinc-200 p-5 sm:p-6">
+            {localCredentials.length > 0 ? (
+              <div className="space-y-1.5">
+                {localCredentials.map(cred => {
+                  const catStyle = CATEGORY_STYLE[cred.category] || CATEGORY_STYLE.other;
+                  const catLabel = CREDENTIAL_CATEGORIES.find(c => c.value === cred.category)?.label || cred.category;
+                  return (
                     <div
-                      className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
-                      style={{ backgroundColor: catStyle.bg }}
+                      key={cred.id}
+                      className="group flex items-center gap-3 px-3.5 py-3 rounded-lg bg-zinc-50 hover:bg-zinc-100/80 transition-colors"
                     >
-                      <KeyRound size={14} style={{ color: catStyle.iconColor }} />
+                      <div
+                        className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
+                        style={{ backgroundColor: catStyle.bg }}
+                      >
+                        <KeyRound size={14} style={{ color: catStyle.iconColor }} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-zinc-900 truncate">{cred.label}</p>
+                        <p className="text-xs text-zinc-400">
+                          {catLabel} &middot; {relativeTime(cred.updated_at || cred.created_at)}
+                        </p>
+                      </div>
+                      <Tooltip content="Edit">
+                        <button
+                          onClick={() => { setEditTarget(cred); setView('edit'); }}
+                          className="flex-shrink-0 p-1.5 text-zinc-300 group-hover:text-zinc-500 hover:!text-zinc-700 hover:bg-white rounded-md transition-all"
+                        >
+                          <Pencil size={14} />
+                        </button>
+                      </Tooltip>
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-zinc-900 truncate">{cred.label}</p>
-                      <p className="text-xs text-zinc-400">
-                        {catLabel} &middot; {relativeTime(cred.updated_at || cred.created_at)}
-                      </p>
-                    </div>
-                    <button
-                      onClick={() => { setEditTarget(cred); setView('edit'); }}
-                      className="flex-shrink-0 p-1.5 text-zinc-300 group-hover:text-zinc-500 hover:!text-zinc-700 hover:bg-white rounded-md transition-all"
-                      title="Edit"
-                    >
-                      <Pencil size={14} />
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          ) : !successMsg ? (
-            <p className="text-sm text-zinc-500">
-              Securely share login credentials or access information with the team.
-            </p>
-          ) : null}
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="py-2 text-center">
+                <ShieldCheck size={24} className="mx-auto mb-2 text-zinc-300" />
+                <p className="text-sm text-zinc-500">No credentials yet. Use the Add button to share access securely.</p>
+              </div>
+            )}
+          </div>
         </>
       )}
 
       {/* ── Add / Edit form view ──────────────── */}
       {(view === 'add' || view === 'edit') && (
-        <CredentialFormView
-          key={view === 'edit' ? editTarget?.id : 'add'}
-          token={token}
-          pin={pin}
-          accentColor={accentColor}
-          editingCredential={view === 'edit' ? editTarget : null}
-          onDone={handleDone}
-          onCancel={handleCancel}
-        />
+        <div className="bg-white rounded-xl border border-zinc-200 p-5 sm:p-6">
+          <CredentialFormView
+            key={view === 'edit' ? editTarget?.id : 'add'}
+            token={token}
+            pin={pin}
+            accentColor={accentColor}
+            editingCredential={view === 'edit' ? editTarget : null}
+            onDone={handleDone}
+            onCancel={handleCancel}
+          />
+        </div>
       )}
     </section>
   );
@@ -711,7 +692,7 @@ function PortalCredentialForm({ token, pin, accentColor, credentialsSubmitted }:
 
 export default function PortalPage() {
   const params = useParams();
-  const token = params.token as string;
+  const token = (params.token as string).toLowerCase();
 
   const [data, setData] = useState<PortalData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -719,30 +700,43 @@ export default function PortalPage() {
   const [pinRequired, setPinRequired] = useState(false);
   const [pin, setPin] = useState('');
   const [pinError, setPinError] = useState(false);
+  const [pinSubmitting, setPinSubmitting] = useState(false);
+  const pinRef = useRef<PinInputRef>(null);
   const [branding, setBranding] = useState<{ logo_url: string; accent_color: string; project_name: string; welcome_message: string } | null>(null);
 
+  // File upload state
+  const [localFiles, setLocalFiles] = useState<PortalData['files']>([]);
+  const [fileUploading, setFileUploading] = useState(false);
+
   const fetchPortal = async (pinValue?: string) => {
-    setLoading(true);
+    if (pinValue) setPinSubmitting(true);
+    else setLoading(true);
     setError(null);
     setPinError(false);
 
     try {
       const isDemo = localStorage.getItem('valiance-demo-mode') === 'true' || process.env.NEXT_PUBLIC_DEMO_MODE === 'true';
       const params = new URLSearchParams();
-      if (pinValue) params.set('pin', pinValue);
       if (isDemo) params.set('demo', 'true');
       const qs = params.toString();
       const url = `/api/portal/${token}${qs ? `?${qs}` : ''}`;
 
-      const res = await fetch(url);
+      const headers: Record<string, string> = {};
+      if (pinValue) headers['x-portal-pin'] = pinValue;
+      const res = await fetch(url, { headers });
 
       if (res.status === 401) {
         const body = await res.json();
         if (body.pin_required) {
           setPinRequired(true);
           if (body.branding) setBranding(body.branding);
-          if (pinValue) setPinError(true);
+          if (pinValue) {
+            setPinError(true);
+            setPin('');
+            setTimeout(() => pinRef.current?.focus(), 300);
+          }
           setLoading(false);
+          setPinSubmitting(false);
           return;
         }
       }
@@ -750,12 +744,14 @@ export default function PortalPage() {
       if (res.status === 404) {
         setError('This portal is not available.');
         setLoading(false);
+        setPinSubmitting(false);
         return;
       }
 
       if (!res.ok) {
         setError('Something went wrong. Please try again later.');
         setLoading(false);
+        setPinSubmitting(false);
         return;
       }
 
@@ -770,6 +766,7 @@ export default function PortalPage() {
       setError('Failed to load portal. Please check your connection.');
     } finally {
       setLoading(false);
+      setPinSubmitting(false);
     }
   };
 
@@ -777,10 +774,38 @@ export default function PortalPage() {
     fetchPortal();
   }, [token]);
 
-  const handlePinSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!pin.trim()) return;
-    fetchPortal(pin);
+  // Sync localFiles when portal data loads
+  useEffect(() => {
+    if (data?.files) setLocalFiles(data.files);
+  }, [data?.files]);
+
+  const handlePinComplete = (value: string) => {
+    if (pinSubmitting) return;
+    fetchPortal(value);
+  };
+
+  const handleFileUpload = async (file: File) => {
+    setFileUploading(true);
+    try {
+      const storedPin = sessionStorage.getItem(`portal-pin-${token}`) || '';
+      const body = new FormData();
+      body.append('file', file);
+      const headers: Record<string, string> = {};
+      if (storedPin) headers['x-portal-pin'] = storedPin;
+      const res = await fetch(`/api/portal/${token}/files`, { method: 'POST', body, headers });
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({ error: 'Upload failed' }));
+        toast('error', json.error || 'Upload failed');
+        return;
+      }
+      const newFile = await res.json();
+      setLocalFiles(prev => [newFile, ...prev]);
+      toast('success', `"${file.name}" uploaded successfully`);
+    } catch {
+      toast('error', 'Upload failed. Please check your connection.');
+    } finally {
+      setFileUploading(false);
+    }
   };
 
   const accentColor = data?.settings.accent_color || siteConfig.colors.brand[500];
@@ -891,7 +916,7 @@ export default function PortalPage() {
 
         {/* Right form panel */}
         <div className="flex-1 flex items-center justify-center px-6 py-16 md:py-0 bg-white">
-          <div className="w-full max-w-sm" style={{ animation: 'portalFadeUp 0.5s ease both' }}>
+          <div className="w-full max-w-[248px]" style={{ animation: 'portalFadeUp 0.5s ease both' }}>
             <div
               style={pinError ? { animation: 'portalShake 0.5s ease' } : undefined}
             >
@@ -901,42 +926,37 @@ export default function PortalPage() {
               </div>
 
               <h2 className="text-xl font-bold text-zinc-900 mb-1">Enter PIN</h2>
-              <p className="text-sm text-zinc-500 mb-8">
-                This portal is protected. Enter the PIN to continue.
+              <p className="text-sm text-zinc-500 mb-4">
+                This portal is protected. Enter your 4-digit PIN to continue.
               </p>
 
-              <form onSubmit={handlePinSubmit} className="space-y-4">
+              <div className="space-y-4">
                 <div>
-                  <label htmlFor="portal-pin" className="block text-xs font-medium text-zinc-500 mb-1.5">
-                    Access PIN
-                  </label>
-                  <input
-                    id="portal-pin"
-                    type="password"
+                  <PinInput
+                    ref={pinRef}
                     value={pin}
-                    onChange={e => { setPin(e.target.value); setPinError(false); }}
-                    placeholder="&bull; &bull; &bull; &bull; &bull; &bull;"
+                    onChange={(v) => { setPin(v); setPinError(false); }}
+                    onComplete={handlePinComplete}
+                    size="lg"
+                    error={pinError}
+                    accentColor={pinAccent}
                     autoFocus
-                    className={`w-full px-4 py-3 text-center text-lg tracking-[0.3em] bg-zinc-50 border rounded-xl outline-none transition-all font-medium ${
-                      pinError
-                        ? 'border-red-300 bg-red-50/50 focus:border-red-400 focus:ring-4 focus:ring-red-100'
-                        : 'border-zinc-200 focus:border-zinc-900 focus:ring-4 focus:ring-zinc-100 focus:bg-white'
-                    }`}
+                    disabled={pinSubmitting}
+                    className="justify-between"
                   />
                 </div>
                 {pinError && (
-                  <p className="text-sm text-red-500 font-medium">Incorrect PIN. Please try again.</p>
+                  <p className="text-sm text-red-500 font-medium text-center">Incorrect PIN. Please try again.</p>
                 )}
-                <button
-                  type="submit"
-                  className="w-full py-3 text-white text-sm font-semibold rounded-xl transition-all hover:brightness-[0.92] active:scale-[0.98]"
-                  style={{ backgroundColor: pinAccent, boxShadow: `0 4px 14px -2px ${pinAccent}50` }}
-                >
-                  Continue
-                </button>
-              </form>
+                {pinSubmitting && (
+                  <div className="flex items-center justify-center gap-2 py-1">
+                    <Loader2 size={16} className="animate-spin text-zinc-400" />
+                    <span className="text-sm text-zinc-400">Verifying...</span>
+                  </div>
+                )}
+              </div>
 
-              <p className="text-xs text-zinc-400 text-center mt-6">
+              <p className="text-xs text-zinc-400 text-center mt-4">
                 Secured with end-to-end encryption
               </p>
             </div>
@@ -950,10 +970,9 @@ export default function PortalPage() {
 
   const updates = data.updates || [];
   const hasSections =
-    (data.settings.show_progress && data.progress.total_tasks > 0) ||
+    (data.settings.show_progress && (data.project.status === 'completed' || (data.project.start_date && data.project.due_date))) ||
     (data.settings.show_updates && updates.length > 0) ||
-    (data.settings.show_proposals && data.proposals.length > 0) ||
-    (data.settings.show_files && data.files.length > 0) ||
+    (data.settings.show_files) ||
     (data.settings.show_hours && data.hours.entries.length > 0) ||
     (data.settings.show_invoices && data.invoices.length > 0) ||
     (data.settings.show_credentials);
@@ -1015,294 +1034,297 @@ export default function PortalPage() {
       <main className="max-w-3xl mx-auto px-5 sm:px-8 py-8 flex-1 w-full">
         {hasSections ? (
           <div className="stagger space-y-6">
-
-            {/* ── Progress ──────────────────────── */}
-            {data.settings.show_progress && data.progress.total_tasks > 0 && (
-              <section className="bg-white rounded-xl border border-zinc-200 p-5 sm:p-6">
-                <SectionHeader
-                  icon={CheckCircle2}
-                  iconBg={`${accentColor}15`}
-                  title="Project Progress"
-                />
-                <div className="flex items-center gap-5 mb-4">
-                  <ProgressRing percent={data.progress.percent} color={accentColor} />
-                  <div>
-                    <p className="text-sm text-zinc-500">
-                      <span className="font-semibold text-zinc-900">{data.progress.done_tasks}</span> of {data.progress.total_tasks} tasks complete
-                    </p>
-                  </div>
-                </div>
-                <div className="w-full h-1.5 bg-zinc-100 rounded-full overflow-hidden">
-                  <div
-                    className="h-full rounded-full"
-                    style={{
-                      width: `${data.progress.percent}%`,
-                      backgroundColor: accentColor,
-                      transformOrigin: 'left',
-                      animation: 'portalBarFill 1.2s cubic-bezier(0.16,1,0.3,1) 0.3s both',
-                    }}
-                  />
-                </div>
-              </section>
-            )}
-
-            {/* ── Updates Timeline ──────────────── */}
-            {data.settings.show_updates && updates.length > 0 && (() => {
-              // Sort: pinned first, then by date descending
-              const sorted = [...updates].sort((a, b) => {
-                if (a.pinned && !b.pinned) return -1;
-                if (!a.pinned && b.pinned) return 1;
-                return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-              });
-
-              return (
-                <UpdatesTimeline updates={sorted} accentColor={accentColor} />
-              );
-            })()}
-
-            {/* ── Hours Logged ──────────────────── */}
-            {data.settings.show_hours && data.hours.entries.length > 0 && (
-              <section className="bg-white rounded-xl border border-zinc-200 p-5 sm:p-6">
-                <SectionHeader
-                  icon={Timer}
-                  iconBg="#F5F3FF"
-                  title="Hours Logged"
-                  right={
-                    <span className="text-lg font-bold text-zinc-900 tabular-nums">
-                      {data.hours.total_hours.toFixed(1)}h
-                    </span>
-                  }
-                />
-
-                {/* Member breakdown bar */}
-                {memberHours.length > 0 && (
-                  <div className="mb-4">
-                    <div className="flex h-2 rounded-full overflow-hidden bg-zinc-100">
-                      {memberHours.map((m) => (
-                        <div
-                          key={m.name}
-                          className="h-full first:rounded-l-full last:rounded-r-full"
-                          style={{
-                            width: `${(m.hours / data.hours.total_hours) * 100}%`,
-                            backgroundColor: m.color,
-                          }}
-                        />
-                      ))}
-                    </div>
-                    <div className="flex flex-wrap gap-3 mt-2.5">
-                      {memberHours.map((m) => (
-                        <div key={m.name} className="flex items-center gap-1.5 text-xs text-zinc-500">
-                          <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: m.color }} />
-                          <span>{m.name}</span>
-                          <span className="text-zinc-400">{m.hours.toFixed(1)}h</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Entry list */}
-                <div className="space-y-0 max-h-[280px] overflow-y-auto">
-                  {data.hours.entries.map(entry => (
-                    <div
-                      key={entry.id}
-                      className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-zinc-50 transition-all duration-150"
-                    >
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-zinc-900 truncate">
-                          {entry.description || 'Work logged'}
-                        </p>
-                        <p className="text-xs text-zinc-400">
-                          {entry.member_name} &middot; {new Date(entry.start_time).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} &middot; {new Date(entry.start_time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} – {new Date(entry.end_time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
-                        </p>
-                      </div>
-                      <span className="text-sm font-semibold text-zinc-600 flex-shrink-0 tabular-nums">
-                        {entry.hours.toFixed(1)}h
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </section>
-            )}
-
-            {/* ── Proposals ─────────────────────── */}
-            {data.settings.show_proposals && data.proposals.length > 0 && (
-              <section>
-                <SectionHeader
-                  icon={FileText}
-                  iconBg="#ECFDF5"
-                  title="Proposals"
-                />
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {data.proposals.map(proposal => {
-                    const StatusIcon = getProposalStatusIcon(proposal.status);
-                    return (
-                      <div
-                        key={proposal.id}
-                        className="rounded-xl border border-zinc-200 p-4 hover:shadow-md transition-shadow bg-white"
-                      >
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-semibold border rounded-full ${getProposalStatusColor(proposal.status)}`}>
-                            <StatusIcon size={10} />
-                            {proposal.status.charAt(0).toUpperCase() + proposal.status.slice(1)}
-                          </span>
-                        </div>
-                        <h3 className="text-sm font-semibold text-zinc-900 mb-1">{proposal.title}</h3>
-                        {proposal.description && (
-                          <p className="text-xs text-zinc-500 leading-relaxed mb-2 line-clamp-2">{proposal.description}</p>
-                        )}
-                        {proposal.estimated_value != null && (
-                          <p className="text-sm font-bold text-zinc-900 tabular-nums">
-                            {formatCurrency(proposal.estimated_value)}
-                          </p>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </section>
-            )}
-
-            {/* ── Files ─────────────────────────── */}
-            {data.settings.show_files && data.files.length > 0 && (
-              <section className="bg-white rounded-xl border border-zinc-200 p-5 sm:p-6">
-                <SectionHeader
-                  icon={FolderOpen}
-                  iconBg="#FFFBEB"
-                  title="Shared Files"
-                />
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {data.files.map(file => {
-                    const FileIcon = getFileIcon(file.mime_type);
-                    const iconColor = getFileIconColor(file.mime_type);
-                    const iconBg = getFileIconBg(file.mime_type);
-                    const isHtml = file.mime_type === 'text/html';
-                    return (
-                      <div
-                        key={file.id}
-                        className="rounded-xl border border-zinc-100 bg-zinc-50/50 p-4 hover:bg-zinc-50 transition-colors"
-                      >
-                        <div className="flex items-start gap-3">
-                          <div
-                            className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0"
-                            style={{ backgroundColor: iconBg }}
-                          >
-                            <FileIcon size={16} style={{ color: iconColor }} />
+            {(data.settings.section_order ?? DEFAULT_SECTION_ORDER).map((sectionKey) => {
+              switch (sectionKey) {
+                case 'show_progress':
+                  return data.settings.show_progress && (data.project.status === 'completed' || (data.project.start_date && data.project.due_date)) ? (
+                    <section key={sectionKey}>
+                      <SectionHeader icon={CheckCircle2} title="Project Progress" accentColor={accentColor} />
+                      <div className="bg-white rounded-xl border border-zinc-200 p-5 sm:p-6">
+                        <div className="flex items-center gap-5 mb-4">
+                          <ProgressRing percent={data.progress.percent} color={accentColor} />
+                          <div>
+                            {data.project.status === 'completed' ? (
+                              <p className="text-sm font-semibold text-emerald-600 flex items-center gap-1.5">
+                                <span className="inline-block w-2 h-2 rounded-full bg-emerald-500" />
+                                Completed
+                              </p>
+                            ) : data.progress.is_overdue ? (
+                              <p className="text-sm font-semibold text-red-600 flex items-center gap-1.5">
+                                <span className="inline-block w-2 h-2 rounded-full bg-red-500" />
+                                {Math.abs(data.progress.days_remaining!)} {Math.abs(data.progress.days_remaining!) === 1 ? 'day' : 'days'} overdue
+                              </p>
+                            ) : (
+                              <p className="text-sm font-semibold text-zinc-700 flex items-center gap-1.5">
+                                <span className="inline-block w-2 h-2 rounded-full bg-zinc-400" />
+                                {data.progress.days_remaining} {data.progress.days_remaining === 1 ? 'day' : 'days'} remaining
+                              </p>
+                            )}
                           </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-semibold text-zinc-900 truncate">{file.name}</p>
-                            <p className="text-xs text-zinc-400 mb-3">{formatFileSize(file.file_size)}</p>
-                            <div className="flex items-center gap-2">
-                              {isHtml ? (
-                                <Link
-                                  href={`/portal/${token}/page/${file.id}`}
-                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-zinc-100 text-zinc-700 hover:bg-zinc-200 transition-colors"
-                                >
-                                  <ExternalLink size={12} />
-                                  View
-                                </Link>
-                              ) : (
-                                <>
-                                  <button
-                                    onClick={() => window.open(file.file_url, '_blank', 'noopener,noreferrer')}
-                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-zinc-100 text-zinc-700 hover:bg-zinc-200 transition-colors"
-                                  >
-                                    <Eye size={12} />
-                                    Preview
-                                  </button>
-                                  <button
-                                    onClick={async () => {
-                                      try {
-                                        const res = await fetch(file.file_url);
-                                        const blob = await res.blob();
-                                        const url = URL.createObjectURL(blob);
-                                        const a = document.createElement('a');
-                                        a.href = url;
-                                        a.download = file.name;
-                                        document.body.appendChild(a);
-                                        a.click();
-                                        a.remove();
-                                        URL.revokeObjectURL(url);
-                                      } catch {
-                                        // silent fail
-                                      }
-                                    }}
-                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-zinc-100 text-zinc-700 hover:bg-zinc-200 transition-colors"
-                                  >
-                                    <Download size={12} />
-                                    Download
-                                  </button>
-                                </>
-                              )}
+                        </div>
+                        <div className="w-full h-1.5 bg-zinc-100 rounded-full overflow-hidden">
+                          <div
+                            className="h-full rounded-full"
+                            style={{
+                              width: `${data.progress.percent}%`,
+                              backgroundColor: data.progress.is_overdue ? '#EF4444' : accentColor,
+                              transformOrigin: 'left',
+                              animation: 'portalBarFill 1.2s cubic-bezier(0.16,1,0.3,1) 0.3s both',
+                            }}
+                          />
+                        </div>
+                        {data.project.start_date && data.project.due_date && (
+                          <div className="flex justify-between mt-2">
+                            <span className="text-xs text-zinc-400">
+                              {new Date(data.project.start_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                            </span>
+                            <span className="text-xs text-zinc-400">
+                              {new Date(data.project.due_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </section>
+                  ) : null;
+
+                case 'show_updates':
+                  if (!data.settings.show_updates || updates.length === 0) return null;
+                  const sorted = [...updates].sort((a, b) => {
+                    if (a.pinned && !b.pinned) return -1;
+                    if (!a.pinned && b.pinned) return 1;
+                    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+                  });
+                  return <UpdatesTimeline key={sectionKey} updates={sorted} accentColor={accentColor} />;
+
+                case 'show_hours':
+                  return data.settings.show_hours && data.hours.entries.length > 0 ? (
+                    <section key={sectionKey}>
+                      <SectionHeader
+                        icon={Timer}
+                        title="Hours Logged"
+                        accentColor={accentColor}
+                        right={
+                          <span className="text-lg font-bold text-zinc-900 tabular-nums">
+                            {data.hours.total_hours.toFixed(1)}h
+                          </span>
+                        }
+                      />
+                      <div className="bg-white rounded-xl border border-zinc-200 p-5 sm:p-6">
+                        {memberHours.length > 0 && (
+                          <div className="mb-4">
+                            <div className="flex h-2 rounded-full overflow-hidden bg-zinc-100">
+                              {memberHours.map((m) => (
+                                <div
+                                  key={m.name}
+                                  className="h-full first:rounded-l-full last:rounded-r-full"
+                                  style={{
+                                    width: `${(m.hours / data.hours.total_hours) * 100}%`,
+                                    backgroundColor: m.color,
+                                  }}
+                                />
+                              ))}
+                            </div>
+                            <div className="flex flex-wrap gap-3 mt-2.5">
+                              {memberHours.map((m) => (
+                                <div key={m.name} className="flex items-center gap-1.5 text-xs text-zinc-500">
+                                  <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: m.color }} />
+                                  <span>{m.name}</span>
+                                  <span className="text-zinc-400">{m.hours.toFixed(1)}h</span>
+                                </div>
+                              ))}
                             </div>
                           </div>
+                        )}
+                        <div className="space-y-0 max-h-[280px] overflow-y-auto">
+                          {data.hours.entries.map(entry => (
+                            <div
+                              key={entry.id}
+                              className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-zinc-50 transition-all duration-150"
+                            >
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium text-zinc-900 truncate">
+                                  {entry.description || 'Work logged'}
+                                </p>
+                                <p className="text-xs text-zinc-400">
+                                  {entry.member_name} &middot; {new Date(entry.start_time).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} &middot; {new Date(entry.start_time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} – {new Date(entry.end_time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                                </p>
+                              </div>
+                              <span className="text-sm font-semibold text-zinc-600 flex-shrink-0 tabular-nums">
+                                {entry.hours.toFixed(1)}h
+                              </span>
+                            </div>
+                          ))}
                         </div>
                       </div>
-                    );
-                  })}
-                </div>
-              </section>
-            )}
+                    </section>
+                  ) : null;
 
-            {/* ── Invoices ──────────────────────────── */}
-            {data.settings.show_invoices && data.invoices.length > 0 && (
-              <section>
-                <div className="flex items-center gap-2 mb-4">
-                  <Receipt size={20} style={{ color: accentColor }} />
-                  <h2 className="text-lg font-semibold text-zinc-900">Invoices</h2>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {data.invoices.map((invoice) => {
-                    const statusStyle: Record<string, string> = {
-                      sent: 'bg-blue-50 text-blue-700',
-                      paid: 'bg-emerald-50 text-emerald-700',
-                      overdue: 'bg-red-50 text-red-700',
-                      cancelled: 'bg-zinc-100 text-zinc-400',
-                    };
-                    return (
-                      <div key={invoice.id} className="bg-white rounded-xl border border-zinc-200 p-4">
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="flex items-center gap-2">
-                            <span className={`inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-full ${statusStyle[invoice.status] || 'bg-zinc-100 text-zinc-600'}`}>
-                              {invoice.status.charAt(0).toUpperCase() + invoice.status.slice(1)}
-                            </span>
-                            <span className="text-sm font-semibold text-zinc-900">{invoice.invoice_number}</span>
-                          </div>
-                          <span className="text-sm font-bold text-zinc-900">
-                            ${invoice.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-3 text-xs text-zinc-500">
-                          <span>{new Date(invoice.date + 'T00:00:00').toLocaleDateString()}</span>
-                          {invoice.due_date && <span>Due: {new Date(invoice.due_date + 'T00:00:00').toLocaleDateString()}</span>}
-                          {invoice.paid_date && <span className="text-emerald-600">Paid: {new Date(invoice.paid_date + 'T00:00:00').toLocaleDateString()}</span>}
-                        </div>
-                        {invoice.description && (
-                          <p className="mt-2 text-sm text-zinc-600 line-clamp-2">{invoice.description}</p>
-                        )}
-                        {invoice.file_url && (
-                          <a
-                            href={invoice.file_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1.5 mt-3 text-xs font-medium rounded-lg px-3 py-1.5 transition-colors"
-                            style={{ color: accentColor, backgroundColor: accentColor + '10' }}
+                case 'show_files':
+                  return data.settings.show_files ? (
+                    <section key={sectionKey}>
+                      <SectionHeader
+                        icon={FolderOpen}
+                        title="Shared Files"
+                        accentColor={accentColor}
+                        right={
+                          <label
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white rounded-lg transition-colors hover:brightness-[0.92] cursor-pointer"
+                            style={{ backgroundColor: accentColor, opacity: fileUploading ? 0.6 : 1 }}
                           >
-                            <FileDown size={13} />
-                            {invoice.file_name || 'Download'}
-                          </a>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </section>
-            )}
+                            {fileUploading ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />}
+                            {fileUploading ? 'Uploading...' : 'Upload'}
+                            <input
+                              type="file"
+                              className="hidden"
+                              disabled={fileUploading}
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) handleFileUpload(file);
+                                e.target.value = '';
+                              }}
+                            />
+                          </label>
+                        }
+                      />
 
-            {/* ── Submit Credentials ──────────────── */}
-            {data.settings.show_credentials && (() => {
-              return <PortalCredentialForm token={token} pin={sessionStorage.getItem(`portal-pin-${token}`) || undefined} accentColor={accentColor} credentialsSubmitted={data.credentials_submitted} />;
-            })()}
+                      {localFiles.length > 0 ? (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          {localFiles.map(file => {
+                            const FileIcon = getFileIcon(file.mime_type);
+                            const iconColor = getFileIconColor(file.mime_type);
+                            const iconBg = getFileIconBg(file.mime_type);
+                            const isHtml = file.mime_type === 'text/html';
+                            return (
+                              <div key={file.id} className="bg-white rounded-xl border border-zinc-200 p-4">
+                                <div className="flex items-start gap-3">
+                                  <div
+                                    className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0"
+                                    style={{ backgroundColor: iconBg }}
+                                  >
+                                    <FileIcon size={16} style={{ color: iconColor }} />
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-sm font-semibold text-zinc-900 truncate">{file.name}</p>
+                                    <p className="text-xs text-zinc-400 mb-3">{formatFileSize(file.file_size)}</p>
+                                    <div className="flex items-center gap-2">
+                                      {isHtml ? (
+                                        <Link
+                                          href={`/portal/${token}/page/${file.id}`}
+                                          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-zinc-100 text-zinc-700 hover:bg-zinc-200 transition-colors"
+                                        >
+                                          <ExternalLink size={12} />
+                                          View
+                                        </Link>
+                                      ) : (
+                                        <>
+                                          <button
+                                            onClick={() => window.open(file.file_url, '_blank', 'noopener,noreferrer')}
+                                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-zinc-100 text-zinc-700 hover:bg-zinc-200 transition-colors"
+                                          >
+                                            <Eye size={12} />
+                                            Preview
+                                          </button>
+                                          <button
+                                            onClick={async () => {
+                                              try {
+                                                const res = await fetch(file.file_url);
+                                                const blob = await res.blob();
+                                                const url = URL.createObjectURL(blob);
+                                                const a = document.createElement('a');
+                                                a.href = url;
+                                                a.download = file.name;
+                                                document.body.appendChild(a);
+                                                a.click();
+                                                a.remove();
+                                                URL.revokeObjectURL(url);
+                                              } catch {
+                                                // silent fail
+                                              }
+                                            }}
+                                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-zinc-100 text-zinc-700 hover:bg-zinc-200 transition-colors"
+                                          >
+                                            <Download size={12} />
+                                            Download
+                                          </button>
+                                        </>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div className="bg-white rounded-xl border border-zinc-200 p-6 text-center">
+                          <FolderOpen size={24} className="mx-auto mb-2 text-zinc-300" />
+                          <p className="text-sm text-zinc-500">No shared files yet. Use the upload button to share files.</p>
+                        </div>
+                      )}
+                    </section>
+                  ) : null;
+
+                case 'show_invoices':
+                  return data.settings.show_invoices && data.invoices.length > 0 ? (
+                    <section key={sectionKey}>
+                      <SectionHeader icon={Receipt} title="Invoices" accentColor={accentColor} />
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        {data.invoices.map((invoice) => {
+                          const statusStyle: Record<string, string> = {
+                            sent: 'bg-blue-50 text-blue-700',
+                            paid: 'bg-emerald-50 text-emerald-700',
+                            overdue: 'bg-red-50 text-red-700',
+                            cancelled: 'bg-zinc-100 text-zinc-400',
+                          };
+                          return (
+                            <div key={invoice.id} className="bg-white rounded-xl border border-zinc-200 p-4">
+                              <div className="flex items-center justify-between mb-2">
+                                <div className="flex items-center gap-2">
+                                  <span className={`inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-full ${statusStyle[invoice.status] || 'bg-zinc-100 text-zinc-600'}`}>
+                                    {invoice.status.charAt(0).toUpperCase() + invoice.status.slice(1)}
+                                  </span>
+                                  <span className="text-sm font-semibold text-zinc-900">{invoice.invoice_number}</span>
+                                </div>
+                                <span className="text-sm font-bold text-zinc-900">
+                                  ${invoice.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-3 text-xs text-zinc-500">
+                                <span>{new Date(invoice.date + 'T00:00:00').toLocaleDateString()}</span>
+                                {invoice.due_date && <span>Due: {new Date(invoice.due_date + 'T00:00:00').toLocaleDateString()}</span>}
+                                {invoice.paid_date && <span className="text-emerald-600">Paid: {new Date(invoice.paid_date + 'T00:00:00').toLocaleDateString()}</span>}
+                              </div>
+                              {invoice.description && (
+                                <p className="mt-2 text-sm text-zinc-600 line-clamp-2">{invoice.description}</p>
+                              )}
+                              {invoice.file_url && (
+                                <a
+                                  href={invoice.file_url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1.5 mt-3 text-xs font-medium rounded-lg px-3 py-1.5 transition-colors"
+                                  style={{ color: accentColor, backgroundColor: accentColor + '10' }}
+                                >
+                                  <FileDown size={13} />
+                                  {invoice.file_name || 'Download'}
+                                </a>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </section>
+                  ) : null;
+
+                case 'show_credentials':
+                  return data.settings.show_credentials ? (
+                    <PortalCredentialForm key={sectionKey} token={token} pin={typeof window !== 'undefined' ? sessionStorage.getItem(`portal-pin-${token}`) || undefined : undefined} accentColor={accentColor} credentialsSubmitted={data.credentials_submitted} />
+                  ) : null;
+
+                default:
+                  return null;
+              }
+            })}
           </div>
         ) : (
           /* Empty state */

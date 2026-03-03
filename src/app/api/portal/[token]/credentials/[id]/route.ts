@@ -18,7 +18,8 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ token: string; id: string }> },
 ) {
-  const { token, id } = await params;
+  const { token: rawToken, id } = await params;
+  const token = rawToken.toLowerCase();
 
   if (!isEncryptionConfigured()) {
     return NextResponse.json({ error: 'Encryption not configured' }, { status: 503 });
@@ -37,7 +38,7 @@ export async function GET(
   }
 
   if (settings.pin) {
-    const pin = request.nextUrl.searchParams.get('pin');
+    const pin = request.headers.get('x-portal-pin');
     if (!pin || pin !== settings.pin) {
       return NextResponse.json({ error: 'Invalid PIN' }, { status: 401 });
     }
@@ -67,7 +68,8 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ token: string; id: string }> },
 ) {
-  const { token, id } = await params;
+  const { token: rawToken, id } = await params;
+  const token = rawToken.toLowerCase();
 
   if (!isEncryptionConfigured()) {
     return NextResponse.json({ error: 'Encryption not configured' }, { status: 503 });
@@ -90,9 +92,9 @@ export async function PATCH(
     return NextResponse.json({ error: 'Credential submission is not enabled' }, { status: 403 });
   }
 
-  // Check PIN
+  // Check PIN (prefer header, fall back to query param)
   if (settings.pin) {
-    const pin = request.nextUrl.searchParams.get('pin');
+    const pin = request.headers.get('x-portal-pin');
     if (!pin || pin !== settings.pin) {
       return NextResponse.json({ error: 'Invalid PIN' }, { status: 401 });
     }

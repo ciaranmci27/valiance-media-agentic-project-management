@@ -2,16 +2,19 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import {
-  Globe, Link2, RefreshCw, Copy, Check, Eye, EyeOff,
-  Upload, Download, Trash2, FileText, Image, Archive, File, ExternalLink,
-  Camera, Loader2, X, Pencil,
+  Globe, Link2, Copy, Check, Eye, EyeOff, Lock, Pencil,
+  Trash2, ExternalLink,
+  Camera, Loader2, X, GripVertical,
 } from 'lucide-react';
+import { motion } from 'framer-motion';
 import { useApp } from '@/lib/store';
-import { useAuth } from '@/lib/auth-context';
+import { DEFAULT_SECTION_ORDER, PORTAL_SECTION_LABELS, type PortalSectionKey } from '@/lib/types';
 import { useDemo } from '@/lib/demo-context';
 import { toast } from '@/components/ui/Toast';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { Tooltip } from '@/components/ui/Tooltip';
 import { AvatarCropModal } from '@/components/ui/AvatarCropModal';
+import { PinInput, type PinInputRef } from '@/components/ui/PinInput';
 import { createClient } from '@/lib/supabase/client';
 import { siteConfig } from '@/site-config';
 
@@ -19,62 +22,88 @@ interface PortalSettingsPanelProps {
   projectId: string;
 }
 
-function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function getFileIcon(mimeType: string) {
-  if (mimeType === 'text/html') return Globe;
-  if (mimeType.startsWith('image/')) return Image;
-  if (mimeType === 'application/pdf') return FileText;
-  if (mimeType.includes('zip') || mimeType.includes('archive')) return Archive;
-  return File;
-}
-
 export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
   const {
-    getPortalSettings, getPortalFiles,
-    upsertPortalSettings, regeneratePortalToken,
-    addPortalFile, renamePortalFile, deletePortalFile,
+    getPortalSettings,
+    upsertPortalSettings,
+    updatePortalSlug,
     getProject,
   } = useApp();
-  const { teamMemberId } = useAuth();
   const { isDemoMode } = useDemo();
 
   const settings = getPortalSettings(projectId);
-  const files = getPortalFiles(projectId);
   const project = getProject(projectId);
 
   const [copied, setCopied] = useState(false);
-  const [copiedFileId, setCopiedFileId] = useState<string | null>(null);
-  const [showPin, setShowPin] = useState(false);
-  const [uploading, setUploading] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [logoCropFile, setLogoCropFile] = useState<File | null>(null);
-  const [editingFileId, setEditingFileId] = useState<string | null>(null);
-  const [editingFileName, setEditingFileName] = useState('');
-  const [deleteFileTarget, setDeleteFileTarget] = useState<string | null>(null);
-  const [showRegenerateConfirm, setShowRegenerateConfirm] = useState(false);
   const [pinConfirmed, setPinConfirmed] = useState(false);
   const [showPinConfirm, setShowPinConfirm] = useState(false);
-  const pinInputRef = useRef<HTMLInputElement>(null);
-  const renameCancelledRef = useRef(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [showDeletePinConfirm, setShowDeletePinConfirm] = useState(false);
+  const pinInputRef = useRef<PinInputRef>(null);
   const logoInputRef = useRef<HTMLInputElement>(null);
 
   // Local state for text inputs to avoid writing to store on every keystroke
+  const [localSlug, setLocalSlug] = useState(settings?.token || '');
+  const [editingSlug, setEditingSlug] = useState(false);
+  const slugInputRef = useRef<HTMLInputElement>(null);
   const [localPin, setLocalPin] = useState(settings?.pin || '');
   const [localAccentColor, setLocalAccentColor] = useState(settings?.accent_color || siteConfig.colors.brand[500]);
   const [localWelcomeMessage, setLocalWelcomeMessage] = useState(settings?.welcome_message || '');
+  const [sectionOrder, setSectionOrder] = useState<PortalSectionKey[]>(settings?.section_order ?? [...DEFAULT_SECTION_ORDER]);
+  const [draggedKey, setDraggedKey] = useState<PortalSectionKey | null>(null);
+  const dragKeyRef = useRef<PortalSectionKey | null>(null);
+  const lastTargetRef = useRef<PortalSectionKey | null>(null);
+  const sectionOrderRef = useRef(sectionOrder);
+  sectionOrderRef.current = sectionOrder;
 
   // Sync local state when settings change externally
   useEffect(() => {
+    setLocalSlug(settings?.token || '');
     setLocalPin(settings?.pin || '');
     setLocalAccentColor(settings?.accent_color || siteConfig.colors.brand[500]);
     setLocalWelcomeMessage(settings?.welcome_message || '');
-  }, [settings?.pin, settings?.accent_color, settings?.welcome_message]);
+    setSectionOrder(settings?.section_order ?? [...DEFAULT_SECTION_ORDER]);
+  }, [settings?.token, settings?.pin, settings?.accent_color, settings?.welcome_message, settings?.section_order]);
+
+  // Pointer-event based drag for section reordering
+  const handleSectionDragStart = useCallback((key: PortalSectionKey, e: React.PointerEvent) => {
+    e.preventDefault();
+    dragKeyRef.current = key;
+    lastTargetRef.current = null;
+    setDraggedKey(key);
+
+    const handleMove = (moveEvent: PointerEvent) => {
+      const el = document.elementFromPoint(moveEvent.clientX, moveEvent.clientY);
+      const target = el?.closest('[data-section-key]');
+      const targetKey = target?.getAttribute('data-section-key') as PortalSectionKey | null;
+      if (!targetKey || targetKey === dragKeyRef.current || targetKey === lastTargetRef.current) return;
+      lastTargetRef.current = targetKey;
+
+      setSectionOrder(prev => {
+        const dragged = dragKeyRef.current!;
+        const fromIdx = prev.indexOf(dragged);
+        const toIdx = prev.indexOf(targetKey);
+        if (fromIdx === -1 || toIdx === -1 || fromIdx === toIdx) return prev;
+        const next = [...prev];
+        next.splice(fromIdx, 1);
+        next.splice(toIdx, 0, dragged);
+        return next;
+      });
+    };
+
+    const handleUp = () => {
+      document.removeEventListener('pointermove', handleMove);
+      document.removeEventListener('pointerup', handleUp);
+      setDraggedKey(null);
+      dragKeyRef.current = null;
+      lastTargetRef.current = null;
+      upsertPortalSettings(projectId, { section_order: sectionOrderRef.current });
+    };
+
+    document.addEventListener('pointermove', handleMove);
+    document.addEventListener('pointerup', handleUp);
+  }, [projectId, upsertPortalSettings]);
 
   // Debounced save helper
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -86,9 +115,25 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
   }, [projectId, upsertPortalSettings]);
 
   const isEnabled = settings?.enabled ?? false;
+  const origin = typeof window !== 'undefined' ? window.location.origin : '';
   const portalUrl = settings?.token
-    ? `${typeof window !== 'undefined' ? window.location.origin : ''}/portal/${settings.token}`
+    ? `${origin}/portal/${settings.token}`
     : '';
+
+  const handleSlugSave = () => {
+    const trimmed = localSlug
+      .toLowerCase()
+      .replace(/[^a-z0-9-]/g, '')
+      .replace(/-{2,}/g, '-')
+      .replace(/^-|-$/g, '');
+    if (!trimmed || trimmed === settings?.token) {
+      setLocalSlug(settings?.token || '');
+      setEditingSlug(false);
+      return;
+    }
+    updatePortalSlug(projectId, trimmed);
+    setEditingSlug(false);
+  };
 
   const handleToggleEnabled = () => {
     const turning_on = !isEnabled;
@@ -108,13 +153,6 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
     setCopied(true);
     toast('success', 'Portal link copied!');
     setTimeout(() => setCopied(false), 2000);
-  };
-
-  const handleRegenerateToken = () => {
-    if (!settings) return;
-    regeneratePortalToken(projectId);
-    toast('success', 'Portal link regenerated');
-    setShowRegenerateConfirm(false);
   };
 
   const handleSettingChange = (key: string, value: any) => {
@@ -166,76 +204,6 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
     toast('success', 'Logo removed');
   };
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const fileList = e.target.files;
-    if (!fileList || fileList.length === 0) return;
-
-    const file = fileList[0];
-    if (file.size > 50 * 1024 * 1024) {
-      toast('error', 'File must be under 50MB');
-      return;
-    }
-
-    setUploading(true);
-
-    if (isDemoMode) {
-      // Demo mode: create a fake file entry
-      addPortalFile({
-        project_id: projectId,
-        name: file.name,
-        file_url: '#',
-        file_size: file.size,
-        mime_type: file.type || 'application/octet-stream',
-        uploaded_by: teamMemberId,
-      });
-      setUploading(false);
-      toast('success', 'File added');
-      if (fileInputRef.current) fileInputRef.current.value = '';
-      return;
-    }
-
-    try {
-      const supabase = createClient();
-      const fileName = `${projectId}/${Date.now()}-${file.name}`;
-      const { error: uploadError } = await supabase.storage
-        .from('portal-files')
-        .upload(fileName, file);
-
-      if (uploadError) throw uploadError;
-
-      const { data: urlData } = supabase.storage
-        .from('portal-files')
-        .getPublicUrl(fileName);
-
-      addPortalFile({
-        project_id: projectId,
-        name: file.name,
-        file_url: urlData.publicUrl,
-        file_size: file.size,
-        mime_type: file.type || 'application/octet-stream',
-        uploaded_by: teamMemberId,
-      });
-
-      toast('success', 'File uploaded');
-    } catch (err) {
-      toast('error', 'Failed to upload file');
-    } finally {
-      setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    }
-  };
-
-  const handleDeleteFile = (fileId: string) => {
-    setDeleteFileTarget(fileId);
-  };
-
-  const executeDeleteFile = () => {
-    if (deleteFileTarget) {
-      deletePortalFile(deleteFileTarget);
-      toast('success', 'File removed');
-    }
-  };
-
   return (
     <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden flex flex-col max-h-[600px]">
       {/* Header with toggle */}
@@ -271,7 +239,7 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
           <div className="flex flex-col sm:flex-row items-start gap-4">
             {/* Logo */}
             <div className="relative group flex-shrink-0">
-              <div className="w-20 h-20 rounded-xl overflow-hidden border border-zinc-200 bg-zinc-50 flex items-center justify-center">
+              <div className="w-[88px] h-[88px] rounded-xl overflow-hidden border border-zinc-200 bg-zinc-50 flex items-center justify-center">
                 {settings.logo_url ? (
                   <img src={settings.logo_url} alt="Logo" className="w-full h-full object-cover" />
                 ) : (
@@ -325,85 +293,135 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
             <div className="flex-1 min-w-0 w-full space-y-3">
               {/* Portal Link */}
               <div className="flex items-center gap-2">
-                <div className="flex-1 flex items-center gap-2 px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-lg text-sm text-zinc-600 min-w-0">
-                  <Link2 size={14} className="text-zinc-400 flex-shrink-0" />
-                  <span className="truncate">{portalUrl}</span>
-                </div>
-                <button
-                  onClick={handleCopyLink}
-                  className="p-2 text-zinc-500 hover:text-brand-600 hover:bg-brand-50 rounded-lg transition-colors"
-                  title="Copy link"
-                >
-                  {copied ? <Check size={16} className="text-green-600" /> : <Copy size={16} />}
-                </button>
-                <button
-                  onClick={() => portalUrl && window.open(portalUrl, '_blank', 'noopener,noreferrer')}
-                  className="p-2 text-zinc-500 hover:text-brand-600 hover:bg-brand-50 rounded-lg transition-colors"
-                  title="View portal"
-                >
-                  <Eye size={16} />
-                </button>
-                <button
-                  onClick={() => setShowRegenerateConfirm(true)}
-                  className="p-2 text-zinc-500 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
-                  title="Regenerate link"
-                >
-                  <RefreshCw size={16} />
-                </button>
-              </div>
-
-              {/* PIN + Accent Color */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="relative">
-                  <input
-                    ref={pinInputRef}
-                    type="text"
-                    value={localPin}
-                    onFocus={e => {
-                      if (!pinConfirmed) {
-                        e.target.blur();
-                        setShowPinConfirm(true);
+                {editingSlug ? (
+                  <div className="flex-1 flex items-center gap-2 px-3 py-2 bg-white border border-brand-300 ring-2 ring-brand-100 rounded-lg text-sm min-w-0">
+                    <Link2 size={14} className="text-zinc-400 flex-shrink-0" />
+                    <div className="flex-1 flex items-center min-w-0">
+                      <span className="text-zinc-400 flex-shrink-0">{origin}/portal/</span>
+                      <input
+                        ref={slugInputRef}
+                        type="text"
+                        value={localSlug}
+                        onChange={e => setLocalSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') handleSlugSave();
+                          if (e.key === 'Escape') { setLocalSlug(settings?.token || ''); setEditingSlug(false); }
+                        }}
+                        className="flex-1 min-w-0 bg-transparent text-zinc-800 outline-none placeholder:text-zinc-300"
+                        placeholder="project-slug"
+                        autoFocus
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex-1 flex items-center gap-2 px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-lg text-sm text-zinc-600 min-w-0">
+                    <Link2 size={14} className="text-zinc-400 flex-shrink-0" />
+                    <span className="truncate">{portalUrl}</span>
+                  </div>
+                )}
+                <Tooltip content={editingSlug ? 'Save slug' : 'Edit slug'}>
+                  <button
+                    onClick={() => {
+                      if (editingSlug) {
+                        handleSlugSave();
+                      } else {
+                        setLocalSlug(settings?.token || '');
+                        setEditingSlug(true);
                       }
                     }}
-                    onChange={e => {
-                      setLocalPin(e.target.value);
-                      debouncedSettingChange('pin', e.target.value || null);
-                    }}
-                    placeholder="PIN (open access)"
-                    autoComplete="off"
-                    data-1p-ignore
-                    data-lpignore="true"
-                    style={showPin ? undefined : { WebkitTextSecurity: 'disc' } as React.CSSProperties}
-                    className="w-full px-3 py-2 pr-9 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 transition-all placeholder:text-zinc-400"
-                  />
+                    className={`p-2 rounded-lg transition-colors ${editingSlug ? 'text-brand-600 hover:bg-brand-50' : 'text-zinc-500 hover:text-brand-600 hover:bg-brand-50'}`}
+                  >
+                    {editingSlug ? <Check size={16} /> : <Pencil size={16} />}
+                  </button>
+                </Tooltip>
+                <Tooltip content="Copy link">
+                  <button
+                    onClick={handleCopyLink}
+                    className="p-2 text-zinc-500 hover:text-brand-600 hover:bg-brand-50 rounded-lg transition-colors"
+                  >
+                    {copied ? <Check size={16} className="text-green-600" /> : <Copy size={16} />}
+                  </button>
+                </Tooltip>
+                <Tooltip content="View portal">
+                  <button
+                    onClick={() => portalUrl && window.open(portalUrl, '_blank', 'noopener,noreferrer')}
+                    className="p-2 text-zinc-500 hover:text-brand-600 hover:bg-brand-50 rounded-lg transition-colors"
+                  >
+                    <Eye size={16} />
+                  </button>
+                </Tooltip>
+              </div>
+
+              {/* Accent Color + PIN */}
+              <div className="flex items-center gap-3">
+                <input
+                  type="color"
+                  value={localAccentColor}
+                  onChange={e => {
+                    setLocalAccentColor(e.target.value);
+                    debouncedSettingChange('accent_color', e.target.value);
+                  }}
+                  className="w-[38px] h-[38px] rounded-lg border border-zinc-200 cursor-pointer p-0.5 flex-shrink-0"
+                />
+                <input
+                  type="text"
+                  value={localAccentColor}
+                  onChange={e => {
+                    setLocalAccentColor(e.target.value);
+                    debouncedSettingChange('accent_color', e.target.value);
+                  }}
+                  className="w-24 px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 transition-all"
+                />
+                <div className="h-5 w-px bg-zinc-200 flex-shrink-0" />
+                {pinConfirmed ? (
+                  <div className="flex items-center gap-2">
+                    <PinInput
+                      ref={pinInputRef}
+                      value={localPin}
+                      onChange={setLocalPin}
+                      onSubmit={(val) => {
+                        upsertPortalSettings(projectId, { pin: val });
+                        setPinConfirmed(false);
+                        toast('success', 'Portal PIN updated');
+                      }}
+                      size="sm"
+                      autoFocus
+                    />
+                    {localPin.length === 4 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          upsertPortalSettings(projectId, { pin: localPin });
+                          setPinConfirmed(false);
+                          toast('success', 'Portal PIN updated');
+                        }}
+                        className="px-2.5 py-1.5 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition-colors flex-shrink-0"
+                      >
+                        Save
+                      </button>
+                    )}
+                  </div>
+                ) : (
                   <button
                     type="button"
-                    onClick={() => setShowPin(!showPin)}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600"
+                    onClick={() => setShowPinConfirm(true)}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg hover:border-zinc-300 transition-colors flex-shrink-0"
                   >
-                    {showPin ? <EyeOff size={14} /> : <Eye size={14} />}
+                    <Lock size={13} className="text-zinc-400" />
+                    <span className={localPin ? 'text-zinc-700 font-medium tracking-wider' : 'text-zinc-400'}>{localPin ? '••••' : 'Set PIN'}</span>
                   </button>
-                </div>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="color"
-                    value={localAccentColor}
-                    onChange={e => {
-                      setLocalAccentColor(e.target.value);
-                      debouncedSettingChange('accent_color', e.target.value);
-                    }}
-                    className="w-[38px] h-[38px] rounded-lg border border-zinc-200 cursor-pointer p-0.5 flex-shrink-0"
-                  />
-                  <input
-                    type="text"
-                    value={localAccentColor}
-                    onChange={e => {
-                      setLocalAccentColor(e.target.value);
-                      debouncedSettingChange('accent_color', e.target.value);
-                    }}
-                    className="flex-1 px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 transition-all min-w-0"
-                  />
-                </div>
+                )}
+                {localPin && !pinConfirmed && (
+                  <Tooltip content="Remove PIN">
+                    <button
+                      type="button"
+                      onClick={() => setShowDeletePinConfirm(true)}
+                      className="p-1.5 text-zinc-300 hover:text-red-500 rounded-md transition-colors flex-shrink-0"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </Tooltip>
+                )}
               </div>
             </div>
           </div>
@@ -423,199 +441,44 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
             />
           </div>
 
-          {/* Visibility Toggles */}
+          {/* Visibility Toggles (drag to reorder) */}
           <div className="space-y-2">
             <label className="block text-xs font-medium text-zinc-500 uppercase tracking-wide">Visible Sections</label>
             <div className="flex flex-wrap gap-2">
-              {[
-                { key: 'show_progress', label: 'Progress' },
-                { key: 'show_proposals', label: 'Proposals' },
-                { key: 'show_files', label: 'Files' },
-                { key: 'show_hours', label: 'Hours' },
-                { key: 'show_updates', label: 'Updates' },
-                { key: 'show_credentials', label: 'Credentials' },
-                { key: 'show_invoices', label: 'Invoices' },
-              ].filter(item => item.key !== 'show_hours' || project?.hourly_tracking).map(({ key, label }) => {
-                const isActive = (settings as any)[key];
-                return (
-                  <button
-                    key={key}
-                    onClick={() => handleSettingChange(key, !isActive)}
-                    className={`px-3 py-1.5 text-sm rounded-lg border transition-colors ${
-                      isActive
-                        ? 'bg-brand-50 border-brand-200 text-brand-700'
-                        : 'bg-zinc-50 border-zinc-200 text-zinc-400'
-                    }`}
-                  >
-                    {isActive ? <Eye size={13} className="inline mr-1.5" /> : <EyeOff size={13} className="inline mr-1.5" />}
-                    {label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Files Section */}
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <label className="block text-xs font-medium text-zinc-500 uppercase tracking-wide">
-                Shared Portal Files ({files.length})
-              </label>
-              <label className="cursor-pointer">
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  className="hidden"
-                  onChange={handleFileUpload}
-                  disabled={uploading}
-                />
-                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-brand-600 bg-brand-50 hover:bg-brand-100 rounded-lg transition-colors cursor-pointer">
-                  <Upload size={14} />
-                  {uploading ? 'Uploading...' : 'Upload'}
-                </span>
-              </label>
-            </div>
-
-            {files.length > 0 ? (
-              <div className="space-y-1.5">
-                {files.map(file => {
-                  const FileIcon = getFileIcon(file.mime_type);
-                  const isHtml = file.mime_type === 'text/html';
-                  const isEditing = editingFileId === file.id;
+              {sectionOrder
+                .filter(key => key !== 'show_hours' || project?.hourly_tracking)
+                .map((key) => {
+                  const isActive = (settings as any)[key];
+                  const isDragging = draggedKey === key;
                   return (
-                    <div
-                      key={file.id}
-                      className="flex items-center gap-3 px-3 py-2.5 bg-zinc-50 rounded-lg group"
+                    <motion.div
+                      key={key}
+                      layout
+                      data-section-key={key}
+                      transition={{ type: 'spring', stiffness: 500, damping: 35, mass: 0.8 }}
+                      className={`flex items-center rounded-lg border ${
+                        isActive
+                          ? 'bg-brand-50 border-brand-200 text-brand-700'
+                          : 'bg-zinc-50 border-zinc-200 text-zinc-400'
+                      } ${isDragging ? 'shadow-md ring-2 ring-brand-200 z-10 opacity-70' : ''}`}
                     >
-                      <FileIcon size={16} className="text-zinc-400 flex-shrink-0" />
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5">
-                          {isEditing ? (
-                            <input
-                              autoFocus
-                              type="text"
-                              value={editingFileName}
-                              onChange={e => setEditingFileName(e.target.value)}
-                              onKeyDown={e => {
-                                if (e.key === 'Enter') {
-                                  (e.target as HTMLInputElement).blur();
-                                } else if (e.key === 'Escape') {
-                                  renameCancelledRef.current = true;
-                                  setEditingFileId(null);
-                                }
-                              }}
-                              onBlur={() => {
-                                if (renameCancelledRef.current) {
-                                  renameCancelledRef.current = false;
-                                  return;
-                                }
-                                const trimmed = editingFileName.trim();
-                                if (trimmed && trimmed !== file.name) {
-                                  renamePortalFile(file.id, trimmed);
-                                  toast('success', 'File renamed');
-                                }
-                                setEditingFileId(null);
-                              }}
-                              className="text-sm text-zinc-700 bg-white border border-brand-300 rounded px-1.5 py-0.5 outline-none focus:ring-2 focus:ring-brand-100 min-w-0 w-full"
-                            />
-                          ) : (
-                            <p
-                              className="text-sm text-zinc-700 truncate cursor-pointer hover:text-zinc-900"
-                              onClick={() => { setEditingFileId(file.id); setEditingFileName(file.name); }}
-                              title="Click to rename"
-                            >
-                              {file.name}
-                            </p>
-                          )}
-                          {!isEditing && isHtml && (
-                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium bg-brand-50 text-brand-600 rounded flex-shrink-0">
-                              Web Page
-                            </span>
-                          )}
-                          {!isEditing && isHtml && settings?.token && (
-                            <button
-                              onClick={() => {
-                                const url = `${window.location.origin}/portal/${settings.token}/page/${file.id}`;
-                                navigator.clipboard.writeText(url);
-                                setCopiedFileId(file.id);
-                                toast('success', 'Page link copied!');
-                                setTimeout(() => setCopiedFileId(null), 2000);
-                              }}
-                              className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium bg-zinc-100 text-zinc-500 hover:bg-brand-50 hover:text-brand-600 rounded transition-colors flex-shrink-0"
-                              title="Copy page link"
-                            >
-                              {copiedFileId === file.id ? <Check size={10} /> : <Copy size={10} />}
-                              {copiedFileId === file.id ? 'Copied' : 'Copy Link'}
-                            </button>
-                          )}
-                        </div>
-                        <p className="text-xs text-zinc-400">{formatFileSize(file.file_size)}</p>
-                      </div>
-                      {!isEditing && (
-                        <>
-                          <button
-                            onClick={() => window.open(file.file_url, '_blank', 'noopener,noreferrer')}
-                            className="p-1.5 text-zinc-300 hover:text-brand-500 opacity-0 group-hover:opacity-100 transition-all"
-                            title="Preview file"
-                          >
-                            <Eye size={14} />
-                          </button>
-                          <button
-                            onClick={async () => {
-                              try {
-                                const res = await fetch(file.file_url);
-                                const blob = await res.blob();
-                                const url = URL.createObjectURL(blob);
-                                const a = document.createElement('a');
-                                a.href = url;
-                                a.download = file.name;
-                                document.body.appendChild(a);
-                                a.click();
-                                a.remove();
-                                URL.revokeObjectURL(url);
-                              } catch {
-                                toast('error', 'Failed to download file');
-                              }
-                            }}
-                            className="p-1.5 text-zinc-300 hover:text-brand-500 opacity-0 group-hover:opacity-100 transition-all"
-                            title="Download file"
-                          >
-                            <Download size={14} />
-                          </button>
-                          <button
-                            onClick={() => { setEditingFileId(file.id); setEditingFileName(file.name); }}
-                            className="p-1.5 text-zinc-300 hover:text-brand-500 opacity-0 group-hover:opacity-100 transition-all"
-                            title="Rename file"
-                          >
-                            <Pencil size={14} />
-                          </button>
-                        </>
-                      )}
-                      {isHtml && settings?.token && (
-                        <a
-                          href={`/portal/${settings.token}/page/${file.id}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="p-1.5 text-zinc-300 hover:text-brand-500 opacity-0 group-hover:opacity-100 transition-all"
-                          title="View as web page"
-                        >
-                          <ExternalLink size={14} />
-                        </a>
-                      )}
-                      <button
-                        onClick={() => handleDeleteFile(file.id)}
-                        className="p-1.5 text-zinc-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"
-                        title="Remove file"
+                      <span
+                        onPointerDown={(e) => handleSectionDragStart(key, e)}
+                        className="pl-2 pr-0.5 py-1.5 cursor-grab active:cursor-grabbing touch-none select-none"
                       >
-                        <Trash2 size={14} />
+                        <GripVertical size={12} className={isActive ? 'text-brand-300' : 'text-zinc-300'} />
+                      </span>
+                      <button
+                        onClick={() => handleSettingChange(key, !isActive)}
+                        className="pr-3 pl-0.5 py-1.5 text-sm flex items-center gap-1.5"
+                      >
+                        {isActive ? <Eye size={13} /> : <EyeOff size={13} />}
+                        {PORTAL_SECTION_LABELS[key]}
                       </button>
-                    </div>
+                    </motion.div>
                   );
                 })}
-              </div>
-            ) : (
-              <p className="text-sm text-zinc-400 text-center py-4">No files shared yet</p>
-            )}
+            </div>
           </div>
         </div>
       )}
@@ -625,27 +488,6 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
         onCancel={() => setLogoCropFile(null)}
       />
       <ConfirmDialog
-        isOpen={!!deleteFileTarget}
-        onClose={() => setDeleteFileTarget(null)}
-        onConfirm={executeDeleteFile}
-        title="Delete File"
-        message="Are you sure you want to remove this file from the portal?"
-        confirmLabel="Delete"
-        variant="danger"
-      />
-      <ConfirmDialog
-        isOpen={showRegenerateConfirm}
-        onClose={() => setShowRegenerateConfirm(false)}
-        onConfirm={handleRegenerateToken}
-        title="Regenerate Portal Link"
-        message="This will create a new portal URL. Anyone with the current link will no longer be able to access the portal."
-        confirmLabel="Regenerate"
-        variant="danger"
-        doubleConfirmTitle="Are you sure?"
-        doubleConfirmMessage="The old link will stop working immediately. You'll need to share the new link with your client."
-        doubleConfirmLabel="Regenerate Link"
-      />
-      <ConfirmDialog
         isOpen={showPinConfirm}
         onClose={() => setShowPinConfirm(false)}
         onConfirm={() => {
@@ -653,9 +495,24 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
           setShowPinConfirm(false);
           setTimeout(() => pinInputRef.current?.focus(), 50);
         }}
-        title="Edit Portal PIN"
-        message="Any value you enter will auto-save and require clients to enter a PIN before accessing the portal. Clearing the field will remove the PIN and make the portal open access."
+        title="Set Portal PIN"
+        message="Enter a 4-digit PIN to require clients to authenticate before accessing the portal. You can remove it later to restore open access."
         confirmLabel="Continue"
+        variant="default"
+      />
+      <ConfirmDialog
+        isOpen={showDeletePinConfirm}
+        onClose={() => setShowDeletePinConfirm(false)}
+        onConfirm={() => {
+          setLocalPin('');
+          upsertPortalSettings(projectId, { pin: null });
+          setPinConfirmed(false);
+          setShowDeletePinConfirm(false);
+          toast('success', 'PIN removed, portal is now open access');
+        }}
+        title="Remove Portal PIN"
+        message="This will remove the PIN requirement. Anyone with the portal link will be able to access it without authentication."
+        confirmLabel="Remove PIN"
         variant="default"
       />
     </div>

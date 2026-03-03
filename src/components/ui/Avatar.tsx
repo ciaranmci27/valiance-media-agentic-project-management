@@ -5,6 +5,7 @@ import { siteConfig } from '@/site-config';
 interface AvatarProps {
   name: string;
   src?: string;
+  color?: string;
   size?: 'xs' | 'sm' | 'md' | 'lg';
   className?: string;
 }
@@ -37,9 +38,9 @@ function stringToColor(str: string): string {
   return colors[Math.abs(hash) % colors.length];
 }
 
-export function Avatar({ name, src, size = 'md', className = '' }: AvatarProps) {
+export function Avatar({ name, src, color, size = 'md', className = '' }: AvatarProps) {
   const initials = getInitials(name);
-  const bgColor = stringToColor(name);
+  const bgColor = color || stringToColor(name);
 
   if (src && (src.startsWith('http') || src.startsWith('/') || src.startsWith('blob:'))) {
     return (

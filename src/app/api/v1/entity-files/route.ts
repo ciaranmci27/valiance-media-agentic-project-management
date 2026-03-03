@@ -19,6 +19,7 @@ export const GET = withApi(async ({ supabase, searchParams }) => {
 
   const entityType = searchParams.get('entity_type');
   const entityId = searchParams.get('entity_id');
+  const visibility = searchParams.get('visibility');
 
   if (!entityType || !entityId) {
     throw badRequest('entity_type and entity_id query parameters are required');
@@ -28,11 +29,21 @@ export const GET = withApi(async ({ supabase, searchParams }) => {
     throw badRequest(`entity_type must be one of: ${ENTITY_TYPES.join(', ')}`);
   }
 
-  const { data, count, error } = await supabase
+  if (visibility && visibility !== 'internal' && visibility !== 'external') {
+    throw badRequest('visibility must be one of: internal, external');
+  }
+
+  let query = supabase
     .from('entity_files')
     .select('*', { count: 'exact' })
     .eq('entity_type', entityType)
-    .eq('entity_id', entityId)
+    .eq('entity_id', entityId);
+
+  if (visibility) {
+    query = query.eq('visibility', visibility);
+  }
+
+  const { data, count, error } = await query
     .order('created_at', { ascending: false })
     .range(offset, offset + limit - 1);
 
@@ -52,6 +63,7 @@ export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId }) =
       file_url: entry.file_url,
       file_size: entry.file_size,
       mime_type: entry.mime_type,
+      visibility: entry.visibility || 'internal',
       uploaded_by: entry.uploaded_by,
     })
     .select()

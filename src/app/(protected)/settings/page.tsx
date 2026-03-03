@@ -13,6 +13,7 @@ import { User, Lock, FlaskConical, Key, Copy, Check, Plus, Ban, BookOpen, Bell, 
 import { toast } from '@/components/ui/Toast';
 import { useDemo } from '@/lib/demo-context';
 import { SmtpSection } from '@/components/settings/SmtpSection';
+import { Tooltip } from '@/components/ui/Tooltip';
 import Link from 'next/link';
 import { hashApiKey, generateApiKey } from '@/lib/api/crypto';
 import type { ApiKey, NotificationCategory, NotificationPreferences } from '@/lib/types';
@@ -39,7 +40,6 @@ const NOTIF_GROUPS: { group: string; adminOnly?: boolean; agentOnly?: boolean; i
       { key: 'project_contacts', label: 'Project contacts', desc: 'Contacts linked or removed' },
       { key: 'portal_settings', label: 'Portal settings', desc: 'Portal enabled, disabled, or configured' },
       { key: 'portal_updates', label: 'Portal updates', desc: 'Timeline updates posted, edited, or removed' },
-      { key: 'portal_files', label: 'Portal files', desc: 'Files added or removed from portal' },
       { key: 'time_entries', label: 'Time tracking', desc: 'Time entries logged, updated, or deleted' },
       { key: 'entity_files', label: 'File attachments', desc: 'Files attached or removed from entities' },
     ],
@@ -773,13 +773,14 @@ export default function SettingsPage() {
                       <p className="text-xs text-zinc-400">Last used</p>
                       <p className="text-xs text-zinc-600">{formatRelativeTime(key.last_used_at)}</p>
                     </div>
-                    <button
-                      onClick={() => setRevokeTarget(key)}
-                      className="p-1.5 text-zinc-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors flex-shrink-0"
-                      title="Revoke key"
-                    >
-                      <Ban size={14} />
-                    </button>
+                    <Tooltip content="Revoke key">
+                      <button
+                        onClick={() => setRevokeTarget(key)}
+                        className="p-1.5 text-zinc-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors flex-shrink-0"
+                      >
+                        <Ban size={14} />
+                      </button>
+                    </Tooltip>
                   </div>
                 ))}
               </div>

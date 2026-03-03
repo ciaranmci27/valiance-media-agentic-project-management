@@ -10,6 +10,7 @@ import { useAuth } from '@/lib/auth-context';
 import { createClient } from '@/lib/supabase/client';
 import { toast } from '@/components/ui/Toast';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { Tooltip } from '@/components/ui/Tooltip';
 import { Select } from '@/components/ui/Select';
 import { siteConfig } from '@/site-config';
 import { INVOICE_STATUSES, type InvoiceStatus } from '@/lib/types';
@@ -452,13 +453,14 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
                     />
                   </div>
                 ) : (
-                  <button
-                    onClick={() => { setEditingRate(true); setRateValue(String(currentRate)); }}
-                    className="text-xs text-zinc-500 hover:text-brand-600 transition-colors cursor-pointer underline decoration-dashed underline-offset-2"
-                    title={isHourly ? 'Edit hourly rate' : 'Edit fixed price'}
-                  >
-                    {isHourly ? `$${formatCurrency(currentRate)}/h)` : `$${formatCurrency(currentRate)}`}
-                  </button>
+                  <Tooltip content={isHourly ? 'Edit hourly rate' : 'Edit fixed price'}>
+                    <button
+                      onClick={() => { setEditingRate(true); setRateValue(String(currentRate)); }}
+                      className="text-xs text-zinc-500 hover:text-brand-600 transition-colors cursor-pointer underline decoration-dashed underline-offset-2"
+                    >
+                      {isHourly ? `$${formatCurrency(currentRate)}/h)` : `$${formatCurrency(currentRate)}`}
+                    </button>
+                  </Tooltip>
                 )}
               </div>
             </div>

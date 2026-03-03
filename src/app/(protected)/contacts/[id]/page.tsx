@@ -96,35 +96,51 @@ export default function ContactDetailPage() {
       />
 
       <div className="p-4 lg:p-6 space-y-6">
-        {/* Contact Info + Invoices row */}
+        {/* Contact Info + Leads row */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
-        <div className="bg-white rounded-xl border border-zinc-200 p-6 lg:p-7 flex flex-col">
-          <div className="flex items-center gap-4 mb-6">
-            <Avatar name={contact.name} src={contact.avatar_url || undefined} size="lg" />
-            <div>
-              <h2 className="text-lg font-semibold text-zinc-900">{contact.name}</h2>
-              {contact.company && (
-                <p className="text-sm text-zinc-500 mt-0.5">{contact.company}</p>
-              )}
+        <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden flex flex-col max-h-[300px]">
+          <div className="flex-shrink-0 px-6 lg:px-7 pt-6 lg:pt-7">
+            <div className="flex items-center gap-4 pb-5 border-b border-zinc-100">
+              <Avatar name={contact.name} src={contact.avatar_url || undefined} size="lg" />
+              <div className="min-w-0">
+                <div className="flex flex-col lg:flex-row lg:items-center lg:gap-5">
+                  <h2 className="text-lg font-semibold text-zinc-900 truncate">{contact.name}</h2>
+                  {contact.company && (
+                    <p className="text-sm text-zinc-500 mt-0.5 truncate lg:hidden">{contact.company}</p>
+                  )}
+                  <div className="flex items-center gap-4 text-sm mt-1 lg:mt-0">
+                    {contact.email ? (
+                      <a href={`mailto:${contact.email}`} className="flex items-center gap-1.5 text-zinc-600 hover:text-brand-600 transition-colors">
+                        <Mail size={14} className="text-zinc-400" />
+                        <span>{contact.email}</span>
+                      </a>
+                    ) : (
+                      <span className="flex items-center gap-1.5 text-zinc-300 italic">
+                        <Mail size={14} />
+                        <span>No email</span>
+                      </span>
+                    )}
+                    {contact.phone ? (
+                      <a href={`tel:${contact.phone}`} className="flex items-center gap-1.5 text-zinc-600 hover:text-brand-600 transition-colors">
+                        <Phone size={14} className="text-zinc-400" />
+                        <span>{formatPhone(contact.phone)}</span>
+                      </a>
+                    ) : (
+                      <span className="flex items-center gap-1.5 text-zinc-300 italic">
+                        <Phone size={14} />
+                        <span>No phone</span>
+                      </span>
+                    )}
+                  </div>
+                </div>
+                {contact.company && (
+                  <p className="text-sm text-zinc-500 mt-0.5 truncate hidden lg:block">{contact.company}</p>
+                )}
+              </div>
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-x-6 gap-y-3 text-sm mb-6">
-            {contact.email && (
-              <a href={`mailto:${contact.email}`} className="flex items-center gap-2 text-zinc-600 hover:text-brand-600 transition-colors">
-                <Mail size={15} className="text-zinc-400" />
-                <span>{contact.email}</span>
-              </a>
-            )}
-            {contact.phone && (
-              <a href={`tel:${contact.phone}`} className="flex items-center gap-2 text-zinc-600 hover:text-brand-600 transition-colors">
-                <Phone size={15} className="text-zinc-400" />
-                <span>{formatPhone(contact.phone)}</span>
-              </a>
-            )}
-          </div>
-
-          <div className="flex-1 pt-5 border-t border-zinc-100">
+          <div className="flex-1 overflow-y-auto px-6 lg:px-7 py-5">
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2 text-zinc-500 text-sm">
                 <StickyNote size={14} />
@@ -178,7 +194,45 @@ export default function ContactDetailPage() {
           </div>
         </div>
 
-        {/* Invoices (shares row with contact card) */}
+        {/* Linked Leads */}
+        <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden flex flex-col max-h-[300px]">
+          <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-200 flex-shrink-0">
+            <div className="flex items-center gap-2">
+              <Target size={18} className="text-zinc-500" />
+              <h2 className="font-semibold text-zinc-900">
+                Leads ({linkedLeads.length})
+              </h2>
+            </div>
+          </div>
+
+          {linkedLeads.length > 0 ? (
+            <div className="flex-1 overflow-y-auto divide-y divide-zinc-100">
+              {linkedLeads.map((lead) => {
+                const statusCfg = STATUS_CONFIG[lead.status] || STATUS_CONFIG.new;
+                return (
+                  <div key={lead.id} className="px-5 py-4 flex items-center justify-between">
+                    <div>
+                      <p className="font-medium text-zinc-900 text-sm">{lead.name}</p>
+                      <p className="text-xs text-zinc-500">{lead.company}</p>
+                    </div>
+                    <Badge variant={statusCfg.variant}>{statusCfg.label}</Badge>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
+              <div className="w-10 h-10 rounded-full bg-zinc-100 flex items-center justify-center mb-3">
+                <Target size={18} className="text-zinc-400" />
+              </div>
+              <p className="text-sm font-medium text-zinc-500">No leads yet</p>
+              <p className="text-xs text-zinc-400 mt-1">Leads linked to this contact will appear here</p>
+            </div>
+          )}
+        </div>
+        </div>
+
+        {/* Invoices */}
         {(() => {
           const contactInvoices = getInvoicesByContact(contactId);
           if (contactInvoices.length === 0) return null;
@@ -247,7 +301,6 @@ export default function ContactDetailPage() {
             </div>
           );
         })()}
-        </div>
 
         {/* Linked Projects + Files row */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
@@ -295,33 +348,6 @@ export default function ContactDetailPage() {
 
           <FileAttachments entityType="contact" entityId={contactId} />
         </div>
-
-        {/* Linked Leads (conversion history) */}
-        {linkedLeads.length > 0 && (
-          <div>
-            <div className="flex items-center gap-2 mb-4">
-              <Target size={18} className="text-zinc-500" />
-              <h2 className="font-semibold text-zinc-900">
-                Leads ({linkedLeads.length})
-              </h2>
-            </div>
-
-            <div className="bg-white rounded-xl border border-zinc-200 divide-y divide-zinc-100">
-              {linkedLeads.map((lead) => {
-                const statusCfg = STATUS_CONFIG[lead.status] || STATUS_CONFIG.new;
-                return (
-                  <div key={lead.id} className="p-4 flex items-center justify-between">
-                    <div>
-                      <p className="font-medium text-zinc-900 text-sm">{lead.name}</p>
-                      <p className="text-xs text-zinc-500">{lead.company}</p>
-                    </div>
-                    <Badge variant={statusCfg.variant}>{statusCfg.label}</Badge>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
 
       </div>
 

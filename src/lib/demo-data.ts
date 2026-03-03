@@ -1,4 +1,5 @@
-import type { TeamMember, Contact, Project, ProjectContact, Task, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, Activity, PortalSettings, PortalFile, PortalUpdate, PortalUpdateAttachment, EntityFile, TimeEntry, Notification, ProjectGoal, TaskSuggestion, AgentActivity, ProjectInvoice } from './types';
+import type { TeamMember, Contact, Project, ProjectContact, Task, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, Activity, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, TimeEntry, Notification, ProjectGoal, TaskSuggestion, AgentActivity, ProjectInvoice } from './types';
+import { DEFAULT_SECTION_ORDER } from './types';
 import { siteConfig } from '@/site-config';
 
 // ---------------------------------------------------------------------------
@@ -612,18 +613,18 @@ export const demoPortalSettings: PortalSettings[] = [
     id: 'ps-0001-4000-8000-000000000001',
     project_id: 'c3c3c3c3-0001-4000-8000-000000000001',
     enabled: true,
-    token: 'demo-portal-token-crest-financial-rebrand-001',
+    token: 'crest-financial-rebrand',
     pin: null,
     welcome_message: 'Welcome to the Crest Financial project portal! Here you can track our progress and download shared files.',
     logo_url: '',
     accent_color: siteConfig.colors.brand[500],
     show_progress: true,
-    show_proposals: true,
     show_files: true,
     show_hours: true,
     show_updates: true,
     show_credentials: false,
     show_invoices: true,
+    section_order: [...DEFAULT_SECTION_ORDER],
     created_at: daysAgo(10),
     updated_at: daysAgo(1),
   },
@@ -631,18 +632,18 @@ export const demoPortalSettings: PortalSettings[] = [
     id: 'ps-0002-4000-8000-000000000002',
     project_id: 'c3c3c3c3-0002-4000-8000-000000000002',
     enabled: true,
-    token: 'demo-portal-token-bloomwell-health-app-002',
+    token: 'bloomwell-health-app',
     pin: '1234',
     welcome_message: 'Welcome to the Bloomwell project hub! Track app development progress below.',
     logo_url: '',
     accent_color: '#EC4899',
     show_progress: true,
-    show_proposals: true,
     show_files: true,
     show_hours: true,
     show_updates: true,
     show_credentials: false,
     show_invoices: false,
+    section_order: [...DEFAULT_SECTION_ORDER],
     created_at: daysAgo(8),
     updated_at: daysAgo(1),
   },
@@ -740,55 +741,9 @@ export const demoPortalUpdateAttachments: PortalUpdateAttachment[] = [
 // ---------------------------------------------------------------------------
 // PORTAL FILES
 // ---------------------------------------------------------------------------
-export const demoPortalFiles: PortalFile[] = [
-  {
-    id: 'pf-0001-4000-8000-000000000001',
-    project_id: 'c3c3c3c3-0001-4000-8000-000000000001',
-    name: 'Brand-Guidelines-v2.pdf',
-    file_url: '#',
-    file_size: 2400000,
-    mime_type: 'application/pdf',
-    uploaded_by: 'a1a1a1a1-0001-4000-8000-000000000001',
-    created_at: daysAgo(5),
-    updated_at: daysAgo(5),
-  },
-  {
-    id: 'pf-0002-4000-8000-000000000002',
-    project_id: 'c3c3c3c3-0001-4000-8000-000000000001',
-    name: 'Logo-Finals.zip',
-    file_url: '#',
-    file_size: 8500000,
-    mime_type: 'application/zip',
-    uploaded_by: 'a1a1a1a1-0002-4000-8000-000000000002',
-    created_at: daysAgo(3),
-    updated_at: daysAgo(3),
-  },
-  {
-    id: 'pf-0003-4000-8000-000000000003',
-    project_id: 'c3c3c3c3-0002-4000-8000-000000000002',
-    name: 'App-Wireframes.fig',
-    file_url: '#',
-    file_size: 3200000,
-    mime_type: 'application/octet-stream',
-    uploaded_by: 'a1a1a1a1-0004-4000-8000-000000000004',
-    created_at: daysAgo(7),
-    updated_at: daysAgo(7),
-  },
-  {
-    id: 'pf-0004-4000-8000-000000000004',
-    project_id: 'c3c3c3c3-0001-4000-8000-000000000001',
-    name: 'Proposal-Draft.html',
-    file_url: '#',
-    file_size: 48000,
-    mime_type: 'text/html',
-    uploaded_by: 'a1a1a1a1-0001-4000-8000-000000000001',
-    created_at: daysAgo(1),
-    updated_at: daysAgo(1),
-  },
-];
-
 // ---------------------------------------------------------------------------
-// ENTITY FILES (internal attachments for leads, projects, contacts)
+// ENTITY FILES (attachments for leads, projects, contacts)
+// visibility: 'internal' = admin only, 'external' = shared on client portal
 // ---------------------------------------------------------------------------
 export const demoEntityFiles: EntityFile[] = [
   // Lead files
@@ -800,6 +755,7 @@ export const demoEntityFiles: EntityFile[] = [
     file_url: '#',
     file_size: 145000,
     mime_type: 'application/pdf',
+    visibility: 'internal',
     uploaded_by: 'a1a1a1a1-0001-4000-8000-000000000001',
     created_at: daysAgo(8),
     updated_at: daysAgo(8),
@@ -812,11 +768,12 @@ export const demoEntityFiles: EntityFile[] = [
     file_url: '#',
     file_size: 320000,
     mime_type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    visibility: 'internal',
     uploaded_by: 'a1a1a1a1-0003-4000-8000-000000000003',
     created_at: daysAgo(6),
     updated_at: daysAgo(6),
   },
-  // Project files
+  // Project files (internal)
   {
     id: 'ef-0003-4000-8000-000000000003',
     entity_type: 'project',
@@ -825,6 +782,7 @@ export const demoEntityFiles: EntityFile[] = [
     file_url: '#',
     file_size: 89000,
     mime_type: 'application/pdf',
+    visibility: 'internal',
     uploaded_by: 'a1a1a1a1-0001-4000-8000-000000000001',
     created_at: daysAgo(30),
     updated_at: daysAgo(30),
@@ -837,9 +795,50 @@ export const demoEntityFiles: EntityFile[] = [
     file_url: '#',
     file_size: 52000,
     mime_type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    visibility: 'internal',
     uploaded_by: 'a1a1a1a1-0004-4000-8000-000000000004',
     created_at: daysAgo(12),
     updated_at: daysAgo(12),
+  },
+  // Project files (external / shared on portal)
+  {
+    id: 'ef-0007-4000-8000-000000000007',
+    entity_type: 'project',
+    entity_id: 'c3c3c3c3-0001-4000-8000-000000000001', // Crest Financial Rebrand
+    name: 'Brand-Guidelines-v2.pdf',
+    file_url: '#',
+    file_size: 2400000,
+    mime_type: 'application/pdf',
+    visibility: 'external',
+    uploaded_by: 'a1a1a1a1-0001-4000-8000-000000000001',
+    created_at: daysAgo(5),
+    updated_at: daysAgo(5),
+  },
+  {
+    id: 'ef-0008-4000-8000-000000000008',
+    entity_type: 'project',
+    entity_id: 'c3c3c3c3-0001-4000-8000-000000000001', // Crest Financial Rebrand
+    name: 'Logo-Finals.zip',
+    file_url: '#',
+    file_size: 8500000,
+    mime_type: 'application/zip',
+    visibility: 'external',
+    uploaded_by: 'a1a1a1a1-0002-4000-8000-000000000002',
+    created_at: daysAgo(3),
+    updated_at: daysAgo(3),
+  },
+  {
+    id: 'ef-0009-4000-8000-000000000009',
+    entity_type: 'project',
+    entity_id: 'c3c3c3c3-0002-4000-8000-000000000002', // Bloomwell Health App
+    name: 'App-Wireframes.fig',
+    file_url: '#',
+    file_size: 3200000,
+    mime_type: 'application/octet-stream',
+    visibility: 'external',
+    uploaded_by: 'a1a1a1a1-0004-4000-8000-000000000004',
+    created_at: daysAgo(7),
+    updated_at: daysAgo(7),
   },
   // Contact files
   {
@@ -850,6 +849,7 @@ export const demoEntityFiles: EntityFile[] = [
     file_url: '#',
     file_size: 210000,
     mime_type: 'application/pdf',
+    visibility: 'internal',
     uploaded_by: 'a1a1a1a1-0001-4000-8000-000000000001',
     created_at: daysAgo(25),
     updated_at: daysAgo(25),
@@ -862,6 +862,7 @@ export const demoEntityFiles: EntityFile[] = [
     file_url: '#',
     file_size: 4800000,
     mime_type: 'image/png',
+    visibility: 'internal',
     uploaded_by: 'a1a1a1a1-0002-4000-8000-000000000002',
     created_at: daysAgo(20),
     updated_at: daysAgo(20),

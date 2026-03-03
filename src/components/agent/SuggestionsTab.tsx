@@ -8,6 +8,7 @@ import { ApproveModal } from './ApproveModal';
 import { SwipeSuggestionCard } from './SwipeSuggestionCard';
 import { Avatar } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
+import { Tooltip } from '@/components/ui/Tooltip';
 import {
   Check, X, HelpCircle, Lightbulb,
 } from 'lucide-react';
@@ -287,29 +288,32 @@ export function SuggestionsTab({ filters }: { filters: SuggestionsFilters }) {
               {/* Action buttons */}
               {(suggestion.status === 'pending' || suggestion.status === 'needs_info') && rejectInputId !== suggestion.id && infoInputId !== suggestion.id && (
                 <div className="flex items-center gap-1.5 flex-shrink-0">
-                  <button
-                    onClick={() => setApproveModalId(suggestion.id)}
-                    className="p-2 rounded-lg text-emerald-600 hover:bg-emerald-50 transition-colors"
-                    title="Approve"
-                  >
-                    <Check size={18} />
-                  </button>
-                  {suggestion.status === 'pending' && (
+                  <Tooltip content="Approve">
                     <button
-                      onClick={() => { setInfoInputId(suggestion.id); setInfoText(''); }}
-                      className="p-2 rounded-lg text-amber-600 hover:bg-amber-50 transition-colors"
-                      title="Request Info"
+                      onClick={() => setApproveModalId(suggestion.id)}
+                      className="p-2 rounded-lg text-emerald-600 hover:bg-emerald-50 transition-colors"
                     >
-                      <HelpCircle size={18} />
+                      <Check size={18} />
                     </button>
+                  </Tooltip>
+                  {suggestion.status === 'pending' && (
+                    <Tooltip content="Request Info">
+                      <button
+                        onClick={() => { setInfoInputId(suggestion.id); setInfoText(''); }}
+                        className="p-2 rounded-lg text-amber-600 hover:bg-amber-50 transition-colors"
+                      >
+                        <HelpCircle size={18} />
+                      </button>
+                    </Tooltip>
                   )}
-                  <button
-                    onClick={() => { setRejectInputId(suggestion.id); setRejectReason(''); }}
-                    className="p-2 rounded-lg text-red-600 hover:bg-red-50 transition-colors"
-                    title="Reject"
-                  >
-                    <X size={18} />
-                  </button>
+                  <Tooltip content="Reject">
+                    <button
+                      onClick={() => { setRejectInputId(suggestion.id); setRejectReason(''); }}
+                      className="p-2 rounded-lg text-red-600 hover:bg-red-50 transition-colors"
+                    >
+                      <X size={18} />
+                    </button>
+                  </Tooltip>
                 </div>
               )}
             </div>

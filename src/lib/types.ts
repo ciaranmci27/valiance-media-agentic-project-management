@@ -228,7 +228,6 @@ export type NotificationCategory =
   | 'team_members'
   | 'portal_updates'
   | 'portal_settings'
-  | 'portal_files'
   | 'time_entries'
   | 'entity_files'
   | 'api_keys'
@@ -316,6 +315,21 @@ export interface ProjectInvoice {
 // CLIENT PORTAL
 // ============================================================
 
+export type PortalSectionKey = 'show_progress' | 'show_hours' | 'show_updates' | 'show_files' | 'show_credentials' | 'show_invoices';
+
+export const DEFAULT_SECTION_ORDER: PortalSectionKey[] = [
+  'show_progress', 'show_hours', 'show_updates', 'show_files', 'show_credentials', 'show_invoices',
+];
+
+export const PORTAL_SECTION_LABELS: Record<PortalSectionKey, string> = {
+  show_progress: 'Progress',
+  show_hours: 'Hours',
+  show_updates: 'Updates',
+  show_files: 'Files',
+  show_credentials: 'Credentials',
+  show_invoices: 'Invoices',
+};
+
 export interface PortalSettings {
   id: string;
   project_id: string;
@@ -326,12 +340,12 @@ export interface PortalSettings {
   logo_url: string;
   accent_color: string;
   show_progress: boolean;
-  show_proposals: boolean;
   show_files: boolean;
   show_hours: boolean;
   show_updates: boolean;
   show_credentials: boolean;
   show_invoices: boolean;
+  section_order: PortalSectionKey[];
   created_at: string;
   updated_at: string;
 }
@@ -363,23 +377,12 @@ export interface PortalUpdateAttachment {
   updated_at: string;
 }
 
-export interface PortalFile {
-  id: string;
-  project_id: string;
-  name: string;
-  file_url: string;
-  file_size: number;
-  mime_type: string;
-  uploaded_by: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
 // ============================================================
 // ENTITY FILES (polymorphic attachments)
 // ============================================================
 
 export type EntityFileType = 'lead' | 'project' | 'contact';
+export type EntityFileVisibility = 'internal' | 'external';
 
 export interface EntityFile {
   id: string;
@@ -389,6 +392,7 @@ export interface EntityFile {
   file_url: string;
   file_size: number;
   mime_type: string;
+  visibility: EntityFileVisibility;
   uploaded_by: string | null;
   created_at: string;
   updated_at: string;
@@ -515,31 +519,27 @@ export interface PortalData {
     name: string;
     color: string;
     description: string;
+    start_date: string | null;
+    due_date: string | null;
+    status: string;
   };
   settings: {
     welcome_message: string;
     logo_url: string;
     accent_color: string;
     show_progress: boolean;
-    show_proposals: boolean;
     show_files: boolean;
     show_hours: boolean;
     show_updates: boolean;
     show_credentials: boolean;
     show_invoices: boolean;
+    section_order: PortalSectionKey[];
   };
   progress: {
-    total_tasks: number;
-    done_tasks: number;
     percent: number;
+    days_remaining: number | null;
+    is_overdue: boolean;
   };
-  proposals: {
-    id: string;
-    title: string;
-    description: string;
-    estimated_value: number | null;
-    status: string;
-  }[];
   files: {
     id: string;
     name: string;

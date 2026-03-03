@@ -7,11 +7,14 @@ export const upsertPortalSettingsSchema = z.object({
   logo_url: z.string().optional(),
   accent_color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
   show_progress: z.boolean().optional(),
-  show_proposals: z.boolean().optional(),
   show_files: z.boolean().optional(),
   show_hours: z.boolean().optional(),
   show_updates: z.boolean().optional(),
   show_credentials: z.boolean().optional(),
+  show_invoices: z.boolean().optional(),
+  section_order: z.array(z.enum([
+    'show_progress', 'show_hours', 'show_updates', 'show_files', 'show_credentials', 'show_invoices',
+  ])).optional(),
 });
 
 export const createPortalUpdateSchema = z.object({
@@ -34,13 +37,3 @@ export const createPortalUpdateAttachmentSchema = z.object({
   mime_type: z.string().default('application/octet-stream'),
 });
 
-export const createPortalFileSchema = z.object({
-  name: z.string().min(1, 'Name is required'),
-  file_url: z.string().min(1, 'file_url is required'),
-  file_size: z.number().int().min(0).default(0),
-  mime_type: z.string().default('application/octet-stream'),
-});
-
-export const updatePortalFileSchema = z.object({
-  name: z.string().min(1, 'Name is required'),
-});

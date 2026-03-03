@@ -1,13 +1,35 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
-import type { PortalData } from '@/lib/types';
+import type { PortalData, PortalSectionKey } from '@/lib/types';
+import { DEFAULT_SECTION_ORDER } from '@/lib/types';
 import {
-  demoPortalSettings, demoPortalFiles, demoPortalUpdates, demoPortalUpdateAttachments,
-  demoProjects, demoTasks,
-  demoLeads, demoLeadProposals, demoProjectContacts, demoTimeEntries,
+  demoPortalSettings, demoPortalUpdates, demoPortalUpdateAttachments,
+  demoProjects, demoEntityFiles,
+  demoTimeEntries,
   demoTeam, demoProjectInvoices,
 } from '@/lib/demo-data';
 import { siteConfig } from '@/site-config';
+
+function computeTimelineProgress(
+  startDate: string | null,
+  dueDate: string | null,
+  status: string,
+): { percent: number; days_remaining: number | null; is_overdue: boolean } | null {
+  if (status === 'completed') return { percent: 100, days_remaining: 0, is_overdue: false };
+  if (!startDate || !dueDate) return null;
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  const start = new Date(startDate);
+  start.setHours(0, 0, 0, 0);
+  const due = new Date(dueDate);
+  due.setHours(0, 0, 0, 0);
+  const total = due.getTime() - start.getTime();
+  const elapsed = now.getTime() - start.getTime();
+  if (total <= 0) return { percent: 100, days_remaining: 0, is_overdue: false };
+  const percent = Math.min(100, Math.max(0, Math.round((elapsed / total) * 100)));
+  const daysRemaining = Math.ceil((due.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+  return { percent, days_remaining: daysRemaining, is_overdue: daysRemaining < 0 };
+}
 
 function getServiceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -23,7 +45,8 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ token: string }> }
 ) {
-  const { token } = await params;
+  const { token: rawToken } = await params;
+  const token = rawToken.toLowerCase();
 
   // Demo mode: return mock data for demo tokens
   const isDemo = process.env.NEXT_PUBLIC_DEMO_MODE === 'true' || request.nextUrl.searchParams.get('demo') === 'true';
@@ -48,9 +71,9 @@ export async function GET(
     return NextResponse.json({ error: 'Portal is disabled' }, { status: 404 });
   }
 
-  // Check PIN if required
+  // Check PIN if required (prefer header, fall back to query param)
   if (settings.pin) {
-    const pin = request.nextUrl.searchParams.get('pin');
+    const pin = request.headers.get('x-portal-pin');
     if (!pin || pin !== settings.pin) {
       // Fetch minimal branding for the PIN screen
       const { data: proj } = await supabase
@@ -75,7 +98,7 @@ export async function GET(
   // Fetch project
   const { data: project } = await supabase
     .from('projects')
-    .select('name, color, description')
+    .select('name, color, description, start_date, due_date, status')
     .eq('id', settings.project_id)
     .single();
 
@@ -83,64 +106,21 @@ export async function GET(
     return NextResponse.json({ error: 'Project not found' }, { status: 404 });
   }
 
-  // Fetch task counts for progress
-  const { data: tasks } = await supabase
-    .from('tasks')
-    .select('status')
-    .eq('project_id', settings.project_id);
+  // Compute timeline-based progress
+  const timelineProgress = computeTimelineProgress(project.start_date, project.due_date, project.status);
 
-  const totalTasks = tasks?.length || 0;
-  const doneTasks = tasks?.filter((t: any) => t.status === 'done').length || 0;
-  const percent = totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0;
-
-  // Fetch proposals via project contacts → leads → lead_proposals
-  let proposals: PortalData['proposals'] = [];
-  if (settings.show_proposals) {
-    // Get contacts linked to this project
-    const { data: projectContacts } = await supabase
-      .from('project_contacts')
-      .select('contact_id')
-      .eq('project_id', settings.project_id);
-
-    if (projectContacts && projectContacts.length > 0) {
-      const contactIds = projectContacts.map((pc: any) => pc.contact_id);
-
-      // Find leads linked to those contacts
-      const { data: leads } = await supabase
-        .from('leads')
-        .select('id')
-        .in('contact_id', contactIds);
-
-      if (leads && leads.length > 0) {
-        const leadIds = leads.map((l: any) => l.id);
-
-        const { data: leadProposals } = await supabase
-          .from('lead_proposals')
-          .select('id, title, description, estimated_value, status')
-          .in('lead_id', leadIds)
-          .order('created_at', { ascending: false });
-
-        proposals = (leadProposals || []).map((p: any) => ({
-          id: p.id,
-          title: p.title,
-          description: p.description,
-          estimated_value: p.estimated_value,
-          status: p.status,
-        }));
-      }
-    }
-  }
-
-  // Fetch portal files
+  // Fetch external entity files for this project
   let files: PortalData['files'] = [];
   if (settings.show_files) {
-    const { data: portalFiles } = await supabase
-      .from('portal_files')
+    const { data: entityFiles } = await supabase
+      .from('entity_files')
       .select('id, name, file_url, file_size, mime_type')
-      .eq('project_id', settings.project_id)
+      .eq('entity_type', 'project')
+      .eq('entity_id', settings.project_id)
+      .eq('visibility', 'external')
       .order('created_at', { ascending: false });
 
-    files = (portalFiles || []).map((f: any) => ({
+    files = (entityFiles || []).map((f: any) => ({
       id: f.id,
       name: f.name,
       file_url: f.file_url,
@@ -272,25 +252,23 @@ export async function GET(
       name: project.name,
       color: project.color,
       description: project.description,
+      start_date: project.start_date,
+      due_date: project.due_date,
+      status: project.status,
     },
     settings: {
       welcome_message: settings.welcome_message,
       logo_url: settings.logo_url,
       accent_color: settings.accent_color,
       show_progress: settings.show_progress,
-      show_proposals: settings.show_proposals,
       show_files: settings.show_files,
       show_hours: settings.show_hours,
       show_updates: settings.show_updates ?? true,
       show_credentials: settings.show_credentials ?? false,
       show_invoices: settings.show_invoices ?? false,
+      section_order: (settings.section_order as PortalSectionKey[] | null) ?? [...DEFAULT_SECTION_ORDER],
     },
-    progress: {
-      total_tasks: totalTasks,
-      done_tasks: doneTasks,
-      percent,
-    },
-    proposals,
+    progress: timelineProgress ?? { percent: 0, days_remaining: null, is_overdue: false },
     files,
     hours,
     updates,
@@ -314,9 +292,9 @@ function handleDemoMode(token: string, request: NextRequest) {
     return NextResponse.json({ error: 'Project not found' }, { status: 404 });
   }
 
-  // Check PIN
+  // Check PIN (prefer header, fall back to query param)
   if (settings.pin) {
-    const pin = request.nextUrl.searchParams.get('pin');
+    const pin = request.headers.get('x-portal-pin');
     if (!pin || pin !== settings.pin) {
       return NextResponse.json({
         error: pin ? 'Invalid PIN' : 'PIN required',
@@ -331,38 +309,13 @@ function handleDemoMode(token: string, request: NextRequest) {
     }
   }
 
-  // Build progress from demo tasks
-  const tasks = demoTasks.filter(t => t.project_id === settings.project_id);
-  const totalTasks = tasks.length;
-  const doneTasks = tasks.filter(t => t.status === 'done').length;
-  const percent = totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0;
+  // Compute timeline-based progress from demo project dates
+  const demoProgress = computeTimelineProgress(project.start_date, project.due_date, project.status);
 
-  // Build proposals from demo data via project contacts → leads → lead proposals
-  let proposals: PortalData['proposals'] = [];
-  if (settings.show_proposals) {
-    const projectContactIds = demoProjectContacts
-      .filter(pc => pc.project_id === settings.project_id)
-      .map(pc => pc.contact_id);
-
-    const leadIds = demoLeads
-      .filter(l => l.contact_id && projectContactIds.includes(l.contact_id))
-      .map(l => l.id);
-
-    proposals = demoLeadProposals
-      .filter(p => leadIds.includes(p.lead_id))
-      .map(p => ({
-        id: p.id,
-        title: p.title,
-        description: p.description,
-        estimated_value: p.estimated_value,
-        status: p.status,
-      }));
-  }
-
-  // Build files from demo data
+  // Build files from external entity files for this project
   const files: PortalData['files'] = settings.show_files
-    ? demoPortalFiles
-        .filter(f => f.project_id === settings.project_id)
+    ? demoEntityFiles
+        .filter(f => f.entity_type === 'project' && f.entity_id === settings.project_id && f.visibility === 'external')
         .map(f => ({ id: f.id, name: f.name, file_url: f.file_url, file_size: f.file_size, mime_type: f.mime_type }))
     : [];
 
@@ -419,21 +372,27 @@ function handleDemoMode(token: string, request: NextRequest) {
     : [];
 
   const portalData: PortalData = {
-    project: { name: project.name, color: project.color, description: project.description },
+    project: {
+      name: project.name,
+      color: project.color,
+      description: project.description,
+      start_date: project.start_date,
+      due_date: project.due_date,
+      status: project.status,
+    },
     settings: {
       welcome_message: settings.welcome_message,
       logo_url: settings.logo_url,
       accent_color: settings.accent_color,
       show_progress: settings.show_progress,
-      show_proposals: settings.show_proposals,
       show_files: settings.show_files,
       show_hours: settings.show_hours,
       show_updates: settings.show_updates ?? true,
       show_credentials: settings.show_credentials ?? false,
       show_invoices: settings.show_invoices ?? false,
+      section_order: settings.section_order ?? [...DEFAULT_SECTION_ORDER],
     },
-    progress: { total_tasks: totalTasks, done_tasks: doneTasks, percent },
-    proposals,
+    progress: demoProgress ?? { percent: 0, days_remaining: null, is_overdue: false },
     files,
     hours,
     updates,

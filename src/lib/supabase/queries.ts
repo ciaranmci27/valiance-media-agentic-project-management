@@ -1,7 +1,8 @@
 import { SupabaseClient } from '@supabase/supabase-js';
-import type { Project, Task, TeamMember, Subtask, Comment, Activity, Contact, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, PortalSettings, PortalFile, PortalUpdate, PortalUpdateAttachment, EntityFile, ApiKey, ProjectGoal, TaskSuggestion, AgentActivity, ApiAuditEntry, TimeEntry, ProjectCredential, ProjectCredentialListItem, ProjectInvoice } from '@/lib/types';
+import type { Project, Task, TeamMember, Subtask, Comment, Activity, Contact, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, ApiKey, ProjectGoal, TaskSuggestion, AgentActivity, ApiAuditEntry, TimeEntry, ProjectCredential, ProjectCredentialListItem, ProjectInvoice } from '@/lib/types';
 import { notFound } from '@/lib/api/errors';
 import { siteConfig } from '@/site-config';
+import { generatePortalSlug } from '@/lib/portal-slug';
 
 // ============================================================
 // PROJECTS
@@ -1100,10 +1101,39 @@ export async function upsertPortalSettings(
     if (error) throw error;
     return data as PortalSettings;
   } else {
-    // Generate a token for new settings
-    const token = Array.from(crypto.getRandomValues(new Uint8Array(24)))
-      .map(b => b.toString(16).padStart(2, '0'))
-      .join('');
+    // Generate a slug-based token from the project name
+    const { data: project } = await supabase
+      .from('projects')
+      .select('name')
+      .eq('id', projectId)
+      .single();
+
+    let token = generatePortalSlug(project?.name || projectId);
+
+    // Check for collisions and append suffix if needed
+    const { data: collision } = await supabase
+      .from('portal_settings')
+      .select('token')
+      .eq('token', token)
+      .maybeSingle();
+
+    if (collision) {
+      let suffix = 2;
+      const MAX_SLUG_ATTEMPTS = 50;
+      while (suffix <= MAX_SLUG_ATTEMPTS) {
+        const candidate = `${token}-${suffix}`;
+        const { data: c } = await supabase
+          .from('portal_settings')
+          .select('token')
+          .eq('token', candidate)
+          .maybeSingle();
+        if (!c) { token = candidate; break; }
+        suffix++;
+      }
+      if (suffix > MAX_SLUG_ATTEMPTS) {
+        token = `${token}-${Date.now().toString(36)}`;
+      }
+    }
 
     const { data, error } = await supabase
       .from('portal_settings')
@@ -1116,10 +1146,10 @@ export async function upsertPortalSettings(
         logo_url: settings.logo_url ?? '',
         accent_color: settings.accent_color ?? siteConfig.colors.brand[500],
         show_progress: settings.show_progress ?? true,
-        show_proposals: settings.show_proposals ?? true,
         show_files: settings.show_files ?? true,
         show_hours: settings.show_hours ?? true,
         show_updates: settings.show_updates ?? true,
+        section_order: settings.section_order ?? ['show_progress', 'show_hours', 'show_updates', 'show_files', 'show_credentials', 'show_invoices'],
       })
       .select()
       .single();
@@ -1129,83 +1159,57 @@ export async function upsertPortalSettings(
   }
 }
 
-export async function regeneratePortalToken(supabase: SupabaseClient, projectId: string) {
-  const token = Array.from(crypto.getRandomValues(new Uint8Array(24)))
-    .map(b => b.toString(16).padStart(2, '0'))
-    .join('');
+
+export async function updatePortalSlug(
+  supabase: SupabaseClient,
+  projectId: string,
+  newSlug: string
+) {
+  // Normalize: lowercase, alphanumeric + hyphens only, collapse and trim hyphens
+  let slug = newSlug
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/-{2,}/g, '-')
+    .replace(/^-|-$/g, '');
+
+  if (!slug) throw new Error('Slug cannot be empty');
+
+  // Check for collisions excluding current project's own row
+  const { data: collision } = await supabase
+    .from('portal_settings')
+    .select('token')
+    .eq('token', slug)
+    .neq('project_id', projectId)
+    .maybeSingle();
+
+  if (collision) {
+    let suffix = 2;
+    const MAX_SLUG_ATTEMPTS = 50;
+    while (suffix <= MAX_SLUG_ATTEMPTS) {
+      const candidate = `${slug}-${suffix}`;
+      const { data: c } = await supabase
+        .from('portal_settings')
+        .select('token')
+        .eq('token', candidate)
+        .neq('project_id', projectId)
+        .maybeSingle();
+      if (!c) { slug = candidate; break; }
+      suffix++;
+    }
+    if (suffix > MAX_SLUG_ATTEMPTS) {
+      slug = `${slug}-${Date.now().toString(36)}`;
+    }
+  }
 
   const { data, error } = await supabase
     .from('portal_settings')
-    .update({ token })
+    .update({ token: slug })
     .eq('project_id', projectId)
     .select()
-    .maybeSingle();
+    .single();
 
   if (error) throw error;
-  if (!data) throw notFound('Portal settings');
   return data as PortalSettings;
-}
-
-// ============================================================
-// PORTAL FILES
-// ============================================================
-
-export async function fetchAllPortalFiles(supabase: SupabaseClient) {
-  const { data, error } = await supabase
-    .from('portal_files')
-    .select('*')
-    .order('created_at', { ascending: false });
-
-  if (error) throw error;
-  return (data || []) as PortalFile[];
-}
-
-export async function fetchPortalFiles(supabase: SupabaseClient, projectId: string) {
-  const { data, error } = await supabase
-    .from('portal_files')
-    .select('*')
-    .eq('project_id', projectId)
-    .order('created_at', { ascending: false });
-
-  if (error) throw error;
-  return (data || []) as PortalFile[];
-}
-
-export async function insertPortalFile(
-  supabase: SupabaseClient,
-  file: Omit<PortalFile, 'id' | 'created_at' | 'updated_at'>
-) {
-  const { data, error } = await supabase
-    .from('portal_files')
-    .insert({
-      project_id: file.project_id,
-      name: file.name,
-      file_url: file.file_url,
-      file_size: file.file_size,
-      mime_type: file.mime_type,
-      uploaded_by: file.uploaded_by || null,
-    })
-    .select()
-    .single();
-
-  if (error) throw error;
-  return data as PortalFile;
-}
-
-export async function renamePortalFile(supabase: SupabaseClient, id: string, name: string) {
-  const { data, error } = await supabase
-    .from('portal_files')
-    .update({ name })
-    .eq('id', id)
-    .select()
-    .single();
-  if (error) throw error;
-  return data as PortalFile;
-}
-
-export async function removePortalFile(supabase: SupabaseClient, id: string) {
-  const { error } = await supabase.from('portal_files').delete().eq('id', id);
-  if (error) throw error;
 }
 
 // ============================================================
@@ -1341,6 +1345,7 @@ export async function insertEntityFile(
       file_url: file.file_url,
       file_size: file.file_size,
       mime_type: file.mime_type,
+      visibility: file.visibility || 'internal',
       uploaded_by: file.uploaded_by || null,
     })
     .select()
@@ -1364,6 +1369,17 @@ export async function renameEntityFile(supabase: SupabaseClient, id: string, nam
 export async function removeEntityFile(supabase: SupabaseClient, id: string) {
   const { error } = await supabase.from('entity_files').delete().eq('id', id);
   if (error) throw error;
+}
+
+export async function updateEntityFileVisibility(supabase: SupabaseClient, id: string, visibility: 'internal' | 'external') {
+  const { data, error } = await supabase
+    .from('entity_files')
+    .update({ visibility })
+    .eq('id', id)
+    .select()
+    .single();
+  if (error) throw error;
+  return data as EntityFile;
 }
 
 // ============================================================

@@ -12,6 +12,7 @@ import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { toast } from '@/components/ui/Toast';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { Tooltip } from '@/components/ui/Tooltip';
 import type { CredentialCategory, CredentialPayload, ProjectCredentialListItem } from '@/lib/types';
 
 interface CredentialsPanelProps {
@@ -67,30 +68,33 @@ function RevealedField({ label, value, isSensitive }: { label: string; value: st
   return (
     <div className="flex items-center gap-2 py-1">
       <span className="text-xs font-medium text-zinc-400 w-20 flex-shrink-0">{label}</span>
-      <span
-        onClick={handleCopyValue}
-        className={`flex-1 text-sm font-mono truncate cursor-pointer transition-colors ${isMasked ? 'tracking-widest text-zinc-400 hover:text-zinc-600' : 'text-zinc-700 hover:text-brand-600 active:text-brand-700'} ${copied ? '!text-brand-500' : ''}`}
-        title={`Click to copy ${label.toLowerCase()}`}
-      >
-        {isMasked ? '••••••••' : value}
-      </span>
+      <Tooltip content={`Click to copy ${label.toLowerCase()}`}>
+        <span
+          onClick={handleCopyValue}
+          className={`flex-1 text-sm font-mono truncate cursor-pointer transition-colors ${isMasked ? 'tracking-widest text-zinc-400 hover:text-zinc-600' : 'text-zinc-700 hover:text-brand-600 active:text-brand-700'} ${copied ? '!text-brand-500' : ''}`}
+        >
+          {isMasked ? '••••••••' : value}
+        </span>
+      </Tooltip>
       <div className="flex items-center gap-0.5 flex-shrink-0">
         {isSensitive && (
-          <button
-            onClick={() => setVisible(v => !v)}
-            className="p-1 text-zinc-400 hover:text-brand-600 transition-colors"
-            title={visible ? 'Hide' : 'Show'}
-          >
-            {visible ? <EyeOff size={13} /> : <Eye size={13} />}
-          </button>
+          <Tooltip content={visible ? 'Hide' : 'Show'}>
+            <button
+              onClick={() => setVisible(v => !v)}
+              className="p-1 text-zinc-400 hover:text-brand-600 transition-colors"
+            >
+              {visible ? <EyeOff size={13} /> : <Eye size={13} />}
+            </button>
+          </Tooltip>
         )}
-        <button
-          onClick={handleCopyValue}
-          className="p-1 text-zinc-400 hover:text-brand-600 transition-colors"
-          title={`Copy ${label.toLowerCase()}`}
-        >
-          {copied ? <Check size={13} className="text-brand-500" /> : <Copy size={13} />}
-        </button>
+        <Tooltip content={`Copy ${label.toLowerCase()}`}>
+          <button
+            onClick={handleCopyValue}
+            className="p-1 text-zinc-400 hover:text-brand-600 transition-colors"
+          >
+            {copied ? <Check size={13} className="text-brand-500" /> : <Copy size={13} />}
+          </button>
+        </Tooltip>
       </div>
     </div>
   );
@@ -335,13 +339,14 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
                   <code className="flex-1 text-xs font-mono text-zinc-700 break-all select-all leading-relaxed">
                     PROJECT_CREDENTIALS_ENCRYPTION_KEY={generatedKey}
                   </code>
-                  <button
-                    onClick={handleCopyKey}
-                    className="flex-shrink-0 p-1.5 text-zinc-400 hover:text-brand-600 transition-colors"
-                    title="Copy"
-                  >
-                    {keyCopied ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
-                  </button>
+                  <Tooltip content="Copy">
+                    <button
+                      onClick={handleCopyKey}
+                      className="flex-shrink-0 p-1.5 text-zinc-400 hover:text-brand-600 transition-colors"
+                    >
+                      {keyCopied ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
+                    </button>
+                  </Tooltip>
                 </div>
               </div>
 
@@ -594,20 +599,22 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
                     <div className="flex items-center justify-between">
                       <p className="text-xs text-zinc-400">{timeAgo(cred.created_at)}</p>
                       <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
-                        <button
-                          onClick={() => handleStartEdit(cred)}
-                          className="p-1.5 text-zinc-400 hover:text-brand-600 transition-colors rounded-md hover:bg-zinc-50"
-                          title="Edit"
-                        >
-                          <Pencil size={14} />
-                        </button>
-                        <button
-                          onClick={() => setDeleteTarget(cred.id)}
-                          className="p-1.5 text-zinc-400 hover:text-red-500 transition-colors rounded-md hover:bg-zinc-50"
-                          title="Delete"
-                        >
-                          <Trash2 size={14} />
-                        </button>
+                        <Tooltip content="Edit">
+                          <button
+                            onClick={() => handleStartEdit(cred)}
+                            className="p-1.5 text-zinc-400 hover:text-brand-600 transition-colors rounded-md hover:bg-zinc-50"
+                          >
+                            <Pencil size={14} />
+                          </button>
+                        </Tooltip>
+                        <Tooltip content="Delete">
+                          <button
+                            onClick={() => setDeleteTarget(cred.id)}
+                            className="p-1.5 text-zinc-400 hover:text-red-500 transition-colors rounded-md hover:bg-zinc-50"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </Tooltip>
                       </div>
                     </div>
                   </div>

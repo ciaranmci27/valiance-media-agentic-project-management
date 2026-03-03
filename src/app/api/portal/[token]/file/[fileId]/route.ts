@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
-import { demoPortalSettings, demoPortalFiles, demoProjects } from '@/lib/demo-data';
+import { demoPortalSettings, demoEntityFiles, demoProjects } from '@/lib/demo-data';
 import { siteConfig } from '@/site-config';
 
 function getServiceClient() {
@@ -16,7 +16,8 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ token: string; fileId: string }> }
 ) {
-  const { token, fileId } = await params;
+  const { token: rawToken, fileId } = await params;
+  const token = rawToken.toLowerCase();
 
   // Demo mode
   const isDemo = process.env.NEXT_PUBLIC_DEMO_MODE === 'true' || request.nextUrl.searchParams.get('demo') === 'true';
@@ -41,9 +42,9 @@ export async function GET(
     return NextResponse.json({ error: 'Portal is disabled' }, { status: 404 });
   }
 
-  // Check PIN if required
+  // Check PIN if required (prefer header, fall back to query param)
   if (settings.pin) {
-    const pin = request.nextUrl.searchParams.get('pin');
+    const pin = request.headers.get('x-portal-pin');
     if (!pin || pin !== settings.pin) {
       const { data: proj } = await supabase
         .from('projects')
@@ -63,12 +64,14 @@ export async function GET(
     }
   }
 
-  // Fetch the file and verify it belongs to the portal's project
+  // Fetch the file: must be an external entity file for this project
   const { data: file } = await supabase
-    .from('portal_files')
+    .from('entity_files')
     .select('id, name, file_url, file_size, mime_type')
     .eq('id', fileId)
-    .eq('project_id', settings.project_id)
+    .eq('entity_type', 'project')
+    .eq('entity_id', settings.project_id)
+    .eq('visibility', 'external')
     .maybeSingle();
 
   if (!file) {
@@ -86,9 +89,9 @@ function handleDemoMode(token: string, fileId: string, request: NextRequest) {
 
   const project = demoProjects.find(p => p.id === settings.project_id);
 
-  // Check PIN
+  // Check PIN (prefer header, fall back to query param)
   if (settings.pin) {
-    const pin = request.nextUrl.searchParams.get('pin');
+    const pin = request.headers.get('x-portal-pin');
     if (!pin || pin !== settings.pin) {
       return NextResponse.json({
         error: pin ? 'Invalid PIN' : 'PIN required',
@@ -102,8 +105,10 @@ function handleDemoMode(token: string, fileId: string, request: NextRequest) {
     }
   }
 
-  // Find the file in demo data, scoped to this project
-  const file = demoPortalFiles.find(f => f.id === fileId && f.project_id === settings.project_id);
+  // Find the file in demo entity files: must be external + project type + matching project
+  const file = demoEntityFiles.find(
+    f => f.id === fileId && f.entity_type === 'project' && f.entity_id === settings.project_id && f.visibility === 'external'
+  );
   if (!file) {
     return NextResponse.json({ error: 'File not found' }, { status: 404 });
   }

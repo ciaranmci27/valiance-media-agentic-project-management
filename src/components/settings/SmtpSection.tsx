@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { toast } from '@/components/ui/Toast';
+import { Tooltip } from '@/components/ui/Tooltip';
 import type { SmtpAccountSafe } from '@/lib/email/types';
 
 interface AccountStatus {
@@ -507,19 +508,21 @@ export function SmtpSection() {
                 <div key={account.id}>
                   <div className="flex items-center gap-3 px-4 py-3">
                     {/* Status dot */}
-                    <div className="flex-shrink-0" title={
+                    <Tooltip content={
                       status?.online === null ? 'Checking...' :
                       status?.online ? 'Connected' :
                       status?.reason || 'Offline'
                     }>
-                      {status?.online === null ? (
-                        <Loader2 className="animate-spin text-zinc-400" size={14} />
-                      ) : (
-                        <div className={`w-2.5 h-2.5 rounded-full ${
-                          status?.online ? 'bg-emerald-500' : 'bg-red-400'
-                        }`} />
-                      )}
-                    </div>
+                      <div className="flex-shrink-0">
+                        {status?.online === null ? (
+                          <Loader2 className="animate-spin text-zinc-400" size={14} />
+                        ) : (
+                          <div className={`w-2.5 h-2.5 rounded-full ${
+                            status?.online ? 'bg-emerald-500' : 'bg-red-400'
+                          }`} />
+                        )}
+                      </div>
+                    </Tooltip>
 
                     {/* Info */}
                     <div className="flex-1 min-w-0">
@@ -540,37 +543,41 @@ export function SmtpSection() {
 
                     {/* Actions */}
                     <div className="flex items-center gap-1 flex-shrink-0">
-                      <button
-                        onClick={() => verifyAccount(account.id)}
-                        className="p-1.5 text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 rounded-lg transition-colors"
-                        title="Refresh status"
-                      >
-                        <RefreshCw size={14} />
-                      </button>
-                      <button
-                        onClick={() => {
-                          setTestingId(testingId === account.id ? null : account.id);
-                          setTestTo('');
-                        }}
-                        className="p-1.5 text-zinc-400 hover:text-brand-600 hover:bg-brand-50 rounded-lg transition-colors"
-                        title="Send test email"
-                      >
-                        <Send size={14} />
-                      </button>
-                      <button
-                        onClick={() => handleEdit(account)}
-                        className="p-1.5 text-zinc-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                        title="Edit account"
-                      >
-                        <Pencil size={14} />
-                      </button>
-                      <button
-                        onClick={() => setDeleteTarget(account)}
-                        className="p-1.5 text-zinc-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                        title="Delete account"
-                      >
-                        <Trash2 size={14} />
-                      </button>
+                      <Tooltip content="Refresh status">
+                        <button
+                          onClick={() => verifyAccount(account.id)}
+                          className="p-1.5 text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 rounded-lg transition-colors"
+                        >
+                          <RefreshCw size={14} />
+                        </button>
+                      </Tooltip>
+                      <Tooltip content="Send test email">
+                        <button
+                          onClick={() => {
+                            setTestingId(testingId === account.id ? null : account.id);
+                            setTestTo('');
+                          }}
+                          className="p-1.5 text-zinc-400 hover:text-brand-600 hover:bg-brand-50 rounded-lg transition-colors"
+                        >
+                          <Send size={14} />
+                        </button>
+                      </Tooltip>
+                      <Tooltip content="Edit account">
+                        <button
+                          onClick={() => handleEdit(account)}
+                          className="p-1.5 text-zinc-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                        >
+                          <Pencil size={14} />
+                        </button>
+                      </Tooltip>
+                      <Tooltip content="Delete account">
+                        <button
+                          onClick={() => setDeleteTarget(account)}
+                          className="p-1.5 text-zinc-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </Tooltip>
                     </div>
                   </div>
 

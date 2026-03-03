@@ -177,7 +177,7 @@ export default function LeadDetailPage() {
             </Button>
             {canConvert && (
               <Button variant="secondary" onClick={() => setIsConvertOpen(true)} icon={<ArrowRightCircle size={16} />}>
-                Convert
+                <span className="hidden [@media(min-width:400px)]:inline">Convert</span>
               </Button>
             )}
           </div>
@@ -187,7 +187,7 @@ export default function LeadDetailPage() {
       <div className="p-4 lg:p-6 space-y-6">
         {/* Lead Info Card */}
         <div className="bg-white rounded-xl border border-zinc-200 p-5 lg:p-6">
-          <div className="flex items-center gap-3 mb-4 flex-wrap">
+          <div className="flex flex-col lg:flex-row lg:items-center lg:gap-5 mb-4">
             <h2 className="flex items-center gap-2 text-lg font-semibold text-zinc-900">
               <User size={18} className="text-zinc-400" />
               {lead.name}
@@ -198,6 +198,30 @@ export default function LeadDetailPage() {
                 {lead.company}
               </span>
             )}
+            <div className="flex items-center gap-4 text-sm mt-1 lg:mt-0">
+              {lead.email ? (
+                <a href={`mailto:${lead.email}`} className="flex items-center gap-1.5 text-zinc-600 hover:text-brand-600 transition-colors">
+                  <Mail size={14} className="text-zinc-400" />
+                  <span>{lead.email}</span>
+                </a>
+              ) : (
+                <span className="flex items-center gap-1.5 text-zinc-300 italic">
+                  <Mail size={14} />
+                  <span>No email</span>
+                </span>
+              )}
+              {lead.phone ? (
+                <a href={`tel:${lead.phone}`} className="flex items-center gap-1.5 text-zinc-600 hover:text-brand-600 transition-colors">
+                  <Phone size={14} className="text-zinc-400" />
+                  <span>{formatPhone(lead.phone)}</span>
+                </a>
+              ) : (
+                <span className="flex items-center gap-1.5 text-zinc-300 italic">
+                  <Phone size={14} />
+                  <span>No phone</span>
+                </span>
+              )}
+            </div>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-[1fr_1fr_1fr_1fr_3fr] gap-4 mb-4">
             <div>
@@ -235,21 +259,6 @@ export default function LeadDetailPage() {
                 <span className="text-sm text-zinc-400">No members assigned</span>
               )}
             </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
-            {lead.email && (
-              <a href={`mailto:${lead.email}`} className="flex items-center gap-2 text-zinc-600 hover:text-brand-600 transition-colors">
-                <Mail size={16} className="text-zinc-400" />
-                <span>{lead.email}</span>
-              </a>
-            )}
-            {lead.phone && (
-              <a href={`tel:${lead.phone}`} className="flex items-center gap-2 text-zinc-600 hover:text-brand-600 transition-colors">
-                <Phone size={16} className="text-zinc-400" />
-                <span>{formatPhone(lead.phone)}</span>
-              </a>
-            )}
           </div>
 
           {/* Editable Notes */}

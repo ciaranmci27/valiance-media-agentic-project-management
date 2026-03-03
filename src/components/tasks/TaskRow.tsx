@@ -7,6 +7,7 @@ import { StatusBadge, PriorityBadge, TaskTypeBadge } from '@/components/ui/Badge
 import { AvatarGroup } from '@/components/ui/Avatar';
 import { Calendar, CheckSquare, MessageSquare, MoreVertical, Edit, Trash2, Clock } from 'lucide-react';
 import { useState } from 'react';
+import { Tooltip } from '@/components/ui/Tooltip';
 
 function timeAgo(dateStr: string): string {
   const now = Date.now();
@@ -130,10 +131,12 @@ export function TaskRow({ task, onView, onEdit, onDelete }: TaskRowProps) {
               </span>
             )}
 
-            <span className="text-xs text-zinc-400 flex items-center gap-1" title={`Updated ${new Date(task.updated_at).toLocaleString()}`}>
-              <Clock size={12} />
-              {timeAgo(task.updated_at)}
-            </span>
+            <Tooltip content={`Updated ${new Date(task.updated_at).toLocaleString()}`}>
+              <span className="text-xs text-zinc-400 flex items-center gap-1">
+                <Clock size={12} />
+                {timeAgo(task.updated_at)}
+              </span>
+            </Tooltip>
           </div>
 
           {/* Assignees */}
@@ -285,9 +288,11 @@ export function TaskRowDesktop({ task, onView, onEdit, onDelete, selected, onTog
 
       {/* Updated */}
       <div className="w-20 text-center">
-        <span className="text-xs text-zinc-400" title={`Updated ${new Date(task.updated_at).toLocaleString()}`}>
-          {timeAgo(task.updated_at)}
-        </span>
+        <Tooltip content={`Updated ${new Date(task.updated_at).toLocaleString()}`}>
+          <span className="text-xs text-zinc-400">
+            {timeAgo(task.updated_at)}
+          </span>
+        </Tooltip>
       </div>
 
       {/* Assignees */}

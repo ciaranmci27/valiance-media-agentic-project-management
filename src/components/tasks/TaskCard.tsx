@@ -7,6 +7,7 @@ import { StatusBadge, PriorityBadge, TaskTypeBadge } from '@/components/ui/Badge
 import { AvatarGroup } from '@/components/ui/Avatar';
 import { Calendar, MessageSquare, CheckSquare, MoreVertical, Edit, Trash2, Clock } from 'lucide-react';
 import { useState } from 'react';
+import { Tooltip } from '@/components/ui/Tooltip';
 
 function timeAgo(dateStr: string): string {
   const now = Date.now();
@@ -152,10 +153,12 @@ export function TaskCard({ task, onView, onEdit, onDelete }: TaskCardProps) {
               <span>{task.comments.length}</span>
             </div>
           )}
-          <div className="flex items-center gap-1 text-xs text-zinc-400" title={`Updated ${new Date(task.updated_at).toLocaleString()}`}>
-            <Clock size={12} />
-            <span>{timeAgo(task.updated_at)}</span>
-          </div>
+          <Tooltip content={`Updated ${new Date(task.updated_at).toLocaleString()}`}>
+            <div className="flex items-center gap-1 text-xs text-zinc-400">
+              <Clock size={12} />
+              <span>{timeAgo(task.updated_at)}</span>
+            </div>
+          </Tooltip>
         </div>
         
         {assignees.length > 0 && (

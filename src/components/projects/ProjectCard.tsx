@@ -7,6 +7,7 @@ import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { StatusBadge } from '@/components/ui/Badge';
 import { AvatarGroup } from '@/components/ui/Avatar';
+import { Tooltip } from '@/components/ui/Tooltip';
 import { useState } from 'react';
 
 interface ProjectCardProps {
@@ -56,9 +57,11 @@ export function ProjectCard({ project, onEdit, onDelete }: ProjectCardProps) {
             <div className="mt-1 flex items-center gap-1.5 flex-wrap">
               <StatusBadge status={project.status} />
               {isAgentsEnabled && isAdmin && project.autonomous_enabled && (
-                <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-violet-100 text-violet-700" title="Autonomous agents enabled">
-                  <Bot size={12} />
-                </span>
+                <Tooltip content="Autonomous agents enabled">
+                  <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-violet-100 text-violet-700">
+                    <Bot size={12} />
+                  </span>
+                </Tooltip>
               )}
               {primaryClient?.contact && (
                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-violet-100 text-violet-700">

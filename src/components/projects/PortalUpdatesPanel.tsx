@@ -9,6 +9,7 @@ import { useDemo } from '@/lib/demo-context';
 import { createClient } from '@/lib/supabase/client';
 import { toast } from '@/components/ui/Toast';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { Tooltip } from '@/components/ui/Tooltip';
 import type { PortalUpdate, PortalUpdateType, PortalUpdateAttachment } from '@/lib/types';
 
 interface PortalUpdatesPanelProps {
@@ -97,20 +98,22 @@ function AttachmentChips({ attachments, onRemove }: { attachments: PortalUpdateA
                 </button>
               ) : a.file_url !== '#' && (
                 <div className="absolute inset-0 rounded-md bg-black/0 group-hover/att:bg-black/40 transition-colors flex items-center justify-center gap-1 opacity-0 group-hover/att:opacity-100">
-                  <button
-                    onClick={() => window.open(a.file_url, '_blank', 'noopener,noreferrer')}
-                    className="p-1 bg-white/90 rounded text-zinc-700 hover:bg-white transition-colors"
-                    title="Preview"
-                  >
-                    <Eye size={11} />
-                  </button>
-                  <button
-                    onClick={() => downloadFile(a.file_url, a.name)}
-                    className="p-1 bg-white/90 rounded text-zinc-700 hover:bg-white transition-colors"
-                    title="Download"
-                  >
-                    <Download size={11} />
-                  </button>
+                  <Tooltip content="Preview">
+                    <button
+                      onClick={() => window.open(a.file_url, '_blank', 'noopener,noreferrer')}
+                      className="p-1 bg-white/90 rounded text-zinc-700 hover:bg-white transition-colors"
+                    >
+                      <Eye size={11} />
+                    </button>
+                  </Tooltip>
+                  <Tooltip content="Download">
+                    <button
+                      onClick={() => downloadFile(a.file_url, a.name)}
+                      className="p-1 bg-white/90 rounded text-zinc-700 hover:bg-white transition-colors"
+                    >
+                      <Download size={11} />
+                    </button>
+                  </Tooltip>
                 </div>
               )}
             </div>
@@ -137,22 +140,24 @@ function AttachmentChips({ attachments, onRemove }: { attachments: PortalUpdateA
                 ) : (
                   <>
                     {a.file_url !== '#' && (
-                      <button
-                        onClick={() => window.open(a.file_url, '_blank', 'noopener,noreferrer')}
-                        className="p-0.5 text-zinc-400 hover:text-brand-600 transition-colors"
-                        title="Preview"
-                      >
-                        <Eye size={11} />
-                      </button>
+                      <Tooltip content="Preview">
+                        <button
+                          onClick={() => window.open(a.file_url, '_blank', 'noopener,noreferrer')}
+                          className="p-0.5 text-zinc-400 hover:text-brand-600 transition-colors"
+                        >
+                          <Eye size={11} />
+                        </button>
+                      </Tooltip>
                     )}
                     {!isHtml && a.file_url !== '#' && (
-                      <button
-                        onClick={() => downloadFile(a.file_url, a.name)}
-                        className="p-0.5 text-zinc-400 hover:text-brand-600 transition-colors"
-                        title="Download"
-                      >
-                        <Download size={11} />
-                      </button>
+                      <Tooltip content="Download">
+                        <button
+                          onClick={() => downloadFile(a.file_url, a.name)}
+                          className="p-0.5 text-zinc-400 hover:text-brand-600 transition-colors"
+                        >
+                          <Download size={11} />
+                        </button>
+                      </Tooltip>
                     )}
                   </>
                 )}
@@ -556,20 +561,22 @@ export function PortalUpdatesPanel({ projectId }: PortalUpdatesPanelProps) {
                       </p>
                     </div>
                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
-                      <button
-                        onClick={() => handleStartEdit(update)}
-                        className="p-1.5 text-zinc-400 hover:text-brand-600 transition-colors"
-                        title="Edit"
-                      >
-                        <Pencil size={14} />
-                      </button>
-                      <button
-                        onClick={() => setDeleteTarget(update.id)}
-                        className="p-1.5 text-zinc-400 hover:text-red-500 transition-colors"
-                        title="Delete"
-                      >
-                        <Trash2 size={14} />
-                      </button>
+                      <Tooltip content="Edit">
+                        <button
+                          onClick={() => handleStartEdit(update)}
+                          className="p-1.5 text-zinc-400 hover:text-brand-600 transition-colors"
+                        >
+                          <Pencil size={14} />
+                        </button>
+                      </Tooltip>
+                      <Tooltip content="Delete">
+                        <button
+                          onClick={() => setDeleteTarget(update.id)}
+                          className="p-1.5 text-zinc-400 hover:text-red-500 transition-colors"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </Tooltip>
                     </div>
                   </div>
                 );

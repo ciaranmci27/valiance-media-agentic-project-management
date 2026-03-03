@@ -6,6 +6,7 @@ import { useEffect } from 'react';
 import {
   Bold, Italic, Strikethrough, List, ListOrdered,
 } from 'lucide-react';
+import { Tooltip } from '@/components/ui/Tooltip';
 
 interface RichTextEditorProps {
   value: string;
@@ -26,18 +27,19 @@ function ToolbarButton({
   title: string;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      title={title}
-      className={`p-1.5 rounded transition-colors ${
-        active
-          ? 'bg-brand-100 text-brand-700'
-          : 'text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700'
-      }`}
-    >
-      {children}
-    </button>
+    <Tooltip content={title}>
+      <button
+        type="button"
+        onClick={onClick}
+        className={`p-1.5 rounded transition-colors ${
+          active
+            ? 'bg-brand-100 text-brand-700'
+            : 'text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700'
+        }`}
+      >
+        {children}
+      </button>
+    </Tooltip>
   );
 }
 

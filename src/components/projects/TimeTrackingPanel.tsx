@@ -8,6 +8,7 @@ import { toast } from '@/components/ui/Toast';
 import { Avatar, AvatarGroup } from '@/components/ui/Avatar';
 import { Select } from '@/components/ui/Select';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { Tooltip } from '@/components/ui/Tooltip';
 import { TimeEntry } from '@/lib/types';
 import { siteConfig } from '@/site-config';
 import { toLocalTimeString, toLocalDateString } from '@/lib/date-utils';
@@ -633,20 +634,22 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                             </p>
                           </div>
                           <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <button
-                              onClick={() => startEdit(entry)}
-                              className="p-1.5 text-zinc-300 hover:text-brand-600 transition-colors"
-                              title="Edit"
-                            >
-                              <Pencil size={13} />
-                            </button>
-                            <button
-                              onClick={() => setDeleteTarget(entry.id)}
-                              className="p-1.5 text-zinc-300 hover:text-red-500 transition-colors"
-                              title="Delete"
-                            >
-                              <Trash2 size={13} />
-                            </button>
+                            <Tooltip content="Edit">
+                              <button
+                                onClick={() => startEdit(entry)}
+                                className="p-1.5 text-zinc-300 hover:text-brand-600 transition-colors"
+                              >
+                                <Pencil size={13} />
+                              </button>
+                            </Tooltip>
+                            <Tooltip content="Delete">
+                              <button
+                                onClick={() => setDeleteTarget(entry.id)}
+                                className="p-1.5 text-zinc-300 hover:text-red-500 transition-colors"
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            </Tooltip>
                           </div>
                         </div>
                       );

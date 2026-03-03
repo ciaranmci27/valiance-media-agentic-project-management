@@ -259,37 +259,22 @@ create table public.portal_settings (
   id uuid primary key default gen_random_uuid(),
   project_id uuid not null references public.projects(id) on delete cascade,
   enabled boolean not null default false,
-  token text not null default encode(gen_random_bytes(24), 'hex'),
+  token text not null,
   pin text default null,
   welcome_message text not null default '',
   logo_url text not null default '',
   accent_color text not null default '#6366F1',
   show_progress boolean not null default true,
-  show_proposals boolean not null default true,
   show_files boolean not null default true,
   show_hours boolean not null default true,
   show_updates boolean not null default true,
   show_credentials boolean not null default false,
   show_invoices boolean not null default false,
+  section_order text[] not null default '{show_progress,show_hours,show_updates,show_files,show_credentials,show_invoices}',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   unique(project_id),
   unique(token)
-);
-
--- ============================================================
--- 18. PORTAL FILES (per-project shared deliverables)
--- ============================================================
-create table public.portal_files (
-  id uuid primary key default gen_random_uuid(),
-  project_id uuid not null references public.projects(id) on delete cascade,
-  name text not null,
-  file_url text not null,
-  file_size bigint not null default 0,
-  mime_type text not null default 'application/octet-stream',
-  uploaded_by uuid references public.team_members(id) on delete set null,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
 );
 
 -- ============================================================
@@ -303,6 +288,7 @@ create table public.entity_files (
   file_url text not null,
   file_size bigint not null default 0,
   mime_type text not null default 'application/octet-stream',
+  visibility text not null default 'internal' check (visibility in ('internal', 'external')),
   uploaded_by uuid references public.team_members(id) on delete set null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -489,14 +475,13 @@ create index idx_lead_contacts_lead_id on public.lead_contacts(lead_id);
 create index idx_lead_contacts_contact_id on public.lead_contacts(contact_id);
 create index idx_portal_settings_project_id on public.portal_settings(project_id);
 create index idx_portal_settings_token on public.portal_settings(token);
-create index idx_portal_files_project_id on public.portal_files(project_id);
-
 create index idx_portal_updates_project_id on public.portal_updates(project_id);
 create index idx_portal_updates_created_at on public.portal_updates(created_at desc);
 
 create index idx_portal_update_attachments_update_id on public.portal_update_attachments(update_id);
 
 create index idx_entity_files_entity on public.entity_files(entity_type, entity_id);
+create index idx_entity_files_external_project on public.entity_files(entity_id) where entity_type = 'project' and visibility = 'external';
 
 create index idx_api_keys_key_hash on public.api_keys(key_hash);
 create index idx_api_keys_revoked_at on public.api_keys(revoked_at) where revoked_at is null;
@@ -597,10 +582,6 @@ create trigger set_portal_settings_updated_at
   before update on public.portal_settings
   for each row execute function public.handle_updated_at();
 
-create trigger set_portal_files_updated_at
-  before update on public.portal_files
-  for each row execute function public.handle_updated_at();
-
 create trigger set_entity_files_updated_at
   before update on public.entity_files
   for each row execute function public.handle_updated_at();
@@ -675,7 +656,6 @@ alter table public.lead_fields enable row level security;
 alter table public.lead_members enable row level security;
 alter table public.lead_contacts enable row level security;
 alter table public.portal_settings enable row level security;
-alter table public.portal_files enable row level security;
 alter table public.entity_files enable row level security;
 alter table public.api_keys enable row level security;
 alter table public.portal_updates enable row level security;
@@ -735,9 +715,6 @@ create policy "lead_contacts_all" on public.lead_contacts
   for all to authenticated using (true) with check (true);
 
 create policy "portal_settings_all" on public.portal_settings
-  for all to authenticated using (true) with check (true);
-
-create policy "portal_files_all" on public.portal_files
   for all to authenticated using (true) with check (true);
 
 create policy "entity_files_all" on public.entity_files
@@ -807,7 +784,7 @@ create policy "Public can read avatars"
   using (bucket_id = 'avatars');
 
 -- ============================================================
--- STORAGE: Portal Files Bucket (public, 50MB limit)
+-- STORAGE: Portal Files Bucket (public, 50MB limit) — used by portal update attachments
 -- ============================================================
 insert into storage.buckets (id, name, public, file_size_limit)
 values ('portal-files', 'portal-files', true, 52428800)

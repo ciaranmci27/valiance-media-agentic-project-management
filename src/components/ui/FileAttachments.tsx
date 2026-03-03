@@ -1,12 +1,13 @@
 'use client';
 
-import React, { useState, useRef } from 'react';
-import { Upload, Download, Trash2, Pencil, File, FileText, Image, Archive, Globe, Paperclip, Eye } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Upload, Download, Trash2, Pencil, File, FileText, Image, Archive, Globe, Paperclip, Eye, MoreHorizontal, Share2, ShieldOff } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
 import { createClient } from '@/lib/supabase/client';
 import { toast } from '@/components/ui/Toast';
+import { Tooltip } from '@/components/ui/Tooltip';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import type { EntityFileType } from '@/lib/types';
 
@@ -30,7 +31,7 @@ interface FileAttachmentsProps {
 }
 
 export function FileAttachments({ entityType, entityId }: FileAttachmentsProps) {
-  const { getEntityFiles, addEntityFile, renameEntityFile, deleteEntityFile } = useApp();
+  const { getEntityFiles, addEntityFile, renameEntityFile, deleteEntityFile, updateEntityFileVisibility } = useApp();
   const { teamMemberId } = useAuth();
   const { isDemoMode } = useDemo();
 
@@ -38,10 +39,25 @@ export function FileAttachments({ entityType, entityId }: FileAttachmentsProps) 
   const [editingFileId, setEditingFileId] = useState<string | null>(null);
   const [editingFileName, setEditingFileName] = useState('');
   const [deleteFileTarget, setDeleteFileTarget] = useState<string | null>(null);
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const renameCancelledRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   const files = getEntityFiles(entityType, entityId);
+  const isProject = entityType === 'project';
+
+  // Close menu on click outside
+  useEffect(() => {
+    if (!openMenuId) return;
+    const handleClick = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setOpenMenuId(null);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [openMenuId]);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const fileList = e.target.files;
@@ -63,6 +79,7 @@ export function FileAttachments({ entityType, entityId }: FileAttachmentsProps) 
         file_url: '#',
         file_size: file.size,
         mime_type: file.type || 'application/octet-stream',
+        visibility: 'internal',
         uploaded_by: teamMemberId,
       });
       setUploading(false);
@@ -91,6 +108,7 @@ export function FileAttachments({ entityType, entityId }: FileAttachmentsProps) 
         file_url: urlData.publicUrl,
         file_size: file.size,
         mime_type: file.type || 'application/octet-stream',
+        visibility: 'internal',
         uploaded_by: teamMemberId,
       });
 
@@ -105,12 +123,37 @@ export function FileAttachments({ entityType, entityId }: FileAttachmentsProps) 
 
   const handleDeleteFile = (fileId: string) => {
     setDeleteFileTarget(fileId);
+    setOpenMenuId(null);
   };
 
   const executeDeleteFile = () => {
     if (deleteFileTarget) {
       deleteEntityFile(deleteFileTarget);
       toast('success', 'File removed');
+    }
+  };
+
+  const handleToggleVisibility = (fileId: string, currentVisibility: string) => {
+    const newVisibility = currentVisibility === 'external' ? 'internal' : 'external';
+    updateEntityFileVisibility(fileId, newVisibility);
+    toast('success', newVisibility === 'external' ? 'File shared to portal' : 'File removed from portal');
+  };
+
+  const handleDownload = async (fileUrl: string, fileName: string) => {
+    setOpenMenuId(null);
+    try {
+      const res = await fetch(fileUrl);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      toast('error', 'Failed to download file');
     }
   };
 
@@ -144,6 +187,8 @@ export function FileAttachments({ entityType, entityId }: FileAttachmentsProps) 
             {files.map(file => {
               const FileIcon = getFileIcon(file.mime_type);
               const isEditing = editingFileId === file.id;
+              const isExternal = file.visibility === 'external';
+              const isMenuOpen = openMenuId === file.id;
               return (
                 <div
                   key={file.id}
@@ -182,63 +227,91 @@ export function FileAttachments({ entityType, entityId }: FileAttachmentsProps) 
                         className="text-sm text-zinc-700 bg-white border border-brand-300 rounded px-1.5 py-0.5 outline-none focus:ring-2 focus:ring-brand-100 min-w-0 w-full"
                       />
                     ) : (
-                      <p
-                        className="text-sm text-zinc-700 truncate cursor-pointer hover:text-zinc-900"
-                        onClick={() => { setEditingFileId(file.id); setEditingFileName(file.name); }}
-                        title="Click to rename"
-                      >
+                      <p className="text-sm text-zinc-700 truncate">
                         {file.name}
                       </p>
                     )}
                     <p className="text-xs text-zinc-400">{formatFileSize(file.file_size)} &middot; {new Date(file.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p>
                   </div>
-                  {!isEditing && (
-                    <>
+                  {!isEditing && isProject && (
+                    <Tooltip content={isExternal ? 'Shared on portal (click to remove)' : 'Share to portal'}>
                       <button
-                        onClick={() => window.open(file.file_url, '_blank', 'noopener,noreferrer')}
-                        className="p-1.5 text-zinc-300 hover:text-brand-500 opacity-0 group-hover:opacity-100 transition-all"
-                        title="Preview file"
+                        onClick={() => handleToggleVisibility(file.id, file.visibility)}
+                        className={`p-1.5 rounded-md transition-all ${
+                          isExternal
+                            ? 'text-brand-500 hover:text-brand-600 hover:bg-brand-50'
+                            : 'text-zinc-300 hover:text-brand-500 hover:bg-brand-50 opacity-0 group-hover:opacity-100'
+                        }`}
                       >
-                        <Eye size={14} />
+                        <Globe size={14} />
                       </button>
-                      <button
-                        onClick={async () => {
-                          try {
-                            const res = await fetch(file.file_url);
-                            const blob = await res.blob();
-                            const url = URL.createObjectURL(blob);
-                            const a = document.createElement('a');
-                            a.href = url;
-                            a.download = file.name;
-                            document.body.appendChild(a);
-                            a.click();
-                            a.remove();
-                            URL.revokeObjectURL(url);
-                          } catch {
-                            toast('error', 'Failed to download file');
-                          }
-                        }}
-                        className="p-1.5 text-zinc-300 hover:text-brand-500 opacity-0 group-hover:opacity-100 transition-all"
-                        title="Download file"
-                      >
-                        <Download size={14} />
-                      </button>
-                      <button
-                        onClick={() => { setEditingFileId(file.id); setEditingFileName(file.name); }}
-                        className="p-1.5 text-zinc-300 hover:text-brand-500 opacity-0 group-hover:opacity-100 transition-all"
-                        title="Rename file"
-                      >
-                        <Pencil size={14} />
-                      </button>
-                    </>
+                    </Tooltip>
                   )}
-                  <button
-                    onClick={() => handleDeleteFile(file.id)}
-                    className="p-1.5 text-zinc-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"
-                    title="Remove file"
-                  >
-                    <Trash2 size={14} />
-                  </button>
+                  {!isEditing && (
+                    <div className="relative" ref={isMenuOpen ? menuRef : undefined}>
+                      <button
+                        onClick={() => setOpenMenuId(isMenuOpen ? null : file.id)}
+                        className="p-1.5 text-zinc-300 hover:text-zinc-600 opacity-0 group-hover:opacity-100 data-[open]:opacity-100 transition-all rounded-md hover:bg-zinc-200"
+                        data-open={isMenuOpen || undefined}
+                      >
+                        <MoreHorizontal size={16} />
+                      </button>
+                      {isMenuOpen && (
+                        <div className="absolute right-0 top-full mt-1 w-48 bg-white border border-zinc-200 rounded-lg shadow-lg z-50 py-1">
+                          <button
+                            onClick={() => { window.open(file.file_url, '_blank', 'noopener,noreferrer'); setOpenMenuId(null); }}
+                            className="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-50 transition-colors"
+                          >
+                            <Eye size={14} className="text-zinc-400" />
+                            Preview
+                          </button>
+                          <button
+                            onClick={() => handleDownload(file.file_url, file.name)}
+                            className="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-50 transition-colors"
+                          >
+                            <Download size={14} className="text-zinc-400" />
+                            Download
+                          </button>
+                          <button
+                            onClick={() => { setEditingFileId(file.id); setEditingFileName(file.name); setOpenMenuId(null); }}
+                            className="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-50 transition-colors"
+                          >
+                            <Pencil size={14} className="text-zinc-400" />
+                            Rename
+                          </button>
+                          {isProject && (
+                            <>
+                              <div className="border-t border-zinc-100 my-1" />
+                              <button
+                                onClick={() => handleToggleVisibility(file.id, file.visibility)}
+                                className="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-50 transition-colors"
+                              >
+                                {isExternal ? (
+                                  <>
+                                    <ShieldOff size={14} className="text-zinc-400" />
+                                    Remove from Portal
+                                  </>
+                                ) : (
+                                  <>
+                                    <Share2 size={14} className="text-zinc-400" />
+                                    Share to Portal
+                                  </>
+                                )}
+                              </button>
+                            </>
+                          )}
+                          <div className="border-t border-zinc-100 my-1" />
+                          <button
+                            onClick={() => handleDeleteFile(file.id)}
+                            className="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors"
+                          >
+                            <Trash2 size={14} />
+                            Delete
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })}

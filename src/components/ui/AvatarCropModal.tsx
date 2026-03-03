@@ -14,14 +14,13 @@ interface AvatarCropModalProps {
 const OUTPUT_SIZE = 256;
 const QUALITY = 0.8;
 const CONTAINER_SIZE = 280;
-const MIN_ZOOM = 1;
 const MAX_ZOOM = 3;
 
 export function AvatarCropModal({ file, onCrop, onCancel }: AvatarCropModalProps) {
   const [imgSrc, setImgSrc] = useState<string | null>(null);
   const [naturalW, setNaturalW] = useState(0);
   const [naturalH, setNaturalH] = useState(0);
-  const [zoom, setZoom] = useState(MIN_ZOOM);
+  const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [dragging, setDragging] = useState(false);
   const dragRef = useRef({ startX: 0, startY: 0, panStartX: 0, panStartY: 0 });
@@ -42,14 +41,16 @@ export function AvatarCropModal({ file, onCrop, onCancel }: AvatarCropModalProps
 
     const url = URL.createObjectURL(file);
     setImgSrc(url);
-    setZoom(MIN_ZOOM);
     setPan({ x: 0, y: 0 });
 
     const img = new Image();
     img.onload = () => {
-      setNaturalW(img.width);
-      setNaturalH(img.height);
+      setNaturalW(img.naturalWidth);
+      setNaturalH(img.naturalHeight);
       imgRef.current = img;
+      // Start zoomed out enough to see the full image
+      const containZoom = Math.min(img.naturalWidth, img.naturalHeight) / Math.max(img.naturalWidth, img.naturalHeight);
+      setZoom(Math.max(0.4, containZoom));
     };
     img.src = url;
 
@@ -58,6 +59,11 @@ export function AvatarCropModal({ file, onCrop, onCancel }: AvatarCropModalProps
 
   const baseScale = naturalW && naturalH
     ? CONTAINER_SIZE / Math.min(naturalW, naturalH)
+    : 1;
+
+  // Dynamic min zoom: show the full image (contain), floored at 0.4
+  const minZoom = naturalW && naturalH
+    ? Math.max(0.4, Math.min(naturalW, naturalH) / Math.max(naturalW, naturalH))
     : 1;
 
   const clampPan = useCallback((px: number, py: number, z: number) => {
@@ -87,8 +93,11 @@ export function AvatarCropModal({ file, onCrop, onCancel }: AvatarCropModalProps
 
   const handlePointerUp = () => setDragging(false);
 
+  const minZoomRef = useRef(minZoom);
+  minZoomRef.current = minZoom;
+
   const handleZoom = useCallback((z: number) => {
-    const clamped = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, z));
+    const clamped = Math.max(minZoomRef.current, Math.min(MAX_ZOOM, z));
     setZoom(clamped);
     setPan(prev => clampPan(prev.x, prev.y, clamped));
   }, [clampPan]);
@@ -167,6 +176,8 @@ export function AvatarCropModal({ file, onCrop, onCancel }: AvatarCropModalProps
                 style={{
                   width: naturalW * es,
                   height: naturalH * es,
+                  maxWidth: 'none',
+                  maxHeight: 'none',
                   left: '50%',
                   top: '50%',
                   transform: `translate(-50%, -50%) translate(${pan.x}px, ${pan.y}px)`,
@@ -187,7 +198,7 @@ export function AvatarCropModal({ file, onCrop, onCancel }: AvatarCropModalProps
           </button>
           <input
             type="range"
-            min={MIN_ZOOM}
+            min={minZoom}
             max={MAX_ZOOM}
             step={0.01}
             value={zoom}

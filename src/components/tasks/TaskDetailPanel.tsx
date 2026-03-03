@@ -10,6 +10,7 @@ import {
   X, Edit, Trash2, Calendar, CheckSquare, MessageSquare, Plus, Tag, Users, Clock, GripVertical,
 } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { Tooltip } from '@/components/ui/Tooltip';
 
 interface TaskDetailPanelProps {
   task: Task | null;
@@ -131,20 +132,22 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
         <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-200 flex-shrink-0">
           <h2 className="text-lg font-semibold text-zinc-900 truncate pr-3">{task.title}</h2>
           <div className="flex items-center gap-1.5 flex-shrink-0">
-            <button
-              onClick={() => onEdit(task)}
-              className="p-1.5 rounded-lg text-zinc-500 hover:text-brand-600 hover:bg-brand-50 transition-colors"
-              title="Edit task"
-            >
-              <Edit size={16} />
-            </button>
-            <button
-              onClick={handleDelete}
-              className="p-1.5 rounded-lg text-zinc-500 hover:text-red-600 hover:bg-red-50 transition-colors"
-              title="Delete task"
-            >
-              <Trash2 size={16} />
-            </button>
+            <Tooltip content="Edit task">
+              <button
+                onClick={() => onEdit(task)}
+                className="p-1.5 rounded-lg text-zinc-500 hover:text-brand-600 hover:bg-brand-50 transition-colors"
+              >
+                <Edit size={16} />
+              </button>
+            </Tooltip>
+            <Tooltip content="Delete task">
+              <button
+                onClick={handleDelete}
+                className="p-1.5 rounded-lg text-zinc-500 hover:text-red-600 hover:bg-red-50 transition-colors"
+              >
+                <Trash2 size={16} />
+              </button>
+            </Tooltip>
             <button
               onClick={onClose}
               className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 transition-colors"
@@ -376,16 +379,17 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
                         />
                       </form>
                     ) : (
-                      <span
-                        className={`flex-1 text-sm cursor-pointer ${subtask.completed ? 'text-zinc-400 line-through' : 'text-zinc-700'}`}
-                        onDoubleClick={() => {
-                          setEditingSubtaskId(subtask.id);
-                          setEditingSubtaskTitle(subtask.title);
-                        }}
-                        title="Double-click to edit"
-                      >
-                        {subtask.title}
-                      </span>
+                      <Tooltip content="Double-click to edit" delay={500}>
+                        <span
+                          className={`flex-1 text-sm cursor-pointer ${subtask.completed ? 'text-zinc-400 line-through' : 'text-zinc-700'}`}
+                          onDoubleClick={() => {
+                            setEditingSubtaskId(subtask.id);
+                            setEditingSubtaskTitle(subtask.title);
+                          }}
+                        >
+                          {subtask.title}
+                        </span>
+                      </Tooltip>
                     )}
                     <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-all">
                       <button

@@ -8,6 +8,7 @@ import Modal from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
+import { Tooltip } from '@/components/ui/Tooltip';
 import { FolderKanban, Plus, Edit, Archive, Bot } from 'lucide-react';
 import { toast } from '@/components/ui/Toast';
 
@@ -128,20 +129,21 @@ export function AgentProjectsTab() {
 
               <div className="flex items-center gap-2 flex-shrink-0">
                 <Bot size={14} className={project.autonomous_enabled ? 'text-brand-600' : 'text-zinc-400'} />
-                <button
-                  type="button"
-                  onClick={() => handleToggleAutonomous(project.id, project.autonomous_enabled)}
-                  className={`relative w-10 h-[22px] rounded-full transition-colors ${
-                    project.autonomous_enabled ? 'bg-brand-600' : 'bg-zinc-300'
-                  }`}
-                  title={project.autonomous_enabled ? 'Disable autonomous agents' : 'Enable autonomous agents'}
-                >
-                  <span
-                    className={`absolute top-0.5 left-0.5 w-[18px] h-[18px] bg-white rounded-full shadow transition-transform ${
-                      project.autonomous_enabled ? 'translate-x-[18px]' : 'translate-x-0'
+                <Tooltip content={project.autonomous_enabled ? 'Disable autonomous agents' : 'Enable autonomous agents'}>
+                  <button
+                    type="button"
+                    onClick={() => handleToggleAutonomous(project.id, project.autonomous_enabled)}
+                    className={`relative w-10 h-[22px] rounded-full transition-colors ${
+                      project.autonomous_enabled ? 'bg-brand-600' : 'bg-zinc-300'
                     }`}
-                  />
-                </button>
+                  >
+                    <span
+                      className={`absolute top-0.5 left-0.5 w-[18px] h-[18px] bg-white rounded-full shadow transition-transform ${
+                        project.autonomous_enabled ? 'translate-x-[18px]' : 'translate-x-0'
+                      }`}
+                    />
+                  </button>
+                </Tooltip>
               </div>
             </div>
 
@@ -182,20 +184,22 @@ export function AgentProjectsTab() {
                       </div>
 
                       <div className="flex items-center gap-1 flex-shrink-0 ml-2">
-                        <button
-                          onClick={() => handleOpenEdit(goal)}
-                          className="p-1 rounded text-zinc-400 hover:text-zinc-600 hover:bg-zinc-200 transition-colors"
-                          title="Edit"
-                        >
-                          <Edit size={13} />
-                        </button>
-                        <button
-                          onClick={() => handleArchive(goal.id)}
-                          className="p-1 rounded text-zinc-400 hover:text-red-500 hover:bg-red-50 transition-colors"
-                          title="Archive"
-                        >
-                          <Archive size={13} />
-                        </button>
+                        <Tooltip content="Edit">
+                          <button
+                            onClick={() => handleOpenEdit(goal)}
+                            className="p-1 rounded text-zinc-400 hover:text-zinc-600 hover:bg-zinc-200 transition-colors"
+                          >
+                            <Edit size={13} />
+                          </button>
+                        </Tooltip>
+                        <Tooltip content="Archive">
+                          <button
+                            onClick={() => handleArchive(goal.id)}
+                            className="p-1 rounded text-zinc-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+                          >
+                            <Archive size={13} />
+                          </button>
+                        </Tooltip>
                       </div>
                     </div>
 

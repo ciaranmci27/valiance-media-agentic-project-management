@@ -28,6 +28,7 @@ import {
 } from 'lucide-react';
 import { Task, ViewMode, TeamMember } from '@/lib/types';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { Tooltip } from '@/components/ui/Tooltip';
 import { siteConfig } from '@/site-config';
 
 export default function ProjectDetailPage() {
@@ -302,14 +303,9 @@ export default function ProjectDetailPage() {
                   <button onClick={() => setIsContactsPanelOpen(true)} className="group">
                     <div className="flex items-center -space-x-1.5">
                       {projectContactsList.slice(0, 4).map((pc) => (
-                        <div
-                          key={pc.id}
-                          className="w-6 h-6 rounded-full flex items-center justify-center text-white text-[10px] font-medium ring-2 ring-white"
-                          style={{ backgroundColor: pc.contact?.color || siteConfig.colors.brand[500] }}
-                          title={`${pc.contact?.name || 'Contact'} (${pc.role})`}
-                        >
-                          {pc.contact?.name?.charAt(0).toUpperCase() || '?'}
-                        </div>
+                        <Tooltip key={pc.id} content={`${pc.contact?.name || 'Contact'} (${pc.role})`}>
+                          <Avatar name={pc.contact?.name || '?'} src={pc.contact?.avatar_url || undefined} size="sm" className="ring-2 ring-white" />
+                        </Tooltip>
                       ))}
                       {projectContactsList.length > 4 && (
                         <div className="w-6 h-6 rounded-full flex items-center justify-center bg-zinc-200 text-zinc-600 text-[10px] font-medium ring-2 ring-white">

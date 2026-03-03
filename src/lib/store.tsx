@@ -1,15 +1,16 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { Project, Task, TeamMember, FilterState, ViewMode, Subtask, Comment, Contact, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, Activity, PortalSettings, PortalFile, PortalUpdate, PortalUpdateAttachment, EntityFile, EntityFileType, ApiKey, NotificationCategory, ProjectGoal, TaskSuggestion, AgentActivity, TimeEntry, ProjectCredentialListItem, CredentialPayload, CredentialCategory, ProjectInvoice, InvoiceStatus } from './types';
+import { Project, Task, TeamMember, FilterState, ViewMode, Subtask, Comment, Contact, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, Activity, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, EntityFileType, ApiKey, NotificationCategory, ProjectGoal, TaskSuggestion, AgentActivity, TimeEntry, ProjectCredentialListItem, CredentialPayload, CredentialCategory, ProjectInvoice, InvoiceStatus, DEFAULT_SECTION_ORDER } from './types';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
+import { generatePortalSlug } from '@/lib/portal-slug';
 import {
   demoTeam, demoContacts, demoProjects, demoProjectContacts, demoTasks,
   demoLeads, demoLeadInteractions, demoLeadProposals, demoLeadFields,
   demoLeadContacts, demoActivities,
-  demoPortalSettings, demoPortalFiles, demoPortalUpdates, demoPortalUpdateAttachments, demoEntityFiles, demoTimeEntries,
+  demoPortalSettings, demoPortalUpdates, demoPortalUpdateAttachments, demoEntityFiles, demoTimeEntries,
   demoProjectGoals, demoTaskSuggestions, demoAgentActivity, demoProjectInvoices,
 } from '@/lib/demo-data';
 import {
@@ -64,11 +65,8 @@ import {
   fetchActivities,
   fetchAllPortalSettings,
   upsertPortalSettings as upsertPortalSettingsQuery,
-  regeneratePortalToken as regeneratePortalTokenQuery,
-  fetchAllPortalFiles,
-  insertPortalFile as insertPortalFileQuery,
-  renamePortalFile as renamePortalFileQuery,
-  removePortalFile as removePortalFileQuery,
+  updatePortalSlug as updatePortalSlugQuery,
+
   fetchAllPortalUpdates,
   insertPortalUpdate as insertPortalUpdateQuery,
   patchPortalUpdate as patchPortalUpdateQuery,
@@ -80,6 +78,7 @@ import {
   insertEntityFile as insertEntityFileQuery,
   renameEntityFile as renameEntityFileQuery,
   removeEntityFile as removeEntityFileQuery,
+  updateEntityFileVisibility as updateEntityFileVisibilityQuery,
   fetchApiKeys,
   insertApiKey as insertApiKeyQuery,
   revokeApiKey as revokeApiKeyQuery,
@@ -119,7 +118,6 @@ interface AppContextType {
   leadContacts: LeadContact[];
   activities: Activity[];
   portalSettings: PortalSettings[];
-  portalFiles: PortalFile[];
   portalUpdates: PortalUpdate[];
   entityFiles: EntityFile[];
   apiKeys: ApiKey[];
@@ -199,12 +197,7 @@ interface AppContextType {
 
   // Portal Settings CRUD
   upsertPortalSettings: (projectId: string, settings: Partial<Omit<PortalSettings, 'id' | 'project_id' | 'created_at' | 'updated_at'>>) => void;
-  regeneratePortalToken: (projectId: string) => void;
-
-  // Portal File CRUD
-  addPortalFile: (file: Omit<PortalFile, 'id' | 'created_at' | 'updated_at'>) => void;
-  renamePortalFile: (id: string, name: string) => void;
-  deletePortalFile: (id: string) => void;
+  updatePortalSlug: (projectId: string, newSlug: string) => Promise<void>;
 
   // Portal Update CRUD
   addPortalUpdate: (update: Omit<PortalUpdate, 'id' | 'created_at' | 'updated_at'>, attachments?: { name: string; file_url: string; file_size: number; mime_type: string }[]) => void;
@@ -221,6 +214,7 @@ interface AppContextType {
   addEntityFile: (file: Omit<EntityFile, 'id' | 'created_at' | 'updated_at'>) => void;
   renameEntityFile: (id: string, name: string) => void;
   deleteEntityFile: (id: string) => void;
+  updateEntityFileVisibility: (id: string, visibility: 'internal' | 'external') => void;
   getEntityFiles: (entityType: EntityFileType, entityId: string) => EntityFile[];
 
   // API Key CRUD
@@ -289,7 +283,6 @@ interface AppContextType {
   getContactsByLead: (leadId: string) => LeadContact[];
   getPrimaryLeadContact: (leadId: string) => LeadContact | undefined;
   getPortalSettings: (projectId: string) => PortalSettings | undefined;
-  getPortalFiles: (projectId: string) => PortalFile[];
 }
 
 export const defaultFilters: FilterState = {
@@ -315,7 +308,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [leadContacts, setLeadContacts] = useState<LeadContact[]>([]);
   const [activities, setActivities] = useState<Activity[]>([]);
   const [portalSettings, setPortalSettings] = useState<PortalSettings[]>([]);
-  const [portalFiles, setPortalFiles] = useState<PortalFile[]>([]);
   const [portalUpdates, setPortalUpdates] = useState<PortalUpdate[]>([]);
   const [portalUpdateAttachments, setPortalUpdateAttachments] = useState<PortalUpdateAttachment[]>([]);
   const [entityFiles, setEntityFiles] = useState<EntityFile[]>([]);
@@ -380,7 +372,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setLeadContacts([...demoLeadContacts]);
       setActivities([...demoActivities]);
       setPortalSettings([...demoPortalSettings]);
-      setPortalFiles([...demoPortalFiles]);
       setPortalUpdates([...demoPortalUpdates]);
       setPortalUpdateAttachments([...demoPortalUpdateAttachments]);
       setEntityFiles([...demoEntityFiles]);
@@ -403,7 +394,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     const loadData = async () => {
       try {
-        const [projectsData, tasksData, teamData, contactsData, projectContactsData, leadsData, leadInteractionsData, leadProposalsData, leadFieldsData, leadContactsData, activitiesData, portalSettingsData, portalFilesData, portalUpdatesData, portalUpdateAttachmentsData, entityFilesData, apiKeysData, timeEntriesData, projectCredentialsData, projectInvoicesData] = await Promise.all([
+        const [projectsData, tasksData, teamData, contactsData, projectContactsData, leadsData, leadInteractionsData, leadProposalsData, leadFieldsData, leadContactsData, activitiesData, portalSettingsData, portalUpdatesData, portalUpdateAttachmentsData, entityFilesData, apiKeysData, timeEntriesData, projectCredentialsData, projectInvoicesData] = await Promise.all([
           fetchProjects(supabase),
           fetchTasks(supabase),
           fetchTeamMembers(supabase),
@@ -416,7 +407,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
           fetchAllLeadContacts(supabase),
           fetchActivities(supabase),
           fetchAllPortalSettings(supabase),
-          fetchAllPortalFiles(supabase),
           fetchAllPortalUpdates(supabase),
           fetchAllPortalUpdateAttachments(supabase),
           fetchAllEntityFiles(supabase),
@@ -438,7 +428,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setLeadContacts(leadContactsData);
         setActivities(activitiesData);
         setPortalSettings(portalSettingsData);
-        setPortalFiles(portalFilesData);
         setPortalUpdates(portalUpdatesData);
         setPortalUpdateAttachments(portalUpdateAttachmentsData);
         setEntityFiles(entityFilesData);
@@ -511,6 +500,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     try {
       await patchProject(supabase, id, updates, updates.member_ids);
+
+      // Auto-sync portal slug when project name changes
+      if (updates.name && updates.name !== projectBefore?.name) {
+        const portalExists = portalSettings.find(ps => ps.project_id === id);
+        if (portalExists) {
+          const newSlug = generatePortalSlug(updates.name);
+          updatePortalSlugAction(id, newSlug);
+        }
+      }
 
       if (projectBefore) {
         notify(allMemberIds(), `"${projectBefore.name}" was updated`, `${actorName()} updated the project.`, `/projects/${id}`, 'project', id, 'project_updates');
@@ -1681,7 +1679,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
     } else {
       const optimisticId = crypto.randomUUID();
-      const token = Array.from({ length: 48 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
+      const project = projects.find(p => p.id === projectId);
+      const token = generatePortalSlug(project?.name || projectId);
       const optimistic: PortalSettings = {
         id: optimisticId,
         project_id: projectId,
@@ -1692,12 +1691,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
         logo_url: settings.logo_url ?? '',
         accent_color: settings.accent_color ?? siteConfig.colors.brand[500],
         show_progress: settings.show_progress ?? true,
-        show_proposals: settings.show_proposals ?? true,
         show_files: settings.show_files ?? true,
         show_hours: settings.show_hours ?? true,
         show_updates: settings.show_updates ?? true,
         show_credentials: settings.show_credentials ?? false,
         show_invoices: settings.show_invoices ?? false,
+        section_order: settings.section_order ?? [...DEFAULT_SECTION_ORDER],
         created_at: now,
         updated_at: now,
       };
@@ -1715,76 +1714,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const regeneratePortalTokenAction = async (projectId: string) => {
+  const updatePortalSlugAction = async (projectId: string, newSlug: string) => {
+    const existing = portalSettings.find(ps => ps.project_id === projectId);
+    if (!existing) return;
+
+    const normalized = newSlug
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/-{2,}/g, '-')
+      .replace(/^-|-$/g, '');
+    if (!normalized) return;
+
+    // Optimistic update
     const prev = portalSettings;
-    const newToken = Array.from({ length: 48 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
     setPortalSettings(ps => ps.map(s =>
-      s.project_id === projectId ? { ...s, token: newToken, updated_at: new Date().toISOString() } : s
+      s.project_id === projectId ? { ...s, token: normalized, updated_at: new Date().toISOString() } : s
     ));
     if (skipSupabase) return;
 
     try {
-      const updated = await regeneratePortalTokenQuery(supabase, projectId);
+      const updated = await updatePortalSlugQuery(supabase, projectId, newSlug);
       setPortalSettings(ps => ps.map(s => s.project_id === projectId ? updated : s));
-      const project = projects.find(p => p.id === projectId);
-      notify(allMemberIds(), `Portal token regenerated for "${project?.name || 'project'}"`, `${actorName()} regenerated the portal token.`, `/projects/${projectId}`, 'project', projectId, 'portal_settings');
     } catch (err) {
       setPortalSettings(prev);
-      toast('error', 'Failed to regenerate portal token');
-    }
-  };
-
-  // Portal File CRUD
-  const addPortalFile = async (file: Omit<PortalFile, 'id' | 'created_at' | 'updated_at'>) => {
-    const optimisticId = crypto.randomUUID();
-    const now = new Date().toISOString();
-    const optimistic: PortalFile = {
-      ...file,
-      id: optimisticId,
-      created_at: now,
-      updated_at: now,
-    };
-
-    setPortalFiles(prev => [optimistic, ...prev]);
-    if (skipSupabase) return;
-
-    try {
-      const created = await insertPortalFileQuery(supabase, file);
-      setPortalFiles(prev => prev.map(f => f.id === optimisticId ? created : f));
-      notify(allMemberIds(), 'New portal file uploaded', `${actorName()} added a file to the portal.`, `/projects/${file.project_id}`, 'project', file.project_id, 'portal_files');
-    } catch (err) {
-      setPortalFiles(prev => prev.filter(f => f.id !== optimisticId));
-      toast('error', 'Failed to upload file');
-    }
-  };
-
-  const renamePortalFile = async (id: string, name: string) => {
-    const prev = portalFiles;
-    setPortalFiles(f => f.map(file => file.id === id ? { ...file, name } : file));
-    if (skipSupabase) return;
-
-    try {
-      await renamePortalFileQuery(supabase, id, name);
-    } catch (err) {
-      setPortalFiles(prev);
-      toast('error', 'Failed to rename file');
-    }
-  };
-
-  const deletePortalFile = async (id: string) => {
-    const prev = portalFiles;
-    const existing = portalFiles.find(f => f.id === id);
-    setPortalFiles(f => f.filter(file => file.id !== id));
-    if (skipSupabase) return;
-
-    try {
-      await removePortalFileQuery(supabase, id);
-      if (existing) {
-        notify(allMemberIds(), 'Portal file deleted', `${actorName()} removed a portal file.`, `/projects/${existing.project_id}`, 'project', existing.project_id, 'portal_files');
-      }
-    } catch (err) {
-      setPortalFiles(prev);
-      toast('error', 'Failed to delete file');
+      toast('error', 'Failed to update portal slug');
     }
   };
 
@@ -2060,6 +2013,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const now = new Date().toISOString();
     const optimistic: EntityFile = {
       ...file,
+      visibility: file.visibility || 'internal',
       id: optimisticId,
       created_at: now,
       updated_at: now,
@@ -2107,6 +2061,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
     } catch (err) {
       setEntityFiles(prev);
       toast('error', 'Failed to delete file');
+    }
+  };
+
+  const updateEntityFileVisibility = async (id: string, visibility: 'internal' | 'external') => {
+    const prev = entityFiles;
+    setEntityFiles(f => f.map(file => file.id === id ? { ...file, visibility } : file));
+    if (skipSupabase) return;
+
+    try {
+      await updateEntityFileVisibilityQuery(supabase, id, visibility);
+    } catch (err) {
+      setEntityFiles(prev);
+      toast('error', 'Failed to update file visibility');
     }
   };
 
@@ -2440,7 +2407,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const getContactsByLead = (leadId: string) => leadContacts.filter(lc => lc.lead_id === leadId);
   const getPrimaryLeadContact = (leadId: string) => leadContacts.find(lc => lc.lead_id === leadId && lc.is_primary_client);
   const getPortalSettings = (projectId: string) => portalSettings.find(ps => ps.project_id === projectId);
-  const getPortalFiles = (projectId: string) => portalFiles.filter(pf => pf.project_id === projectId);
   const getPortalUpdates = (projectId: string) => portalUpdates.filter(pu => pu.project_id === projectId);
   const getPortalUpdateAttachments = (updateId: string) => portalUpdateAttachments.filter(a => a.update_id === updateId);
   const getCredentialsByProject = (projectId: string) => projectCredentials.filter(c => c.project_id === projectId);
@@ -2531,7 +2497,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       leadContacts,
       activities,
       portalSettings,
-      portalFiles,
       portalUpdates,
       entityFiles,
       apiKeys,
@@ -2582,10 +2547,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       updateLeadContact: updateLeadContactAction,
       removeLeadContact: removeLeadContactAction,
       upsertPortalSettings: upsertPortalSettingsAction,
-      regeneratePortalToken: regeneratePortalTokenAction,
-      addPortalFile,
-      renamePortalFile,
-      deletePortalFile,
+      updatePortalSlug: updatePortalSlugAction,
       addPortalUpdate,
       updatePortalUpdate,
       deletePortalUpdate,
@@ -2596,6 +2558,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       addEntityFile,
       renameEntityFile,
       deleteEntityFile,
+      updateEntityFileVisibility,
       getEntityFiles,
       addTimeEntry,
       updateTimeEntry,
@@ -2647,7 +2610,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       getInvoicesByProject,
       getInvoicesByContact,
       getPortalSettings,
-      getPortalFiles,
     }}>
       {children}
     </AppContext.Provider>
