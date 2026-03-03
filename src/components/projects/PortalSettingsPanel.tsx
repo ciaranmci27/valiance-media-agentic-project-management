@@ -6,7 +6,6 @@ import {
   Trash2, ExternalLink,
   Camera, Loader2, X, GripVertical,
 } from 'lucide-react';
-import { motion } from 'framer-motion';
 import { useApp } from '@/lib/store';
 import { DEFAULT_SECTION_ORDER, PORTAL_SECTION_LABELS, type PortalSectionKey } from '@/lib/types';
 import { useDemo } from '@/lib/demo-context';
@@ -451,12 +450,10 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
                   const isActive = (settings as any)[key];
                   const isDragging = draggedKey === key;
                   return (
-                    <motion.div
+                    <div
                       key={key}
-                      layout
                       data-section-key={key}
-                      transition={{ type: 'spring', stiffness: 500, damping: 35, mass: 0.8 }}
-                      className={`flex items-center rounded-lg border ${
+                      className={`flex items-center rounded-lg border transition-all ${
                         isActive
                           ? 'bg-brand-50 border-brand-200 text-brand-700'
                           : 'bg-zinc-50 border-zinc-200 text-zinc-400'
@@ -475,7 +472,7 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
                         {isActive ? <Eye size={13} /> : <EyeOff size={13} />}
                         {PORTAL_SECTION_LABELS[key]}
                       </button>
-                    </motion.div>
+                    </div>
                   );
                 })}
             </div>
