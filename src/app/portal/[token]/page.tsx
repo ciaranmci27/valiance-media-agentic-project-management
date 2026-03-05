@@ -3,12 +3,11 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import {
-  Lock, Loader2, FileText, Image, Archive, File, Download, ExternalLink, Globe,
+  Lock, Loader2, FileText, Image, Archive, File, Download, Globe,
   CheckCircle2, Clock, AlertCircle, FolderOpen, Timer, Upload,
   Flag, Package, MessageCircle, Pin, ChevronDown, KeyRound, Eye, EyeOff, Plus, Pencil, ShieldCheck,
   Receipt, FileDown,
 } from 'lucide-react';
-import Link from 'next/link';
 import type { PortalData, PortalSectionKey } from '@/lib/types';
 import { DEFAULT_SECTION_ORDER } from '@/lib/types';
 import { Logo } from '@/components/ui/Logo';
@@ -16,6 +15,7 @@ import { Select } from '@/components/ui/Select';
 import { PinInput, type PinInputRef } from '@/components/ui/PinInput';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { toast } from '@/components/ui/Toast';
+import { FilePreviewModal } from '@/components/ui/FilePreviewModal';
 import { siteConfig } from '@/site-config';
 
 /* ── Helpers ─────────────────────────────────────── */
@@ -172,9 +172,10 @@ function UpdateContent({ content }: { content: string }) {
 /* ── Updates Timeline Component ──────────────────── */
 const UPDATES_INITIAL_COUNT = 5;
 
-function UpdatesTimeline({ updates, accentColor }: {
+function UpdatesTimeline({ updates, accentColor, onPreview }: {
   updates: PortalData['updates'];
   accentColor: string;
+  onPreview: (file: { name: string; file_url: string; mime_type: string }) => void;
 }) {
   const [showAll, setShowAll] = useState(false);
   const visible = showAll ? updates : updates.slice(0, UPDATES_INITIAL_COUNT);
@@ -264,7 +265,7 @@ function UpdatesTimeline({ updates, accentColor }: {
                                 <div className="absolute inset-0 rounded-lg bg-black/0 group-hover/img:bg-black/40 transition-colors flex items-center justify-center gap-1.5 opacity-0 group-hover/img:opacity-100">
                                   <Tooltip content="Preview">
                                     <button
-                                      onClick={() => window.open(a.file_url, '_blank', 'noopener,noreferrer')}
+                                      onClick={() => onPreview({ name: a.name, file_url: a.file_url, mime_type: a.mime_type })}
                                       className="p-1.5 bg-white/90 rounded-md text-zinc-700 hover:bg-white transition-colors"
                                     >
                                       <Eye size={13} />
@@ -308,7 +309,7 @@ function UpdatesTimeline({ updates, accentColor }: {
                                   <span className="text-zinc-400">{formatFileSize(a.file_size)}</span>
                                   <Tooltip content="Preview">
                                     <button
-                                      onClick={() => window.open(a.file_url, '_blank', 'noopener,noreferrer')}
+                                      onClick={() => onPreview({ name: a.name, file_url: a.file_url, mime_type: a.mime_type })}
                                       className="p-0.5 text-zinc-400 hover:text-zinc-700 transition-colors"
                                     >
                                       <Eye size={12} />
@@ -708,6 +709,9 @@ export default function PortalPage() {
   const [localFiles, setLocalFiles] = useState<PortalData['files']>([]);
   const [fileUploading, setFileUploading] = useState(false);
 
+  // File preview state
+  const [previewFile, setPreviewFile] = useState<{ name: string; file_url: string; mime_type: string } | null>(null);
+
   const fetchPortal = async (pinValue?: string) => {
     if (pinValue) setPinSubmitting(true);
     else setLoading(true);
@@ -1094,7 +1098,7 @@ export default function PortalPage() {
                     if (!a.pinned && b.pinned) return 1;
                     return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
                   });
-                  return <UpdatesTimeline key={sectionKey} updates={sorted} accentColor={accentColor} />;
+                  return <UpdatesTimeline key={sectionKey} updates={sorted} accentColor={accentColor} onPreview={setPreviewFile} />;
 
                 case 'show_hours':
                   return data.settings.show_hours && data.hours.entries.length > 0 ? (
@@ -1193,7 +1197,6 @@ export default function PortalPage() {
                             const FileIcon = getFileIcon(file.mime_type);
                             const iconColor = getFileIconColor(file.mime_type);
                             const iconBg = getFileIconBg(file.mime_type);
-                            const isHtml = file.mime_type === 'text/html';
                             return (
                               <div key={file.id} className="bg-white rounded-xl border border-zinc-200 p-4">
                                 <div className="flex items-start gap-3">
@@ -1207,47 +1210,35 @@ export default function PortalPage() {
                                     <p className="text-sm font-semibold text-zinc-900 truncate">{file.name}</p>
                                     <p className="text-xs text-zinc-400 mb-3">{formatFileSize(file.file_size)}</p>
                                     <div className="flex items-center gap-2">
-                                      {isHtml ? (
-                                        <Link
-                                          href={`/portal/${token}/page/${file.id}`}
-                                          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-zinc-100 text-zinc-700 hover:bg-zinc-200 transition-colors"
-                                        >
-                                          <ExternalLink size={12} />
-                                          View
-                                        </Link>
-                                      ) : (
-                                        <>
-                                          <button
-                                            onClick={() => window.open(file.file_url, '_blank', 'noopener,noreferrer')}
-                                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-zinc-100 text-zinc-700 hover:bg-zinc-200 transition-colors"
-                                          >
-                                            <Eye size={12} />
-                                            Preview
-                                          </button>
-                                          <button
-                                            onClick={async () => {
-                                              try {
-                                                const res = await fetch(file.file_url);
-                                                const blob = await res.blob();
-                                                const url = URL.createObjectURL(blob);
-                                                const a = document.createElement('a');
-                                                a.href = url;
-                                                a.download = file.name;
-                                                document.body.appendChild(a);
-                                                a.click();
-                                                a.remove();
-                                                URL.revokeObjectURL(url);
-                                              } catch {
-                                                // silent fail
-                                              }
-                                            }}
-                                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-zinc-100 text-zinc-700 hover:bg-zinc-200 transition-colors"
-                                          >
-                                            <Download size={12} />
-                                            Download
-                                          </button>
-                                        </>
-                                      )}
+                                      <button
+                                        onClick={() => setPreviewFile({ name: file.name, file_url: file.file_url, mime_type: file.mime_type })}
+                                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-zinc-100 text-zinc-700 hover:bg-zinc-200 transition-colors"
+                                      >
+                                        <Eye size={12} />
+                                        Preview
+                                      </button>
+                                      <button
+                                        onClick={async () => {
+                                          try {
+                                            const res = await fetch(file.file_url);
+                                            const blob = await res.blob();
+                                            const url = URL.createObjectURL(blob);
+                                            const a = document.createElement('a');
+                                            a.href = url;
+                                            a.download = file.name;
+                                            document.body.appendChild(a);
+                                            a.click();
+                                            a.remove();
+                                            URL.revokeObjectURL(url);
+                                          } catch {
+                                            // silent fail
+                                          }
+                                        }}
+                                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-zinc-100 text-zinc-700 hover:bg-zinc-200 transition-colors"
+                                      >
+                                        <Download size={12} />
+                                        Download
+                                      </button>
                                     </div>
                                   </div>
                                 </div>
@@ -1350,6 +1341,12 @@ export default function PortalPage() {
           </div>
         </div>
       </footer>
+
+      <FilePreviewModal
+        isOpen={!!previewFile}
+        onClose={() => setPreviewFile(null)}
+        file={previewFile}
+      />
     </div>
   );
 }
