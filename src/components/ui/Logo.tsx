@@ -4,7 +4,6 @@ import { useState } from 'react';
 import { siteConfig } from '@/site-config';
 
 export function Logo({ className }: { className?: string }) {
-  const [src, setSrc] = useState('/logos/logo.svg');
   const [imgFailed, setImgFailed] = useState(false);
 
   if (imgFailed) {
@@ -17,16 +16,10 @@ export function Logo({ className }: { className?: string }) {
 
   return (
     <img
-      src={src}
+      src="/api/logo"
       alt={siteConfig.name}
       className={className}
-      onError={() => {
-        if (src === '/logos/logo.svg') {
-          setSrc('/logos/logo.png');
-        } else {
-          setImgFailed(true);
-        }
-      }}
+      onError={() => setImgFailed(true)}
     />
   );
 }

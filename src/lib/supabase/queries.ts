@@ -43,6 +43,7 @@ export async function insertProject(
       due_date: project.due_date,
       hourly_tracking: project.hourly_tracking ?? false,
       autonomous_enabled: project.autonomous_enabled ?? false,
+      deployment_policy: project.deployment_policy ?? 'production',
       created_by: project.created_by,
     })
     .select()
@@ -156,6 +157,7 @@ export async function insertTask(
   if (task.project_goal_id) insertPayload.project_goal_id = task.project_goal_id;
   if (task.source_task_suggestion_id) insertPayload.source_task_suggestion_id = task.source_task_suggestion_id;
   if (task.task_type) insertPayload.task_type = task.task_type;
+  if (task.ai_managed !== undefined) insertPayload.ai_managed = task.ai_managed;
 
   const { data, error } = await supabase
     .from('tasks')

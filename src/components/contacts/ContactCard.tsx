@@ -2,9 +2,8 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { MoreVertical, Edit, Trash2, Mail, Phone, FolderKanban, Target } from 'lucide-react';
+import { MoreVertical, Edit, Trash2, Mail, Phone } from 'lucide-react';
 import { Contact } from '@/lib/types';
-import { useApp } from '@/lib/store';
 import { Avatar } from '@/components/ui/Avatar';
 import { formatPhone } from '@/lib/format-phone';
 
@@ -15,12 +14,8 @@ interface ContactCardProps {
 }
 
 export function ContactCard({ contact, onEdit, onDelete }: ContactCardProps) {
-  const { getProjectsByContact, leads } = useApp();
   const router = useRouter();
   const [showMenu, setShowMenu] = useState(false);
-
-  const linkedProjects = getProjectsByContact(contact.id);
-  const linkedLeads = leads.filter(l => l.contact_id === contact.id);
 
   return (
     <div
@@ -72,7 +67,7 @@ export function ContactCard({ contact, onEdit, onDelete }: ContactCardProps) {
         </div>
       </div>
 
-      <div className="flex items-center gap-4 mb-3 text-xs lg:text-sm text-zinc-500">
+      <div className="flex items-center gap-4 text-xs lg:text-sm text-zinc-500">
         <span className="flex items-center gap-1.5 flex-shrink-0">
           <Phone size={14} className="flex-shrink-0" />
           <span className={!contact.phone ? 'text-zinc-300 italic' : ''}>
@@ -87,16 +82,6 @@ export function ContactCard({ contact, onEdit, onDelete }: ContactCardProps) {
         </span>
       </div>
 
-      <div className="flex items-center gap-3 pt-3 border-t border-zinc-100 text-xs lg:text-sm text-zinc-500">
-        <div className="flex items-center gap-1">
-          <FolderKanban size={14} />
-          <span>{linkedProjects.length} project{linkedProjects.length !== 1 ? 's' : ''}</span>
-        </div>
-        <div className="flex items-center gap-1">
-          <Target size={14} />
-          <span>{linkedLeads.length} lead{linkedLeads.length !== 1 ? 's' : ''}</span>
-        </div>
-      </div>
     </div>
   );
 }

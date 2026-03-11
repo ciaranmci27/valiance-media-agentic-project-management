@@ -7,7 +7,7 @@ import { useAuth } from '@/lib/auth-context';
 import { StatusBadge, PriorityBadge } from '@/components/ui/Badge';
 import { Avatar, AvatarGroup } from '@/components/ui/Avatar';
 import {
-  X, Edit, Trash2, Calendar, CheckSquare, MessageSquare, Plus, Tag, Users, Clock, GripVertical,
+  X, Edit, Trash2, Calendar, CheckSquare, MessageSquare, Plus, Tag, Users, Clock, GripVertical, Bot,
 } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Tooltip } from '@/components/ui/Tooltip';
@@ -34,7 +34,7 @@ const PRIORITY_OPTIONS: { value: Task['priority']; label: string; color: string 
 ];
 
 export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailPanelProps) {
-  const { team, getTeamMember, updateTask, toggleSubtask, addSubtask, updateSubtask, reorderSubtasks, deleteSubtask, addComment, updateComment, deleteComment } = useApp();
+  const { team, getTeamMember, getProject, updateTask, toggleSubtask, addSubtask, updateSubtask, reorderSubtasks, deleteSubtask, addComment, updateComment, deleteComment } = useApp();
   const { teamMemberId } = useAuth();
   const backdropRef = useRef<HTMLDivElement>(null);
   const [newSubtask, setNewSubtask] = useState('');
@@ -74,6 +74,12 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
   }, [task, onClose]);
 
   if (!task) return null;
+
+  const isAgentsEnabled = process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true';
+  const currentMember = team.find(m => m.id === teamMemberId);
+  const isAdmin = currentMember?.role === 'admin';
+  const project = getProject(task.project_id);
+  const showAiToggle = isAgentsEnabled && isAdmin && project?.autonomous_enabled;
 
   const assignees = team.filter(m => task.assignee_ids.includes(m.id));
   const completedSubtasks = task.subtasks.filter(s => s.completed).length;
@@ -286,6 +292,31 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
                 <span className="text-xs text-zinc-600">{createdDate}</span>
               </div>
             </div>
+
+            {/* AI Managed Toggle */}
+            {showAiToggle && (
+              <div className="flex items-center justify-between py-2 px-3 bg-zinc-50 rounded-lg">
+                <div className="flex items-center gap-2">
+                  <Bot size={14} className="text-zinc-500" />
+                  <div>
+                    <p className="text-sm font-medium text-zinc-700">AI Managed</p>
+                    <p className="text-xs text-zinc-400">Let Ashley automate this task</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => updateTask(task.id, { ai_managed: !task.ai_managed })}
+                  className={`relative w-10 h-[22px] rounded-full transition-colors ${
+                    task.ai_managed ? 'bg-brand-600' : 'bg-zinc-300'
+                  }`}
+                >
+                  <span
+                    className={`absolute top-0.5 left-0.5 w-[18px] h-[18px] bg-white rounded-full shadow transition-transform ${
+                      task.ai_managed ? 'translate-x-[18px]' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+              </div>
+            )}
 
             {/* Description */}
             {task.description && (

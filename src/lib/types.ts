@@ -13,6 +13,7 @@ export interface Project {
   hourly_rate: number | null;
   fixed_price: number | null;
   autonomous_enabled: boolean;
+  deployment_policy: 'playground' | 'production';
   member_ids: string[];
   created_by?: string | null;
   archived_at?: string | null;
@@ -175,6 +176,7 @@ export interface Task {
   subtasks: Subtask[];
   comments: Comment[];
   task_type?: TaskType | null;
+  ai_managed: boolean;
   created_by?: string | null;
   project_goal_id?: string | null;
   source_task_suggestion_id?: string | null;

@@ -53,11 +53,11 @@ export default function Modal({ isOpen, onClose, title, children, size = 'md' }:
       
       {/* Modal */}
       <div className={`
-        relative w-full ${sizes[size]} bg-white dark:bg-zinc-900 rounded-xl
-        shadow-2xl transform animate-scaleIn
+        relative w-full ${sizes[size]} max-h-[85vh] bg-white dark:bg-zinc-900 rounded-xl
+        shadow-2xl transform animate-scaleIn flex flex-col
       `}>
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-200 dark:border-zinc-700">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-200 dark:border-zinc-700 flex-shrink-0">
           <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
             {title}
           </h2>
@@ -68,9 +68,9 @@ export default function Modal({ isOpen, onClose, title, children, size = 'md' }:
             <X className="w-5 h-5" />
           </button>
         </div>
-        
+
         {/* Content */}
-        <div className="px-6 py-4">
+        <div className="px-6 py-4 overflow-y-auto">
           {children}
         </div>
       </div>

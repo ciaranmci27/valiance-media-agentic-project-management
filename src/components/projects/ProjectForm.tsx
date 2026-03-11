@@ -40,6 +40,7 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
   const [dueDate, setDueDate] = useState('');
   const [hourlyTracking, setHourlyTracking] = useState(false);
   const [autonomousEnabled, setAutonomousEnabled] = useState(false);
+  const [deploymentPolicy, setDeploymentPolicy] = useState<'playground' | 'production'>('production');
   const [memberIds, setMemberIds] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [confirmStatusChange, setConfirmStatusChange] = useState(false);
@@ -62,6 +63,7 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
       setDueDate(project.due_date || '');
       setHourlyTracking(project.hourly_tracking ?? false);
       setAutonomousEnabled(project.autonomous_enabled ?? false);
+      setDeploymentPolicy(project.deployment_policy ?? 'production');
       setMemberIds(project.member_ids);
       const primaryClient = getPrimaryClient(project.id);
       setSelectedContactId(primaryClient?.contact_id || '');
@@ -74,6 +76,7 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
       setDueDate('');
       setHourlyTracking(false);
       setAutonomousEnabled(false);
+      setDeploymentPolicy('production');
       setMemberIds([]);
       setSelectedContactId('');
     }
@@ -96,6 +99,7 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
       hourly_rate: project?.hourly_rate ?? null,
       fixed_price: project?.fixed_price ?? null,
       autonomous_enabled: autonomousEnabled,
+      deployment_policy: deploymentPolicy,
       member_ids: memberIds,
     };
 
@@ -382,6 +386,20 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
           </button>
         </div>
 
+
+        {isAgentsEnabled && isAdmin && autonomousEnabled && (
+          <div className="space-y-1.5">
+            <label className="block text-sm font-medium text-zinc-700">Deployment Policy</label>
+            <Select
+              value={deploymentPolicy}
+              onChange={(value) => setDeploymentPolicy(value as 'playground' | 'production')}
+              options={[
+                { value: 'production', label: 'Production: AI uses feature branches and PRs, no auto-deploy' },
+                { value: 'playground', label: 'Playground: AI commits to main and deploys freely' },
+              ]}
+            />
+          </div>
+        )}
 
         <div className="space-y-1.5">
           <label className="block text-sm font-medium text-zinc-700">Color <span className="font-normal text-zinc-400">(optional)</span></label>

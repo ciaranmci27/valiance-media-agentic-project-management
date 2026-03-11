@@ -361,7 +361,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (isDemoMode) {
       setProjects([...demoProjects]);
-      setTasks([...demoTasks]);
+      setTasks(demoTasks.map(t => ({ ai_managed: true, ...t } as Task)));
       setTeam([...demoTeam]);
       setContacts([...demoContacts]);
       setProjectContacts([...demoProjectContacts]);
@@ -556,6 +556,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const optimistic: Task = {
       ...task,
       id: optimisticId,
+      ai_managed: task.ai_managed ?? true,
       assignee_ids: assigneeIds,
       subtasks: task.subtasks || [],
       comments: task.comments || [],
@@ -1242,6 +1243,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       hourly_rate: null,
       fixed_price: null,
       autonomous_enabled: false,
+      deployment_policy: 'production',
       member_ids: lead.member_ids || [],
       created_by: teamMemberId,
       created_at: now,

@@ -1,11 +1,9 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState } from 'react';
 import { Task } from '@/lib/types';
-import { useApp } from '@/lib/store';
 import { TaskCard } from '@/components/tasks/TaskCard';
-import { Plus } from 'lucide-react';
-import { Button } from '@/components/ui/Button';
+
 
 const COLUMNS = [
   { id: 'todo', title: 'To Do', color: 'bg-zinc-400' },
@@ -16,14 +14,13 @@ const COLUMNS = [
 
 interface BoardViewProps {
   tasks: Task[];
-  onAddTask?: () => void;
   onViewTask?: (task: Task) => void;
   onEditTask?: (task: Task) => void;
   onDeleteTask?: (id: string) => void;
   onStatusChange?: (taskId: string, newStatus: Task['status']) => void;
 }
 
-export function BoardView({ tasks, onAddTask, onViewTask, onEditTask, onDeleteTask, onStatusChange }: BoardViewProps) {
+export function BoardView({ tasks, onViewTask, onEditTask, onDeleteTask, onStatusChange }: BoardViewProps) {
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
 
@@ -31,7 +28,6 @@ export function BoardView({ tasks, onAddTask, onViewTask, onEditTask, onDeleteTa
     setDraggedTaskId(taskId);
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', taskId);
-    // Add a slight delay so the drag ghost renders before we style the card
     requestAnimationFrame(() => {
       const el = document.querySelector(`[data-task-id="${taskId}"]`) as HTMLElement;
       if (el) el.style.opacity = '0.4';
@@ -53,8 +49,7 @@ export function BoardView({ tasks, onAddTask, onViewTask, onEditTask, onDeleteTa
     setDropTarget(columnId);
   };
 
-  const handleDragLeave = (e: React.DragEvent, columnId: string) => {
-    // Only clear if we're actually leaving the column (not entering a child)
+  const handleDragLeave = (e: React.DragEvent) => {
     const relatedTarget = e.relatedTarget as HTMLElement;
     const currentTarget = e.currentTarget as HTMLElement;
     if (!currentTarget.contains(relatedTarget)) {
@@ -76,7 +71,7 @@ export function BoardView({ tasks, onAddTask, onViewTask, onEditTask, onDeleteTa
   };
 
   return (
-    <div className="flex flex-col lg:flex-row gap-3 lg:gap-4 pb-4 lg:overflow-x-auto">
+    <div className="flex flex-col lg:flex-row gap-6 pb-4 lg:pb-0 lg:overflow-x-auto lg:h-[calc(100vh-320px)] lg:min-h-[400px]">
       {COLUMNS.map((column) => {
         const columnTasks = tasks.filter(t => t.status === column.id);
         const isOver = dropTarget === column.id && draggedTaskId !== null;
@@ -86,12 +81,13 @@ export function BoardView({ tasks, onAddTask, onViewTask, onEditTask, onDeleteTa
         return (
           <div
             key={column.id}
-            className="w-full lg:w-80 lg:flex-shrink-0"
+            className="w-full lg:flex-1 lg:min-w-[260px] flex flex-col bg-zinc-100/60 rounded-xl p-2 lg:p-3"
             onDragOver={(e) => handleDragOver(e, column.id)}
-            onDragLeave={(e) => handleDragLeave(e, column.id)}
+            onDragLeave={handleDragLeave}
             onDrop={(e) => handleDrop(e, column.id)}
           >
-            <div className="flex items-center gap-2 mb-3 px-1">
+            {/* Sticky column header */}
+            <div className="flex items-center gap-2 mb-2 lg:mb-3 px-1 flex-shrink-0">
               <div className={`w-2.5 h-2.5 rounded-full ${column.color}`} />
               <h3 className="font-semibold text-zinc-800 text-sm lg:text-base">{column.title}</h3>
               <span className="text-xs text-zinc-500 bg-zinc-100 px-1.5 py-0.5 rounded">
@@ -99,7 +95,8 @@ export function BoardView({ tasks, onAddTask, onViewTask, onEditTask, onDeleteTa
               </span>
             </div>
 
-            <div className={`space-y-2 lg:space-y-3 min-h-[200px] p-1 rounded-lg transition-colors duration-150 ${
+            {/* Scrollable card area */}
+            <div className={`flex-1 overflow-y-auto max-h-[50vh] lg:max-h-none lg:min-h-0 space-y-2 lg:space-y-3 rounded-lg transition-colors duration-150 board-column-scroll ${
               isOver && !isDragSource
                 ? 'bg-brand-50 ring-2 ring-brand-300 ring-dashed'
                 : ''
@@ -136,15 +133,6 @@ export function BoardView({ tasks, onAddTask, onViewTask, onEditTask, onDeleteTa
                 </div>
               )}
 
-              {column.id === 'todo' && (
-                <button
-                  onClick={onAddTask}
-                  className="w-full p-3 flex items-center justify-center gap-2 text-sm text-zinc-500 border border-dashed border-zinc-300 rounded-lg hover:border-brand-400 hover:text-brand-600 hover:bg-brand-50 transition-all"
-                >
-                  <Plus size={16} />
-                  <span className="hidden sm:inline">Add Task</span>
-                </button>
-              )}
             </div>
           </div>
         );

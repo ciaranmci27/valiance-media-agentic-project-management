@@ -235,10 +235,10 @@ export default function ProjectDetailPage() {
       <div className="px-4 lg:px-6 pt-4 lg:pt-6">
         <div className="bg-white rounded-xl border border-zinc-200 p-5 lg:p-6">
           {/* Info Grid */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-0">
             {/* Start Date */}
-            <div className="flex items-start gap-2.5">
-              <div className="mt-0.5 p-1.5 bg-zinc-100 rounded-md">
+            <div className="flex items-center gap-2.5 lg:pr-5">
+              <div className="p-1.5 bg-zinc-100 rounded-md">
                 <CalendarDays size={14} className="text-zinc-500" />
               </div>
               <div>
@@ -252,8 +252,8 @@ export default function ProjectDetailPage() {
             </div>
 
             {/* Due Date */}
-            <div className="flex items-start gap-2.5">
-              <div className="mt-0.5 p-1.5 bg-zinc-100 rounded-md">
+            <div className="flex items-center gap-2.5 lg:border-l lg:border-zinc-200 lg:pl-5 lg:pr-5">
+              <div className="p-1.5 bg-zinc-100 rounded-md">
                 <Clock size={14} className="text-zinc-500" />
               </div>
               <div>
@@ -267,12 +267,12 @@ export default function ProjectDetailPage() {
             </div>
 
             {/* Team */}
-            <div className="flex items-start gap-2.5">
-              <div className="mt-0.5 p-1.5 bg-zinc-100 rounded-md">
+            <div className="flex items-center gap-2.5 lg:border-l lg:border-zinc-200 lg:pl-5 lg:pr-5">
+              <div className="p-1.5 bg-zinc-100 rounded-md">
                 <Users size={14} className="text-zinc-500" />
               </div>
               <div>
-                <p className="text-xs text-zinc-500 font-medium mb-1">Team</p>
+                <p className="text-xs text-zinc-500 font-medium">Team</p>
                 {projectMembers.length > 0 ? (
                   <button onClick={() => setIsEditProjectOpen(true)} className="group">
                     <AvatarGroup
@@ -293,12 +293,12 @@ export default function ProjectDetailPage() {
             </div>
 
             {/* Contacts */}
-            <div className="flex items-start gap-2.5">
-              <div className="mt-0.5 p-1.5 bg-zinc-100 rounded-md">
+            <div className="flex items-center gap-2.5 lg:border-l lg:border-zinc-200 lg:pl-5">
+              <div className="p-1.5 bg-zinc-100 rounded-md">
                 <UserCircle size={14} className="text-zinc-500" />
               </div>
               <div>
-                <p className="text-xs text-zinc-500 font-medium mb-1">Contacts</p>
+                <p className="text-xs text-zinc-500 font-medium">Contacts</p>
                 {projectContactsList.length > 0 ? (
                   <button onClick={() => setIsContactsPanelOpen(true)} className="group">
                     <div className="flex items-center -space-x-1.5">
@@ -326,27 +326,6 @@ export default function ProjectDetailPage() {
             </div>
           </div>
 
-          {/* Progress Bar (only when tasks exist) */}
-          {allProjectTasks.length > 0 && (
-            <div className="mb-5">
-              <div className="flex items-center justify-between mb-1.5">
-                <p className="text-xs text-zinc-500 font-medium">Progress</p>
-                <p className="text-xs text-zinc-500">
-                  {doneTasks}/{allProjectTasks.length} tasks completed ({progressPercent}%)
-                </p>
-              </div>
-              <div className="w-full h-2 bg-zinc-100 rounded-full overflow-hidden">
-                <div
-                  className="h-full rounded-full transition-all duration-500"
-                  style={{
-                    width: `${progressPercent}%`,
-                    backgroundColor: project.color || '#A1A1AA',
-                  }}
-                />
-              </div>
-            </div>
-          )}
-
         </div>
       </div>
 
@@ -358,6 +337,20 @@ export default function ProjectDetailPage() {
             <h2 className="text-base font-semibold text-zinc-900">
               Tasks ({allProjectTasks.length})
             </h2>
+            {allProjectTasks.length > 0 && (
+              <div className="hidden lg:flex items-center gap-2">
+                <div className="w-20 h-1.5 bg-zinc-100 rounded-full overflow-hidden">
+                  <div
+                    className="h-full rounded-full transition-all duration-500"
+                    style={{
+                      width: `${progressPercent}%`,
+                      backgroundColor: project.color || '#A1A1AA',
+                    }}
+                  />
+                </div>
+                <span className="text-xs text-zinc-400">{progressPercent}%</span>
+              </div>
+            )}
             {projectTasks.length > 0 && viewMode === 'list' && (
               <button
                 onClick={selectAllTasks}
@@ -449,7 +442,6 @@ export default function ProjectDetailPage() {
             {viewMode === 'board' && (
               <BoardView
                 tasks={projectTasks}
-                onAddTask={() => setIsTaskFormOpen(true)}
                 onViewTask={handleViewTask}
                 onEditTask={handleEditTask}
                 onDeleteTask={handleDeleteTask}

@@ -72,6 +72,7 @@ export function TaskForm({ isOpen, onClose, projectId, task }: TaskFormProps) {
       due_date: dueDate || null,
       tags: tags.split(',').map(t => t.trim()).filter(Boolean),
       task_type: taskType || null,
+      ai_managed: task?.ai_managed ?? true,
       subtasks: task?.subtasks || [],
       comments: task?.comments || [],
     };

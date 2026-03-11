@@ -24,7 +24,7 @@ import { siteConfig } from '@/site-config';
 
 export function Sidebar() {
   const pathname = usePathname();
-  const { projects, tasks, team, getPendingSuggestionCount } = useApp();
+  const { projects, team, loading, getPendingSuggestionCount } = useApp();
   const { user, teamMemberId, signOut } = useAuth();
   const { isEnvForcedDemo } = useDemo();
   const [isOpen, setIsOpen] = useState(false);
@@ -46,8 +46,8 @@ export function Sidebar() {
 
   const navItems = [
     { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', badge: 0 },
-    ...(tasks.length > 0 ? [{ href: '/my-tasks', icon: CheckSquare, label: 'My Tasks', badge: 0 }] : []),
-    ...(projects.length > 0 ? [{ href: '/projects', icon: FolderKanban, label: 'Projects', badge: 0 }] : []),
+    { href: '/my-tasks', icon: CheckSquare, label: 'My Tasks', badge: 0 },
+    { href: '/projects', icon: FolderKanban, label: 'Projects', badge: 0 },
     { href: '/leads', icon: Target, label: 'Leads', badge: 0 },
     { href: '/contacts', icon: UserCircle, label: 'Contacts', badge: 0 },
     { href: '/team', icon: Users, label: 'Team', badge: 0 },
@@ -115,7 +115,7 @@ export function Sidebar() {
           })}
 
           {/* Projects section */}
-          {projects.length > 0 && (
+          {(loading || projects.length > 0) && (
           <div className="pt-4">
             <div className="flex items-center justify-between px-3 mb-2">
               <p className="text-xs text-zinc-600 uppercase tracking-wider font-medium">Projects</p>
@@ -129,35 +129,48 @@ export function Sidebar() {
             </div>
 
             <div className="space-y-0.5">
-              {projects.filter(p => p.status === 'active').slice(0, 5).map((project) => (
-                <Link
-                  key={project.id}
-                  href={`/projects/${project.id}`}
-                  onClick={closeSidebar}
-                  className={`flex items-center gap-2.5 px-3 py-2 rounded-lg transition-all duration-150 ${
-                    pathname === `/projects/${project.id}`
-                      ? 'bg-white/10 text-white'
-                      : 'text-zinc-400 hover:bg-white/5 hover:text-zinc-200'
-                  }`}
-                >
-                  {project.color && (
-                    <div
-                      className="w-2 h-2 rounded-full flex-shrink-0"
-                      style={{ backgroundColor: project.color }}
-                    />
-                  )}
-                  <span className="text-sm truncate">{project.name}</span>
-                </Link>
-              ))}
+              {loading && projects.length === 0 ? (
+                <>
+                  {[1, 2, 3].map((i) => (
+                    <div key={i} className="flex items-center gap-2.5 px-3 py-2">
+                      <div className="w-2 h-2 rounded-full bg-white/10 animate-pulse" />
+                      <div className="h-4 rounded bg-white/10 animate-pulse" style={{ width: `${60 + i * 15}px` }} />
+                    </div>
+                  ))}
+                </>
+              ) : (
+                <>
+                  {projects.filter(p => p.status === 'active').slice(0, 5).map((project) => (
+                    <Link
+                      key={project.id}
+                      href={`/projects/${project.id}`}
+                      onClick={closeSidebar}
+                      className={`flex items-center gap-2.5 px-3 py-2 rounded-lg transition-all duration-150 ${
+                        pathname === `/projects/${project.id}`
+                          ? 'bg-white/10 text-white'
+                          : 'text-zinc-400 hover:bg-white/5 hover:text-zinc-200'
+                      }`}
+                    >
+                      {project.color && (
+                        <div
+                          className="w-2 h-2 rounded-full flex-shrink-0"
+                          style={{ backgroundColor: project.color }}
+                        />
+                      )}
+                      <span className="text-sm truncate">{project.name}</span>
+                    </Link>
+                  ))}
 
-              {projects.filter(p => p.status === 'active').length > 5 && (
-                <Link
-                  href="/projects"
-                  onClick={closeSidebar}
-                  className="flex items-center gap-2.5 px-3 py-2 text-sm text-zinc-500 hover:text-zinc-300 transition-colors"
-                >
-                  <span>+{projects.filter(p => p.status === 'active').length - 5} more</span>
-                </Link>
+                  {projects.filter(p => p.status === 'active').length > 5 && (
+                    <Link
+                      href="/projects"
+                      onClick={closeSidebar}
+                      className="flex items-center gap-2.5 px-3 py-2 text-sm text-zinc-500 hover:text-zinc-300 transition-colors"
+                    >
+                      <span>+{projects.filter(p => p.status === 'active').length - 5} more</span>
+                    </Link>
+                  )}
+                </>
               )}
             </div>
           </div>
@@ -166,17 +179,27 @@ export function Sidebar() {
 
         {/* User section */}
         <div className="p-3 border-t border-white/5">
-          <Link
-            href="/settings"
-            onClick={closeSidebar}
-            className="flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-white/5 transition-colors"
-          >
-            <Avatar name={displayName} src={currentMember?.avatar || undefined} size="sm" />
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-zinc-200 truncate">{displayName}</p>
-              <p className="text-xs text-zinc-500 truncate capitalize">{displayRole}</p>
+          {loading ? (
+            <div className="flex items-center gap-3 px-2 py-2">
+              <div className="w-8 h-8 rounded-full bg-white/10 animate-pulse flex-shrink-0" />
+              <div className="flex-1 min-w-0 space-y-1.5">
+                <div className="h-3.5 w-24 rounded bg-white/10 animate-pulse" />
+                <div className="h-3 w-16 rounded bg-white/10 animate-pulse" />
+              </div>
             </div>
-          </Link>
+          ) : (
+            <Link
+              href="/settings"
+              onClick={closeSidebar}
+              className="flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-white/5 transition-colors"
+            >
+              <Avatar name={displayName} src={currentMember?.avatar || undefined} size="sm" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-zinc-200 truncate">{displayName}</p>
+                <p className="text-xs text-zinc-500 truncate capitalize">{displayRole}</p>
+              </div>
+            </Link>
+          )}
           {!isEnvForcedDemo && (
             <button
               onClick={signOut}

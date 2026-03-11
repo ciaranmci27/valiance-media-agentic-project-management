@@ -5,7 +5,7 @@ import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { StatusBadge, PriorityBadge, TaskTypeBadge } from '@/components/ui/Badge';
 import { AvatarGroup } from '@/components/ui/Avatar';
-import { Calendar, MessageSquare, CheckSquare, MoreVertical, Edit, Trash2, Clock } from 'lucide-react';
+import { Calendar, MessageSquare, CheckSquare, MoreVertical, Edit, Trash2, Clock, User } from 'lucide-react';
 import { useState } from 'react';
 import { Tooltip } from '@/components/ui/Tooltip';
 
@@ -30,7 +30,7 @@ interface TaskCardProps {
 }
 
 export function TaskCard({ task, onView, onEdit, onDelete }: TaskCardProps) {
-  const { team } = useApp();
+  const { team, getProject } = useApp();
   const { teamMemberId } = useAuth();
   const [showMenu, setShowMenu] = useState(false);
 
@@ -66,6 +66,12 @@ export function TaskCard({ task, onView, onEdit, onDelete }: TaskCardProps) {
           <PriorityBadge priority={task.priority} />
           {isAgentsEnabled && isAdmin && task.task_type && (
             <TaskTypeBadge taskType={task.task_type} />
+          )}
+          {isAgentsEnabled && isAdmin && !task.ai_managed && getProject(task.project_id)?.autonomous_enabled && (
+            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] lg:text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200 rounded-full">
+              <User size={10} />
+              Manual
+            </span>
           )}
         </div>
         

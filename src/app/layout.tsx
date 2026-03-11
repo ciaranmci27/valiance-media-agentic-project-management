@@ -12,7 +12,7 @@ const dmSans = DM_Sans({
 export const metadata: Metadata = {
   title: `${siteConfig.name} | ${siteConfig.tagline}`,
   description: siteConfig.description,
-  icons: { icon: [{ url: '/logos/favicon.svg', type: 'image/svg+xml' }, { url: '/logos/favicon.png', type: 'image/png' }] },
+  icons: { icon: '/api/logo?type=favicon' },
 };
 
 export default function RootLayout({

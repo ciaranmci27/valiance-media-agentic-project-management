@@ -40,7 +40,7 @@ export function ProjectCard({ project, onEdit, onDelete }: ProjectCardProps) {
   return (
     <Link
       href={`/projects/${project.id}`}
-      className="block bg-white rounded-xl border border-zinc-200 p-4 lg:p-5 hover:shadow-lg hover:border-zinc-300 transition-all duration-200 group cursor-pointer"
+      className="flex flex-col bg-white rounded-xl border border-zinc-200 p-4 lg:p-5 hover:shadow-lg hover:border-zinc-300 transition-all duration-200 group cursor-pointer h-full"
     >
       <div className="flex items-start justify-between mb-3 lg:mb-4">
         <div className="flex items-center gap-2 lg:gap-3 min-w-0 flex-1">
@@ -104,23 +104,9 @@ export function ProjectCard({ project, onEdit, onDelete }: ProjectCardProps) {
         </div>
       </div>
 
-      {project.description && (
-        <p className="text-xs lg:text-sm text-zinc-500 mb-3 lg:mb-4 line-clamp-2">{project.description}</p>
-      )}
-
-      {/* Progress bar */}
-      <div className="mb-3 lg:mb-4">
-        <div className="flex items-center justify-between text-xs text-zinc-500 mb-1.5">
-          <span>Progress</span>
-          <span>{completedTasks}/{projectTasks.length}</span>
-        </div>
-        <div className="h-1.5 bg-zinc-100 rounded-full overflow-hidden">
-          <div
-            className="h-full rounded-full transition-all duration-500"
-            style={{ width: `${progress}%`, backgroundColor: project.color || '#A1A1AA' }}
-          />
-        </div>
-      </div>
+      <p className="text-xs lg:text-sm text-zinc-500 mb-3 lg:mb-4 line-clamp-2">
+        {project.description || <span className="text-zinc-300 italic">No description</span>}
+      </p>
 
       {/* Footer */}
       <div className="flex items-center justify-between pt-3 border-t border-zinc-100">

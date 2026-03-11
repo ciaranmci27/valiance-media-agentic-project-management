@@ -1,7 +1,7 @@
 'use client';
 
 import { AuthProvider, useAuth } from '@/lib/auth-context';
-import { AppProvider } from '@/lib/store';
+import { AppProvider, useApp } from '@/lib/store';
 import { DemoProvider } from '@/lib/demo-context';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { DemoBanner } from '@/components/layout/DemoBanner';
@@ -21,19 +21,31 @@ function AuthGate({ children }: { children: React.ReactNode }) {
     }
   }, [loading, user, router]);
 
-  if (loading) {
+  if (loading || !user) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-zinc-50">
-        <Loader2 className="animate-spin text-brand-600" size={32} />
+      <div className="min-h-screen bg-zinc-50 flex items-center justify-center">
+        <Loader2 className="animate-spin text-zinc-300" size={28} />
       </div>
     );
   }
 
-  if (!user) {
-    return null;
-  }
-
   return <>{children}</>;
+}
+
+function StoreGate({ children }: { children: React.ReactNode }) {
+  const { loading } = useApp();
+
+  return (
+    <>
+      <Sidebar />
+      <main className="lg:ml-60 min-h-screen bg-zinc-50">
+        <DemoBanner />
+        {!loading && children}
+      </main>
+      <KeyboardShortcuts />
+      <ToastContainer />
+    </>
+  );
 }
 
 export function ProtectedShell({ children }: { children: React.ReactNode }) {
@@ -42,13 +54,7 @@ export function ProtectedShell({ children }: { children: React.ReactNode }) {
       <AuthProvider>
         <AuthGate>
           <AppProvider>
-            <Sidebar />
-            <main className="lg:ml-60 min-h-screen">
-              <DemoBanner />
-              {children}
-            </main>
-            <KeyboardShortcuts />
-            <ToastContainer />
+            <StoreGate>{children}</StoreGate>
           </AppProvider>
         </AuthGate>
       </AuthProvider>

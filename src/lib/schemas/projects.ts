@@ -10,6 +10,7 @@ export const createProjectSchema = z.object({
   due_date: z.string().nullable().default(null),
   hourly_tracking: z.boolean().default(false),
   autonomous_enabled: z.boolean().default(false),
+  deployment_policy: z.enum(['playground', 'production']).default('production'),
   member_ids: z.array(z.string().uuid()).default([]),
   contact_id: z.string().uuid().nullable().default(null),
   contact: z.object({
@@ -29,5 +30,6 @@ export const updateProjectSchema = z.object({
   due_date: z.string().nullable().optional(),
   hourly_tracking: z.boolean().optional(),
   autonomous_enabled: z.boolean().optional(),
+  deployment_policy: z.enum(['playground', 'production']).optional(),
   member_ids: z.array(z.string().uuid()).optional(),
 });

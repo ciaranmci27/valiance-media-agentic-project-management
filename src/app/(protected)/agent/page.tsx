@@ -1,38 +1,24 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useApp, defaultFilters } from '@/lib/store';
+import { useState } from 'react';
+import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { Header } from '@/components/layout/Header';
-import { SuggestionsTab, StatusFilter, SuggestionsFilters } from '@/components/agent/SuggestionsTab';
-import { AgentProjectsTab } from '@/components/agent/AgentProjectsTab';
-import { ActivityTab, ActivityFilters } from '@/components/agent/ActivityTab';
-import { Select } from '@/components/ui/Select';
-import { TASK_TYPES } from '@/lib/types';
-import { Bot, Lightbulb, FolderKanban, Activity } from 'lucide-react';
-import { useRouter } from 'next/navigation';
-
-type AgentTab = 'suggestions' | 'projects' | 'activity';
+import { ReviewQueue } from '@/components/agent/ReviewQueue';
+import { AutonomousProjects } from '@/components/agent/AutonomousProjects';
+import { ActivityTimeline } from '@/components/agent/ActivityTimeline';
+import { ApproveModal } from '@/components/agent/ApproveModal';
+import { Bot, Lightbulb, FolderKanban, Zap, CheckCircle2 } from 'lucide-react';
+import { toast } from '@/components/ui/Toast';
 
 export default function AgentPage() {
-  const { team, taskSuggestions, projects, projectGoals, setFilters } = useApp();
+  const {
+    team, taskSuggestions, projects, tasks,
+    approveSuggestion,
+  } = useApp();
   const { teamMemberId } = useAuth();
-  const router = useRouter();
-  const [activeTab, setActiveTab] = useState<AgentTab>('projects');
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('');
-  const [filterProject, setFilterProject] = useState('');
-  const [filterGoal, setFilterGoal] = useState('');
-  const [filterPriority, setFilterPriority] = useState('');
-  const [filterAgent, setFilterAgent] = useState('');
-  const [filterTaskType, setFilterTaskType] = useState('');
-  // Activity filters
-  const [actFilterAgent, setActFilterAgent] = useState('');
-  const [actFilterProject, setActFilterProject] = useState('');
-  const [actFilterType, setActFilterType] = useState('');
+  const [approveModalId, setApproveModalId] = useState<string | null>(null);
 
-  useEffect(() => { setFilters(defaultFilters); }, []);
-
-  // Gate: only admin + agents enabled
   const currentMember = team.find(m => m.id === teamMemberId);
   const isAgentsEnabled = process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true';
   const isAdmin = currentMember?.role === 'admin';
@@ -49,170 +35,115 @@ export default function AgentPage() {
     );
   }
 
-  const suggestionsFilters: SuggestionsFilters = {
-    statusFilter, filterProject, filterGoal, filterPriority, filterAgent, filterTaskType,
-  };
-
-  const activityFilters: ActivityFilters = {
-    filterAgent: actFilterAgent, filterProject: actFilterProject, filterType: actFilterType,
-  };
-
-  const agents = team.filter(m => m.role === 'agent');
-
-  const statusOptions: { key: StatusFilter; label: string; count: number }[] = [
-    { key: '', label: 'All Statuses', count: taskSuggestions.length },
-    { key: 'pending', label: 'Pending', count: taskSuggestions.filter(s => s.status === 'pending').length },
-    { key: 'needs_info', label: 'Needs Info', count: taskSuggestions.filter(s => s.status === 'needs_info').length },
-    { key: 'approved', label: 'Approved', count: taskSuggestions.filter(s => s.status === 'approved').length },
-    { key: 'rejected', label: 'Rejected', count: taskSuggestions.filter(s => s.status === 'rejected').length },
-  ];
-
+  const autonomousProjects = projects.filter(p => p.autonomous_enabled && !p.archived_at);
   const pendingCount = taskSuggestions.filter(s => s.status === 'pending').length;
+  const needsInfoCount = taskSuggestions.filter(s => s.status === 'needs_info').length;
+  const activeProjectCount = autonomousProjects.length;
 
-  const tabs: { key: AgentTab; label: string; icon: any; count?: number }[] = [
-    { key: 'projects', label: 'Projects', icon: FolderKanban },
-    { key: 'suggestions', label: 'Suggestions', icon: Lightbulb, count: pendingCount },
-    { key: 'activity', label: 'Activity', icon: Activity },
+  // Tasks that are in progress on autonomous projects
+  const autonomousProjectIds = new Set(autonomousProjects.map(p => p.id));
+  const runningTasks = tasks.filter(
+    t => autonomousProjectIds.has(t.project_id) && (t.status === 'in_progress' || t.status === 'in_review')
+  ).length;
+
+  // Completed tasks this week
+  const weekAgo = new Date();
+  weekAgo.setDate(weekAgo.getDate() - 7);
+  const completedThisWeek = tasks.filter(
+    t => autonomousProjectIds.has(t.project_id) &&
+      t.status === 'done' &&
+      new Date(t.updated_at) >= weekAgo
+  ).length;
+
+  const stats = [
+    {
+      label: 'Pending Review',
+      value: pendingCount + needsInfoCount,
+      icon: Lightbulb,
+      color: pendingCount > 0 ? 'text-amber-600' : 'text-zinc-400',
+      bg: pendingCount > 0 ? 'bg-amber-50' : 'bg-zinc-50',
+    },
+    {
+      label: 'Active Projects',
+      value: activeProjectCount,
+      icon: FolderKanban,
+      color: 'text-brand-600',
+      bg: 'bg-brand-50',
+    },
+    {
+      label: 'Running Tasks',
+      value: runningTasks,
+      icon: Zap,
+      color: runningTasks > 0 ? 'text-blue-600' : 'text-zinc-400',
+      bg: runningTasks > 0 ? 'bg-blue-50' : 'bg-zinc-50',
+    },
+    {
+      label: 'Done This Week',
+      value: completedThisWeek,
+      icon: CheckCircle2,
+      color: completedThisWeek > 0 ? 'text-emerald-600' : 'text-zinc-400',
+      bg: completedThisWeek > 0 ? 'bg-emerald-50' : 'bg-zinc-50',
+    },
   ];
 
   return (
-    <div className="animate-fadeIn min-h-screen bg-zinc-50">
-      <Header
-        title="Agent"
-        subtitle={<span className="hidden sm:inline">AI home</span>}
-      />
+    <div className="animate-fadeIn min-h-screen lg:h-screen bg-zinc-50 lg:flex lg:flex-col lg:overflow-hidden">
+      <div className="lg:flex-shrink-0">
+        <Header
+          title="Agent Dashboard"
+        />
+      </div>
 
-      <div className="p-4 lg:p-6 space-y-4">
-        {/* Tab Switcher + Filters */}
-        <div className="flex items-center justify-between gap-4 flex-wrap">
-          <div className="flex gap-1 bg-white rounded-lg border border-zinc-200 p-1 w-fit">
-            {tabs.map((tab) => (
-              <button
-                key={tab.key}
-                onClick={() => setActiveTab(tab.key)}
-                className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${
-                  activeTab === tab.key
-                    ? 'bg-zinc-900 text-white shadow-sm'
-                    : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-50'
-                }`}
-              >
-                <tab.icon size={16} />
-                {tab.label}
-                {tab.count !== undefined && tab.count > 0 && (
-                  <span className={`min-w-[20px] h-5 flex items-center justify-center rounded-full text-xs font-medium px-1.5 ${
-                    activeTab === tab.key
-                      ? 'bg-white/20 text-white'
-                      : 'bg-brand-100 text-brand-700'
-                  }`}>
-                    {tab.count}
-                  </span>
-                )}
-              </button>
-            ))}
-          </div>
-
-          {activeTab === 'suggestions' && (
-            <div className="flex gap-3 flex-wrap">
-              <Select
-                value={statusFilter}
-                onChange={(v) => setStatusFilter(v as StatusFilter)}
-                options={statusOptions.map((o) => ({
-                  value: o.key,
-                  label: `${o.label}${o.count > 0 ? ` (${o.count})` : ''}`,
-                }))}
-              />
-              <Select
-                value={filterProject}
-                onChange={setFilterProject}
-                options={[
-                  { value: '', label: 'All Projects' },
-                  ...projects.map(p => ({ value: p.id, label: p.name })),
-                ]}
-              />
-              <Select
-                value={filterGoal}
-                onChange={setFilterGoal}
-                options={[
-                  { value: '', label: 'All Goals' },
-                  ...projectGoals.map(g => ({ value: g.id, label: g.title })),
-                ]}
-              />
-              <Select
-                value={filterPriority}
-                onChange={setFilterPriority}
-                options={[
-                  { value: '', label: 'All Priorities' },
-                  { value: 'low', label: 'Low' },
-                  { value: 'medium', label: 'Medium' },
-                  { value: 'high', label: 'High' },
-                  { value: 'urgent', label: 'Urgent' },
-                ]}
-              />
-              <Select
-                value={filterTaskType}
-                onChange={setFilterTaskType}
-                options={[
-                  { value: '', label: 'All Types' },
-                  ...TASK_TYPES.map(t => ({ value: t, label: t.charAt(0).toUpperCase() + t.slice(1) })),
-                ]}
-              />
-              {agents.length > 0 && (
-                <Select
-                  value={filterAgent}
-                  onChange={setFilterAgent}
-                  options={[
-                    { value: '', label: 'All Agents' },
-                    ...agents.map(a => ({ value: a.id, label: a.name })),
-                  ]}
-                />
-              )}
+      <div className="p-4 lg:p-6 space-y-4 lg:space-y-0 lg:flex-1 lg:min-h-0 lg:flex lg:flex-col lg:gap-6 lg:overflow-hidden">
+        {/* Stats Row */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4 lg:flex-shrink-0">
+          {stats.map((stat) => (
+            <div
+              key={stat.label}
+              className="bg-white rounded-xl border border-zinc-200 p-3 lg:p-5 hover:shadow-md transition-shadow"
+            >
+              <div className="flex items-center justify-between mb-2 lg:mb-3">
+                <div className={`p-2 lg:p-2.5 rounded-lg ${stat.bg}`}>
+                  <stat.icon className={stat.color} size={20} />
+                </div>
+              </div>
+              <p className="text-xl lg:text-2xl font-bold text-zinc-900">{stat.value}</p>
+              <p className="text-xs lg:text-sm text-zinc-500">{stat.label}</p>
             </div>
-          )}
-
-          {activeTab === 'activity' && (
-            <div className="flex gap-3 flex-wrap">
-              {agents.length > 0 && (
-                <Select
-                  value={actFilterAgent}
-                  onChange={setActFilterAgent}
-                  options={[
-                    { value: '', label: 'All Agents' },
-                    ...agents.map(a => ({ value: a.id, label: a.name })),
-                  ]}
-                />
-              )}
-              <Select
-                value={actFilterProject}
-                onChange={setActFilterProject}
-                options={[
-                  { value: '', label: 'All Projects' },
-                  ...projects.map(p => ({ value: p.id, label: p.name })),
-                ]}
-              />
-              <Select
-                value={actFilterType}
-                onChange={setActFilterType}
-                options={[
-                  { value: '', label: 'All Types' },
-                  { value: 'suggestion_created', label: 'Suggestion Created' },
-                  { value: 'task_started', label: 'Task Started' },
-                  { value: 'task_completed', label: 'Task Completed' },
-                  { value: 'task_failed', label: 'Task Failed' },
-                  { value: 'research_completed', label: 'Research Completed' },
-                  { value: 'comment_added', label: 'Comment Added' },
-                  { value: 'status_changed', label: 'Status Changed' },
-                  { value: 'custom', label: 'Custom' },
-                ]}
-              />
-            </div>
-          )}
+          ))}
         </div>
 
-        {/* Tab Content */}
-        {activeTab === 'suggestions' && <SuggestionsTab filters={suggestionsFilters} />}
-        {activeTab === 'projects' && <AgentProjectsTab />}
-        {activeTab === 'activity' && <ActivityTab filters={activityFilters} />}
+        {/* Main Content: Review Queue + Sidebar */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6 lg:flex-1 lg:min-h-0">
+          {/* Review Queue - takes 2/3, fills grid row height */}
+          <div className="lg:col-span-2 lg:min-h-0">
+            <ReviewQueue
+              onApprove={(id) => setApproveModalId(id)}
+            />
+          </div>
+
+          {/* Sidebar - takes 1/3, stretches to match review queue */}
+          <div className="space-y-4 lg:space-y-0 lg:min-h-0 lg:flex lg:flex-col lg:gap-6">
+            <AutonomousProjects />
+            <div className="lg:flex-1 lg:min-h-0 lg:flex lg:flex-col">
+              <ActivityTimeline />
+            </div>
+          </div>
+        </div>
       </div>
+
+      {/* Approve Modal */}
+      {approveModalId && taskSuggestions.find(s => s.id === approveModalId) && (
+        <ApproveModal
+          suggestion={taskSuggestions.find(s => s.id === approveModalId)!}
+          onClose={() => setApproveModalId(null)}
+          onApprove={(overrides) => {
+            approveSuggestion(approveModalId, overrides, teamMemberId || '');
+            setApproveModalId(null);
+            toast('success', 'Suggestion approved, task created');
+          }}
+        />
+      )}
     </div>
   );
 }

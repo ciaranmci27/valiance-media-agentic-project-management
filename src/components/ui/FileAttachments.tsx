@@ -290,7 +290,7 @@ export function FileAttachments({ entityType, entityId }: FileAttachmentsProps) 
           <div className="flex items-center gap-2">
             <Paperclip size={18} className="text-zinc-500" />
             <h2 className="font-semibold text-zinc-900">
-              Project Files ({files.length})
+              Files ({files.length})
             </h2>
           </div>
           <div className="flex items-center gap-2">
@@ -299,7 +299,7 @@ export function FileAttachments({ entityType, entityId }: FileAttachmentsProps) 
               className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-brand-600 bg-brand-50 hover:bg-brand-100 rounded-lg transition-colors"
             >
               <FileText size={14} />
-              New Note
+              Note
             </button>
             <label className="cursor-pointer">
               <input
@@ -311,7 +311,7 @@ export function FileAttachments({ entityType, entityId }: FileAttachmentsProps) 
               />
               <span className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition-colors cursor-pointer">
                 <Upload size={14} />
-                {uploading ? 'Uploading...' : 'Upload'}
+                <span className="hidden min-[400px]:inline">{uploading ? 'Uploading...' : 'Upload'}</span>
               </span>
             </label>
           </div>

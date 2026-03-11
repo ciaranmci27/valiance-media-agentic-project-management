@@ -175,3 +175,16 @@ ALTER TABLE public.tasks
 ALTER TABLE public.task_suggestions
   ADD COLUMN IF NOT EXISTS task_type text
     CHECK (task_type IN ('engineering','research','audit','marketing','copywriting','operations','general') OR task_type IS NULL);
+
+-- ============================================================
+-- 9. AI MANAGED FLAG FOR TASKS
+-- ============================================================
+ALTER TABLE public.tasks
+  ADD COLUMN IF NOT EXISTS ai_managed boolean NOT NULL DEFAULT true;
+
+-- ============================================================
+-- 10. DEPLOYMENT POLICY FOR PROJECTS
+-- ============================================================
+ALTER TABLE public.projects
+  ADD COLUMN IF NOT EXISTS deployment_policy text NOT NULL DEFAULT 'production'
+    CHECK (deployment_policy IN ('playground', 'production'));
