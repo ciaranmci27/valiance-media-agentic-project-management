@@ -1,11 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useApp } from '@/lib/store';
 import { Tooltip } from '@/components/ui/Tooltip';
 import Modal from '@/components/ui/Modal';
 import { ProjectContextPanel } from '@/components/projects/ProjectContextPanel';
 import { Select } from '@/components/ui/Select';
+import { Input } from '@/components/ui/Input';
 import {
   Plus, Pause, Play, FolderKanban, ChevronRight, Settings,
 } from 'lucide-react';
@@ -17,6 +18,11 @@ export function AutonomousProjects() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [contextProjectId, setContextProjectId] = useState<string | null>(null);
   const contextProject = contextProjectId ? projects.find(p => p.id === contextProjectId) : null;
+  const [repoPathDraft, setRepoPathDraft] = useState('');
+
+  useEffect(() => {
+    setRepoPathDraft(contextProject?.repo_path ?? '');
+  }, [contextProjectId]);
 
   const autonomousProjects = projects
     .filter(p => p.autonomous_enabled && !p.archived_at)
@@ -181,13 +187,26 @@ export function AutonomousProjects() {
                   <input
                     type="number"
                     min={1}
-                    value={contextProject.suggestions_per_cycle ?? 3}
+                    value={contextProject.suggestions_per_cycle ?? 2}
                     onChange={(e) => updateProject(contextProjectId, { suggestions_per_cycle: Math.max(1, parseInt(e.target.value) || 1) })}
                     className="w-full px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 transition-all"
                   />
                 </div>
               </div>
             </div>
+
+            <Input
+              label="Repository Path"
+              value={repoPathDraft}
+              onChange={(e) => setRepoPathDraft(e.target.value)}
+              onBlur={() => {
+                const value = repoPathDraft.trim() || null;
+                if (value !== (contextProject.repo_path ?? null)) {
+                  updateProject(contextProjectId, { repo_path: value });
+                }
+              }}
+              placeholder="/home/ciaran/Projects/my-project"
+            />
 
             <ProjectContextPanel projectId={contextProjectId} />
           </div>

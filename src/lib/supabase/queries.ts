@@ -45,7 +45,7 @@ export async function insertProject(
       autonomous_enabled: project.autonomous_enabled ?? false,
       deployment_policy: project.deployment_policy ?? 'production',
       max_concurrent_tasks: project.max_concurrent_tasks ?? 2,
-      suggestions_per_cycle: project.suggestions_per_cycle ?? 3,
+      suggestions_per_cycle: project.suggestions_per_cycle ?? 2,
       repo_path: project.repo_path ?? null,
       created_by: project.created_by,
     })

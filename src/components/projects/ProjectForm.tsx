@@ -36,7 +36,6 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
   const [deploymentPolicy, setDeploymentPolicy] = useState<'playground' | 'production'>('production');
   const [maxConcurrentTasks, setMaxConcurrentTasks] = useState(2);
   const [suggestionsPerCycle, setSuggestionsPerCycle] = useState(3);
-  const [repoPath, setRepoPath] = useState('');
   const [memberIds, setMemberIds] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [confirmStatusChange, setConfirmStatusChange] = useState(false);
@@ -61,8 +60,7 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
       setAutonomousEnabled(project.autonomous_enabled ?? false);
       setDeploymentPolicy(project.deployment_policy ?? 'production');
       setMaxConcurrentTasks(project.max_concurrent_tasks ?? 2);
-      setSuggestionsPerCycle(project.suggestions_per_cycle ?? 3);
-      setRepoPath(project.repo_path ?? '');
+      setSuggestionsPerCycle(project.suggestions_per_cycle ?? 2);
       setMemberIds(project.member_ids);
       const primaryClient = getPrimaryClient(project.id);
       setSelectedContactId(primaryClient?.contact_id || '');
@@ -78,7 +76,6 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
       setDeploymentPolicy('production');
       setMaxConcurrentTasks(2);
       setSuggestionsPerCycle(3);
-      setRepoPath('');
       setMemberIds([]);
       setSelectedContactId('');
     }
@@ -104,7 +101,7 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
       deployment_policy: deploymentPolicy,
       max_concurrent_tasks: maxConcurrentTasks,
       suggestions_per_cycle: suggestionsPerCycle,
-      repo_path: repoPath.trim() || null,
+      repo_path: project?.repo_path ?? null,
       member_ids: memberIds,
     };
 
@@ -391,15 +388,6 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
           </button>
         </div>
 
-
-        {autonomousEnabled && (
-          <Input
-            label="Repository Path"
-            value={repoPath}
-            onChange={(e) => setRepoPath(e.target.value)}
-            placeholder="/home/ciaran/Projects/my-project"
-          />
-        )}
 
         <div className="space-y-1.5">
           <label className="block text-sm font-medium text-zinc-700">Color <span className="font-normal text-zinc-400">(optional)</span></label>
