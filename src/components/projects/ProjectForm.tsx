@@ -3,7 +3,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Project } from '@/lib/types';
 import { useApp } from '@/lib/store';
-import { useAuth } from '@/lib/auth-context';
 import Modal from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -26,12 +25,6 @@ interface ProjectFormProps {
 
 export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
   const { team, contacts, addProject, updateProject, addProjectContact, getPrimaryClient } = useApp();
-  const { teamMemberId } = useAuth();
-
-  const isAgentsEnabled = process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true';
-  const currentMember = team.find(m => m.id === teamMemberId);
-  const isAdmin = currentMember?.role === 'admin';
-
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [color, setColor] = useState(DEFAULT_PROJECT_COLOR);
@@ -41,6 +34,8 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
   const [hourlyTracking, setHourlyTracking] = useState(false);
   const [autonomousEnabled, setAutonomousEnabled] = useState(false);
   const [deploymentPolicy, setDeploymentPolicy] = useState<'playground' | 'production'>('production');
+  const [maxConcurrentTasks, setMaxConcurrentTasks] = useState(2);
+  const [suggestionsPerCycle, setSuggestionsPerCycle] = useState(3);
   const [memberIds, setMemberIds] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [confirmStatusChange, setConfirmStatusChange] = useState(false);
@@ -64,6 +59,8 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
       setHourlyTracking(project.hourly_tracking ?? false);
       setAutonomousEnabled(project.autonomous_enabled ?? false);
       setDeploymentPolicy(project.deployment_policy ?? 'production');
+      setMaxConcurrentTasks(project.max_concurrent_tasks ?? 2);
+      setSuggestionsPerCycle(project.suggestions_per_cycle ?? 3);
       setMemberIds(project.member_ids);
       const primaryClient = getPrimaryClient(project.id);
       setSelectedContactId(primaryClient?.contact_id || '');
@@ -77,6 +74,8 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
       setHourlyTracking(false);
       setAutonomousEnabled(false);
       setDeploymentPolicy('production');
+      setMaxConcurrentTasks(2);
+      setSuggestionsPerCycle(3);
       setMemberIds([]);
       setSelectedContactId('');
     }
@@ -100,6 +99,8 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
       fixed_price: project?.fixed_price ?? null,
       autonomous_enabled: autonomousEnabled,
       deployment_policy: deploymentPolicy,
+      max_concurrent_tasks: maxConcurrentTasks,
+      suggestions_per_cycle: suggestionsPerCycle,
       member_ids: memberIds,
     };
 
@@ -386,20 +387,6 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
           </button>
         </div>
 
-
-        {isAgentsEnabled && isAdmin && autonomousEnabled && (
-          <div className="space-y-1.5">
-            <label className="block text-sm font-medium text-zinc-700">Deployment Policy</label>
-            <Select
-              value={deploymentPolicy}
-              onChange={(value) => setDeploymentPolicy(value as 'playground' | 'production')}
-              options={[
-                { value: 'production', label: 'Production: AI uses feature branches and PRs, no auto-deploy' },
-                { value: 'playground', label: 'Playground: AI commits to main and deploys freely' },
-              ]}
-            />
-          </div>
-        )}
 
         <div className="space-y-1.5">
           <label className="block text-sm font-medium text-zinc-700">Color <span className="font-normal text-zinc-400">(optional)</span></label>

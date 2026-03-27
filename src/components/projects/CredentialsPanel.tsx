@@ -66,12 +66,12 @@ function RevealedField({ label, value, isSensitive }: { label: string; value: st
   const isMasked = isSensitive && !visible;
 
   return (
-    <div className="flex items-center gap-2 py-1">
+    <div className="flex items-center gap-2 py-1 min-w-0">
       <span className="text-xs font-medium text-zinc-400 w-20 flex-shrink-0">{label}</span>
       <Tooltip content={`Click to copy ${label.toLowerCase()}`}>
         <span
           onClick={handleCopyValue}
-          className={`flex-1 text-sm font-mono truncate cursor-pointer transition-colors ${isMasked ? 'tracking-widest text-zinc-400 hover:text-zinc-600' : 'text-zinc-700 hover:text-brand-600 active:text-brand-700'} ${copied ? '!text-brand-500' : ''}`}
+          className={`flex-1 text-sm font-mono break-all cursor-pointer transition-colors ${isMasked ? 'tracking-widest text-zinc-400 hover:text-zinc-600' : 'text-zinc-700 hover:text-brand-600 active:text-brand-700'} ${copied ? '!text-brand-500' : ''}`}
         >
           {isMasked ? '••••••••' : value}
         </span>
@@ -550,13 +550,13 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
               return (
                 <div
                   key={cred.id}
-                  className="group relative rounded-xl border border-zinc-200 bg-white hover:border-zinc-300 hover:shadow-sm transition-all overflow-hidden cursor-pointer"
+                  className="group relative rounded-xl border border-zinc-200 bg-white hover:border-zinc-300 hover:shadow-sm transition-all overflow-hidden cursor-pointer min-w-0"
                   onClick={() => handleReveal(cred.id)}
                 >
                   {/* Category accent bar */}
                   <div className={`h-1 ${config.bg}`} />
 
-                  <div className="p-4">
+                  <div className="p-4 min-w-0">
                     {/* Header */}
                     <div className="flex items-start gap-3 mb-3">
                       <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${config.bg}`}>
@@ -584,7 +584,7 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
 
                     {/* Revealed data */}
                     {isRevealed && revealedData[cred.id] && (
-                      <div className="mb-3 px-3 py-2.5 bg-zinc-50 border border-zinc-100 rounded-lg space-y-0.5" onClick={e => e.stopPropagation()}>
+                      <div className="mb-3 px-3 py-2.5 bg-zinc-50 border border-zinc-100 rounded-lg space-y-0.5 overflow-hidden" onClick={e => e.stopPropagation()}>
                         <RevealedField label="Username" value={revealedData[cred.id].username} />
                         <RevealedField label="Password" value={revealedData[cred.id].password} isSensitive />
                         <RevealedField label="URL" value={revealedData[cred.id].url} />

@@ -2,18 +2,21 @@
 
 import { useState } from 'react';
 import { useApp } from '@/lib/store';
-import { useRouter } from 'next/navigation';
 import { Tooltip } from '@/components/ui/Tooltip';
 import Modal from '@/components/ui/Modal';
+import { ProjectContextPanel } from '@/components/projects/ProjectContextPanel';
+import { Select } from '@/components/ui/Select';
 import {
-  Plus, Pause, Play, FolderKanban, ChevronRight,
+  Plus, Pause, Play, FolderKanban, ChevronRight, Settings,
 } from 'lucide-react';
 import { toast } from '@/components/ui/Toast';
+import { Project } from '@/lib/types';
 
 export function AutonomousProjects() {
   const { projects, projectGoals, taskSuggestions, updateProject } = useApp();
-  const router = useRouter();
   const [showAddModal, setShowAddModal] = useState(false);
+  const [contextProjectId, setContextProjectId] = useState<string | null>(null);
+  const contextProject = contextProjectId ? projects.find(p => p.id === contextProjectId) : null;
 
   const autonomousProjects = projects
     .filter(p => p.autonomous_enabled && !p.archived_at)
@@ -73,11 +76,8 @@ export function AutonomousProjects() {
                   )}
 
                   {/* Project info */}
-                  <button
-                    onClick={() => router.push(`/projects/${project.id}`)}
-                    className="flex-1 min-w-0 text-left"
-                  >
-                    <p className="text-sm font-medium text-zinc-900 truncate group-hover:text-brand-600 transition-colors">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-zinc-900 truncate">
                       {project.name}
                     </p>
                     <div className="flex items-center gap-2 mt-0.5">
@@ -101,17 +101,27 @@ export function AutonomousProjects() {
                         {project.deployment_policy === 'playground' ? 'Playground' : 'Production'}
                       </span>
                     </div>
-                  </button>
+                  </div>
 
-                  {/* Pause/Play toggle */}
-                  <Tooltip content={project.autonomous_enabled ? 'Pause agents' : 'Resume agents'}>
-                    <button
-                      onClick={() => handleToggle(project.id, project.autonomous_enabled)}
-                      className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 transition-colors opacity-0 group-hover:opacity-100 flex-shrink-0"
-                    >
-                      {project.autonomous_enabled ? <Pause size={14} /> : <Play size={14} />}
-                    </button>
-                  </Tooltip>
+                  {/* Project actions */}
+                  <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 flex-shrink-0">
+                    <Tooltip content="Agent settings">
+                      <button
+                        onClick={() => setContextProjectId(project.id)}
+                        className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 transition-colors"
+                      >
+                        <Settings size={14} />
+                      </button>
+                    </Tooltip>
+                    <Tooltip content={project.autonomous_enabled ? 'Pause agents' : 'Resume agents'}>
+                      <button
+                        onClick={() => handleToggle(project.id, project.autonomous_enabled)}
+                        className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 transition-colors"
+                      >
+                        {project.autonomous_enabled ? <Pause size={14} /> : <Play size={14} />}
+                      </button>
+                    </Tooltip>
+                  </div>
                 </div>
               </div>
             );
@@ -131,6 +141,58 @@ export function AutonomousProjects() {
           )}
         </div>
       </div>
+
+      {/* Project Settings Modal */}
+      <Modal
+        isOpen={contextProjectId !== null}
+        onClose={() => setContextProjectId(null)}
+        title={contextProject ? `${contextProject.name} - Agent Settings` : 'Agent Settings'}
+        size="lg"
+      >
+        {contextProjectId && contextProject && (
+          <div className="space-y-6">
+            {/* Velocity & Policy Controls */}
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="block text-sm font-medium text-zinc-700">Deployment Policy</label>
+                <Select
+                  value={contextProject.deployment_policy ?? 'production'}
+                  onChange={(value) => updateProject(contextProjectId, { deployment_policy: value as Project['deployment_policy'] })}
+                  options={[
+                    { value: 'production', label: 'Production: AI uses feature branches and PRs, no auto-deploy' },
+                    { value: 'playground', label: 'Playground: AI commits to main and deploys freely' },
+                  ]}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="block text-sm font-medium text-zinc-700">Max Concurrent AI Tasks</label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={contextProject.max_concurrent_tasks ?? 2}
+                    onChange={(e) => updateProject(contextProjectId, { max_concurrent_tasks: Math.max(1, parseInt(e.target.value) || 1) })}
+                    className="w-full px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 transition-all"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="block text-sm font-medium text-zinc-700">Suggestions Per Cycle</label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={contextProject.suggestions_per_cycle ?? 3}
+                    onChange={(e) => updateProject(contextProjectId, { suggestions_per_cycle: Math.max(1, parseInt(e.target.value) || 1) })}
+                    className="w-full px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 transition-all"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <ProjectContextPanel projectId={contextProjectId} />
+          </div>
+        )}
+      </Modal>
 
       {/* Add Project Modal */}
       <Modal isOpen={showAddModal} onClose={() => setShowAddModal(false)} title="Enable Autonomous Agents" size="sm">

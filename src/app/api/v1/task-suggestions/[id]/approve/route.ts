@@ -20,7 +20,8 @@ export const POST = withApi<any, { id: string }>(async ({ supabase, params, body
   }
 
   const reviewedBy = teamMemberId || apiKeyId;
-  const result = await approveTaskSuggestion(supabase, params.id, body || {}, reviewedBy);
+  const { ai_managed, ...taskOverrides } = (body || {}) as any;
+  const result = await approveTaskSuggestion(supabase, params.id, taskOverrides, reviewedBy, ai_managed);
 
   logAudit(supabase, {
     method: 'POST',

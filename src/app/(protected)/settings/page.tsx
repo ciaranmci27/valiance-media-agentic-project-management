@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { AvatarUpload } from '@/components/ui/AvatarUpload';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import { User, Lock, FlaskConical, Key, Copy, Check, Plus, Ban, BookOpen, Bell, Globe } from 'lucide-react';
+import { User, Lock, FlaskConical, Key, Copy, Check, Plus, Ban, BookOpen, Bell, Globe, Mail } from 'lucide-react';
 import { toast } from '@/components/ui/Toast';
 import { useDemo } from '@/lib/demo-context';
 import { SmtpSection } from '@/components/settings/SmtpSection';
@@ -118,6 +118,9 @@ export default function SettingsPage() {
 
   // Notification prefs state
   const [notifPrefs, setNotifPrefs] = useState<NotificationPreferences>({});
+  const [emailEnabled, setEmailEnabled] = useState(false);
+  const [emailNotifPrefs, setEmailNotifPrefs] = useState<NotificationPreferences>({});
+  const [hasSmtp, setHasSmtp] = useState<boolean | null>(null);
 
   // Timezone state
   const [timezone, setTimezone] = useState('UTC');
@@ -199,10 +202,24 @@ export default function SettingsPage() {
     if (currentMember?.notification_prefs) {
       setNotifPrefs(currentMember.notification_prefs);
     }
+    if (currentMember?.email_notification_prefs) {
+      setEmailNotifPrefs(currentMember.email_notification_prefs);
+    }
+    if (currentMember?.email_notifications_enabled !== undefined) {
+      setEmailEnabled(currentMember.email_notifications_enabled);
+    }
     if (currentMember?.timezone) {
       setTimezone(currentMember.timezone);
     }
   }, [currentMember?.id]);
+
+  // Check if any SMTP accounts are configured
+  useEffect(() => {
+    fetch('/api/smtp').then(res => res.ok ? res.json() : null).then((data) => {
+      const accounts = data?.accounts;
+      setHasSmtp(Array.isArray(accounts) && accounts.length > 0);
+    }).catch(() => setHasSmtp(false));
+  }, []);
 
   const handleToggleNotif = (category: NotificationCategory) => {
     if (!teamMemberId) return;
@@ -216,6 +233,28 @@ export default function SettingsPage() {
     setNotifPrefs(newPrefs);
     updateTeamMember(teamMemberId, { notification_prefs: newPrefs });
     toast('success', isCurrentlyEnabled ? 'Notification disabled' : 'Notification enabled');
+  };
+
+  const handleToggleEmailEnabled = () => {
+    if (!teamMemberId || hasSmtp === false) return;
+    const newValue = !emailEnabled;
+    setEmailEnabled(newValue);
+    updateTeamMember(teamMemberId, { email_notifications_enabled: newValue });
+    toast('success', newValue ? 'Email notifications enabled' : 'Email notifications disabled');
+  };
+
+  const handleToggleEmailNotif = (category: NotificationCategory) => {
+    if (!teamMemberId || !emailEnabled) return;
+    const isCurrentlyEnabled = emailNotifPrefs[category] === true;
+    const newPrefs = { ...emailNotifPrefs };
+    if (isCurrentlyEnabled) {
+      delete newPrefs[category];
+    } else {
+      newPrefs[category] = true;
+    }
+    setEmailNotifPrefs(newPrefs);
+    updateTeamMember(teamMemberId, { email_notification_prefs: newPrefs });
+    toast('success', isCurrentlyEnabled ? 'Email notification disabled' : 'Email notification enabled');
   };
 
   const handleTimezoneChange = (tz: string) => {
@@ -438,9 +477,9 @@ export default function SettingsPage() {
               uploading={avatarUploading}
               onRemove={currentAvatarSrc ? handleRemoveAvatar : undefined}
             />
-            <div>
-              <p className="font-medium text-zinc-900">{userName || 'Your Name'}</p>
-              <p className="text-sm text-zinc-500">{userEmail || 'your@email.com'}</p>
+            <div className="min-w-0 flex-1">
+              <p className="font-medium text-zinc-900 truncate">{userName || 'Your Name'}</p>
+              <p className="text-sm text-zinc-500 truncate">{userEmail || 'your@email.com'}</p>
             </div>
           </div>
 
@@ -598,38 +637,105 @@ export default function SettingsPage() {
             </div>
           </div>
 
-          <div className="lg:columns-2 lg:gap-6 space-y-6 lg:space-y-0">
+          {/* Email master toggle */}
+          <div className={`flex items-center justify-between p-3 mb-6 rounded-lg border ${hasSmtp === false ? 'bg-zinc-50/50 border-zinc-100 opacity-60' : 'bg-zinc-50 border-zinc-200'}`}>
+            <div className="flex items-center gap-3">
+              <Mail className="text-zinc-500" size={18} />
+              <div>
+                <p className="text-sm font-medium text-zinc-700">Email notifications</p>
+                <p className="text-xs text-zinc-500">
+                  {hasSmtp === false
+                    ? 'Configure an SMTP account below to enable email notifications.'
+                    : 'Receive email alerts for important updates.'}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={emailEnabled}
+              disabled={hasSmtp === false}
+              onClick={handleToggleEmailEnabled}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0 ${
+                hasSmtp === false
+                  ? 'bg-zinc-100 cursor-not-allowed'
+                  : emailEnabled ? 'bg-teal-600' : 'bg-zinc-200'
+              }`}
+            >
+              <span
+                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                  emailEnabled && hasSmtp !== false ? 'translate-x-6' : 'translate-x-1'
+                }`}
+              />
+            </button>
+          </div>
+
+          <div className="space-y-6">
             {NOTIF_GROUPS.filter(g => {
               if (g.agentOnly && process.env.NEXT_PUBLIC_ENABLE_AGENTS !== 'true') return false;
               if (g.adminOnly && !isAdmin) return false;
               return true;
             }).map(({ group, items }) => (
-              <div key={group} className="break-inside-avoid lg:mb-6">
-                <p className="text-xs font-medium text-zinc-400 uppercase tracking-wide mb-3">{group}</p>
+              <div key={group}>
+                {/* Group header with column labels */}
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-xs font-medium text-zinc-400 uppercase tracking-wide">{group}</p>
+                  <div className="flex items-center gap-3">
+                    <span className="text-[10px] font-medium text-zinc-400 uppercase tracking-wide w-11 text-center">In-App</span>
+                    <span className={`text-[10px] font-medium uppercase tracking-wide w-11 text-center ${emailEnabled && hasSmtp !== false ? 'text-zinc-400' : 'text-zinc-300'}`}>Email</span>
+                  </div>
+                </div>
                 <div className="space-y-3">
                   {items.map(({ key, label, desc }) => {
-                    const enabled = notifPrefs[key] !== false;
+                    const inAppEnabled = notifPrefs[key] !== false;
+                    const emailCatEnabled = emailNotifPrefs[key] === true;
                     return (
                       <div key={key} className="flex items-center justify-between">
-                        <div>
+                        <div className="min-w-0 flex-1 mr-4">
                           <p className="text-sm text-zinc-700">{label}</p>
                           <p className="text-xs text-zinc-500 mt-0.5">{desc}</p>
                         </div>
-                        <button
-                          type="button"
-                          role="switch"
-                          aria-checked={enabled}
-                          onClick={() => handleToggleNotif(key)}
-                          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0 ${
-                            enabled ? 'bg-blue-500' : 'bg-zinc-200'
-                          }`}
-                        >
-                          <span
-                            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                              enabled ? 'translate-x-6' : 'translate-x-1'
+                        <div className="flex items-center gap-3 flex-shrink-0">
+                          {/* In-App toggle */}
+                          <button
+                            type="button"
+                            role="switch"
+                            aria-checked={inAppEnabled}
+                            aria-label={`${label} in-app notification`}
+                            onClick={() => handleToggleNotif(key)}
+                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                              inAppEnabled ? 'bg-blue-500' : 'bg-zinc-200'
                             }`}
-                          />
-                        </button>
+                          >
+                            <span
+                              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                                inAppEnabled ? 'translate-x-6' : 'translate-x-1'
+                              }`}
+                            />
+                          </button>
+                          {/* Email toggle */}
+                          <button
+                            type="button"
+                            role="switch"
+                            aria-checked={emailCatEnabled}
+                            aria-label={`${label} email notification`}
+                            disabled={!emailEnabled}
+                            onClick={() => handleToggleEmailNotif(key)}
+                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                              !emailEnabled
+                                ? 'bg-zinc-100 cursor-not-allowed'
+                                : emailCatEnabled
+                                  ? 'bg-teal-600'
+                                  : 'bg-zinc-200'
+                            }`}
+                          >
+                            <span
+                              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                                emailCatEnabled && emailEnabled ? 'translate-x-6' : 'translate-x-1'
+                              }`}
+                            />
+                          </button>
+                        </div>
                       </div>
                     );
                   })}
@@ -649,7 +755,7 @@ export default function SettingsPage() {
                 </div>
                 <div>
                   <h2 className="font-semibold text-zinc-900">API Keys</h2>
-                  <p className="text-sm text-zinc-500">Manage keys for external integrations</p>
+                  <p className="text-sm text-zinc-500 hidden sm:block">Manage keys for external integrations</p>
                 </div>
               </div>
               <div className="flex items-center gap-2">
@@ -664,7 +770,8 @@ export default function SettingsPage() {
                     onClick={() => setShowKeyForm(true)}
                     icon={<Plus size={14} />}
                   >
-                    Generate New Key
+                    <span className="sm:hidden">New</span>
+                    <span className="hidden sm:inline">Generate New Key</span>
                   </Button>
                 )}
               </div>
@@ -747,40 +854,41 @@ export default function SettingsPage() {
             {activeKeys.length > 0 && (
               <div className="border border-zinc-200 rounded-lg divide-y divide-zinc-100">
                 {activeKeys.map(key => (
-                  <div key={key.id} className="flex items-center gap-3 px-4 py-3">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-zinc-900">{key.name}</p>
-                      <div className="flex items-center gap-2 mt-0.5">
-                        <code className="text-xs text-zinc-500 font-mono">{key.key_prefix}...****</code>
-                        <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                          key.permissions === 'full'
-                            ? 'bg-brand-50 text-brand-600'
-                            : 'bg-zinc-100 text-zinc-500'
-                        }`}>
-                          {key.permissions === 'full' ? 'Full' : 'Read Only'}
-                        </span>
-                        {key.team_member_id && (() => {
-                          const linked = team.find(m => m.id === key.team_member_id);
-                          return linked ? (
-                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-violet-50 text-violet-600">
-                              {linked.name}
-                            </span>
-                          ) : null;
-                        })()}
+                  <div key={key.id} className="px-4 py-3">
+                    <div className="flex items-start gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-medium text-zinc-900 truncate">{key.name}</p>
+                          <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium flex-shrink-0 ${
+                            key.permissions === 'full'
+                              ? 'bg-brand-50 text-brand-600'
+                              : 'bg-zinc-100 text-zinc-500'
+                          }`}>
+                            {key.permissions === 'full' ? 'Full' : 'Read Only'}
+                          </span>
+                        </div>
+                        <code className="text-xs text-zinc-500 font-mono mt-0.5 block">{key.key_prefix}...****</code>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className="text-xs text-zinc-400">Last used: {formatRelativeTime(key.last_used_at)}</span>
+                          {key.team_member_id && (() => {
+                            const linked = team.find(m => m.id === key.team_member_id);
+                            return linked ? (
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-violet-50 text-violet-600">
+                                {linked.name}
+                              </span>
+                            ) : null;
+                          })()}
+                        </div>
                       </div>
+                      <Tooltip content="Revoke key">
+                        <button
+                          onClick={() => setRevokeTarget(key)}
+                          className="p-1.5 text-zinc-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors flex-shrink-0"
+                        >
+                          <Ban size={14} />
+                        </button>
+                      </Tooltip>
                     </div>
-                    <div className="text-right flex-shrink-0">
-                      <p className="text-xs text-zinc-400">Last used</p>
-                      <p className="text-xs text-zinc-600">{formatRelativeTime(key.last_used_at)}</p>
-                    </div>
-                    <Tooltip content="Revoke key">
-                      <button
-                        onClick={() => setRevokeTarget(key)}
-                        className="p-1.5 text-zinc-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors flex-shrink-0"
-                      >
-                        <Ban size={14} />
-                      </button>
-                    </Tooltip>
                   </div>
                 ))}
               </div>

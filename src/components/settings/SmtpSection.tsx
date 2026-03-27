@@ -345,7 +345,7 @@ export function SmtpSection() {
             </div>
             <div>
               <h2 className="font-semibold text-zinc-900">SMTP Email</h2>
-              <p className="text-sm text-zinc-500">Manage outgoing email accounts</p>
+              <p className="text-sm text-zinc-500 hidden sm:block">Manage outgoing email accounts</p>
             </div>
           </div>
           {!showForm && (
@@ -356,7 +356,8 @@ export function SmtpSection() {
                 </Button>
               </Link>
               <Button size="sm" onClick={() => { resetForm(); setShowForm(true); }} icon={<Plus size={14} />}>
-                Add Account
+                <span className="sm:hidden">Add</span>
+                <span className="hidden sm:inline">Add Account</span>
               </Button>
             </div>
           )}
@@ -506,78 +507,77 @@ export function SmtpSection() {
               const status = statuses[account.id];
               return (
                 <div key={account.id}>
-                  <div className="flex items-center gap-3 px-4 py-3">
-                    {/* Status dot */}
-                    <Tooltip content={
-                      status?.online === null ? 'Checking...' :
-                      status?.online ? 'Connected' :
-                      status?.reason || 'Offline'
-                    }>
-                      <div className="flex-shrink-0">
-                        {status?.online === null ? (
-                          <Loader2 className="animate-spin text-zinc-400" size={14} />
-                        ) : (
-                          <div className={`w-2.5 h-2.5 rounded-full ${
-                            status?.online ? 'bg-emerald-500' : 'bg-red-400'
-                          }`} />
-                        )}
-                      </div>
-                    </Tooltip>
+                  <div className="px-4 py-3">
+                    <div className="flex items-start gap-3">
+                      {/* Status dot */}
+                      <Tooltip content={
+                        status?.online === null ? 'Checking...' :
+                        status?.online ? 'Connected' :
+                        status?.reason || 'Offline'
+                      }>
+                        <div className="flex-shrink-0 mt-1">
+                          {status?.online === null ? (
+                            <Loader2 className="animate-spin text-zinc-400" size={14} />
+                          ) : (
+                            <div className={`w-2.5 h-2.5 rounded-full ${
+                              status?.online ? 'bg-emerald-500' : 'bg-red-400'
+                            }`} />
+                          )}
+                        </div>
+                      </Tooltip>
 
-                    {/* Info */}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <p className="text-sm font-medium text-zinc-900">{account.label}</p>
-                        {account.is_default && (
-                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-brand-50 text-brand-600">
-                            Default
-                          </span>
-                        )}
+                      {/* Info */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-medium text-zinc-900 truncate">{account.label}</p>
+                          {account.is_default && (
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-brand-50 text-brand-600 flex-shrink-0">
+                              Default
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-zinc-500 truncate mt-0.5">{account.from_email}</p>
+                        <p className="text-xs text-zinc-400 font-mono truncate mt-0.5">{account.host}:{account.port} ({account.secure ? 'SSL' : 'STARTTLS'})</p>
                       </div>
-                      <div className="flex items-center gap-2 mt-0.5">
-                        <span className="text-xs text-zinc-500 font-mono">{account.host}:{account.port} ({account.secure ? 'SSL' : 'STARTTLS'})</span>
-                        <span className="text-xs text-zinc-400">&middot;</span>
-                        <span className="text-xs text-zinc-500">{account.from_email}</span>
-                      </div>
-                    </div>
 
-                    {/* Actions */}
-                    <div className="flex items-center gap-1 flex-shrink-0">
-                      <Tooltip content="Refresh status">
-                        <button
-                          onClick={() => verifyAccount(account.id)}
-                          className="p-1.5 text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 rounded-lg transition-colors"
-                        >
-                          <RefreshCw size={14} />
-                        </button>
-                      </Tooltip>
-                      <Tooltip content="Send test email">
-                        <button
-                          onClick={() => {
-                            setTestingId(testingId === account.id ? null : account.id);
-                            setTestTo('');
-                          }}
-                          className="p-1.5 text-zinc-400 hover:text-brand-600 hover:bg-brand-50 rounded-lg transition-colors"
-                        >
-                          <Send size={14} />
-                        </button>
-                      </Tooltip>
-                      <Tooltip content="Edit account">
-                        <button
-                          onClick={() => handleEdit(account)}
-                          className="p-1.5 text-zinc-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                        >
-                          <Pencil size={14} />
-                        </button>
-                      </Tooltip>
-                      <Tooltip content="Delete account">
-                        <button
-                          onClick={() => setDeleteTarget(account)}
-                          className="p-1.5 text-zinc-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </Tooltip>
+                      {/* Actions */}
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        <Tooltip content="Refresh status">
+                          <button
+                            onClick={() => verifyAccount(account.id)}
+                            className="p-1.5 text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 rounded-lg transition-colors"
+                          >
+                            <RefreshCw size={14} />
+                          </button>
+                        </Tooltip>
+                        <Tooltip content="Send test email">
+                          <button
+                            onClick={() => {
+                              setTestingId(testingId === account.id ? null : account.id);
+                              setTestTo('');
+                            }}
+                            className="p-1.5 text-zinc-400 hover:text-brand-600 hover:bg-brand-50 rounded-lg transition-colors"
+                          >
+                            <Send size={14} />
+                          </button>
+                        </Tooltip>
+                        <Tooltip content="Edit account">
+                          <button
+                            onClick={() => handleEdit(account)}
+                            className="p-1.5 text-zinc-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                          >
+                            <Pencil size={14} />
+                          </button>
+                        </Tooltip>
+                        <Tooltip content="Delete account">
+                          <button
+                            onClick={() => setDeleteTarget(account)}
+                            className="p-1.5 text-zinc-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </Tooltip>
+                      </div>
                     </div>
                   </div>
 

@@ -3,7 +3,7 @@
 import { useRef, useState } from 'react';
 import { TaskSuggestion } from '@/lib/types';
 import { Avatar } from '@/components/ui/Avatar';
-import { Check, X, HelpCircle } from 'lucide-react';
+import { Check, X, HelpCircle, Pencil } from 'lucide-react';
 import { toast } from '@/components/ui/Toast';
 
 interface SwipeSuggestionCardProps {
@@ -17,6 +17,7 @@ interface SwipeSuggestionCardProps {
   onApprove: () => void;
   onReject: () => void;
   onRequestInfo: () => void;
+  onEdit?: () => void;
 }
 
 export function SwipeSuggestionCard({
@@ -30,6 +31,7 @@ export function SwipeSuggestionCard({
   onApprove,
   onReject,
   onRequestInfo,
+  onEdit,
 }: SwipeSuggestionCardProps) {
   const cardRef = useRef<HTMLDivElement>(null);
   const startX = useRef(0);
@@ -161,15 +163,26 @@ export function SwipeSuggestionCard({
             <span className="text-xs text-zinc-500">{agentName}</span>
           </div>
 
-          {suggestion.status === 'pending' && (
-            <button
-              onClick={onRequestInfo}
-              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-amber-600 bg-amber-50 hover:bg-amber-100 transition-colors"
-            >
-              <HelpCircle size={12} />
-              Request Info
-            </button>
-          )}
+          <div className="flex items-center gap-2">
+            {(suggestion.status === 'pending' || suggestion.status === 'needs_info') && onEdit && (
+              <button
+                onClick={onEdit}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 transition-colors"
+              >
+                <Pencil size={12} />
+                Edit
+              </button>
+            )}
+            {suggestion.status === 'pending' && (
+              <button
+                onClick={onRequestInfo}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-amber-600 bg-amber-50 hover:bg-amber-100 transition-colors"
+              >
+                <HelpCircle size={12} />
+                Request Info
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </div>

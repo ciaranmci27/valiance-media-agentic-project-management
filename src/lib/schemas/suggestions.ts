@@ -16,6 +16,12 @@ export const createSuggestionSchema = z.object({
 });
 
 export const updateSuggestionSchema = z.object({
+  title: z.string().min(1).optional(),
+  description: z.string().min(1).optional(),
+  reasoning: z.string().min(1).optional(),
+  priority: z.enum(['low', 'medium', 'high', 'urgent']).optional(),
+  effort_estimate: z.enum(['small', 'medium', 'large']).nullable().optional(),
+  task_type: taskTypeEnum.nullable().optional(),
   metadata: z.record(z.string(), z.any()).optional(),
 });
 
@@ -25,6 +31,7 @@ export const approveSuggestionSchema = z.object({
   due_date: z.string().nullable().optional(),
   project_id: z.string().uuid().optional(),
   task_type: taskTypeEnum.nullable().optional(),
+  ai_managed: z.boolean().optional(),
 });
 
 export const rejectSuggestionSchema = z.object({

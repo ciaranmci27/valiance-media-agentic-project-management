@@ -44,6 +44,8 @@ export async function insertProject(
       hourly_tracking: project.hourly_tracking ?? false,
       autonomous_enabled: project.autonomous_enabled ?? false,
       deployment_policy: project.deployment_policy ?? 'production',
+      max_concurrent_tasks: project.max_concurrent_tasks ?? 2,
+      suggestions_per_cycle: project.suggestions_per_cycle ?? 3,
       created_by: project.created_by,
     })
     .select()
@@ -349,6 +351,8 @@ export async function insertTeamMember(
       avatar: member.avatar,
       role: member.role,
       auth_user_id: member.auth_user_id || null,
+      ...(member.email_notifications_enabled !== undefined && { email_notifications_enabled: member.email_notifications_enabled }),
+      ...(member.email_notification_prefs && { email_notification_prefs: member.email_notification_prefs }),
     })
     .select()
     .single();
@@ -1574,7 +1578,8 @@ export async function approveTaskSuggestion(
   supabase: SupabaseClient,
   id: string,
   taskOverrides: { priority?: string; assigned_to?: string | null; due_date?: string | null; project_id?: string; task_type?: string | null },
-  reviewedBy: string
+  reviewedBy: string,
+  aiManaged?: boolean
 ) {
   // Fetch the suggestion
   const { data: suggestion, error: fetchErr } = await supabase
@@ -1599,6 +1604,7 @@ export async function approveTaskSuggestion(
     project_goal_id: suggestion.goal_id,
   };
   if (resolvedTaskType) taskData.task_type = resolvedTaskType;
+  if (aiManaged !== undefined) taskData.ai_managed = aiManaged;
 
   const { data: task, error: taskErr } = await supabase
     .from('tasks')

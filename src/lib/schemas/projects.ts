@@ -11,6 +11,8 @@ export const createProjectSchema = z.object({
   hourly_tracking: z.boolean().default(false),
   autonomous_enabled: z.boolean().default(false),
   deployment_policy: z.enum(['playground', 'production']).default('production'),
+  max_concurrent_tasks: z.number().int().min(1).default(2),
+  suggestions_per_cycle: z.number().int().min(1).default(3),
   member_ids: z.array(z.string().uuid()).default([]),
   contact_id: z.string().uuid().nullable().default(null),
   contact: z.object({
@@ -31,5 +33,7 @@ export const updateProjectSchema = z.object({
   hourly_tracking: z.boolean().optional(),
   autonomous_enabled: z.boolean().optional(),
   deployment_policy: z.enum(['playground', 'production']).optional(),
+  max_concurrent_tasks: z.number().int().min(1).optional(),
+  suggestions_per_cycle: z.number().int().min(1).optional(),
   member_ids: z.array(z.string().uuid()).optional(),
 });

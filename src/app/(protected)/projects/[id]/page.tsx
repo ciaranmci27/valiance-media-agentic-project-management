@@ -125,8 +125,47 @@ export default function ProjectDetailPage() {
     setConfirmDelete({ type: 'task', id });
   };
 
-  const handleStatusChange = (taskId: string, newStatus: Task['status']) => {
+  const handleStatusChange = (taskId: string, newStatus: Task['status'], targetIndex?: number) => {
     updateTask(taskId, { status: newStatus });
+
+    // If a drop position was specified, reorder within the target column
+    if (targetIndex !== undefined) {
+      const targetSiblings = projectTasks
+        .filter(t => t.id !== taskId && t.status === newStatus)
+        .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+
+      const task = projectTasks.find(t => t.id === taskId);
+      if (!task) return;
+
+      const clamped = Math.min(targetIndex, targetSiblings.length);
+      targetSiblings.splice(clamped, 0, task);
+
+      targetSiblings.forEach((t, idx) => {
+        if ((t.sort_order ?? 0) !== idx) {
+          updateTask(t.id, { sort_order: idx });
+        }
+      });
+    }
+  };
+
+  const handleReorder = (taskId: string, newIndex: number) => {
+    const task = projectTasks.find(t => t.id === taskId);
+    if (!task) return;
+    const siblings = projectTasks
+      .filter(t => t.status === task.status)
+      .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+
+    // Remove the dragged task and insert at new position
+    const filtered = siblings.filter(s => s.id !== taskId);
+    const clamped = Math.min(newIndex, filtered.length);
+    filtered.splice(clamped, 0, task);
+
+    // Reassign sequential sort_order, only update tasks that changed
+    filtered.forEach((t, idx) => {
+      if ((t.sort_order ?? 0) !== idx) {
+        updateTask(t.id, { sort_order: idx });
+      }
+    });
   };
 
   const handleCloseTaskForm = () => {
@@ -446,6 +485,7 @@ export default function ProjectDetailPage() {
                 onEditTask={handleEditTask}
                 onDeleteTask={handleDeleteTask}
                 onStatusChange={handleStatusChange}
+                onReorder={handleReorder}
               />
             )}
 
@@ -490,6 +530,7 @@ export default function ProjectDetailPage() {
           <CredentialsPanel projectId={projectId} />
           <InvoicesPanel projectId={projectId} projectColor={project.color} />
         </div>
+
       </div>
 
       {/* Delete Project */}

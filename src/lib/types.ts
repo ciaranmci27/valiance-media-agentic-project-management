@@ -14,6 +14,8 @@ export interface Project {
   fixed_price: number | null;
   autonomous_enabled: boolean;
   deployment_policy: 'playground' | 'production';
+  max_concurrent_tasks: number;
+  suggestions_per_cycle: number;
   member_ids: string[];
   created_by?: string | null;
   archived_at?: string | null;
@@ -175,6 +177,7 @@ export interface Task {
   tags: string[];
   subtasks: Subtask[];
   comments: Comment[];
+  sort_order?: number;
   task_type?: TaskType | null;
   ai_managed: boolean;
   created_by?: string | null;
@@ -249,6 +252,8 @@ export interface TeamMember {
   role: 'admin' | 'member' | 'guest' | 'agent';
   timezone?: string;
   notification_prefs?: NotificationPreferences;
+  email_notifications_enabled?: boolean;
+  email_notification_prefs?: NotificationPreferences;
 }
 
 export interface FilterState {
@@ -514,6 +519,28 @@ export interface ApiAuditEntry {
   after_snapshot: Record<string, any> | null;
   status_code: number;
   error: string | null;
+}
+
+// ============================================================
+// PROJECT CONTEXT
+// ============================================================
+
+export const PROJECT_CONTEXT_CATEGORIES = ['business_context', 'existing_work', 'technical_decision', 'constraint', 'lesson_learned'] as const;
+export type ProjectContextCategory = typeof PROJECT_CONTEXT_CATEGORIES[number];
+
+export const PROJECT_CONTEXT_SOURCES = ['human', 'agent', 'scan'] as const;
+export type ProjectContextSource = typeof PROJECT_CONTEXT_SOURCES[number];
+
+export interface ProjectContext {
+  id: string;
+  project_id: string;
+  category: ProjectContextCategory;
+  content: string;
+  source: ProjectContextSource;
+  file_path: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface PortalData {

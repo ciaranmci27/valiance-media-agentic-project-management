@@ -90,6 +90,7 @@ import {
   approveTaskSuggestion as approveTaskSuggestionQuery,
   rejectTaskSuggestion as rejectTaskSuggestionQuery,
   requestInfoTaskSuggestion as requestInfoTaskSuggestionQuery,
+  patchTaskSuggestion as patchTaskSuggestionQuery,
   fetchAgentActivity,
   fetchAllTimeEntries,
   insertTimeEntry as insertTimeEntryQuery,
@@ -232,9 +233,10 @@ interface AppContextType {
   archiveGoal: (id: string) => void;
 
   // Task Suggestion review actions
-  approveSuggestion: (id: string, taskOverrides: { priority?: string; assigned_to?: string | null; due_date?: string | null; project_id?: string; task_type?: string | null }, reviewedBy: string) => void;
+  approveSuggestion: (id: string, taskOverrides: { priority?: string; assigned_to?: string | null; due_date?: string | null; project_id?: string; task_type?: string | null; ai_managed?: boolean }, reviewedBy: string) => void;
   rejectSuggestion: (id: string, reason: string | undefined, reviewedBy: string) => void;
   requestInfoOnSuggestion: (id: string, infoRequest: string, reviewedBy: string) => void;
+  updateSuggestion: (id: string, updates: Partial<TaskSuggestion>) => void;
   bulkApproveSuggestions: (ids: string[]) => void;
   bulkRejectSuggestions: (ids: string[], reason?: string) => void;
 
@@ -331,10 +333,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const allMemberIds = () => team.map(m => m.id);
   const adminMemberIds = () => team.filter(m => m.role === 'admin').map(m => m.id);
 
-  const notify = (userIds: string[], title: string, message: string, link: string | null, entityType: string | null, entityId: string | null, category: NotificationCategory) => {
+  const notify = (userIds: string[], title: string, message: string, link: string | null, entityType: string | null, entityId: string | null, category: NotificationCategory, emailOverrides?: { subject?: string; details?: Array<{ label: string; value: string }> }) => {
     if (skipSupabase) return;
-    const recipients = userIds.filter(id => {
-      if (id === teamMemberId) return false;
+    const candidateIds = userIds.filter(id => id !== teamMemberId);
+    const recipients = candidateIds.filter(id => {
       const member = team.find(m => m.id === id);
       if (member?.notification_prefs?.[category] === false) return false;
       return true;
@@ -348,6 +350,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
         p_entity_type: entityType,
         p_entity_id: entityId,
       }).then(() => {}, () => {});
+    }
+
+    // Fire-and-forget email notifications (server filters by email prefs)
+    if (candidateIds.length > 0) {
+      fetch('/api/notifications/email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          recipient_ids: candidateIds, title, message, link, category,
+          ...(emailOverrides && { email: emailOverrides }),
+        }),
+      }).catch(() => {});
     }
   };
 
@@ -481,7 +495,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       const newProject = await insertProject(supabase, { ...project, created_by: teamMemberId }, memberIds);
       setProjects(prev => prev.map(p => p.id === optimisticId ? newProject : p));
-      notify(allMemberIds(), `New project: "${newProject.name}"`, `${actorName()} created a new project.`, `/projects/${newProject.id}`, 'project', newProject.id, 'project_created');
+      notify(allMemberIds(), `New project: "${newProject.name}"`, `${actorName()} created a new project.`, `/projects/${newProject.id}`, 'project', newProject.id, 'project_created', {
+        subject: `New project: ${newProject.name}`,
+        details: [
+          { label: 'Project', value: newProject.name },
+          { label: 'Created by', value: actorName() },
+        ],
+      });
       return newProject;
     } catch (err) {
       setProjects(prev => prev.filter(p => p.id !== optimisticId));
@@ -571,7 +591,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const newTask = await insertTask(supabase, { ...task, created_by: teamMemberId }, assigneeIds);
       setTasks(prev => prev.map(t => t.id === optimisticId ? newTask : t));
       const project = projects.find(p => p.id === task.project_id);
-      notify(allMemberIds(), `New task: "${newTask.title}"`, `${actorName()} created a task${project ? ` in ${project.name}` : ''}.`, `/projects/${task.project_id}`, 'task', newTask.id, 'task_created');
+      const truncTitle = newTask.title.length > 50 ? newTask.title.slice(0, 50) + '...' : newTask.title;
+      notify(allMemberIds(), `New task: "${newTask.title}"`, `${actorName()} created a task${project ? ` in ${project.name}` : ''}.`, `/projects/${task.project_id}`, 'task', newTask.id, 'task_created', {
+        subject: `New task${project ? ` in ${project.name}` : ''}: ${truncTitle}`,
+        details: [
+          ...(project ? [{ label: 'Project', value: project.name }] : []),
+          { label: 'Task', value: newTask.title },
+          { label: 'Created by', value: actorName() },
+        ],
+      });
     } catch (err) {
       setTasks(prev => prev.filter(t => t.id !== optimisticId));
       toast('error', 'Failed to create task');
@@ -595,11 +623,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
         if (updates.status && updates.status !== existingTask.status) {
           const statusLabel = updates.status.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
-          notify(allMemberIds(), `"${existingTask.title}" moved to ${statusLabel}`, `${actorName()} updated the task status.`, projectLink, 'task', id, 'task_status');
+          const oldStatusLabel = existingTask.status.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
+          const truncTitle = existingTask.title.length > 40 ? existingTask.title.slice(0, 40) + '...' : existingTask.title;
+          notify(allMemberIds(), `"${existingTask.title}" moved to ${statusLabel}`, `${actorName()} updated the task status.`, projectLink, 'task', id, 'task_status', {
+            subject: `Task moved to ${statusLabel}: ${truncTitle}`,
+            details: [
+              ...(project ? [{ label: 'Project', value: project.name }] : []),
+              { label: 'Task', value: existingTask.title },
+              { label: 'Status', value: `${oldStatusLabel} \u2192 ${statusLabel}` },
+              { label: 'Updated by', value: actorName() },
+            ],
+          });
         } else if (updates.assignee_ids) {
           const newAssignees = updates.assignee_ids.filter(aid => !existingTask.assignee_ids.includes(aid));
           if (newAssignees.length > 0) {
-            notify(allMemberIds(), `"${existingTask.title}" assignees changed`, `${actorName()} updated task assignments${project ? ` in ${project.name}` : ''}.`, projectLink, 'task', id, 'task_assignments');
+            notify(allMemberIds(), `"${existingTask.title}" assignees changed`, `${actorName()} updated task assignments${project ? ` in ${project.name}` : ''}.`, projectLink, 'task', id, 'task_assignments', {
+              subject: `Task assignments updated${project ? ` in ${project.name}` : ''}`,
+              details: [
+                ...(project ? [{ label: 'Project', value: project.name }] : []),
+                { label: 'Task', value: existingTask.title },
+                { label: 'Updated by', value: actorName() },
+              ],
+            });
           }
           notify(allMemberIds(), `"${existingTask.title}" was updated`, `${actorName()} updated the task.`, projectLink, 'task', id, 'task_updates');
         } else {
@@ -783,7 +828,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const task = tasks.find(t => t.id === taskId);
       if (task) {
         const preview = text.length > 60 ? text.slice(0, 60) + '...' : text;
-        notify(allMemberIds(), `New comment on "${task.title}"`, `${actorName()}: "${preview}"`, `/projects/${task.project_id}`, 'task', taskId, 'task_comments');
+        const project = projects.find(p => p.id === task.project_id);
+        notify(allMemberIds(), `New comment on "${task.title}"`, `${actorName()}: "${preview}"`, `/projects/${task.project_id}`, 'task', taskId, 'task_comments', {
+          subject: `${actorName()} commented on "${task.title.length > 40 ? task.title.slice(0, 40) + '...' : task.title}"`,
+          details: [
+            ...(project ? [{ label: 'Project', value: project.name }] : []),
+            { label: 'Task', value: task.title },
+            { label: 'Comment by', value: actorName() },
+          ],
+        });
       }
     } catch (err) {
       setTasks(prev => prev.map(t =>
@@ -1244,6 +1297,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       fixed_price: null,
       autonomous_enabled: false,
       deployment_policy: 'production',
+      max_concurrent_tasks: 2,
+      suggestions_per_cycle: 3,
       member_ids: lead.member_ids || [],
       created_by: teamMemberId,
       created_at: now,
@@ -1899,11 +1954,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const deletePortalUpdateAttachment = async (id: string) => {
     const prev = portalUpdateAttachments;
+    const existing = portalUpdateAttachments.find(a => a.id === id);
     setPortalUpdateAttachments(a => a.filter(att => att.id !== id));
     if (skipSupabase) return;
 
     try {
       await removePortalUpdateAttachmentQuery(supabase, id);
+      if (existing) {
+        const update = portalUpdates.find(u => u.id === existing.update_id);
+        if (update) {
+          notify(allMemberIds(), 'Portal attachment removed', `${actorName()} removed a portal attachment.`, `/projects/${update.project_id}`, 'project', update.project_id, 'portal_updates');
+        }
+      }
     } catch (err) {
       setPortalUpdateAttachments(prev);
       toast('error', 'Failed to delete attachment');
@@ -1955,6 +2017,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     data: { label?: string; category?: string; username?: string; password?: string; url?: string; notes?: string },
   ) => {
     const prev = projectCredentials;
+    const existing = projectCredentials.find(c => c.id === id);
     setProjectCredentials(creds =>
       creds.map(c => c.id === id ? { ...c, ...('label' in data ? { label: data.label! } : {}), ...('category' in data ? { category: data.category as CredentialCategory } : {}), updated_at: new Date().toISOString() } : c),
     );
@@ -1969,6 +2032,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (!res.ok) throw new Error();
       const result = await res.json();
       setProjectCredentials(creds => creds.map(c => c.id === id ? result.data : c));
+      if (existing) {
+        const project = projects.find(p => p.id === existing.project_id);
+        notify(allMemberIds(), 'Credential updated', `${actorName()} updated a credential in "${project?.name || 'project'}".`, `/projects/${existing.project_id}`, 'project', existing.project_id, 'portal_settings');
+      }
     } catch {
       setProjectCredentials(prev);
       toast('error', 'Failed to update credential');
@@ -2291,7 +2358,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // Task Suggestion review actions
   const approveSuggestionAction = async (
     id: string,
-    taskOverrides: { priority?: string; assigned_to?: string | null; due_date?: string | null; project_id?: string; task_type?: string | null },
+    taskOverrides: { priority?: string; assigned_to?: string | null; due_date?: string | null; project_id?: string; task_type?: string | null; ai_managed?: boolean },
     reviewedBy: string
   ) => {
     const prevSuggestions = taskSuggestions;
@@ -2304,7 +2371,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (skipSupabase) return;
 
     try {
-      const result = await approveTaskSuggestionQuery(supabase, id, taskOverrides, reviewedBy);
+      const { ai_managed, ...overrides } = taskOverrides;
+      const result = await approveTaskSuggestionQuery(supabase, id, overrides, reviewedBy, ai_managed);
       setTaskSuggestions(s => s.map(sug => sug.id === id ? result.suggestion : sug));
       setTasks(prev => [result.task, ...prev]);
 
@@ -2328,6 +2396,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       const updated = await rejectTaskSuggestionQuery(supabase, id, reason, reviewedBy);
       setTaskSuggestions(s => s.map(sug => sug.id === id ? updated : sug));
+
+      // Create lesson_learned context entry from rejection
+      if (suggestion) {
+        const content = reason
+          ? `Rejected suggestion: "${suggestion.title}" - ${reason}`
+          : `Rejected suggestion: "${suggestion.title}"`;
+        supabase
+          .from('project_context')
+          .insert({
+            project_id: suggestion.project_id,
+            category: 'lesson_learned',
+            content,
+            source: 'human',
+          })
+          .then(() => {}, (err: any) => console.error('[reject] Failed to create lesson_learned context entry:', err));
+      }
 
       if (suggestion) {
         notify(adminMemberIds(), `Suggestion "${suggestion.title}" rejected`, reason ? `Reason: ${reason}` : `${actorName()} rejected the suggestion.`, null, 'suggestion', id, 'agent_suggestions');
@@ -2356,6 +2440,39 @@ export function AppProvider({ children }: { children: ReactNode }) {
     } catch (err) {
       setTaskSuggestions(prev);
       toast('error', 'Failed to request info');
+    }
+  };
+
+  const updateSuggestionAction = async (id: string, updates: Partial<TaskSuggestion>) => {
+    const prev = taskSuggestions;
+    const suggestion = taskSuggestions.find(s => s.id === id);
+    setTaskSuggestions(s => s.map(sug =>
+      sug.id === id ? { ...sug, ...updates, updated_at: new Date().toISOString() } : sug
+    ));
+    if (skipSupabase) return;
+
+    try {
+      const updated = await patchTaskSuggestionQuery(supabase, id, updates);
+      setTaskSuggestions(s => s.map(sug => sug.id === id ? updated : sug));
+
+      // If reopening a rejected suggestion, deactivate the lesson_learned entry
+      if (suggestion && suggestion.status === 'rejected' && updates.status === 'pending') {
+        supabase
+          .from('project_context')
+          .update({ is_active: false })
+          .eq('project_id', suggestion.project_id)
+          .eq('category', 'lesson_learned')
+          .eq('source', 'human')
+          .like('content', `Rejected suggestion: "${suggestion.title}"%`)
+          .then(() => {}, (err: any) => console.error('[reopen] Failed to deactivate lesson_learned entry:', err));
+      }
+
+      if (suggestion) {
+        notify(adminMemberIds(), `Suggestion "${suggestion.title}" updated`, `${actorName()} edited a suggestion.`, null, 'suggestion', id, 'agent_suggestions');
+      }
+    } catch (err) {
+      setTaskSuggestions(prev);
+      toast('error', 'Failed to update suggestion');
     }
   };
 
@@ -2436,6 +2553,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const updateInvoice = async (id: string, updates: Partial<ProjectInvoice>) => {
     const prev = projectInvoices;
+    const existing = projectInvoices.find(i => i.id === id);
     setProjectInvoices(invoices =>
       invoices.map(i => i.id === id ? { ...i, ...updates, updated_at: new Date().toISOString() } : i),
     );
@@ -2444,6 +2562,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       const updated = await patchProjectInvoiceQuery(supabase, id, updates);
       setProjectInvoices(invoices => invoices.map(i => i.id === id ? updated : i));
+      if (existing) {
+        const project = projects.find(p => p.id === existing.project_id);
+        notify(allMemberIds(), `Invoice updated on "${project?.name || 'project'}"`, `${actorName()} updated invoice ${existing.invoice_number}.`, `/projects/${existing.project_id}`, 'project', existing.project_id, 'portal_settings');
+      }
     } catch {
       setProjectInvoices(prev);
       toast('error', 'Failed to update invoice');
@@ -2580,6 +2702,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       approveSuggestion: approveSuggestionAction,
       rejectSuggestion: rejectSuggestionAction,
       requestInfoOnSuggestion: requestInfoOnSuggestionAction,
+      updateSuggestion: updateSuggestionAction,
       bulkApproveSuggestions: bulkApproveSuggestionsAction,
       bulkRejectSuggestions: bulkRejectSuggestionsAction,
       getGoalsByProject,

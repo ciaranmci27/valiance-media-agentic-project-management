@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { TaskSuggestion } from '@/lib/types';
@@ -9,7 +10,7 @@ import { Button } from '@/components/ui/Button';
 import { Tooltip } from '@/components/ui/Tooltip';
 import Modal from '@/components/ui/Modal';
 import {
-  Check, X, HelpCircle, Lightbulb, ChevronDown, ChevronRight,
+  Check, X, HelpCircle, Lightbulb, ChevronDown, ChevronRight, Pencil, RotateCcw, ExternalLink,
 } from 'lucide-react';
 import { toast } from '@/components/ui/Toast';
 
@@ -17,15 +18,17 @@ type StatusFilter = '' | 'pending' | 'needs_info' | 'approved' | 'rejected';
 
 interface ReviewQueueProps {
   onApprove: (id: string) => void;
+  onEdit?: (id: string) => void;
 }
 
-export function ReviewQueue({ onApprove }: ReviewQueueProps) {
+export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
   const {
     taskSuggestions, projects, projectGoals, team,
-    rejectSuggestion, requestInfoOnSuggestion,
-    bulkApproveSuggestions, bulkRejectSuggestions,
+    rejectSuggestion, requestInfoOnSuggestion, updateSuggestion,
+    bulkApproveSuggestions,
   } = useApp();
   const { teamMemberId } = useAuth();
+  const router = useRouter();
 
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('pending');
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -35,17 +38,28 @@ export function ReviewQueue({ onApprove }: ReviewQueueProps) {
   const [infoInputId, setInfoInputId] = useState<string | null>(null);
   const [infoText, setInfoText] = useState('');
   const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(new Set());
+  const [showBulkModal, setShowBulkModal] = useState(false);
+
+  // Only show suggestions from projects that still have autonomy enabled
+  const autonomousProjectIds = useMemo(() => new Set(
+    projects.filter(p => p.autonomous_enabled).map(p => p.id)
+  ), [projects]);
+
+  const activeSuggestions = useMemo(() =>
+    taskSuggestions.filter(s => autonomousProjectIds.has(s.project_id)),
+    [taskSuggestions, autonomousProjectIds]
+  );
 
   const statusTabs: { key: StatusFilter; label: string; count: number }[] = [
-    { key: '', label: 'All', count: taskSuggestions.length },
-    { key: 'pending', label: 'Pending', count: taskSuggestions.filter(s => s.status === 'pending').length },
-    { key: 'needs_info', label: 'Needs Info', count: taskSuggestions.filter(s => s.status === 'needs_info').length },
-    { key: 'approved', label: 'Approved', count: taskSuggestions.filter(s => s.status === 'approved').length },
-    { key: 'rejected', label: 'Rejected', count: taskSuggestions.filter(s => s.status === 'rejected').length },
+    { key: '', label: 'All', count: activeSuggestions.length },
+    { key: 'pending', label: 'Pending', count: activeSuggestions.filter(s => s.status === 'pending').length },
+    { key: 'needs_info', label: 'Needs Info', count: activeSuggestions.filter(s => s.status === 'needs_info').length },
+    { key: 'approved', label: 'Approved', count: activeSuggestions.filter(s => s.status === 'approved').length },
+    { key: 'rejected', label: 'Rejected', count: activeSuggestions.filter(s => s.status === 'rejected').length },
   ];
 
   const filtered = useMemo(() => {
-    return taskSuggestions
+    return activeSuggestions
       .filter(s => !statusFilter || s.status === statusFilter)
       .sort((a, b) => {
         // Pending first, then needs_info, then by date
@@ -54,7 +68,7 @@ export function ReviewQueue({ onApprove }: ReviewQueueProps) {
         if (orderDiff !== 0) return orderDiff;
         return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
       });
-  }, [taskSuggestions, statusFilter]);
+  }, [activeSuggestions, statusFilter]);
 
   const groupedByProject = useMemo(() => {
     const groups: { projectId: string; projectName: string; projectColor: string | null; suggestions: typeof filtered }[] = [];
@@ -134,16 +148,15 @@ export function ReviewQueue({ onApprove }: ReviewQueueProps) {
     toast('success', 'Info requested');
   };
 
+  const handleReopen = (id: string) => {
+    updateSuggestion(id, { status: 'pending', rejection_reason: null, reviewed_by: null, reviewed_at: null } as any);
+    toast('success', 'Suggestion reopened');
+  };
+
   const handleBulkApprove = () => {
     bulkApproveSuggestions([...selectedIds]);
     setSelectedIds(new Set());
     toast('success', `Approved ${selectedIds.size} suggestion(s)`);
-  };
-
-  const handleBulkReject = () => {
-    bulkRejectSuggestions([...selectedIds]);
-    setSelectedIds(new Set());
-    toast('success', `Rejected ${selectedIds.size} suggestion(s)`);
   };
 
   const formatTime = (ts: string) => {
@@ -171,8 +184,8 @@ export function ReviewQueue({ onApprove }: ReviewQueueProps) {
 
   const isActionable = (s: TaskSuggestion) => s.status === 'pending' || s.status === 'needs_info';
 
-  const rejectTarget = rejectInputId ? taskSuggestions.find(s => s.id === rejectInputId) : null;
-  const infoTarget = infoInputId ? taskSuggestions.find(s => s.id === infoInputId) : null;
+  const rejectTarget = rejectInputId ? activeSuggestions.find(s => s.id === rejectInputId) : null;
+  const infoTarget = infoInputId ? activeSuggestions.find(s => s.id === infoInputId) : null;
 
   return (
     <>
@@ -236,26 +249,56 @@ export function ReviewQueue({ onApprove }: ReviewQueueProps) {
       <div className="max-h-[500px] lg:max-h-none lg:flex-1 lg:min-h-0 overflow-y-auto board-column-scroll">
         {groupedByProject.map((group) => (
           <div key={group.projectId}>
-            {/* Project group header (accordion toggle) */}
-            <button
-              onClick={() => toggleProjectCollapse(group.projectId)}
-              className="w-full px-3 lg:px-4 py-2 bg-zinc-50 border-b border-zinc-100 flex items-center gap-2 sticky top-0 z-[1] hover:bg-zinc-100 transition-colors text-left"
-            >
-              <ChevronRight
-                size={12}
-                className={`text-zinc-400 transition-transform flex-shrink-0 ${
-                  !collapsedProjects.has(group.projectId) ? 'rotate-90' : ''
-                }`}
-              />
-              {group.projectColor && (
-                <div
-                  className="w-2 h-2 rounded-full flex-shrink-0"
-                  style={{ backgroundColor: group.projectColor }}
+            {/* Project group header (accordion toggle + select all) */}
+            <div className="w-full px-3 lg:px-4 py-2 bg-zinc-50 border-b border-zinc-100 flex items-center gap-2 sticky top-0 z-[1] hover:bg-zinc-100 transition-colors">
+              {/* Select all checkbox for pending suggestions in this project */}
+              {statusFilter === 'pending' && (() => {
+                const pendingIds = group.suggestions.filter(s => s.status === 'pending').map(s => s.id);
+                if (pendingIds.length === 0) return null;
+                const allSelected = pendingIds.every(id => selectedIds.has(id));
+                const someSelected = !allSelected && pendingIds.some(id => selectedIds.has(id));
+                return (
+                  <input
+                    type="checkbox"
+                    checked={allSelected}
+                    ref={(el) => { if (el) el.indeterminate = someSelected; }}
+                    onChange={(e) => {
+                      e.stopPropagation();
+                      setSelectedIds(prev => {
+                        const next = new Set(prev);
+                        if (allSelected) {
+                          pendingIds.forEach(id => next.delete(id));
+                        } else {
+                          pendingIds.forEach(id => next.add(id));
+                        }
+                        return next;
+                      });
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                    className="w-3.5 h-3.5 rounded border-zinc-300 text-brand-600 focus:ring-brand-500 flex-shrink-0 cursor-pointer"
+                  />
+                );
+              })()}
+              <button
+                onClick={() => toggleProjectCollapse(group.projectId)}
+                className="flex-1 flex items-center gap-2 text-left"
+              >
+                <ChevronRight
+                  size={12}
+                  className={`text-zinc-400 transition-transform flex-shrink-0 ${
+                    !collapsedProjects.has(group.projectId) ? 'rotate-90' : ''
+                  }`}
                 />
-              )}
-              <span className="text-xs font-semibold text-zinc-600">{group.projectName}</span>
-              <span className="text-[10px] text-zinc-400">{group.suggestions.length}</span>
-            </button>
+                {group.projectColor && (
+                  <div
+                    className="w-2 h-2 rounded-full flex-shrink-0"
+                    style={{ backgroundColor: group.projectColor }}
+                  />
+                )}
+                <span className="text-xs font-semibold text-zinc-600">{group.projectName}</span>
+                <span className="text-[10px] text-zinc-400">{group.suggestions.length}</span>
+              </button>
+            </div>
 
             {/* Suggestions under this project */}
             {!collapsedProjects.has(group.projectId) && (
@@ -330,6 +373,16 @@ export function ReviewQueue({ onApprove }: ReviewQueueProps) {
                                   <Check size={16} />
                                 </button>
                               </Tooltip>
+                              {onEdit && (
+                                <Tooltip content="Edit">
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); onEdit(suggestion.id); }}
+                                    className="p-1.5 rounded-lg text-zinc-500 hover:bg-zinc-100 transition-colors"
+                                  >
+                                    <Pencil size={16} />
+                                  </button>
+                                </Tooltip>
+                              )}
                               {suggestion.status === 'pending' && (
                                 <Tooltip content="Request Info">
                                   <button
@@ -409,20 +462,59 @@ export function ReviewQueue({ onApprove }: ReviewQueueProps) {
                             </div>
                           )}
 
-                          {/* Mobile action buttons */}
+                          {/* View created task for approved suggestions */}
+                          {suggestion.status === 'approved' && suggestion.converted_task_id && (
+                            <div className="flex gap-2">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const project = projects.find(p => p.id === suggestion.project_id);
+                                  if (project) router.push(`/projects/${project.id}?task=${suggestion.converted_task_id}`);
+                                }}
+                                className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-brand-700 bg-brand-50 hover:bg-brand-100 transition-colors"
+                              >
+                                <ExternalLink size={14} />
+                                View Task
+                              </button>
+                            </div>
+                          )}
+
+                          {/* Reopen rejected suggestion */}
+                          {suggestion.status === 'rejected' && (
+                            <div className="flex gap-2">
+                              <button
+                                onClick={(e) => { e.stopPropagation(); handleReopen(suggestion.id); }}
+                                className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-zinc-700 bg-zinc-100 hover:bg-zinc-200 transition-colors"
+                              >
+                                <RotateCcw size={14} />
+                                Reopen
+                              </button>
+                            </div>
+                          )}
+
+                          {/* Mobile action buttons - 2x2 grid */}
                           {isActionable(suggestion) && (
-                            <div className="lg:hidden flex gap-2">
+                            <div className="lg:hidden grid grid-cols-2 gap-2">
                               <button
                                 onClick={(e) => { e.stopPropagation(); onApprove(suggestion.id); }}
-                                className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-sm font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 transition-colors"
+                                className="flex items-center justify-center gap-1.5 py-2 rounded-lg text-sm font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 transition-colors"
                               >
                                 <Check size={14} />
                                 Approve
                               </button>
+                              {onEdit && (
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); onEdit(suggestion.id); }}
+                                  className="flex items-center justify-center gap-1.5 py-2 rounded-lg text-sm font-medium text-zinc-700 bg-zinc-100 hover:bg-zinc-200 transition-colors"
+                                >
+                                  <Pencil size={14} />
+                                  Edit
+                                </button>
+                              )}
                               {suggestion.status === 'pending' && (
                                 <button
                                   onClick={(e) => { e.stopPropagation(); setInfoInputId(suggestion.id); setInfoText(''); }}
-                                  className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-sm font-medium text-amber-700 bg-amber-50 hover:bg-amber-100 transition-colors"
+                                  className="flex items-center justify-center gap-1.5 py-2 rounded-lg text-sm font-medium text-amber-700 bg-amber-50 hover:bg-amber-100 transition-colors"
                                 >
                                   <HelpCircle size={14} />
                                   Info
@@ -430,7 +522,7 @@ export function ReviewQueue({ onApprove }: ReviewQueueProps) {
                               )}
                               <button
                                 onClick={(e) => { e.stopPropagation(); setRejectInputId(suggestion.id); setRejectReason(''); }}
-                                className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-sm font-medium text-red-600 bg-red-50 hover:bg-red-100 transition-colors"
+                                className="flex items-center justify-center gap-1.5 py-2 rounded-lg text-sm font-medium text-red-600 bg-red-50 hover:bg-red-100 transition-colors"
                               >
                                 <X size={14} />
                                 Reject
@@ -451,7 +543,7 @@ export function ReviewQueue({ onApprove }: ReviewQueueProps) {
 
         {/* Empty state */}
         {filtered.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-12 px-4">
+          <div className="flex flex-col items-center justify-center h-full px-4">
             <div className="w-10 h-10 rounded-full bg-zinc-100 flex items-center justify-center mb-3">
               <Lightbulb size={18} className="text-zinc-400" />
             </div>
@@ -471,18 +563,10 @@ export function ReviewQueue({ onApprove }: ReviewQueueProps) {
           <span className="text-xs font-medium text-zinc-600">{selectedIds.size} selected</span>
           <div className="flex items-center gap-2">
             <button
-              onClick={handleBulkApprove}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 transition-colors"
+              onClick={() => setShowBulkModal(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-zinc-700 bg-white border border-zinc-200 hover:bg-zinc-50 transition-colors"
             >
-              <Check size={12} />
-              Approve
-            </button>
-            <button
-              onClick={handleBulkReject}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 transition-colors"
-            >
-              <X size={12} />
-              Reject
+              Manage
             </button>
             <button
               onClick={() => setSelectedIds(new Set())}
@@ -549,6 +633,69 @@ export function ReviewQueue({ onApprove }: ReviewQueueProps) {
           </div>
         </div>
       )}
+    </Modal>
+
+    {/* Bulk Manage Modal */}
+    <Modal isOpen={showBulkModal} onClose={() => { setShowBulkModal(false); }} title={`Manage ${selectedIds.size} Suggestion${selectedIds.size !== 1 ? 's' : ''}`} size="md">
+      <div className="space-y-4">
+        {/* List selected suggestions */}
+        <div className="max-h-48 overflow-y-auto border border-zinc-200 rounded-lg divide-y divide-zinc-100">
+          {[...selectedIds].map(id => {
+            const s = activeSuggestions.find(sug => sug.id === id);
+            if (!s) return null;
+            const project = projects.find(p => p.id === s.project_id);
+            return (
+              <div key={id} className="px-3 py-2 flex items-center gap-2">
+                <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${priorityDots[s.priority] || 'bg-zinc-400'}`} />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm text-zinc-900 truncate">{s.title}</p>
+                  <p className="text-xs text-zinc-400 truncate">{project?.name}</p>
+                </div>
+                <button
+                  onClick={() => {
+                    const next = new Set(selectedIds);
+                    next.delete(id);
+                    if (next.size === 0) { setShowBulkModal(false); setSelectedIds(new Set()); }
+                    else setSelectedIds(next);
+                  }}
+                  className="p-0.5 text-zinc-400 hover:text-zinc-600 flex-shrink-0"
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Actions */}
+        <div className="flex flex-col sm:flex-row gap-2 pt-2">
+          <button
+            onClick={() => {
+              handleBulkApprove();
+              setShowBulkModal(false);
+            }}
+            className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-sm font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 transition-colors"
+          >
+            <Check size={14} />
+            Approve All
+          </button>
+          <button
+            onClick={() => {
+              for (const id of selectedIds) {
+                rejectSuggestion(id, undefined, teamMemberId || '');
+              }
+              toast('success', `Rejected ${selectedIds.size} suggestion(s)`);
+              setSelectedIds(new Set());
+              setShowBulkModal(false);
+            }}
+            className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-sm font-medium text-red-600 bg-red-50 hover:bg-red-100 transition-colors"
+          >
+            <X size={14} />
+            Reject All
+          </button>
+        </div>
+
+      </div>
     </Modal>
     </>
   );

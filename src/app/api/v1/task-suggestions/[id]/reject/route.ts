@@ -22,6 +22,19 @@ export const POST = withApi<any, { id: string }>(async ({ supabase, params, body
   const reviewedBy = teamMemberId || apiKeyId;
   const updated = await rejectTaskSuggestion(supabase, params.id, body?.rejection_reason, reviewedBy);
 
+  // Create lesson_learned context entry from rejection reason
+  if (body?.rejection_reason) {
+    supabase
+      .from('project_context')
+      .insert({
+        project_id: before.project_id,
+        category: 'lesson_learned',
+        content: `Rejected suggestion: "${before.title}" - ${body.rejection_reason}`,
+        source: 'human',
+      })
+      .then(() => {}, (err: any) => console.error('[reject] Failed to create lesson_learned context entry:', err));
+  }
+
   logAudit(supabase, {
     method: 'POST',
     endpoint: `/api/v1/task-suggestions/${params.id}/reject`,

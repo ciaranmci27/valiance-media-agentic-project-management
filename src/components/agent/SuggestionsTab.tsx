@@ -5,12 +5,13 @@ import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { TaskSuggestion } from '@/lib/types';
 import { ApproveModal } from './ApproveModal';
+import { EditSuggestionModal } from './EditSuggestionModal';
 import { SwipeSuggestionCard } from './SwipeSuggestionCard';
 import { Avatar } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
 import { Tooltip } from '@/components/ui/Tooltip';
 import {
-  Check, X, HelpCircle, Lightbulb,
+  Check, X, HelpCircle, Lightbulb, Pencil,
 } from 'lucide-react';
 import { toast } from '@/components/ui/Toast';
 
@@ -29,7 +30,7 @@ export function SuggestionsTab({ filters }: { filters: SuggestionsFilters }) {
   const {
     taskSuggestions, projects, projectGoals, team,
     approveSuggestion, rejectSuggestion, requestInfoOnSuggestion,
-    bulkApproveSuggestions, bulkRejectSuggestions,
+    updateSuggestion, bulkApproveSuggestions, bulkRejectSuggestions,
   } = useApp();
   const { teamMemberId } = useAuth();
 
@@ -37,6 +38,7 @@ export function SuggestionsTab({ filters }: { filters: SuggestionsFilters }) {
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [approveModalId, setApproveModalId] = useState<string | null>(null);
+  const [editModalId, setEditModalId] = useState<string | null>(null);
   const [rejectInputId, setRejectInputId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState('');
   const [infoInputId, setInfoInputId] = useState<string | null>(null);
@@ -163,6 +165,7 @@ export function SuggestionsTab({ filters }: { filters: SuggestionsFilters }) {
             onApprove={() => handleSwipeApprove(suggestion.id)}
             onReject={() => handleSwipeReject(suggestion.id)}
             onRequestInfo={() => { setInfoInputId(suggestion.id); setInfoText(''); }}
+            onEdit={() => setEditModalId(suggestion.id)}
           />
         ))}
       </div>
@@ -296,6 +299,14 @@ export function SuggestionsTab({ filters }: { filters: SuggestionsFilters }) {
                       <Check size={18} />
                     </button>
                   </Tooltip>
+                  <Tooltip content="Edit">
+                    <button
+                      onClick={() => setEditModalId(suggestion.id)}
+                      className="p-2 rounded-lg text-blue-600 hover:bg-blue-50 transition-colors"
+                    >
+                      <Pencil size={18} />
+                    </button>
+                  </Tooltip>
                   {suggestion.status === 'pending' && (
                     <Tooltip content="Request Info">
                       <button
@@ -340,7 +351,7 @@ export function SuggestionsTab({ filters }: { filters: SuggestionsFilters }) {
       )}
 
       {/* Approve Modal */}
-      {approveModalId && (
+      {approveModalId && taskSuggestions.find(s => s.id === approveModalId) && (
         <ApproveModal
           suggestion={taskSuggestions.find(s => s.id === approveModalId)!}
           onClose={() => setApproveModalId(null)}
@@ -348,6 +359,24 @@ export function SuggestionsTab({ filters }: { filters: SuggestionsFilters }) {
             approveSuggestion(approveModalId, overrides, teamMemberId || '');
             setApproveModalId(null);
             toast('success', 'Suggestion approved — task created');
+          }}
+          onApproveManual={(overrides) => {
+            approveSuggestion(approveModalId, { ...overrides, ai_managed: false }, teamMemberId || '');
+            setApproveModalId(null);
+            toast('success', 'Suggestion approved as manual task');
+          }}
+        />
+      )}
+
+      {/* Edit Modal */}
+      {editModalId && taskSuggestions.find(s => s.id === editModalId) && (
+        <EditSuggestionModal
+          suggestion={taskSuggestions.find(s => s.id === editModalId)!}
+          onClose={() => setEditModalId(null)}
+          onSave={(updates) => {
+            updateSuggestion(editModalId, updates);
+            setEditModalId(null);
+            toast('success', 'Suggestion updated');
           }}
         />
       )}

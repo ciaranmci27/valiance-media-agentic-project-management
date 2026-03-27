@@ -7,6 +7,8 @@ export const createTeamMemberSchema = z.object({
   role: z.enum(['admin', 'member', 'guest', 'agent']).default('member'),
   timezone: z.string().default('UTC'),
   auth_user_id: z.string().uuid().nullable().optional(),
+  email_notifications_enabled: z.boolean().optional(),
+  email_notification_prefs: z.record(z.string(), z.boolean()).optional(),
 });
 
 export const updateTeamMemberSchema = z.object({
@@ -16,4 +18,6 @@ export const updateTeamMemberSchema = z.object({
   role: z.enum(['admin', 'member', 'guest', 'agent']).optional(),
   timezone: z.string().optional(),
   notification_prefs: z.record(z.string(), z.boolean()).optional(),
+  email_notifications_enabled: z.boolean().optional(),
+  email_notification_prefs: z.record(z.string(), z.boolean()).optional(),
 });

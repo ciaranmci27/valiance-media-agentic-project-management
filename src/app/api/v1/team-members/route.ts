@@ -34,6 +34,8 @@ export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId }) =
       role: member.role || 'member',
       timezone: member.timezone || 'UTC',
       auth_user_id: member.auth_user_id || null,
+      ...(member.email_notifications_enabled !== undefined && { email_notifications_enabled: member.email_notifications_enabled }),
+      ...(member.email_notification_prefs && { email_notification_prefs: member.email_notification_prefs }),
     })
     .select()
     .single();

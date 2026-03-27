@@ -8,16 +8,18 @@ import { ReviewQueue } from '@/components/agent/ReviewQueue';
 import { AutonomousProjects } from '@/components/agent/AutonomousProjects';
 import { ActivityTimeline } from '@/components/agent/ActivityTimeline';
 import { ApproveModal } from '@/components/agent/ApproveModal';
+import { EditSuggestionModal } from '@/components/agent/EditSuggestionModal';
 import { Bot, Lightbulb, FolderKanban, Zap, CheckCircle2 } from 'lucide-react';
 import { toast } from '@/components/ui/Toast';
 
 export default function AgentPage() {
   const {
     team, taskSuggestions, projects, tasks,
-    approveSuggestion,
+    approveSuggestion, updateSuggestion,
   } = useApp();
   const { teamMemberId } = useAuth();
   const [approveModalId, setApproveModalId] = useState<string | null>(null);
+  const [editModalId, setEditModalId] = useState<string | null>(null);
 
   const currentMember = team.find(m => m.id === teamMemberId);
   const isAgentsEnabled = process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true';
@@ -119,6 +121,7 @@ export default function AgentPage() {
           <div className="lg:col-span-2 lg:min-h-0">
             <ReviewQueue
               onApprove={(id) => setApproveModalId(id)}
+              onEdit={(id) => setEditModalId(id)}
             />
           </div>
 
@@ -141,6 +144,24 @@ export default function AgentPage() {
             approveSuggestion(approveModalId, overrides, teamMemberId || '');
             setApproveModalId(null);
             toast('success', 'Suggestion approved, task created');
+          }}
+          onApproveManual={(overrides) => {
+            approveSuggestion(approveModalId, { ...overrides, ai_managed: false }, teamMemberId || '');
+            setApproveModalId(null);
+            toast('success', 'Suggestion approved as manual task');
+          }}
+        />
+      )}
+
+      {/* Edit Suggestion Modal */}
+      {editModalId && taskSuggestions.find(s => s.id === editModalId) && (
+        <EditSuggestionModal
+          suggestion={taskSuggestions.find(s => s.id === editModalId)!}
+          onClose={() => setEditModalId(null)}
+          onSave={(updates) => {
+            updateSuggestion(editModalId, updates);
+            setEditModalId(null);
+            toast('success', 'Suggestion updated');
           }}
         />
       )}
