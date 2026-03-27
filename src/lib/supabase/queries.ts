@@ -46,6 +46,7 @@ export async function insertProject(
       deployment_policy: project.deployment_policy ?? 'production',
       max_concurrent_tasks: project.max_concurrent_tasks ?? 2,
       suggestions_per_cycle: project.suggestions_per_cycle ?? 3,
+      repo_path: project.repo_path ?? null,
       created_by: project.created_by,
     })
     .select()

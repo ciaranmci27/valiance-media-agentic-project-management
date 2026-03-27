@@ -13,6 +13,8 @@ create table public.team_members (
   role text not null default 'member' check (role in ('admin', 'member', 'guest', 'agent')),
   timezone text not null default 'UTC',
   notification_prefs jsonb not null default '{}',
+  email_notifications_enabled boolean not null default false,
+  email_notification_prefs jsonb not null default '{}',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -48,6 +50,11 @@ create table public.projects (
   hourly_tracking boolean not null default false,
   hourly_rate numeric(10,2) default null,
   fixed_price numeric(12,2) default null,
+  autonomous_enabled boolean not null default false,
+  deployment_policy text not null default 'production' check (deployment_policy in ('playground', 'production')),
+  max_concurrent_tasks integer not null default 2,
+  suggestions_per_cycle integer not null default 3,
+  repo_path text,
   created_by uuid references public.team_members(id) on delete set null,
   archived_at timestamptz default null,
   created_at timestamptz not null default now(),
@@ -93,6 +100,7 @@ create table public.tasks (
   priority text not null default 'medium' check (priority in ('low', 'medium', 'high', 'urgent')),
   due_date text,
   tags text[] not null default '{}',
+  sort_order int not null default 0,
   created_by uuid references public.team_members(id) on delete set null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -442,6 +450,21 @@ create policy "smtp_accounts_all" on public.smtp_accounts
   for all to authenticated using (true) with check (true);
 
 -- ============================================================
+-- 26. PROJECT CONTEXT (AI orchestrator context entries per project)
+-- ============================================================
+create table public.project_context (
+  id uuid primary key default gen_random_uuid(),
+  project_id uuid not null references public.projects(id) on delete cascade,
+  category text not null check (category in ('business_context', 'existing_work', 'technical_decision', 'constraint', 'lesson_learned')),
+  content text not null,
+  source text not null default 'human' check (source in ('human', 'agent', 'scan')),
+  file_path text,
+  is_active boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+-- ============================================================
 -- INDEXES
 -- ============================================================
 create unique index idx_team_members_auth_user_id on public.team_members(auth_user_id) where auth_user_id is not null;
@@ -452,6 +475,7 @@ create index idx_project_members_member_id on public.project_members(member_id);
 create index idx_project_contacts_contact_id on public.project_contacts(contact_id);
 create index idx_tasks_project_id on public.tasks(project_id);
 create index idx_tasks_status on public.tasks(status);
+create index idx_tasks_sort_order on public.tasks(project_id, status, sort_order);
 create index idx_tasks_created_by on public.tasks(created_by);
 create index idx_task_assignees_member_id on public.task_assignees(member_id);
 create index idx_task_subtasks_task_id on public.task_subtasks(task_id);
@@ -487,6 +511,10 @@ create index idx_api_keys_key_hash on public.api_keys(key_hash);
 create index idx_api_keys_revoked_at on public.api_keys(revoked_at) where revoked_at is null;
 
 create index idx_project_credentials_project on public.project_credentials(project_id);
+create index idx_project_context_project_id on public.project_context(project_id);
+create index idx_project_context_category on public.project_context(project_id, category);
+create index idx_project_context_active on public.project_context(project_id, is_active);
+create unique index idx_project_context_file_path on public.project_context(project_id, file_path) where file_path is not null and is_active = true;
 create index idx_project_invoices_project on public.project_invoices(project_id);
 create index idx_project_invoices_status on public.project_invoices(status);
 create index idx_project_invoices_date on public.project_invoices(date desc);
@@ -614,6 +642,10 @@ create trigger set_smtp_accounts_updated_at
   before update on public.smtp_accounts
   for each row execute function public.handle_updated_at();
 
+create trigger set_project_context_updated_at
+  before update on public.project_context
+  for each row execute function public.handle_updated_at();
+
 -- ============================================================
 -- AUTO-CREATE TEAM MEMBER ON SIGNUP
 -- ============================================================
@@ -664,6 +696,7 @@ alter table public.project_time_entries enable row level security;
 alter table public.project_credentials enable row level security;
 alter table public.project_invoices enable row level security;
 alter table public.team_member_notifications enable row level security;
+alter table public.project_context enable row level security;
 
 -- All authenticated users get full CRUD on shared data
 create policy "team_members_all" on public.team_members
@@ -736,6 +769,9 @@ create policy "project_credentials_all" on public.project_credentials
   for all to authenticated using (true) with check (true);
 
 create policy "project_invoices_all" on public.project_invoices
+  for all to authenticated using (true) with check (true);
+
+create policy "project_context_all" on public.project_context
   for all to authenticated using (true) with check (true);
 
 -- Users can only read/update/delete their own notifications.

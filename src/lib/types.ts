@@ -16,6 +16,7 @@ export interface Project {
   deployment_policy: 'playground' | 'production';
   max_concurrent_tasks: number;
   suggestions_per_cycle: number;
+  repo_path: string | null;
   member_ids: string[];
   created_by?: string | null;
   archived_at?: string | null;
