@@ -88,6 +88,99 @@ function getUpdateIcon(type: string) {
 /* ── Member bar colors ───────────────────────────── */
 const MEMBER_COLORS = ['#5B8A8A', '#C5A68F', '#6366F1', '#F59E0B', '#EC4899', '#14B8A6'];
 
+/* ── Hours Section ──────────────────────────────── */
+const HOURS_INITIAL = 5;
+
+function HoursSection({ entries, totalHours, memberHours, accentColor }: {
+  entries: PortalData['hours']['entries'];
+  totalHours: number;
+  memberHours: { name: string; hours: number; color: string }[];
+  accentColor: string;
+}) {
+  const [showAll, setShowAll] = useState(false);
+  const visible = showAll ? entries : entries.slice(0, HOURS_INITIAL);
+  const hiddenCount = entries.length - HOURS_INITIAL;
+
+  return (
+    <section>
+      <SectionHeader
+        icon={Timer}
+        title="Hours Logged"
+        accentColor={accentColor}
+        right={
+          <span className="text-lg font-semibold text-zinc-800 tabular-nums tracking-tight">
+            {totalHours.toFixed(1)}h
+          </span>
+        }
+      />
+      {memberHours.length > 1 && (
+        <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.04),0_8px_24px_rgba(0,0,0,0.03)] border border-white/60 p-4 sm:p-5 mb-4">
+          <div className="flex h-2.5 rounded-full overflow-hidden bg-zinc-100">
+            {memberHours.map((m) => (
+              <div
+                key={m.name}
+                className="h-full first:rounded-l-full last:rounded-r-full"
+                style={{
+                  width: `${(m.hours / totalHours) * 100}%`,
+                  backgroundColor: m.color,
+                }}
+              />
+            ))}
+          </div>
+          <div className="flex flex-wrap gap-3 mt-2.5">
+            {memberHours.map((m) => (
+              <div key={m.name} className="flex items-center gap-1.5 text-xs text-zinc-500">
+                <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: m.color }} />
+                <span>{m.name}</span>
+                <span className="text-zinc-400">{m.hours.toFixed(1)}h</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      <div className="space-y-3">
+        {visible.map(entry => (
+          <div
+            key={entry.id}
+            className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.04),0_8px_24px_rgba(0,0,0,0.03)] border border-white/60 px-4 sm:px-5 py-3.5 hover:shadow-[0_1px_3px_rgba(0,0,0,0.04),0_12px_32px_rgba(0,0,0,0.06)] transition-shadow duration-300"
+          >
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-zinc-800 truncate">
+                  {entry.description || 'Work logged'}
+                </p>
+                <div className="flex items-center gap-1.5 mt-1 text-xs text-zinc-400">
+                  {memberHours.length > 1 && (
+                    <>
+                      <span>{entry.member_name}</span>
+                      <span className="text-zinc-200">/</span>
+                    </>
+                  )}
+                  <span>{new Date(entry.start_time).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                  <span className="text-zinc-200">/</span>
+                  <span>{new Date(entry.start_time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} – {new Date(entry.end_time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</span>
+                </div>
+              </div>
+              <span className="text-sm font-bold text-zinc-900 tabular-nums flex-shrink-0">
+                {entry.hours.toFixed(1)}h
+              </span>
+            </div>
+          </div>
+        ))}
+      </div>
+      {entries.length > HOURS_INITIAL && (
+        <button
+          onClick={() => setShowAll(!showAll)}
+          className="mt-4 w-full flex items-center justify-center gap-1.5 py-2.5 text-xs font-semibold text-zinc-400 hover:text-zinc-600 bg-white/60 hover:bg-white/80 backdrop-blur-sm rounded-xl border border-white/60 transition-all duration-200"
+        >
+          <ChevronDown size={14} className={`transition-transform ${showAll ? 'rotate-180' : ''}`} />
+          {showAll ? 'Show less' : `Show ${hiddenCount} more entr${hiddenCount === 1 ? 'y' : 'ies'}`}
+        </button>
+      )}
+    </section>
+  );
+}
+
 /* ── Section header component ────────────────────── */
 function SectionHeader({ icon: Icon, title, accentColor, right }: {
   icon: React.ComponentType<{ size?: number; style?: React.CSSProperties }>;
@@ -96,10 +189,15 @@ function SectionHeader({ icon: Icon, title, accentColor, right }: {
   right?: React.ReactNode;
 }) {
   return (
-    <div className="flex items-center justify-between mb-4">
-      <div className="flex items-center gap-2">
-        <Icon size={20} style={{ color: accentColor }} />
-        <h2 className="text-lg font-semibold text-zinc-900">{title}</h2>
+    <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center gap-3">
+        <div
+          className="w-9 h-9 rounded-xl flex items-center justify-center"
+          style={{ backgroundColor: accentColor + '12' }}
+        >
+          <Icon size={16} style={{ color: accentColor }} />
+        </div>
+        <h2 className="text-[15px] font-semibold text-zinc-800 tracking-[-0.01em]">{title}</h2>
       </div>
       {right}
     </div>
@@ -189,7 +287,7 @@ function UpdatesTimeline({ updates, accentColor, onPreview }: {
         accentColor={accentColor}
         right={<span className="text-xs text-zinc-400">{updates.length}</span>}
       />
-      <div className="bg-white rounded-xl border border-zinc-200 p-5 sm:p-6">
+      <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.04),0_8px_24px_rgba(0,0,0,0.03)] border border-white/60 p-5 sm:p-6">
       <div className="relative">
         <div className="space-y-1">
           {visible.map((update, updateIndex) => {
@@ -220,7 +318,7 @@ function UpdatesTimeline({ updates, accentColor, onPreview }: {
               >
                 {/* Connecting line (skip last item) */}
                 {!isLast && (
-                  <div className="absolute left-[13px] top-[27px] bottom-0 w-px bg-zinc-200" />
+                  <div className="absolute left-[13px] top-[27px] bottom-0 w-px bg-zinc-100" />
                 )}
                 {/* Icon */}
                 <div className="relative z-10 flex-shrink-0 mt-0.5">
@@ -362,7 +460,7 @@ function UpdatesTimeline({ updates, accentColor, onPreview }: {
       {updates.length > UPDATES_INITIAL_COUNT && (
         <button
           onClick={() => setShowAll(!showAll)}
-          className="mt-4 w-full flex items-center justify-center gap-1.5 py-2.5 text-xs font-semibold text-zinc-400 hover:text-zinc-600 bg-zinc-50 hover:bg-zinc-100 rounded-lg transition-colors"
+          className="mt-4 w-full flex items-center justify-center gap-1.5 py-2.5 text-xs font-semibold text-zinc-400 hover:text-zinc-600 bg-zinc-50/70 hover:bg-zinc-100/60 rounded-xl transition-all duration-200"
         >
           <ChevronDown size={14} className={`transition-transform ${showAll ? 'rotate-180' : ''}`} />
           {showAll ? 'Show less' : `Show ${hiddenCount} more update${hiddenCount === 1 ? '' : 's'}`}
@@ -617,7 +715,7 @@ function PortalCredentialForm({ token, pin, accentColor, credentialsSubmitted }:
             right={
               <button
                 onClick={() => setView('add')}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white rounded-lg transition-colors hover:brightness-[0.92]"
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white rounded-xl transition-all duration-200 hover:brightness-[0.92] shadow-sm"
                 style={{ backgroundColor: accentColor }}
               >
                 <Plus size={13} />
@@ -626,54 +724,56 @@ function PortalCredentialForm({ token, pin, accentColor, credentialsSubmitted }:
             }
           />
 
-          <div className="bg-white rounded-xl border border-zinc-200 p-5 sm:p-6">
-            {localCredentials.length > 0 ? (
-              <div className="space-y-1.5">
-                {localCredentials.map(cred => {
-                  const catStyle = CATEGORY_STYLE[cred.category] || CATEGORY_STYLE.other;
-                  const catLabel = CREDENTIAL_CATEGORIES.find(c => c.value === cred.category)?.label || cred.category;
-                  return (
-                    <div
-                      key={cred.id}
-                      className="group flex items-center gap-3 px-3.5 py-3 rounded-lg bg-zinc-50 hover:bg-zinc-100/80 transition-colors"
-                    >
+          {localCredentials.length > 0 ? (
+            <div className="space-y-3">
+              {localCredentials.map(cred => {
+                const catStyle = CATEGORY_STYLE[cred.category] || CATEGORY_STYLE.other;
+                const catLabel = CREDENTIAL_CATEGORIES.find(c => c.value === cred.category)?.label || cred.category;
+                return (
+                  <div
+                    key={cred.id}
+                    className="group bg-white/80 backdrop-blur-sm rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.04),0_8px_24px_rgba(0,0,0,0.03)] border border-white/60 px-4 sm:px-5 py-3.5 hover:shadow-[0_1px_3px_rgba(0,0,0,0.04),0_12px_32px_rgba(0,0,0,0.06)] transition-shadow duration-300"
+                  >
+                    <div className="flex items-center gap-3">
                       <div
-                        className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
+                        className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
                         style={{ backgroundColor: catStyle.bg }}
                       >
-                        <KeyRound size={14} style={{ color: catStyle.iconColor }} />
+                        <KeyRound size={15} style={{ color: catStyle.iconColor }} />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-zinc-900 truncate">{cred.label}</p>
-                        <p className="text-xs text-zinc-400">
-                          {catLabel} &middot; {relativeTime(cred.updated_at || cred.created_at)}
-                        </p>
+                        <p className="text-sm font-medium text-zinc-800 truncate">{cred.label}</p>
+                        <div className="flex items-center gap-1.5 mt-0.5 text-xs text-zinc-400">
+                          <span>{catLabel}</span>
+                          <span className="text-zinc-200">/</span>
+                          <span>{relativeTime(cred.updated_at || cred.created_at)}</span>
+                        </div>
                       </div>
                       <Tooltip content="Edit">
                         <button
                           onClick={() => { setEditTarget(cred); setView('edit'); }}
-                          className="flex-shrink-0 p-1.5 text-zinc-300 group-hover:text-zinc-500 hover:!text-zinc-700 hover:bg-white rounded-md transition-all"
+                          className="flex-shrink-0 p-1.5 text-zinc-300 group-hover:text-zinc-500 hover:!text-zinc-700 hover:bg-zinc-50 rounded-lg transition-all"
                         >
                           <Pencil size={14} />
                         </button>
                       </Tooltip>
                     </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="py-2 text-center">
-                <ShieldCheck size={24} className="mx-auto mb-2 text-zinc-300" />
-                <p className="text-sm text-zinc-500">No credentials yet. Use the Add button to share access securely.</p>
-              </div>
-            )}
-          </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.04),0_8px_24px_rgba(0,0,0,0.03)] border border-white/60 p-8 text-center">
+              <ShieldCheck size={24} className="mx-auto mb-2 text-zinc-300" />
+              <p className="text-sm text-zinc-500">No credentials yet. Use the Add button to share access securely.</p>
+            </div>
+          )}
         </>
       )}
 
       {/* ── Add / Edit form view ──────────────── */}
       {(view === 'add' || view === 'edit') && (
-        <div className="bg-white rounded-xl border border-zinc-200 p-5 sm:p-6">
+        <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.04),0_8px_24px_rgba(0,0,0,0.03)] border border-white/60 p-5 sm:p-6">
           <CredentialFormView
             key={view === 'edit' ? editTarget?.id : 'add'}
             token={token}
@@ -997,54 +1097,65 @@ export default function PortalPage() {
   /*  MAIN PORTAL                                      */
   /* ────────────────────────────────────────────────── */
   return (
-    <div className="min-h-screen bg-zinc-50 flex flex-col" style={{ animation: 'fadeIn 0.3s ease both' }}>
+    <div className="min-h-screen flex flex-col" style={{ animation: 'fadeIn 0.3s ease both', backgroundColor: '#F5F3EE' }}>
+      {/* Subtle noise texture overlay */}
+      <div className="fixed inset-0 pointer-events-none opacity-[0.03] z-0" style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E")` }} />
 
-      {/* ── Accent top stripe ──────────────────── */}
-      <div className="h-1" style={{ backgroundColor: accentColor }} />
+      {/* ── Ambient header glow ──────────────────── */}
+      <div
+        className="absolute top-0 left-0 right-0 h-[320px] pointer-events-none z-0"
+        style={{
+          background: `radial-gradient(ellipse 80% 70% at 50% 0%, ${accentColor}18 0%, ${accentColor}08 40%, transparent 70%)`,
+        }}
+      />
 
-      {/* ── White header ───────────────────────── */}
-      <header className="bg-white border-b border-zinc-200">
-        <div className="max-w-3xl mx-auto px-5 sm:px-8 py-6">
+      {/* ── Header ──────────────────────────────── */}
+      <header className="relative z-10">
+        <div className="max-w-3xl mx-auto px-6 sm:px-10 pt-8 sm:pt-10 pb-6">
           <div className="flex items-center gap-4">
             <div className="flex-shrink-0">
               {data.settings.logo_url ? (
                 <img
                   src={data.settings.logo_url}
                   alt="Logo"
-                  className="w-14 h-14 sm:w-12 sm:h-12 rounded-xl object-contain border border-zinc-100"
+                  className="w-14 h-14 rounded-2xl object-contain shadow-sm ring-1 ring-black/[0.04]"
                 />
               ) : (
                 <div
-                  className="w-14 h-14 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center text-white text-xl sm:text-lg font-bold"
+                  className="w-14 h-14 rounded-2xl flex items-center justify-center text-xl font-bold text-white shadow-sm"
                   style={{ backgroundColor: accentColor }}
                 >
                   {data.project.name.charAt(0)}
                 </div>
               )}
             </div>
-            <div className="min-w-0">
-              <h1 className="text-xl sm:text-2xl font-bold text-zinc-900 tracking-tight">
+            <div className="min-w-0 flex-1">
+              <h1 className="text-lg sm:text-xl font-bold text-zinc-900 tracking-[-0.02em]">
                 {data.project.name}
               </h1>
-              <p className="text-sm text-zinc-500 leading-relaxed">
-                {data.settings.welcome_message || `Welcome to your project portal. Here you'll find the latest updates, files, and progress.`}
+              <p className="text-[13px] text-zinc-400 leading-relaxed">
+                {data.settings.welcome_message || 'Client Portal'}
               </p>
             </div>
           </div>
         </div>
+        {/* Subtle divider */}
+        <div className="max-w-3xl mx-auto px-6 sm:px-10">
+          <div className="h-px" style={{ background: `linear-gradient(90deg, ${accentColor}20, ${accentColor}08, transparent)` }} />
+        </div>
       </header>
 
       {/* ── Content ───────────────────────────── */}
-      <main className="max-w-3xl mx-auto px-5 sm:px-8 py-8 flex-1 w-full">
+      <main className="relative z-10 max-w-3xl mx-auto px-6 sm:px-10 py-8 sm:py-10 flex-1 w-full">
         {hasSections ? (
-          <div className="stagger space-y-6">
+          <div className="stagger space-y-12">
             {(data.settings.section_order ?? DEFAULT_SECTION_ORDER).map((sectionKey) => {
               switch (sectionKey) {
                 case 'show_progress':
                   return data.settings.show_progress && (data.project.status === 'completed' || (data.project.start_date && data.project.due_date)) ? (
                     <section key={sectionKey}>
                       <SectionHeader icon={CheckCircle2} title="Project Progress" accentColor={accentColor} />
-                      <div className="bg-white rounded-xl border border-zinc-200 p-5 sm:p-6">
+                      <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.04),0_8px_24px_rgba(0,0,0,0.03)] border border-white/60 p-5 sm:p-6">
                         <div className="flex items-center gap-5 mb-4">
                           <ProgressRing percent={data.progress.percent} color={accentColor} />
                           <div>
@@ -1066,7 +1177,7 @@ export default function PortalPage() {
                             )}
                           </div>
                         </div>
-                        <div className="w-full h-1.5 bg-zinc-100 rounded-full overflow-hidden">
+                        <div className="w-full h-2.5 bg-zinc-100 rounded-full overflow-hidden">
                           <div
                             className="h-full rounded-full"
                             style={{
@@ -1101,67 +1212,16 @@ export default function PortalPage() {
                   return <UpdatesTimeline key={sectionKey} updates={sorted} accentColor={accentColor} onPreview={setPreviewFile} />;
 
                 case 'show_hours':
-                  return data.settings.show_hours && data.hours.entries.length > 0 ? (
-                    <section key={sectionKey}>
-                      <SectionHeader
-                        icon={Timer}
-                        title="Hours Logged"
-                        accentColor={accentColor}
-                        right={
-                          <span className="text-lg font-bold text-zinc-900 tabular-nums">
-                            {data.hours.total_hours.toFixed(1)}h
-                          </span>
-                        }
-                      />
-                      <div className="bg-white rounded-xl border border-zinc-200 p-5 sm:p-6">
-                        {memberHours.length > 0 && (
-                          <div className="mb-4">
-                            <div className="flex h-2 rounded-full overflow-hidden bg-zinc-100">
-                              {memberHours.map((m) => (
-                                <div
-                                  key={m.name}
-                                  className="h-full first:rounded-l-full last:rounded-r-full"
-                                  style={{
-                                    width: `${(m.hours / data.hours.total_hours) * 100}%`,
-                                    backgroundColor: m.color,
-                                  }}
-                                />
-                              ))}
-                            </div>
-                            <div className="flex flex-wrap gap-3 mt-2.5">
-                              {memberHours.map((m) => (
-                                <div key={m.name} className="flex items-center gap-1.5 text-xs text-zinc-500">
-                                  <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: m.color }} />
-                                  <span>{m.name}</span>
-                                  <span className="text-zinc-400">{m.hours.toFixed(1)}h</span>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                        <div className="space-y-0 max-h-[280px] overflow-y-auto">
-                          {data.hours.entries.map(entry => (
-                            <div
-                              key={entry.id}
-                              className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-zinc-50 transition-all duration-150"
-                            >
-                              <div className="flex-1 min-w-0">
-                                <p className="text-sm font-medium text-zinc-900 truncate">
-                                  {entry.description || 'Work logged'}
-                                </p>
-                                <p className="text-xs text-zinc-400">
-                                  {entry.member_name} &middot; {new Date(entry.start_time).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} &middot; {new Date(entry.start_time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} – {new Date(entry.end_time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
-                                </p>
-                              </div>
-                              <span className="text-sm font-semibold text-zinc-600 flex-shrink-0 tabular-nums">
-                                {entry.hours.toFixed(1)}h
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    </section>
-                  ) : null;
+                  if (!data.settings.show_hours || data.hours.entries.length === 0) return null;
+                  return (
+                    <HoursSection
+                      key={sectionKey}
+                      entries={data.hours.entries}
+                      totalHours={data.hours.total_hours}
+                      memberHours={memberHours}
+                      accentColor={accentColor}
+                    />
+                  );
 
                 case 'show_files':
                   return data.settings.show_files ? (
@@ -1172,7 +1232,7 @@ export default function PortalPage() {
                         accentColor={accentColor}
                         right={
                           <label
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white rounded-lg transition-colors hover:brightness-[0.92] cursor-pointer"
+                            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white rounded-xl transition-all duration-200 hover:brightness-[0.92] shadow-sm cursor-pointer"
                             style={{ backgroundColor: accentColor, opacity: fileUploading ? 0.6 : 1 }}
                           >
                             {fileUploading ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />}
@@ -1198,21 +1258,21 @@ export default function PortalPage() {
                             const iconColor = getFileIconColor(file.mime_type);
                             const iconBg = getFileIconBg(file.mime_type);
                             return (
-                              <div key={file.id} className="bg-white rounded-xl border border-zinc-200 p-4">
+                              <div key={file.id} className="group bg-white/80 backdrop-blur-sm rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.04),0_8px_24px_rgba(0,0,0,0.03)] border border-white/60 p-4 hover:shadow-[0_1px_3px_rgba(0,0,0,0.04),0_12px_32px_rgba(0,0,0,0.06)] transition-shadow duration-300">
                                 <div className="flex items-start gap-3">
                                   <div
-                                    className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0"
+                                    className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
                                     style={{ backgroundColor: iconBg }}
                                   >
-                                    <FileIcon size={16} style={{ color: iconColor }} />
+                                    <FileIcon size={18} style={{ color: iconColor }} />
                                   </div>
                                   <div className="flex-1 min-w-0">
-                                    <p className="text-sm font-semibold text-zinc-900 truncate">{file.name}</p>
+                                    <p className="text-sm font-semibold text-zinc-800 truncate">{file.name}</p>
                                     <p className="text-xs text-zinc-400 mb-3">{formatFileSize(file.file_size)}</p>
                                     <div className="flex items-center gap-2">
                                       <button
                                         onClick={() => setPreviewFile({ name: file.name, file_url: file.file_url, mime_type: file.mime_type })}
-                                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-zinc-100 text-zinc-700 hover:bg-zinc-200 transition-colors"
+                                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-zinc-50 text-zinc-600 hover:bg-zinc-100 transition-colors border border-zinc-100"
                                       >
                                         <Eye size={12} />
                                         Preview
@@ -1234,7 +1294,7 @@ export default function PortalPage() {
                                             // silent fail
                                           }
                                         }}
-                                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-zinc-100 text-zinc-700 hover:bg-zinc-200 transition-colors"
+                                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-zinc-50 text-zinc-600 hover:bg-zinc-100 transition-colors border border-zinc-100"
                                       >
                                         <Download size={12} />
                                         Download
@@ -1247,7 +1307,7 @@ export default function PortalPage() {
                           })}
                         </div>
                       ) : (
-                        <div className="bg-white rounded-xl border border-zinc-200 p-6 text-center">
+                        <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.04),0_8px_24px_rgba(0,0,0,0.03)] border border-white/60 p-8 text-center">
                           <FolderOpen size={24} className="mx-auto mb-2 text-zinc-300" />
                           <p className="text-sm text-zinc-500">No shared files yet. Use the upload button to share files.</p>
                         </div>
@@ -1255,45 +1315,89 @@ export default function PortalPage() {
                     </section>
                   ) : null;
 
-                case 'show_invoices':
+                case 'show_invoices': {
+                  const portalBillable = data.invoices.filter(i => i.status !== 'draft' && i.status !== 'cancelled');
+                  const portalInvoiced = portalBillable.reduce((s, i) => s + i.amount, 0);
+                  const portalPaid = data.invoices.filter(i => i.status === 'paid').reduce((s, i) => s + i.amount, 0);
+                  const portalHourlyInvoiced = portalBillable.filter(i => i.invoice_type === 'hourly').reduce((s, i) => s + i.amount, 0);
+                  const portalFixedInvoiced = portalBillable.filter(i => i.invoice_type === 'fixed' || i.invoice_type === 'recurring').reduce((s, i) => s + i.amount, 0);
+                  const billing = data.billing;
+                  const balanceDue = billing
+                    ? Math.max(0, Math.max(billing.billable_total, portalHourlyInvoiced) + portalFixedInvoiced - portalPaid)
+                    : Math.max(0, portalInvoiced - portalPaid);
+                  const fmtPortalCurrency = (v: number) => v % 1 === 0 ? v.toLocaleString('en-US') : v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
                   return data.settings.show_invoices && data.invoices.length > 0 ? (
                     <section key={sectionKey}>
                       <SectionHeader icon={Receipt} title="Invoices" accentColor={accentColor} />
+                      <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.04),0_8px_24px_rgba(0,0,0,0.03)] border border-white/60 mb-5 overflow-hidden">
+                        <div className="grid grid-cols-3 [&>*]:border-l [&>*]:border-zinc-100 [&>*:nth-child(3n+1)]:border-l-0">
+                          {billing && (
+                            <>
+                              <div className="px-4 sm:px-5 py-4">
+                                <p className="text-[11px] font-medium text-zinc-400 uppercase tracking-wider mb-1">Billable</p>
+                                <p className="text-base sm:text-lg font-semibold text-zinc-900 tabular-nums">${fmtPortalCurrency(billing.billable_total)}</p>
+                              </div>
+                              <div className="px-4 sm:px-5 py-4">
+                                <p className="text-[11px] font-medium text-zinc-400 uppercase tracking-wider mb-1">Hours</p>
+                                <p className="text-base sm:text-lg font-semibold text-zinc-900 tabular-nums">{billing.total_hours.toFixed(1)}</p>
+                              </div>
+                              <div className="px-4 sm:px-5 py-4">
+                                <p className="text-[11px] font-medium text-zinc-400 uppercase tracking-wider mb-1">Rate</p>
+                                <p className="text-base sm:text-lg font-semibold text-zinc-900 tabular-nums">${Math.round(billing.hourly_rate)}</p>
+                              </div>
+                            </>
+                          )}
+                          <div className="px-4 sm:px-5 py-4">
+                            <p className="text-[11px] font-medium text-zinc-400 uppercase tracking-wider mb-1">Invoiced</p>
+                            <p className="text-base sm:text-lg font-semibold text-zinc-900 tabular-nums">${fmtPortalCurrency(portalInvoiced)}</p>
+                          </div>
+                          <div className="px-4 sm:px-5 py-4">
+                            <p className="text-[11px] font-medium text-zinc-400 uppercase tracking-wider mb-1">Paid</p>
+                            <p className="text-base sm:text-lg font-semibold text-emerald-600 tabular-nums">${fmtPortalCurrency(portalPaid)}</p>
+                          </div>
+                          <div className="px-4 sm:px-5 py-4">
+                            <p className="text-[11px] font-medium text-zinc-400 uppercase tracking-wider mb-1">Balance</p>
+                            <p className={`text-base sm:text-lg font-semibold tabular-nums ${balanceDue > 0 ? 'text-amber-600' : 'text-zinc-400'}`}>${fmtPortalCurrency(balanceDue)}</p>
+                          </div>
+                        </div>
+                      </div>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         {data.invoices.map((invoice) => {
-                          const statusStyle: Record<string, string> = {
-                            sent: 'bg-blue-50 text-blue-700',
-                            paid: 'bg-emerald-50 text-emerald-700',
-                            overdue: 'bg-red-50 text-red-700',
-                            cancelled: 'bg-zinc-100 text-zinc-400',
+                          const statusConfig: Record<string, { bg: string; text: string; dot: string }> = {
+                            sent: { bg: 'bg-blue-50', text: 'text-blue-700', dot: 'bg-blue-400' },
+                            paid: { bg: 'bg-emerald-50', text: 'text-emerald-700', dot: 'bg-emerald-400' },
+                            overdue: { bg: 'bg-red-50', text: 'text-red-700', dot: 'bg-red-400' },
+                            cancelled: { bg: 'bg-zinc-100', text: 'text-zinc-400', dot: 'bg-zinc-300' },
                           };
+                          const sc = statusConfig[invoice.status] || { bg: 'bg-zinc-100', text: 'text-zinc-600', dot: 'bg-zinc-400' };
                           return (
-                            <div key={invoice.id} className="bg-white rounded-xl border border-zinc-200 p-4">
+                            <div key={invoice.id} className="group bg-white/80 backdrop-blur-sm rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.04),0_8px_24px_rgba(0,0,0,0.03)] border border-white/60 p-4 hover:shadow-[0_1px_3px_rgba(0,0,0,0.04),0_12px_32px_rgba(0,0,0,0.06)] transition-shadow duration-300">
                               <div className="flex items-center justify-between mb-2">
                                 <div className="flex items-center gap-2">
-                                  <span className={`inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-full ${statusStyle[invoice.status] || 'bg-zinc-100 text-zinc-600'}`}>
+                                  <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-semibold rounded-full ${sc.bg} ${sc.text}`}>
+                                    <span className={`w-1.5 h-1.5 rounded-full ${sc.dot}`} />
                                     {invoice.status.charAt(0).toUpperCase() + invoice.status.slice(1)}
                                   </span>
                                   <span className="text-sm font-semibold text-zinc-900">{invoice.invoice_number}</span>
                                 </div>
-                                <span className="text-sm font-bold text-zinc-900">
+                                <span className="text-sm font-bold text-zinc-900 tabular-nums">
                                   ${invoice.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                 </span>
                               </div>
-                              <div className="flex items-center gap-3 text-xs text-zinc-500">
+                              <div className="flex items-center gap-3 text-xs text-zinc-400">
                                 <span>{new Date(invoice.date + 'T00:00:00').toLocaleDateString()}</span>
                                 {invoice.due_date && <span>Due: {new Date(invoice.due_date + 'T00:00:00').toLocaleDateString()}</span>}
                                 {invoice.paid_date && <span className="text-emerald-600">Paid: {new Date(invoice.paid_date + 'T00:00:00').toLocaleDateString()}</span>}
                               </div>
                               {invoice.description && (
-                                <p className="mt-2 text-sm text-zinc-600 line-clamp-2">{invoice.description}</p>
+                                <p className="mt-2 text-sm text-zinc-500 leading-relaxed line-clamp-2">{invoice.description}</p>
                               )}
                               {invoice.file_url && (
                                 <a
                                   href={invoice.file_url}
                                   target="_blank"
                                   rel="noopener noreferrer"
-                                  className="inline-flex items-center gap-1.5 mt-3 text-xs font-medium rounded-lg px-3 py-1.5 transition-colors"
+                                  className="inline-flex items-center gap-1.5 mt-3 text-xs font-semibold rounded-lg px-3 py-1.5 transition-colors"
                                   style={{ color: accentColor, backgroundColor: accentColor + '10' }}
                                 >
                                   <FileDown size={13} />
@@ -1306,6 +1410,7 @@ export default function PortalPage() {
                       </div>
                     </section>
                   ) : null;
+                }
 
                 case 'show_credentials':
                   return data.settings.show_credentials ? (
@@ -1330,8 +1435,8 @@ export default function PortalPage() {
       </main>
 
       {/* ── Footer ────────────────────────────────── */}
-      <footer className="mt-auto bg-white border-t border-zinc-200">
-        <div className="max-w-3xl mx-auto px-5 sm:px-8 py-6 flex flex-col items-center gap-2 min-[400px]:flex-row min-[400px]:justify-between">
+      <footer className="relative z-10 mt-auto border-t border-zinc-200/40">
+        <div className="max-w-3xl mx-auto px-6 sm:px-10 py-6 flex flex-col items-center gap-2 min-[400px]:flex-row min-[400px]:justify-between">
           <span className="text-xs text-zinc-400">
             {data.project.name} &middot; Client Portal
           </span>

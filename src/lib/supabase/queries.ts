@@ -1945,6 +1945,7 @@ export async function insertProjectInvoice(
       invoice_number: invoice.invoice_number,
       amount: invoice.amount,
       status: invoice.status,
+      invoice_type: invoice.invoice_type,
       date: invoice.date,
       due_date: invoice.due_date,
       paid_date: invoice.paid_date,

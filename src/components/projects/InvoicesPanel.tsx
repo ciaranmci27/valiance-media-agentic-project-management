@@ -13,7 +13,7 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { Select } from '@/components/ui/Select';
 import { siteConfig } from '@/site-config';
-import { INVOICE_STATUSES, type InvoiceStatus } from '@/lib/types';
+import { INVOICE_STATUSES, INVOICE_TYPES, type InvoiceStatus, type InvoiceType } from '@/lib/types';
 
 interface InvoicesPanelProps {
   projectId: string;
@@ -29,7 +29,7 @@ const statusColors: Record<string, string> = {
 };
 
 function formatCurrency(value: number): string {
-  return value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return value % 1 === 0 ? value.toLocaleString('en-US') : value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 /** Format YYYY-MM-DD to "Mon D" or "Mon D, YYYY" if year differs from current */
@@ -62,6 +62,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
   const [formDueDate, setFormDueDate] = useState('');
   const [formPaidDate, setFormPaidDate] = useState('');
   const [formStatus, setFormStatus] = useState<InvoiceStatus>('draft');
+  const [formType, setFormType] = useState<InvoiceType>('hourly');
   const [formDescription, setFormDescription] = useState('');
   const [formFile, setFormFile] = useState<File | null>(null);
   const [existingFileUrl, setExistingFileUrl] = useState<string | null>(null);
@@ -74,11 +75,6 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Calculate totals
-  const totalInvoiced = invoices.reduce((sum, inv) => sum + inv.amount, 0);
-  const totalPaid = invoices.filter(inv => inv.status === 'paid').reduce((sum, inv) => sum + inv.amount, 0);
-  const outstanding = totalInvoiced - totalPaid;
-
   // Calculate budget from time entries or fixed price
   const timeEntries = getTimeEntriesByProject(projectId);
   const totalHours = timeEntries.reduce((sum, te) => {
@@ -90,6 +86,14 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
   const currentRate = isHourly ? (project?.hourly_rate ?? 0) : (project?.fixed_price ?? 0);
   const budgetTotal = isHourly ? currentRate * totalHours : currentRate;
 
+  // Calculate totals (exclude drafts and cancelled from invoiced)
+  const billableInvoices = invoices.filter(inv => inv.status !== 'draft' && inv.status !== 'cancelled');
+  const totalInvoiced = billableInvoices.reduce((sum, inv) => sum + inv.amount, 0);
+  const totalPaid = invoices.filter(inv => inv.status === 'paid').reduce((sum, inv) => sum + inv.amount, 0);
+  const hourlyInvoiced = billableInvoices.filter(inv => inv.invoice_type === 'hourly').reduce((sum, inv) => sum + inv.amount, 0);
+  const fixedInvoiced = billableInvoices.filter(inv => inv.invoice_type === 'fixed' || inv.invoice_type === 'recurring').reduce((sum, inv) => sum + inv.amount, 0);
+  const outstanding = Math.max(0, Math.max(budgetTotal, hourlyInvoiced) + fixedInvoiced - totalPaid);
+
   const resetForm = () => {
     setFormNumber('');
     setFormAmount('');
@@ -97,6 +101,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
     setFormDueDate('');
     setFormPaidDate('');
     setFormStatus('draft');
+    setFormType('hourly');
     setFormDescription('');
     setFormFile(null);
     setExistingFileUrl(null);
@@ -144,6 +149,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
         invoice_number: formNumber.trim(),
         amount: parseFloat(formAmount) || 0,
         status: formStatus,
+        invoice_type: formType,
         date: formDate,
         due_date: formDueDate || null,
         paid_date: formPaidDate || null,
@@ -172,6 +178,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
     setFormDueDate(invoice.due_date || '');
     setFormPaidDate(invoice.paid_date || '');
     setFormStatus(invoice.status);
+    setFormType(invoice.invoice_type || 'hourly');
     setFormDescription(invoice.description || '');
     setFormFile(null);
     setExistingFileUrl(invoice.file_url);
@@ -193,6 +200,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
         invoice_number: formNumber.trim(),
         amount: parseFloat(formAmount) || 0,
         status: formStatus,
+        invoice_type: formType,
         date: formDate,
         due_date: formDueDate || null,
         paid_date: formPaidDate || null,
@@ -251,7 +259,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
   // Shared form fields renderer
   const renderForm = (mode: 'add' | 'edit') => (
     <div className={mode === 'add' ? 'border border-brand-200 bg-brand-50/30 rounded-lg p-4 space-y-3' : 'space-y-3'}>
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-4 gap-2">
         <input
           autoFocus
           type="text"
@@ -276,6 +284,11 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
           value={formStatus}
           onChange={v => setFormStatus(v as InvoiceStatus)}
           options={INVOICE_STATUSES.map(s => ({ value: s, label: s.charAt(0).toUpperCase() + s.slice(1) }))}
+        />
+        <Select
+          value={formType}
+          onChange={v => setFormType(v as InvoiceType)}
+          options={INVOICE_TYPES.map(t => ({ value: t, label: t.charAt(0).toUpperCase() + t.slice(1) }))}
         />
       </div>
       <div className="grid grid-cols-3 gap-2">
@@ -413,30 +426,64 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
         {/* Balance Summary */}
         {!isAdding && !editingId && <div className="px-5 py-3 border-b border-zinc-100 bg-zinc-50/50 overflow-x-auto flex-shrink-0">
           <div className="flex gap-4 min-w-max">
-            <div className="shrink-0">
-              <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-400 mb-0.5">Total Invoiced</p>
+            <div className="shrink-0 min-w-[5.5rem]">
+              <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-400 mb-0.5">
+                {isHourly ? 'Billable' : 'Fixed Price'}
+              </p>
+              <p className="text-sm font-semibold text-zinc-900">${formatCurrency(budgetTotal)}</p>
+            </div>
+            <div className="shrink-0 min-w-[5.5rem]">
+              <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-400 mb-0.5">Invoiced</p>
               <p className="text-sm font-semibold text-zinc-900">${formatCurrency(totalInvoiced)}</p>
             </div>
-            <div className="shrink-0">
-              <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-400 mb-0.5">Total Paid</p>
+            <div className="shrink-0 min-w-[5.5rem]">
+              <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-400 mb-0.5">Paid</p>
               <p className="text-sm font-semibold text-emerald-600">${formatCurrency(totalPaid)}</p>
             </div>
-            <div className="shrink-0">
+            <div className="shrink-0 min-w-[5.5rem]">
               <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-400 mb-0.5">Outstanding</p>
-              <p className="text-sm font-semibold text-amber-600">${formatCurrency(outstanding)}</p>
+              <p className={`text-sm font-semibold ${outstanding > 0 ? 'text-amber-600' : 'text-zinc-400'}`}>${formatCurrency(outstanding)}</p>
             </div>
-            <div className="shrink-0">
-              <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-400 mb-0.5">
-                {isHourly ? 'Budget' : 'Fixed Price'}
-              </p>
-              <div className="flex items-center gap-1.5">
-                {isHourly ? (
-                  <>
-                    <p className="text-sm font-semibold text-zinc-900">${formatCurrency(budgetTotal)}</p>
-                    <span className="text-[10px] text-zinc-400">({totalHours.toFixed(1)}h</span>
-                    <span className="text-[10px] text-zinc-400">×</span>
-                  </>
-                ) : null}
+            {isHourly && (
+              <>
+                <div className="shrink-0 min-w-[5.5rem]">
+                  <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-400 mb-0.5">Total Hours</p>
+                  <p className="text-sm font-semibold text-zinc-900">{Math.round(totalHours)}</p>
+                </div>
+                <div className="shrink-0 min-w-[5.5rem]">
+                  <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-400 mb-0.5">Hourly Rate</p>
+                  {editingRate ? (
+                    <div className="relative inline-flex items-center">
+                      <span className="absolute left-1.5 text-xs text-zinc-400">$</span>
+                      <input
+                        autoFocus
+                        type="number"
+                        value={rateValue}
+                        onChange={e => setRateValue(e.target.value)}
+                        onBlur={handleRateBlur}
+                        onKeyDown={handleRateKeyDown}
+                        step="0.01"
+                        min="0"
+                        className="w-20 pl-5 pr-1.5 py-px text-sm bg-white border border-brand-300 rounded outline-none focus:ring-1 focus:ring-brand-200"
+                      />
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1.5">
+                      <p className="text-sm font-semibold text-zinc-900">${Math.round(currentRate)}</p>
+                      <button
+                        onClick={() => { setEditingRate(true); setRateValue(String(currentRate)); }}
+                        className="p-0.5 text-zinc-400 hover:text-brand-600 transition-colors"
+                      >
+                        <Edit2 size={12} />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+            {!isHourly && (
+              <div className="shrink-0 min-w-[5.5rem]">
+                <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-400 mb-0.5">Price</p>
                 {editingRate ? (
                   <div className="relative inline-flex items-center">
                     <span className="absolute left-1.5 text-xs text-zinc-400">$</span>
@@ -449,21 +496,21 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
                       onKeyDown={handleRateKeyDown}
                       step="0.01"
                       min="0"
-                      className="w-20 pl-5 pr-1.5 py-0.5 text-xs bg-white border border-brand-300 rounded outline-none focus:ring-1 focus:ring-brand-200"
+                      className="w-20 pl-5 pr-1.5 py-0.5 text-sm bg-white border border-brand-300 rounded outline-none focus:ring-1 focus:ring-brand-200"
                     />
                   </div>
                 ) : (
-                  <Tooltip content={isHourly ? 'Edit hourly rate' : 'Edit fixed price'}>
+                  <Tooltip content="Edit fixed price">
                     <button
                       onClick={() => { setEditingRate(true); setRateValue(String(currentRate)); }}
-                      className="text-xs text-zinc-500 hover:text-brand-600 transition-colors cursor-pointer underline decoration-dashed underline-offset-2"
+                      className="text-sm font-semibold text-zinc-900 hover:text-brand-600 transition-colors cursor-pointer underline decoration-dashed underline-offset-2"
                     >
-                      {isHourly ? `$${formatCurrency(currentRate)}/h)` : `$${formatCurrency(currentRate)}`}
+                      ${formatCurrency(currentRate)}
                     </button>
                   </Tooltip>
                 )}
               </div>
-            </div>
+            )}
           </div>
         </div>}
         {/* Add form */}
@@ -518,6 +565,11 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
                         </div>
                       </div>
                       <span className="text-sm font-semibold text-zinc-900">{invoice.invoice_number}</span>
+                      {invoice.invoice_type && invoice.invoice_type !== 'hourly' && (
+                        <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium rounded bg-zinc-100 text-zinc-500 capitalize">
+                          {invoice.invoice_type}
+                        </span>
+                      )}
                     </div>
                     <span className="text-sm font-semibold text-zinc-900">
                       ${invoice.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}

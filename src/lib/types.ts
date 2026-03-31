@@ -300,12 +300,16 @@ export interface TimeEntry {
 export const INVOICE_STATUSES = ['draft', 'sent', 'paid', 'overdue', 'cancelled'] as const;
 export type InvoiceStatus = typeof INVOICE_STATUSES[number];
 
+export const INVOICE_TYPES = ['hourly', 'fixed', 'recurring'] as const;
+export type InvoiceType = typeof INVOICE_TYPES[number];
+
 export interface ProjectInvoice {
   id: string;
   project_id: string;
   invoice_number: string;
   amount: number;
   status: InvoiceStatus;
+  invoice_type: InvoiceType;
   date: string;
   due_date: string | null;
   paid_date: string | null;
@@ -598,11 +602,18 @@ export interface PortalData {
     created_at: string;
     attachments: { id: string; name: string; file_url: string; file_size: number; mime_type: string }[];
   }[];
+  billing: {
+    hourly_tracking: boolean;
+    hourly_rate: number;
+    total_hours: number;
+    billable_total: number;
+  } | null;
   invoices: {
     id: string;
     invoice_number: string;
     amount: number;
     status: string;
+    invoice_type: string;
     date: string;
     due_date: string | null;
     paid_date: string | null;

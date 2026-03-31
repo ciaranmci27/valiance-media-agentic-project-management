@@ -409,6 +409,8 @@ create table public.project_invoices (
   amount numeric(12,2) not null default 0,
   status text not null default 'draft'
     check (status in ('draft', 'sent', 'paid', 'overdue', 'cancelled')),
+  invoice_type text not null default 'hourly'
+    check (invoice_type in ('hourly', 'fixed', 'recurring')),
   date text not null,
   due_date text,
   description text not null default '',

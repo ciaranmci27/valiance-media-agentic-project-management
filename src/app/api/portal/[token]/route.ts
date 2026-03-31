@@ -98,7 +98,7 @@ export async function GET(
   // Fetch project
   const { data: project } = await supabase
     .from('projects')
-    .select('name, color, description, start_date, due_date, status')
+    .select('name, color, description, start_date, due_date, status, hourly_tracking, hourly_rate')
     .eq('id', settings.project_id)
     .single();
 
@@ -130,8 +130,10 @@ export async function GET(
   }
 
   // Fetch time entries with member names (exclude running timers)
+  // Always fetch when show_hours OR (show_invoices + hourly_tracking) for billing calculations
+  const needsHours = settings.show_hours || (settings.show_invoices && project.hourly_tracking);
   let hours: PortalData['hours'] = { total_hours: 0, entries: [] };
-  if (settings.show_hours) {
+  if (needsHours) {
     const { data: timeEntries } = await supabase
       .from('project_time_entries')
       .select('id, start_time, end_time, description, member_id')
@@ -153,14 +155,14 @@ export async function GET(
 
       hours = {
         total_hours: timeEntries.reduce((sum: number, te: any) => sum + computeHours(te.start_time, te.end_time), 0),
-        entries: timeEntries.map((te: any) => ({
+        entries: settings.show_hours ? timeEntries.map((te: any) => ({
           id: te.id,
           start_time: te.start_time,
           end_time: te.end_time,
           hours: computeHours(te.start_time, te.end_time),
           description: te.description,
           member_name: memberMap.get(te.member_id) || 'Unknown',
-        })),
+        })) : [],
       };
     }
   }
@@ -189,7 +191,7 @@ export async function GET(
   if (settings.show_invoices) {
     const { data: invoiceData } = await supabase
       .from('project_invoices')
-      .select('id, invoice_number, amount, status, date, due_date, paid_date, description, file_url, file_name, file_size, mime_type')
+      .select('id, invoice_number, amount, status, invoice_type, date, due_date, paid_date, description, file_url, file_name, file_size, mime_type')
       .eq('project_id', settings.project_id)
       .neq('status', 'draft')
       .order('date', { ascending: false });
@@ -272,6 +274,12 @@ export async function GET(
     files,
     hours,
     updates,
+    billing: project.hourly_tracking ? {
+      hourly_tracking: true,
+      hourly_rate: project.hourly_rate ?? 0,
+      total_hours: hours.total_hours,
+      billable_total: (project.hourly_rate ?? 0) * hours.total_hours,
+    } : null,
     credentials_submitted_count,
     credentials_submitted,
     invoices,
@@ -320,14 +328,16 @@ function handleDemoMode(token: string, request: NextRequest) {
     : [];
 
   // Build hours from demo data (exclude running timers)
+  // Always compute when show_hours OR (show_invoices + hourly_tracking) for billing calculations
+  const demoNeedsHours = settings.show_hours || (settings.show_invoices && project.hourly_tracking);
   let hours: PortalData['hours'] = { total_hours: 0, entries: [] };
-  if (settings.show_hours) {
+  if (demoNeedsHours) {
     const projectEntries = demoTimeEntries.filter(te => te.project_id === settings.project_id && te.end_time !== null);
     const computeHours = (start: string, end: string) =>
       (new Date(end).getTime() - new Date(start).getTime()) / 3_600_000;
     hours = {
       total_hours: projectEntries.reduce((sum, te) => sum + computeHours(te.start_time, te.end_time!), 0),
-      entries: projectEntries.map(te => {
+      entries: settings.show_hours ? projectEntries.map(te => {
         const member = demoTeam.find(m => m.id === te.member_id);
         return {
           id: te.id,
@@ -337,7 +347,7 @@ function handleDemoMode(token: string, request: NextRequest) {
           description: te.description,
           member_name: member?.name || 'Unknown',
         };
-      }),
+      }) : [],
     };
   }
 
@@ -368,7 +378,7 @@ function handleDemoMode(token: string, request: NextRequest) {
   const invoices: PortalData['invoices'] = settings.show_invoices
     ? demoProjectInvoices
         .filter(i => i.project_id === settings.project_id && i.status !== 'draft')
-        .map(i => ({ id: i.id, invoice_number: i.invoice_number, amount: i.amount, status: i.status, date: i.date, due_date: i.due_date, paid_date: i.paid_date, description: i.description, file_url: i.file_url, file_name: i.file_name, file_size: i.file_size, mime_type: i.mime_type }))
+        .map(i => ({ id: i.id, invoice_number: i.invoice_number, amount: i.amount, status: i.status, invoice_type: i.invoice_type, date: i.date, due_date: i.due_date, paid_date: i.paid_date, description: i.description, file_url: i.file_url, file_name: i.file_name, file_size: i.file_size, mime_type: i.mime_type }))
     : [];
 
   const portalData: PortalData = {
@@ -396,6 +406,12 @@ function handleDemoMode(token: string, request: NextRequest) {
     files,
     hours,
     updates,
+    billing: project.hourly_tracking ? {
+      hourly_tracking: true,
+      hourly_rate: project.hourly_rate ?? 0,
+      total_hours: hours.total_hours,
+      billable_total: (project.hourly_rate ?? 0) * hours.total_hours,
+    } : null,
     credentials_submitted_count: 0,
     credentials_submitted: [],
     invoices,
