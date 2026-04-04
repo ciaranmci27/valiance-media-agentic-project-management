@@ -1316,14 +1316,18 @@ export default function PortalPage() {
                   ) : null;
 
                 case 'show_invoices': {
-                  const portalBillable = data.invoices.filter(i => i.status !== 'draft' && i.status !== 'cancelled');
-                  const portalInvoiced = portalBillable.reduce((s, i) => s + i.amount, 0);
+                  const portalActive = data.invoices.filter(i => i.status !== 'draft' && i.status !== 'cancelled');
+                  const portalInvoiced = portalActive.reduce((s, i) => s + i.amount, 0);
                   const portalPaid = data.invoices.filter(i => i.status === 'paid').reduce((s, i) => s + i.amount, 0);
-                  const portalHourlyInvoiced = portalBillable.filter(i => i.invoice_type === 'hourly').reduce((s, i) => s + i.amount, 0);
-                  const portalFixedInvoiced = portalBillable.filter(i => i.invoice_type === 'fixed' || i.invoice_type === 'recurring').reduce((s, i) => s + i.amount, 0);
+                  const portalHourlyInvoiced = portalActive.filter(i => i.invoice_type === 'hourly').reduce((s, i) => s + i.amount, 0);
+                  const portalFixedInvoiced = portalActive.filter(i => i.invoice_type === 'fixed' || i.invoice_type === 'recurring').reduce((s, i) => s + i.amount, 0);
                   const billing = data.billing;
+                  // Billable = hourly work (max of tracked vs invoiced) + fixed/recurring
+                  const portalBillableTotal = billing
+                    ? Math.max(billing.billable_total, portalHourlyInvoiced) + portalFixedInvoiced
+                    : portalInvoiced;
                   const balanceDue = billing
-                    ? Math.max(0, Math.max(billing.billable_total, portalHourlyInvoiced) + portalFixedInvoiced - portalPaid)
+                    ? Math.max(0, portalBillableTotal - portalPaid)
                     : Math.max(0, portalInvoiced - portalPaid);
                   const fmtPortalCurrency = (v: number) => v % 1 === 0 ? v.toLocaleString('en-US') : v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
                   return data.settings.show_invoices && data.invoices.length > 0 ? (
@@ -1335,7 +1339,7 @@ export default function PortalPage() {
                             <>
                               <div className="px-4 sm:px-5 py-4">
                                 <p className="text-[11px] font-medium text-zinc-400 uppercase tracking-wider mb-1">Billable</p>
-                                <p className="text-base sm:text-lg font-semibold text-zinc-900 tabular-nums">${fmtPortalCurrency(billing.billable_total)}</p>
+                                <p className="text-base sm:text-lg font-semibold text-zinc-900 tabular-nums">${fmtPortalCurrency(portalBillableTotal)}</p>
                               </div>
                               <div className="px-4 sm:px-5 py-4">
                                 <p className="text-[11px] font-medium text-zinc-400 uppercase tracking-wider mb-1">Hours</p>

@@ -86,13 +86,25 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
   const currentRate = isHourly ? (project?.hourly_rate ?? 0) : (project?.fixed_price ?? 0);
   const budgetTotal = isHourly ? currentRate * totalHours : currentRate;
 
-  // Calculate totals (exclude drafts and cancelled from invoiced)
-  const billableInvoices = invoices.filter(inv => inv.status !== 'draft' && inv.status !== 'cancelled');
-  const totalInvoiced = billableInvoices.reduce((sum, inv) => sum + inv.amount, 0);
+  // Calculate totals (exclude only cancelled)
+  const activeInvoices = invoices.filter(inv => inv.status !== 'cancelled');
+  const totalInvoiced = activeInvoices.reduce((sum, inv) => sum + inv.amount, 0);
   const totalPaid = invoices.filter(inv => inv.status === 'paid').reduce((sum, inv) => sum + inv.amount, 0);
-  const hourlyInvoiced = billableInvoices.filter(inv => inv.invoice_type === 'hourly').reduce((sum, inv) => sum + inv.amount, 0);
-  const fixedInvoiced = billableInvoices.filter(inv => inv.invoice_type === 'fixed' || inv.invoice_type === 'recurring').reduce((sum, inv) => sum + inv.amount, 0);
-  const outstanding = Math.max(0, Math.max(budgetTotal, hourlyInvoiced) + fixedInvoiced - totalPaid);
+  const hourlyInvoiced = activeInvoices.filter(inv => inv.invoice_type === 'hourly').reduce((sum, inv) => sum + inv.amount, 0);
+  const fixedInvoiced = activeInvoices.filter(inv => inv.invoice_type === 'fixed' || inv.invoice_type === 'recurring').reduce((sum, inv) => sum + inv.amount, 0);
+  // Billable = hourly work (whichever is higher: tracked or invoiced) + fixed/recurring charges
+  const billableTotal = Math.max(budgetTotal, hourlyInvoiced) + fixedInvoiced;
+  // Hourly: outstanding against full billable total
+  // Non-hourly: outstanding = invoiced - paid
+  const outstanding = isHourly
+    ? Math.max(0, billableTotal - totalPaid)
+    : Math.max(0, totalInvoiced - totalPaid);
+
+  // Invoice type options based on project type
+  const typeOptions = isHourly
+    ? INVOICE_TYPES.map(t => ({ value: t, label: t.charAt(0).toUpperCase() + t.slice(1) }))
+    : INVOICE_TYPES.filter(t => t !== 'hourly').map(t => ({ value: t, label: t.charAt(0).toUpperCase() + t.slice(1) }));
+  const defaultType: InvoiceType = isHourly ? 'hourly' : 'fixed';
 
   const resetForm = () => {
     setFormNumber('');
@@ -101,7 +113,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
     setFormDueDate('');
     setFormPaidDate('');
     setFormStatus('draft');
-    setFormType('hourly');
+    setFormType(defaultType);
     setFormDescription('');
     setFormFile(null);
     setExistingFileUrl(null);
@@ -178,7 +190,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
     setFormDueDate(invoice.due_date || '');
     setFormPaidDate(invoice.paid_date || '');
     setFormStatus(invoice.status);
-    setFormType(invoice.invoice_type || 'hourly');
+    setFormType(invoice.invoice_type || defaultType);
     setFormDescription(invoice.description || '');
     setFormFile(null);
     setExistingFileUrl(invoice.file_url);
@@ -288,7 +300,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
         <Select
           value={formType}
           onChange={v => setFormType(v as InvoiceType)}
-          options={INVOICE_TYPES.map(t => ({ value: t, label: t.charAt(0).toUpperCase() + t.slice(1) }))}
+          options={typeOptions}
         />
       </div>
       <div className="grid grid-cols-3 gap-2">
@@ -426,12 +438,12 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
         {/* Balance Summary */}
         {!isAdding && !editingId && <div className="px-5 py-3 border-b border-zinc-100 bg-zinc-50/50 overflow-x-auto flex-shrink-0">
           <div className="flex gap-4 min-w-max">
-            <div className="shrink-0 min-w-[5.5rem]">
-              <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-400 mb-0.5">
-                {isHourly ? 'Billable' : 'Fixed Price'}
-              </p>
-              <p className="text-sm font-semibold text-zinc-900">${formatCurrency(budgetTotal)}</p>
-            </div>
+            {isHourly && (
+              <div className="shrink-0 min-w-[5.5rem]">
+                <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-400 mb-0.5">Billable</p>
+                <p className="text-sm font-semibold text-zinc-900">${formatCurrency(billableTotal)}</p>
+              </div>
+            )}
             <div className="shrink-0 min-w-[5.5rem]">
               <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-400 mb-0.5">Invoiced</p>
               <p className="text-sm font-semibold text-zinc-900">${formatCurrency(totalInvoiced)}</p>
@@ -480,36 +492,6 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
                   )}
                 </div>
               </>
-            )}
-            {!isHourly && (
-              <div className="shrink-0 min-w-[5.5rem]">
-                <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-400 mb-0.5">Price</p>
-                {editingRate ? (
-                  <div className="relative inline-flex items-center">
-                    <span className="absolute left-1.5 text-xs text-zinc-400">$</span>
-                    <input
-                      autoFocus
-                      type="number"
-                      value={rateValue}
-                      onChange={e => setRateValue(e.target.value)}
-                      onBlur={handleRateBlur}
-                      onKeyDown={handleRateKeyDown}
-                      step="0.01"
-                      min="0"
-                      className="w-20 pl-5 pr-1.5 py-0.5 text-sm bg-white border border-brand-300 rounded outline-none focus:ring-1 focus:ring-brand-200"
-                    />
-                  </div>
-                ) : (
-                  <Tooltip content="Edit fixed price">
-                    <button
-                      onClick={() => { setEditingRate(true); setRateValue(String(currentRate)); }}
-                      className="text-sm font-semibold text-zinc-900 hover:text-brand-600 transition-colors cursor-pointer underline decoration-dashed underline-offset-2"
-                    >
-                      ${formatCurrency(currentRate)}
-                    </button>
-                  </Tooltip>
-                )}
-              </div>
             )}
           </div>
         </div>}
