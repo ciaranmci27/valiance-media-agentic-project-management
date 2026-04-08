@@ -1,12 +1,14 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useApp } from '@/lib/store';
 import { LEAD_FIELD_DEFINITIONS, LeadFieldDefinition, LeadFieldCategory } from '@/lib/types';
 import Modal from '@/components/ui/Modal';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { TextInput } from '@/components/ui/inputs/TextInput';
+import { Textarea } from '@/components/ui/inputs/Textarea';
 import {
   Plus, X, ExternalLink, Edit, Trash2, Check,
   Globe, Briefcase, BarChart3, Lightbulb,
@@ -220,12 +222,10 @@ interface LeadFieldItemProps {
 function LeadFieldItem({ definition, value, isEditing, onStartEdit, onStopEdit, onSave, onRemove, categoryConfig }: LeadFieldItemProps) {
   const [editValue, setEditValue] = useState(value);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null);
 
   useEffect(() => {
     if (isEditing) {
       setEditValue(value);
-      setTimeout(() => inputRef.current?.focus(), 0);
     }
   }, [isEditing, value]);
 
@@ -283,14 +283,15 @@ function LeadFieldItem({ definition, value, isEditing, onStartEdit, onStopEdit, 
       <p className="text-[11px] font-medium uppercase tracking-wider mb-1.5 text-zinc-400">{definition.label}</p>
       {definition.type === 'text' || definition.type === 'url' ? (
         <div className="flex items-center gap-2">
-          <input
-            ref={inputRef as React.RefObject<HTMLInputElement>}
+          <TextInput
             type={definition.type === 'url' ? 'url' : 'text'}
             value={editValue}
-            onChange={(e) => setEditValue(e.target.value)}
+            onChange={setEditValue}
             onKeyDown={handleKeyDown}
             placeholder={definition.placeholder || ''}
-            className="flex-1 px-3 py-1.5 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+            size="sm"
+            autoFocus
+            className="flex-1"
           />
           <button onClick={handleSave} className="p-1.5 rounded-lg text-emerald-600 hover:bg-emerald-50 transition-all">
             <Check size={16} />
@@ -301,14 +302,13 @@ function LeadFieldItem({ definition, value, isEditing, onStartEdit, onStopEdit, 
         </div>
       ) : definition.type === 'textarea' ? (
         <div className="space-y-2">
-          <textarea
-            ref={inputRef as React.RefObject<HTMLTextAreaElement>}
+          <Textarea
             value={editValue}
-            onChange={(e) => setEditValue(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Escape') onStopEdit(); }}
+            onChange={setEditValue}
             placeholder={definition.placeholder || ''}
             rows={3}
-            className="w-full px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 resize-none"
+            size="sm"
+            autoFocus
           />
           <div className="flex justify-end gap-2">
             <button onClick={onStopEdit} className="px-3 py-1.5 text-xs text-zinc-600 hover:bg-zinc-100 rounded-lg transition-colors">
@@ -562,13 +562,13 @@ function MultiSelectEditor({
 
       {allowCustom && (
         <div className="flex items-center gap-2">
-          <input
-            type="text"
+          <TextInput
             value={customInput}
-            onChange={(e) => setCustomInput(e.target.value)}
+            onChange={setCustomInput}
             onKeyDown={handleCustomKeyDown}
             placeholder="Add custom tag..."
-            className="flex-1 px-3 py-1.5 text-xs bg-white border border-zinc-200 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+            size="sm"
+            className="flex-1"
           />
           <button
             onClick={addCustom}

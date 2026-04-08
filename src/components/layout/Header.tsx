@@ -4,6 +4,7 @@ import { useState, ReactNode } from 'react';
 import { Search, Filter, X, Menu } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { Avatar } from '@/components/ui/Avatar';
+import { TextInput } from '@/components/ui/inputs/TextInput';
 import { NotificationDropdown } from './NotificationDropdown';
 
 interface HeaderProps {
@@ -62,14 +63,14 @@ export function Header({ title, subtitle, actions, searchPlaceholder, showFilter
           {searchPlaceholder && (
             <>
               {/* Search (desktop) */}
-              <div className="hidden md:block relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" size={16} />
-                <input
-                  type="text"
+              <div className="hidden md:block w-40 lg:w-64">
+                <TextInput
+                  type="search"
                   placeholder={searchPlaceholder}
                   value={filters.search}
-                  onChange={(e) => setFilters({ ...filters, search: e.target.value })}
-                  className="pl-9 pr-4 py-2 w-40 lg:w-64 text-sm bg-zinc-50 border border-zinc-200 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 transition-all"
+                  onChange={v => setFilters({ ...filters, search: v })}
+                  leftIcon={Search}
+                  size="sm"
                 />
               </div>
             </>
@@ -217,16 +218,14 @@ export function Header({ title, subtitle, actions, searchPlaceholder, showFilter
     {/* Mobile search — renders below sticky header in page content flow */}
     {searchPlaceholder && (
       <div className="md:hidden px-4 pt-3 pb-1">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" size={16} />
-          <input
-            type="text"
-            placeholder={searchPlaceholder}
-            value={filters.search}
-            onChange={(e) => setFilters({ ...filters, search: e.target.value })}
-            className="w-full pl-9 pr-4 py-2 text-sm bg-zinc-50 border border-zinc-200 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 transition-all"
-          />
-        </div>
+        <TextInput
+          type="search"
+          placeholder={searchPlaceholder}
+          value={filters.search}
+          onChange={v => setFilters({ ...filters, search: v })}
+          leftIcon={Search}
+          size="sm"
+        />
       </div>
     )}
     </>

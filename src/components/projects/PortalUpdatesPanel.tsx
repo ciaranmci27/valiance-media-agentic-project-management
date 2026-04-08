@@ -3,6 +3,8 @@
 import { useState, useRef } from 'react';
 import { MessageSquarePlus, Plus, Pencil, Trash2, X, Paperclip, Image, FileText, File, Loader2, Eye, Download, Globe } from 'lucide-react';
 import { Select } from '@/components/ui/Select';
+import { TextInput } from '@/components/ui/inputs/TextInput';
+import { Textarea } from '@/components/ui/inputs/Textarea';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
@@ -387,19 +389,14 @@ export function PortalUpdatesPanel({ projectId }: PortalUpdatesPanelProps) {
     <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden flex flex-col max-h-[600px]">
       {/* Header */}
       <div className={`px-5 py-4 flex items-center justify-between flex-shrink-0 ${isPortalEnabled ? 'border-b border-zinc-100' : ''}`}>
-        <div className="flex items-center gap-2.5">
-          <div className="p-1.5 bg-brand-50 rounded-md">
-            <MessageSquarePlus size={16} className="text-brand-600" />
-          </div>
-          <div>
-            <h3 className="text-sm font-semibold text-zinc-900">
-              Portal Updates
-              {updates.length > 0 && (
-                <span className="ml-1.5 text-xs font-medium text-zinc-400">({updates.length})</span>
-              )}
-            </h3>
-            <p className="text-xs text-zinc-500">Timeline updates visible to your client</p>
-          </div>
+        <div className="flex items-center gap-2">
+          <MessageSquarePlus size={18} className="text-zinc-500" />
+          <h2 className="font-semibold text-zinc-900">
+            Portal Updates
+            {updates.length > 0 && (
+              <span className="ml-1.5 text-xs font-medium text-zinc-400">({updates.length})</span>
+            )}
+          </h2>
         </div>
         {isPortalEnabled && (
           <button
@@ -418,13 +415,12 @@ export function PortalUpdatesPanel({ projectId }: PortalUpdatesPanelProps) {
           {isAdding && !editingId && (
             <div className="mx-5 mt-5 border border-brand-200 bg-brand-50/30 rounded-lg p-4 space-y-3">
               <div className="flex gap-2">
-                <input
+                <TextInput
                   autoFocus
-                  type="text"
                   value={title}
-                  onChange={e => setTitle(e.target.value)}
+                  onChange={setTitle}
                   placeholder="Update title"
-                  className="flex-1 min-w-0 px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 transition-all"
+                  size="sm"
                 />
                 <div className="w-[140px] flex-shrink-0">
                   <Select
@@ -436,15 +432,16 @@ export function PortalUpdatesPanel({ projectId }: PortalUpdatesPanelProps) {
                       { value: 'deliverable', label: 'Deliverable' },
                       { value: 'note', label: 'Note' },
                     ]}
+                    size="sm"
                   />
                 </div>
               </div>
-              <textarea
+              <Textarea
                 value={content}
-                onChange={e => setContent(e.target.value)}
+                onChange={setContent}
                 placeholder="Add details (optional)"
                 rows={3}
-                className="w-full px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 transition-all resize-none"
+                size="sm"
               />
               {/* Pending files */}
               <PendingFileChips files={pendingFiles} onRemove={id => setPendingFiles(f => f.filter(p => p.id !== id))} />
@@ -485,12 +482,11 @@ export function PortalUpdatesPanel({ projectId }: PortalUpdatesPanelProps) {
                   return (
                     <div key={update.id} className="border border-brand-200 bg-brand-50/30 rounded-lg p-4 space-y-3">
                       <div className="flex gap-2">
-                        <input
+                        <TextInput
                           autoFocus
-                          type="text"
                           value={title}
-                          onChange={e => setTitle(e.target.value)}
-                          className="flex-1 min-w-0 px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 transition-all"
+                          onChange={setTitle}
+                          size="sm"
                         />
                         <div className="w-[140px] flex-shrink-0">
                           <Select
@@ -502,14 +498,15 @@ export function PortalUpdatesPanel({ projectId }: PortalUpdatesPanelProps) {
                               { value: 'deliverable', label: 'Deliverable' },
                               { value: 'note', label: 'Note' },
                             ]}
+                            size="sm"
                           />
                         </div>
                       </div>
-                      <textarea
+                      <Textarea
                         value={content}
-                        onChange={e => setContent(e.target.value)}
+                        onChange={setContent}
                         rows={3}
-                        className="w-full px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 transition-all resize-none"
+                        size="sm"
                       />
                       {/* Existing attachments (removable) */}
                       <AttachmentChips attachments={visibleExisting} onRemove={id => setRemovedAttachmentIds(prev => [...prev, id])} />

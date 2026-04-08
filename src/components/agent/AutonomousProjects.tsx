@@ -7,6 +7,7 @@ import Modal from '@/components/ui/Modal';
 import { ProjectContextPanel } from '@/components/projects/ProjectContextPanel';
 import { Select } from '@/components/ui/Select';
 import { Input } from '@/components/ui/Input';
+import { NumberInput } from '@/components/ui/inputs/NumberInput';
 import {
   Plus, Pause, Play, FolderKanban, ChevronRight, Settings,
 } from 'lucide-react';
@@ -172,26 +173,18 @@ export function AutonomousProjects() {
               </div>
 
               <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <label className="block text-sm font-medium text-zinc-700">Max Concurrent AI Tasks</label>
-                  <input
-                    type="number"
-                    min={1}
-                    value={contextProject.max_concurrent_tasks ?? 2}
-                    onChange={(e) => updateProject(contextProjectId, { max_concurrent_tasks: Math.max(1, parseInt(e.target.value) || 1) })}
-                    className="w-full px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 transition-all"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="block text-sm font-medium text-zinc-700">Suggestions Per Cycle</label>
-                  <input
-                    type="number"
-                    min={1}
-                    value={contextProject.suggestions_per_cycle ?? 2}
-                    onChange={(e) => updateProject(contextProjectId, { suggestions_per_cycle: Math.max(1, parseInt(e.target.value) || 1) })}
-                    className="w-full px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 transition-all"
-                  />
-                </div>
+                <NumberInput
+                  label="Max Concurrent AI Tasks"
+                  min={1}
+                  value={contextProject.max_concurrent_tasks ?? 2}
+                  onChange={(v) => updateProject(contextProjectId, { max_concurrent_tasks: Math.max(1, typeof v === 'number' ? v : 1) })}
+                />
+                <NumberInput
+                  label="Suggestions Per Cycle"
+                  min={1}
+                  value={contextProject.suggestions_per_cycle ?? 2}
+                  onChange={(v) => updateProject(contextProjectId, { suggestions_per_cycle: Math.max(1, typeof v === 'number' ? v : 1) })}
+                />
               </div>
             </div>
 

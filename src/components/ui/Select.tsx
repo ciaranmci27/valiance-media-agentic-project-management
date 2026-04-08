@@ -4,10 +4,16 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronDown, Check } from 'lucide-react';
 
+interface SelectOption {
+  value: string;
+  label: string;
+  icon?: React.ReactNode;
+}
+
 interface SelectProps {
   label?: string;
   error?: string;
-  options: { value: string; label: string }[];
+  options: SelectOption[];
   placeholder?: string;
   value?: string;
   onChange?: (value: string) => void;
@@ -127,7 +133,8 @@ export function Select({
               : 'border-zinc-200 hover:border-zinc-300 focus:border-brand-500 focus:ring-2 focus:ring-brand-100'
         } ${disabled ? 'opacity-50 cursor-not-allowed bg-zinc-50' : 'cursor-pointer'}`}
       >
-        <span className={`truncate ${selectedOption ? 'text-zinc-900' : 'text-zinc-400'}`}>
+        <span className={`truncate flex items-center gap-2 ${selectedOption ? 'text-zinc-900' : 'text-zinc-400'}`}>
+          {selectedOption?.icon}
           {displayLabel}
         </span>
         <ChevronDown
@@ -163,6 +170,7 @@ export function Select({
                       : 'text-zinc-700 hover:bg-zinc-50'
                   }`}
                 >
+                  {option.icon && <span className="flex-shrink-0">{option.icon}</span>}
                   <span className="flex-1 whitespace-nowrap">{option.label}</span>
                   {isSelected && (
                     <Check size={14} className="flex-shrink-0 text-brand-600" />

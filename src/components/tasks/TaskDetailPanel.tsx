@@ -6,6 +6,8 @@ import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { StatusBadge, PriorityBadge } from '@/components/ui/Badge';
 import { Avatar, AvatarGroup } from '@/components/ui/Avatar';
+import { TextInput } from '@/components/ui/inputs/TextInput';
+import { Textarea } from '@/components/ui/inputs/Textarea';
 import {
   X, Edit, Trash2, Calendar, CheckSquare, MessageSquare, Plus, Tag, Users, Clock, GripVertical, Bot,
 } from 'lucide-react';
@@ -396,9 +398,9 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
                         }}
                         className="flex-1"
                       >
-                        <input
+                        <TextInput
                           value={editingSubtaskTitle}
-                          onChange={(e) => setEditingSubtaskTitle(e.target.value)}
+                          onChange={setEditingSubtaskTitle}
                           onBlur={() => {
                             if (editingSubtaskTitle.trim()) {
                               updateSubtask(task.id, subtask.id, editingSubtaskTitle.trim());
@@ -406,7 +408,7 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
                             setEditingSubtaskId(null);
                           }}
                           autoFocus
-                          className="w-full text-sm px-1 py-0.5 border border-brand-300 rounded outline-none focus:ring-1 focus:ring-brand-300"
+                          size="sm"
                         />
                       </form>
                     ) : (
@@ -446,11 +448,12 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
 
               {/* Add subtask */}
               <form onSubmit={handleAddSubtask} className="flex items-center gap-2 pl-[22px]">
-                <input
+                <TextInput
                   value={newSubtask}
-                  onChange={(e) => setNewSubtask(e.target.value)}
+                  onChange={setNewSubtask}
                   placeholder="Add a subtask..."
-                  className="flex-1 text-sm py-1.5 px-0 bg-transparent border-b border-dashed border-zinc-200 outline-none focus:border-brand-400 transition-colors placeholder:text-zinc-400"
+                  size="sm"
+                  className="flex-1"
                 />
                 <button
                   type="submit"
@@ -522,12 +525,12 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
                             }}
                             className="mt-1 space-y-1.5"
                           >
-                            <textarea
+                            <Textarea
                               value={editingCommentText}
-                              onChange={(e) => setEditingCommentText(e.target.value)}
+                              onChange={setEditingCommentText}
                               autoFocus
                               rows={2}
-                              className="w-full text-sm px-2 py-1.5 border border-brand-300 rounded-lg outline-none focus:ring-1 focus:ring-brand-300 resize-none"
+                              size="sm"
                             />
                             <div className="flex gap-1.5">
                               <button
@@ -564,12 +567,13 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
               </div>
 
               {/* Add comment */}
-              <form onSubmit={handleAddComment} className="flex items-center gap-2 border border-zinc-200 rounded-lg px-3 py-2 focus-within:border-brand-400 focus-within:ring-2 focus-within:ring-brand-100 transition-all">
-                <input
+              <form onSubmit={handleAddComment} className="flex items-center gap-2">
+                <TextInput
                   value={newComment}
-                  onChange={(e) => setNewComment(e.target.value)}
+                  onChange={setNewComment}
                   placeholder="Write a comment..."
-                  className="flex-1 text-sm bg-transparent outline-none placeholder:text-zinc-400"
+                  size="sm"
+                  className="flex-1"
                 />
                 <button
                   type="submit"

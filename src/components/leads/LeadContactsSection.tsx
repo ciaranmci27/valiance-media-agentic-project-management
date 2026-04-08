@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from 'react';
 import Link from 'next/link';
+import { TextInput } from '@/components/ui/inputs/TextInput';
 import { Plus, Edit, Trash2, Star, Users, ExternalLink, Search, X } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { Avatar } from '@/components/ui/Avatar';
@@ -208,12 +209,12 @@ export function LeadContactsSection({ leadId }: LeadContactsSectionProps) {
                           options={roleOptions}
                         />
                         {editRole === 'Other' && (
-                          <input
-                            type="text"
+                          <TextInput
                             value={editCustomRole}
-                            onChange={(e) => setEditCustomRole(e.target.value)}
+                            onChange={setEditCustomRole}
                             placeholder="Custom role"
-                            className="px-2 py-1.5 text-sm border border-zinc-200 rounded-lg w-32 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+                            size="sm"
+                            className="w-32"
                           />
                         )}
                         {editRole === 'Client' && (
@@ -268,16 +269,13 @@ export function LeadContactsSection({ leadId }: LeadContactsSectionProps) {
               </div>
 
               {/* Contact search */}
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" size={14} />
-                <input
-                  type="text"
-                  value={addSearch}
-                  onChange={(e) => setAddSearch(e.target.value)}
-                  placeholder="Search contacts..."
-                  className="w-full pl-9 pr-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 transition-all"
-                />
-              </div>
+              <TextInput
+                value={addSearch}
+                onChange={setAddSearch}
+                placeholder="Search contacts..."
+                size="sm"
+                leftIcon={Search}
+              />
 
               {/* Contact list */}
               <div className="max-h-36 overflow-y-auto border border-zinc-200 rounded-lg bg-white">

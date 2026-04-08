@@ -8,6 +8,9 @@ import {
   User as UserIcon,
 } from 'lucide-react';
 import { Select } from '@/components/ui/Select';
+import { TextInput } from '@/components/ui/inputs/TextInput';
+import { PasswordInput } from '@/components/ui/inputs/PasswordInput';
+import { Textarea } from '@/components/ui/inputs/Textarea';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { toast } from '@/components/ui/Toast';
@@ -127,7 +130,6 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
   const [password, setPassword] = useState('');
   const [url, setUrl] = useState('');
   const [notes, setNotes] = useState('');
-  const [showFormPassword, setShowFormPassword] = useState(false);
   const [saving, setSaving] = useState(false);
 
   // Check encryption on mount
@@ -145,7 +147,6 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
     setPassword('');
     setUrl('');
     setNotes('');
-    setShowFormPassword(false);
   };
 
   const handleGenerate = async () => {
@@ -289,11 +290,9 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
   if (encryptionStatus === 'loading') {
     return (
       <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
-        <div className="px-5 py-4 flex items-center gap-2.5">
-          <div className="p-1.5 bg-brand-50 rounded-md">
-            <ShieldCheck size={16} className="text-brand-600" />
-          </div>
-          <h3 className="text-sm font-semibold text-zinc-900">Credentials</h3>
+        <div className="px-5 py-4 flex items-center gap-2">
+          <ShieldCheck size={18} className="text-zinc-500" />
+          <h2 className="font-semibold text-zinc-900">Credentials</h2>
         </div>
         <div className="flex items-center justify-center py-12">
           <Loader2 size={20} className="animate-spin text-zinc-300" />
@@ -306,14 +305,9 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
   if (encryptionStatus === 'not_configured') {
     return (
       <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
-        <div className="px-5 py-4 border-b border-zinc-100 flex items-center gap-2.5">
-          <div className="p-1.5 bg-amber-50 rounded-md">
-            <Lock size={16} className="text-amber-600" />
-          </div>
-          <div>
-            <h3 className="text-sm font-semibold text-zinc-900">Set Up Credential Encryption</h3>
-            <p className="text-xs text-zinc-500">One-time setup to enable encrypted credential storage</p>
-          </div>
+        <div className="px-5 py-4 border-b border-zinc-100 flex items-center gap-2">
+          <Lock size={18} className="text-zinc-500" />
+          <h2 className="font-semibold text-zinc-900">Set Up Credential Encryption</h2>
         </div>
 
         <div className="p-5 space-y-4">
@@ -381,83 +375,62 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
   const renderForm = (mode: 'add' | 'edit') => (
     <div className={mode === 'add' ? 'border border-brand-200 bg-brand-50/30 rounded-lg p-4 space-y-3' : 'space-y-3'}>
       <div className="flex gap-2">
-        <input
+        <TextInput
           autoFocus
-          type="text"
           value={label}
-          onChange={e => setLabel(e.target.value)}
+          onChange={setLabel}
           placeholder="Name (i.e. Email Login)"
-          className="flex-1 min-w-0 px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 transition-all"
+          size="sm"
         />
         <div className="w-[130px] flex-shrink-0">
           <Select
             value={category}
             onChange={v => setCategory(v)}
             options={CATEGORY_OPTIONS}
+            size="sm"
           />
         </div>
       </div>
       <div className="grid grid-cols-2 gap-2">
-        <input
-          type="text"
+        <TextInput
           value={username}
-          onChange={e => setUsername(e.target.value)}
+          onChange={setUsername}
           placeholder="Username"
           autoComplete="off"
-          data-1p-ignore
-          data-lpignore="true"
-          className="px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 transition-all"
+          size="sm"
         />
         {mode === 'edit' ? (
-          <div className="relative">
-            <input
-              type="text"
-              value=""
-              disabled
-              placeholder="••••••••"
-              autoComplete="off"
-              data-1p-ignore
-              data-lpignore="true"
-              className="w-full px-3 py-2 pr-9 text-sm bg-zinc-100 text-zinc-400 border border-zinc-200 rounded-lg cursor-not-allowed"
-            />
-            <Lock size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-300" />
-          </div>
+          <TextInput
+            value=""
+            disabled
+            placeholder="••••••••"
+            rightIcon={Lock}
+            size="sm"
+          />
         ) : (
-          <div className="relative">
-            <input
-              type="text"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              placeholder="Password / Secret"
-              autoComplete="off"
-              data-1p-ignore
-              data-lpignore="true"
-              style={showFormPassword ? undefined : { WebkitTextSecurity: 'disc' } as React.CSSProperties}
-              className="w-full px-3 py-2 pr-9 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 transition-all"
-            />
-            <button
-              type="button"
-              onClick={() => setShowFormPassword(v => !v)}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600"
-            >
-              {showFormPassword ? <EyeOff size={14} /> : <Eye size={14} />}
-            </button>
-          </div>
+          <PasswordInput
+            value={password}
+            onChange={setPassword}
+            placeholder="Password / Secret"
+            autoComplete="new-password"
+            size="sm"
+            showIcon={false}
+          />
         )}
       </div>
-      <input
-        type="text"
+      <TextInput
         value={url}
-        onChange={e => setUrl(e.target.value)}
+        onChange={setUrl}
         placeholder="URL (optional)"
-        className="w-full px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 transition-all"
+        type="url"
+        size="sm"
       />
-      <textarea
+      <Textarea
         value={notes}
-        onChange={e => setNotes(e.target.value)}
+        onChange={setNotes}
         placeholder="Notes (optional)"
         rows={2}
-        className="w-full px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 transition-all resize-none"
+        size="sm"
       />
       <div className="flex items-center gap-2 justify-end">
         <button
@@ -482,19 +455,14 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
     <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden flex flex-col max-h-[600px]">
       {/* Header */}
       <div className="px-5 py-4 flex items-center justify-between flex-shrink-0 border-b border-zinc-100">
-        <div className="flex items-center gap-2.5">
-          <div className="p-1.5 bg-brand-50 rounded-md">
-            <ShieldCheck size={16} className="text-brand-600" />
-          </div>
-          <div>
-            <h3 className="text-sm font-semibold text-zinc-900">
-              Credentials
-              {credentials.length > 0 && (
-                <span className="ml-1.5 text-xs font-medium text-zinc-400">({credentials.length})</span>
-              )}
-            </h3>
-            <p className="text-xs text-zinc-500">Encrypted client logins and API keys</p>
-          </div>
+        <div className="flex items-center gap-2">
+          <ShieldCheck size={18} className="text-zinc-500" />
+          <h2 className="font-semibold text-zinc-900">
+            Credentials
+            {credentials.length > 0 && (
+              <span className="ml-1.5 text-xs font-medium text-zinc-400">({credentials.length})</span>
+            )}
+          </h2>
         </div>
         <button
           onClick={() => { resetForm(); setIsAdding(true); }}

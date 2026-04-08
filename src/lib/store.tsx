@@ -250,7 +250,7 @@ interface AppContextType {
   updateTimeEntry: (id: string, updates: Partial<Pick<TimeEntry, 'member_id' | 'start_time' | 'end_time' | 'description'>>) => void;
   deleteTimeEntry: (id: string) => void;
   getTimeEntriesByProject: (projectId: string) => TimeEntry[];
-  startTimer: (projectId: string, memberId: string, description?: string) => void;
+  startTimer: (projectId: string, memberId: string, description?: string, customStartTime?: string) => void;
   stopTimer: (projectId: string) => void;
   getRunningTimer: (projectId: string) => TimeEntry | undefined;
 
@@ -2216,7 +2216,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const getTimeEntriesByProject = (projectId: string) =>
     timeEntries.filter(te => te.project_id === projectId);
 
-  const startTimer = async (projectId: string, memberId: string, description = '') => {
+  const startTimer = async (projectId: string, memberId: string, description = '', customStartTime?: string) => {
     // Check if there's already a running timer for this project
     const existing = timeEntries.find(te => te.project_id === projectId && te.end_time === null);
     if (existing) {
@@ -2224,11 +2224,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    const now = new Date().toISOString();
+    const startTime = customStartTime || new Date().toISOString();
     const entry: Omit<TimeEntry, 'id' | 'created_at' | 'updated_at'> = {
       project_id: projectId,
       member_id: memberId,
-      start_time: now,
+      start_time: startTime,
       end_time: null,
       description,
     };

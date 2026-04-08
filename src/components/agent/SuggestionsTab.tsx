@@ -10,6 +10,7 @@ import { SwipeSuggestionCard } from './SwipeSuggestionCard';
 import { Avatar } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
 import { Tooltip } from '@/components/ui/Tooltip';
+import { TextInput } from '@/components/ui/inputs/TextInput';
 import {
   Check, X, HelpCircle, Lightbulb, Pencil,
 } from 'lucide-react';
@@ -258,13 +259,13 @@ export function SuggestionsTab({ filters }: { filters: SuggestionsFilters }) {
                 {/* Inline reject input */}
                 {rejectInputId === suggestion.id && (
                   <div className="mt-3 flex gap-2">
-                    <input
-                      type="text"
+                    <TextInput
                       value={rejectReason}
-                      onChange={(e) => setRejectReason(e.target.value)}
+                      onChange={setRejectReason}
                       placeholder="Rejection reason (optional)"
-                      className="flex-1 px-3 py-2 text-sm border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
+                      size="sm"
                       autoFocus
+                      className="flex-1"
                     />
                     <Button size="sm" onClick={() => handleReject(suggestion.id)}>Reject</Button>
                     <Button size="sm" variant="ghost" onClick={() => setRejectInputId(null)}>Cancel</Button>
@@ -274,13 +275,13 @@ export function SuggestionsTab({ filters }: { filters: SuggestionsFilters }) {
                 {/* Inline info request input */}
                 {infoInputId === suggestion.id && (
                   <div className="mt-3 flex gap-2">
-                    <input
-                      type="text"
+                    <TextInput
                       value={infoText}
-                      onChange={(e) => setInfoText(e.target.value)}
+                      onChange={setInfoText}
                       placeholder="What info do you need?"
-                      className="flex-1 px-3 py-2 text-sm border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
+                      size="sm"
                       autoFocus
+                      className="flex-1"
                     />
                     <Button size="sm" onClick={() => handleRequestInfo(suggestion.id)}>Send</Button>
                     <Button size="sm" variant="ghost" onClick={() => setInfoInputId(null)}>Cancel</Button>

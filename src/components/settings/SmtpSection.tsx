@@ -5,6 +5,9 @@ import { Mail, Plus, Copy, Check, Pencil, Trash2, Send, Loader2, RefreshCw, Book
 import Link from 'next/link';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { Select } from '@/components/ui/Select';
+import { TextInput } from '@/components/ui/inputs/TextInput';
+import { NumberInput } from '@/components/ui/inputs/NumberInput';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { toast } from '@/components/ui/Toast';
 import { Tooltip } from '@/components/ui/Tooltip';
@@ -428,35 +431,37 @@ export function SmtpSection() {
 
               {/* Row 4: Port | Reply-To */}
               <div>
-                <label className="block text-sm font-medium text-zinc-700 mb-1.5">Port</label>
-                <select
+                <Select
+                  label="Port"
                   value={form.port === 465 ? '465' : form.port === 587 ? '587' : 'custom'}
-                  onChange={e => {
-                    if (e.target.value === 'custom') {
+                  onChange={v => {
+                    if (v === 'custom') {
                       setForm(f => ({ ...f, port: 0, secure: false }));
                     } else {
-                      const port = parseInt(e.target.value);
+                      const port = parseInt(v);
                       setForm(f => ({ ...f, port, secure: port === 465 }));
                     }
                   }}
-                  className="w-full px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none transition-all duration-150 focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
-                >
-                  <option value="465">465 (SSL)</option>
-                  <option value="587">587 (STARTTLS)</option>
-                  <option value="custom">Custom</option>
-                </select>
+                  options={[
+                    { value: '465', label: '465 (SSL)' },
+                    { value: '587', label: '587 (STARTTLS)' },
+                    { value: 'custom', label: 'Custom' },
+                  ]}
+                />
                 {form.port !== 465 && form.port !== 587 && (
-                  <input
-                    type="number"
-                    className="w-full mt-2 px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none transition-all duration-150 focus:border-brand-500 focus:ring-2 focus:ring-brand-100 placeholder:text-zinc-400"
-                    placeholder="Enter custom port"
-                    value={form.port || ''}
-                    onChange={e => {
-                      const port = parseInt(e.target.value) || 0;
-                      setForm(f => ({ ...f, port, secure: false }));
-                    }}
-                    autoFocus
-                  />
+                  <div className="mt-2">
+                    <NumberInput
+                      placeholder="Enter custom port"
+                      value={form.port || ''}
+                      onChange={v => {
+                        const port = typeof v === 'number' ? v : 0;
+                        setForm(f => ({ ...f, port, secure: false }));
+                      }}
+                      autoFocus
+                      min={0}
+                      max={65535}
+                    />
+                  </div>
                 )}
               </div>
               <Input
@@ -584,12 +589,12 @@ export function SmtpSection() {
                   {/* Inline test email */}
                   {testingId === account.id && (
                     <div className="px-4 pb-3 flex items-center gap-2">
-                      <input
+                      <TextInput
                         type="email"
                         value={testTo}
-                        onChange={e => setTestTo(e.target.value)}
+                        onChange={setTestTo}
                         placeholder="Recipient email..."
-                        className="flex-1 px-3 py-1.5 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-100"
+                        size="sm"
                         onKeyDown={e => e.key === 'Enter' && handleSendTest(account.id)}
                       />
                       <Button

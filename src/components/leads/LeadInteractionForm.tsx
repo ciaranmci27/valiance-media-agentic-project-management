@@ -9,6 +9,7 @@ import Modal from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
+import { Textarea } from '@/components/ui/inputs/Textarea';
 
 interface LeadInteractionFormProps {
   isOpen: boolean;
@@ -112,16 +113,13 @@ export function LeadInteractionForm({ isOpen, onClose, leadId, interaction }: Le
           error={errors.title}
         />
 
-        <div className="space-y-1.5">
-          <label className="block text-sm font-medium text-zinc-700">Description</label>
-          <textarea
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="Details about this interaction..."
-            rows={3}
-            className="w-full px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 transition-all resize-none"
-          />
-        </div>
+        <Textarea
+          label="Description"
+          value={description}
+          onChange={setDescription}
+          placeholder="Details about this interaction..."
+          rows={3}
+        />
 
         <div className="grid grid-cols-2 gap-4">
           <Input

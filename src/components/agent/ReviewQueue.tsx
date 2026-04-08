@@ -9,6 +9,7 @@ import { Avatar } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
 import { Tooltip } from '@/components/ui/Tooltip';
 import Modal from '@/components/ui/Modal';
+import { Textarea } from '@/components/ui/inputs/Textarea';
 import {
   Check, X, HelpCircle, Lightbulb, ChevronDown, ChevronRight, Pencil, RotateCcw, ExternalLink,
 } from 'lucide-react';
@@ -587,18 +588,15 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
             <p className="text-sm font-medium text-zinc-900 mb-1">{rejectTarget.title}</p>
             <p className="text-xs text-zinc-500"><span className="font-medium">Goal:</span> {getGoalTitle(rejectTarget.goal_id)}</p>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-zinc-700 mb-1.5">Reason (optional)</label>
-            <textarea
-              value={rejectReason}
-              onChange={(e) => setRejectReason(e.target.value)}
-              placeholder="Why are you rejecting this suggestion?"
-              className="w-full px-3 py-2 text-sm border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white resize-none"
-              rows={3}
-              autoFocus
-              onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleReject(rejectInputId!); }}
-            />
-          </div>
+          <Textarea
+            label="Reason (optional)"
+            value={rejectReason}
+            onChange={setRejectReason}
+            placeholder="Why are you rejecting this suggestion?"
+            rows={3}
+            autoFocus
+            onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleReject(rejectInputId!); }}
+          />
           <div className="flex justify-end gap-2">
             <Button size="sm" variant="ghost" onClick={() => setRejectInputId(null)}>Cancel</Button>
             <Button size="sm" variant="danger" onClick={() => handleReject(rejectInputId!)}>Reject</Button>
@@ -615,18 +613,15 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
             <p className="text-sm font-medium text-zinc-900 mb-1">{infoTarget.title}</p>
             <p className="text-xs text-zinc-500"><span className="font-medium">Goal:</span> {getGoalTitle(infoTarget.goal_id)}</p>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-zinc-700 mb-1.5">What info do you need?</label>
-            <textarea
-              value={infoText}
-              onChange={(e) => setInfoText(e.target.value)}
-              placeholder="Describe what additional information is needed..."
-              className="w-full px-3 py-2 text-sm border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white resize-none"
-              rows={3}
-              autoFocus
-              onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleRequestInfo(infoInputId!); }}
-            />
-          </div>
+          <Textarea
+            label="What info do you need?"
+            value={infoText}
+            onChange={setInfoText}
+            placeholder="Describe what additional information is needed..."
+            rows={3}
+            autoFocus
+            onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleRequestInfo(infoInputId!); }}
+          />
           <div className="flex justify-end gap-2">
             <Button size="sm" variant="ghost" onClick={() => setInfoInputId(null)}>Cancel</Button>
             <Button size="sm" onClick={() => handleRequestInfo(infoInputId!)}>Send</Button>

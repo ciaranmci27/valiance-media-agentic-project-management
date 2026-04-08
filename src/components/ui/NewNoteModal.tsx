@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react';
 import { Loader2 } from 'lucide-react';
 import Modal from '@/components/ui/Modal';
+import { TextInput } from '@/components/ui/inputs/TextInput';
+import { Textarea } from '@/components/ui/inputs/Textarea';
 
 interface NewNoteModalProps {
   isOpen: boolean;
@@ -55,12 +57,11 @@ export function NewNoteModal({ isOpen, onClose, onSave, editMode }: NewNoteModal
       <div className="space-y-4">
         {/* File name + extension */}
         <div className="flex items-center gap-2">
-          <input
-            type="text"
+          <TextInput
             value={fileName}
-            onChange={e => setFileName(e.target.value)}
+            onChange={setFileName}
             placeholder="File name"
-            className="flex-1 px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 transition-all"
+            className="flex-1"
           />
           <div className="flex rounded-lg border border-zinc-200 overflow-hidden flex-shrink-0">
             <button
@@ -89,11 +90,13 @@ export function NewNoteModal({ isOpen, onClose, onSave, editMode }: NewNoteModal
         </div>
 
         {/* Editor */}
-        <textarea
+        <Textarea
           value={content}
-          onChange={e => setContent(e.target.value)}
+          onChange={setContent}
           placeholder="Start writing..."
-          className="w-full min-h-[300px] resize-y px-4 py-3 text-sm font-mono bg-white border border-zinc-200 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 transition-all"
+          rows={12}
+          resizable
+          inputClassName="font-mono"
         />
 
         {/* Footer */}

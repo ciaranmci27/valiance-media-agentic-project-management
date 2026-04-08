@@ -6,6 +6,7 @@ import { useApp } from '@/lib/store';
 import Modal from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { Textarea } from '@/components/ui/inputs/Textarea';
 import { siteConfig } from '@/site-config';
 import { formatPhone } from '@/lib/format-phone';
 
@@ -109,16 +110,13 @@ export function ConvertLeadModal({ isOpen, onClose, lead }: ConvertLeadModalProp
           </div>
         </div>
 
-        <div className="space-y-1.5">
-          <label className="block text-sm font-medium text-zinc-700">Project Description (optional)</label>
-          <textarea
-            value={projectDescription}
-            onChange={(e) => setProjectDescription(e.target.value)}
-            placeholder="Describe the project..."
-            rows={3}
-            className="w-full px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 transition-all resize-none"
-          />
-        </div>
+        <Textarea
+          label="Project Description (optional)"
+          value={projectDescription}
+          onChange={setProjectDescription}
+          placeholder="Describe the project..."
+          rows={3}
+        />
 
         <div className="flex items-center justify-between pt-4">
           <Button type="button" variant="ghost" onClick={onClose}>

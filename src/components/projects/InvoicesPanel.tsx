@@ -12,6 +12,10 @@ import { toast } from '@/components/ui/Toast';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { Select } from '@/components/ui/Select';
+import { TextInput } from '@/components/ui/inputs/TextInput';
+import { NumberInput } from '@/components/ui/inputs/NumberInput';
+import { DateInput } from '@/components/ui/inputs/DateInput';
+import { Textarea } from '@/components/ui/inputs/Textarea';
 import { siteConfig } from '@/site-config';
 import { INVOICE_STATUSES, INVOICE_TYPES, type InvoiceStatus, type InvoiceType } from '@/lib/types';
 
@@ -272,72 +276,59 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
   const renderForm = (mode: 'add' | 'edit') => (
     <div className={mode === 'add' ? 'border border-brand-200 bg-brand-50/30 rounded-lg p-4 space-y-3' : 'space-y-3'}>
       <div className="grid grid-cols-4 gap-2">
-        <input
+        <TextInput
           autoFocus
-          type="text"
           value={formNumber}
-          onChange={e => setFormNumber(e.target.value)}
+          onChange={setFormNumber}
           placeholder="Invoice #"
-          className="min-w-0 px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 transition-all"
+          size="sm"
         />
-        <div className="relative">
-          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-zinc-400">$</span>
-          <input
-            type="number"
-            value={formAmount}
-            onChange={e => setFormAmount(e.target.value)}
-            placeholder="0.00"
-            step="0.01"
-            min="0"
-            className="w-full pl-7 pr-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 transition-all"
-          />
-        </div>
+        <TextInput
+          value={formAmount}
+          onChange={setFormAmount}
+          placeholder="0.00"
+          prefix="$"
+          size="sm"
+        />
         <Select
           value={formStatus}
           onChange={v => setFormStatus(v as InvoiceStatus)}
           options={INVOICE_STATUSES.map(s => ({ value: s, label: s.charAt(0).toUpperCase() + s.slice(1) }))}
+          size="sm"
         />
         <Select
           value={formType}
           onChange={v => setFormType(v as InvoiceType)}
           options={typeOptions}
+          size="sm"
         />
       </div>
       <div className="grid grid-cols-3 gap-2">
-        <div className="flex flex-col gap-1">
-          <label className="text-xs font-medium text-zinc-500">Invoice Date</label>
-          <input
-            type="date"
-            value={formDate}
-            onChange={e => setFormDate(e.target.value)}
-            className="px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 transition-all"
-          />
-        </div>
-        <div className="flex flex-col gap-1">
-          <label className="text-xs font-medium text-zinc-500">Due Date</label>
-          <input
-            type="date"
-            value={formDueDate}
-            onChange={e => setFormDueDate(e.target.value)}
-            className="px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 transition-all"
-          />
-        </div>
-        <div className="flex flex-col gap-1">
-          <label className="text-xs font-medium text-zinc-500">Paid Date</label>
-          <input
-            type="date"
-            value={formPaidDate}
-            onChange={e => setFormPaidDate(e.target.value)}
-            className="px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 transition-all"
-          />
-        </div>
+        <DateInput
+          label="Invoice Date"
+          value={formDate}
+          onChange={setFormDate}
+          size="sm"
+        />
+        <DateInput
+          label="Due Date"
+          value={formDueDate}
+          onChange={setFormDueDate}
+          size="sm"
+        />
+        <DateInput
+          label="Paid Date"
+          value={formPaidDate}
+          onChange={setFormPaidDate}
+          size="sm"
+        />
       </div>
-      <textarea
+      <Textarea
         value={formDescription}
-        onChange={e => setFormDescription(e.target.value)}
+        onChange={setFormDescription}
         placeholder="Description (optional)"
         rows={2}
-        className="w-full px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 transition-all resize-none"
+        size="sm"
       />
 
       {/* File upload */}
@@ -411,19 +402,14 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
     <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden flex flex-col max-h-[600px]">
       {/* Header */}
       <div className="px-5 py-4 flex items-center justify-between flex-shrink-0 border-b border-zinc-100">
-        <div className="flex items-center gap-2.5">
-          <div className="p-1.5 bg-brand-50 rounded-md">
-            <Receipt size={16} className="text-brand-600" />
-          </div>
-          <div>
-            <h3 className="text-sm font-semibold text-zinc-900">
-              Invoices
-              {invoices.length > 0 && (
-                <span className="ml-1.5 text-xs font-medium text-zinc-400">({invoices.length})</span>
-              )}
-            </h3>
-            <p className="text-xs text-zinc-500">Track payments and billing</p>
-          </div>
+        <div className="flex items-center gap-2">
+          <Receipt size={18} className="text-zinc-500" />
+          <h2 className="font-semibold text-zinc-900">
+            Invoices
+            {invoices.length > 0 && (
+              <span className="ml-1.5 text-xs font-medium text-zinc-400">({invoices.length})</span>
+            )}
+          </h2>
         </div>
         <button
           onClick={openAddForm}
@@ -465,18 +451,15 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
                 <div className="shrink-0 min-w-[5.5rem]">
                   <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-400 mb-0.5">Hourly Rate</p>
                   {editingRate ? (
-                    <div className="relative inline-flex items-center">
-                      <span className="absolute left-1.5 text-xs text-zinc-400">$</span>
-                      <input
+                    <div className="inline-flex items-center w-24">
+                      <TextInput
                         autoFocus
-                        type="number"
                         value={rateValue}
-                        onChange={e => setRateValue(e.target.value)}
+                        onChange={setRateValue}
                         onBlur={handleRateBlur}
                         onKeyDown={handleRateKeyDown}
-                        step="0.01"
-                        min="0"
-                        className="w-20 pl-5 pr-1.5 py-px text-sm bg-white border border-brand-300 rounded outline-none focus:ring-1 focus:ring-brand-200"
+                        prefix="$"
+                        size="sm"
                       />
                     </div>
                   ) : (

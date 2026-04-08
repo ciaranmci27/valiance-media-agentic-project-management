@@ -6,6 +6,7 @@ import Modal from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
+import { Textarea } from '@/components/ui/inputs/Textarea';
 
 interface EditSuggestionModalProps {
   suggestion: TaskSuggestion;
@@ -43,27 +44,19 @@ export function EditSuggestionModal({ suggestion, onClose, onSave }: EditSuggest
           required
         />
 
-        <div>
-          <label className="block text-sm font-medium text-zinc-700 mb-1">Description</label>
-          <textarea
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            className="w-full px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 transition-all resize-none"
-            rows={4}
-            required
-          />
-        </div>
+        <Textarea
+          label="Description"
+          value={description}
+          onChange={setDescription}
+          rows={4}
+        />
 
-        <div>
-          <label className="block text-sm font-medium text-zinc-700 mb-1">Reasoning</label>
-          <textarea
-            value={reasoning}
-            onChange={(e) => setReasoning(e.target.value)}
-            className="w-full px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 transition-all resize-none"
-            rows={3}
-            required
-          />
-        </div>
+        <Textarea
+          label="Reasoning"
+          value={reasoning}
+          onChange={setReasoning}
+          rows={3}
+        />
 
         <Select
           label="Priority"

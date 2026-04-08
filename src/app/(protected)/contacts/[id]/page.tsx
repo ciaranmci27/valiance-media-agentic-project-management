@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Avatar } from '@/components/ui/Avatar';
 import { FileAttachments } from '@/components/ui/FileAttachments';
+import { Textarea } from '@/components/ui/inputs/Textarea';
 import { Edit, Mail, Phone, Building2, StickyNote, Plus, FolderKanban, Target, UserCircle, Receipt } from 'lucide-react';
 import { Project } from '@/lib/types';
 import { formatPhone } from '@/lib/format-phone';
@@ -157,12 +158,11 @@ export default function ContactDetailPage() {
             </div>
             {isEditingNotes ? (
               <div className="space-y-2">
-                <textarea
+                <Textarea
                   value={notesValue}
-                  onChange={(e) => setNotesValue(e.target.value)}
+                  onChange={setNotesValue}
                   rows={4}
                   autoFocus
-                  className="w-full px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 resize-none"
                   placeholder="Add notes about this contact..."
                 />
                 <div className="flex justify-end gap-2">

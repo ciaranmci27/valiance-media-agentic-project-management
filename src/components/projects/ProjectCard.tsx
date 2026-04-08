@@ -43,32 +43,30 @@ export function ProjectCard({ project, onEdit, onDelete }: ProjectCardProps) {
       className="flex flex-col bg-white rounded-xl border border-zinc-200 p-4 lg:p-5 hover:shadow-lg hover:border-zinc-300 transition-all duration-200 group cursor-pointer h-full"
     >
       <div className="flex items-start justify-between mb-3 lg:mb-4">
-        <div className="flex items-center gap-2 lg:gap-3 min-w-0 flex-1">
-          {project.color && (
-            <div
-              className="w-2.5 lg:w-3 h-2.5 lg:h-3 rounded-full flex-shrink-0"
-              style={{ backgroundColor: project.color }}
-            />
-          )}
-          <div className="min-w-0 flex-1">
-            <span className="font-semibold text-zinc-900 group-hover:text-brand-600 transition-colors block truncate text-sm lg:text-base">
-              {project.name}
-            </span>
-            <div className="mt-1 flex items-center gap-1.5 flex-wrap">
-              <StatusBadge status={project.status} />
-              {isAgentsEnabled && isAdmin && project.autonomous_enabled && (
-                <Tooltip content="Autonomous agents enabled">
-                  <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-violet-100 text-violet-700">
-                    <Bot size={12} />
-                  </span>
-                </Tooltip>
-              )}
-              {primaryClient?.contact && (
-                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-violet-100 text-violet-700">
-                  {primaryClient.contact.name}
+        <div className="min-w-0 flex-1">
+          <span className="font-semibold text-zinc-900 group-hover:text-brand-600 transition-colors inline-flex items-center gap-1.5 lg:gap-2 truncate text-sm lg:text-base">
+            {project.name}
+            {project.color && (
+              <span
+                className="w-2 h-2 lg:w-2.5 lg:h-2.5 rounded-full flex-shrink-0 inline-block"
+                style={{ backgroundColor: project.color }}
+              />
+            )}
+          </span>
+          <div className="mt-1 flex items-center gap-1.5 flex-wrap">
+            <StatusBadge status={project.status} />
+            {isAgentsEnabled && isAdmin && project.autonomous_enabled && (
+              <Tooltip content="Autonomous agents enabled">
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-violet-100 text-violet-700">
+                  <Bot size={12} />
                 </span>
-              )}
-            </div>
+              </Tooltip>
+            )}
+            {primaryClient?.contact && (
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-violet-100 text-violet-700">
+                {primaryClient.contact.name}
+              </span>
+            )}
           </div>
         </div>
 

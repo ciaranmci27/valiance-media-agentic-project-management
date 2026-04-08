@@ -5,7 +5,8 @@ import Modal from '@/components/ui/Modal';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Button } from '@/components/ui/Button';
-import { Eye, EyeOff } from 'lucide-react';
+import { PasswordInput } from '@/components/ui/inputs/PasswordInput';
+import { TextInput } from '@/components/ui/inputs/TextInput';
 import { TeamMember } from '@/lib/types';
 
 interface InviteMemberModalProps {
@@ -20,7 +21,7 @@ export default function InviteMemberModal({ isOpen, onClose, onSuccess, showAgen
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [role, setRole] = useState<TeamMember['role']>('member');
-  const [showPassword, setShowPassword] = useState(false);
+  const [generatedPassword, setGeneratedPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -29,7 +30,7 @@ export default function InviteMemberModal({ isOpen, onClose, onSuccess, showAgen
     setEmail('');
     setPassword('');
     setRole('member');
-    setShowPassword(false);
+    setGeneratedPassword(false);
     setErrors({});
   };
 
@@ -133,7 +134,7 @@ export default function InviteMemberModal({ isOpen, onClose, onSuccess, showAgen
                 crypto.getRandomValues(array);
                 for (let i = 0; i < 16; i++) pw += chars[array[i] % chars.length];
                 setPassword(pw);
-                setShowPassword(true);
+                setGeneratedPassword(true);
               }}
               disabled={loading}
               className="text-xs text-brand-600 hover:text-brand-700 font-medium disabled:opacity-50"
@@ -141,29 +142,23 @@ export default function InviteMemberModal({ isOpen, onClose, onSuccess, showAgen
               Generate
             </button>
           </div>
-          <div className="relative">
-            <input
-              type={showPassword ? 'text' : 'password'}
+          {generatedPassword ? (
+            <TextInput
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={(v) => { setPassword(v); if (!v) setGeneratedPassword(false); }}
               placeholder="Min 6 characters"
               disabled={loading}
-              className={`w-full px-3 py-2 pr-10 text-sm border rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-offset-0 ${
-                errors.password
-                  ? 'border-red-300 focus:ring-red-500/20 focus:border-red-500'
-                  : 'border-zinc-300 focus:ring-brand-500/20 focus:border-brand-500'
-              } disabled:opacity-50`}
+              error={errors.password}
             />
-            <button
-              type="button"
-              onClick={() => setShowPassword(!showPassword)}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600"
-              tabIndex={-1}
-            >
-              {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-            </button>
-          </div>
-          {errors.password && <p className="mt-1 text-xs text-red-600">{errors.password}</p>}
+          ) : (
+            <PasswordInput
+              value={password}
+              onChange={setPassword}
+              placeholder="Min 6 characters"
+              disabled={loading}
+              error={errors.password}
+            />
+          )}
         </div>
 
         <Select

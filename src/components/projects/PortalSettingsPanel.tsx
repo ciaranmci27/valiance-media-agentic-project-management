@@ -10,6 +10,8 @@ import { useApp } from '@/lib/store';
 import { DEFAULT_SECTION_ORDER, PORTAL_SECTION_LABELS, type PortalSectionKey } from '@/lib/types';
 import { useDemo } from '@/lib/demo-context';
 import { toast } from '@/components/ui/Toast';
+import { TextInput } from '@/components/ui/inputs/TextInput';
+import { Textarea } from '@/components/ui/inputs/Textarea';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { AvatarCropModal } from '@/components/ui/AvatarCropModal';
@@ -209,14 +211,9 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
       <div
         className={`px-5 py-4 flex items-center justify-between flex-shrink-0 ${isEnabled ? 'border-b border-zinc-100' : ''}`}
       >
-        <div className="flex items-center gap-2.5">
-          <div className="p-1.5 bg-brand-50 rounded-md">
-            <Globe size={16} className="text-brand-600" />
-          </div>
-          <div>
-            <h3 className="text-sm font-semibold text-zinc-900">Client Portal</h3>
-            <p className="text-xs text-zinc-500">Share project progress with your client</p>
-          </div>
+        <div className="flex items-center gap-2">
+          <Globe size={18} className="text-zinc-500" />
+          <h2 className="font-semibold text-zinc-900">Client Portal</h2>
         </div>
         <button
           onClick={handleToggleEnabled}
@@ -362,15 +359,16 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
                   }}
                   className="w-[38px] h-[38px] rounded-lg border border-zinc-200 cursor-pointer p-0.5 flex-shrink-0"
                 />
-                <input
-                  type="text"
-                  value={localAccentColor}
-                  onChange={e => {
-                    setLocalAccentColor(e.target.value);
-                    debouncedSettingChange('accent_color', e.target.value);
-                  }}
-                  className="w-24 px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 transition-all"
-                />
+                <div className="w-24">
+                  <TextInput
+                    value={localAccentColor}
+                    onChange={v => {
+                      setLocalAccentColor(v);
+                      debouncedSettingChange('accent_color', v);
+                    }}
+                    size="sm"
+                  />
+                </div>
                 <div className="h-5 w-px bg-zinc-200 flex-shrink-0" />
                 {pinConfirmed ? (
                   <div className="flex items-center gap-2">
@@ -426,19 +424,17 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
           </div>
 
           {/* Welcome Message */}
-          <div className="space-y-1.5">
-            <label className="block text-sm font-medium text-zinc-700">Welcome Message</label>
-            <textarea
-              value={localWelcomeMessage}
-              onChange={e => {
-                setLocalWelcomeMessage(e.target.value);
-                debouncedSettingChange('welcome_message', e.target.value);
-              }}
-              placeholder="Welcome to your project portal! Here you can track progress and download shared files."
-              rows={3}
-              className="w-full px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 transition-all placeholder:text-zinc-400 resize-none"
-            />
-          </div>
+          <Textarea
+            label="Welcome Message"
+            value={localWelcomeMessage}
+            onChange={v => {
+              setLocalWelcomeMessage(v);
+              debouncedSettingChange('welcome_message', v);
+            }}
+            placeholder="Welcome to your project portal! Here you can track progress and download shared files."
+            rows={3}
+            size="sm"
+          />
 
           {/* Visibility Toggles (drag to reorder) */}
           <div className="space-y-2">

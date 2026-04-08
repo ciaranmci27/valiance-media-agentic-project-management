@@ -3,9 +3,11 @@
 import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
-import { Loader2, Eye, EyeOff } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { Logo } from '@/components/ui/Logo';
 import { siteConfig } from '@/site-config';
+import { TextInput } from '@/components/ui/inputs/TextInput';
+import { PasswordInput } from '@/components/ui/inputs/PasswordInput';
 
 const ENV_DEMO = process.env.NEXT_PUBLIC_DEMO_MODE === 'true';
 
@@ -14,7 +16,6 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
   const router = useRouter();
   const supabase = createClient();
 
@@ -63,38 +64,23 @@ export default function LoginPage() {
           </div>
         )}
 
-        <div className="space-y-1.5">
-          <label className="block text-sm font-medium text-zinc-700">Email</label>
-          <input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="you@example.com"
-            required
-            className="w-full px-3 py-2.5 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 transition-all"
-          />
-        </div>
+        <TextInput
+          label="Email"
+          type="email"
+          value={email}
+          onChange={setEmail}
+          placeholder="you@example.com"
+          required
+        />
 
-        <div className="space-y-1.5">
-          <label className="block text-sm font-medium text-zinc-700">Password</label>
-          <div className="relative">
-            <input
-              type={showPassword ? 'text' : 'password'}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Your password"
-              required
-              className="w-full px-3 py-2.5 pr-10 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 transition-all"
-            />
-            <button
-              type="button"
-              onClick={() => setShowPassword(!showPassword)}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 transition-colors"
-            >
-              {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-            </button>
-          </div>
-        </div>
+        <PasswordInput
+          label="Password"
+          value={password}
+          onChange={setPassword}
+          placeholder="Your password"
+          required
+          showIcon={false}
+        />
 
         <button
           type="submit"

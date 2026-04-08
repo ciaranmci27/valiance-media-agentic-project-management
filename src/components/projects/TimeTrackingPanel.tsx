@@ -9,6 +9,10 @@ import { Avatar, AvatarGroup } from '@/components/ui/Avatar';
 import { Select } from '@/components/ui/Select';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Tooltip } from '@/components/ui/Tooltip';
+import { TextInput } from '@/components/ui/inputs/TextInput';
+import { TimeInput } from '@/components/ui/inputs/TimeInput';
+import { DateInput } from '@/components/ui/inputs/DateInput';
+import { NumberInput } from '@/components/ui/inputs/NumberInput';
 import { TimeEntry } from '@/lib/types';
 import { siteConfig } from '@/site-config';
 import { toLocalTimeString, toLocalDateString } from '@/lib/date-utils';
@@ -16,6 +20,7 @@ import { toLocalTimeString, toLocalDateString } from '@/lib/date-utils';
 /* ── Types ── */
 
 type TrackingMode = 'timer' | 'manual';
+type ManualEntryMode = 'range' | 'duration';
 
 interface TimeTrackingPanelProps {
   projectId: string;
@@ -104,6 +109,12 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
       return;
     }
     const next: TrackingMode = mode === 'manual' ? 'timer' : 'manual';
+    // Carry description across modes
+    if (mode === 'manual' && manualDescription) {
+      setTimerDescription(manualDescription);
+    } else if (mode === 'timer' && timerDescription) {
+      setManualDescription(timerDescription);
+    }
     setMode(next);
     localStorage.setItem(getStorageKey(projectId), next);
   };
@@ -130,12 +141,17 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
   // ── Timer form state ──
   const [timerMemberId, setTimerMemberId] = useState('');
   const [timerDescription, setTimerDescription] = useState('');
+  const [adjustingStart, setAdjustingStart] = useState(false);
+  const [adjustStartTime, setAdjustStartTime] = useState('');
   const descDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Manual entry form state ──
+  const [manualEntryMode, setManualEntryMode] = useState<ManualEntryMode>('range');
   const [manualDate, setManualDate] = useState(toLocalDateString(tz));
   const [manualStartTime, setManualStartTime] = useState('');
   const [manualEndTime, setManualEndTime] = useState('');
+  const [manualDurationHours, setManualDurationHours] = useState<number | ''>('');
+  const [manualDurationMinutes, setManualDurationMinutes] = useState<number | ''>('');
   const [manualMemberId, setManualMemberId] = useState('');
   const [manualDescription, setManualDescription] = useState('');
 
@@ -199,8 +215,21 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
     toast('success', 'Timer started');
   };
 
+  const handleAdjustStart = () => {
+    if (!runningTimer || !adjustStartTime) return;
+    const dateKey = getDateKey(runningTimer.start_time, tz);
+    const adjusted = new Date(`${dateKey}T${adjustStartTime}`);
+    if (adjusted.getTime() > Date.now()) {
+      toast('error', 'Start time cannot be in the future');
+      return;
+    }
+    updateTimeEntry(runningTimer.id, { start_time: adjusted.toISOString() });
+    setAdjustingStart(false);
+    setAdjustStartTime('');
+    toast('success', 'Start time adjusted');
+  };
+
   const handleStopTimer = () => {
-    // Flush any pending debounced description save
     if (descDebounceRef.current) {
       clearTimeout(descDebounceRef.current);
       descDebounceRef.current = null;
@@ -216,27 +245,41 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
   const handleManualAdd = (e: React.FormEvent) => {
     e.preventDefault();
     if (!manualMemberId) { toast('error', 'Please select a team member'); return; }
+    if (!manualStartTime) { toast('error', 'Please select a start time'); return; }
+
     const start = new Date(`${manualDate}T${manualStartTime}`);
-    const end = new Date(`${manualDate}T${manualEndTime}`);
-    // If end time is earlier than start time, the shift crosses midnight; bump end to next day
-    if (end < start) {
-      end.setDate(end.getDate() + 1);
-    } else if (end.getTime() === start.getTime()) {
-      toast('error', 'End time must be after start time'); return;
+    let end: Date;
+
+    if (manualEntryMode === 'duration') {
+      const hrs = typeof manualDurationHours === 'number' ? manualDurationHours : 0;
+      const mins = typeof manualDurationMinutes === 'number' ? manualDurationMinutes : 0;
+      if (hrs === 0 && mins === 0) {
+        toast('error', 'Please enter a duration'); return;
+      }
+      end = new Date(start.getTime() + (hrs * 3_600_000) + (mins * 60_000));
+    } else {
+      if (!manualEndTime) { toast('error', 'Please select an end time'); return; }
+      end = new Date(`${manualDate}T${manualEndTime}`);
+      if (end < start) {
+        end.setDate(end.getDate() + 1);
+      } else if (end.getTime() === start.getTime()) {
+        toast('error', 'End time must be after start time'); return;
+      }
     }
-    const startISO = start.toISOString();
-    const endISO = end.toISOString();
+
     addTimeEntry({
       project_id: projectId,
       member_id: manualMemberId,
-      start_time: startISO,
-      end_time: endISO,
+      start_time: start.toISOString(),
+      end_time: end.toISOString(),
       description: manualDescription,
     });
     toast('success', 'Time entry added');
     setManualDescription('');
     setManualStartTime('');
     setManualEndTime('');
+    setManualDurationHours('');
+    setManualDurationMinutes('');
     setManualDate(toLocalDateString(tz));
   };
 
@@ -257,17 +300,14 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
     if (!editingId || !editState) return;
     const start = new Date(`${editState.date}T${editState.startTime}`);
     const end = new Date(`${editState.date}T${editState.endTime}`);
-    // If end time is earlier than start time, the shift crosses midnight; bump end to next day
     if (end < start) {
       end.setDate(end.getDate() + 1);
     } else if (end.getTime() === start.getTime()) {
       toast('error', 'End time must be after start time'); return;
     }
-    const startISO = start.toISOString();
-    const endISO = end.toISOString();
     updateTimeEntry(editingId, {
-      start_time: startISO,
-      end_time: endISO,
+      start_time: start.toISOString(),
+      end_time: end.toISOString(),
       description: editState.description,
       member_id: editState.memberId,
     });
@@ -279,7 +319,6 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
     if (deleteTarget) { deleteTimeEntry(deleteTarget); toast('success', 'Time entry removed'); }
   };
 
-  const inputClass = 'px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 transition-all';
   const dateGroups = Object.entries(groupedByDate);
 
   /* ================================================================
@@ -288,96 +327,145 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
   return (
     <div className="bg-white rounded-xl border border-zinc-200 flex flex-col max-h-[600px]">
       {/* ── Header ── */}
-      <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-200 flex-shrink-0">
-        <div className="flex items-center gap-2">
-          <Clock size={18} className="text-zinc-500" />
-          <h2 className="font-semibold text-zinc-900">Time Tracking</h2>
+      <div className="flex items-center justify-between gap-2 px-5 py-3 border-b border-zinc-200 flex-shrink-0">
+        <div className="flex items-center gap-2 min-w-0">
+          <Clock size={18} className="text-zinc-500 flex-shrink-0" />
+          <h2 className="font-semibold text-zinc-900 truncate">Time Tracking</h2>
         </div>
-        <button
-          onClick={toggleMode}
-          className="text-xs text-zinc-500 hover:text-zinc-700 transition-colors flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg hover:bg-zinc-100"
-        >
-          {mode === 'manual' ? (
-            <>
-              <Timer size={13} />
-              Switch to Live Timer
-            </>
-          ) : (
-            <>
-              <Clock size={13} />
-              Switch to Manual Entry
-            </>
-          )}
-        </button>
+        <div className="flex items-center gap-0.5 bg-zinc-100 rounded-lg p-0.5">
+          <button
+            onClick={() => { if (mode !== 'manual') toggleMode(); }}
+            className={`text-xs font-medium px-2.5 py-1 rounded-md transition-all duration-150 flex items-center gap-1.5 ${
+              mode === 'manual'
+                ? 'bg-white text-zinc-900 shadow-sm'
+                : 'text-zinc-500 hover:text-zinc-700'
+            }`}
+          >
+            <Clock size={12} />
+            Manual
+          </button>
+          <button
+            onClick={() => { if (mode !== 'timer') toggleMode(); }}
+            className={`text-xs font-medium px-2.5 py-1 rounded-md transition-all duration-150 flex items-center gap-1.5 ${
+              mode === 'timer'
+                ? 'bg-white text-zinc-900 shadow-sm'
+                : 'text-zinc-500 hover:text-zinc-700'
+            }`}
+          >
+            <Timer size={12} />
+            Timer
+          </button>
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto">
-      {/* ═══════════════════════════════════════════════════════
-           STATS ROW
-         ═══════════════════════════════════════════════════════ */}
-          {completedEntries.length > 0 && (
-            <div className="px-5 pt-4 pb-2 flex items-center gap-6">
-              <div>
-                <p className="text-xs text-zinc-500 font-medium mb-0.5">Total Hours</p>
-                <p className="text-2xl font-bold tabular-nums" style={{ color: projectColor }}>
-                  {totalHours.toFixed(1)}
-                </p>
-              </div>
-              <div>
-                <p className="text-xs text-zinc-500 font-medium mb-0.5">This Week</p>
-                <p className="text-2xl font-bold tabular-nums text-zinc-900">
-                  {thisWeekHours.toFixed(1)}
-                </p>
-              </div>
-              {uniqueMembers.length > 0 && (
-                <div>
-                  <p className="text-xs text-zinc-500 font-medium mb-1">Contributors</p>
-                  <AvatarGroup
-                    users={uniqueMembers.map(m => ({ id: m.id, name: m.name, avatar: m.avatar }))}
-                    max={3}
-                    size="xs"
-                  />
-                </div>
-              )}
+        {/* ═══════════════════════════════════════════════════════
+             STATS ROW
+           ═══════════════════════════════════════════════════════ */}
+        {completedEntries.length > 0 && (
+          <div className="px-5 pt-4 pb-2 flex items-end gap-6">
+            <div>
+              <p className="text-xs text-zinc-500 font-medium mb-0.5">Total Hours</p>
+              <p className="text-2xl font-bold tabular-nums leading-none" style={{ color: projectColor }}>
+                {totalHours.toFixed(1)}
+              </p>
             </div>
-          )}
+            <div>
+              <p className="text-xs text-zinc-500 font-medium mb-0.5">This Week</p>
+              <p className="text-2xl font-bold tabular-nums leading-none text-zinc-900">
+                {thisWeekHours.toFixed(1)}
+              </p>
+            </div>
+            {uniqueMembers.length > 0 && (
+              <div>
+                <p className="text-xs text-zinc-500 font-medium mb-1.5">Contributors</p>
+                <AvatarGroup
+                  users={uniqueMembers.map(m => ({ id: m.id, name: m.name, avatar: m.avatar }))}
+                  max={3}
+                  size="xs"
+                />
+              </div>
+            )}
+          </div>
+        )}
 
-          {/* ═══════════════════════════════════════════════════════
-               LIVE TIMER MODE
-             ═══════════════════════════════════════════════════════ */}
-          {mode === 'timer' && (
-            <div className="px-5 py-4 border-b border-zinc-100">
-              {runningTimer ? (
-                <div className="space-y-3">
-                  <div className="flex items-center gap-3">
-                    <div className="relative flex items-center justify-center">
-                      <span
-                        className="absolute w-3 h-3 rounded-full animate-ping opacity-50"
-                        style={{ backgroundColor: projectColor }}
-                      />
-                      <span
-                        className="relative w-3 h-3 rounded-full"
-                        style={{ backgroundColor: projectColor }}
-                      />
-                    </div>
+        {/* ═══════════════════════════════════════════════════════
+             LIVE TIMER MODE
+           ═══════════════════════════════════════════════════════ */}
+        {mode === 'timer' && (
+          <div className="mx-4 mt-3 mb-2">
+            {runningTimer ? (
+              <div
+                className="rounded-xl border p-4 space-y-3"
+                style={{ borderColor: projectColor + '30', backgroundColor: projectColor + '06' }}
+              >
+                {/* Top row: avatar, info, elapsed badge */}
+                <div className="flex items-center gap-3">
+                  <div className="flex-shrink-0 relative">
+                    <Avatar name={getMember(runningTimer.member_id)?.name || '?'} src={getMember(runningTimer.member_id)?.avatar} size="md" />
                     <span
-                      className="text-3xl font-bold tabular-nums tracking-tight"
-                      style={{ color: projectColor }}
-                    >
-                      {formatElapsed(elapsed)}
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs text-zinc-400 truncate">
-                        {getMember(runningTimer.member_id)?.name} &middot; Started {formatTime(runningTimer.start_time, tz)}
-                      </p>
-                    </div>
+                      className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ring-2 ring-white animate-pulse"
+                      style={{ backgroundColor: projectColor }}
+                    />
                   </div>
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-zinc-800 truncate">
+                      {getMember(runningTimer.member_id)?.name}
+                    </p>
+                    {adjustingStart ? (
+                      <div className="flex items-center gap-1.5 mt-1">
+                        <div className="w-[120px]">
+                          <TimeInput
+                            size="sm"
+                            value={adjustStartTime}
+                            onChange={setAdjustStartTime}
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleAdjustStart}
+                          className="p-1 text-emerald-600 hover:bg-emerald-50 rounded transition-colors flex-shrink-0"
+                        >
+                          <Check size={13} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { setAdjustingStart(false); setAdjustStartTime(''); }}
+                          className="p-1 text-zinc-400 hover:bg-zinc-100 rounded transition-colors flex-shrink-0"
+                        >
+                          <X size={13} />
+                        </button>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-zinc-400 flex items-center gap-1 mt-0.5">
+                        Started {formatTime(runningTimer.start_time, tz)}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAdjustingStart(true);
+                            setAdjustStartTime(toLocalTimeString(runningTimer.start_time, tz));
+                          }}
+                          className="text-zinc-300 hover:text-zinc-500 transition-colors flex-shrink-0"
+                        >
+                          <Pencil size={11} />
+                        </button>
+                      </p>
+                    )}
+                  </div>
+                  <span
+                    className="text-lg font-bold tabular-nums tracking-tight flex-shrink-0"
+                    style={{ color: projectColor }}
+                  >
+                    {formatElapsed(elapsed)}
+                  </span>
+                </div>
+
+                {/* Description + stop */}
+                <div className="flex gap-2">
+                  <div className="flex-1">
+                    <TextInput
                       value={timerDescription}
-                      onChange={e => {
-                        const val = e.target.value;
+                      onChange={val => {
                         setTimerDescription(val);
                         if (descDebounceRef.current) clearTimeout(descDebounceRef.current);
                         descDebounceRef.current = setTimeout(() => {
@@ -385,218 +473,222 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                         }, 500);
                       }}
                       placeholder="What are you working on?"
-                      className={`${inputClass} flex-1`}
                     />
-                    <button
-                      onClick={handleStopTimer}
-                      className="px-4 h-[38px] rounded-lg text-white font-medium text-sm transition-colors flex items-center gap-2 flex-shrink-0 bg-red-500 hover:bg-red-600"
-                    >
-                      <Square size={14} />
-                      Stop
-                    </button>
                   </div>
+                  <button
+                    onClick={handleStopTimer}
+                    className="px-4 py-2 rounded-lg text-white font-medium text-sm transition-all flex items-center gap-1.5 flex-shrink-0 bg-red-500 hover:bg-red-600 active:scale-[0.97]"
+                  >
+                    <Square size={12} />
+                    Stop
+                  </button>
                 </div>
-              ) : (
-                <div className="space-y-2">
-                  <div className="flex flex-wrap gap-2 items-center">
-                    <div className="flex-1 min-w-[140px]">
-                      <Select
-                        value={timerMemberId || teamMemberId || ''}
-                        onChange={setTimerMemberId}
-                        options={memberOptions.map(m => ({ value: m.id, label: m.name }))}
-                        placeholder="Select member"
-                      />
-                    </div>
-                    <button
-                      onClick={handleStartTimer}
-                      className="px-4 h-[38px] rounded-lg text-white font-medium text-sm transition-colors flex items-center gap-2 flex-shrink-0 bg-brand-600 hover:bg-brand-700"
-                    >
-                      <Play size={14} />
-                      Start Timer
-                    </button>
-                  </div>
-                  <input
-                    type="text"
-                    value={timerDescription}
-                    onChange={e => setTimerDescription(e.target.value)}
-                    placeholder="What are you working on?"
-                    className={`${inputClass} w-full`}
-                  />
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Running entry (pinned card, timer mode only) */}
-          {mode === 'timer' && runningTimer && (
-            <div className="px-5 py-3">
-              <div
-                className="flex items-center gap-3 py-2.5 px-3 rounded-lg border"
-                style={{ borderColor: projectColor + '40', backgroundColor: projectColor + '08' }}
-              >
-                <div className="flex-shrink-0">
-                  <Avatar name={getMember(runningTimer.member_id)?.name || '?'} src={getMember(runningTimer.member_id)?.avatar} size="sm" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm text-zinc-700 truncate">
-                    {runningTimer.description || <span className="text-zinc-400 italic">No description</span>}
-                  </p>
-                  <p className="text-xs text-zinc-400">
-                    {getMember(runningTimer.member_id)?.name} &middot; Started {formatTime(runningTimer.start_time, tz)}
-                  </p>
-                </div>
-                <span
-                  className="text-sm font-semibold tabular-nums flex-shrink-0 px-2 py-0.5 rounded-md animate-pulse"
-                  style={{ color: projectColor, backgroundColor: projectColor + '14' }}
-                >
-                  {formatElapsed(elapsed)}
-                </span>
               </div>
-            </div>
-          )}
+            ) : (
+              <div className="rounded-xl bg-zinc-50/80 border border-zinc-100 p-4 space-y-3">
+                <div className="flex gap-2">
+                  <div className="flex-1 min-w-[140px]">
+                    <Select
+                      value={timerMemberId || teamMemberId || ''}
+                      onChange={setTimerMemberId}
+                      options={memberOptions.map(m => ({ value: m.id, label: m.name, icon: <Avatar name={m.name} src={m.avatar} size="xs" /> }))}
+                      placeholder="Select member"
+                    />
+                  </div>
+                  <button
+                    onClick={handleStartTimer}
+                    className="px-5 h-[38px] rounded-lg text-white font-medium text-sm transition-all flex items-center gap-2 flex-shrink-0 bg-brand-600 hover:bg-brand-700 active:scale-[0.97]"
+                  >
+                    <Play size={14} />
+                    Start
+                  </button>
+                </div>
+                <TextInput
+                  value={timerDescription}
+                  onChange={setTimerDescription}
+                  placeholder="What are you working on?"
+                />
+              </div>
+            )}
+          </div>
+        )}
 
-          {/* ═══════════════════════════════════════════════════════
-               MANUAL ENTRY MODE
-             ═══════════════════════════════════════════════════════ */}
-          {mode === 'manual' && (
-            <form onSubmit={handleManualAdd} className="px-5 py-4 border-b border-zinc-100 space-y-2">
-              {/* Row 1: Date + Member (mobile), Date + Start + End + Member (desktop) */}
-              <div className="flex gap-2 items-center">
-                <input
-                  type="date"
+        {/* ═══════════════════════════════════════════════════════
+             MANUAL ENTRY MODE
+           ═══════════════════════════════════════════════════════ */}
+        {mode === 'manual' && (
+          <form onSubmit={handleManualAdd} className="mx-4 mt-3 mb-2 rounded-xl bg-zinc-50/80 border border-zinc-100 p-4 space-y-3">
+            {/* Grid: Date + Member */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
+              <div className="md:col-span-2">
+                <DateInput
                   value={manualDate}
-                  onChange={e => setManualDate(e.target.value)}
-                  className={`${inputClass} w-1/2 sm:w-1/4`}
-                  required
+                  onChange={setManualDate}
+                  placeholder="Date"
                 />
-                <div className="w-1/2 sm:hidden">
-                  <Select
-                    value={manualMemberId}
-                    onChange={setManualMemberId}
-                    options={memberOptions.map(m => ({ value: m.id, label: m.name }))}
-                    placeholder="Select member"
-                  />
-                </div>
-                <div className="hidden sm:flex items-center gap-1.5 w-1/4">
-                  <input
-                    type="time"
+              </div>
+              <div className="md:col-span-2">
+                <Select
+                  value={manualMemberId}
+                  onChange={setManualMemberId}
+                  options={memberOptions.map(m => ({ value: m.id, label: m.name, icon: <Avatar name={m.name} src={m.avatar} size="xs" /> }))}
+                  placeholder="Team member"
+                />
+              </div>
+            </div>
+
+            {/* Time mode tabs + fields */}
+            <div className="flex items-center gap-3 mb-3">
+              <button
+                type="button"
+                onClick={() => setManualEntryMode('range')}
+                className={`text-xs font-medium pb-0.5 border-b transition-colors ${
+                  manualEntryMode === 'range'
+                    ? 'text-brand-600 border-brand-500'
+                    : 'text-zinc-400 border-transparent hover:text-zinc-600'
+                }`}
+              >
+                Time Range
+              </button>
+              <button
+                type="button"
+                onClick={() => setManualEntryMode('duration')}
+                className={`text-xs font-medium pb-0.5 border-b transition-colors ${
+                  manualEntryMode === 'duration'
+                    ? 'text-brand-600 border-brand-500'
+                    : 'text-zinc-400 border-transparent hover:text-zinc-600'
+                }`}
+              >
+                Duration
+              </button>
+            </div>
+            {manualEntryMode === 'duration' ? (
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
+                <div className="md:col-span-2">
+                  <TimeInput
                     value={manualStartTime}
-                    onChange={e => setManualStartTime(e.target.value)}
-                    className={`${inputClass} w-full`}
-                    required
+                    onChange={setManualStartTime}
+                    placeholder="Start time"
                   />
                 </div>
-                <div className="hidden sm:flex items-center gap-1.5 w-1/4">
-                  <input
-                    type="time"
+                <div className="grid grid-cols-2 md:contents gap-2">
+                  <NumberInput
+                    value={manualDurationHours}
+                    onChange={setManualDurationHours}
+                    min={0}
+                    max={23}
+                    placeholder="0"
+                    suffix="hr"
+                    showButtons={false}
+                  />
+                  <NumberInput
+                    value={manualDurationMinutes}
+                    onChange={setManualDurationMinutes}
+                    min={0}
+                    max={59}
+                    step={5}
+                    placeholder="0"
+                    suffix="min"
+                    showButtons={false}
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
+                <div className="md:col-span-2">
+                  <TimeInput
+                    value={manualStartTime}
+                    onChange={setManualStartTime}
+                    placeholder="Start time"
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <TimeInput
                     value={manualEndTime}
-                    onChange={e => setManualEndTime(e.target.value)}
-                    className={`${inputClass} w-full`}
-                    required
-                  />
-                </div>
-                <div className="hidden sm:block w-1/4">
-                  <Select
-                    value={manualMemberId}
-                    onChange={setManualMemberId}
-                    options={memberOptions.map(m => ({ value: m.id, label: m.name }))}
-                    placeholder="Select member"
+                    onChange={setManualEndTime}
+                    placeholder="End time"
                   />
                 </div>
               </div>
-              {/* Row 2 (mobile only): Start + End */}
-              <div className="flex gap-2 items-center sm:hidden">
-                <input
-                  type="time"
-                  value={manualStartTime}
-                  onChange={e => setManualStartTime(e.target.value)}
-                  className={`${inputClass} w-1/2`}
-                  placeholder="Start"
-                  required
-                />
-                <input
-                  type="time"
-                  value={manualEndTime}
-                  onChange={e => setManualEndTime(e.target.value)}
-                  className={`${inputClass} w-1/2`}
-                  placeholder="End"
-                  required
-                />
-              </div>
-              {/* Row 3 (mobile) / Row 2 (desktop): Description + Add */}
-              <div className="flex gap-2 items-center">
-                <input
-                  type="text"
+            )}
+
+            {/* Description + submit */}
+            <div className="flex gap-2">
+              <div className="flex-1">
+                <TextInput
                   value={manualDescription}
-                  onChange={e => setManualDescription(e.target.value)}
+                  onChange={setManualDescription}
                   placeholder="What did you work on?"
-                  className={`${inputClass} flex-1`}
                 />
-                <button
-                  type="submit"
-                  className="px-2.5 h-[38px] rounded-lg text-white transition-colors flex-shrink-0 flex items-center justify-center bg-brand-600 hover:bg-brand-700"
-                >
-                  <Plus size={18} />
-                </button>
               </div>
-            </form>
-          )}
+              <button
+                type="submit"
+                className="w-[38px] h-[38px] rounded-lg text-white transition-all flex-shrink-0 flex items-center justify-center bg-brand-600 hover:bg-brand-700 active:scale-95"
+              >
+                <Plus size={18} strokeWidth={2.5} />
+              </button>
+            </div>
+          </form>
+        )}
 
-          {/* ═══════════════════════════════════════════════════════
-               ENTRY LIST (shared between modes)
-             ═══════════════════════════════════════════════════════ */}
-          {dateGroups.length > 0 ? (
-            <div className="p-5 pt-3 space-y-4">
-              {dateGroups.map(([date, dateEntries]) => (
-                <div key={date}>
-                  <p className="text-xs uppercase tracking-wide font-medium text-zinc-400 mb-2">
-                    {formatDateHeader(date)}
-                  </p>
-                  <div className="divide-y divide-zinc-100">
-                    {dateEntries.map(entry => {
-                      const member = getMember(entry.member_id);
-                      const isEditing = editingId === entry.id;
-                      const hours = computeHours(entry);
+        {/* ═══════════════════════════════════════════════════════
+             ENTRY LIST (shared between modes)
+           ═══════════════════════════════════════════════════════ */}
+        {dateGroups.length > 0 ? (
+          <div className="p-5 pt-3 space-y-4">
+            {dateGroups.map(([date, dateEntries]) => (
+              <div key={date}>
+                <p className="text-xs uppercase tracking-wide font-medium text-zinc-400 mb-2">
+                  {formatDateHeader(date)}
+                </p>
+                <div className="divide-y divide-zinc-100">
+                  {dateEntries.map(entry => {
+                    const member = getMember(entry.member_id);
+                    const isEditing = editingId === entry.id;
+                    const hours = computeHours(entry);
 
-                      if (isEditing && editState) {
-                        return (
-                          <div key={entry.id} className="flex flex-wrap items-center gap-2 py-2">
-                            <input
-                              type="date"
+                    if (isEditing && editState) {
+                      return (
+                        <div key={entry.id} className="py-3 space-y-2 rounded-lg bg-zinc-50 -mx-1 px-3 border border-zinc-100">
+                          <div className="grid grid-cols-[1fr_1fr_auto_1fr] gap-2 items-center pt-1">
+                            <DateInput
+                              size="sm"
                               value={editState.date}
-                              onChange={e => setEditState({ ...editState, date: e.target.value })}
-                              className={`${inputClass} w-full sm:w-auto text-xs`}
+                              onChange={v => setEditState({ ...editState, date: v })}
                             />
-                            <div className="flex items-center gap-1">
-                              <input
-                                type="time"
-                                value={editState.startTime}
-                                onChange={e => setEditState({ ...editState, startTime: e.target.value })}
-                                className={`${inputClass} w-[100px] text-xs`}
-                              />
-                              <span className="text-xs text-zinc-400">to</span>
-                              <input
-                                type="time"
-                                value={editState.endTime}
-                                onChange={e => setEditState({ ...editState, endTime: e.target.value })}
-                                className={`${inputClass} w-[100px] text-xs`}
+                            <TimeInput
+                              size="sm"
+                              value={editState.startTime}
+                              onChange={v => setEditState({ ...editState, startTime: v })}
+                              placeholder="Start"
+                            />
+                            <span className="text-xs text-zinc-300 font-medium select-none">to</span>
+                            <TimeInput
+                              size="sm"
+                              value={editState.endTime}
+                              onChange={v => setEditState({ ...editState, endTime: v })}
+                              placeholder="End"
+                            />
+                          </div>
+                          <div className="flex gap-2 items-center pb-1">
+                            <div className="flex-1">
+                              <TextInput
+                                size="sm"
+                                value={editState.description}
+                                onChange={v => setEditState({ ...editState, description: v })}
+                                placeholder="Description"
                               />
                             </div>
-                            <input
-                              type="text"
-                              value={editState.description}
-                              onChange={e => setEditState({ ...editState, description: e.target.value })}
-                              className={`${inputClass} flex-1 min-w-[100px] text-xs`}
-                            />
-                            <div className="w-full sm:w-auto sm:min-w-[140px]">
+                            <div className="min-w-[130px]">
                               <Select
                                 value={editState.memberId}
                                 onChange={v => setEditState({ ...editState, memberId: v })}
-                                options={memberOptions.map(m => ({ value: m.id, label: m.name }))}
-                                placeholder="Select member"
+                                options={memberOptions.map(m => ({ value: m.id, label: m.name, icon: <Avatar name={m.name} src={m.avatar} size="xs" /> }))}
+                                placeholder="Member"
+                                size="sm"
                               />
                             </div>
-                            <div className="flex items-center gap-1">
+                            <div className="flex items-center gap-0.5">
                               <button
                                 onClick={saveEdit}
                                 className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-md transition-colors"
@@ -611,64 +703,65 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                               </button>
                             </div>
                           </div>
-                        );
-                      }
-
-                      return (
-                        <div key={entry.id} className="flex items-center gap-3 py-2 group">
-                          <div className="flex-shrink-0">
-                            <Avatar name={member?.name || '?'} src={member?.avatar} size="sm" />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm text-zinc-700 truncate">
-                              {entry.description || <span className="text-zinc-400 italic">No description</span>}
-                            </p>
-                            <p className="text-xs text-zinc-400">
-                              {member?.name} &middot; {formatTime(entry.start_time, tz)} – {entry.end_time ? formatTime(entry.end_time, tz) : '...'}{' '}
-                              <span
-                                className="font-semibold tabular-nums px-1.5 py-0.5 rounded-md"
-                                style={{ color: projectColor, backgroundColor: projectColor + '14' }}
-                              >
-                                {formatHM(hours)}
-                              </span>
-                            </p>
-                          </div>
-                          <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <Tooltip content="Edit">
-                              <button
-                                onClick={() => startEdit(entry)}
-                                className="p-1.5 text-zinc-300 hover:text-brand-600 transition-colors"
-                              >
-                                <Pencil size={13} />
-                              </button>
-                            </Tooltip>
-                            <Tooltip content="Delete">
-                              <button
-                                onClick={() => setDeleteTarget(entry.id)}
-                                className="p-1.5 text-zinc-300 hover:text-red-500 transition-colors"
-                              >
-                                <Trash2 size={13} />
-                              </button>
-                            </Tooltip>
-                          </div>
                         </div>
                       );
-                    })}
-                  </div>
+                    }
+
+                    return (
+                      <div key={entry.id} className="flex items-center gap-3 py-2 group">
+                        <div className="flex-shrink-0">
+                          <Avatar name={member?.name || '?'} src={member?.avatar} size="sm" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-zinc-700 truncate">
+                            {entry.description || <span className="text-zinc-400 italic">No description</span>}
+                          </p>
+                          <p className="text-xs text-zinc-400">
+                            {member?.name} &middot; {formatTime(entry.start_time, tz)} – {entry.end_time ? formatTime(entry.end_time, tz) : '...'}{' '}
+                            <span
+                              className="font-semibold tabular-nums px-1.5 py-0.5 rounded-md"
+                              style={{ color: projectColor, backgroundColor: projectColor + '14' }}
+                            >
+                              {formatHM(hours)}
+                            </span>
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <Tooltip content="Edit">
+                            <button
+                              onClick={() => startEdit(entry)}
+                              className="p-1.5 text-zinc-300 hover:text-brand-600 transition-colors"
+                            >
+                              <Pencil size={13} />
+                            </button>
+                          </Tooltip>
+                          <Tooltip content="Delete">
+                            <button
+                              onClick={() => setDeleteTarget(entry.id)}
+                              className="p-1.5 text-zinc-300 hover:text-red-500 transition-colors"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </Tooltip>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
-              ))}
-            </div>
-          ) : !runningTimer ? (
-            <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
-              <div className="w-10 h-10 rounded-full bg-zinc-100 flex items-center justify-center mb-3">
-                <Clock size={18} className="text-zinc-400" />
               </div>
-              <p className="text-sm font-medium text-zinc-500">No hours logged yet</p>
-              <p className="text-xs text-zinc-400 mt-1">
-                {mode === 'timer' ? 'Start a timer to begin tracking' : 'Use the form above to log your first entry'}
-              </p>
+            ))}
+          </div>
+        ) : !runningTimer ? (
+          <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
+            <div className="w-10 h-10 rounded-full bg-zinc-100 flex items-center justify-center mb-3">
+              <Clock size={18} className="text-zinc-400" />
             </div>
-          ) : null}
+            <p className="text-sm font-medium text-zinc-500">No hours logged yet</p>
+            <p className="text-xs text-zinc-400 mt-1">
+              {mode === 'timer' ? 'Start a timer to begin tracking' : 'Use the form above to log your first entry'}
+            </p>
+          </div>
+        ) : null}
       </div>
 
       <ConfirmDialog

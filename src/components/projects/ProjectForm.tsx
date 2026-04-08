@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { ContactForm } from '@/components/contacts/ContactForm';
+import { Textarea } from '@/components/ui/inputs/Textarea';
 import { siteConfig } from '@/site-config';
 
 const DEFAULT_PROJECT_COLOR = '';
@@ -199,20 +200,15 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
           />
         </div>
 
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between">
-            <label className="block text-sm font-medium text-zinc-700">Description</label>
-            <span className="text-xs text-zinc-400">{description.length}/100</span>
-          </div>
-          <textarea
-            value={description}
-            onChange={(e) => setDescription(e.target.value.slice(0, 100))}
-            placeholder="Describe the project..."
-            rows={2}
-            maxLength={100}
-            className="w-full px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 transition-all resize-none"
-          />
-        </div>
+        <Textarea
+          label="Description"
+          value={description}
+          onChange={v => setDescription(v.slice(0, 100))}
+          placeholder="Describe the project..."
+          rows={2}
+          maxLength={100}
+          showCharCount
+        />
 
         <div className="space-y-1.5" ref={contactDropdownRef}>
           <label className="block text-sm font-medium text-zinc-700">

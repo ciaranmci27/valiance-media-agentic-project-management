@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { AvatarUpload } from '@/components/ui/AvatarUpload';
 import { toast } from '@/components/ui/Toast';
+import { Textarea } from '@/components/ui/inputs/Textarea';
 import { formatPhone } from '@/lib/format-phone';
 import { siteConfig } from '@/site-config';
 
@@ -225,16 +226,13 @@ export function ContactForm({ isOpen, onClose, contact }: ContactFormProps) {
           placeholder="Company name"
         />
 
-        <div className="space-y-1.5">
-          <label className="block text-sm font-medium text-zinc-700">Notes</label>
-          <textarea
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            placeholder="Additional notes..."
-            rows={3}
-            className="w-full px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 transition-all resize-none"
-          />
-        </div>
+        <Textarea
+          label="Notes"
+          value={notes}
+          onChange={setNotes}
+          placeholder="Additional notes..."
+          rows={3}
+        />
 
         <div className="flex justify-end gap-3 pt-4">
           <Button type="button" variant="ghost" onClick={onClose}>

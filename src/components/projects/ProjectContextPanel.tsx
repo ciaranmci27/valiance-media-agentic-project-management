@@ -5,6 +5,7 @@ import { Plus, Pencil, Trash2, X, Check, ChevronDown, ChevronRight } from 'lucid
 import { createClient } from '@/lib/supabase/client';
 import { toast } from '@/components/ui/Toast';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { Textarea } from '@/components/ui/inputs/Textarea';
 import {
   ProjectContext,
   ProjectContextCategory,
@@ -206,12 +207,12 @@ export function ProjectContextPanel({ projectId }: ProjectContextPanelProps) {
                     {/* Add form for this category */}
                     {addingCategory === cat && (
                       <div className="mb-2 p-3 bg-zinc-50 rounded-lg border border-zinc-200 space-y-2">
-                        <textarea
+                        <Textarea
                           value={addContent}
-                          onChange={e => setAddContent(e.target.value)}
+                          onChange={setAddContent}
                           placeholder="Content..."
-                          className="w-full px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100 transition-all resize-none"
                           rows={2}
+                          size="sm"
                           autoFocus
                         />
                         <div className="flex justify-end gap-2">
@@ -241,11 +242,11 @@ export function ProjectContextPanel({ projectId }: ProjectContextPanelProps) {
                       <div key={entry.id} className="group mb-2">
                         {editingId === entry.id ? (
                           <div className="p-3 bg-zinc-50 rounded-lg border border-zinc-200 space-y-2">
-                            <textarea
+                            <Textarea
                               value={editContent}
-                              onChange={e => setEditContent(e.target.value)}
-                              className="w-full px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100 transition-all resize-none"
+                              onChange={setEditContent}
                               rows={2}
+                              size="sm"
                               autoFocus
                             />
                             <div className="flex justify-end gap-2">

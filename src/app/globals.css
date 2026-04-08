@@ -32,6 +32,39 @@
   --color-text-primary: #09090B;
   --color-text-secondary: #52525B;
   --color-text-muted: #A1A1AA;
+
+  /* Input design tokens */
+  --color-input-bg: #FFFFFF;
+  --color-input-bg-hover: #FAFAFA;
+  --color-input-bg-active: #F4F4F5;
+  --color-input-bg-disabled: #F4F4F5;
+  --color-input-bg-inset: #D4D4D8;
+
+  --color-input-border: #E4E4E7;
+  --color-input-border-hover: #D4D4D8;
+  --color-input-border-focus: var(--color-brand-500);
+  --color-input-border-error: #F87171;
+  --color-input-border-divider: #F4F4F5;
+
+  --color-input-text: #09090B;
+  --color-input-text-label: #3F3F46;
+  --color-input-text-placeholder: #A1A1AA;
+  --color-input-text-subtle: #71717A;
+  --color-input-text-disabled: #D4D4D8;
+
+  --color-input-accent: var(--color-brand-600);
+  --color-input-accent-fg: #FFFFFF;
+  --color-input-accent-subtle: var(--color-brand-50);
+  --color-input-accent-subtle-fg: var(--color-brand-700);
+
+  --color-input-ring: var(--color-brand-100);
+  --color-input-ring-error: #FEE2E2;
+
+  --color-input-error: #EF4444;
+  --color-input-warning: #F59E0B;
+
+  --radius-input: 0.5rem;
+  --radius-input-sm: 0.375rem;
 }
 
 * {
