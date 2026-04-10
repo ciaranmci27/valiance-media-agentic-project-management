@@ -77,6 +77,10 @@ html {
   -moz-osx-font-smoothing: grayscale;
 }
 
+html {
+  scrollbar-gutter: stable;
+}
+
 body {
   background-color: #FAFAFA;
   color: #09090B;

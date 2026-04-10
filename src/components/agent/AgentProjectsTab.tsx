@@ -110,7 +110,7 @@ export function AgentProjectsTab() {
     });
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
       {activeProjects.map((project) => {
         const goals = projectGoals.filter(g => g.project_id === project.id);
         const projectSuggestions = taskSuggestions.filter(s => s.project_id === project.id && s.status === 'pending');

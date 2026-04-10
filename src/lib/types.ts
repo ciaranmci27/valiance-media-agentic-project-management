@@ -530,7 +530,7 @@ export interface ApiAuditEntry {
 // PROJECT CONTEXT
 // ============================================================
 
-export const PROJECT_CONTEXT_CATEGORIES = ['business_context', 'existing_work', 'technical_decision', 'constraint', 'lesson_learned'] as const;
+export const PROJECT_CONTEXT_CATEGORIES = ['business_context', 'lesson_learned', 'technical_decision', 'constraint', 'existing_work'] as const;
 export type ProjectContextCategory = typeof PROJECT_CONTEXT_CATEGORIES[number];
 
 export const PROJECT_CONTEXT_SOURCES = ['human', 'agent', 'scan'] as const;

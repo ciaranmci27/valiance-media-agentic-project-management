@@ -10,6 +10,7 @@ import { Select } from '@/components/ui/Select';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { ContactForm } from '@/components/contacts/ContactForm';
 import { Textarea } from '@/components/ui/inputs/Textarea';
+import { MultiSelect } from '@/components/ui/inputs/MultiSelect';
 import { siteConfig } from '@/site-config';
 
 const DEFAULT_PROJECT_COLOR = '';
@@ -143,13 +144,6 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
     await doSave();
   };
 
-  const toggleMember = (userId: string) => {
-    setMemberIds(prev =>
-      prev.includes(userId)
-        ? prev.filter(id => id !== userId)
-        : [...prev, userId]
-    );
-  };
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -320,34 +314,15 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
           )}
         </div>
 
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between">
-            <label className="block text-sm font-medium text-zinc-700">Team Members</label>
-            <button
-              type="button"
-              onClick={() => setMemberIds(memberIds.length === team.length ? [] : team.map(m => m.id))}
-              className="text-xs text-brand-600 hover:text-brand-700 transition-colors"
-            >
-              {memberIds.length === team.length ? 'Deselect All' : 'Select All'}
-            </button>
-          </div>
-          <div className="flex flex-wrap gap-2 p-2 bg-zinc-50 border border-zinc-200 rounded-lg max-h-24 overflow-y-auto">
-            {team.map((member) => (
-              <button
-                key={member.id}
-                type="button"
-                onClick={() => toggleMember(member.id)}
-                className={`px-2 py-1 text-xs rounded-full transition-all ${
-                  memberIds.includes(member.id)
-                    ? 'bg-brand-100 text-brand-700 border border-brand-300'
-                    : 'bg-white text-zinc-600 border border-zinc-200 hover:border-zinc-300'
-                }`}
-              >
-                {member.name}
-              </button>
-            ))}
-          </div>
-        </div>
+        <MultiSelect
+          label="Team Members"
+          options={team.map(m => ({ value: m.id, label: m.name }))}
+          value={memberIds}
+          onChange={setMemberIds}
+          placeholder="Select team members..."
+          selectAll
+          searchable={team.length > 4}
+        />
 
         <div className="grid grid-cols-2 gap-4">
           <Input
@@ -366,7 +341,7 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
 
         <div className="flex items-center justify-between py-1">
           <div>
-            <label className="block text-sm font-medium text-zinc-700">Hourly Tracking</label>
+            <label className="block text-sm font-medium text-zinc-700">Time Tracking</label>
             <p className="text-xs text-zinc-400">Enable time tracking for this project</p>
           </div>
           <button

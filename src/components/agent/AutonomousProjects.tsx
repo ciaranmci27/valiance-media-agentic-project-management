@@ -1,29 +1,21 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { useApp } from '@/lib/store';
 import { Tooltip } from '@/components/ui/Tooltip';
 import Modal from '@/components/ui/Modal';
-import { ProjectContextPanel } from '@/components/projects/ProjectContextPanel';
-import { Select } from '@/components/ui/Select';
-import { Input } from '@/components/ui/Input';
-import { NumberInput } from '@/components/ui/inputs/NumberInput';
+import { useState } from 'react';
 import {
   Plus, Pause, Play, FolderKanban, ChevronRight, Settings,
 } from 'lucide-react';
 import { toast } from '@/components/ui/Toast';
-import { Project } from '@/lib/types';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 
 export function AutonomousProjects() {
   const { projects, projectGoals, taskSuggestions, updateProject } = useApp();
+  const router = useRouter();
   const [showAddModal, setShowAddModal] = useState(false);
-  const [contextProjectId, setContextProjectId] = useState<string | null>(null);
-  const contextProject = contextProjectId ? projects.find(p => p.id === contextProjectId) : null;
-  const [repoPathDraft, setRepoPathDraft] = useState('');
-
-  useEffect(() => {
-    setRepoPathDraft(contextProject?.repo_path ?? '');
-  }, [contextProjectId]);
+  const [pauseTarget, setPauseTarget] = useState<string | null>(null);
 
   const autonomousProjects = projects
     .filter(p => p.autonomous_enabled && !p.archived_at)
@@ -40,8 +32,19 @@ export function AutonomousProjects() {
     taskSuggestions.filter(s => s.project_id === projectId && s.status === 'pending').length;
 
   const handleToggle = (projectId: string, currentEnabled: boolean) => {
-    updateProject(projectId, { autonomous_enabled: !currentEnabled });
-    toast('success', currentEnabled ? 'Autonomous agents paused' : 'Autonomous agents enabled');
+    if (currentEnabled) {
+      setPauseTarget(projectId);
+      return;
+    }
+    updateProject(projectId, { autonomous_enabled: true });
+    toast('success', 'Autonomous agents enabled');
+  };
+
+  const handleConfirmPause = () => {
+    if (!pauseTarget) return;
+    updateProject(pauseTarget, { autonomous_enabled: false });
+    toast('success', 'Autonomous agents paused');
+    setPauseTarget(null);
   };
 
   const handleEnable = (projectId: string) => {
@@ -54,7 +57,7 @@ export function AutonomousProjects() {
     <>
       <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden flex flex-col">
         <div className="p-4 border-b border-zinc-100 flex items-center justify-between flex-shrink-0">
-          <h2 className="font-semibold text-zinc-900">Projects</h2>
+          <h2 className="font-semibold text-zinc-900">Active Projects</h2>
           <button
             onClick={() => setShowAddModal(true)}
             className="p-1.5 rounded-lg text-zinc-400 hover:text-brand-600 hover:bg-brand-50 transition-colors"
@@ -63,7 +66,7 @@ export function AutonomousProjects() {
           </button>
         </div>
 
-        <div className="divide-y divide-zinc-100 overflow-y-auto board-column-scroll max-h-[250px]">
+        <div className="divide-y divide-zinc-100 overflow-y-auto board-column-scroll max-h-[200px]">
           {autonomousProjects.map((project) => {
             const goalCount = getGoalCount(project.id);
             const pendingCount = getPendingCount(project.id);
@@ -71,10 +74,10 @@ export function AutonomousProjects() {
             return (
               <div
                 key={project.id}
-                className="p-3 lg:p-4 hover:bg-zinc-50 transition-colors group"
+                onClick={() => router.push(`/agent/projects/${project.id}`)}
+                className="p-3 lg:p-4 hover:bg-zinc-50 transition-colors group cursor-pointer"
               >
                 <div className="flex items-center gap-3">
-                  {/* Project color dot */}
                   {project.color && (
                     <div
                       className="w-2.5 h-2.5 rounded-full flex-shrink-0"
@@ -82,7 +85,6 @@ export function AutonomousProjects() {
                     />
                   )}
 
-                  {/* Project info */}
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-zinc-900 truncate">
                       {project.name}
@@ -110,11 +112,10 @@ export function AutonomousProjects() {
                     </div>
                   </div>
 
-                  {/* Project actions */}
                   <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 flex-shrink-0">
                     <Tooltip content="Agent settings">
                       <button
-                        onClick={() => setContextProjectId(project.id)}
+                        onClick={(e) => { e.stopPropagation(); router.push(`/agent/projects/${project.id}`); }}
                         className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 transition-colors"
                       >
                         <Settings size={14} />
@@ -122,7 +123,7 @@ export function AutonomousProjects() {
                     </Tooltip>
                     <Tooltip content={project.autonomous_enabled ? 'Pause agents' : 'Resume agents'}>
                       <button
-                        onClick={() => handleToggle(project.id, project.autonomous_enabled)}
+                        onClick={(e) => { e.stopPropagation(); handleToggle(project.id, project.autonomous_enabled); }}
                         className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 transition-colors"
                       >
                         {project.autonomous_enabled ? <Pause size={14} /> : <Play size={14} />}
@@ -149,62 +150,67 @@ export function AutonomousProjects() {
         </div>
       </div>
 
-      {/* Project Settings Modal */}
-      <Modal
-        isOpen={contextProjectId !== null}
-        onClose={() => setContextProjectId(null)}
-        title={contextProject ? `${contextProject.name} - Agent Settings` : 'Agent Settings'}
-        size="lg"
-      >
-        {contextProjectId && contextProject && (
-          <div className="space-y-6">
-            {/* Velocity & Policy Controls */}
-            <div className="space-y-4">
-              <div className="space-y-1.5">
-                <label className="block text-sm font-medium text-zinc-700">Deployment Policy</label>
-                <Select
-                  value={contextProject.deployment_policy ?? 'production'}
-                  onChange={(value) => updateProject(contextProjectId, { deployment_policy: value as Project['deployment_policy'] })}
-                  options={[
-                    { value: 'production', label: 'Production: AI uses feature branches and PRs, no auto-deploy' },
-                    { value: 'playground', label: 'Playground: AI commits to main and deploys freely' },
-                  ]}
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <NumberInput
-                  label="Max Concurrent AI Tasks"
-                  min={1}
-                  value={contextProject.max_concurrent_tasks ?? 2}
-                  onChange={(v) => updateProject(contextProjectId, { max_concurrent_tasks: Math.max(1, typeof v === 'number' ? v : 1) })}
-                />
-                <NumberInput
-                  label="Suggestions Per Cycle"
-                  min={1}
-                  value={contextProject.suggestions_per_cycle ?? 2}
-                  onChange={(v) => updateProject(contextProjectId, { suggestions_per_cycle: Math.max(1, typeof v === 'number' ? v : 1) })}
-                />
-              </div>
-            </div>
-
-            <Input
-              label="Repository Path"
-              value={repoPathDraft}
-              onChange={(e) => setRepoPathDraft(e.target.value)}
-              onBlur={() => {
-                const value = repoPathDraft.trim() || null;
-                if (value !== (contextProject.repo_path ?? null)) {
-                  updateProject(contextProjectId, { repo_path: value });
-                }
-              }}
-              placeholder="/home/ciaran/Projects/my-project"
-            />
-
-            <ProjectContextPanel projectId={contextProjectId} />
+      {/* Inactive Projects */}
+      {availableProjects.length > 0 && (
+        <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden flex flex-col">
+          <div className="p-4 border-b border-zinc-100 flex-shrink-0">
+            <h2 className="font-semibold text-zinc-900">Inactive Projects</h2>
           </div>
-        )}
-      </Modal>
+          <div className="divide-y divide-zinc-100 overflow-y-auto board-column-scroll max-h-[200px]">
+            {availableProjects.map((project) => {
+              const goalCount = getGoalCount(project.id);
+
+              return (
+                <div
+                  key={project.id}
+                  className="p-3 lg:p-4 hover:bg-zinc-50 transition-colors group cursor-pointer"
+                  onClick={() => router.push(`/agent/projects/${project.id}`)}
+                >
+                  <div className="flex items-center gap-3">
+                    {project.color && (
+                      <div
+                        className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                        style={{ backgroundColor: project.color }}
+                      />
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-zinc-900 truncate">{project.name}</p>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <span className="text-xs text-zinc-400">
+                          {goalCount} goal{goalCount !== 1 ? 's' : ''}
+                        </span>
+                        <span className="text-xs text-zinc-300">&middot;</span>
+                        <span className="text-[10px] font-semibold uppercase text-zinc-400">
+                          Not enabled
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 flex-shrink-0">
+                      <Tooltip content="Agent settings">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); router.push(`/agent/projects/${project.id}`); }}
+                          className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 transition-colors"
+                        >
+                          <Settings size={14} />
+                        </button>
+                      </Tooltip>
+                      <Tooltip content="Enable agents">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleEnable(project.id); }}
+                          className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 transition-colors"
+                        >
+                          <Play size={14} />
+                        </button>
+                      </Tooltip>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Add Project Modal */}
       <Modal isOpen={showAddModal} onClose={() => setShowAddModal(false)} title="Enable Autonomous Agents" size="sm">
@@ -244,6 +250,16 @@ export function AutonomousProjects() {
           )}
         </div>
       </Modal>
+
+      <ConfirmDialog
+        isOpen={pauseTarget !== null}
+        onClose={() => setPauseTarget(null)}
+        onConfirm={handleConfirmPause}
+        title="Pause Autonomous Agents"
+        message="If you pause, your agent may stop working on this project entirely depending on how it was integrated. Existing suggestions will be preserved in your database but won't be visible in the interface, and no new suggestions will be generated. Are you sure you want to continue?"
+        confirmLabel="Pause"
+        variant="default"
+      />
     </>
   );
 }

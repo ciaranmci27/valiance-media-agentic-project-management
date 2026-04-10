@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Textarea } from '@/components/ui/inputs/Textarea';
+import { MultiSelect } from '@/components/ui/inputs/MultiSelect';
 
 interface TaskFormProps {
   isOpen: boolean;
@@ -88,13 +89,6 @@ export function TaskForm({ isOpen, onClose, projectId, task }: TaskFormProps) {
     onClose();
   };
 
-  const toggleAssignee = (userId: string) => {
-    setAssigneeIds(prev =>
-      prev.includes(userId)
-        ? prev.filter(id => id !== userId)
-        : [...prev, userId]
-    );
-  };
 
   const statusOptions = [
     { value: 'todo', label: 'To Do' },
@@ -158,34 +152,15 @@ export function TaskForm({ isOpen, onClose, projectId, task }: TaskFormProps) {
           onChange={(e) => setDueDate(e.target.value)}
         />
 
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between">
-            <label className="block text-sm font-medium text-zinc-700">Team Members</label>
-            <button
-              type="button"
-              onClick={() => setAssigneeIds(assigneeIds.length === team.length ? [] : team.map(m => m.id))}
-              className="text-xs text-brand-600 hover:text-brand-700 transition-colors"
-            >
-              {assigneeIds.length === team.length ? 'Deselect All' : 'Select All'}
-            </button>
-          </div>
-          <div className="flex flex-wrap gap-2 p-2 bg-zinc-50 border border-zinc-200 rounded-lg max-h-24 overflow-y-auto">
-            {team.map((member) => (
-              <button
-                key={member.id}
-                type="button"
-                onClick={() => toggleAssignee(member.id)}
-                className={`px-2 py-1 text-xs rounded-full transition-all ${
-                  assigneeIds.includes(member.id)
-                    ? 'bg-brand-100 text-brand-700 border border-brand-300'
-                    : 'bg-white text-zinc-600 border border-zinc-200 hover:border-zinc-300'
-                }`}
-              >
-                {member.name}
-              </button>
-            ))}
-          </div>
-        </div>
+        <MultiSelect
+          label="Team Members"
+          options={team.map(m => ({ value: m.id, label: m.name }))}
+          value={assigneeIds}
+          onChange={setAssigneeIds}
+          placeholder="Select team members..."
+          selectAll
+          searchable={team.length > 4}
+        />
 
         {isAgentsEnabled && isAdmin && (
           <Select
