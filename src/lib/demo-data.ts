@@ -878,17 +878,22 @@ function dayAtTime(daysBack: number, hours: number, minutes = 0): string {
   return d.toISOString();
 }
 
+// Helper for demo rows: wraps a single [start, end] pair into the segments array shape.
+function oneSegment(start: string, end: string) {
+  return [{ start, end }];
+}
+
 export const demoTimeEntries: TimeEntry[] = [
   // Crest Financial Rebrand
-  { id: 'te-0001-4000-8000-000000000001', project_id: 'c3c3c3c3-0001-4000-8000-000000000001', member_id: 'a1a1a1a1-0001-4000-8000-000000000001', start_time: dayAtTime(2, 9, 0),  end_time: dayAtTime(2, 12, 30), description: 'Brand strategy workshop',        created_at: daysAgo(2), updated_at: daysAgo(2) },
-  { id: 'te-0002-4000-8000-000000000002', project_id: 'c3c3c3c3-0001-4000-8000-000000000001', member_id: 'a1a1a1a1-0002-4000-8000-000000000002', start_time: dayAtTime(3, 10, 0), end_time: dayAtTime(3, 15, 0),  description: 'Logo concept exploration',       created_at: daysAgo(3), updated_at: daysAgo(3) },
-  { id: 'te-0003-4000-8000-000000000003', project_id: 'c3c3c3c3-0001-4000-8000-000000000001', member_id: 'a1a1a1a1-0003-4000-8000-000000000003', start_time: dayAtTime(5, 13, 0), end_time: dayAtTime(5, 15, 30), description: 'Typography and color system',    created_at: daysAgo(5), updated_at: daysAgo(5) },
-  { id: 'te-0004-4000-8000-000000000004', project_id: 'c3c3c3c3-0001-4000-8000-000000000001', member_id: 'a1a1a1a1-0001-4000-8000-000000000001', start_time: dayAtTime(6, 14, 0), end_time: dayAtTime(6, 15, 30), description: 'Client feedback review',         created_at: daysAgo(6), updated_at: daysAgo(6) },
+  { id: 'te-0001-4000-8000-000000000001', project_id: 'c3c3c3c3-0001-4000-8000-000000000001', member_id: 'a1a1a1a1-0001-4000-8000-000000000001', start_time: dayAtTime(2, 9, 0),  end_time: dayAtTime(2, 12, 30), segments: oneSegment(dayAtTime(2, 9, 0),  dayAtTime(2, 12, 30)), description: 'Brand strategy workshop',        created_at: daysAgo(2), updated_at: daysAgo(2) },
+  { id: 'te-0002-4000-8000-000000000002', project_id: 'c3c3c3c3-0001-4000-8000-000000000001', member_id: 'a1a1a1a1-0002-4000-8000-000000000002', start_time: dayAtTime(3, 10, 0), end_time: dayAtTime(3, 15, 0),  segments: oneSegment(dayAtTime(3, 10, 0), dayAtTime(3, 15, 0)),  description: 'Logo concept exploration',       created_at: daysAgo(3), updated_at: daysAgo(3) },
+  { id: 'te-0003-4000-8000-000000000003', project_id: 'c3c3c3c3-0001-4000-8000-000000000001', member_id: 'a1a1a1a1-0003-4000-8000-000000000003', start_time: dayAtTime(5, 13, 0), end_time: dayAtTime(5, 15, 30), segments: oneSegment(dayAtTime(5, 13, 0), dayAtTime(5, 15, 30)), description: 'Typography and color system',    created_at: daysAgo(5), updated_at: daysAgo(5) },
+  { id: 'te-0004-4000-8000-000000000004', project_id: 'c3c3c3c3-0001-4000-8000-000000000001', member_id: 'a1a1a1a1-0001-4000-8000-000000000001', start_time: dayAtTime(6, 14, 0), end_time: dayAtTime(6, 15, 30), segments: oneSegment(dayAtTime(6, 14, 0), dayAtTime(6, 15, 30)), description: 'Client feedback review',         created_at: daysAgo(6), updated_at: daysAgo(6) },
   // Bloomwell Health App
-  { id: 'te-0005-4000-8000-000000000005', project_id: 'c3c3c3c3-0002-4000-8000-000000000002', member_id: 'a1a1a1a1-0004-4000-8000-000000000004', start_time: dayAtTime(1, 9, 0),  end_time: dayAtTime(1, 15, 0),  description: 'Homepage wireframes',            created_at: daysAgo(1), updated_at: daysAgo(1) },
-  { id: 'te-0006-4000-8000-000000000006', project_id: 'c3c3c3c3-0002-4000-8000-000000000002', member_id: 'a1a1a1a1-0003-4000-8000-000000000003', start_time: dayAtTime(2, 10, 0), end_time: dayAtTime(2, 14, 0),  description: 'Design review meeting',          created_at: daysAgo(2), updated_at: daysAgo(2) },
-  { id: 'te-0007-4000-8000-000000000007', project_id: 'c3c3c3c3-0002-4000-8000-000000000002', member_id: 'a1a1a1a1-0001-4000-8000-000000000001', start_time: dayAtTime(4, 11, 0), end_time: dayAtTime(4, 13, 0),  description: 'Sprint planning and task setup', created_at: daysAgo(4), updated_at: daysAgo(4) },
-  { id: 'te-0008-4000-8000-000000000008', project_id: 'c3c3c3c3-0002-4000-8000-000000000002', member_id: 'a1a1a1a1-0004-4000-8000-000000000004', start_time: dayAtTime(7, 8, 30), end_time: dayAtTime(7, 16, 0),  description: 'Auth flow implementation',       created_at: daysAgo(7), updated_at: daysAgo(7) },
+  { id: 'te-0005-4000-8000-000000000005', project_id: 'c3c3c3c3-0002-4000-8000-000000000002', member_id: 'a1a1a1a1-0004-4000-8000-000000000004', start_time: dayAtTime(1, 9, 0),  end_time: dayAtTime(1, 15, 0),  segments: oneSegment(dayAtTime(1, 9, 0),  dayAtTime(1, 15, 0)),  description: 'Homepage wireframes',            created_at: daysAgo(1), updated_at: daysAgo(1) },
+  { id: 'te-0006-4000-8000-000000000006', project_id: 'c3c3c3c3-0002-4000-8000-000000000002', member_id: 'a1a1a1a1-0003-4000-8000-000000000003', start_time: dayAtTime(2, 10, 0), end_time: dayAtTime(2, 14, 0),  segments: oneSegment(dayAtTime(2, 10, 0), dayAtTime(2, 14, 0)),  description: 'Design review meeting',          created_at: daysAgo(2), updated_at: daysAgo(2) },
+  { id: 'te-0007-4000-8000-000000000007', project_id: 'c3c3c3c3-0002-4000-8000-000000000002', member_id: 'a1a1a1a1-0001-4000-8000-000000000001', start_time: dayAtTime(4, 11, 0), end_time: dayAtTime(4, 13, 0),  segments: oneSegment(dayAtTime(4, 11, 0), dayAtTime(4, 13, 0)),  description: 'Sprint planning and task setup', created_at: daysAgo(4), updated_at: daysAgo(4) },
+  { id: 'te-0008-4000-8000-000000000008', project_id: 'c3c3c3c3-0002-4000-8000-000000000002', member_id: 'a1a1a1a1-0004-4000-8000-000000000004', start_time: dayAtTime(7, 8, 30), end_time: dayAtTime(7, 16, 0),  segments: oneSegment(dayAtTime(7, 8, 30), dayAtTime(7, 16, 0)),  description: 'Auth flow implementation',       created_at: daysAgo(7), updated_at: daysAgo(7) },
 ];
 
 // ---------------------------------------------------------------------------

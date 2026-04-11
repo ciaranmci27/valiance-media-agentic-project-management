@@ -1,5 +1,11 @@
 import { z } from 'zod';
 
+// A single worked interval within a time entry.
+export const timeSegmentSchema = z.object({
+  start: z.string().min(1, 'Segment start is required'),
+  end: z.string().nullable(),
+});
+
 // Start a live timer (end_time will be null)
 export const startTimerSchema = z.object({
   member_id: z.string().uuid('Invalid member'),
@@ -20,5 +26,6 @@ export const updateTimeEntrySchema = z.object({
   member_id: z.string().uuid('Invalid member').optional(),
   start_time: z.string().optional(),
   end_time: z.string().nullable().optional(),
+  segments: z.array(timeSegmentSchema).optional(),
   description: z.string().optional(),
 });

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, Fragment } from 'react';
 import { useParams } from 'next/navigation';
 import {
   Lock, Loader2, FileText, Image, Archive, File, Download, Globe,
@@ -75,6 +75,29 @@ function relativeTime(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+function formatBreakDuration(seconds: number): string {
+  if (seconds < 60) return '< 1m';
+  const totalMinutes = Math.round(seconds / 60);
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  if (h === 0) return `${m}m`;
+  if (m === 0) return `${h}h`;
+  return `${h}h ${m}m`;
+}
+
+// Format a fractional-hours value (e.g. 1.458) as "1h 27m". More precise than
+// the old "1.5h" display because the client can reconcile the label against
+// the visible start/end range.
+function formatHoursMinutes(hours: number): string {
+  const totalMinutes = Math.round(hours * 60);
+  if (totalMinutes === 0) return '0m';
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  if (h === 0) return `${m}m`;
+  if (m === 0) return `${h}h`;
+  return `${h}h ${m}m`;
+}
+
 function getUpdateIcon(type: string) {
   switch (type) {
     case 'milestone': return Flag;
@@ -109,7 +132,7 @@ function HoursSection({ entries, totalHours, memberHours, accentColor }: {
         accentColor={accentColor}
         right={
           <span className="text-lg font-semibold text-zinc-800 tabular-nums tracking-tight">
-            {totalHours.toFixed(1)}h
+            {formatHoursMinutes(totalHours)}
           </span>
         }
       />
@@ -132,41 +155,91 @@ function HoursSection({ entries, totalHours, memberHours, accentColor }: {
               <div key={m.name} className="flex items-center gap-1.5 text-xs text-zinc-500">
                 <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: m.color }} />
                 <span>{m.name}</span>
-                <span className="text-zinc-400">{m.hours.toFixed(1)}h</span>
+                <span className="text-zinc-400">{formatHoursMinutes(m.hours)}</span>
               </div>
             ))}
           </div>
         </div>
       )}
       <div className="space-y-3">
-        {visible.map(entry => (
-          <div
-            key={entry.id}
-            className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.04),0_8px_24px_rgba(0,0,0,0.03)] border border-white/60 px-4 sm:px-5 py-3.5 hover:shadow-[0_1px_3px_rgba(0,0,0,0.04),0_12px_32px_rgba(0,0,0,0.06)] transition-shadow duration-300"
-          >
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-zinc-800 truncate">
-                  {entry.description || 'Work logged'}
-                </p>
-                <div className="flex items-center gap-1.5 mt-1 text-xs text-zinc-400">
-                  {memberHours.length > 1 && (
-                    <>
-                      <span>{entry.member_name}</span>
-                      <span className="text-zinc-200">/</span>
-                    </>
-                  )}
-                  <span>{new Date(entry.start_time).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
-                  <span className="text-zinc-200">/</span>
-                  <span>{new Date(entry.start_time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} – {new Date(entry.end_time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</span>
+        {visible.map(entry => {
+          const hasMultipleSegments = entry.segments && entry.segments.length > 1;
+          return (
+            <div
+              key={entry.id}
+              className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.04),0_8px_24px_rgba(0,0,0,0.03)] border border-white/60 px-4 sm:px-5 py-3.5 hover:shadow-[0_1px_3px_rgba(0,0,0,0.04),0_12px_32px_rgba(0,0,0,0.06)] transition-shadow duration-300"
+            >
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-zinc-800 truncate">
+                    {entry.description || 'Work logged'}
+                  </p>
+                  <div className="flex items-center gap-1.5 mt-1 text-xs text-zinc-400 flex-wrap">
+                    {memberHours.length > 1 && (
+                      <>
+                        <span>{entry.member_name}</span>
+                        <span className="text-zinc-200">/</span>
+                      </>
+                    )}
+                    <span>{new Date(entry.start_time).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                    <span className="text-zinc-200">/</span>
+                    <span>{new Date(entry.start_time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} – {new Date(entry.end_time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</span>
+                    {/* Single-segment entries never pause, so the summary only appears
+                        on rows that don't get the expanded session breakdown below. */}
+                    {!hasMultipleSegments && entry.paused_seconds > 0 && (
+                      <>
+                        <span className="text-zinc-200">/</span>
+                        <span className="italic">paused {formatBreakDuration(entry.paused_seconds)}</span>
+                      </>
+                    )}
+                  </div>
                 </div>
+                <span className="text-sm font-bold text-zinc-900 tabular-nums flex-shrink-0">
+                  {formatHoursMinutes(entry.hours)}
+                </span>
               </div>
-              <span className="text-sm font-bold text-zinc-900 tabular-nums flex-shrink-0">
-                {entry.hours.toFixed(1)}h
-              </span>
+              {hasMultipleSegments && (
+                <ul className="mt-2.5 rounded-xl bg-zinc-50/70 border border-zinc-100 px-3 py-2 space-y-1.5">
+                  {entry.segments.map((seg, i) => {
+                    const segStart = new Date(seg.start);
+                    const segEnd = new Date(seg.end);
+                    const segDurationSec = Math.round((segEnd.getTime() - segStart.getTime()) / 1000);
+                    const nextSeg = entry.segments[i + 1];
+                    const gapSec = nextSeg
+                      ? Math.round((new Date(nextSeg.start).getTime() - segEnd.getTime()) / 1000)
+                      : 0;
+                    return (
+                      <Fragment key={i}>
+                        <li className="flex items-center gap-2">
+                          <span
+                            className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                            style={{ backgroundColor: accentColor }}
+                          />
+                          <span className="text-[11px] font-medium text-zinc-600 tabular-nums">
+                            {segStart.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                            {' – '}
+                            {segEnd.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                          </span>
+                          <span className="text-[10px] text-zinc-400 tabular-nums">
+                            {formatBreakDuration(segDurationSec)}
+                          </span>
+                        </li>
+                        {gapSec > 0 && (
+                          <li className="flex items-center gap-1.5 pl-[3px] select-none">
+                            <span className="w-px h-2.5 bg-zinc-200 ml-[2px]" />
+                            <span className="text-[10px] italic text-zinc-400">
+                              Paused for {formatBreakDuration(gapSec)}
+                            </span>
+                          </li>
+                        )}
+                      </Fragment>
+                    );
+                  })}
+                </ul>
+              )}
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
       {entries.length > HOURS_INITIAL && (
         <button
@@ -1334,7 +1407,7 @@ export default function PortalPage() {
                     <section key={sectionKey}>
                       <SectionHeader icon={Receipt} title="Invoices" accentColor={accentColor} />
                       <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.04),0_8px_24px_rgba(0,0,0,0.03)] border border-white/60 mb-5 overflow-hidden">
-                        <div className="grid grid-cols-3 [&>*]:border-l [&>*]:border-zinc-100 [&>*:nth-child(3n+1)]:border-l-0">
+                        <div className="grid grid-cols-3 [&>*]:border-l [&>*]:border-zinc-100 [&>*:nth-child(3n+1)]:border-l-0 [&>*:nth-child(n+4)]:border-t">
                           {billing && (
                             <>
                               <div className="px-4 sm:px-5 py-4">

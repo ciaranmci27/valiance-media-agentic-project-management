@@ -121,11 +121,18 @@ export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMembe
     if (endTime) endTime = applyTimezone(endTime, timezone);
   }
 
+  // Initialize segments: for a live timer, a single open segment; for a
+  // manual entry, a single closed segment spanning the full range.
+  const segments = isTimer
+    ? [{ start: startTime, end: null }]
+    : [{ start: startTime, end: endTime }];
+
   const insertPayload = {
     project_id: id,
     member_id: entry.member_id,
     start_time: startTime,
     end_time: endTime,
+    segments,
     description: entry.description || '',
   };
 

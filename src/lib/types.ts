@@ -282,12 +282,23 @@ export interface Activity {
 // TIME ENTRIES
 // ============================================================
 
+/**
+ * A single worked interval within a time entry. A timer that is paused and
+ * later resumed produces multiple segments. The last segment's `end` is null
+ * only when the timer is actively running.
+ */
+export interface TimeSegment {
+  start: string;        // ISO datetime
+  end: string | null;   // ISO datetime, or null if this segment is still open
+}
+
 export interface TimeEntry {
   id: string;
   project_id: string;
   member_id: string;
-  start_time: string;       // ISO datetime
-  end_time: string | null;  // null = timer currently running
+  start_time: string;       // ISO datetime (denormalized: first segment's start)
+  end_time: string | null;  // ISO datetime (denormalized: last segment's end), null while unfinalized
+  segments: TimeSegment[];  // Individual worked intervals; sum gives total worked time
   description: string;
   created_at: string;
   updated_at: string;
@@ -588,6 +599,16 @@ export interface PortalData {
       start_time: string;
       end_time: string;
       hours: number;
+      // Seconds of pause time within [start_time, end_time]. Always 0 for
+      // single-segment entries; populated when pause/resume was used so the
+      // client can reconcile the visible span against the worked hours.
+      paused_seconds: number;
+      // Individual worked intervals. Always length >= 1. For single-segment
+      // entries there's one segment spanning start_time → end_time. For
+      // multi-segment entries the frontend renders a per-session breakdown
+      // with pause labels between segments. Portal only returns completed
+      // entries, so every segment has a non-null end.
+      segments: { start: string; end: string }[];
       description: string;
       member_name: string;
     }[];

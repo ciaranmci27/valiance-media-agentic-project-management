@@ -360,7 +360,7 @@ export const endpoints: EndpointDoc[] = [
       { name: 'entryId', type: 'uuid', required: true, description: 'Time entry ID' },
     ],
   },
-  { method: 'PATCH', path: '/api/v1/projects/:id/time-entries/:entryId', description: 'Update a time entry. Set end_time to null to re-open a completed timer.', group: 'Time Entries',
+  { method: 'PATCH', path: '/api/v1/projects/:id/time-entries/:entryId', description: 'Update a time entry. Set end_time to null to re-open a completed timer. For finalized entries, updating start_time or end_time without supplying segments collapses the entry to a single [start, end] segment; pass segments explicitly to preserve multi-segment pause history. For unfinalized entries (running or paused), updating start_time or end_time without an explicit segments array returns a 400 — send segments yourself so state-machine transitions stay deliberate.', group: 'Time Entries',
     params: [
       { name: 'id', type: 'uuid', required: true, description: 'Project ID' },
       { name: 'entryId', type: 'uuid', required: true, description: 'Time entry ID' },
@@ -369,6 +369,7 @@ export const endpoints: EndpointDoc[] = [
       { name: 'member_id', type: 'uuid', required: false, description: 'Reassign to a different team member' },
       { name: 'start_time', type: 'string', required: false, description: 'ISO datetime' },
       { name: 'end_time', type: 'string|null', required: false, description: 'ISO datetime, or null to re-open as a running timer' },
+      { name: 'segments', type: 'array', required: false, description: 'Worked intervals: [{start: ISO, end: ISO | null}]. Advanced: direct segment rewrites bypass pause/resume invariants, so ensure end_time stays consistent with the last segment.' },
       { name: 'description', type: 'string', required: false, description: 'What was worked on' },
     ],
   },
@@ -378,10 +379,22 @@ export const endpoints: EndpointDoc[] = [
       { name: 'entryId', type: 'uuid', required: true, description: 'Time entry ID' },
     ],
   },
-  { method: 'POST', path: '/api/v1/projects/:id/time-entries/:entryId/stop', description: 'Stop a running timer by setting end_time to now. Fails if the timer is not currently running.', group: 'Time Entries',
+  { method: 'POST', path: '/api/v1/projects/:id/time-entries/:entryId/stop', description: 'Finalize a timer. Closes any open segment at now and sets end_time. Works from both running and paused states. Fails if the timer is already finalized.', group: 'Time Entries',
     params: [
       { name: 'id', type: 'uuid', required: true, description: 'Project ID' },
-      { name: 'entryId', type: 'uuid', required: true, description: 'Time entry ID (must be a running timer — end_time is null)' },
+      { name: 'entryId', type: 'uuid', required: true, description: 'Time entry ID (must be unfinalized — end_time is null)' },
+    ],
+  },
+  { method: 'POST', path: '/api/v1/projects/:id/time-entries/:entryId/pause', description: 'Pause a running timer. Closes the current open segment with an end timestamp at now, leaving end_time null so the timer stays unfinalized. Fails if the timer is already paused or finalized. Paused timers whose last segment ended on a previous calendar day are auto-finalized on next resume attempt.', group: 'Time Entries',
+    params: [
+      { name: 'id', type: 'uuid', required: true, description: 'Project ID' },
+      { name: 'entryId', type: 'uuid', required: true, description: 'Time entry ID (must be a running timer — end_time null and last segment open)' },
+    ],
+  },
+  { method: 'POST', path: '/api/v1/projects/:id/time-entries/:entryId/resume', description: 'Resume a paused timer by appending a new open segment starting at now. Fails if the timer is running or finalized. If the last segment ended on a previous calendar day (in the member\'s timezone), auto-finalizes the entry instead of resuming.', group: 'Time Entries',
+    params: [
+      { name: 'id', type: 'uuid', required: true, description: 'Project ID' },
+      { name: 'entryId', type: 'uuid', required: true, description: 'Time entry ID (must be a paused timer — end_time null and last segment closed)' },
     ],
   },
 

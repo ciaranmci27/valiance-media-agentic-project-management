@@ -15,23 +15,20 @@ export const POST = withApi(async ({ supabase, params, apiKeyId, teamMemberId })
     .maybeSingle();
 
   if (!before) throw notFound('Time entry');
-  if (before.end_time) throw badRequest('Timer is already finalized');
+  if (before.end_time) throw badRequest('Timer is not running');
 
-  // Close any open segment before finalizing so segments stays consistent.
   const segments: TimeSegment[] = Array.isArray(before.segments) ? before.segments : [];
   const last = segments[segments.length - 1];
-  const nowIso = new Date().toISOString();
-  let newSegments = segments;
-  if (last && last.end === null) {
-    newSegments = [...segments.slice(0, -1), { ...last, end: nowIso }];
+  if (!last || last.end !== null) {
+    throw badRequest('Timer is already paused');
   }
-  // end_time mirrors the last segment's end (nowIso we just set, or the
-  // already-present pause timestamp if stopping from a paused state).
-  const finalEnd = newSegments[newSegments.length - 1]?.end ?? nowIso;
+
+  const pausedAt = new Date().toISOString();
+  const newSegments = [...segments.slice(0, -1), { ...last, end: pausedAt }];
 
   const { data, error } = await supabase
     .from('project_time_entries')
-    .update({ end_time: finalEnd, segments: newSegments })
+    .update({ segments: newSegments })
     .eq('id', entryId)
     .eq('project_id', id)
     .select()
@@ -41,7 +38,7 @@ export const POST = withApi(async ({ supabase, params, apiKeyId, teamMemberId })
 
   logAudit(supabase, {
     method: 'POST',
-    endpoint: `/api/v1/projects/${id}/time-entries/${entryId}/stop`,
+    endpoint: `/api/v1/projects/${id}/time-entries/${entryId}/pause`,
     entityType: 'time_entry',
     entityId: entryId,
     apiKeyId,

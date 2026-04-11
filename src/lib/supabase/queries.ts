@@ -1811,6 +1811,7 @@ export async function insertTimeEntry(
       member_id: entry.member_id,
       start_time: entry.start_time,
       end_time: entry.end_time,
+      segments: entry.segments ?? [],
       description: entry.description,
     })
     .select()
@@ -1823,7 +1824,7 @@ export async function insertTimeEntry(
 export async function patchTimeEntry(
   supabase: SupabaseClient,
   id: string,
-  updates: Partial<Pick<TimeEntry, 'member_id' | 'start_time' | 'end_time' | 'description'>>
+  updates: Partial<Pick<TimeEntry, 'member_id' | 'start_time' | 'end_time' | 'segments' | 'description'>>
 ) {
   const { data, error } = await supabase
     .from('project_time_entries')

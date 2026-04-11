@@ -104,6 +104,7 @@ import {
 } from '@/lib/supabase/queries';
 import { toast } from '@/components/ui/Toast';
 import { siteConfig } from '@/site-config';
+import { findStalePausedEntries, startOfDayInTz } from '@/lib/time-entry-utils';
 
 interface AppContextType {
   // Data
@@ -247,12 +248,14 @@ interface AppContextType {
 
   // Time Entry CRUD
   addTimeEntry: (entry: Omit<TimeEntry, 'id' | 'created_at' | 'updated_at'>) => void;
-  updateTimeEntry: (id: string, updates: Partial<Pick<TimeEntry, 'member_id' | 'start_time' | 'end_time' | 'description'>>) => void;
+  updateTimeEntry: (id: string, updates: Partial<Pick<TimeEntry, 'member_id' | 'start_time' | 'end_time' | 'segments' | 'description'>>, options?: { silent?: boolean }) => void;
   deleteTimeEntry: (id: string) => void;
   getTimeEntriesByProject: (projectId: string) => TimeEntry[];
   startTimer: (projectId: string, memberId: string, description?: string, customStartTime?: string) => void;
-  stopTimer: (projectId: string) => void;
-  getRunningTimer: (projectId: string) => TimeEntry | undefined;
+  pauseTimer: (entryId: string) => void;
+  resumeTimer: (entryId: string) => void;
+  stopTimer: (entryId: string) => void;
+  getRunningTimer: (projectId: string, memberId?: string) => TimeEntry | undefined;
 
   // Credential CRUD
   addCredential: (projectId: string, data: { label: string; category: string; username: string; password: string; url: string; notes: string }) => Promise<ProjectCredentialListItem | undefined>;
@@ -446,7 +449,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setPortalUpdateAttachments(portalUpdateAttachmentsData);
         setEntityFiles(entityFilesData);
         setApiKeys(apiKeysData);
+
+        // Auto-finalize any paused timers whose last segment ended on a
+        // previous calendar day (in the entry's member timezone). This runs
+        // silently so users don't see yesterday's paused state on load.
+        const staleEntries = findStalePausedEntries(timeEntriesData, (entry) => {
+          return teamData.find(m => m.id === entry.member_id)?.timezone;
+        });
+        if (staleEntries.length > 0) {
+          await Promise.all(staleEntries.map(async (entry) => {
+            const lastEnd = entry.segments[entry.segments.length - 1]?.end;
+            if (!lastEnd) return;
+            try {
+              await patchTimeEntryQuery(supabase, entry.id, { end_time: lastEnd });
+              // Mutate the local copy so the first paint already reflects finalization
+              entry.end_time = lastEnd;
+            } catch (e) {
+              console.error('Failed to auto-finalize stale paused timer:', e);
+            }
+          }));
+        }
         setTimeEntries(timeEntriesData);
+
         setProjectCredentials(projectCredentialsData);
         setProjectInvoices(projectInvoicesData);
 
@@ -2175,7 +2199,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const updateTimeEntry = async (id: string, updates: Partial<Pick<TimeEntry, 'member_id' | 'start_time' | 'end_time' | 'description'>>) => {
+  const updateTimeEntry = async (
+    id: string,
+    updates: Partial<Pick<TimeEntry, 'member_id' | 'start_time' | 'end_time' | 'segments' | 'description'>>,
+    options: { silent?: boolean } = {},
+  ) => {
     const prev = timeEntries;
     const existing = timeEntries.find(te => te.id === id);
     setTimeEntries(te => te.map(entry =>
@@ -2185,7 +2213,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     try {
       await patchTimeEntryQuery(supabase, id, updates);
-      if (existing) {
+      if (!options.silent && existing) {
         const project = projects.find(p => p.id === existing.project_id);
         notify(allMemberIds(), `Time entry updated on "${project?.name || 'project'}"`, `${actorName()} updated a time entry.`, `/projects/${existing.project_id}`, 'project', existing.project_id, 'time_entries');
       }
@@ -2217,10 +2245,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     timeEntries.filter(te => te.project_id === projectId);
 
   const startTimer = async (projectId: string, memberId: string, description = '', customStartTime?: string) => {
-    // Check if there's already a running timer for this project
-    const existing = timeEntries.find(te => te.project_id === projectId && te.end_time === null);
+    // Check if this member already has an unfinalized timer (running or paused) on this project.
+    // Per-member check so multiple teammates can track simultaneously on the same project.
+    const existing = timeEntries.find(te => te.project_id === projectId && te.member_id === memberId && te.end_time === null);
     if (existing) {
-      toast('error', 'A timer is already running for this project');
+      toast('error', 'You already have a timer running for this project');
       return;
     }
 
@@ -2230,19 +2259,68 @@ export function AppProvider({ children }: { children: ReactNode }) {
       member_id: memberId,
       start_time: startTime,
       end_time: null,
+      segments: [{ start: startTime, end: null }],
       description,
     };
     await addTimeEntry(entry);
   };
 
-  const stopTimer = async (projectId: string) => {
-    const running = timeEntries.find(te => te.project_id === projectId && te.end_time === null);
-    if (!running) return;
-    await updateTimeEntry(running.id, { end_time: new Date().toISOString() });
+  const pauseTimer = async (entryId: string) => {
+    const active = timeEntries.find(te => te.id === entryId);
+    if (!active || active.end_time !== null) return;
+    const last = active.segments[active.segments.length - 1];
+    // Already paused — no-op
+    if (!last || last.end !== null) return;
+    const pausedAt = new Date().toISOString();
+    const newSegments = [
+      ...active.segments.slice(0, -1),
+      { ...last, end: pausedAt },
+    ];
+    // Silent: pause/resume are personal state transitions, not team-visible events.
+    await updateTimeEntry(active.id, { segments: newSegments }, { silent: true });
   };
 
-  const getRunningTimer = (projectId: string) =>
-    timeEntries.find(te => te.project_id === projectId && te.end_time === null);
+  const resumeTimer = async (entryId: string) => {
+    const active = timeEntries.find(te => te.id === entryId);
+    if (!active || active.end_time !== null) return;
+    const last = active.segments[active.segments.length - 1];
+    // Not paused — nothing to resume
+    if (!last || last.end === null) return;
+    // Stale guard: if the last segment ended on a previous calendar day, the
+    // entry should be finalized rather than resumed. Fall through silently.
+    const memberTz = team.find(m => m.id === active.member_id)?.timezone;
+    const todayStart = startOfDayInTz(new Date(), memberTz);
+    if (new Date(last.end).getTime() < todayStart) {
+      await updateTimeEntry(active.id, { end_time: last.end }, { silent: true });
+      return;
+    }
+    const resumedAt = new Date().toISOString();
+    const newSegments = [...active.segments, { start: resumedAt, end: null }];
+    await updateTimeEntry(active.id, { segments: newSegments }, { silent: true });
+  };
+
+  const stopTimer = async (entryId: string) => {
+    const active = timeEntries.find(te => te.id === entryId);
+    if (!active || active.end_time !== null) return;
+    // Close any open segment before finalizing so `segments` stays consistent.
+    let segments = active.segments;
+    const last = segments[segments.length - 1];
+    const nowIso = new Date().toISOString();
+    if (last && last.end === null) {
+      segments = [...segments.slice(0, -1), { ...last, end: nowIso }];
+    }
+    // end_time mirrors the last segment's end (either the nowIso we just set,
+    // or the already-present paused_at if stopping from a paused state).
+    const finalEnd = segments[segments.length - 1]?.end ?? nowIso;
+    await updateTimeEntry(active.id, { segments, end_time: finalEnd });
+  };
+
+  const getRunningTimer = (projectId: string, memberId?: string) =>
+    timeEntries.find(te =>
+      te.project_id === projectId &&
+      te.end_time === null &&
+      (memberId === undefined || te.member_id === memberId)
+    );
 
   // API Key CRUD
   const addApiKeyAction = async (name: string, keyHash: string, keyPrefix: string, permissions = 'full', linkedTeamMemberId?: string | null): Promise<ApiKey | undefined> => {
@@ -2689,6 +2767,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       updateTimeEntry,
       deleteTimeEntry,
       startTimer,
+      pauseTimer,
+      resumeTimer,
       stopTimer,
       getRunningTimer,
       getTimeEntriesByProject,

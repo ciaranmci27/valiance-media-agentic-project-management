@@ -18,6 +18,7 @@ import { DateInput } from '@/components/ui/inputs/DateInput';
 import { Textarea } from '@/components/ui/inputs/Textarea';
 import { siteConfig } from '@/site-config';
 import { INVOICE_STATUSES, INVOICE_TYPES, type InvoiceStatus, type InvoiceType } from '@/lib/types';
+import { getWorkedHours } from '@/lib/time-entry-utils';
 
 interface InvoicesPanelProps {
   projectId: string;
@@ -82,8 +83,8 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
   // Calculate budget from time entries or fixed price
   const timeEntries = getTimeEntriesByProject(projectId);
   const totalHours = timeEntries.reduce((sum, te) => {
-    if (!te.end_time) return sum;
-    return sum + (new Date(te.end_time).getTime() - new Date(te.start_time).getTime()) / 3_600_000;
+    if (!te.end_time) return sum; // exclude unfinalized (running / paused) timers
+    return sum + getWorkedHours(te);
   }, 0);
 
   const isHourly = project?.hourly_tracking ?? false;

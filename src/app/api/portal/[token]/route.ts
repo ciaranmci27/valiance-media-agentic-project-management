@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
-import type { PortalData, PortalSectionKey } from '@/lib/types';
+import type { PortalData, PortalSectionKey, TimeEntry } from '@/lib/types';
 import { DEFAULT_SECTION_ORDER } from '@/lib/types';
 import {
   demoPortalSettings, demoPortalUpdates, demoPortalUpdateAttachments,
@@ -9,6 +9,36 @@ import {
   demoTeam, demoProjectInvoices,
 } from '@/lib/demo-data';
 import { siteConfig } from '@/site-config';
+import { getWorkedHours, getWorkedMs } from '@/lib/time-entry-utils';
+
+/**
+ * Pause duration within an entry: the part of the [start_time, end_time] span
+ * that wasn't worked. Always 0 for single-segment entries. For multi-segment
+ * entries it captures the gaps the client sees as "42m break" so the visible
+ * time range reconciles with the worked hours.
+ */
+function getPausedSeconds(te: TimeEntry): number {
+  if (!te.end_time) return 0;
+  const spanMs = new Date(te.end_time).getTime() - new Date(te.start_time).getTime();
+  const workedMs = getWorkedMs(te);
+  return Math.max(0, Math.round((spanMs - workedMs) / 1000));
+}
+
+/**
+ * Normalize a completed entry's segments into the portal-safe shape: a non-
+ * empty list of closed intervals. Filters out any lingering open segment
+ * defensively (shouldn't exist on a stopped entry, but the filter prevents a
+ * crash if the DB invariant is ever violated). Falls back to a single segment
+ * spanning start_time → end_time for legacy rows that pre-date the segments
+ * column backfill.
+ */
+function getPortalSegments(te: TimeEntry): { start: string; end: string }[] {
+  const closed = (te.segments || [])
+    .filter((s): s is { start: string; end: string } => s.end !== null);
+  if (closed.length > 0) return closed;
+  if (te.end_time) return [{ start: te.start_time, end: te.end_time }];
+  return [];
+}
 
 function computeTimelineProgress(
   startDate: string | null,
@@ -136,7 +166,7 @@ export async function GET(
   if (needsHours) {
     const { data: timeEntries } = await supabase
       .from('project_time_entries')
-      .select('id, start_time, end_time, description, member_id')
+      .select('id, start_time, end_time, segments, description, member_id')
       .eq('project_id', settings.project_id)
       .not('end_time', 'is', null)
       .order('start_time', { ascending: false });
@@ -150,16 +180,15 @@ export async function GET(
 
       const memberMap = new Map((members || []).map((m: any) => [m.id, m.name]));
 
-      const computeHours = (start: string, end: string) =>
-        (new Date(end).getTime() - new Date(start).getTime()) / 3_600_000;
-
       hours = {
-        total_hours: timeEntries.reduce((sum: number, te: any) => sum + computeHours(te.start_time, te.end_time), 0),
+        total_hours: timeEntries.reduce((sum: number, te: any) => sum + getWorkedHours(te as TimeEntry), 0),
         entries: settings.show_hours ? timeEntries.map((te: any) => ({
           id: te.id,
           start_time: te.start_time,
           end_time: te.end_time,
-          hours: computeHours(te.start_time, te.end_time),
+          hours: getWorkedHours(te as TimeEntry),
+          paused_seconds: getPausedSeconds(te as TimeEntry),
+          segments: getPortalSegments(te as TimeEntry),
           description: te.description,
           member_name: memberMap.get(te.member_id) || 'Unknown',
         })) : [],
@@ -333,17 +362,17 @@ function handleDemoMode(token: string, request: NextRequest) {
   let hours: PortalData['hours'] = { total_hours: 0, entries: [] };
   if (demoNeedsHours) {
     const projectEntries = demoTimeEntries.filter(te => te.project_id === settings.project_id && te.end_time !== null);
-    const computeHours = (start: string, end: string) =>
-      (new Date(end).getTime() - new Date(start).getTime()) / 3_600_000;
     hours = {
-      total_hours: projectEntries.reduce((sum, te) => sum + computeHours(te.start_time, te.end_time!), 0),
+      total_hours: projectEntries.reduce((sum, te) => sum + getWorkedHours(te), 0),
       entries: settings.show_hours ? projectEntries.map(te => {
         const member = demoTeam.find(m => m.id === te.member_id);
         return {
           id: te.id,
           start_time: te.start_time,
           end_time: te.end_time!,
-          hours: computeHours(te.start_time, te.end_time!),
+          hours: getWorkedHours(te),
+          paused_seconds: getPausedSeconds(te),
+          segments: getPortalSegments(te),
           description: te.description,
           member_name: member?.name || 'Unknown',
         };

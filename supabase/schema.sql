@@ -342,14 +342,21 @@ create table public.project_time_entries (
   member_id uuid not null references public.team_members(id) on delete cascade,
   start_time timestamptz not null default now(),
   end_time timestamptz,
+  -- Segments array: [{start: ISO, end: ISO | null}, ...].
+  -- Last segment's end is null only when the timer is actively running.
+  -- Paused: end_time IS NULL and all segments have a non-null end.
+  -- Running: end_time IS NULL and last segment has end: null.
+  -- Stopped: end_time IS NOT NULL and all segments have a non-null end.
+  segments jsonb not null default '[]'::jsonb,
   description text not null default '',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
 
--- Only one running timer per project at a time
+-- Only one running timer per (project, member) at a time — each teammate can
+-- track their own live session on the same project simultaneously.
 create unique index idx_project_time_entries_running
-  on public.project_time_entries (project_id) where end_time is null;
+  on public.project_time_entries (project_id, member_id) where end_time is null;
 
 -- ============================================================
 -- 22. PORTAL UPDATES (team-posted timeline updates for client portal)
