@@ -12,7 +12,15 @@ const dmSans = DM_Sans({
 export const metadata: Metadata = {
   title: `${siteConfig.name} | ${siteConfig.tagline}`,
   description: siteConfig.description,
-  icons: { icon: '/api/logo?type=favicon' },
+  icons: {
+    icon: [
+      { url: '/favicon/favicon-16x16.png', sizes: '16x16', type: 'image/png' },
+      { url: '/favicon/favicon-32x32.png', sizes: '32x32', type: 'image/png' },
+    ],
+    shortcut: '/favicon/favicon.ico',
+    apple: '/favicon/apple-touch-icon.png',
+  },
+  manifest: '/favicon/site.webmanifest',
 };
 
 export default function RootLayout({

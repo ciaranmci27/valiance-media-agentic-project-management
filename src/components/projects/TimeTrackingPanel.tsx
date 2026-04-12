@@ -628,7 +628,7 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                 </div>
 
                 {/* Description + pause/resume + stop */}
-                <div className="flex gap-2">
+                <div className="space-y-2 sm:space-y-0 sm:flex sm:gap-2">
                   <div className="flex-1">
                     <TextInput
                       value={timerDescription}
@@ -642,30 +642,32 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                       placeholder="What are you working on?"
                     />
                   </div>
-                  {runningTimerIsPaused ? (
+                  <div className="flex gap-2">
+                    {runningTimerIsPaused ? (
+                      <button
+                        onClick={handleResumeTimer}
+                        className="flex-1 sm:flex-none px-3 py-2 rounded-lg text-white font-medium text-sm transition-all flex items-center justify-center gap-1.5 flex-shrink-0 bg-brand-600 hover:bg-brand-700 active:scale-[0.97]"
+                      >
+                        <Play size={12} />
+                        Resume
+                      </button>
+                    ) : (
+                      <button
+                        onClick={handlePauseTimer}
+                        className="flex-1 sm:flex-none px-3 py-2 rounded-lg font-medium text-sm transition-all flex items-center justify-center gap-1.5 flex-shrink-0 bg-zinc-100 text-zinc-700 hover:bg-zinc-200 active:scale-[0.97]"
+                      >
+                        <Pause size={12} />
+                        Pause
+                      </button>
+                    )}
                     <button
-                      onClick={handleResumeTimer}
-                      className="px-3 py-2 rounded-lg text-white font-medium text-sm transition-all flex items-center gap-1.5 flex-shrink-0 bg-brand-600 hover:bg-brand-700 active:scale-[0.97]"
+                      onClick={handleStopTimer}
+                      className="flex-1 sm:flex-none px-3 py-2 rounded-lg text-white font-medium text-sm transition-all flex items-center justify-center gap-1.5 flex-shrink-0 bg-red-500 hover:bg-red-600 active:scale-[0.97]"
                     >
-                      <Play size={12} />
-                      Resume
+                      <Square size={12} />
+                      Stop
                     </button>
-                  ) : (
-                    <button
-                      onClick={handlePauseTimer}
-                      className="px-3 py-2 rounded-lg font-medium text-sm transition-all flex items-center gap-1.5 flex-shrink-0 bg-zinc-100 text-zinc-700 hover:bg-zinc-200 active:scale-[0.97]"
-                    >
-                      <Pause size={12} />
-                      Pause
-                    </button>
-                  )}
-                  <button
-                    onClick={handleStopTimer}
-                    className="px-3 py-2 rounded-lg text-white font-medium text-sm transition-all flex items-center gap-1.5 flex-shrink-0 bg-red-500 hover:bg-red-600 active:scale-[0.97]"
-                  >
-                    <Square size={12} />
-                    Stop
-                  </button>
+                  </div>
                 </div>
               </div>
             ) : (

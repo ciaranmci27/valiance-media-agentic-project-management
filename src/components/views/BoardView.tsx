@@ -164,7 +164,7 @@ export function BoardView({ tasks, onViewTask, onEditTask, onDeleteTask, onStatu
               {/* Column header */}
               <div className="flex items-center gap-2 mb-2 lg:mb-3 px-1 flex-shrink-0">
                 <div className={`w-2.5 h-2.5 rounded-full ${column.color}`} />
-                <h3 className="font-semibold text-zinc-800 text-sm lg:text-base">{column.title}</h3>
+                <h3 className="font-semibold text-zinc-800 text-lg">{column.title}</h3>
                 <span className="text-xs text-zinc-500 bg-zinc-100 px-1.5 py-0.5 rounded">
                   {columnTasks.length}
                 </span>

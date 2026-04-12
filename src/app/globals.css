@@ -101,6 +101,9 @@ body {
 .board-column-scroll:hover::-webkit-scrollbar-thumb { background: #D4D4D8; }
 .board-column-scroll:hover::-webkit-scrollbar-thumb:hover { background: #A1A1AA; }
 
+.scrollbar-none { -ms-overflow-style: none; scrollbar-width: none; }
+.scrollbar-none::-webkit-scrollbar { display: none; }
+
 /* ── Keyframes ─────────────────────────────────────────── */
 @keyframes fadeIn {
   from { opacity: 0; }

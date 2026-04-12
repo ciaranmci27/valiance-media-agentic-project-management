@@ -27,7 +27,7 @@ function getTimeAgo(dateStr: string): string {
 
 export default function DashboardPage() {
   const { projects, tasks, team, contacts, leads, activities, getTeamMember } = useApp();
-  const { user } = useAuth();
+  const { user, teamMemberId } = useAuth();
   const [showProjectPicker, setShowProjectPicker] = useState(false);
   const [quickAddProjectId, setQuickAddProjectId] = useState<string | null>(null);
 
@@ -60,7 +60,8 @@ export default function DashboardPage() {
     .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
     .slice(0, 6);
 
-  const displayName = user?.user_metadata?.display_name || user?.email?.split('@')[0] || 'there';
+  const currentMember = teamMemberId ? getTeamMember(teamMemberId) : null;
+  const displayName = currentMember?.name || user?.user_metadata?.display_name || user?.email?.split('@')[0] || 'there';
 
   const activeLeads = leads.filter(l => l.status !== 'won' && l.status !== 'lost');
 
@@ -121,11 +122,11 @@ export default function DashboardPage() {
         </div>
 
         {/* Stats Grid */}
-        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 lg:gap-4">
+        <div className="flex overflow-x-auto gap-3 lg:grid lg:grid-cols-5 lg:gap-4 -mx-4 px-4 lg:mx-0 lg:px-0 scrollbar-none">
           {stats.map((stat) => (
             <div
               key={stat.label}
-              className="bg-white rounded-xl border border-zinc-200 p-3 lg:p-5 hover:shadow-md transition-shadow"
+              className="min-w-[140px] flex-shrink-0 lg:min-w-0 bg-white rounded-xl border border-zinc-200 p-3 lg:p-5 hover:shadow-md transition-shadow"
             >
               <div className="flex items-center justify-between mb-2 lg:mb-3">
                 <div className={`p-2 lg:p-2.5 rounded-lg ${stat.bg}`}>

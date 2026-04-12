@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { Bell, CheckSquare, FolderKanban, Target, MessageSquare, Users } from 'lucide-react';
+import { Bell, CheckSquare, FolderKanban, Target, MessageSquare, Users, Loader2 } from 'lucide-react';
 import { useDemo } from '@/lib/demo-context';
 import { demoNotifications } from '@/lib/demo-data';
 import { createClient } from '@/lib/supabase/client';
@@ -41,7 +41,12 @@ export function NotificationDropdown() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const loadingMoreRef = useRef(false);
+  const PAGE_SIZE = 20;
 
   // Fetch unread count on mount and when pathname changes
   useEffect(() => {
@@ -77,38 +82,74 @@ export function NotificationDropdown() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const fetchNotifications = async () => {
-    setIsLoading(true);
+  const fetchNotifications = async (loadMore = false) => {
+    if (loadMore) {
+      if (loadingMoreRef.current || !hasMore) return;
+      loadingMoreRef.current = true;
+      setIsLoadingMore(true);
+    } else {
+      setIsLoading(true);
+      setHasMore(true);
+    }
 
     if (isDemoMode) {
       setNotifications([...demoNotifications]);
       setUnreadCount(demoNotifications.filter(n => !n.is_read).length);
+      setHasMore(false);
       setIsLoading(false);
       return;
     }
 
     const supabase = createClient();
-    try {
-      const [notifResult, countResult] = await Promise.all([
-        supabase
-          .from('team_member_notifications')
-          .select('*')
-          .order('created_at', { ascending: false })
-          .limit(10),
-        supabase
-          .from('team_member_notifications')
-          .select('*', { count: 'exact', head: true })
-          .eq('is_read', false),
-      ]);
+    const offset = loadMore ? notifications.length : 0;
 
-      if (notifResult.data) setNotifications(notifResult.data as Notification[]);
-      if (countResult.count !== null) setUnreadCount(countResult.count);
+    try {
+      const notifQuery = supabase
+        .from('team_member_notifications')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .range(offset, offset + PAGE_SIZE - 1);
+
+      if (loadMore) {
+        const { data } = await notifQuery;
+        if (data) {
+          const newNotifications = data as Notification[];
+          setNotifications(prev => [...prev, ...newNotifications]);
+          setHasMore(newNotifications.length === PAGE_SIZE);
+        }
+      } else {
+        const [notifResult, countResult] = await Promise.all([
+          notifQuery,
+          supabase
+            .from('team_member_notifications')
+            .select('*', { count: 'exact', head: true })
+            .eq('is_read', false),
+        ]);
+
+        if (notifResult.data) {
+          const newNotifications = notifResult.data as Notification[];
+          setNotifications(newNotifications);
+          setHasMore(newNotifications.length === PAGE_SIZE);
+        }
+        if (countResult.count !== null) setUnreadCount(countResult.count);
+      }
     } catch (error) {
       console.error('Error fetching notifications:', error);
     } finally {
       setIsLoading(false);
+      setIsLoadingMore(false);
+      loadingMoreRef.current = false;
     }
   };
+
+  const handleScroll = useCallback(() => {
+    const el = listRef.current;
+    if (!el || isLoadingMore || !hasMore) return;
+    // Load more when scrolled within 100px of the bottom
+    if (el.scrollHeight - el.scrollTop - el.clientHeight < 100) {
+      fetchNotifications(true);
+    }
+  }, [isLoadingMore, hasMore, notifications.length]);
 
   const handleToggle = () => {
     const willOpen = !isOpen;
@@ -134,20 +175,23 @@ export function NotificationDropdown() {
   };
 
   const handleMarkAllAsRead = async () => {
-    const unreadIds = notifications.filter(n => !n.is_read).map(n => n.id);
-    if (unreadIds.length === 0) return;
+    if (unreadCount === 0) return;
 
     if (isDemoMode) {
       setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
-      setUnreadCount(prev => Math.max(0, prev - unreadIds.length));
+      setUnreadCount(0);
       return;
     }
 
     const supabase = createClient();
     try {
-      await supabase.from('team_member_notifications').update({ is_read: true }).in('id', unreadIds);
+      // Mark ALL unread notifications as read, not just the visible ones
+      await supabase
+        .from('team_member_notifications')
+        .update({ is_read: true })
+        .eq('is_read', false);
       setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
-      setUnreadCount(prev => Math.max(0, prev - unreadIds.length));
+      setUnreadCount(0);
     } catch (error) {
       console.error('Error marking all as read:', error);
     }
@@ -195,7 +239,7 @@ export function NotificationDropdown() {
           </div>
 
           {/* List */}
-          <div className="max-h-96 overflow-y-auto">
+          <div ref={listRef} onScroll={handleScroll} className="max-h-96 overflow-y-auto">
             {isLoading ? (
               <div className="py-10 text-center text-zinc-400">
                 <div className="animate-spin h-5 w-5 border-2 border-brand-600 border-t-transparent rounded-full mx-auto mb-2" />
@@ -257,6 +301,11 @@ export function NotificationDropdown() {
                     </button>
                   );
                 })}
+                {isLoadingMore && (
+                  <div className="py-3 flex justify-center">
+                    <Loader2 size={16} className="animate-spin text-zinc-400" />
+                  </div>
+                )}
               </div>
             )}
           </div>
