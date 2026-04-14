@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Textarea } from '@/components/ui/inputs/Textarea';
 import { MultiSelect } from '@/components/ui/inputs/MultiSelect';
+import { DateInput } from '@/components/ui/inputs/DateInput';
 
 interface TaskFormProps {
   isOpen: boolean;
@@ -145,11 +146,11 @@ export function TaskForm({ isOpen, onClose, projectId, task }: TaskFormProps) {
           />
         </div>
 
-        <Input
+        <DateInput
           label="Due Date"
-          type="date"
           value={dueDate}
-          onChange={(e) => setDueDate(e.target.value)}
+          onChange={setDueDate}
+          clearable
         />
 
         <MultiSelect

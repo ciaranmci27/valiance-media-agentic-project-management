@@ -13,11 +13,14 @@ import { TaskDetailPanel } from '@/components/tasks/TaskDetailPanel';
 import { ProjectForm } from '@/components/projects/ProjectForm';
 import { ProjectContactsPanel } from '@/components/projects/ProjectContactsPanel';
 import { PortalSettingsPanel } from '@/components/projects/PortalSettingsPanel';
+import { ClientCommunicationsPanel } from '@/components/projects/ClientCommunicationsPanel';
+import { ClientCommunicationsLogPanel } from '@/components/projects/ClientCommunicationsLogPanel';
 import { PortalUpdatesPanel } from '@/components/projects/PortalUpdatesPanel';
 import { TimeTrackingPanel } from '@/components/projects/TimeTrackingPanel';
 import { CredentialsPanel } from '@/components/projects/CredentialsPanel';
 import InvoicesPanel from '@/components/projects/InvoicesPanel';
 import { FileAttachments } from '@/components/ui/FileAttachments';
+import { DateInput } from '@/components/ui/inputs/DateInput';
 import { Button } from '@/components/ui/Button';
 import { StatusBadge } from '@/components/ui/Badge';
 import { Avatar, AvatarGroup } from '@/components/ui/Avatar';
@@ -39,12 +42,13 @@ export default function ProjectDetailPage() {
   const {
     getProject, getTasksByProject, getTeamMember,
     getContactsByProject,
-    deleteTask, deleteProject, updateTask, filters, setFilters,
+    deleteTask, deleteProject, updateTask, updateProject, filters, setFilters,
   } = useApp();
 
   useEffect(() => { setFilters(defaultFilters); }, []);
 
   const [viewMode, setViewMode] = useState<ViewMode>('board');
+  const [commsRefreshKey, setCommsRefreshKey] = useState(0);
   const [isTaskFormOpen, setIsTaskFormOpen] = useState(false);
   const [isEditProjectOpen, setIsEditProjectOpen] = useState(false);
   const [isContactsPanelOpen, setIsContactsPanelOpen] = useState(false);
@@ -227,11 +231,6 @@ export default function ProjectDetailPage() {
     }
   };
 
-  const formatDate = (date: string | null) => {
-    if (!date) return null;
-    return new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-  };
-
   const viewModes: { id: ViewMode; icon: typeof LayoutGrid; label: string }[] = [
     { id: 'board', icon: LayoutGrid, label: 'Board' },
     { id: 'list', icon: List, label: 'List' },
@@ -280,13 +279,16 @@ export default function ProjectDetailPage() {
               <div className="p-1.5 bg-zinc-100 rounded-md">
                 <CalendarDays size={14} className="text-zinc-500" />
               </div>
-              <div>
+              <div className="min-w-0 flex-1">
                 <p className="text-xs text-zinc-500 font-medium">Start Date</p>
-                <p className="text-sm text-zinc-900">
-                  {formatDate(project.start_date) || (
-                    <button onClick={() => setIsEditProjectOpen(true)} className="text-brand-600 hover:text-brand-700 transition-colors">Not set</button>
-                  )}
-                </p>
+                <DateInput
+                  value={project.start_date || ''}
+                  onChange={(v) => updateProject(projectId, { start_date: v || null })}
+                  placeholder="Not set"
+                  size="sm"
+                  clearable
+                  inputClassName="!w-fit !justify-start !gap-1 !border-transparent !bg-transparent !shadow-none hover:!bg-zinc-100 focus:!ring-0 focus:!border-transparent !px-1.5 !-mx-1.5 !py-0.5 !rounded-md"
+                />
               </div>
             </div>
 
@@ -295,13 +297,17 @@ export default function ProjectDetailPage() {
               <div className="p-1.5 bg-zinc-100 rounded-md">
                 <Clock size={14} className="text-zinc-500" />
               </div>
-              <div>
+              <div className="min-w-0 flex-1">
                 <p className="text-xs text-zinc-500 font-medium">Due Date</p>
-                <p className="text-sm text-zinc-900">
-                  {formatDate(project.due_date) || (
-                    <button onClick={() => setIsEditProjectOpen(true)} className="text-brand-600 hover:text-brand-700 transition-colors">Not set</button>
-                  )}
-                </p>
+                <DateInput
+                  value={project.due_date || ''}
+                  onChange={(v) => updateProject(projectId, { due_date: v || null })}
+                  placeholder="Not set"
+                  size="sm"
+                  minDate={project.start_date || undefined}
+                  clearable
+                  inputClassName="!w-fit !justify-start !gap-1 !border-transparent !bg-transparent !shadow-none hover:!bg-zinc-100 focus:!ring-0 focus:!border-transparent !px-1.5 !-mx-1.5 !py-0.5 !rounded-md"
+                />
               </div>
             </div>
 
@@ -524,6 +530,17 @@ export default function ProjectDetailPage() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch mt-6">
           <PortalSettingsPanel projectId={projectId} />
           <PortalUpdatesPanel projectId={projectId} />
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch mt-6">
+          <ClientCommunicationsPanel
+            projectId={projectId}
+            onSent={() => setCommsRefreshKey(k => k + 1)}
+          />
+          <ClientCommunicationsLogPanel
+            projectId={projectId}
+            refreshSignal={commsRefreshKey}
+          />
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch mt-6">

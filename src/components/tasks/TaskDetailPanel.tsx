@@ -424,7 +424,7 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
                         </span>
                       </Tooltip>
                     )}
-                    <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-all">
+                    <div className="flex items-center gap-0.5 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-all">
                       <button
                         onClick={() => {
                           setEditingSubtaskId(subtask.id);
@@ -494,7 +494,7 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
                               })}
                             </p>
                           </div>
-                          <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-all">
+                          <div className="flex items-center gap-0.5 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-all">
                             {isOwn && (
                               <button
                                 onClick={() => {

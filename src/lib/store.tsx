@@ -134,6 +134,11 @@ interface AppContextType {
   viewMode: ViewMode;
   setViewMode: (mode: ViewMode) => void;
 
+  // Bumped whenever a client-communications row may have been inserted
+  // server-side (e.g. after a budget change). Components showing the
+  // communication log subscribe to this to refetch without a page reload.
+  commsRefreshSignal: number;
+
   // Project CRUD
   addProject: (project: Omit<Project, 'id' | 'created_at' | 'updated_at'>) => Promise<Project | undefined>;
   updateProject: (id: string, updates: Partial<Project>) => void;
@@ -326,6 +331,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [filters, setFilters] = useState<FilterState>(defaultFilters);
   const [viewMode, setViewMode] = useState<ViewMode>('board');
   const [loading, setLoading] = useState(true);
+  const [commsRefreshSignal, setCommsRefreshSignal] = useState(0);
 
   const { user, teamMemberId } = useAuth();
   const { isDemoMode } = useDemo();
@@ -519,6 +525,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       const newProject = await insertProject(supabase, { ...project, created_by: teamMemberId }, memberIds);
       setProjects(prev => prev.map(p => p.id === optimisticId ? newProject : p));
+
+      // If the project was created with a budget set, log that as a
+      // null -> value transition in project_budget_history.
+      const initialType = newProject.budget_type ?? null;
+      const initialValue = newProject.budget_value ?? null;
+      if (initialType !== null || initialValue !== null) {
+        fetch(`/api/projects/${newProject.id}/budget-change`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            oldType: null,
+            oldValue: null,
+            newType: initialType,
+            newValue: initialValue,
+          }),
+        }).catch(() => {});
+      }
+
       notify(allMemberIds(), `New project: "${newProject.name}"`, `${actorName()} created a new project.`, `/projects/${newProject.id}`, 'project', newProject.id, 'project_created', {
         subject: `New project: ${newProject.name}`,
         details: [
@@ -561,6 +585,37 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (updates.autonomous_enabled !== undefined && updates.autonomous_enabled !== projectBefore.autonomous_enabled) {
           const action = updates.autonomous_enabled ? 'enabled' : 'disabled';
           notify(adminMemberIds(), `Autonomous agents ${action} on "${projectBefore.name}"`, `${actorName()} ${action} autonomous agents for this project.`, '/agent', 'project', id, 'agent_autonomous');
+        }
+
+        // Fire the budget-change endpoint whenever either budget field moves.
+        // The endpoint logs every transition to project_budget_history (type
+        // changes, first-time set, clears, numeric changes) and conditionally
+        // dispatches the client-facing notification via handleBudgetChange.
+        const oldType = projectBefore.budget_type ?? null;
+        const oldValue = projectBefore.budget_value ?? null;
+        const newType = updates.budget_type !== undefined
+          ? (updates.budget_type ?? null)
+          : oldType;
+        const newValue = updates.budget_value !== undefined
+          ? (updates.budget_value ?? null)
+          : oldValue;
+        const budgetFieldTouched =
+          updates.budget_type !== undefined || updates.budget_value !== undefined;
+        const budgetActuallyChanged = oldType !== newType || oldValue !== newValue;
+        if (budgetFieldTouched && budgetActuallyChanged) {
+          // Awaited so the communication log can refetch once the server's
+          // handleBudgetChange has finished inserting any pending row.
+          try {
+            await fetch(`/api/projects/${id}/budget-change`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ oldType, oldValue, newType, newValue }),
+            });
+          } catch {
+            // Budget history / notification is best-effort; don't fail the
+            // project update the user just made.
+          }
+          setCommsRefreshSignal(s => s + 1);
         }
       }
     } catch (err) {
@@ -1318,7 +1373,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       due_date: null,
       hourly_tracking: false,
       hourly_rate: null,
-      fixed_price: null,
+      budget_type: null,
+      budget_value: null,
       autonomous_enabled: false,
       deployment_policy: 'production',
       max_concurrent_tasks: 2,
@@ -1779,6 +1835,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
         show_credentials: settings.show_credentials ?? false,
         show_invoices: settings.show_invoices ?? false,
         section_order: settings.section_order ?? [...DEFAULT_SECTION_ORDER],
+        notification_thresholds: settings.notification_thresholds ?? [50, 75, 90, 100],
+        alert_mode: settings.alert_mode ?? 'percentage',
+        dollar_interval: settings.dollar_interval ?? null,
+        require_alert_approval: settings.require_alert_approval ?? true,
+        rearm_thresholds_on_budget_change: settings.rearm_thresholds_on_budget_change ?? false,
         created_at: now,
         updated_at: now,
       };
@@ -2710,6 +2771,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setFilters,
       viewMode,
       setViewMode,
+      commsRefreshSignal,
       addProject,
       updateProject,
       deleteProject,

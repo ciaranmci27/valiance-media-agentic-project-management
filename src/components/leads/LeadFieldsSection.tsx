@@ -250,7 +250,7 @@ function LeadFieldItem({ definition, value, isEditing, onStartEdit, onStopEdit, 
           <p className="text-[11px] font-medium uppercase tracking-wider mb-1.5 text-zinc-400">{definition.label}</p>
           <FieldValueDisplay definition={definition} value={value} categoryConfig={categoryConfig} />
         </div>
-        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity ml-2 flex-shrink-0">
+        <div className="flex items-center gap-1 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-opacity ml-2 flex-shrink-0">
           <button
             onClick={onStartEdit}
             className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 transition-all"

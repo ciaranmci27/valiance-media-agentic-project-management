@@ -352,7 +352,7 @@ export function ProjectContextPanel({ projectId }: ProjectContextPanelProps) {
                               <span className="text-[10px] text-zinc-400">{timeAgo(entry.updated_at)}</span>
                             </div>
                           </div>
-                          <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+                          <div className="flex items-center gap-0.5 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-opacity flex-shrink-0">
                             <Tooltip content="Edit">
                               <button onClick={() => startEdit(entry)} className="p-1.5 text-zinc-400 hover:text-brand-600 transition-colors rounded-md">
                                 <Pencil size={12} />

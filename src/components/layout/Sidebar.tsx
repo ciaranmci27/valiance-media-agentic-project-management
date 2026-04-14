@@ -14,6 +14,7 @@ import {
   UserCircle,
   CheckSquare,
   Bot,
+  DollarSign,
 } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
@@ -51,6 +52,7 @@ export function Sidebar() {
     { href: '/leads', icon: Target, label: 'Leads', badge: 0 },
     { href: '/contacts', icon: UserCircle, label: 'Contacts', badge: 0 },
     { href: '/team', icon: Users, label: 'Team', badge: 0 },
+    { href: '/finances', icon: DollarSign, label: 'Finances', badge: 0 },
     ...(isAgentsEnabled && isAdmin ? [{ href: '/agent', icon: Bot, label: 'Agent', badge: pendingSuggestionCount }] : []),
   ];
 

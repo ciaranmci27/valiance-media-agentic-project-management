@@ -1,7 +1,9 @@
+import { after } from 'next/server';
 import { withApi } from '@/lib/api/middleware';
 import { success } from '@/lib/api/response';
 import { notFound, badRequest } from '@/lib/api/errors';
 import { logAudit } from '@/lib/api/audit';
+import { evaluateBudgetAlerts } from '@/lib/email/client-notifications';
 import type { TimeSegment } from '@/lib/types';
 
 export const POST = withApi(async ({ supabase, params, apiKeyId, teamMemberId }) => {
@@ -50,6 +52,10 @@ export const POST = withApi(async ({ supabase, params, apiKeyId, teamMemberId })
     afterSnapshot: data,
     statusCode: 200,
   });
+
+  // Use after() so the promise reliably resolves on serverless
+  // platforms; a bare .catch() can be killed when the response sends.
+  after(() => evaluateBudgetAlerts(id));
 
   return success(data);
 });

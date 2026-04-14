@@ -15,6 +15,11 @@ export const upsertPortalSettingsSchema = z.object({
   section_order: z.array(z.enum([
     'show_progress', 'show_hours', 'show_updates', 'show_files', 'show_credentials', 'show_invoices',
   ])).optional(),
+  notification_thresholds: z.array(z.number().int().min(1).max(100)).max(10).optional(),
+  alert_mode: z.enum(['percentage', 'dollar_interval', 'none']).optional(),
+  dollar_interval: z.number().positive().max(10_000_000).nullable().optional(),
+  require_alert_approval: z.boolean().optional(),
+  rearm_thresholds_on_budget_change: z.boolean().optional(),
 });
 
 export const createPortalUpdateSchema = z.object({

@@ -1,8 +1,10 @@
+import { after } from 'next/server';
 import { withApi } from '@/lib/api/middleware';
 import { success } from '@/lib/api/response';
 import { updateTimeEntrySchema } from '@/lib/schemas';
 import { notFound, badRequest } from '@/lib/api/errors';
 import { logAudit } from '@/lib/api/audit';
+import { evaluateBudgetAlerts } from '@/lib/email/client-notifications';
 import type { TimeSegment } from '@/lib/types';
 
 export const GET = withApi(async ({ supabase, params }) => {
@@ -84,6 +86,10 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
     afterSnapshot: data,
     statusCode: 200,
   });
+
+  // Use after() so the promise reliably resolves on serverless
+  // platforms; a bare .catch() can be killed when the response sends.
+  after(() => evaluateBudgetAlerts(id));
 
   return success(data);
 }, { schema: updateTimeEntrySchema });

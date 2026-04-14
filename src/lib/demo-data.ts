@@ -1,4 +1,4 @@
-import type { TeamMember, Contact, Project, ProjectContact, Task, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, Activity, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, TimeEntry, Notification, ProjectGoal, TaskSuggestion, AgentActivity, ProjectInvoice } from './types';
+import type { TeamMember, Contact, Project, ProjectContact, Task, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, Activity, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, TimeEntry, Notification, ProjectGoal, TaskSuggestion, AgentActivity, ProjectInvoice, ClientCommunication } from './types';
 import { DEFAULT_SECTION_ORDER } from './types';
 import { siteConfig } from '@/site-config';
 
@@ -71,12 +71,12 @@ const memberMap: Record<string, string[]> = {
 };
 
 export const demoProjects: Project[] = [
-  { id: 'c3c3c3c3-0001-4000-8000-000000000001', name: 'Crest Financial Rebrand',        description: 'Full brand identity refresh - logo, guidelines, collateral, and website.',   color: siteConfig.colors.brand[500], status: 'active',    start_date: '2026-01-15', due_date: '2026-04-30', hourly_tracking: true,  hourly_rate: 150, fixed_price: null, autonomous_enabled: true,  deployment_policy: 'production', max_concurrent_tasks: 2, suggestions_per_cycle: 3, repo_path: null, member_ids: memberMap['c3c3c3c3-0001-4000-8000-000000000001'], created_at: daysAgo(35), updated_at: daysAgo(1) },
-  { id: 'c3c3c3c3-0002-4000-8000-000000000002', name: 'Bloomwell Health App',           description: 'Patient portal mobile app - React Native, auth, appointments, messaging.',  color: '#EC4899', status: 'active',    start_date: '2026-02-01', due_date: '2026-06-15', hourly_tracking: true,  hourly_rate: 175, fixed_price: null, autonomous_enabled: true,  deployment_policy: 'production', max_concurrent_tasks: 2, suggestions_per_cycle: 3, repo_path: null, member_ids: memberMap['c3c3c3c3-0002-4000-8000-000000000002'], created_at: daysAgo(18), updated_at: daysAgo(1) },
-  { id: 'c3c3c3c3-0003-4000-8000-000000000003', name: 'NeoForge Website',               description: 'Marketing site for Series B push - Next.js, animations, CMS integration.',  color: '#8B5CF6', status: 'active',    start_date: '2026-01-20', due_date: '2026-03-31', hourly_tracking: false, hourly_rate: null, fixed_price: 18000, autonomous_enabled: false, deployment_policy: 'production', max_concurrent_tasks: 2, suggestions_per_cycle: 3, repo_path: null, member_ids: memberMap['c3c3c3c3-0003-4000-8000-000000000003'], created_at: daysAgo(30), updated_at: daysAgo(2) },
-  { id: 'c3c3c3c3-0004-4000-8000-000000000004', name: 'Solstice Realty Platform',       description: 'Property search with IDX, lead capture, and agent profiles.',                color: '#F59E0B', status: 'active',    start_date: '2026-02-10', due_date: '2026-05-20', hourly_tracking: true,  hourly_rate: 165, fixed_price: null, autonomous_enabled: false, deployment_policy: 'production', max_concurrent_tasks: 2, suggestions_per_cycle: 3, repo_path: null, member_ids: memberMap['c3c3c3c3-0004-4000-8000-000000000004'], created_at: daysAgo(9),  updated_at: daysAgo(1) },
-  { id: 'c3c3c3c3-0005-4000-8000-000000000005', name: 'Peak Outdoor Shopify Migration', description: 'Migrate from legacy WooCommerce to Shopify Plus with custom theme.',         color: '#10B981', status: 'completed', start_date: '2025-10-01', due_date: '2026-01-15', hourly_tracking: false, hourly_rate: null, fixed_price: 24000, autonomous_enabled: false, deployment_policy: 'production', max_concurrent_tasks: 2, suggestions_per_cycle: 3, repo_path: null, member_ids: memberMap['c3c3c3c3-0005-4000-8000-000000000005'], created_at: daysAgo(140), updated_at: daysAgo(35) },
-  { id: 'c3c3c3c3-0006-4000-8000-000000000006', name: 'UrbanPulse Brand Package',       description: 'Logo, color system, typography, and podcast microsite.',                     color: '#EF4444', status: 'archived',  start_date: '2025-08-15', due_date: '2025-11-30', hourly_tracking: false, hourly_rate: null, fixed_price: 8500,  autonomous_enabled: false, deployment_policy: 'production', max_concurrent_tasks: 2, suggestions_per_cycle: 3, repo_path: null, member_ids: memberMap['c3c3c3c3-0006-4000-8000-000000000006'], created_at: daysAgo(190), updated_at: daysAgo(80) },
+  { id: 'c3c3c3c3-0001-4000-8000-000000000001', name: 'Crest Financial Rebrand',        description: 'Full brand identity refresh - logo, guidelines, collateral, and website.',   color: siteConfig.colors.brand[500], status: 'active',    start_date: '2026-01-15', due_date: '2026-04-30', hourly_tracking: true,  hourly_rate: 150, budget_type: 'hours',  budget_value: 80,    autonomous_enabled: true,  deployment_policy: 'production', max_concurrent_tasks: 2, suggestions_per_cycle: 3, repo_path: null, member_ids: memberMap['c3c3c3c3-0001-4000-8000-000000000001'], created_at: daysAgo(35), updated_at: daysAgo(1) },
+  { id: 'c3c3c3c3-0002-4000-8000-000000000002', name: 'Bloomwell Health App',           description: 'Patient portal mobile app - React Native, auth, appointments, messaging.',  color: '#EC4899', status: 'active',    start_date: '2026-02-01', due_date: '2026-06-15', hourly_tracking: true,  hourly_rate: 175, budget_type: null,     budget_value: null,  autonomous_enabled: true,  deployment_policy: 'production', max_concurrent_tasks: 2, suggestions_per_cycle: 3, repo_path: null, member_ids: memberMap['c3c3c3c3-0002-4000-8000-000000000002'], created_at: daysAgo(18), updated_at: daysAgo(1) },
+  { id: 'c3c3c3c3-0003-4000-8000-000000000003', name: 'NeoForge Website',               description: 'Marketing site for Series B push - Next.js, animations, CMS integration.',  color: '#8B5CF6', status: 'active',    start_date: '2026-01-20', due_date: '2026-03-31', hourly_tracking: false, hourly_rate: null, budget_type: 'amount', budget_value: 18000, autonomous_enabled: false, deployment_policy: 'production', max_concurrent_tasks: 2, suggestions_per_cycle: 3, repo_path: null, member_ids: memberMap['c3c3c3c3-0003-4000-8000-000000000003'], created_at: daysAgo(30), updated_at: daysAgo(2) },
+  { id: 'c3c3c3c3-0004-4000-8000-000000000004', name: 'Solstice Realty Platform',       description: 'Property search with IDX, lead capture, and agent profiles.',                color: '#F59E0B', status: 'active',    start_date: '2026-02-10', due_date: '2026-05-20', hourly_tracking: true,  hourly_rate: 165, budget_type: 'amount', budget_value: 25000, autonomous_enabled: false, deployment_policy: 'production', max_concurrent_tasks: 2, suggestions_per_cycle: 3, repo_path: null, member_ids: memberMap['c3c3c3c3-0004-4000-8000-000000000004'], created_at: daysAgo(9),  updated_at: daysAgo(1) },
+  { id: 'c3c3c3c3-0005-4000-8000-000000000005', name: 'Peak Outdoor Shopify Migration', description: 'Migrate from legacy WooCommerce to Shopify Plus with custom theme.',         color: '#10B981', status: 'completed', start_date: '2025-10-01', due_date: '2026-01-15', hourly_tracking: false, hourly_rate: null, budget_type: 'amount', budget_value: 24000, autonomous_enabled: false, deployment_policy: 'production', max_concurrent_tasks: 2, suggestions_per_cycle: 3, repo_path: null, member_ids: memberMap['c3c3c3c3-0005-4000-8000-000000000005'], created_at: daysAgo(140), updated_at: daysAgo(35) },
+  { id: 'c3c3c3c3-0006-4000-8000-000000000006', name: 'UrbanPulse Brand Package',       description: 'Logo, color system, typography, and podcast microsite.',                     color: '#EF4444', status: 'archived',  start_date: '2025-08-15', due_date: '2025-11-30', hourly_tracking: false, hourly_rate: null, budget_type: 'amount', budget_value: 8500,  autonomous_enabled: false, deployment_policy: 'production', max_concurrent_tasks: 2, suggestions_per_cycle: 3, repo_path: null, member_ids: memberMap['c3c3c3c3-0006-4000-8000-000000000006'], created_at: daysAgo(190), updated_at: daysAgo(80) },
 ];
 
 // ---------------------------------------------------------------------------
@@ -625,6 +625,11 @@ export const demoPortalSettings: PortalSettings[] = [
     show_credentials: false,
     show_invoices: true,
     section_order: [...DEFAULT_SECTION_ORDER],
+    notification_thresholds: [50, 75, 90, 100],
+    alert_mode: 'percentage',
+    dollar_interval: null,
+    require_alert_approval: true,
+    rearm_thresholds_on_budget_change: false,
     created_at: daysAgo(10),
     updated_at: daysAgo(1),
   },
@@ -644,6 +649,11 @@ export const demoPortalSettings: PortalSettings[] = [
     show_credentials: false,
     show_invoices: false,
     section_order: [...DEFAULT_SECTION_ORDER],
+    notification_thresholds: [50, 75, 90, 100],
+    alert_mode: 'percentage',
+    dollar_interval: null,
+    require_alert_approval: true,
+    rearm_thresholds_on_budget_change: false,
     created_at: daysAgo(8),
     updated_at: daysAgo(1),
   },
@@ -735,6 +745,154 @@ export const demoPortalUpdateAttachments: PortalUpdateAttachment[] = [
     uploaded_by: 'a1a1a1a1-0001-4000-8000-000000000001',
     created_at: daysAgo(1),
     updated_at: daysAgo(1),
+  },
+];
+
+// ---------------------------------------------------------------------------
+// CLIENT COMMUNICATIONS (email log)
+// ---------------------------------------------------------------------------
+const david = demoContacts.find(c => c.id === 'b2b2b2b2-0001-4000-8000-000000000001')!;
+const monica = demoContacts.find(c => c.id === 'b2b2b2b2-0002-4000-8000-000000000002')!;
+
+export const demoClientCommunications: ClientCommunication[] = [
+  // Crest Financial (project 0001) — primary client: David Lawson
+  {
+    id: 'cc-0001-4000-8000-000000000001',
+    project_id: 'c3c3c3c3-0001-4000-8000-000000000001',
+    contact_id: david.id,
+    notification_type: 'portal_welcome',
+    status: 'sent',
+    subject: 'Welcome to the Crest Financial project portal',
+    rendered_html: null,
+    slot_overrides: {},
+    metadata: {},
+    triggered_by: DEMO_ADMIN_TEAM_MEMBER_ID,
+    sent_at: daysAgo(10),
+    dismissed_at: null,
+    created_at: daysAgo(10),
+    recipients: { to: [david.email], cc: [], bcc: [] },
+    contact: { id: david.id, name: david.name, email: david.email },
+  },
+  {
+    id: 'cc-0002-4000-8000-000000000002',
+    project_id: 'c3c3c3c3-0001-4000-8000-000000000001',
+    contact_id: david.id,
+    notification_type: 'budget_threshold',
+    status: 'sent',
+    subject: 'Crest Financial Rebrand has reached 50% of its budget',
+    rendered_html: null,
+    slot_overrides: {},
+    metadata: { threshold: 50 },
+    triggered_by: null,
+    sent_at: daysAgo(6),
+    dismissed_at: null,
+    created_at: daysAgo(6),
+    recipients: { to: [david.email], cc: [], bcc: [] },
+    contact: { id: david.id, name: david.name, email: david.email },
+  },
+  {
+    id: 'cc-0003-4000-8000-000000000003',
+    project_id: 'c3c3c3c3-0001-4000-8000-000000000001',
+    contact_id: david.id,
+    notification_type: 'project_summary',
+    status: 'sent',
+    subject: 'Project update: where things stand with Crest Financial Rebrand',
+    rendered_html: null,
+    slot_overrides: {},
+    metadata: {},
+    triggered_by: DEMO_ADMIN_TEAM_MEMBER_ID,
+    sent_at: daysAgo(3),
+    dismissed_at: null,
+    created_at: daysAgo(3),
+    recipients: { to: [david.email], cc: [], bcc: [] },
+    contact: { id: david.id, name: david.name, email: david.email },
+  },
+  {
+    id: 'cc-0004-4000-8000-000000000004',
+    project_id: 'c3c3c3c3-0001-4000-8000-000000000001',
+    contact_id: david.id,
+    notification_type: 'budget_threshold',
+    status: 'pending',
+    subject: 'Crest Financial Rebrand has reached 75% of its budget',
+    rendered_html: null,
+    slot_overrides: {},
+    metadata: { threshold: 75 },
+    triggered_by: null,
+    sent_at: null,
+    dismissed_at: null,
+    created_at: hoursAgo(4),
+    recipients: { to: [david.email], cc: [], bcc: [] },
+    contact: { id: david.id, name: david.name, email: david.email },
+  },
+  {
+    id: 'cc-0005-4000-8000-000000000005',
+    project_id: 'c3c3c3c3-0001-4000-8000-000000000001',
+    contact_id: david.id,
+    notification_type: 'dollar_interval',
+    status: 'dismissed',
+    subject: 'Milestone reached on Crest Financial Rebrand',
+    rendered_html: null,
+    slot_overrides: {},
+    metadata: { milestone: 2000 },
+    triggered_by: null,
+    sent_at: null,
+    dismissed_at: daysAgo(8),
+    created_at: daysAgo(8),
+    recipients: { to: [david.email], cc: [], bcc: [] },
+    contact: { id: david.id, name: david.name, email: david.email },
+  },
+
+  // Bloomwell Health (project 0002) — primary client: Monica Reeves
+  {
+    id: 'cc-0006-4000-8000-000000000006',
+    project_id: 'c3c3c3c3-0002-4000-8000-000000000002',
+    contact_id: monica.id,
+    notification_type: 'portal_welcome',
+    status: 'sent',
+    subject: 'Welcome to the Bloomwell project hub',
+    rendered_html: null,
+    slot_overrides: {},
+    metadata: {},
+    triggered_by: DEMO_ADMIN_TEAM_MEMBER_ID,
+    sent_at: daysAgo(7),
+    dismissed_at: null,
+    created_at: daysAgo(7),
+    recipients: { to: [monica.email], cc: [], bcc: [] },
+    contact: { id: monica.id, name: monica.name, email: monica.email },
+  },
+  {
+    id: 'cc-0007-4000-8000-000000000007',
+    project_id: 'c3c3c3c3-0002-4000-8000-000000000002',
+    contact_id: monica.id,
+    notification_type: 'budget_extended',
+    status: 'sent',
+    subject: 'Bloomwell Health App budget updated',
+    rendered_html: null,
+    slot_overrides: {},
+    metadata: {},
+    triggered_by: DEMO_ADMIN_TEAM_MEMBER_ID,
+    sent_at: daysAgo(2),
+    dismissed_at: null,
+    created_at: daysAgo(2),
+    recipients: { to: [monica.email], cc: [], bcc: [] },
+    contact: { id: monica.id, name: monica.name, email: monica.email },
+  },
+  {
+    id: 'cc-0008-4000-8000-000000000008',
+    project_id: 'c3c3c3c3-0002-4000-8000-000000000002',
+    contact_id: monica.id,
+    notification_type: 'budget_threshold',
+    status: 'pending',
+    subject: 'Bloomwell Health App has reached 90% of its budget',
+    rendered_html: null,
+    slot_overrides: {},
+    metadata: { threshold: 90 },
+    triggered_by: null,
+    sent_at: null,
+    dismissed_at: null,
+    created_at: hoursAgo(1),
+    recipients: { to: [monica.email], cc: [], bcc: [] },
+    contact: { id: monica.id, name: monica.name, email: monica.email },
   },
 ];
 
@@ -900,16 +1058,115 @@ export const demoTimeEntries: TimeEntry[] = [
 // PROJECT INVOICES
 // ---------------------------------------------------------------------------
 export const demoProjectInvoices: ProjectInvoice[] = [
-  // Crest Financial Rebrand - hourly project
-  { id: 'inv-0001-4000-8000-000000000001', project_id: 'c3c3c3c3-0001-4000-8000-000000000001', invoice_number: 'INV-001', amount: 4500.00,  status: 'paid',    invoice_type: 'hourly', date: '2026-01-20', due_date: '2026-02-20', paid_date: '2026-02-10', description: 'Brand strategy phase - discovery workshops and competitive audit.',    file_url: null, file_name: null, file_size: null, mime_type: null, created_by: 'a1a1a1a1-0001-4000-8000-000000000001', created_at: daysAgo(30), updated_at: daysAgo(20) },
-  { id: 'inv-0002-4000-8000-000000000002', project_id: 'c3c3c3c3-0001-4000-8000-000000000001', invoice_number: 'INV-002', amount: 6750.00,  status: 'sent',    invoice_type: 'hourly', date: '2026-02-15', due_date: '2026-03-15', paid_date: null,         description: 'Visual identity exploration - logo concepts, typography, and color system.', file_url: null, file_name: null, file_size: null, mime_type: null, created_by: 'a1a1a1a1-0001-4000-8000-000000000001', created_at: daysAgo(10), updated_at: daysAgo(10) },
-  { id: 'inv-0003-4000-8000-000000000003', project_id: 'c3c3c3c3-0001-4000-8000-000000000001', invoice_number: 'INV-003', amount: 3200.00,  status: 'draft',   invoice_type: 'hourly', date: '2026-02-25', due_date: '2026-03-25', paid_date: null,         description: 'Collateral design - business cards, letterhead, presentation template.', file_url: null, file_name: null, file_size: null, mime_type: null, created_by: 'a1a1a1a1-0001-4000-8000-000000000001', created_at: daysAgo(2),  updated_at: daysAgo(2) },
-  // Bloomwell Health App - hourly project
-  { id: 'inv-0004-4000-8000-000000000004', project_id: 'c3c3c3c3-0002-4000-8000-000000000002', invoice_number: 'INV-001', amount: 8750.00,  status: 'paid',    invoice_type: 'hourly', date: '2026-02-01', due_date: '2026-03-01', paid_date: '2026-02-18', description: 'Sprint 1 - project setup, auth flow, and database schema.',             file_url: null, file_name: null, file_size: null, mime_type: null, created_by: 'a1a1a1a1-0001-4000-8000-000000000001', created_at: daysAgo(15), updated_at: daysAgo(8) },
-  { id: 'inv-0005-4000-8000-000000000005', project_id: 'c3c3c3c3-0002-4000-8000-000000000002', invoice_number: 'INV-002', amount: 10500.00, status: 'overdue', invoice_type: 'hourly', date: '2026-02-15', due_date: '2026-02-25', paid_date: null,         description: 'Sprint 2 - patient dashboard, appointment booking, messaging.',          file_url: null, file_name: null, file_size: null, mime_type: null, created_by: 'a1a1a1a1-0001-4000-8000-000000000001', created_at: daysAgo(8),  updated_at: daysAgo(1) },
-  // NeoForge Website - fixed price project
-  { id: 'inv-0006-4000-8000-000000000006', project_id: 'c3c3c3c3-0003-4000-8000-000000000003', invoice_number: 'INV-001', amount: 9000.00,  status: 'paid',    invoice_type: 'fixed',  date: '2026-01-25', due_date: '2026-02-25', paid_date: '2026-02-12', description: 'Deposit - 50% of project total.',                                      file_url: null, file_name: null, file_size: null, mime_type: null, created_by: 'a1a1a1a1-0002-4000-8000-000000000002', created_at: daysAgo(28), updated_at: daysAgo(20) },
-  { id: 'inv-0007-4000-8000-000000000007', project_id: 'c3c3c3c3-0003-4000-8000-000000000003', invoice_number: 'INV-002', amount: 9000.00,  status: 'sent',    invoice_type: 'fixed',  date: '2026-02-20', due_date: '2026-03-20', paid_date: null,         description: 'Final payment - remaining 50% on delivery.',                          file_url: null, file_name: null, file_size: null, mime_type: null, created_by: 'a1a1a1a1-0002-4000-8000-000000000002', created_at: daysAgo(5),  updated_at: daysAgo(5) },
+  // -----------------------------------------------------------------------
+  // Crest Financial Rebrand — hourly project (hourly earnings come from
+  // time entries). Older invoices use legacy `line_items: []` to exercise
+  // the lazy-synth path in ensureLineItems. A newer recurring retainer
+  // accrues daily across the default 30-day chart window.
+  // -----------------------------------------------------------------------
+  { id: 'inv-0001-4000-8000-000000000001', project_id: 'c3c3c3c3-0001-4000-8000-000000000001', invoice_number: 'INV-001', amount: 4500.00,  status: 'paid',    invoice_type: 'hourly', line_items: [], date: '2026-01-20', due_date: '2026-02-20', paid_date: '2026-02-10', description: 'Brand strategy phase - discovery workshops and competitive audit.',    file_url: null, file_name: null, file_size: null, mime_type: null, created_by: 'a1a1a1a1-0001-4000-8000-000000000001', created_at: daysAgo(84), updated_at: daysAgo(63) },
+  { id: 'inv-0002-4000-8000-000000000002', project_id: 'c3c3c3c3-0001-4000-8000-000000000001', invoice_number: 'INV-002', amount: 6750.00,  status: 'sent',    invoice_type: 'hourly', line_items: [], date: '2026-02-15', due_date: '2026-03-15', paid_date: null,         description: 'Visual identity exploration - logo concepts, typography, and color system.', file_url: null, file_name: null, file_size: null, mime_type: null, created_by: 'a1a1a1a1-0001-4000-8000-000000000001', created_at: daysAgo(58), updated_at: daysAgo(30) },
+  { id: 'inv-0003-4000-8000-000000000003', project_id: 'c3c3c3c3-0001-4000-8000-000000000001', invoice_number: 'INV-003', amount: 3200.00,  status: 'draft',   invoice_type: 'hourly', line_items: [], date: '2026-02-25', due_date: '2026-03-25', paid_date: null,         description: 'Collateral design - business cards, letterhead, presentation template.', file_url: null, file_name: null, file_size: null, mime_type: null, created_by: 'a1a1a1a1-0001-4000-8000-000000000001', created_at: daysAgo(48), updated_at: daysAgo(48) },
+  // Crest — monthly retainer that amortizes $2500/mo into ~$80/day accrual.
+  {
+    id: 'inv-0010-4000-8000-000000000010', project_id: 'c3c3c3c3-0001-4000-8000-000000000001',
+    invoice_number: 'INV-004', amount: 2500.00, status: 'sent', invoice_type: 'recurring',
+    line_items: [
+      { id: 'li-0010-a', position: 0, item_type: 'recurring', amount: 2500, description: 'Marketing retainer — strategy calls, creative oversight, social templates', service_start_date: '2026-03-15', service_end_date: '2026-04-14', recurrence_frequency: 'monthly' },
+    ],
+    date: '2026-03-15', due_date: '2026-04-14', paid_date: null,
+    description: 'Monthly marketing retainer (Mar 15 - Apr 14).',
+    file_url: null, file_name: null, file_size: null, mime_type: null,
+    created_by: 'a1a1a1a1-0001-4000-8000-000000000001', created_at: daysAgo(30), updated_at: daysAgo(30),
+  },
+
+  // -----------------------------------------------------------------------
+  // Bloomwell Health App — hourly project with a multi-line invoice that
+  // combines billable hours and a monthly maintenance retainer.
+  // -----------------------------------------------------------------------
+  { id: 'inv-0004-4000-8000-000000000004', project_id: 'c3c3c3c3-0002-4000-8000-000000000002', invoice_number: 'INV-001', amount: 8750.00,  status: 'paid',    invoice_type: 'hourly', line_items: [], date: '2026-02-01', due_date: '2026-03-01', paid_date: '2026-02-18', description: 'Sprint 1 - project setup, auth flow, and database schema.',             file_url: null, file_name: null, file_size: null, mime_type: null, created_by: 'a1a1a1a1-0001-4000-8000-000000000001', created_at: daysAgo(72), updated_at: daysAgo(55) },
+  { id: 'inv-0005-4000-8000-000000000005', project_id: 'c3c3c3c3-0002-4000-8000-000000000002', invoice_number: 'INV-002', amount: 10500.00, status: 'overdue', invoice_type: 'hourly', line_items: [], date: '2026-02-15', due_date: '2026-02-25', paid_date: null,         description: 'Sprint 2 - patient dashboard, appointment booking, messaging.',          file_url: null, file_name: null, file_size: null, mime_type: null, created_by: 'a1a1a1a1-0001-4000-8000-000000000001', created_at: daysAgo(58), updated_at: daysAgo(48) },
+  // Bloomwell multi-line: billable hours (no service window) + monthly retainer.
+  {
+    id: 'inv-0008-4000-8000-000000000008', project_id: 'c3c3c3c3-0002-4000-8000-000000000002',
+    invoice_number: 'INV-003', amount: 5000.00, status: 'sent', invoice_type: 'hourly',
+    line_items: [
+      { id: 'li-0008-a', position: 0, item_type: 'hourly',    amount: 2000, description: 'Billable hours (Mar 15 - Apr 12)', service_start_date: null,        service_end_date: null,        recurrence_frequency: null },
+      { id: 'li-0008-b', position: 1, item_type: 'recurring', amount: 3000, description: 'Monthly maintenance retainer',      service_start_date: '2026-03-15', service_end_date: '2026-04-14', recurrence_frequency: 'monthly' },
+    ],
+    date: '2026-03-15', due_date: '2026-04-15', paid_date: null,
+    description: 'Combined billable hours and monthly retainer.',
+    file_url: null, file_name: null, file_size: null, mime_type: null,
+    created_by: 'a1a1a1a1-0001-4000-8000-000000000001', created_at: daysAgo(30), updated_at: daysAgo(30),
+  },
+
+  // -----------------------------------------------------------------------
+  // NeoForge Website — fixed-price project, split into three milestones so
+  // two of the three accrue across the default chart window (development
+  // sprint partially visible, launch phase fully visible).
+  // -----------------------------------------------------------------------
+  {
+    id: 'inv-0006-4000-8000-000000000006', project_id: 'c3c3c3c3-0003-4000-8000-000000000003',
+    invoice_number: 'INV-001', amount: 6000.00, status: 'paid', invoice_type: 'fixed',
+    line_items: [
+      { id: 'li-0006-a', position: 0, item_type: 'fixed', amount: 6000, description: '', service_start_date: '2026-01-25', service_end_date: '2026-02-15', recurrence_frequency: null },
+    ],
+    date: '2026-01-25', due_date: '2026-02-15', paid_date: '2026-02-10',
+    description: 'Kickoff deposit — discovery, sitemap, and wireframes.',
+    file_url: null, file_name: null, file_size: null, mime_type: null,
+    created_by: 'a1a1a1a1-0002-4000-8000-000000000002', created_at: daysAgo(79), updated_at: daysAgo(63),
+  },
+  {
+    id: 'inv-0007-4000-8000-000000000007', project_id: 'c3c3c3c3-0003-4000-8000-000000000003',
+    invoice_number: 'INV-002', amount: 6000.00, status: 'sent', invoice_type: 'fixed',
+    line_items: [
+      { id: 'li-0007-a', position: 0, item_type: 'fixed', amount: 6000, description: '', service_start_date: '2026-02-20', service_end_date: '2026-03-31', recurrence_frequency: null },
+    ],
+    date: '2026-02-20', due_date: '2026-03-31', paid_date: null,
+    description: 'Development sprint — page builds, CMS integration, and animation pass.',
+    file_url: null, file_name: null, file_size: null, mime_type: null,
+    created_by: 'a1a1a1a1-0002-4000-8000-000000000002', created_at: daysAgo(53), updated_at: daysAgo(53),
+  },
+  {
+    id: 'inv-0009-4000-8000-000000000009', project_id: 'c3c3c3c3-0003-4000-8000-000000000003',
+    invoice_number: 'INV-003', amount: 6000.00, status: 'sent', invoice_type: 'fixed',
+    line_items: [
+      { id: 'li-0009-a', position: 0, item_type: 'fixed', amount: 6000, description: '', service_start_date: '2026-04-01', service_end_date: '2026-04-30', recurrence_frequency: null },
+    ],
+    date: '2026-04-01', due_date: '2026-05-01', paid_date: null,
+    description: 'Launch phase — QA, content migration, deploy, and handover.',
+    file_url: null, file_name: null, file_size: null, mime_type: null,
+    created_by: 'a1a1a1a1-0002-4000-8000-000000000002', created_at: daysAgo(13), updated_at: daysAgo(13),
+  },
+
+  // -----------------------------------------------------------------------
+  // Solstice Realty Platform — hourly project with a paid multi-line
+  // invoice (billable hours + IDX hosting retainer) and a forward-looking
+  // recurring-only invoice for the following month.
+  // -----------------------------------------------------------------------
+  {
+    id: 'inv-0011-4000-8000-000000000011', project_id: 'c3c3c3c3-0004-4000-8000-000000000004',
+    invoice_number: 'INV-001', amount: 3800.00, status: 'paid', invoice_type: 'hourly',
+    line_items: [
+      { id: 'li-0011-a', position: 0, item_type: 'hourly',    amount: 3300, description: 'Billable hours — IDX integration scaffolding', service_start_date: null,        service_end_date: null,        recurrence_frequency: null },
+      { id: 'li-0011-b', position: 1, item_type: 'recurring', amount: 500,  description: 'IDX feed hosting & maintenance',                service_start_date: '2026-03-01', service_end_date: '2026-03-31', recurrence_frequency: 'monthly' },
+    ],
+    date: '2026-03-05', due_date: '2026-04-05', paid_date: '2026-03-28',
+    description: 'March billing — sprint hours + IDX hosting retainer.',
+    file_url: null, file_name: null, file_size: null, mime_type: null,
+    created_by: 'a1a1a1a1-0001-4000-8000-000000000001', created_at: daysAgo(40), updated_at: daysAgo(17),
+  },
+  {
+    id: 'inv-0012-4000-8000-000000000012', project_id: 'c3c3c3c3-0004-4000-8000-000000000004',
+    invoice_number: 'INV-002', amount: 500.00, status: 'sent', invoice_type: 'recurring',
+    line_items: [
+      { id: 'li-0012-a', position: 0, item_type: 'recurring', amount: 500, description: 'IDX feed hosting & maintenance', service_start_date: '2026-04-01', service_end_date: '2026-04-30', recurrence_frequency: 'monthly' },
+    ],
+    date: '2026-04-01', due_date: '2026-05-01', paid_date: null,
+    description: 'April IDX hosting retainer.',
+    file_url: null, file_name: null, file_size: null, mime_type: null,
+    created_by: 'a1a1a1a1-0001-4000-8000-000000000001', created_at: daysAgo(13), updated_at: daysAgo(13),
+  },
 ];
 
 // ---------------------------------------------------------------------------

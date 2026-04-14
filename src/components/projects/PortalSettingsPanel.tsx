@@ -3,8 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import {
   Globe, Link2, Copy, Check, Eye, EyeOff, Lock, Pencil,
-  Trash2, ExternalLink,
-  Camera, Loader2, X, GripVertical,
+  Trash2, Camera, Loader2, X, GripVertical,
 } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { DEFAULT_SECTION_ORDER, PORTAL_SECTION_LABELS, type PortalSectionKey } from '@/lib/types';
@@ -251,9 +250,9 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
                 <button
                   type="button"
                   onClick={() => logoInputRef.current?.click()}
-                  className="absolute inset-0 rounded-xl bg-black/0 group-hover:bg-black/40 flex items-center justify-center transition-all cursor-pointer"
+                  className="absolute inset-0 rounded-xl bg-black/30 sm:bg-black/0 sm:group-hover:bg-black/40 sm:focus-visible:bg-black/40 flex items-center justify-center transition-all cursor-pointer"
                 >
-                  <Camera size={16} className="text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                  <Camera size={16} className="text-white sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 transition-opacity" />
                 </button>
               )}
               {uploadingLogo && (
@@ -265,7 +264,7 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
                 <button
                   type="button"
                   onClick={handleRemoveLogo}
-                  className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-red-500 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600"
+                  className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-red-500 text-white flex items-center justify-center sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 transition-opacity hover:bg-red-600"
                 >
                   <X size={12} />
                 </button>
@@ -424,17 +423,19 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
           </div>
 
           {/* Welcome Message */}
-          <Textarea
-            label="Welcome Message"
-            value={localWelcomeMessage}
-            onChange={v => {
-              setLocalWelcomeMessage(v);
-              debouncedSettingChange('welcome_message', v);
-            }}
-            placeholder="Welcome to your project portal! Here you can track progress and download shared files."
-            rows={3}
-            size="sm"
-          />
+          <div className="space-y-2">
+            <Textarea
+              label="Welcome Message"
+              value={localWelcomeMessage}
+              onChange={v => {
+                setLocalWelcomeMessage(v);
+                debouncedSettingChange('welcome_message', v);
+              }}
+              placeholder="Welcome to your project portal! Here you can track progress and download shared files."
+              rows={3}
+              size="sm"
+            />
+          </div>
 
           {/* Visibility Toggles (drag to reorder) */}
           <div className="space-y-2">
@@ -473,6 +474,7 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
                 })}
             </div>
           </div>
+
         </div>
       )}
       <AvatarCropModal

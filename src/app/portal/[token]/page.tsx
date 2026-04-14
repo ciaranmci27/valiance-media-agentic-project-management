@@ -433,7 +433,7 @@ function UpdatesTimeline({ updates, accentColor, onPreview }: {
                                   alt={a.name}
                                   className="max-w-[200px] max-h-[120px] rounded-lg border border-zinc-200 object-cover"
                                 />
-                                <div className="absolute inset-0 rounded-lg bg-black/0 group-hover/img:bg-black/40 transition-colors flex items-center justify-center gap-1.5 opacity-0 group-hover/img:opacity-100">
+                                <div className="absolute inset-0 rounded-lg flex items-center justify-center gap-1.5 transition-colors sm:bg-black/0 sm:group-hover/img:bg-black/40 sm:opacity-0 sm:group-hover/img:opacity-100 sm:focus-within:opacity-100">
                                   <Tooltip content="Preview">
                                     <button
                                       onClick={() => onPreview({ name: a.name, file_url: a.file_url, mime_type: a.mime_type })}
@@ -1392,8 +1392,19 @@ export default function PortalPage() {
                   const portalActive = data.invoices.filter(i => i.status !== 'draft' && i.status !== 'cancelled');
                   const portalInvoiced = portalActive.reduce((s, i) => s + i.amount, 0);
                   const portalPaid = data.invoices.filter(i => i.status === 'paid').reduce((s, i) => s + i.amount, 0);
-                  const portalHourlyInvoiced = portalActive.filter(i => i.invoice_type === 'hourly').reduce((s, i) => s + i.amount, 0);
-                  const portalFixedInvoiced = portalActive.filter(i => i.invoice_type === 'fixed' || i.invoice_type === 'recurring').reduce((s, i) => s + i.amount, 0);
+                  // Break down by line-item type so mixed invoices are counted correctly.
+                  // Falls back to flat invoice_type when line_items is empty (legacy rows).
+                  let portalHourlyInvoiced = 0;
+                  let portalFixedInvoiced = 0;
+                  for (const inv of portalActive) {
+                    const items = Array.isArray(inv.line_items) && inv.line_items.length > 0
+                      ? inv.line_items
+                      : [{ item_type: inv.invoice_type, amount: inv.amount }];
+                    for (const li of items) {
+                      if (li.item_type === 'hourly') portalHourlyInvoiced += Number(li.amount) || 0;
+                      else portalFixedInvoiced += Number(li.amount) || 0;
+                    }
+                  }
                   const billing = data.billing;
                   // Billable = hourly work (max of tracked vs invoiced) + fixed/recurring
                   const portalBillableTotal = billing

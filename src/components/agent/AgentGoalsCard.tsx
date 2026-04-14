@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Textarea } from '@/components/ui/inputs/Textarea';
+import { DateInput } from '@/components/ui/inputs/DateInput';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Target, Plus, Pencil, Trash2, X, CalendarDays, Lightbulb, Zap, CheckCircle2 } from 'lucide-react';
@@ -163,11 +164,11 @@ export function AgentGoalsCard({ projectId, goals, taskSuggestions, tasks, onAdd
               required
             />
             <div className="grid grid-cols-2 gap-4">
-              <Input
+              <DateInput
                 label="Target Date"
-                type="date"
                 value={targetDate}
-                onChange={(e) => setTargetDate(e.target.value)}
+                onChange={setTargetDate}
+                clearable
               />
               <Select
                 label="Status"
@@ -263,7 +264,7 @@ export function AgentGoalsCard({ projectId, goals, taskSuggestions, tasks, onAdd
                         </div>
 
                         {/* Actions */}
-                        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+                        <div className="flex items-center gap-0.5 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-opacity flex-shrink-0">
                           <Tooltip content="Edit">
                             <button
                               onClick={() => handleOpenEdit(goal)}

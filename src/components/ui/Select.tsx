@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronDown, Check } from 'lucide-react';
+import { labelSizeClass } from '@/components/ui/inputs/_shared';
 
 interface SelectOption {
   value: string;
@@ -115,7 +116,7 @@ export function Select({
   return (
     <div className="space-y-1.5">
       {label && (
-        <label className="block text-sm font-medium text-zinc-700">
+        <label className={`block ${labelSizeClass(size === 'sm' ? 'sm' : 'default')} font-medium text-input-text-label`}>
           {label}
         </label>
       )}

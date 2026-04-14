@@ -319,7 +319,7 @@ export function TaskRowDesktop({ task, onView, onEdit, onDelete, selected, onTog
       <div className="relative">
         <button
           onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }}
-          className="p-1.5 rounded text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 opacity-0 group-hover:opacity-100 transition-all"
+          className="p-1.5 rounded text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 transition-all"
         >
           <MoreVertical size={16} />
         </button>

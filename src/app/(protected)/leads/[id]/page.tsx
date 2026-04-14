@@ -431,7 +431,7 @@ export default function LeadDetailPage() {
                           {author && <span>by {author.name}</span>}
                         </div>
                       </div>
-                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+                      <div className="flex items-center gap-1 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-opacity flex-shrink-0">
                         <button
                           onClick={() => handleEditInteraction(interaction)}
                           className="p-1.5 text-zinc-300 hover:text-brand-500 transition-all"
@@ -501,7 +501,7 @@ export default function LeadDetailPage() {
                           </p>
                         )}
                       </div>
-                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+                      <div className="flex items-center gap-1 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-opacity flex-shrink-0">
                         <button
                           onClick={() => handleEditProposal(proposal)}
                           className="p-1.5 text-zinc-300 hover:text-brand-500 transition-all"

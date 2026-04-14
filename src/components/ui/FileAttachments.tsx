@@ -375,7 +375,7 @@ export function FileAttachments({ entityType, entityId }: FileAttachmentsProps) 
                         className={`p-1.5 rounded-md transition-all ${
                           isExternal
                             ? 'text-white bg-brand-500 hover:bg-brand-600'
-                            : 'text-zinc-300 hover:text-brand-500 hover:bg-brand-50 opacity-0 group-hover:opacity-100'
+                            : 'text-zinc-300 hover:text-brand-500 hover:bg-brand-50 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100'
                         }`}
                       >
                         <Globe size={14} />
@@ -386,7 +386,7 @@ export function FileAttachments({ entityType, entityId }: FileAttachmentsProps) 
                     <button
                       ref={el => { triggerRefs.current[file.id] = el; }}
                       onClick={() => setOpenMenuId(isMenuOpen ? null : file.id)}
-                      className="p-1.5 text-zinc-300 hover:text-zinc-600 opacity-0 group-hover:opacity-100 data-[open]:opacity-100 transition-all rounded-md hover:bg-zinc-200"
+                      className="p-1.5 text-zinc-300 hover:text-zinc-600 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 data-[open]:opacity-100 transition-all rounded-md hover:bg-zinc-200"
                       data-open={isMenuOpen || undefined}
                     >
                       <MoreHorizontal size={16} />

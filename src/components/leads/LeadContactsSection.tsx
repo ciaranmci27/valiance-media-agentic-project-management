@@ -187,13 +187,13 @@ export function LeadContactsSection({ leadId }: LeadContactsSectionProps) {
                           <Badge variant="default">{displayRole}</Badge>
                           <button
                             onClick={() => handleStartEdit(lc)}
-                            className="p-1.5 text-zinc-300 hover:text-brand-500 transition-all opacity-0 group-hover:opacity-100"
+                            className="p-1.5 text-zinc-300 hover:text-brand-500 transition-all sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
                           >
                             <Edit size={14} />
                           </button>
                           <button
                             onClick={() => handleRemove(lc.id)}
-                            className="p-1.5 text-zinc-300 hover:text-red-500 transition-all opacity-0 group-hover:opacity-100"
+                            className="p-1.5 text-zinc-300 hover:text-red-500 transition-all sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
                           >
                             <Trash2 size={14} />
                           </button>

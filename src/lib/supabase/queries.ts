@@ -3,6 +3,7 @@ import type { Project, Task, TeamMember, Subtask, Comment, Activity, Contact, Pr
 import { notFound } from '@/lib/api/errors';
 import { siteConfig } from '@/site-config';
 import { generatePortalSlug } from '@/lib/portal-slug';
+import { ensureLineItems } from '@/lib/invoice-utils';
 
 // ============================================================
 // PROJECTS
@@ -1932,7 +1933,11 @@ export async function fetchAllProjectInvoices(supabase: SupabaseClient) {
     .select('*')
     .order('date', { ascending: false });
   if (error) throw error;
-  return (data || []) as ProjectInvoice[];
+  // Hydrate line_items via lazy synthesis so consumers always see a populated array.
+  return (data || []).map((row) => {
+    const inv = row as ProjectInvoice;
+    return { ...inv, line_items: ensureLineItems(inv) };
+  });
 }
 
 export async function insertProjectInvoice(
@@ -1947,6 +1952,7 @@ export async function insertProjectInvoice(
       amount: invoice.amount,
       status: invoice.status,
       invoice_type: invoice.invoice_type,
+      line_items: invoice.line_items ?? [],
       date: invoice.date,
       due_date: invoice.due_date,
       paid_date: invoice.paid_date,
@@ -1960,7 +1966,8 @@ export async function insertProjectInvoice(
     .select()
     .single();
   if (error) throw error;
-  return data as ProjectInvoice;
+  const inv = data as ProjectInvoice;
+  return { ...inv, line_items: ensureLineItems(inv) };
 }
 
 export async function patchProjectInvoice(
@@ -1976,7 +1983,8 @@ export async function patchProjectInvoice(
     .select()
     .single();
   if (error) throw error;
-  return data as ProjectInvoice;
+  const inv = data as ProjectInvoice;
+  return { ...inv, line_items: ensureLineItems(inv) };
 }
 
 export async function removeProjectInvoice(supabase: SupabaseClient, id: string) {

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useMemo, useEffect, useRef, Fragment } from 'react';
-import { Clock, Plus, Trash2, Pencil, X, Check, Play, Pause, Square, Timer } from 'lucide-react';
+import { Clock, Plus, Trash2, Pencil, X, Check, Play, Pause, Square, Timer, CircleDollarSign } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { toast } from '@/components/ui/Toast';
@@ -72,7 +72,7 @@ function getStorageKey(projectId: string) {
 export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTrackingPanelProps) {
   const projectColor = rawColor || '#A1A1AA';
   const {
-    getTimeEntriesByProject, team, getProject,
+    getTimeEntriesByProject, team, getProject, getInvoicesByProject,
     addTimeEntry, updateTimeEntry, deleteTimeEntry,
     startTimer, pauseTimer, resumeTimer, stopTimer, getRunningTimer,
   } = useApp();
@@ -95,12 +95,46 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
     [entries, teamMemberId],
   );
 
-  // ── Mode selection (persisted per project, defaults to manual) ──
+  // ── Per-entry payment status (FIFO waterfall against paid hourly invoices) ──
+  const invoices = getInvoicesByProject(projectId);
+  const hourlyRate = project?.hourly_rate ?? 0;
+  const isHourly = project?.hourly_tracking ?? false;
+
+  const paymentStatusMap = useMemo(() => {
+    const map = new Map<string, 'paid' | 'partial' | 'unpaid'>();
+    if (!isHourly || hourlyRate <= 0) return map;
+
+    // Sum paid hourly invoices into a pool
+    let pool = invoices
+      .filter(inv => inv.status === 'paid' && inv.invoice_type === 'hourly')
+      .reduce((sum, inv) => sum + inv.amount, 0);
+
+    // Sort finalized entries oldest-first
+    const finalized = entries
+      .filter(e => e.end_time !== null)
+      .sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime());
+
+    for (const entry of finalized) {
+      const cost = getWorkedHours(entry) * hourlyRate;
+      if (pool >= cost) {
+        map.set(entry.id, 'paid');
+        pool -= cost;
+      } else if (pool > 0) {
+        map.set(entry.id, 'partial');
+        pool = 0;
+      } else {
+        map.set(entry.id, 'unpaid');
+      }
+    }
+    return map;
+  }, [isHourly, hourlyRate, invoices, entries]);
+
+  // ── Mode selection (persisted per project, defaults to timer) ──
   const [mode, setMode] = useState<TrackingMode>(() => {
-    if (typeof window === 'undefined') return 'manual';
+    if (typeof window === 'undefined') return 'timer';
     const stored = localStorage.getItem(getStorageKey(projectId));
     if (stored === 'timer' || stored === 'manual') return stored;
-    return 'manual';
+    return 'timer';
   });
 
   // If there's a running timer, force into timer mode and sync description
@@ -495,17 +529,6 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
         </div>
         <div className="flex items-center gap-0.5 bg-zinc-100 rounded-lg p-0.5">
           <button
-            onClick={() => { if (mode !== 'manual') toggleMode(); }}
-            className={`text-xs font-medium px-2.5 py-1 rounded-md transition-all duration-150 flex items-center gap-1.5 ${
-              mode === 'manual'
-                ? 'bg-white text-zinc-900 shadow-sm'
-                : 'text-zinc-500 hover:text-zinc-700'
-            }`}
-          >
-            <Clock size={12} />
-            Manual
-          </button>
-          <button
             onClick={() => { if (mode !== 'timer') toggleMode(); }}
             className={`text-xs font-medium px-2.5 py-1 rounded-md transition-all duration-150 flex items-center gap-1.5 ${
               mode === 'timer'
@@ -515,6 +538,17 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
           >
             <Timer size={12} />
             Timer
+          </button>
+          <button
+            onClick={() => { if (mode !== 'manual') toggleMode(); }}
+            className={`text-xs font-medium px-2.5 py-1 rounded-md transition-all duration-150 flex items-center gap-1.5 ${
+              mode === 'manual'
+                ? 'bg-white text-zinc-900 shadow-sm'
+                : 'text-zinc-500 hover:text-zinc-700'
+            }`}
+          >
+            <Clock size={12} />
+            Manual
           </button>
         </div>
       </div>
@@ -964,7 +998,21 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                             >
                               {formatHM(hours)}
                             </span>
-                            <div className="flex items-center gap-0.5 opacity-0 group-hover/entry:opacity-100 group-has-[.seg-zone:hover]/entry:!opacity-0 transition-opacity flex-shrink-0">
+                            {(() => {
+                              const status = paymentStatusMap.get(entry.id);
+                              if (!status) return null;
+                              const cfg = status === 'paid'
+                                ? { color: 'text-emerald-500', tip: 'Paid' }
+                                : status === 'partial'
+                                ? { color: 'text-amber-500', tip: 'Partially paid' }
+                                : { color: 'text-zinc-300', tip: 'Unpaid' };
+                              return (
+                                <Tooltip content={cfg.tip}>
+                                  <CircleDollarSign size={11} className={`flex-shrink-0 ${cfg.color}`} />
+                                </Tooltip>
+                              );
+                            })()}
+                            <div className="flex items-center gap-0.5 sm:opacity-0 sm:group-hover/entry:opacity-100 sm:group-has-[.seg-zone:hover]/entry:!opacity-0 transition-opacity flex-shrink-0">
                               <Tooltip content="Edit">
                                 <button
                                   onClick={() => startEdit(entry)}
@@ -1065,7 +1113,7 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                                           {formatHM(segDurationHours)}
                                         </span>
                                       )}
-                                      <div className="flex items-center gap-0.5 opacity-0 group-hover/seg:opacity-100 transition-opacity">
+                                      <div className="flex items-center gap-0.5 sm:opacity-0 sm:group-hover/seg:opacity-100 transition-opacity">
                                         <Tooltip content="Edit segment">
                                           <button
                                             onClick={() => startEditSegment(entry, i)}

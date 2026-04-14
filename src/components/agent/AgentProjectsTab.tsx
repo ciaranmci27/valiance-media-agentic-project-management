@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Textarea } from '@/components/ui/inputs/Textarea';
+import { DateInput } from '@/components/ui/inputs/DateInput';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { FolderKanban, Plus, Edit, Archive, Bot } from 'lucide-react';
 import { toast } from '@/components/ui/Toast';
@@ -300,11 +301,11 @@ export function AgentProjectsTab() {
             rows={3}
           />
 
-          <Input
+          <DateInput
             label="Target Date"
-            type="date"
             value={formTargetDate}
-            onChange={(e) => setFormTargetDate(e.target.value)}
+            onChange={setFormTargetDate}
+            clearable
           />
 
           <Select

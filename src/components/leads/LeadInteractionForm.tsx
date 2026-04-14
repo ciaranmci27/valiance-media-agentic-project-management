@@ -10,6 +10,8 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Textarea } from '@/components/ui/inputs/Textarea';
+import { DateInput } from '@/components/ui/inputs/DateInput';
+import { TimeInput } from '@/components/ui/inputs/TimeInput';
 
 interface LeadInteractionFormProps {
   isOpen: boolean;
@@ -34,24 +36,45 @@ export function LeadInteractionForm({ isOpen, onClose, leadId, interaction }: Le
   const [type, setType] = useState<LeadInteraction['type']>('note');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [occurredAt, setOccurredAt] = useState('');
-  const [scheduledAt, setScheduledAt] = useState('');
+  const [occurredDate, setOccurredDate] = useState('');
+  const [occurredTime, setOccurredTime] = useState('');
+  const [scheduledDate, setScheduledDate] = useState('');
+  const [scheduledTime, setScheduledTime] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+
+  const splitDateTime = (iso: string | null | undefined): [string, string] => {
+    if (!iso) return ['', ''];
+    const local = toLocalDatetimeString(iso, tz);
+    const [d, t] = local.split('T');
+    return [d || '', t || ''];
+  };
+
+  const joinDateTime = (date: string, time: string): string | null => {
+    if (!date) return null;
+    return `${date}T${time || '09:00'}`;
+  };
 
   useEffect(() => {
     if (interaction) {
       setType(interaction.type);
       setTitle(interaction.title);
       setDescription(interaction.description);
-      setOccurredAt(interaction.occurred_at ? toLocalDatetimeString(interaction.occurred_at, tz) : '');
-      setScheduledAt(interaction.scheduled_at ? toLocalDatetimeString(interaction.scheduled_at, tz) : '');
+      const [od, ot] = splitDateTime(interaction.occurred_at);
+      setOccurredDate(od);
+      setOccurredTime(ot);
+      const [sd, st] = splitDateTime(interaction.scheduled_at);
+      setScheduledDate(sd);
+      setScheduledTime(st);
     } else {
       setType('note');
       setTitle('');
       setDescription('');
-      setOccurredAt(toLocalDatetimeString(new Date().toISOString(), tz));
-      setScheduledAt('');
+      const [od, ot] = splitDateTime(new Date().toISOString());
+      setOccurredDate(od);
+      setOccurredTime(ot);
+      setScheduledDate('');
+      setScheduledTime('');
     }
     setErrors({});
   }, [interaction, isOpen]);
@@ -59,7 +82,7 @@ export function LeadInteractionForm({ isOpen, onClose, leadId, interaction }: Le
   const validate = () => {
     const errs: Record<string, string> = {};
     if (!title.trim()) errs.title = 'Title is required';
-    if (type === 'follow_up' && !scheduledAt) errs.scheduledAt = 'Scheduled date is required for follow-ups';
+    if (type === 'follow_up' && !scheduledDate) errs.scheduledAt = 'Scheduled date is required for follow-ups';
     setErrors(errs);
     return Object.keys(errs).length === 0;
   };
@@ -69,13 +92,15 @@ export function LeadInteractionForm({ isOpen, onClose, leadId, interaction }: Le
     if (!validate()) return;
 
     setSaving(true);
+    const occurredLocal = joinDateTime(occurredDate, occurredTime);
+    const scheduledLocal = joinDateTime(scheduledDate, scheduledTime);
     const data = {
       lead_id: leadId,
       type,
       title: title.trim(),
       description: description.trim(),
-      occurred_at: occurredAt ? new Date(occurredAt).toISOString() : new Date().toISOString(),
-      scheduled_at: scheduledAt ? new Date(scheduledAt).toISOString() : null,
+      occurred_at: occurredLocal ? new Date(occurredLocal).toISOString() : new Date().toISOString(),
+      scheduled_at: scheduledLocal ? new Date(scheduledLocal).toISOString() : null,
       completed: interaction?.completed ?? false,
     };
 
@@ -121,23 +146,42 @@ export function LeadInteractionForm({ isOpen, onClose, leadId, interaction }: Le
           rows={3}
         />
 
-        <div className="grid grid-cols-2 gap-4">
-          <Input
-            label="Occurred At"
-            type="datetime-local"
-            value={occurredAt}
-            onChange={(e) => setOccurredAt(e.target.value)}
-          />
-          {type === 'follow_up' && (
-            <Input
-              label="Scheduled For"
-              type="datetime-local"
-              value={scheduledAt}
-              onChange={(e) => setScheduledAt(e.target.value)}
-              error={errors.scheduledAt}
+        <div>
+          <label className="block text-sm font-medium text-input-text-label mb-1.5">Occurred At</label>
+          <div className="grid grid-cols-2 gap-2">
+            <DateInput
+              value={occurredDate}
+              onChange={setOccurredDate}
+              clearable
             />
-          )}
+            <TimeInput
+              value={occurredTime}
+              onChange={setOccurredTime}
+              minuteStep={5}
+            />
+          </div>
         </div>
+
+        {type === 'follow_up' && (
+          <div>
+            <label className="block text-sm font-medium text-input-text-label mb-1.5">Scheduled For</label>
+            <div className="grid grid-cols-2 gap-2">
+              <DateInput
+                value={scheduledDate}
+                onChange={setScheduledDate}
+                clearable
+              />
+              <TimeInput
+                value={scheduledTime}
+                onChange={setScheduledTime}
+                minuteStep={5}
+              />
+            </div>
+            {errors.scheduledAt && (
+              <p className="text-xs text-red-500 mt-1">{errors.scheduledAt}</p>
+            )}
+          </div>
+        )}
 
         <div className="flex justify-end gap-3 pt-4">
           <Button type="button" variant="ghost" onClick={onClose}>

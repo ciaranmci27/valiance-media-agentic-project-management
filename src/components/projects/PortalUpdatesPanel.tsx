@@ -94,12 +94,12 @@ function AttachmentChips({ attachments, onRemove }: { attachments: PortalUpdateA
               {onRemove ? (
                 <button
                   onClick={() => onRemove(a.id)}
-                  className="absolute -top-1.5 -right-1.5 p-0.5 bg-white border border-zinc-200 rounded-full text-zinc-400 hover:text-red-500 shadow-sm opacity-0 group-hover/att:opacity-100 transition-opacity"
+                  className="absolute -top-1.5 -right-1.5 p-0.5 bg-white border border-zinc-200 rounded-full text-zinc-400 hover:text-red-500 shadow-sm sm:opacity-0 sm:group-hover/att:opacity-100 sm:focus-within:opacity-100 transition-opacity"
                 >
                   <X size={10} />
                 </button>
               ) : a.file_url !== '#' && (
-                <div className="absolute inset-0 rounded-md bg-black/0 group-hover/att:bg-black/40 transition-colors flex items-center justify-center gap-1 opacity-0 group-hover/att:opacity-100">
+                <div className="absolute inset-0 rounded-md flex items-center justify-center gap-1 transition-colors sm:bg-black/0 sm:group-hover/att:bg-black/40 sm:opacity-0 sm:group-hover/att:opacity-100 sm:focus-within:opacity-100">
                   <Tooltip content="Preview">
                     <button
                       onClick={() => window.open(a.file_url, '_blank', 'noopener,noreferrer')}
@@ -557,7 +557,7 @@ export function PortalUpdatesPanel({ projectId }: PortalUpdatesPanelProps) {
                         {author?.name || 'Team'} &middot; {timeAgo(update.created_at)}
                       </p>
                     </div>
-                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+                    <div className="flex items-center gap-1 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-opacity flex-shrink-0">
                       <Tooltip content="Edit">
                         <button
                           onClick={() => handleStartEdit(update)}

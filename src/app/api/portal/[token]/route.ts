@@ -220,11 +220,11 @@ export async function GET(
   if (settings.show_invoices) {
     const { data: invoiceData } = await supabase
       .from('project_invoices')
-      .select('id, invoice_number, amount, status, invoice_type, date, due_date, paid_date, description, file_url, file_name, file_size, mime_type')
+      .select('id, invoice_number, amount, status, invoice_type, line_items, date, due_date, paid_date, description, file_url, file_name, file_size, mime_type')
       .eq('project_id', settings.project_id)
       .neq('status', 'draft')
       .order('date', { ascending: false });
-    invoices = invoiceData || [];
+    invoices = (invoiceData || []).map((i: any) => ({ ...i, line_items: Array.isArray(i.line_items) ? i.line_items : [] }));
   }
 
   // Fetch portal updates with author names and attachments
@@ -407,7 +407,7 @@ function handleDemoMode(token: string, request: NextRequest) {
   const invoices: PortalData['invoices'] = settings.show_invoices
     ? demoProjectInvoices
         .filter(i => i.project_id === settings.project_id && i.status !== 'draft')
-        .map(i => ({ id: i.id, invoice_number: i.invoice_number, amount: i.amount, status: i.status, invoice_type: i.invoice_type, date: i.date, due_date: i.due_date, paid_date: i.paid_date, description: i.description, file_url: i.file_url, file_name: i.file_name, file_size: i.file_size, mime_type: i.mime_type }))
+        .map(i => ({ id: i.id, invoice_number: i.invoice_number, amount: i.amount, status: i.status, invoice_type: i.invoice_type, line_items: i.line_items ?? [], date: i.date, due_date: i.due_date, paid_date: i.paid_date, description: i.description, file_url: i.file_url, file_name: i.file_name, file_size: i.file_size, mime_type: i.mime_type }))
     : [];
 
   const portalData: PortalData = {

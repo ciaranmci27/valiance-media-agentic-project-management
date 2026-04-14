@@ -7,6 +7,7 @@ import Modal from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
+import { DateInput } from '@/components/ui/inputs/DateInput';
 
 type ApproveOverrides = { priority?: string; assigned_to?: string | null; due_date?: string | null; project_id?: string; task_type?: string | null };
 
@@ -89,11 +90,11 @@ export function ApproveModal({ suggestion, onClose, onApprove, onApproveManual }
             ]}
           />
 
-          <Input
+          <DateInput
             label="Due Date"
-            type="date"
             value={dueDate}
-            onChange={(e) => setDueDate(e.target.value)}
+            onChange={setDueDate}
+            clearable
           />
         </div>
 

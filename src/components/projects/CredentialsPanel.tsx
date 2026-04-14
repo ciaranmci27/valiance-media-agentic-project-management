@@ -107,7 +107,12 @@ function RevealedField({ label, value, isSensitive }: { label: string; value: st
 export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
   const { addCredential, updateCredential, deleteCredential, revealCredential, getCredentialsByProject } = useApp();
   const { teamMemberId } = useAuth();
-  const credentials = getCredentialsByProject(projectId);
+  const categoryOrder = Object.keys(CATEGORY_CONFIG) as CredentialCategory[];
+  const credentials = [...getCredentialsByProject(projectId)].sort((a, b) => {
+    const catDiff = categoryOrder.indexOf(a.category) - categoryOrder.indexOf(b.category);
+    if (catDiff !== 0) return catDiff;
+    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+  });
 
   // Encryption status
   const [encryptionStatus, setEncryptionStatus] = useState<'loading' | 'configured' | 'not_configured'>('loading');
@@ -497,7 +502,6 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
                     key={cred.id}
                     className="relative rounded-xl border border-brand-200 bg-white overflow-hidden"
                   >
-                    <div className={`h-1 ${config.bg}`} />
                     <div className="p-4">
                       {/* Card header — matches normal cards */}
                       <div className="flex items-start gap-3 mb-3">
@@ -521,12 +525,9 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
                   className="group relative rounded-xl border border-zinc-200 bg-white hover:border-zinc-300 hover:shadow-sm transition-all overflow-hidden cursor-pointer min-w-0"
                   onClick={() => handleReveal(cred.id)}
                 >
-                  {/* Category accent bar */}
-                  <div className={`h-1 ${config.bg}`} />
-
                   <div className="p-4 min-w-0">
                     {/* Header */}
-                    <div className="flex items-start gap-3 mb-3">
+                    <div className="flex items-center gap-3 mb-3">
                       <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${config.bg}`}>
                         {isRevealing ? (
                           <Loader2 size={16} className={`animate-spin ${config.iconColor}`} />
@@ -546,27 +547,10 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
                               {cred.submitted_by_name || 'Client'}
                             </span>
                           )}
+                          <span className="text-[10px] text-zinc-400">{timeAgo(cred.created_at)}</span>
                         </div>
                       </div>
-                    </div>
-
-                    {/* Revealed data */}
-                    {isRevealed && revealedData[cred.id] && (
-                      <div className="mb-3 px-3 py-2.5 bg-zinc-50 border border-zinc-100 rounded-lg space-y-0.5 overflow-hidden" onClick={e => e.stopPropagation()}>
-                        <RevealedField label="Username" value={revealedData[cred.id].username} />
-                        <RevealedField label="Password" value={revealedData[cred.id].password} isSensitive />
-                        <RevealedField label="URL" value={revealedData[cred.id].url} />
-                        <RevealedField label="Notes" value={revealedData[cred.id].notes} />
-                        {!revealedData[cred.id].username && !revealedData[cred.id].password && !revealedData[cred.id].url && !revealedData[cred.id].notes && (
-                          <p className="text-xs text-zinc-400 italic">No fields stored</p>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Footer: time + actions */}
-                    <div className="flex items-center justify-between">
-                      <p className="text-xs text-zinc-400">{timeAgo(cred.created_at)}</p>
-                      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
+                      <div className="flex items-center gap-0.5 flex-shrink-0 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
                         <Tooltip content="Edit">
                           <button
                             onClick={() => handleStartEdit(cred)}
@@ -585,6 +569,20 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
                         </Tooltip>
                       </div>
                     </div>
+
+                    {/* Revealed data */}
+                    {isRevealed && revealedData[cred.id] && (
+                      <div className="mb-3 px-3 py-2.5 bg-zinc-50 border border-zinc-100 rounded-lg space-y-0.5 overflow-hidden" onClick={e => e.stopPropagation()}>
+                        <RevealedField label="Username" value={revealedData[cred.id].username} />
+                        <RevealedField label="Password" value={revealedData[cred.id].password} isSensitive />
+                        <RevealedField label="URL" value={revealedData[cred.id].url} />
+                        <RevealedField label="Notes" value={revealedData[cred.id].notes} />
+                        {!revealedData[cred.id].username && !revealedData[cred.id].password && !revealedData[cred.id].url && !revealedData[cred.id].notes && (
+                          <p className="text-xs text-zinc-400 italic">No fields stored</p>
+                        )}
+                      </div>
+                    )}
+
                   </div>
                 </div>
               );

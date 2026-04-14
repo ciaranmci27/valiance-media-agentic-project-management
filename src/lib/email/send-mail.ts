@@ -72,10 +72,19 @@ async function getAccountAndTransport(accountId?: string) {
 
 interface TransactionalOptions {
   to: string | string[];
+  cc?: string | string[];
+  bcc?: string | string[];
   subject: string;
   html: string;
   text?: string;
   accountId?: string;
+}
+
+function joinList(v: string | string[] | undefined): string | undefined {
+  if (!v) return undefined;
+  const arr = Array.isArray(v) ? v : [v];
+  const trimmed = arr.map(s => s.trim()).filter(Boolean);
+  return trimmed.length ? trimmed.join(', ') : undefined;
 }
 
 export async function sendTransactional(options: TransactionalOptions): Promise<SendMailResult> {
@@ -88,7 +97,9 @@ export async function sendTransactional(options: TransactionalOptions): Promise<
     const info = await transport.sendMail({
       from: `"${account.from_name}" <${account.from_email}>`,
       replyTo: account.reply_to || undefined,
-      to: Array.isArray(options.to) ? options.to.join(', ') : options.to,
+      to: joinList(options.to),
+      cc: joinList(options.cc),
+      bcc: joinList(options.bcc),
       subject: options.subject,
       html: options.html,
       text: options.text,

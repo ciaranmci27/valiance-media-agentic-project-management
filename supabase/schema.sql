@@ -49,7 +49,8 @@ create table public.projects (
   due_date text,
   hourly_tracking boolean not null default false,
   hourly_rate numeric(10,2) default null,
-  fixed_price numeric(12,2) default null,
+  budget_type text check (budget_type in ('hours', 'amount')),
+  budget_value numeric(12,2),
   autonomous_enabled boolean not null default false,
   deployment_policy text not null default 'production' check (deployment_policy in ('playground', 'production')),
   max_concurrent_tasks integer not null default 2,
@@ -60,6 +61,23 @@ create table public.projects (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+-- ============================================================
+-- 4b. PROJECT BUDGET HISTORY (append-only audit trail of budget changes)
+-- ============================================================
+create table public.project_budget_history (
+  id uuid primary key default gen_random_uuid(),
+  project_id uuid not null references public.projects(id) on delete cascade,
+  old_type text check (old_type in ('hours', 'amount')),
+  new_type text check (new_type in ('hours', 'amount')),
+  old_value numeric(12,2),
+  new_value numeric(12,2),
+  changed_by uuid references public.team_members(id) on delete set null,
+  created_at timestamptz not null default now()
+);
+
+create index idx_project_budget_history_project
+  on public.project_budget_history(project_id, created_at desc);
 
 -- ============================================================
 -- 5. PROJECT MEMBERS (junction: project <-> team_member)
@@ -279,10 +297,42 @@ create table public.portal_settings (
   show_credentials boolean not null default false,
   show_invoices boolean not null default false,
   section_order text[] not null default '{show_progress,show_hours,show_updates,show_files,show_credentials,show_invoices}',
+  notification_thresholds integer[] not null default '{50,75,90,100}',
+  alert_mode text not null default 'percentage' check (alert_mode in ('percentage','dollar_interval','none')),
+  dollar_interval numeric(12,2),
+  require_alert_approval boolean not null default true,
+  rearm_thresholds_on_budget_change boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   unique(project_id),
   unique(token)
+);
+
+-- ============================================================
+-- 18a. CLIENT COMMUNICATIONS (audit log + pending approval queue)
+-- ============================================================
+create table public.client_communications (
+  id uuid primary key default gen_random_uuid(),
+  project_id uuid not null references public.projects(id) on delete cascade,
+  contact_id uuid not null references public.contacts(id) on delete cascade,
+  notification_type text not null check (notification_type in (
+    'portal_welcome',
+    'project_summary',
+    'budget_threshold',
+    'dollar_interval',
+    'budget_extended'
+  )),
+  status text not null default 'sent' check (status in ('pending','sent','failed','dismissed')),
+  subject text,
+  rendered_html text,
+  rendered_text text,
+  slot_overrides jsonb not null default '{}',
+  metadata jsonb default '{}',
+  recipients jsonb not null default '{"to":[],"cc":[],"bcc":[]}',
+  triggered_by uuid references public.team_members(id) on delete set null,
+  sent_at timestamptz,
+  dismissed_at timestamptz,
+  created_at timestamptz not null default now()
 );
 
 -- ============================================================
@@ -418,6 +468,10 @@ create table public.project_invoices (
     check (status in ('draft', 'sent', 'paid', 'overdue', 'cancelled')),
   invoice_type text not null default 'hourly'
     check (invoice_type in ('hourly', 'fixed', 'recurring')),
+  -- Per-line breakdown so a single invoice can mix hourly + fixed + recurring
+  -- and carry service period info used for revenue amortization on the chart.
+  -- Empty array => app synthesizes a single line item from invoice_type+amount.
+  line_items jsonb not null default '[]'::jsonb,
   date text not null,
   due_date text,
   description text not null default '',
@@ -508,6 +562,31 @@ create index idx_lead_contacts_lead_id on public.lead_contacts(lead_id);
 create index idx_lead_contacts_contact_id on public.lead_contacts(contact_id);
 create index idx_portal_settings_project_id on public.portal_settings(project_id);
 create index idx_portal_settings_token on public.portal_settings(token);
+create index idx_client_communications_project on public.client_communications(project_id);
+create index idx_client_communications_type on public.client_communications(project_id, notification_type);
+create index idx_client_communications_status on public.client_communications(project_id, status);
+
+-- Dedup unique indexes for automated comm types. See migration
+-- 20260415_client_comm_dedup.sql for rationale.
+create unique index if not exists ux_client_comm_threshold_dedup
+  on public.client_communications (
+    project_id,
+    ((metadata->>'threshold')::int),
+    coalesce((metadata->>'fired_under_budget_type'), ''),
+    coalesce((metadata->>'fired_under_history_id'), '')
+  )
+  where notification_type = 'budget_threshold'
+    and status <> 'failed'
+    and metadata ? 'threshold';
+
+create unique index if not exists ux_client_comm_dollar_interval_dedup
+  on public.client_communications (
+    project_id,
+    ((metadata->>'milestone')::numeric)
+  )
+  where notification_type = 'dollar_interval'
+    and status <> 'failed'
+    and metadata ? 'milestone';
 create index idx_portal_updates_project_id on public.portal_updates(project_id);
 create index idx_portal_updates_created_at on public.portal_updates(created_at desc);
 
@@ -697,6 +776,7 @@ alter table public.lead_fields enable row level security;
 alter table public.lead_members enable row level security;
 alter table public.lead_contacts enable row level security;
 alter table public.portal_settings enable row level security;
+alter table public.client_communications enable row level security;
 alter table public.entity_files enable row level security;
 alter table public.api_keys enable row level security;
 alter table public.portal_updates enable row level security;
@@ -706,6 +786,7 @@ alter table public.project_credentials enable row level security;
 alter table public.project_invoices enable row level security;
 alter table public.team_member_notifications enable row level security;
 alter table public.project_context enable row level security;
+alter table public.project_budget_history enable row level security;
 
 -- All authenticated users get full CRUD on shared data
 create policy "team_members_all" on public.team_members
@@ -757,6 +838,12 @@ create policy "lead_contacts_all" on public.lead_contacts
   for all to authenticated using (true) with check (true);
 
 create policy "portal_settings_all" on public.portal_settings
+  for all to authenticated using (true) with check (true);
+
+create policy "client_communications_all" on public.client_communications
+  for all to authenticated using (true) with check (true);
+
+create policy "project_budget_history_all" on public.project_budget_history
   for all to authenticated using (true) with check (true);
 
 create policy "entity_files_all" on public.entity_files

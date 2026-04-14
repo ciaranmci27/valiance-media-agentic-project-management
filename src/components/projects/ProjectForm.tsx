@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Project } from '@/lib/types';
+import { ChevronDown, History } from 'lucide-react';
+import { Project, ProjectBudgetHistoryEntry } from '@/lib/types';
 import { useApp } from '@/lib/store';
 import Modal from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
@@ -11,6 +12,7 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { ContactForm } from '@/components/contacts/ContactForm';
 import { Textarea } from '@/components/ui/inputs/Textarea';
 import { MultiSelect } from '@/components/ui/inputs/MultiSelect';
+import { DateInput } from '@/components/ui/inputs/DateInput';
 import { siteConfig } from '@/site-config';
 
 const DEFAULT_PROJECT_COLOR = '';
@@ -18,6 +20,38 @@ const PROJECT_COLORS = [
   '#8B5CF6', '#EC4899', '#EF4444', '#F59E0B',
   '#10B981', '#06B6D4', '#3B82F6', siteConfig.colors.brand[500],
 ];
+
+function formatBudgetDisplay(val: string): string {
+  if (!val) return '';
+  const [intPart, decPart] = val.split('.');
+  const formattedInt = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return decPart !== undefined ? `${formattedInt}.${decPart}` : formattedInt;
+}
+
+function sanitizeBudgetInput(val: string): string {
+  const stripped = val.replace(/[^0-9.]/g, '');
+  const parts = stripped.split('.');
+  if (parts.length > 2) return parts[0] + '.' + parts.slice(1).join('');
+  return stripped;
+}
+
+function formatBudgetSnapshot(type: 'hours' | 'amount' | null, value: number | null): string {
+  // A budget is only meaningful when BOTH type and value are set.
+  // If either is missing, treat the snapshot as "no budget".
+  if (type == null || value == null) return 'None';
+  if (type === 'amount') {
+    return `$${value.toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
+  }
+  return `${value.toLocaleString('en-US', { maximumFractionDigits: 2 })} hrs`;
+}
+
+function formatHistoryDate(iso: string): string {
+  return new Date(iso).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+}
 
 interface ProjectFormProps {
   isOpen: boolean;
@@ -34,6 +68,8 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
   const [startDate, setStartDate] = useState('');
   const [dueDate, setDueDate] = useState('');
   const [hourlyTracking, setHourlyTracking] = useState(false);
+  const [budgetType, setBudgetType] = useState<'hours' | 'amount' | ''>('');
+  const [budgetValue, setBudgetValue] = useState('');
   const [autonomousEnabled, setAutonomousEnabled] = useState(false);
   const [deploymentPolicy, setDeploymentPolicy] = useState<'playground' | 'production'>('production');
   const [maxConcurrentTasks, setMaxConcurrentTasks] = useState(2);
@@ -47,6 +83,8 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
   const [contactSearchVisible, setContactSearchVisible] = useState(false);
   const [clientError, setClientError] = useState(false);
   const [showNewContactForm, setShowNewContactForm] = useState(false);
+  const [showBudgetHistory, setShowBudgetHistory] = useState(false);
+  const [budgetHistory, setBudgetHistory] = useState<ProjectBudgetHistoryEntry[] | null>(null);
   const contactsCountBeforeRef = useRef(contacts.length);
   const contactDropdownRef = useRef<HTMLDivElement>(null);
 
@@ -59,6 +97,8 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
       setStartDate(project.start_date || '');
       setDueDate(project.due_date || '');
       setHourlyTracking(project.hourly_tracking ?? false);
+      setBudgetType(project.budget_type ?? '');
+      setBudgetValue(project.budget_value != null ? String(project.budget_value) : '');
       setAutonomousEnabled(project.autonomous_enabled ?? false);
       setDeploymentPolicy(project.deployment_policy ?? 'production');
       setMaxConcurrentTasks(project.max_concurrent_tasks ?? 2);
@@ -74,6 +114,8 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
       setStartDate('');
       setDueDate('');
       setHourlyTracking(false);
+      setBudgetType('');
+      setBudgetValue('');
       setAutonomousEnabled(false);
       setDeploymentPolicy('production');
       setMaxConcurrentTasks(2);
@@ -85,7 +127,25 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
     setClientError(false);
     setContactDropdownOpen(false);
     setContactSearchVisible(false);
+    setShowBudgetHistory(false);
+    setBudgetHistory(null);
   }, [project, isOpen]);
+
+  useEffect(() => {
+    if (!isOpen || !project) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/projects/${project.id}/budget-history`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled) setBudgetHistory(data.entries ?? []);
+      } catch {
+        // Silent fail: the toggle will just stay hidden.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [isOpen, project]);
 
   const doSave = async () => {
     setSaving(true);
@@ -98,7 +158,8 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
       due_date: dueDate || null,
       hourly_tracking: hourlyTracking,
       hourly_rate: project?.hourly_rate ?? null,
-      fixed_price: project?.fixed_price ?? null,
+      budget_type: budgetType || null,
+      budget_value: budgetValue && !isNaN(parseFloat(budgetValue)) ? parseFloat(budgetValue) : null,
       autonomous_enabled: autonomousEnabled,
       deployment_policy: deploymentPolicy,
       max_concurrent_tasks: maxConcurrentTasks,
@@ -124,6 +185,10 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
 
     setSaving(false);
     onClose();
+  };
+
+  const handleToggleBudgetHistory = () => {
+    setShowBudgetHistory(prev => !prev);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -325,17 +390,18 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
         />
 
         <div className="grid grid-cols-2 gap-4">
-          <Input
+          <DateInput
             label="Start Date"
-            type="date"
             value={startDate}
-            onChange={(e) => setStartDate(e.target.value)}
+            onChange={setStartDate}
+            clearable
           />
-          <Input
+          <DateInput
             label="Due Date"
-            type="date"
             value={dueDate}
-            onChange={(e) => setDueDate(e.target.value)}
+            onChange={setDueDate}
+            minDate={startDate || undefined}
+            clearable
           />
         </div>
 
@@ -359,6 +425,99 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
           </button>
         </div>
 
+        {/* Budget */}
+        <div className="space-y-2">
+          <label className="block text-sm font-medium text-zinc-700">Budget <span className="font-normal text-zinc-400">(optional)</span></label>
+          <div className="flex gap-2">
+            <div className="flex rounded-lg border border-zinc-200 overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setBudgetType(budgetType === 'amount' ? '' : 'amount')}
+                className={`px-3 py-1.5 text-sm font-medium transition-colors ${
+                  budgetType === 'amount' ? 'bg-brand-600 text-white' : 'bg-white text-zinc-500 hover:bg-zinc-50'
+                }`}
+              >
+                Amount
+              </button>
+              <button
+                type="button"
+                onClick={() => setBudgetType(budgetType === 'hours' ? '' : 'hours')}
+                className={`px-3 py-1.5 text-sm font-medium transition-colors border-l border-zinc-200 ${
+                  budgetType === 'hours' ? 'bg-brand-600 text-white' : 'bg-white text-zinc-500 hover:bg-zinc-50'
+                }`}
+              >
+                Hours
+              </button>
+            </div>
+            {budgetType && (
+              <div className="relative flex-1">
+                {budgetType === 'amount' && (
+                  <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-zinc-500 z-10">
+                    $
+                  </span>
+                )}
+                <Input
+                  type="text"
+                  inputMode="decimal"
+                  value={formatBudgetDisplay(budgetValue)}
+                  onChange={(e) => setBudgetValue(sanitizeBudgetInput(e.target.value))}
+                  placeholder={budgetType === 'amount' ? '5,000' : '40'}
+                  className={budgetType === 'amount' ? 'pl-7' : ''}
+                />
+              </div>
+            )}
+          </div>
+          {budgetType && (
+            <p className="text-xs text-zinc-400">
+              {budgetType === 'amount' ? 'Total dollar budget for this project' : 'Total hours allocated for this project'}
+            </p>
+          )}
+
+          {project && budgetHistory && budgetHistory.length >= 2 && (
+            <div className="pt-1">
+              <button
+                type="button"
+                onClick={handleToggleBudgetHistory}
+                className="inline-flex items-center gap-1 text-xs text-zinc-500 hover:text-zinc-700 transition-colors"
+                aria-expanded={showBudgetHistory}
+              >
+                <History size={12} />
+                {showBudgetHistory ? 'Hide budget history' : 'View budget history'}
+                <ChevronDown
+                  size={12}
+                  className={`transition-transform ${showBudgetHistory ? 'rotate-180' : ''}`}
+                />
+              </button>
+              {showBudgetHistory && (
+                <div className="mt-2 rounded-md border border-zinc-200 bg-zinc-50 overflow-hidden">
+                  <ul className="divide-y divide-zinc-200">
+                    {budgetHistory.map((entry) => {
+                      const changer = entry.changed_by
+                        ? team.find(m => m.id === entry.changed_by)?.name ?? 'Unknown'
+                        : 'System';
+                      return (
+                        <li key={entry.id} className="px-3 py-2 flex items-center justify-between gap-3 text-xs">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="text-zinc-500 whitespace-nowrap">{formatHistoryDate(entry.created_at)}</span>
+                            <span className="text-zinc-700 truncate">
+                              <span className="text-zinc-400">{formatBudgetSnapshot(entry.old_type, entry.old_value)}</span>
+                              <span className="mx-1.5 text-zinc-400">→</span>
+                              <span className="font-medium">{formatBudgetSnapshot(entry.new_type, entry.new_value)}</span>
+                            </span>
+                          </div>
+                          <span className="text-zinc-400 whitespace-nowrap">by {changer}</span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                  <div className="px-3 py-1.5 text-[10px] text-zinc-400 border-t border-zinc-200 bg-white">
+                    {budgetHistory.length} change{budgetHistory.length === 1 ? '' : 's'} total
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
 
         <div className="space-y-1.5">
           <label className="block text-sm font-medium text-zinc-700">Color <span className="font-normal text-zinc-400">(optional)</span></label>

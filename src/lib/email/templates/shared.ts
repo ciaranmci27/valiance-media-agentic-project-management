@@ -11,7 +11,7 @@ import { siteConfig } from '@/site-config';
 
 // ─── Neutral palette (brand-agnostic) ──────────────────────────────────────────
 
-const NEUTRAL = {
+export const NEUTRAL = {
   white: '#ffffff',
   black: '#1a1a1a',
   textBody: '#374151',
@@ -23,17 +23,17 @@ const NEUTRAL = {
 // ─── Brand-derived helpers ─────────────────────────────────────────────────────
 
 /** Primary brand color (header, buttons, links). */
-function brandPrimary(): string {
+export function brandPrimary(): string {
   return siteConfig.colors.accent;
 }
 
 /** Lighter brand shade for accents/borders. */
-function brandLight(): string {
+export function brandLight(): string {
   return siteConfig.colors.brand[500] || siteConfig.colors.accent;
 }
 
 /** Lightest brand shade for subtle backgrounds. */
-function brandSubtle(): string {
+export function brandSubtle(): string {
   return siteConfig.colors.brand[50] || '#f5f5f5';
 }
 
@@ -46,14 +46,13 @@ function shouldInvertLogo(): boolean {
 const HEADER_BG = '#0F0F12';
 
 /** Darken a hex color by a factor (0-1). Used for button shadow borders. */
-function darkenHex(hex: string, factor: number): string {
+export function darkenHex(hex: string, factor: number): string {
   const h = hex.replace('#', '');
   const r = Math.round(parseInt(h.substring(0, 2), 16) * (1 - factor));
   const g = Math.round(parseInt(h.substring(2, 4), 16) * (1 - factor));
   const b = Math.round(parseInt(h.substring(4, 6), 16) * (1 - factor));
   return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
 }
-
 // ─── Public utilities ──────────────────────────────────────────────────────────
 
 export function getSiteUrl(): string {
@@ -115,13 +114,23 @@ export function ctaButton(text: string, href: string): string {
 export function emailLayout(options: {
   preheader?: string;
   body: string;
+  footerHtml?: string;
+  /**
+   * Where the header logo links to.
+   * - `undefined` (default): link to the app site URL. Used for team/internal emails.
+   * - `string`: link to the given URL. Used for client emails to point at the project portal.
+   * - `null`: render the logo without any link. Used for client emails where the project has no portal,
+   *   so clients aren't sent to an app they can't log into.
+   */
+  logoHref?: string | null;
 }): string {
-  const { preheader, body } = options;
+  const { preheader, body, footerHtml, logoHref } = options;
   const siteUrl = getSiteUrl();
   const name = getSiteName();
   const primary = brandPrimary();
   const accent = brandLight();
   const subtle = brandSubtle();
+  const resolvedLogoHref = logoHref === undefined ? siteUrl : logoHref;
 
   return `
 <!DOCTYPE html>
@@ -153,12 +162,13 @@ export function emailLayout(options: {
 
           <!-- Header -->
           <tr>
-            <td style="
+            <td align="center" style="
               background-color: ${HEADER_BG};
               padding: 16px 40px;
               border-bottom: 2px solid ${primary};
+              text-align: center;
             ">
-              <a href="${siteUrl}" target="_blank" style="text-decoration: none; color: ${NEUTRAL.white}; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 20px; font-weight: 700;">
+              ${resolvedLogoHref ? `<a href="${resolvedLogoHref}" target="_blank" style="text-decoration: none; color: ${NEUTRAL.white}; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 20px; font-weight: 700;">
                 <!--[if !mso]><!-->
                 <img
                   src="${siteUrl}/logos/logo.png"
@@ -169,7 +179,16 @@ export function emailLayout(options: {
                 <!--[if mso]>
                 <span style="color: ${NEUTRAL.white}; font-size: 20px; font-weight: 700;">${name}</span>
                 <![endif]-->
-              </a>
+              </a>` : `<!--[if !mso]><!-->
+                <img
+                  src="${siteUrl}/logos/logo.png"
+                  alt="${name}"
+                  style="display: inline-block; border: 0; outline: none; height: auto; width: auto; max-height: 44px; color: ${NEUTRAL.white}; font-size: 20px; font-weight: 700;${shouldInvertLogo() ? ' filter: invert(1);' : ''}"
+                />
+                <!--<![endif]-->
+                <!--[if mso]>
+                <span style="color: ${NEUTRAL.white}; font-size: 20px; font-weight: 700;">${name}</span>
+                <![endif]-->`}
             </td>
           </tr>
 
@@ -193,7 +212,7 @@ export function emailLayout(options: {
               padding: 20px 40px;
               border-top: 1px solid ${NEUTRAL.border};
             ">
-              <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+              ${footerHtml || `<table role="presentation" width="100%" cellpadding="0" cellspacing="0">
                 <tr>
                   <td align="center">
                     <p style="
@@ -216,7 +235,7 @@ export function emailLayout(options: {
                     </p>
                   </td>
                 </tr>
-              </table>
+              </table>`}
             </td>
           </tr>
 

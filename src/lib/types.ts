@@ -11,7 +11,8 @@ export interface Project {
   due_date: string | null;
   hourly_tracking: boolean;
   hourly_rate: number | null;
-  fixed_price: number | null;
+  budget_type: 'hours' | 'amount' | null;
+  budget_value: number | null;
   autonomous_enabled: boolean;
   deployment_policy: 'playground' | 'production';
   max_concurrent_tasks: number;
@@ -314,13 +315,31 @@ export type InvoiceStatus = typeof INVOICE_STATUSES[number];
 export const INVOICE_TYPES = ['hourly', 'fixed', 'recurring'] as const;
 export type InvoiceType = typeof INVOICE_TYPES[number];
 
+export const RECURRENCE_FREQUENCIES = ['weekly', 'monthly', 'quarterly', 'annual'] as const;
+export type RecurrenceFrequency = typeof RECURRENCE_FREQUENCIES[number];
+
+export interface InvoiceLineItem {
+  id: string;
+  position: number;
+  item_type: InvoiceType;
+  amount: number;
+  description: string;
+  /** Inclusive YYYY-MM-DD; null means single-day (falls on parent invoice date). */
+  service_start_date: string | null;
+  service_end_date: string | null;
+  /** Informational; the actual revenue spread uses service_start/end. */
+  recurrence_frequency: RecurrenceFrequency | null;
+}
+
 export interface ProjectInvoice {
   id: string;
   project_id: string;
   invoice_number: string;
   amount: number;
   status: InvoiceStatus;
+  /** Dominant line-item type by amount. Kept for back-compat with filters. */
   invoice_type: InvoiceType;
+  line_items: InvoiceLineItem[];
   date: string;
   due_date: string | null;
   paid_date: string | null;
@@ -369,8 +388,63 @@ export interface PortalSettings {
   show_credentials: boolean;
   show_invoices: boolean;
   section_order: PortalSectionKey[];
+  notification_thresholds: number[];
+  alert_mode: AlertMode;
+  dollar_interval: number | null;
+  require_alert_approval: boolean;
+  rearm_thresholds_on_budget_change: boolean;
   created_at: string;
   updated_at: string;
+}
+
+export const ALERT_MODES = ['percentage', 'dollar_interval', 'none'] as const;
+export type AlertMode = typeof ALERT_MODES[number];
+
+export const CLIENT_COMM_TYPES = [
+  'portal_welcome',
+  'project_summary',
+  'budget_threshold',
+  'dollar_interval',
+  'budget_extended',
+] as const;
+export type ClientCommType = typeof CLIENT_COMM_TYPES[number];
+
+export const CLIENT_COMM_STATUSES = ['pending', 'sent', 'failed', 'dismissed'] as const;
+export type ClientCommStatus = typeof CLIENT_COMM_STATUSES[number];
+
+export interface ClientCommRecipients {
+  to: string[];
+  cc: string[];
+  bcc: string[];
+}
+
+export interface ClientCommunication {
+  id: string;
+  project_id: string;
+  contact_id: string;
+  notification_type: ClientCommType;
+  status: ClientCommStatus;
+  subject: string | null;
+  rendered_html: string | null;
+  slot_overrides: Record<string, string>;
+  metadata: Record<string, any>;
+  recipients: ClientCommRecipients;
+  triggered_by: string | null;
+  sent_at: string | null;
+  dismissed_at: string | null;
+  created_at: string;
+  contact?: { id: string; name: string; email: string };
+}
+
+export interface ProjectBudgetHistoryEntry {
+  id: string;
+  project_id: string;
+  old_type: 'hours' | 'amount' | null;
+  new_type: 'hours' | 'amount' | null;
+  old_value: number | null;
+  new_value: number | null;
+  changed_by: string | null;
+  created_at: string;
 }
 
 export const PORTAL_UPDATE_TYPES = ['general', 'milestone', 'deliverable', 'note'] as const;
@@ -635,6 +709,7 @@ export interface PortalData {
     amount: number;
     status: string;
     invoice_type: string;
+    line_items: InvoiceLineItem[];
     date: string;
     due_date: string | null;
     paid_date: string | null;

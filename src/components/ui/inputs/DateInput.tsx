@@ -248,18 +248,16 @@ export const DateInput = forwardRef<HTMLButtonElement, DateInputProps>(
     };
 
     const navigateMonth = (direction: -1 | 1) => {
-      setViewMonth((prev) => {
-        const next = prev + direction;
-        if (next < 0) {
-          setViewYear((y) => y - 1);
-          return 11;
-        }
-        if (next > 11) {
-          setViewYear((y) => y + 1);
-          return 0;
-        }
-        return next;
-      });
+      const next = viewMonth + direction;
+      if (next < 0) {
+        setViewMonth(11);
+        setViewYear(viewYear - 1);
+      } else if (next > 11) {
+        setViewMonth(0);
+        setViewYear(viewYear + 1);
+      } else {
+        setViewMonth(next);
+      }
     };
 
     const handleGridKeyDown = (e: React.KeyboardEvent, cellDate: Date) => {
