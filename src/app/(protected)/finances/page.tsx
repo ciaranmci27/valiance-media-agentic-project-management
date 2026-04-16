@@ -74,8 +74,10 @@ function niceAxisTicks(maxVal: number, count = 4): number[] {
 /** Format axis label: $0, $500, $1K, $2.5K, etc. */
 function fmtAxis(val: number): string {
   if (val === 0) return '$0';
-  if (val >= 1000) return `$${(val / 1000).toFixed(val % 1000 === 0 ? 0 : 1)}K`;
-  return `$${val}`;
+  // Round to avoid floating-point artifacts like $0.600000000000001
+  const rounded = Math.round(val * 100) / 100;
+  if (rounded >= 1000) return `$${(rounded / 1000).toFixed(rounded % 1000 === 0 ? 0 : 1)}K`;
+  return `$${rounded}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -684,6 +686,14 @@ export default function FinancesPage() {
     [data.dailyBars],
   );
 
+  // Track which categories have data so legend only shows relevant items
+  const categoryHasData = useMemo(() => ({
+    hourly: data.dailyBars.some(d => d.hourlyValue > 0),
+    recurring: data.dailyBars.some(d => d.recurringRevenue > 0),
+    fixed: data.dailyBars.some(d => d.fixedRevenue > 0),
+    payments: data.dailyBars.some(d => d.paymentReceived > 0),
+  }), [data.dailyBars]);
+
   return (
     <div className="animate-fadeIn min-h-screen bg-zinc-50">
       <Header title="Finances" />
@@ -965,7 +975,7 @@ export default function FinancesPage() {
                               )}
 
                               {/* Tooltip - anchored just above the bar, edge-aware */}
-                              {(day.hourlyValue > 0 || day.fixedRevenue > 0 || day.recurringRevenue > 0 || day.paymentReceived > 0) && (() => {
+                              {(visibleHourly > 0 || visibleFixed > 0 || visibleRecurring > 0 || visiblePayment > 0) && (() => {
                                 const barCount = data.dailyBars.length;
                                 // Use proportional thresholds so the tooltip flips to edge-anchored
                                 // well before it would overflow the card. Tooltips can be wide
@@ -978,8 +988,12 @@ export default function FinancesPage() {
                                   : nearLeft
                                     ? 'left-0'
                                     : 'left-1/2 -translate-x-1/2';
-                                const totalEarnedDay = day.hourlyValue + day.fixedRevenue + day.recurringRevenue;
-                                const categoryCount = (day.hourlyValue > 0 ? 1 : 0) + (day.fixedRevenue > 0 ? 1 : 0) + (day.recurringRevenue > 0 ? 1 : 0);
+                                const visHourlyVal = showHourly ? day.hourlyValue : 0;
+                                const visFixedVal = showFixed ? day.fixedRevenue : 0;
+                                const visRecurringVal = showRecurring ? day.recurringRevenue : 0;
+                                const visPaymentVal = showPayments ? day.paymentReceived : 0;
+                                const totalEarnedDay = visHourlyVal + visFixedVal + visRecurringVal;
+                                const categoryCount = (visHourlyVal > 0 ? 1 : 0) + (visFixedVal > 0 ? 1 : 0) + (visRecurringVal > 0 ? 1 : 0);
                                 const totalPct = hourlyPct + recurringPct + fixedPct + paymentPct;
                                 // If the bar is too tall for the tooltip to fit above it,
                                 // flip and anchor the tooltip to the top of the chart instead.
@@ -994,28 +1008,32 @@ export default function FinancesPage() {
                                     <p className="font-semibold text-zinc-200 mb-1">{day.tooltipDate}</p>
                                     {day.projectWork.length > 0 && (
                                       <div className="space-y-0.5">
-                                        {day.projectWork.map((pw) => (
-                                          <div key={pw.projectId} className="flex items-center gap-1.5">
-                                            {pw.color && (
-                                              <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: pw.color }} />
-                                            )}
-                                            <span className="text-zinc-400">{pw.projectName}</span>
-                                            {pw.hours > 0 && <span className="text-zinc-200">{pw.hours.toFixed(1)}h</span>}
-                                            <span className="font-semibold">${fmt(pw.value + pw.fixed + pw.recurring)}</span>
-                                          </div>
-                                        ))}
+                                        {day.projectWork.map((pw) => {
+                                          const pwTotal = (showHourly ? pw.value : 0) + (showFixed ? pw.fixed : 0) + (showRecurring ? pw.recurring : 0);
+                                          if (pwTotal === 0 && !(showHourly && pw.hours > 0)) return null;
+                                          return (
+                                            <div key={pw.projectId} className="flex items-center gap-1.5">
+                                              {pw.color && (
+                                                <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: pw.color }} />
+                                              )}
+                                              <span className="text-zinc-400">{pw.projectName}</span>
+                                              {showHourly && pw.hours > 0 && <span className="text-zinc-200">{pw.hours.toFixed(1)}h</span>}
+                                              <span className="font-semibold">${fmt(pwTotal)}</span>
+                                            </div>
+                                          );
+                                        })}
                                       </div>
                                     )}
                                     {totalEarnedDay > 0 && (day.projectWork.length > 1 || categoryCount > 1) && (
                                       <div className="mt-1 pt-1 border-t border-white/10 text-zinc-300 space-y-0.5">
-                                        {day.hourlyValue > 0 && (
-                                          <div>Hourly: <span className="font-semibold">${fmt(day.hourlyValue)}</span> <span className="text-zinc-400">({day.hoursWorked.toFixed(1)}h)</span></div>
+                                        {visHourlyVal > 0 && (
+                                          <div>Hourly: <span className="font-semibold">${fmt(visHourlyVal)}</span> <span className="text-zinc-400">({day.hoursWorked.toFixed(1)}h)</span></div>
                                         )}
-                                        {day.recurringRevenue > 0 && (
-                                          <div>Recurring: <span className="font-semibold">${fmt(day.recurringRevenue)}</span></div>
+                                        {visRecurringVal > 0 && (
+                                          <div>Recurring: <span className="font-semibold">${fmt(visRecurringVal)}</span></div>
                                         )}
-                                        {day.fixedRevenue > 0 && (
-                                          <div>Fixed: <span className="font-semibold">${fmt(day.fixedRevenue)}</span></div>
+                                        {visFixedVal > 0 && (
+                                          <div>Fixed: <span className="font-semibold">${fmt(visFixedVal)}</span></div>
                                         )}
                                         <div className="mt-1 pt-1 border-t border-white/10 flex items-center justify-between gap-3 text-zinc-100">
                                           <span className="uppercase tracking-wider text-[9px] text-zinc-400">Total earned</span>
@@ -1023,8 +1041,8 @@ export default function FinancesPage() {
                                         </div>
                                       </div>
                                     )}
-                                    {day.paymentReceived > 0 && (
-                                      <p className="text-emerald-300 mt-0.5">Payments: <span className="font-semibold">${fmt(day.paymentReceived)}</span></p>
+                                    {visPaymentVal > 0 && (
+                                      <p className="text-emerald-300 mt-0.5">Payments: <span className="font-semibold">${fmt(visPaymentVal)}</span></p>
                                     )}
                                   </div>
                                 </div>
@@ -1056,41 +1074,51 @@ export default function FinancesPage() {
                 </>
               )}
 
-              {/* Legend (toggleable) */}
-              <div className="flex items-center gap-3 mt-3 pt-3 border-t border-zinc-100 flex-wrap">
-                <button
-                  type="button"
-                  onClick={() => setShowHourly(prev => !prev)}
-                  className={`flex items-center gap-1.5 px-2 py-1 rounded-md transition-colors ${showHourly ? 'bg-sky-50' : 'opacity-40 hover:opacity-70'}`}
-                >
-                  <div className={`w-2.5 h-2.5 rounded-sm ${showHourly ? 'bg-sky-400' : 'bg-zinc-300'}`} />
-                  <span className="text-[11px] text-zinc-600 font-medium">Hourly</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowRecurring(prev => !prev)}
-                  className={`flex items-center gap-1.5 px-2 py-1 rounded-md transition-colors ${showRecurring ? 'bg-amber-50' : 'opacity-40 hover:opacity-70'}`}
-                >
-                  <div className={`w-2.5 h-2.5 rounded-sm ${showRecurring ? 'bg-amber-400' : 'bg-zinc-300'}`} />
-                  <span className="text-[11px] text-zinc-600 font-medium">Recurring</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowFixed(prev => !prev)}
-                  className={`flex items-center gap-1.5 px-2 py-1 rounded-md transition-colors ${showFixed ? 'bg-violet-50' : 'opacity-40 hover:opacity-70'}`}
-                >
-                  <div className={`w-2.5 h-2.5 rounded-sm ${showFixed ? 'bg-violet-500' : 'bg-zinc-300'}`} />
-                  <span className="text-[11px] text-zinc-600 font-medium">Fixed</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowPayments(prev => !prev)}
-                  className={`flex items-center gap-1.5 px-2 py-1 rounded-md transition-colors ${showPayments ? 'bg-emerald-50' : 'opacity-40 hover:opacity-70'}`}
-                >
-                  <div className={`w-2.5 h-2.5 rounded-sm ${showPayments ? 'bg-emerald-500' : 'bg-zinc-300'}`} />
-                  <span className="text-[11px] text-zinc-600 font-medium">Payments</span>
-                </button>
-              </div>
+              {/* Legend (toggleable) - only show categories that have data */}
+              {(categoryHasData.hourly || categoryHasData.recurring || categoryHasData.fixed || categoryHasData.payments) && (
+                <div className="flex items-center gap-3 mt-3 pt-3 border-t border-zinc-100 flex-wrap">
+                  {categoryHasData.hourly && (
+                    <button
+                      type="button"
+                      onClick={() => setShowHourly(prev => !prev)}
+                      className={`flex items-center gap-1.5 px-2 py-1 rounded-md transition-colors ${showHourly ? 'bg-sky-50' : 'opacity-40 hover:opacity-70'}`}
+                    >
+                      <div className={`w-2.5 h-2.5 rounded-sm ${showHourly ? 'bg-sky-400' : 'bg-zinc-300'}`} />
+                      <span className="text-[11px] text-zinc-600 font-medium">Hourly</span>
+                    </button>
+                  )}
+                  {categoryHasData.recurring && (
+                    <button
+                      type="button"
+                      onClick={() => setShowRecurring(prev => !prev)}
+                      className={`flex items-center gap-1.5 px-2 py-1 rounded-md transition-colors ${showRecurring ? 'bg-amber-50' : 'opacity-40 hover:opacity-70'}`}
+                    >
+                      <div className={`w-2.5 h-2.5 rounded-sm ${showRecurring ? 'bg-amber-400' : 'bg-zinc-300'}`} />
+                      <span className="text-[11px] text-zinc-600 font-medium">Recurring</span>
+                    </button>
+                  )}
+                  {categoryHasData.fixed && (
+                    <button
+                      type="button"
+                      onClick={() => setShowFixed(prev => !prev)}
+                      className={`flex items-center gap-1.5 px-2 py-1 rounded-md transition-colors ${showFixed ? 'bg-violet-50' : 'opacity-40 hover:opacity-70'}`}
+                    >
+                      <div className={`w-2.5 h-2.5 rounded-sm ${showFixed ? 'bg-violet-500' : 'bg-zinc-300'}`} />
+                      <span className="text-[11px] text-zinc-600 font-medium">Fixed</span>
+                    </button>
+                  )}
+                  {categoryHasData.payments && (
+                    <button
+                      type="button"
+                      onClick={() => setShowPayments(prev => !prev)}
+                      className={`flex items-center gap-1.5 px-2 py-1 rounded-md transition-colors ${showPayments ? 'bg-emerald-50' : 'opacity-40 hover:opacity-70'}`}
+                    >
+                      <div className={`w-2.5 h-2.5 rounded-sm ${showPayments ? 'bg-emerald-500' : 'bg-zinc-300'}`} />
+                      <span className="text-[11px] text-zinc-600 font-medium">Payments</span>
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 
