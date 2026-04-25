@@ -6,7 +6,7 @@ import {
   Lock, Loader2, FileText, Image, Archive, File, Download, Globe,
   CheckCircle2, Clock, AlertCircle, FolderOpen, Timer, Upload,
   Flag, Package, MessageCircle, Pin, ChevronDown, KeyRound, Eye, EyeOff, Plus, Pencil, ShieldCheck,
-  Receipt, FileDown,
+  Receipt, FileDown, CircleDollarSign,
 } from 'lucide-react';
 import type { PortalData, PortalSectionKey } from '@/lib/types';
 import { DEFAULT_SECTION_ORDER } from '@/lib/types';
@@ -192,6 +192,19 @@ function HoursSection({ entries, totalHours, memberHours, accentColor }: {
                         <span className="italic">paused {formatBreakDuration(entry.paused_seconds)}</span>
                       </>
                     )}
+                    {(() => {
+                      if (!entry.payment_status) return null;
+                      const cfg = entry.payment_status === 'paid'
+                        ? { color: 'text-emerald-500', tip: 'Paid' }
+                        : entry.payment_status === 'partial'
+                        ? { color: 'text-amber-500', tip: 'Partially paid' }
+                        : { color: 'text-zinc-300', tip: 'Unpaid' };
+                      return (
+                        <Tooltip content={cfg.tip}>
+                          <CircleDollarSign size={12} className={`flex-shrink-0 ${cfg.color}`} />
+                        </Tooltip>
+                      );
+                    })()}
                   </div>
                 </div>
                 <span className="text-sm font-bold text-zinc-900 tabular-nums flex-shrink-0">

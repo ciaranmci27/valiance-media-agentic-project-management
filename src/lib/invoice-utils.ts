@@ -44,6 +44,82 @@ export function lineItemsTotal(items: InvoiceLineItem[]): number {
 }
 
 /**
+ * Total dollars of hourly line items across paid invoices. Drives the FIFO
+ * "paid hours" pool. Filtering on the invoice-level `invoice_type` would
+ * miscount mixed invoices: a primarily-hourly invoice with recurring line
+ * items would inflate the pool, and an hourly line item inside a
+ * primarily-recurring invoice would never be credited.
+ */
+export function paidHourlyLineItemTotal(invoices: ProjectInvoice[]): number {
+  let total = 0;
+  for (const inv of invoices) {
+    if (inv.status !== 'paid') continue;
+    for (const li of ensureLineItems(inv)) {
+      if (li.item_type === 'hourly') total += Number(li.amount) || 0;
+    }
+  }
+  return total;
+}
+
+/**
+ * Sum invoiced dollars across all non-draft invoices, broken down by line-item
+ * type. Use this instead of bucketing by the invoice-level `invoice_type`,
+ * which would misclassify mixed invoices (an `invoice_type='hourly'` invoice
+ * may carry recurring line items, and vice versa).
+ *
+ * Cancelled invoices are excluded; pass already-filtered input if you also
+ * want to exclude drafts.
+ */
+export function invoicedTotalsByItemType(
+  invoices: ProjectInvoice[],
+): { hourly: number; fixed: number; recurring: number } {
+  const totals = { hourly: 0, fixed: 0, recurring: 0 };
+  for (const inv of invoices) {
+    if (inv.status === 'cancelled') continue;
+    for (const li of ensureLineItems(inv)) {
+      const amt = Number(li.amount) || 0;
+      if (li.item_type === 'hourly') totals.hourly += amt;
+      else if (li.item_type === 'fixed') totals.fixed += amt;
+      else if (li.item_type === 'recurring') totals.recurring += amt;
+    }
+  }
+  return totals;
+}
+
+export type PaymentStatus = 'paid' | 'partial' | 'unpaid';
+
+/**
+ * FIFO waterfall against a pool of paid hourly dollars: walk entries oldest-
+ * first, draining the pool by each entry's billable cost. Returns a map of
+ * entry id → payment status. Entries must be passed in oldest-first order.
+ *
+ * Decoupled from the time-entry type so both the admin tracker and the
+ * portal API can reuse it without depending on each other.
+ */
+export function fifoPaymentStatuses(
+  entries: Array<{ id: string; hours: number }>,
+  paidPool: number,
+  hourlyRate: number,
+): Map<string, PaymentStatus> {
+  const map = new Map<string, PaymentStatus>();
+  if (hourlyRate <= 0) return map;
+  let pool = paidPool;
+  for (const entry of entries) {
+    const cost = entry.hours * hourlyRate;
+    if (pool >= cost) {
+      map.set(entry.id, 'paid');
+      pool -= cost;
+    } else if (pool > 0) {
+      map.set(entry.id, 'partial');
+      pool = 0;
+    } else {
+      map.set(entry.id, 'unpaid');
+    }
+  }
+  return map;
+}
+
+/**
  * Dominant line-item type by amount. Used to set the legacy `invoice_type`
  * column so existing filters keep working.
  */

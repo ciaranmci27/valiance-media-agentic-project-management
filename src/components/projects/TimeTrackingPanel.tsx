@@ -17,6 +17,7 @@ import { TimeEntry } from '@/lib/types';
 import { siteConfig } from '@/site-config';
 import { toLocalTimeString, toLocalDateString } from '@/lib/date-utils';
 import { getWorkedHours, getWorkedMs, isPaused } from '@/lib/time-entry-utils';
+import { paidHourlyLineItemTotal, fifoPaymentStatuses, type PaymentStatus } from '@/lib/invoice-utils';
 
 /* ── Types ── */
 
@@ -100,33 +101,13 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
   const hourlyRate = project?.hourly_rate ?? 0;
   const isHourly = project?.hourly_tracking ?? false;
 
-  const paymentStatusMap = useMemo(() => {
-    const map = new Map<string, 'paid' | 'partial' | 'unpaid'>();
-    if (!isHourly || hourlyRate <= 0) return map;
-
-    // Sum paid hourly invoices into a pool
-    let pool = invoices
-      .filter(inv => inv.status === 'paid' && inv.invoice_type === 'hourly')
-      .reduce((sum, inv) => sum + inv.amount, 0);
-
-    // Sort finalized entries oldest-first
+  const paymentStatusMap = useMemo<Map<string, PaymentStatus>>(() => {
+    if (!isHourly || hourlyRate <= 0) return new Map();
     const finalized = entries
       .filter(e => e.end_time !== null)
-      .sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime());
-
-    for (const entry of finalized) {
-      const cost = getWorkedHours(entry) * hourlyRate;
-      if (pool >= cost) {
-        map.set(entry.id, 'paid');
-        pool -= cost;
-      } else if (pool > 0) {
-        map.set(entry.id, 'partial');
-        pool = 0;
-      } else {
-        map.set(entry.id, 'unpaid');
-      }
-    }
-    return map;
+      .sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime())
+      .map(e => ({ id: e.id, hours: getWorkedHours(e) }));
+    return fifoPaymentStatuses(finalized, paidHourlyLineItemTotal(invoices), hourlyRate);
   }, [isHourly, hourlyRate, invoices, entries]);
 
   // ── Mode selection (persisted per project, defaults to timer) ──

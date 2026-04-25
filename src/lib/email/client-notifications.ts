@@ -41,7 +41,8 @@ import {
 } from './templates/client/budget-extended';
 import { getSiteUrl } from './templates/shared';
 import { getLatestBudgetHistoryId, type BudgetType } from '@/lib/project-budget-history';
-import type { ClientCommType } from '@/lib/types';
+import type { ClientCommType, ProjectInvoice } from '@/lib/types';
+import { paidHourlyLineItemTotal, invoicedTotalsByItemType } from '@/lib/invoice-utils';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -235,14 +236,15 @@ function getWorkedHoursFromSegments(segments: any[]): number {
 
 function computeUnpaidHours(
   entries: Array<{ end_time: string | null; start_time: string; segments: any[] }>,
-  invoices: Array<{ status: string; invoice_type: string; amount: number }>,
+  invoices: ProjectInvoice[],
   hourlyRate: number,
 ): number {
   if (hourlyRate <= 0) return 0;
 
-  let pool = invoices
-    .filter(inv => inv.status === 'paid' && inv.invoice_type === 'hourly')
-    .reduce((sum, inv) => sum + inv.amount, 0);
+  // Pool only the hourly portion of paid invoices. A single invoice can mix
+  // hourly + fixed + recurring line items, so we walk line_items rather than
+  // bucketing by the invoice-level invoice_type.
+  let pool = paidHourlyLineItemTotal(invoices);
 
   const finalized = entries
     .filter(e => e.end_time !== null)
@@ -377,10 +379,10 @@ export async function renderCommunication(
 
     const { data: invoices } = await supabase
       .from('project_invoices')
-      .select('amount, status, invoice_type, paid_date')
+      .select('*')
       .eq('project_id', projectId)
       .neq('status', 'draft');
-    const activeInvoices = invoices || [];
+    const activeInvoices = (invoices || []) as ProjectInvoice[];
 
     const { data: entries } = await supabase
       .from('project_time_entries')
@@ -393,12 +395,11 @@ export async function renderCommunication(
       .filter(inv => inv.status === 'paid')
       .reduce((sum, inv) => sum + inv.amount, 0);
 
-    const hourlyInvoiced = activeInvoices
-      .filter(inv => inv.invoice_type === 'hourly')
-      .reduce((sum, inv) => sum + inv.amount, 0);
-    const fixedInvoiced = activeInvoices
-      .filter(inv => inv.invoice_type === 'fixed' || inv.invoice_type === 'recurring')
-      .reduce((sum, inv) => sum + inv.amount, 0);
+    // Bucket invoiced dollars by line-item type, not by the invoice-level
+    // invoice_type, so a mixed invoice contributes correctly to each bucket.
+    const invoicedByType = invoicedTotalsByItemType(activeInvoices);
+    const hourlyInvoiced = invoicedByType.hourly;
+    const fixedInvoiced = invoicedByType.fixed + invoicedByType.recurring;
     const billableTotal = Math.max(hourlyRate * usage.totalHours, hourlyInvoiced) + fixedInvoiced;
     const outstanding = isHourly
       ? Math.max(0, billableTotal - totalPaid)
@@ -412,17 +413,13 @@ export async function renderCommunication(
           start_time: e.start_time,
           segments: e.segments || [],
         })),
-        activeInvoices.map(inv => ({
-          status: inv.status,
-          invoice_type: inv.invoice_type,
-          amount: inv.amount,
-        })),
+        activeInvoices,
         hourlyRate,
       );
     }
 
     const paidInvoices = activeInvoices
-      .filter(inv => inv.status === 'paid' && inv.paid_date)
+      .filter((inv): inv is ProjectInvoice & { paid_date: string } => inv.status === 'paid' && !!inv.paid_date)
       .sort((a, b) => new Date(b.paid_date).getTime() - new Date(a.paid_date).getTime());
     const lastPaid = paidInvoices[0] || null;
 

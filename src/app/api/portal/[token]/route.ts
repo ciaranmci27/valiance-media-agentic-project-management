@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
-import type { PortalData, PortalSectionKey, TimeEntry } from '@/lib/types';
+import type { PortalData, PortalSectionKey, ProjectInvoice, TimeEntry } from '@/lib/types';
 import { DEFAULT_SECTION_ORDER } from '@/lib/types';
 import {
   demoPortalSettings, demoPortalUpdates, demoPortalUpdateAttachments,
@@ -10,6 +10,7 @@ import {
 } from '@/lib/demo-data';
 import { siteConfig } from '@/site-config';
 import { getWorkedHours, getWorkedMs } from '@/lib/time-entry-utils';
+import { fifoPaymentStatuses, paidHourlyLineItemTotal } from '@/lib/invoice-utils';
 
 /**
  * Pause duration within an entry: the part of the [start_time, end_time] span
@@ -159,6 +160,20 @@ export async function GET(
     }));
   }
 
+  // Fetch invoices once. We need them for the invoices section AND, on hourly
+  // projects, to compute per-entry payment status for the Hours section.
+  const needsInvoices = settings.show_invoices || (settings.show_hours && project.hourly_tracking);
+  let allInvoices: ProjectInvoice[] = [];
+  if (needsInvoices) {
+    const { data: invoiceData } = await supabase
+      .from('project_invoices')
+      .select('*')
+      .eq('project_id', settings.project_id)
+      .neq('status', 'draft')
+      .order('date', { ascending: false });
+    allInvoices = (invoiceData || []) as ProjectInvoice[];
+  }
+
   // Fetch time entries with member names (exclude running timers)
   // Always fetch when show_hours OR (show_invoices + hourly_tracking) for billing calculations
   const needsHours = settings.show_hours || (settings.show_invoices && project.hourly_tracking);
@@ -180,6 +195,19 @@ export async function GET(
 
       const memberMap = new Map((members || []).map((m: any) => [m.id, m.name]));
 
+      // FIFO payment status (oldest entry drained first against paid hourly $).
+      // Only meaningful on hourly projects with a rate set.
+      const hourlyRate = project.hourly_rate ?? 0;
+      const paymentMap = (project.hourly_tracking && hourlyRate > 0)
+        ? fifoPaymentStatuses(
+            [...timeEntries]
+              .sort((a: any, b: any) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime())
+              .map((te: any) => ({ id: te.id, hours: getWorkedHours(te as TimeEntry) })),
+            paidHourlyLineItemTotal(allInvoices),
+            hourlyRate,
+          )
+        : new Map();
+
       hours = {
         total_hours: timeEntries.reduce((sum: number, te: any) => sum + getWorkedHours(te as TimeEntry), 0),
         entries: settings.show_hours ? timeEntries.map((te: any) => ({
@@ -191,6 +219,7 @@ export async function GET(
           segments: getPortalSegments(te as TimeEntry),
           description: te.description,
           member_name: memberMap.get(te.member_id) || 'Unknown',
+          payment_status: paymentMap.get(te.id) ?? null,
         })) : [],
       };
     }
@@ -215,17 +244,25 @@ export async function GET(
   }
   const credentials_submitted_count = credentials_submitted.length;
 
-  // Fetch invoices
-  let invoices: PortalData['invoices'] = [];
-  if (settings.show_invoices) {
-    const { data: invoiceData } = await supabase
-      .from('project_invoices')
-      .select('id, invoice_number, amount, status, invoice_type, line_items, date, due_date, paid_date, description, file_url, file_name, file_size, mime_type')
-      .eq('project_id', settings.project_id)
-      .neq('status', 'draft')
-      .order('date', { ascending: false });
-    invoices = (invoiceData || []).map((i: any) => ({ ...i, line_items: Array.isArray(i.line_items) ? i.line_items : [] }));
-  }
+  // Project the already-loaded invoice rows down to what the client needs.
+  const invoices: PortalData['invoices'] = settings.show_invoices
+    ? allInvoices.map((i: any) => ({
+        id: i.id,
+        invoice_number: i.invoice_number,
+        amount: i.amount,
+        status: i.status,
+        invoice_type: i.invoice_type,
+        line_items: Array.isArray(i.line_items) ? i.line_items : [],
+        date: i.date,
+        due_date: i.due_date,
+        paid_date: i.paid_date,
+        description: i.description,
+        file_url: i.file_url,
+        file_name: i.file_name,
+        file_size: i.file_size,
+        mime_type: i.mime_type,
+      }))
+    : [];
 
   // Fetch portal updates with author names and attachments
   let updates: PortalData['updates'] = [];
@@ -356,12 +393,29 @@ function handleDemoMode(token: string, request: NextRequest) {
         .map(f => ({ id: f.id, name: f.name, file_url: f.file_url, file_size: f.file_size, mime_type: f.mime_type }))
     : [];
 
+  // Demo invoices are needed both for the invoices section and (on hourly
+  // projects) to compute per-entry payment status for the Hours section.
+  const demoActiveInvoices = demoProjectInvoices.filter(
+    i => i.project_id === settings.project_id && i.status !== 'draft',
+  ) as ProjectInvoice[];
+
   // Build hours from demo data (exclude running timers)
   // Always compute when show_hours OR (show_invoices + hourly_tracking) for billing calculations
   const demoNeedsHours = settings.show_hours || (settings.show_invoices && project.hourly_tracking);
   let hours: PortalData['hours'] = { total_hours: 0, entries: [] };
   if (demoNeedsHours) {
     const projectEntries = demoTimeEntries.filter(te => te.project_id === settings.project_id && te.end_time !== null);
+    const hourlyRate = project.hourly_rate ?? 0;
+    const paymentMap = (project.hourly_tracking && hourlyRate > 0)
+      ? fifoPaymentStatuses(
+          [...projectEntries]
+            .sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime())
+            .map(te => ({ id: te.id, hours: getWorkedHours(te) })),
+          paidHourlyLineItemTotal(demoActiveInvoices),
+          hourlyRate,
+        )
+      : new Map();
+
     hours = {
       total_hours: projectEntries.reduce((sum, te) => sum + getWorkedHours(te), 0),
       entries: settings.show_hours ? projectEntries.map(te => {
@@ -375,6 +429,7 @@ function handleDemoMode(token: string, request: NextRequest) {
           segments: getPortalSegments(te),
           description: te.description,
           member_name: member?.name || 'Unknown',
+          payment_status: paymentMap.get(te.id) ?? null,
         };
       }) : [],
     };
@@ -403,11 +458,9 @@ function handleDemoMode(token: string, request: NextRequest) {
       });
   }
 
-  // Build invoices from demo data (exclude drafts)
+  // Project the already-loaded demo invoice rows down to what the client needs.
   const invoices: PortalData['invoices'] = settings.show_invoices
-    ? demoProjectInvoices
-        .filter(i => i.project_id === settings.project_id && i.status !== 'draft')
-        .map(i => ({ id: i.id, invoice_number: i.invoice_number, amount: i.amount, status: i.status, invoice_type: i.invoice_type, line_items: i.line_items ?? [], date: i.date, due_date: i.due_date, paid_date: i.paid_date, description: i.description, file_url: i.file_url, file_name: i.file_name, file_size: i.file_size, mime_type: i.mime_type }))
+    ? demoActiveInvoices.map(i => ({ id: i.id, invoice_number: i.invoice_number, amount: i.amount, status: i.status, invoice_type: i.invoice_type, line_items: i.line_items ?? [], date: i.date, due_date: i.due_date, paid_date: i.paid_date, description: i.description, file_url: i.file_url, file_name: i.file_name, file_size: i.file_size, mime_type: i.mime_type }))
     : [];
 
   const portalData: PortalData = {

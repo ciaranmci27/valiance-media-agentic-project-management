@@ -685,6 +685,10 @@ export interface PortalData {
       segments: { start: string; end: string }[];
       description: string;
       member_name: string;
+      // FIFO payment status against paid hourly line items. Null when the
+      // project isn't hourly or has no rate set; the portal only renders
+      // the badge on hourly projects.
+      payment_status: 'paid' | 'partial' | 'unpaid' | null;
     }[];
   };
   updates: {
