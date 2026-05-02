@@ -107,7 +107,7 @@ export function ProjectCard({ project, onEdit, onDelete }: ProjectCardProps) {
       </p>
 
       {/* Footer */}
-      <div className="flex items-center justify-between pt-3 border-t border-zinc-100">
+      <div className="mt-auto flex items-center justify-between pt-3 border-t border-zinc-100">
         <div className="flex items-center gap-3 lg:gap-4 text-xs text-zinc-500">
           {project.due_date && (
             <div className="flex items-center gap-1">

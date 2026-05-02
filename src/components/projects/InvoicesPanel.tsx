@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from 'react';
 import {
   Receipt, Plus, Edit2, Trash2, FileDown, X, Upload, File,
-  Loader2, ChevronDown, Copy,
+  Loader2, ChevronDown, Copy, Clock,
 } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
@@ -22,6 +22,7 @@ import {
 import { getWorkedHours } from '@/lib/time-entry-utils';
 import {
   ensureLineItems, lineItemsTotal, dominantInvoiceType, newLineItemId, suggestServiceEnd,
+  paidHourlyLineItemTotal, buildUnpaidHoursLineItem,
 } from '@/lib/invoice-utils';
 
 interface InvoicesPanelProps {
@@ -171,6 +172,25 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
     : INVOICE_TYPES.filter(t => t !== 'hourly').map(t => ({ value: t, label: t.charAt(0).toUpperCase() + t.slice(1) }));
   const defaultType: InvoiceType = isHourly ? 'hourly' : 'fixed';
 
+  // Roll up unpaid hours into a draft hourly line item. Computed from finalized
+  // entries vs. the FIFO pool of dollars covered by paid hourly line items, so
+  // saving an invoice as `paid` automatically shrinks the next click's amount.
+  // Drafts/sent invoices don't drain the pool, which matches how the rest of
+  // the panel reasons about "paid hours".
+  const unpaidHoursDraft = (() => {
+    if (!isHourly || hourlyRate <= 0) return null;
+    const paidPool = paidHourlyLineItemTotal(invoices);
+    const finalized = timeEntries
+      .filter(te => te.end_time !== null)
+      .map(te => ({
+        id: te.id,
+        start_time: te.start_time,
+        end_time: te.end_time,
+        hours: getWorkedHours(te),
+      }));
+    return buildUnpaidHoursLineItem(finalized, paidPool, hourlyRate);
+  })();
+
   const resetForm = () => {
     setFormNumber('');
     setFormDate('');
@@ -206,6 +226,29 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
       const fresh = makeLineItem(defaultType, items.length);
       setAmountDrafts(d => ({ ...d, [fresh.id]: '' }));
       return [...items, fresh];
+    });
+  };
+  // Insert (or replace) the auto-generated unpaid-hours line item. We replace
+  // any prior one in the same form so clicking the button twice doesn't stack
+  // duplicate rows; the user can always tweak the description afterwards.
+  const addUnpaidHoursLineItem = () => {
+    if (!unpaidHoursDraft) return;
+    setFormLineItems(items => {
+      const filtered = items.filter(li => !(li.item_type === 'hourly' && li.description === unpaidHoursDraft.description && li.amount === unpaidHoursDraft.amount));
+      const fresh: InvoiceLineItem = {
+        id: newLineItemId(),
+        position: filtered.length,
+        item_type: 'hourly',
+        amount: unpaidHoursDraft.amount,
+        description: unpaidHoursDraft.description,
+        service_start_date: null,
+        service_end_date: null,
+        recurrence_frequency: null,
+      };
+      setAmountDrafts(d => ({ ...d, [fresh.id]: String(unpaidHoursDraft.amount) }));
+      // If the form started with the default empty placeholder line, drop it.
+      const trimmed = filtered.filter(li => !(li.amount === 0 && li.description === '' && li.item_type === defaultType && filtered.length === 1));
+      return [...trimmed, fresh].map((li, i) => ({ ...li, position: i }));
     });
   };
   const removeLineItem = (id: string) => {
@@ -601,14 +644,27 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
         <div className="space-y-2">
           {formLineItems.map(li => renderLineItem(li, formLineItems.length > 1))}
         </div>
-        <button
-          type="button"
-          onClick={addLineItem}
-          className="inline-flex items-center gap-1 text-xs font-medium text-brand-600 hover:text-brand-700 transition-colors"
-        >
-          <Plus size={12} strokeWidth={2.5} />
-          Add line
-        </button>
+        <div className="flex items-center gap-3 flex-wrap">
+          <button
+            type="button"
+            onClick={addLineItem}
+            className="inline-flex items-center gap-1 text-xs font-medium text-brand-600 hover:text-brand-700 transition-colors"
+          >
+            <Plus size={12} strokeWidth={2.5} />
+            Add line
+          </button>
+          {unpaidHoursDraft && (
+            <button
+              type="button"
+              onClick={addUnpaidHoursLineItem}
+              title={unpaidHoursDraft.description}
+              className="inline-flex items-center gap-1 text-xs font-medium text-brand-600 hover:text-brand-700 transition-colors"
+            >
+              <Clock size={12} strokeWidth={2.5} />
+              Add unpaid hours (${formatCurrency(unpaidHoursDraft.amount)})
+            </button>
+          )}
+        </div>
       </div>
 
       <Textarea

@@ -120,6 +120,96 @@ export function fifoPaymentStatuses(
 }
 
 /**
+ * Same FIFO walk as `fifoPaymentStatuses`, but returns the per-entry billable
+ * hours that remain unpaid. A fully-paid entry contributes 0; a partial entry
+ * contributes only the slice past the drained pool; an unpaid entry contributes
+ * its full hours. Used to build a single rolled-up hourly line item.
+ */
+export function unpaidHoursByEntry(
+  entries: Array<{ id: string; hours: number }>,
+  paidPool: number,
+  hourlyRate: number,
+): Map<string, number> {
+  const out = new Map<string, number>();
+  if (hourlyRate <= 0) return out;
+  let pool = paidPool;
+  for (const entry of entries) {
+    const cost = entry.hours * hourlyRate;
+    if (pool >= cost) {
+      pool -= cost;
+      continue;
+    }
+    if (pool > 0) {
+      const coveredHours = pool / hourlyRate;
+      out.set(entry.id, Math.max(0, entry.hours - coveredHours));
+      pool = 0;
+    } else {
+      out.set(entry.id, entry.hours);
+    }
+  }
+  return out;
+}
+
+/**
+ * Format an ISO datetime (or YYYY-MM-DD) into MM/DD/YYYY in the viewer's local
+ * timezone. Naïve YYYY-MM-DD slicing was a bug for non-UTC users: an entry
+ * tracked at 11pm PST renders as 2026-04-04 in UTC but the user thinks of it
+ * as April 3, so the description would show the wrong day.
+ */
+function fmtMDY(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  const y = date.getFullYear();
+  return `${m}/${d}/${y}`;
+}
+
+/**
+ * Roll up unpaid time entries into a single hourly line-item draft.
+ * Returns null when there are no unpaid hours. Caller is responsible for
+ * assigning a fresh `id` and `position` before inserting into the form.
+ *
+ * The description follows the user's preferred format:
+ *   "{hours} hours worked between MM/DD/YYYY and MM/DD/YYYY"
+ * Date span is the oldest entry's start through the newest entry's end. The
+ * caller is expected to pass only finalized entries (end_time non-null) since
+ * unfinalized entries don't have billable hours yet.
+ */
+export function buildUnpaidHoursLineItem(
+  entries: Array<{ id: string; start_time: string; end_time: string | null; hours: number }>,
+  paidPool: number,
+  hourlyRate: number,
+): { description: string; amount: number; hours: number } | null {
+  if (hourlyRate <= 0) return null;
+  // Oldest-first ordering is required by the FIFO walk. Sort defensively.
+  const sorted = [...entries].sort((a, b) => a.start_time.localeCompare(b.start_time));
+  const unpaidMap = unpaidHoursByEntry(sorted, paidPool, hourlyRate);
+  if (unpaidMap.size === 0) return null;
+
+  let totalHours = 0;
+  let earliestStart: string | null = null;
+  let latestEnd: string | null = null;
+  for (const entry of sorted) {
+    const unpaid = unpaidMap.get(entry.id);
+    if (!unpaid || unpaid <= 0) continue;
+    totalHours += unpaid;
+    if (!earliestStart || entry.start_time < earliestStart) earliestStart = entry.start_time;
+    const end = entry.end_time ?? entry.start_time;
+    if (!latestEnd || end > latestEnd) latestEnd = end;
+  }
+  if (totalHours <= 0 || !earliestStart || !latestEnd) return null;
+
+  const hoursStr = totalHours.toFixed(4).replace(/\.?0+$/, '');
+  const description = `${hoursStr} hours worked between ${fmtMDY(earliestStart)} and ${fmtMDY(latestEnd)}`;
+  return {
+    description,
+    amount: Math.round(totalHours * hourlyRate * 100) / 100,
+    hours: totalHours,
+  };
+}
+
+/**
  * Dominant line-item type by amount. Used to set the legacy `invoice_type`
  * column so existing filters keep working.
  */
