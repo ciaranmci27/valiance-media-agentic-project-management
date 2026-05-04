@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect, useRef, Fragment } from 'react';
-import { useParams } from 'next/navigation';
+import { useState, useEffect, useRef, useCallback, Fragment, Suspense } from 'react';
+import { useParams, useRouter, useSearchParams, usePathname } from 'next/navigation';
+import { InvoicePreviewModalView } from '@/components/invoice-pdf/InvoicePreviewModalView';
 import {
   Lock, Loader2, FileText, Image, Archive, File, Download, Globe,
   CheckCircle2, Clock, AlertCircle, FolderOpen, Timer, Upload,
@@ -877,7 +878,19 @@ function PortalCredentialForm({ token, pin, accentColor, credentialsSubmitted }:
 
 /* ── Page ─────────────────────────────────────────── */
 
+// Outer wrapper exists solely to provide a Suspense boundary so the inner
+// component can use Next's useSearchParams() without tripping the
+// "missing-suspense-with-csr-bailout" build error. The inner component
+// holds all the actual page logic.
 export default function PortalPage() {
+  return (
+    <Suspense fallback={null}>
+      <PortalPageInner />
+    </Suspense>
+  );
+}
+
+function PortalPageInner() {
   const params = useParams();
   const token = (params.token as string).toLowerCase();
 
@@ -897,6 +910,35 @@ export default function PortalPage() {
 
   // File preview state
   const [previewFile, setPreviewFile] = useState<{ name: string; file_url: string; mime_type: string } | null>(null);
+
+  // Invoice preview deep-linking via ?invoice=INV-001 search param so clients
+  // can share a link to a specific invoice. Resolves to actual invoice data
+  // when the portal payload is loaded.
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const pathname = usePathname();
+  const activeInvoiceNumber = searchParams.get('invoice');
+  const activeInvoice = activeInvoiceNumber && data
+    ? data.invoices.find(i => i.invoice_number === activeInvoiceNumber) ?? null
+    : null;
+  const activePdfData = activeInvoice && data ? data.invoice_pdfs?.[activeInvoice.id] ?? null : null;
+
+  // Opening pushes a new history entry so the browser back button closes the
+  // modal — matches conventional deep-linkable modal behavior (Twitter, etc).
+  const openInvoice = useCallback((invoiceNumber: string) => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set('invoice', invoiceNumber);
+    router.push(`${pathname}?${params.toString()}`, { scroll: false });
+  }, [router, searchParams, pathname]);
+
+  // Closing replaces (no extra history entry) so users don't end up with a
+  // pile of modal-open/close states cluttering their back stack.
+  const closeInvoice = useCallback(() => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete('invoice');
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  }, [router, searchParams, pathname]);
 
   const fetchPortal = async (pinValue?: string) => {
     if (pinValue) setPinSubmitting(true);
@@ -1472,7 +1514,21 @@ export default function PortalPage() {
                           };
                           const sc = statusConfig[invoice.status] || { bg: 'bg-zinc-100', text: 'text-zinc-600', dot: 'bg-zinc-400' };
                           return (
-                            <div key={invoice.id} className="group bg-white/80 backdrop-blur-sm rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.04),0_8px_24px_rgba(0,0,0,0.03)] border border-white/60 p-4 hover:shadow-[0_1px_3px_rgba(0,0,0,0.04),0_12px_32px_rgba(0,0,0,0.06)] transition-shadow duration-300">
+                            <div
+                              key={invoice.id}
+                              role="button"
+                              tabIndex={0}
+                              aria-label={`Preview invoice ${invoice.invoice_number}`}
+                              onClick={() => openInvoice(invoice.invoice_number)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                  e.preventDefault();
+                                  openInvoice(invoice.invoice_number);
+                                }
+                              }}
+                              className="group bg-white/80 backdrop-blur-sm rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.04),0_8px_24px_rgba(0,0,0,0.03)] border border-white/60 p-4 hover:shadow-[0_1px_3px_rgba(0,0,0,0.04),0_12px_32px_rgba(0,0,0,0.06)] cursor-pointer focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 transition-shadow duration-300"
+                              style={{ outlineColor: accentColor }}
+                            >
                               <div className="flex items-center justify-between mb-2">
                                 <div className="flex items-center gap-2">
                                   <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-semibold rounded-full ${sc.bg} ${sc.text}`}>
@@ -1498,6 +1554,7 @@ export default function PortalPage() {
                                   href={invoice.file_url}
                                   target="_blank"
                                   rel="noopener noreferrer"
+                                  onClick={(e) => e.stopPropagation()}
                                   className="inline-flex items-center gap-1.5 mt-3 text-xs font-semibold rounded-lg px-3 py-1.5 transition-colors"
                                   style={{ color: accentColor, backgroundColor: accentColor + '10' }}
                                 >
@@ -1552,6 +1609,16 @@ export default function PortalPage() {
         isOpen={!!previewFile}
         onClose={() => setPreviewFile(null)}
         file={previewFile}
+      />
+
+      {/* Invoice preview — opened via ?invoice=INV-001 deep-link or invoice card click */}
+      <InvoicePreviewModalView
+        isOpen={!!activeInvoice}
+        onClose={closeInvoice}
+        pdfData={activePdfData}
+        invoiceNumber={activeInvoice?.invoice_number ?? ''}
+        clientLabel={activePdfData?.billTo.company || activePdfData?.billTo.name || data?.project.name || 'Client'}
+        invoiceDate={activeInvoice?.date ?? ''}
       />
     </div>
   );

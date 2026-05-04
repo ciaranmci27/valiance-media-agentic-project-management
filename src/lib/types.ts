@@ -1,3 +1,5 @@
+import type { InvoicePdfData, InvoicePdfOptions } from '@/lib/invoice-pdf/types';
+
 export const CONTACT_ROLES = ['Client', 'Primary Contact', 'Technical Contact', 'Billing Contact', 'Stakeholder', 'Other'] as const;
 export type ContactRole = typeof CONTACT_ROLES[number];
 
@@ -18,9 +20,29 @@ export interface Project {
   max_concurrent_tasks: number;
   suggestions_per_cycle: number;
   repo_path: string | null;
+  billing_address?: string | null;
+  billing_email?: string | null;
+  tax_rate?: number | null;
+  /** Per-project PDF rendering toggles. Optional in app types since older
+   *  rows / demo data may not have it; readers should merge with
+   *  DEFAULT_INVOICE_PDF_OPTIONS. */
+  invoice_pdf_options?: InvoicePdfOptions;
   member_ids: string[];
   created_by?: string | null;
   archived_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BusinessSettings {
+  id: string;
+  business_name: string;
+  business_address: string;
+  business_email: string;
+  business_phone: string;
+  payment_terms: string;
+  payment_instructions: string;
+  default_invoice_notes: string;
   created_at: string;
   updated_at: string;
 }
@@ -723,6 +745,10 @@ export interface PortalData {
     file_size: number | null;
     mime_type: string | null;
   }[];
+  /** Server-built PDF data for each visible invoice, keyed by invoice id.
+   *  Empty when invoices aren't shown. Lets the portal preview the same
+   *  invoice PDF the admin sees, without requiring AppProvider/useApp(). */
+  invoice_pdfs: Record<string, InvoicePdfData>;
   credentials_submitted_count: number;
   credentials_submitted: {
     id: string;

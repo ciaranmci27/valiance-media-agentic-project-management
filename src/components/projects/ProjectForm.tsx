@@ -70,6 +70,9 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
   const [hourlyTracking, setHourlyTracking] = useState(false);
   const [budgetType, setBudgetType] = useState<'hours' | 'amount' | ''>('');
   const [budgetValue, setBudgetValue] = useState('');
+  const [billingAddress, setBillingAddress] = useState('');
+  const [billingEmail, setBillingEmail] = useState('');
+  const [taxRate, setTaxRate] = useState('');
   const [autonomousEnabled, setAutonomousEnabled] = useState(false);
   const [deploymentPolicy, setDeploymentPolicy] = useState<'playground' | 'production'>('production');
   const [maxConcurrentTasks, setMaxConcurrentTasks] = useState(2);
@@ -99,6 +102,9 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
       setHourlyTracking(project.hourly_tracking ?? false);
       setBudgetType(project.budget_type ?? '');
       setBudgetValue(project.budget_value != null ? String(project.budget_value) : '');
+      setBillingAddress(project.billing_address ?? '');
+      setBillingEmail(project.billing_email ?? '');
+      setTaxRate(project.tax_rate != null ? String(project.tax_rate) : '');
       setAutonomousEnabled(project.autonomous_enabled ?? false);
       setDeploymentPolicy(project.deployment_policy ?? 'production');
       setMaxConcurrentTasks(project.max_concurrent_tasks ?? 2);
@@ -116,6 +122,9 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
       setHourlyTracking(false);
       setBudgetType('');
       setBudgetValue('');
+      setBillingAddress('');
+      setBillingEmail('');
+      setTaxRate('');
       setAutonomousEnabled(false);
       setDeploymentPolicy('production');
       setMaxConcurrentTasks(2);
@@ -160,6 +169,9 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
       hourly_rate: project?.hourly_rate ?? null,
       budget_type: budgetType || null,
       budget_value: budgetValue && !isNaN(parseFloat(budgetValue)) ? parseFloat(budgetValue) : null,
+      billing_address: billingAddress.trim() || null,
+      billing_email: billingEmail.trim() || null,
+      tax_rate: taxRate && !isNaN(parseFloat(taxRate)) ? parseFloat(taxRate) : null,
       autonomous_enabled: autonomousEnabled,
       deployment_policy: deploymentPolicy,
       max_concurrent_tasks: maxConcurrentTasks,
@@ -517,6 +529,42 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
               )}
             </div>
           )}
+        </div>
+
+        {/* Billing — used on the invoice PDF for this project */}
+        <div className="space-y-3 rounded-lg border border-zinc-200 bg-zinc-50/40 p-3">
+          <div>
+            <label className="block text-sm font-medium text-zinc-700">Billing <span className="font-normal text-zinc-400">(optional)</span></label>
+            <p className="text-xs text-zinc-400">Shown on invoice PDFs. Falls back to the primary client&apos;s contact info when blank.</p>
+          </div>
+          <Textarea
+            label="Bill To Address"
+            value={billingAddress}
+            onChange={(v) => setBillingAddress(v.slice(0, 300))}
+            placeholder={'Client name or company\nStreet address\nCity, State 12345'}
+            rows={3}
+            maxLength={300}
+            showCharCount
+          />
+          <div className="grid grid-cols-2 gap-3">
+            <Input
+              label="Bill To Email"
+              type="email"
+              value={billingEmail}
+              onChange={(e) => setBillingEmail(e.target.value)}
+              placeholder="billing@client.com"
+            />
+            <div className="relative">
+              <Input
+                label="Tax Rate (%)"
+                type="text"
+                inputMode="decimal"
+                value={taxRate}
+                onChange={(e) => setTaxRate(e.target.value.replace(/[^0-9.]/g, ''))}
+                placeholder="0"
+              />
+            </div>
+          </div>
         </div>
 
         <div className="space-y-1.5">

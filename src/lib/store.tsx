@@ -1,7 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { Project, Task, TeamMember, FilterState, ViewMode, Subtask, Comment, Contact, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, Activity, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, EntityFileType, ApiKey, NotificationCategory, ProjectGoal, TaskSuggestion, AgentActivity, TimeEntry, ProjectCredentialListItem, CredentialPayload, CredentialCategory, ProjectInvoice, InvoiceStatus, DEFAULT_SECTION_ORDER } from './types';
+import { Project, Task, TeamMember, FilterState, ViewMode, Subtask, Comment, Contact, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, Activity, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, EntityFileType, ApiKey, NotificationCategory, ProjectGoal, TaskSuggestion, AgentActivity, TimeEntry, ProjectCredentialListItem, CredentialPayload, CredentialCategory, ProjectInvoice, InvoiceStatus, BusinessSettings, DEFAULT_SECTION_ORDER } from './types';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
@@ -101,6 +101,8 @@ import {
   insertProjectInvoice as insertProjectInvoiceQuery,
   patchProjectInvoice as patchProjectInvoiceQuery,
   removeProjectInvoice as removeProjectInvoiceQuery,
+  fetchBusinessSettings,
+  patchBusinessSettings as patchBusinessSettingsQuery,
 } from '@/lib/supabase/queries';
 import { toast } from '@/components/ui/Toast';
 import { siteConfig } from '@/site-config';
@@ -126,6 +128,7 @@ interface AppContextType {
   timeEntries: TimeEntry[];
   projectCredentials: ProjectCredentialListItem[];
   projectInvoices: ProjectInvoice[];
+  businessSettings: BusinessSettings | null;
   loading: boolean;
 
   // Filters
@@ -276,6 +279,9 @@ interface AppContextType {
   getInvoicesByProject: (projectId: string) => ProjectInvoice[];
   getInvoicesByContact: (contactId: string) => ProjectInvoice[];
 
+  // Business Settings (singleton)
+  updateBusinessSettings: (updates: Partial<Omit<BusinessSettings, 'id' | 'created_at' | 'updated_at'>>) => Promise<void>;
+
   // Helpers
   getProject: (id: string) => Project | undefined;
   getTasksByProject: (projectId: string) => Task[];
@@ -325,6 +331,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([]);
   const [projectCredentials, setProjectCredentials] = useState<ProjectCredentialListItem[]>([]);
   const [projectInvoices, setProjectInvoices] = useState<ProjectInvoice[]>([]);
+  const [businessSettings, setBusinessSettings] = useState<BusinessSettings | null>(null);
   const [projectGoals, setProjectGoals] = useState<ProjectGoal[]>([]);
   const [taskSuggestions, setTaskSuggestions] = useState<TaskSuggestion[]>([]);
   const [agentActivityList, setAgentActivityList] = useState<AgentActivity[]>([]);
@@ -401,6 +408,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setTimeEntries([...demoTimeEntries]);
       setProjectInvoices([...demoProjectInvoices]);
       setProjectCredentials([]);
+      setBusinessSettings({
+        id: 'demo-business-settings',
+        business_name: siteConfig.name,
+        business_address: '',
+        business_email: '',
+        business_phone: '',
+        payment_terms: 'Upon Receipt',
+        payment_instructions: '',
+        default_invoice_notes: '',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
       if (process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true') {
         setProjectGoals([...demoProjectGoals]);
         setTaskSuggestions([...demoTaskSuggestions]);
@@ -417,7 +436,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     const loadData = async () => {
       try {
-        const [projectsData, tasksData, teamData, contactsData, projectContactsData, leadsData, leadInteractionsData, leadProposalsData, leadFieldsData, leadContactsData, activitiesData, portalSettingsData, portalUpdatesData, portalUpdateAttachmentsData, entityFilesData, apiKeysData, timeEntriesData, projectCredentialsData, projectInvoicesData] = await Promise.all([
+        const [projectsData, tasksData, teamData, contactsData, projectContactsData, leadsData, leadInteractionsData, leadProposalsData, leadFieldsData, leadContactsData, activitiesData, portalSettingsData, portalUpdatesData, portalUpdateAttachmentsData, entityFilesData, apiKeysData, timeEntriesData, projectCredentialsData, projectInvoicesData, businessSettingsData] = await Promise.all([
           fetchProjects(supabase),
           fetchTasks(supabase),
           fetchTeamMembers(supabase),
@@ -437,6 +456,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           fetchAllTimeEntries(supabase),
           fetchAllProjectCredentials(supabase),
           fetchAllProjectInvoices(supabase),
+          fetchBusinessSettings(supabase),
         ]);
 
         setProjects(projectsData);
@@ -479,6 +499,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
         setProjectCredentials(projectCredentialsData);
         setProjectInvoices(projectInvoicesData);
+        setBusinessSettings(businessSettingsData);
 
         // Conditionally load agent data when feature is enabled
         if (process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true') {
@@ -2747,6 +2768,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return projectInvoices.filter(i => contactProjectIds.includes(i.project_id));
   };
 
+  // Business Settings (singleton)
+  const updateBusinessSettings = async (
+    updates: Partial<Omit<BusinessSettings, 'id' | 'created_at' | 'updated_at'>>,
+  ) => {
+    if (!businessSettings) return;
+    const prev = businessSettings;
+    setBusinessSettings({ ...prev, ...updates, updated_at: new Date().toISOString() });
+    if (skipSupabase) return;
+    try {
+      const updated = await patchBusinessSettingsQuery(supabase, prev.id, updates);
+      setBusinessSettings(updated);
+    } catch {
+      setBusinessSettings(prev);
+      toast('error', 'Failed to update business settings');
+    }
+  };
+
   return (
     <AppContext.Provider value={{
       projects,
@@ -2877,6 +2915,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       deleteInvoice,
       getInvoicesByProject,
       getInvoicesByContact,
+      businessSettings,
+      updateBusinessSettings,
       getPortalSettings,
     }}>
       {children}

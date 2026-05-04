@@ -1,5 +1,5 @@
 import { SupabaseClient } from '@supabase/supabase-js';
-import type { Project, Task, TeamMember, Subtask, Comment, Activity, Contact, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, ApiKey, ProjectGoal, TaskSuggestion, AgentActivity, ApiAuditEntry, TimeEntry, ProjectCredential, ProjectCredentialListItem, ProjectInvoice } from '@/lib/types';
+import type { Project, Task, TeamMember, Subtask, Comment, Activity, Contact, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, ApiKey, ProjectGoal, TaskSuggestion, AgentActivity, ApiAuditEntry, TimeEntry, ProjectCredential, ProjectCredentialListItem, ProjectInvoice, BusinessSettings } from '@/lib/types';
 import { notFound } from '@/lib/api/errors';
 import { siteConfig } from '@/site-config';
 import { generatePortalSlug } from '@/lib/portal-slug';
@@ -1990,4 +1990,33 @@ export async function patchProjectInvoice(
 export async function removeProjectInvoice(supabase: SupabaseClient, id: string) {
   const { error } = await supabase.from('project_invoices').delete().eq('id', id);
   if (error) throw error;
+}
+
+// ============================================================
+// BUSINESS SETTINGS (singleton)
+// ============================================================
+
+export async function fetchBusinessSettings(supabase: SupabaseClient) {
+  const { data, error } = await supabase
+    .from('business_settings')
+    .select('*')
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return (data || null) as BusinessSettings | null;
+}
+
+export async function patchBusinessSettings(
+  supabase: SupabaseClient,
+  id: string,
+  updates: Partial<Omit<BusinessSettings, 'id' | 'created_at' | 'updated_at'>>,
+) {
+  const { data, error } = await supabase
+    .from('business_settings')
+    .update({ ...updates, updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .select()
+    .single();
+  if (error) throw error;
+  return data as BusinessSettings;
 }

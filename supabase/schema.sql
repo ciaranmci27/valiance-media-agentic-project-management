@@ -51,6 +51,20 @@ create table public.projects (
   hourly_rate numeric(10,2) default null,
   budget_type text check (budget_type in ('hours', 'amount')),
   budget_value numeric(12,2),
+  billing_address text,
+  billing_email text,
+  tax_rate numeric(5,2),
+  invoice_pdf_options jsonb not null default '{
+    "showLogo": true,
+    "showTopAccent": true,
+    "showStatusStamp": true,
+    "showSenderName": true,
+    "showLineCaptions": true,
+    "showPortalLink": true,
+    "showNotes": true,
+    "showPaymentInstructions": true,
+    "showFooter": true
+  }'::jsonb,
   autonomous_enabled boolean not null default false,
   deployment_policy text not null default 'production' check (deployment_policy in ('playground', 'production')),
   max_concurrent_tasks integer not null default 2,
@@ -513,6 +527,33 @@ create policy "smtp_accounts_all" on public.smtp_accounts
   for all to authenticated using (true) with check (true);
 
 -- ============================================================
+-- 25b. BUSINESS SETTINGS (singleton — workspace's own "From" identity for invoice PDFs)
+-- ============================================================
+create table public.business_settings (
+  id uuid primary key default gen_random_uuid(),
+  business_name text not null default '',
+  business_address text not null default '',
+  business_email text not null default '',
+  business_phone text not null default '',
+  payment_terms text not null default 'Upon Receipt',
+  payment_instructions text not null default '',
+  default_invoice_notes text not null default '',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+-- Enforce singleton: only one row may ever exist in this table.
+create unique index business_settings_singleton on public.business_settings ((true));
+
+alter table public.business_settings enable row level security;
+
+create policy "business_settings_all" on public.business_settings
+  for all to authenticated using (true) with check (true);
+
+-- Seed a single empty row so the app always has a settings row to read/update.
+insert into public.business_settings default values;
+
+-- ============================================================
 -- 26. PROJECT CONTEXT (AI orchestrator context entries per project)
 -- ============================================================
 create table public.project_context (
@@ -728,6 +769,10 @@ create trigger set_project_invoices_updated_at
 
 create trigger set_smtp_accounts_updated_at
   before update on public.smtp_accounts
+  for each row execute function public.handle_updated_at();
+
+create trigger set_business_settings_updated_at
+  before update on public.business_settings
   for each row execute function public.handle_updated_at();
 
 create trigger set_project_context_updated_at

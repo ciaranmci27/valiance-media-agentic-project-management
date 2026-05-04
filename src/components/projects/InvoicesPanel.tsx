@@ -3,8 +3,9 @@
 import { useState, useRef, useEffect } from 'react';
 import {
   Receipt, Plus, Edit2, Trash2, FileDown, X, Upload, File,
-  Loader2, ChevronDown, Copy, Clock,
+  Loader2, ChevronDown, Copy, Clock, Eye,
 } from 'lucide-react';
+import { InvoicePreviewModal } from '@/components/projects/InvoicePreviewModal';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { createClient } from '@/lib/supabase/client';
@@ -85,6 +86,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const [previewInvoiceId, setPreviewInvoiceId] = useState<string | null>(null);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
   const toggleExpanded = (id: string) => {
@@ -948,6 +950,13 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
                       <div className="flex items-center gap-0.5 flex-shrink-0">
                         <div className="flex items-center gap-0.5 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-opacity">
                           <button
+                            onClick={e => { e.stopPropagation(); setPreviewInvoiceId(invoice.id); }}
+                            aria-label="Preview invoice PDF"
+                            className="p-1.5 text-zinc-400 hover:text-brand-600 transition-colors rounded-md hover:bg-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
+                          >
+                            <Eye size={13} />
+                          </button>
+                          <button
                             onClick={e => { e.stopPropagation(); startEditing(invoice); }}
                             aria-label="Edit invoice"
                             className="p-1.5 text-zinc-400 hover:text-brand-600 transition-colors rounded-md hover:bg-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
@@ -1078,6 +1087,11 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
         message="Are you sure you want to delete this invoice? This action cannot be undone."
         confirmLabel="Delete"
         variant="danger"
+      />
+
+      <InvoicePreviewModal
+        invoiceId={previewInvoiceId}
+        onClose={() => setPreviewInvoiceId(null)}
       />
     </div>
   );

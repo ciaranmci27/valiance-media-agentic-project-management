@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
-import type { PortalData, PortalSectionKey, ProjectInvoice, TimeEntry } from '@/lib/types';
+import type { PortalData, PortalSectionKey, ProjectInvoice, TimeEntry, BusinessSettings, Contact, Project } from '@/lib/types';
+import type { InvoicePdfData, InvoicePdfOptions } from '@/lib/invoice-pdf/types';
 import { DEFAULT_SECTION_ORDER } from '@/lib/types';
 import {
   demoPortalSettings, demoPortalUpdates, demoPortalUpdateAttachments,
@@ -11,6 +12,7 @@ import {
 import { siteConfig } from '@/site-config';
 import { getWorkedHours, getWorkedMs } from '@/lib/time-entry-utils';
 import { fifoPaymentStatuses, paidHourlyLineItemTotal } from '@/lib/invoice-utils';
+import { buildInvoiceData } from '@/lib/invoice-pdf/buildInvoiceData';
 
 /**
  * Pause duration within an entry: the part of the [start_time, end_time] span
@@ -126,10 +128,11 @@ export async function GET(
     }
   }
 
-  // Fetch project
+  // Fetch project (include billing fields + per-project PDF options used by
+  // the invoice PDF builder)
   const { data: project } = await supabase
     .from('projects')
-    .select('name, color, description, start_date, due_date, status, hourly_tracking, hourly_rate')
+    .select('id, name, color, description, start_date, due_date, status, hourly_tracking, hourly_rate, tax_rate, billing_address, billing_email, invoice_pdf_options')
     .eq('id', settings.project_id)
     .single();
 
@@ -264,6 +267,48 @@ export async function GET(
       }))
     : [];
 
+  // Pre-build per-invoice PDF data so the portal can render the same preview
+  // the admin sees. Done server-side so the portal doesn't need access to
+  // business_settings / primary_contact rows directly.
+  let invoice_pdfs: Record<string, InvoicePdfData> = {};
+  if (settings.show_invoices && allInvoices.length > 0) {
+    const [{ data: bizSettings }, { data: primaryClientLink }] = await Promise.all([
+      supabase.from('business_settings').select('*').limit(1).maybeSingle(),
+      supabase
+        .from('project_contacts')
+        .select('contact_id, contact:contacts(*)')
+        .eq('project_id', settings.project_id)
+        .eq('is_primary_client', true)
+        .maybeSingle(),
+    ]);
+
+    const primaryContact = (primaryClientLink as any)?.contact as Contact | undefined;
+    const businessSettings = (bizSettings ?? null) as BusinessSettings | null;
+    const origin = request.nextUrl.origin;
+
+    // Merge the admin's per-project toggles, then force-hide the sender
+    // line (clients shouldn't see whoever's logged into the admin).
+    const projectOptions = ((project as { invoice_pdf_options?: Partial<InvoicePdfOptions> }).invoice_pdf_options) ?? {};
+    const portalOptions: Partial<InvoicePdfOptions> = { ...projectOptions, showSenderName: false };
+
+    invoice_pdfs = Object.fromEntries(
+      allInvoices.map((inv: ProjectInvoice) => [
+        inv.id,
+        buildInvoiceData({
+          invoice: inv,
+          project: project as Project,
+          primaryContact,
+          businessSettings,
+          // Portal previews don't carry a logged-in admin's identity.
+          senderName: '',
+          logoUrl: `${origin}/api/logo`,
+          portalUrl: `${origin}/portal/${token}?invoice=${encodeURIComponent(inv.invoice_number)}`,
+          options: portalOptions,
+        }),
+      ]),
+    );
+  }
+
   // Fetch portal updates with author names and attachments
   let updates: PortalData['updates'] = [];
   if (settings.show_updates) {
@@ -349,6 +394,7 @@ export async function GET(
     credentials_submitted_count,
     credentials_submitted,
     invoices,
+    invoice_pdfs,
   };
 
   return NextResponse.json(portalData);
@@ -463,6 +509,26 @@ function handleDemoMode(token: string, request: NextRequest) {
     ? demoActiveInvoices.map(i => ({ id: i.id, invoice_number: i.invoice_number, amount: i.amount, status: i.status, invoice_type: i.invoice_type, line_items: i.line_items ?? [], date: i.date, due_date: i.due_date, paid_date: i.paid_date, description: i.description, file_url: i.file_url, file_name: i.file_name, file_size: i.file_size, mime_type: i.mime_type }))
     : [];
 
+  // Demo-mode invoice_pdfs — empty stub since demo doesn't carry full
+  // business/contact metadata. Portal still renders cards; clicking opens an
+  // empty preview gracefully.
+  const invoice_pdfs: Record<string, InvoicePdfData> = {};
+  if (settings.show_invoices && demoActiveInvoices.length > 0) {
+    const origin = request.nextUrl.origin;
+    for (const inv of demoActiveInvoices) {
+      invoice_pdfs[inv.id] = buildInvoiceData({
+        invoice: inv,
+        project: project as Project,
+        primaryContact: undefined,
+        businessSettings: null,
+        senderName: '',
+        logoUrl: `${origin}/api/logo`,
+        portalUrl: `${origin}/portal/${token}?invoice=${encodeURIComponent(inv.invoice_number)}`,
+        options: { showSenderName: false },
+      });
+    }
+  }
+
   const portalData: PortalData = {
     project: {
       name: project.name,
@@ -497,6 +563,7 @@ function handleDemoMode(token: string, request: NextRequest) {
     credentials_submitted_count: 0,
     credentials_submitted: [],
     invoices,
+    invoice_pdfs,
   };
 
   return NextResponse.json(portalData);

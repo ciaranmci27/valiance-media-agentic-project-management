@@ -661,6 +661,42 @@ export default function FinancesPage() {
   const [showFixed, setShowFixed] = useState(true);
   const [showPayments, setShowPayments] = useState(true);
   const [selectedBar, setSelectedBar] = useState<string | null>(null);
+  const [togglesLoaded, setTogglesLoaded] = useState(false);
+
+  // Restore toggle state from localStorage on mount
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('finances:chartToggles');
+      if (raw) {
+        const saved = JSON.parse(raw);
+        if (typeof saved.hourly === 'boolean') setShowHourly(saved.hourly);
+        if (typeof saved.recurring === 'boolean') setShowRecurring(saved.recurring);
+        if (typeof saved.fixed === 'boolean') setShowFixed(saved.fixed);
+        if (typeof saved.payments === 'boolean') setShowPayments(saved.payments);
+      }
+    } catch {
+      // ignore malformed storage
+    }
+    setTogglesLoaded(true);
+  }, []);
+
+  // Persist toggle state whenever it changes (after initial load)
+  useEffect(() => {
+    if (!togglesLoaded) return;
+    try {
+      localStorage.setItem(
+        'finances:chartToggles',
+        JSON.stringify({
+          hourly: showHourly,
+          recurring: showRecurring,
+          fixed: showFixed,
+          payments: showPayments,
+        }),
+      );
+    } catch {
+      // ignore quota / privacy-mode errors
+    }
+  }, [togglesLoaded, showHourly, showRecurring, showFixed, showPayments]);
   // Chart height is flex-driven (min 160px), bars use percentage heights
 
   // Recalculate max based on visible series
@@ -929,10 +965,10 @@ export default function FinancesPage() {
                           const isSelected = selectedBar === day.dateKey;
 
                           // Figure out which segment is at the top so it gets rounded corners.
-                          // Order top→bottom: payment, fixed, recurring, hourly.
+                          // Order top→bottom: payment, hourly, fixed, recurring.
                           const topIsPayment = visiblePayment > 0;
-                          const topIsFixed = !topIsPayment && visibleFixed > 0;
-                          const topIsRecurring = !topIsPayment && !topIsFixed && visibleRecurring > 0;
+                          const topIsHourly = !topIsPayment && visibleHourly > 0;
+                          const topIsFixed = !topIsPayment && !topIsHourly && visibleFixed > 0;
 
                           return (
                             <div
@@ -951,6 +987,12 @@ export default function FinancesPage() {
                                       style={{ height: `${Math.max(paymentPct, 1.5)}%` }}
                                     />
                                   )}
+                                  {visibleHourly > 0 && (
+                                    <div
+                                      className={`w-full bg-sky-400 group-hover:bg-sky-500 transition-colors duration-150 ${topIsHourly ? 'rounded-t' : ''}`}
+                                      style={{ height: `${Math.max(hourlyPct, 1.5)}%` }}
+                                    />
+                                  )}
                                   {visibleFixed > 0 && (
                                     <div
                                       className={`w-full bg-violet-500 group-hover:bg-violet-600 transition-colors duration-150 ${topIsFixed ? 'rounded-t' : ''}`}
@@ -959,14 +1001,8 @@ export default function FinancesPage() {
                                   )}
                                   {visibleRecurring > 0 && (
                                     <div
-                                      className={`w-full bg-amber-400 group-hover:bg-amber-500 transition-colors duration-150 ${topIsRecurring ? 'rounded-t' : ''}`}
+                                      className={`w-full bg-amber-400 group-hover:bg-amber-500 transition-colors duration-150 ${!topIsPayment && !topIsHourly && !topIsFixed ? 'rounded-t' : ''}`}
                                       style={{ height: `${Math.max(recurringPct, 1.5)}%` }}
-                                    />
-                                  )}
-                                  {visibleHourly > 0 && (
-                                    <div
-                                      className={`w-full bg-sky-400 group-hover:bg-sky-500 transition-colors duration-150 ${!topIsPayment && !topIsFixed && !topIsRecurring ? 'rounded-t' : ''}`}
-                                      style={{ height: `${Math.max(hourlyPct, 1.5)}%` }}
                                     />
                                   )}
                                 </>

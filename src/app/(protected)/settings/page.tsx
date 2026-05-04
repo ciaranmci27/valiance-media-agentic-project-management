@@ -13,6 +13,7 @@ import { User, Lock, FlaskConical, Key, Copy, Check, Plus, Ban, BookOpen, Bell, 
 import { toast } from '@/components/ui/Toast';
 import { useDemo } from '@/lib/demo-context';
 import { SmtpSection } from '@/components/settings/SmtpSection';
+import { BusinessInfoSection } from '@/components/settings/BusinessInfoSection';
 import { Tooltip } from '@/components/ui/Tooltip';
 import Link from 'next/link';
 import { hashApiKey, generateApiKey } from '@/lib/api/crypto';
@@ -507,6 +508,9 @@ export default function SettingsPage() {
             </Button>
           </div>
         </section>
+
+        {/* Business Info Section */}
+        <BusinessInfoSection />
 
         {/* Timezone Section */}
         <section className={`rounded-xl border p-4 lg:p-6 ${
