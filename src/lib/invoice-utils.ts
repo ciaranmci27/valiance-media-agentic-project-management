@@ -180,7 +180,7 @@ export function buildUnpaidHoursLineItem(
   entries: Array<{ id: string; start_time: string; end_time: string | null; hours: number }>,
   paidPool: number,
   hourlyRate: number,
-): { description: string; amount: number; hours: number } | null {
+): { description: string; amount: number; hours: number; startDate: string; endDate: string } | null {
   if (hourlyRate <= 0) return null;
   // Oldest-first ordering is required by the FIFO walk. Sort defensively.
   const sorted = [...entries].sort((a, b) => a.start_time.localeCompare(b.start_time));
@@ -200,12 +200,72 @@ export function buildUnpaidHoursLineItem(
   }
   if (totalHours <= 0 || !earliestStart || !latestEnd) return null;
 
-  const hoursStr = totalHours.toFixed(4).replace(/\.?0+$/, '');
-  const description = `${hoursStr} hours worked between ${fmtMDY(earliestStart)} and ${fmtMDY(latestEnd)}`;
   return {
-    description,
+    description: formatUnpaidHoursDescription(totalHours, earliestStart, latestEnd),
     amount: Math.round(totalHours * hourlyRate * 100) / 100,
     hours: totalHours,
+    startDate: earliestStart,
+    endDate: latestEnd,
+  };
+}
+
+/**
+ * Format an unpaid-hours line-item description: "{hours} hours worked
+ * between MM/DD/YYYY and MM/DD/YYYY". Used by both the full and partial
+ * builders so the description shape stays consistent.
+ */
+export function formatUnpaidHoursDescription(hours: number, startDate: string, endDate: string): string {
+  const hoursStr = hours.toFixed(4).replace(/\.?0+$/, '');
+  return `${hoursStr} hours worked between ${fmtMDY(startDate)} and ${fmtMDY(endDate)}`;
+}
+
+/**
+ * Build a partial unpaid-hours line item by walking unpaid entries in FIFO
+ * order and stopping once the target hours threshold is reached. The line
+ * item's date span reflects what's actually being invoiced — earliest unpaid
+ * entry's start, through the end of the entry where the cutoff lands —
+ * NOT the full unpaid range. So if you invoice 37.5 of 82.5 unpaid hours,
+ * the description shows the dates corresponding to those first 37.5 hours.
+ *
+ * Returns null when there are no unpaid hours or targetHours is non-positive.
+ * targetHours larger than the available unpaid balance is clamped silently.
+ */
+export function buildPartialUnpaidHoursLineItem(
+  entries: Array<{ id: string; start_time: string; end_time: string | null; hours: number }>,
+  paidPool: number,
+  hourlyRate: number,
+  targetHours: number,
+): { description: string; amount: number; hours: number; startDate: string; endDate: string } | null {
+  if (hourlyRate <= 0 || targetHours <= 0) return null;
+  const sorted = [...entries].sort((a, b) => a.start_time.localeCompare(b.start_time));
+  const unpaidMap = unpaidHoursByEntry(sorted, paidPool, hourlyRate);
+  if (unpaidMap.size === 0) return null;
+
+  let acc = 0;
+  let earliestStart: string | null = null;
+  let cutoffEnd: string | null = null;
+
+  for (const entry of sorted) {
+    const unpaid = unpaidMap.get(entry.id);
+    if (!unpaid || unpaid <= 0) continue;
+    if (!earliestStart) earliestStart = entry.start_time;
+
+    if (acc >= targetHours) break;
+
+    const used = Math.min(unpaid, targetHours - acc);
+    acc += used;
+    cutoffEnd = entry.end_time ?? entry.start_time;
+  }
+
+  if (acc <= 0 || !earliestStart || !cutoffEnd) return null;
+
+  const finalHours = Math.min(acc, targetHours);
+  return {
+    description: formatUnpaidHoursDescription(finalHours, earliestStart, cutoffEnd),
+    amount: Math.round(finalHours * hourlyRate * 100) / 100,
+    hours: finalHours,
+    startDate: earliestStart,
+    endDate: cutoffEnd,
   };
 }
 
