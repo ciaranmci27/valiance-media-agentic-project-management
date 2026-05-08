@@ -3,8 +3,9 @@
 import { useMemo, useState, useRef, useEffect } from 'react';
 import { useApp } from '@/lib/store';
 import { Header } from '@/components/layout/Header';
-import { getWorkedHours } from '@/lib/time-entry-utils';
+import { getWorkedHours, getWorkedHoursByDay, isPaused, isRunning } from '@/lib/time-entry-utils';
 import { DateInput } from '@/components/ui/inputs/DateInput';
+import { Tooltip } from '@/components/ui/Tooltip';
 import { ensureLineItems, spreadLineItem } from '@/lib/invoice-utils';
 import Link from 'next/link';
 import {
@@ -102,10 +103,11 @@ function resolveRange(
   customStart: string,
   customEnd: string,
   earliestDateKey: string | null,
+  todayKey: string,
 ): { startKey: string; endKey: string } {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const endKey = toDateKey(today);
+  const [ty, tm, td] = todayKey.split('-').map(Number);
+  const today = new Date(ty, tm - 1, td); // midnight local
+  const endKey = todayKey;
 
   const makeStart = (daysBack: number): string => {
     const d = new Date(today);
@@ -276,11 +278,70 @@ function bucketTooltipLabel(startKey: string, endKey: string, gran: Granularity)
 }
 
 // ---------------------------------------------------------------------------
+// Live tick indicator
+// ---------------------------------------------------------------------------
+
+/**
+ * Small badge that signals the displayed numbers are ticking live. Renders
+ * nothing when no timers are running. role="status" makes screen readers
+ * announce when the count flips; motion-safe gates the ping for users with
+ * prefers-reduced-motion.
+ */
+function LiveTickIndicator({ count }: { count: number }) {
+  if (count <= 0) return null;
+  const label = `${count} ${count === 1 ? 'timer' : 'timers'} running`;
+  return (
+    <Tooltip content={`${label} — numbers update every second`} className="ml-1">
+      <span
+        role="status"
+        aria-label={`${label}. Numbers update live.`}
+        className="inline-flex items-center gap-1.5 cursor-help"
+      >
+        <span className="relative inline-flex h-2 w-2" aria-hidden="true">
+          <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75 motion-safe:animate-ping" />
+          <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+        </span>
+        <span className="text-xs font-semibold uppercase tracking-wide text-emerald-600">Live</span>
+      </span>
+    </Tooltip>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
 
 export default function FinancesPage() {
   const { projects, projectInvoices, timeEntries } = useApp();
+
+  // ── Live-tick clock for active timers ───────────────────────
+  // While any entry is running, bump `now` once a second so the chart, totals,
+  // and per-project rows tick up live. The 1Hz interval only mounts when
+  // something is actually running, so idle pages don't churn renders.
+  const [now, setNow] = useState(() => Date.now());
+  const runningCount = useMemo(() => timeEntries.filter(isRunning).length, [timeEntries]);
+  const hasRunningEntry = runningCount > 0;
+  useEffect(() => {
+    if (!hasRunningEntry) return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [hasRunningEntry]);
+
+  // Calendar day of `now`. Stable string so memos depending on it only rerun
+  // when the day actually changes (not every second).
+  const nowDayKey = toDateKey(new Date(now));
+
+  // Roll the range and "today" label over at local midnight even when no
+  // timer is running. One-shot timeout that re-arms each day; without this,
+  // a page left open across midnight would keep showing yesterday's range.
+  useEffect(() => {
+    const tomorrow = new Date();
+    tomorrow.setHours(0, 0, 0, 0);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const ms = tomorrow.getTime() - Date.now() + 250; // small buffer past midnight
+    const id = window.setTimeout(() => setNow(Date.now()), ms);
+    return () => clearTimeout(id);
+  }, [nowDayKey]);
 
   // ── Date range state ────────────────────────────────────────
   const [preset, setPreset] = useState<RangePreset>('30d');
@@ -334,24 +395,17 @@ export default function FinancesPage() {
   }, [projectInvoices, timeEntries]);
 
   const range = useMemo(
-    () => resolveRange(preset, customStart, customEnd, earliestDateKey),
-    [preset, customStart, customEnd, earliestDateKey],
+    // Passing nowDayKey makes the range re-resolve at local midnight, sliding
+    // "Last 7 days" / "Last 30 days" / etc. forward without needing a refresh.
+    () => resolveRange(preset, customStart, customEnd, earliestDateKey, nowDayKey),
+    [preset, customStart, customEnd, earliestDateKey, nowDayKey],
   );
 
   const data = useMemo(() => {
     const { startKey, endKey } = range;
 
-    // ── Range-aware filters ────────────────────────────────
-    // Invoices: filter by invoice `date` within the range
+    // ── Range-aware invoice / payment filters ──────────────
     const invoicesInRange = projectInvoices.filter(inv => inv.date >= startKey && inv.date <= endKey);
-    // Time entries: filter by end_time within the range
-    const entriesInRange = timeEntries.filter(te => {
-      if (!te.end_time) return false;
-      const k = toDateKey(new Date(te.end_time));
-      return k >= startKey && k <= endKey;
-    });
-    // ── Totals (range-scoped) ──────────────────────────────
-    // Invoices issued within the range (non-cancelled)
     const activeInvoices = invoicesInRange.filter(inv => inv.status !== 'cancelled');
     // Cash actually received during the range (by paid_date), regardless of when the invoice was issued
     const paymentsInRange = projectInvoices.filter(
@@ -366,15 +420,45 @@ export default function FinancesPage() {
     const totalPaymentsReceived = paymentsInRange.reduce((s, i) => s + i.amount, 0);
     const activeInvoicesCount = activeInvoices.length;
 
-    const completedEntries = entriesInRange;
-    const totalHours = completedEntries.reduce((s, te) => s + getWorkedHours(te), 0);
+    // ── Hours fragmented by calendar day ───────────────────
+    // Each entry is split per local calendar day so a session crossing midnight
+    // credits both days proportionally (e.g. 8pm to 1am = 4h on the start day,
+    // 1h on the next). The chart (workByDay), range totals (totalHours,
+    // hourlyEarnedInRange), and per-project rows are all derived from the same
+    // fragments in one pass so they stay coherent.
+    const workByDay = new Map<string, Map<string, { hours: number; value: number }>>();
+    const hoursByProjectInRange = new Map<string, number>();
+    const hourlyEarnedByProjectInRange = new Map<string, number>();
+    let totalHours = 0;
+    let hourlyEarnedInRange = 0;
 
-    // Accrual earnings: hourly work value (rate × hours worked in range).
-    // Non-hourly revenue is added below after amortization across service periods.
-    const hourlyEarnedInRange = completedEntries.reduce(
-      (s, te) => s + getWorkedHours(te) * (rateByProject.get(te.project_id) ?? 0),
-      0,
-    );
+    for (const te of timeEntries) {
+      // Stopped entries count permanently. Running entries tick against `now`.
+      // Paused entries (unfinalized but no open segment) are hidden until the
+      // user resumes or clocks out — their hours snap back in on resume.
+      if (isPaused(te)) continue;
+      const rate = rateByProject.get(te.project_id) ?? 0;
+      for (const [dayKey, hours] of getWorkedHoursByDay(te, now)) {
+        if (dayKey < startKey || dayKey > endKey) continue;
+        const value = hours * rate;
+        totalHours += hours;
+        hourlyEarnedInRange += value;
+        hoursByProjectInRange.set(te.project_id, (hoursByProjectInRange.get(te.project_id) ?? 0) + hours);
+        hourlyEarnedByProjectInRange.set(
+          te.project_id,
+          (hourlyEarnedByProjectInRange.get(te.project_id) ?? 0) + value,
+        );
+        let dayMap = workByDay.get(dayKey);
+        if (!dayMap) {
+          dayMap = new Map();
+          workByDay.set(dayKey, dayMap);
+        }
+        const cur = dayMap.get(te.project_id) ?? { hours: 0, value: 0 };
+        cur.hours += hours;
+        cur.value += value;
+        dayMap.set(te.project_id, cur);
+      }
+    }
 
     // Collection rate: lifetime "money in hand" vs "money owed" snapshot.
     // = all-time received / (all-time received + currently outstanding)
@@ -384,7 +468,9 @@ export default function FinancesPage() {
       .reduce((s, i) => s + i.amount, 0);
 
     // ── Daily chart ─────────────────────────────────────────
-    const todayKey = toDateKey(new Date());
+    // Derive from `now` (already a dep) so the "Today" axis label rolls over
+    // at midnight on the same tick the range slides forward.
+    const todayKey = toDateKey(new Date(now));
 
     // Pre-index: payments received per day (uses paid_date, range-scoped)
     // Note: this uses paid_date independently of the invoice date filter,
@@ -415,23 +501,6 @@ export default function FinancesPage() {
           pmap.set(inv.project_id, (pmap.get(inv.project_id) ?? 0) + dollars);
         }
       }
-    }
-
-    // Pre-index: billable hours per day, broken down by project
-    // We attribute a time entry to the day its end_time falls on.
-    const workByDay = new Map<string, Map<string, { hours: number; value: number }>>();
-    for (const te of completedEntries) {
-      if (!te.end_time) continue;
-      const endDate = new Date(te.end_time);
-      const dayKey = toDateKey(endDate);
-      const hours = getWorkedHours(te);
-      const rate = rateByProject.get(te.project_id) ?? 0;
-      if (!workByDay.has(dayKey)) workByDay.set(dayKey, new Map());
-      const dayMap = workByDay.get(dayKey)!;
-      const existing = dayMap.get(te.project_id) ?? { hours: 0, value: 0 };
-      existing.hours += hours;
-      existing.value += hours * rate;
-      dayMap.set(te.project_id, existing);
     }
 
     // Lookup for project names/colors
@@ -573,9 +642,13 @@ export default function FinancesPage() {
       const pPaidAll = projectInvoices
         .filter(inv => inv.project_id === p.id && inv.status === 'paid')
         .reduce((s, i) => s + i.amount, 0);
+      // Same pause rule as the chart: stopped entries always count, running
+      // entries tick against `now`, paused entries are excluded until resumed
+      // or finalized. Without this, Outstanding would jump the moment you
+      // clock out (running -> stopped) even though no work actually changed.
       const pHoursAll = timeEntries
-        .filter(te => te.project_id === p.id && te.end_time)
-        .reduce((s, te) => s + getWorkedHours(te), 0);
+        .filter(te => te.project_id === p.id && !isPaused(te))
+        .reduce((s, te) => s + getWorkedHours(te, now), 0);
       const isHourly = !!p.hourly_tracking;
       const rate = p.hourly_rate ?? 0;
       // Aggregate line-item amounts by type across all active invoices.
@@ -618,11 +691,10 @@ export default function FinancesPage() {
       .map(p => {
         const pInvoices = invoicesInRange.filter(inv => inv.project_id === p.id && inv.status !== 'cancelled');
         const pPayments = paymentsInRange.filter(inv => inv.project_id === p.id);
-        const pEntries = entriesInRange.filter(te => te.project_id === p.id);
-        const pHours = pEntries.reduce((s, te) => s + getWorkedHours(te), 0);
-        const rate = p.hourly_rate ?? 0;
-        // Earned (accrual): hourly work value + amortized non-hourly line-item revenue
-        const pHourlyEarned = pEntries.reduce((s, te) => s + getWorkedHours(te) * rate, 0);
+        // Hours and hourly-earned come from the per-day fragment pass so they
+        // match the chart (a session that crosses midnight is split by day).
+        const pHours = hoursByProjectInRange.get(p.id) ?? 0;
+        const pHourlyEarned = hourlyEarnedByProjectInRange.get(p.id) ?? 0;
         const pAccrued = accruedByProjectInRange.get(p.id) ?? 0;
         const pEarned = pHourlyEarned + pAccrued;
 
@@ -653,7 +725,7 @@ export default function FinancesPage() {
       dailyBars, maxBarTotal, granularity,
       projectBreakdown, allInvoices,
     };
-  }, [projects, projectInvoices, timeEntries, rateByProject, range]);
+  }, [projects, projectInvoices, timeEntries, rateByProject, range, now]);
 
   // ── Chart state & constants ────────────────────────────────
   const [showHourly, setShowHourly] = useState(true);
@@ -741,6 +813,7 @@ export default function FinancesPage() {
             <div className="flex items-center gap-2">
               <DollarSign size={18} className="text-zinc-500" />
               <h2 className="font-semibold text-zinc-900">Overview</h2>
+              <LiveTickIndicator count={runningCount} />
             </div>
 
             <div className="flex items-center gap-2.5">
@@ -893,6 +966,7 @@ export default function FinancesPage() {
                 <h2 className="font-semibold text-zinc-900">
                   {data.granularity === 'month' ? 'Monthly Earnings' : data.granularity === 'week' ? 'Weekly Earnings' : 'Daily Earnings'}
                 </h2>
+                <LiveTickIndicator count={runningCount} />
               </div>
               <span className="text-xs text-zinc-400 font-medium">{PRESET_OPTIONS.find(o => o.value === preset)?.label ?? 'Custom range'}</span>
             </div>
@@ -1223,6 +1297,7 @@ export default function FinancesPage() {
               <div className="flex items-center gap-2">
                 <FolderKanban size={18} className="text-zinc-500" />
                 <h2 className="font-semibold text-zinc-900">By Project</h2>
+                <LiveTickIndicator count={runningCount} />
               </div>
               <span className="text-xs text-zinc-400 font-medium">{PRESET_OPTIONS.find(o => o.value === preset)?.label ?? 'Custom range'}</span>
             </div>

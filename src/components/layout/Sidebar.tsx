@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
@@ -21,12 +21,26 @@ import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
 import { Avatar } from '@/components/ui/Avatar';
 import { Logo } from '@/components/ui/Logo';
+import { Tooltip } from '@/components/ui/Tooltip';
+import { isRunning } from '@/lib/time-entry-utils';
 import { siteConfig } from '@/site-config';
 
 export function Sidebar() {
   const pathname = usePathname();
-  const { projects, team, loading, getPendingSuggestionCount } = useApp();
+  const { projects, team, loading, getPendingSuggestionCount, timeEntries } = useApp();
   const { user, teamMemberId, signOut } = useAuth();
+
+  // Project IDs where the current user has an actively-running timer. Used
+  // to surface a green pulse next to the project's row in the sidebar so the
+  // user can see at a glance which projects they're clocked into.
+  const myRunningProjectIds = useMemo(() => {
+    if (!teamMemberId) return new Set<string>();
+    const ids = new Set<string>();
+    for (const te of timeEntries) {
+      if (te.member_id === teamMemberId && isRunning(te)) ids.add(te.project_id);
+    }
+    return ids;
+  }, [timeEntries, teamMemberId]);
   const { isEnvForcedDemo } = useDemo();
   const [isOpen, setIsOpen] = useState(false);
 
@@ -142,26 +156,41 @@ export function Sidebar() {
                 </>
               ) : (
                 <>
-                  {projects.filter(p => p.status === 'active').slice(0, 5).map((project) => (
-                    <Link
-                      key={project.id}
-                      href={`/projects/${project.id}`}
-                      onClick={closeSidebar}
-                      className={`flex items-center gap-2.5 px-3 py-2 rounded-lg transition-all duration-150 ${
-                        pathname === `/projects/${project.id}`
-                          ? 'bg-white/10 text-white'
-                          : 'text-zinc-400 hover:bg-white/5 hover:text-zinc-200'
-                      }`}
-                    >
-                      {project.color && (
-                        <div
-                          className="w-2 h-2 rounded-full flex-shrink-0"
-                          style={{ backgroundColor: project.color }}
-                        />
-                      )}
-                      <span className="text-sm truncate">{project.name}</span>
-                    </Link>
-                  ))}
+                  {projects.filter(p => p.status === 'active').slice(0, 5).map((project) => {
+                    const isClockedIn = myRunningProjectIds.has(project.id);
+                    return (
+                      <Link
+                        key={project.id}
+                        href={`/projects/${project.id}`}
+                        onClick={closeSidebar}
+                        className={`flex items-center gap-2.5 px-3 py-2 rounded-lg transition-all duration-150 ${
+                          pathname === `/projects/${project.id}`
+                            ? 'bg-white/10 text-white'
+                            : 'text-zinc-400 hover:bg-white/5 hover:text-zinc-200'
+                        }`}
+                      >
+                        {project.color && (
+                          <div
+                            className="w-2 h-2 rounded-full flex-shrink-0"
+                            style={{ backgroundColor: project.color }}
+                          />
+                        )}
+                        <span className="text-sm truncate flex-1 min-w-0">{project.name}</span>
+                        {isClockedIn && (
+                          <Tooltip content="Time tracker is active" position="right">
+                            <span
+                              role="status"
+                              aria-label="Time tracker is active for this project"
+                              className="relative inline-flex h-2 w-2 flex-shrink-0"
+                            >
+                              <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75 motion-safe:animate-ping" aria-hidden="true" />
+                              <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" aria-hidden="true" />
+                            </span>
+                          </Tooltip>
+                        )}
+                      </Link>
+                    );
+                  })}
 
                   {projects.filter(p => p.status === 'active').length > 5 && (
                     <Link

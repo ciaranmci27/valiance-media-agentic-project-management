@@ -49,6 +49,50 @@ export function getWorkedHours(entry: TimeEntry, now: number = Date.now()): numb
 }
 
 /**
+ * Worked hours grouped by local calendar day (YYYY-MM-DD). A session that
+ * crosses midnight credits each day for its actual share of the time worked
+ * (e.g. 8pm to 1am produces 4h on the start day and 1h on the next day).
+ *
+ * Splits at local-midnight boundaries using `setDate(d + 1)`, which is DST-safe:
+ * the millisecond delta inside each fragment uses real (UTC) time, so on the
+ * spring-forward day a 1am to 5am session correctly registers as 3 hours, not 4.
+ *
+ * Paused gaps don't count (uses segments). An open final segment ticks against
+ * `now`, matching `getWorkedHours`.
+ */
+export function getWorkedHoursByDay(entry: TimeEntry, now: number = Date.now()): Map<string, number> {
+  const result = new Map<string, number>();
+  const segments: TimeSegment[] = entry.segments?.length
+    ? entry.segments
+    : entry.end_time
+      ? [{ start: entry.start_time, end: entry.end_time }]
+      : [];
+
+  for (const seg of segments) {
+    const startMs = new Date(seg.start).getTime();
+    const endMs = seg.end ? new Date(seg.end).getTime() : now;
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) continue;
+
+    let cursor = startMs;
+    while (cursor < endMs) {
+      const cursorDate = new Date(cursor);
+      const nextMidnight = new Date(cursorDate);
+      nextMidnight.setHours(0, 0, 0, 0);
+      nextMidnight.setDate(nextMidnight.getDate() + 1);
+      const fragmentEnd = Math.min(endMs, nextMidnight.getTime());
+      const dayKey =
+        `${cursorDate.getFullYear()}-` +
+        `${String(cursorDate.getMonth() + 1).padStart(2, '0')}-` +
+        `${String(cursorDate.getDate()).padStart(2, '0')}`;
+      const hours = (fragmentEnd - cursor) / 3_600_000;
+      result.set(dayKey, (result.get(dayKey) ?? 0) + hours);
+      cursor = fragmentEnd;
+    }
+  }
+  return result;
+}
+
+/**
  * Start-of-today epoch (in ms) in the given IANA timezone. Used for detecting
  * paused entries that crossed a day boundary and should be auto-finalized.
  *
