@@ -5,10 +5,11 @@ import { X, Download, Loader2, FileText, Settings, RotateCcw } from 'lucide-reac
 import type { InvoicePdfData, InvoicePdfOptions } from '@/lib/invoice-pdf/types';
 import { DEFAULT_INVOICE_PDF_OPTIONS } from '@/lib/invoice-pdf/types';
 
-// React-PDF is heavy (~250KB gzipped). Load it on demand so callers don't pay
+// React-PDF and pdfjs are heavy. Load them on demand so callers don't pay
 // the cost until someone actually opens a preview.
 type PdfModule = typeof import('@react-pdf/renderer');
 type DocModule = typeof import('@/lib/invoice-pdf/InvoiceDocument');
+type PreviewModule = typeof import('@/components/invoice-pdf/PdfPagesPreview');
 
 interface CustomizerProps {
   options: InvoicePdfOptions;
@@ -63,12 +64,13 @@ export function InvoicePreviewModalView({
 
   const [pdfLib, setPdfLib] = useState<PdfModule | null>(null);
   const [docLib, setDocLib] = useState<DocModule | null>(null);
+  const [previewLib, setPreviewLib] = useState<PreviewModule | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
-  // Memoize the document JSX. PDFViewer regenerates the PDF whenever its
-  // children prop changes by reference; without this, every parent re-render
-  // creates a fresh element and triggers a costly PDF rebuild (visible flicker).
+  // Memoize the document JSX. Without this, every parent re-render creates a
+  // fresh element and triggers a costly PDF rebuild (visible flicker).
   const documentNode = useMemo(() => {
     if (!docLib || !pdfData) return null;
     return <docLib.InvoiceDocument data={pdfData} />;
@@ -81,13 +83,52 @@ export function InvoicePreviewModalView({
     Promise.all([
       import('@react-pdf/renderer'),
       import('@/lib/invoice-pdf/InvoiceDocument'),
-    ]).then(([pdf, doc]) => {
+      import('@/components/invoice-pdf/PdfPagesPreview'),
+    ]).then(([pdf, doc, preview]) => {
       if (cancelled) return;
       setPdfLib(pdf);
       setDocLib(doc);
+      setPreviewLib(preview);
     });
     return () => { cancelled = true; };
   }, [isOpen]);
+
+  // Render the document to a blob URL so the canvas-based PdfPagesPreview can
+  // load it. Regenerates whenever documentNode changes (e.g. user toggles a
+  // customizer option). The previous URL is kept alive until the new blob is
+  // ready so the on-screen pages don't flash to a loading state mid-toggle.
+  // We deliberately don't revoke the in-flight URL on cleanup: pdfjs may still
+  // be loading the blob, and we'd rather leak briefly until it gets replaced
+  // (next blob ready) or the modal unmounts than break a mid-load fetch.
+  useEffect(() => {
+    if (!pdfLib || !documentNode) {
+      setPreviewUrl(null);
+      return;
+    }
+    let cancelled = false;
+
+    pdfLib.pdf(documentNode).toBlob().then((blob: Blob) => {
+      if (cancelled) return;
+      const newUrl = URL.createObjectURL(blob);
+      setPreviewUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return newUrl;
+      });
+    });
+
+    return () => { cancelled = true; };
+  }, [pdfLib, documentNode]);
+
+  // Final cleanup: revoke the lingering URL when the modal unmounts.
+  // Empty deps so it only fires once at unmount.
+  useEffect(() => {
+    return () => {
+      setPreviewUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return null;
+      });
+    };
+  }, []);
 
   // Body scroll lock — independent of any nested popover state.
   useEffect(() => {
@@ -125,11 +166,20 @@ export function InvoicePreviewModalView({
   }, [settingsOpen]);
 
   const handleDownload = async () => {
-    if (!pdfLib || !docLib || !pdfData) return;
+    if (!pdfData) return;
     setDownloading(true);
     try {
-      const blob = await pdfLib.pdf(<docLib.InvoiceDocument data={pdfData} />).toBlob();
-      const url = URL.createObjectURL(blob);
+      // Reuse the preview blob when available so we don't pay the
+      // generation cost twice. Only fall back to a fresh render if the
+      // preview hasn't finished yet (rare race).
+      let url = previewUrl;
+      let createdHere = false;
+      if (!url) {
+        if (!pdfLib || !docLib) return;
+        const blob = await pdfLib.pdf(<docLib.InvoiceDocument data={pdfData} />).toBlob();
+        url = URL.createObjectURL(blob);
+        createdHere = true;
+      }
       const filename = `${sanitizeForFilename(invoiceNumber)}_${sanitizeForFilename(clientLabel)}_${invoiceDate}.pdf`;
       const link = document.createElement('a');
       link.href = url;
@@ -137,7 +187,7 @@ export function InvoicePreviewModalView({
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      URL.revokeObjectURL(url);
+      if (createdHere) URL.revokeObjectURL(url);
     } finally {
       setDownloading(false);
     }
@@ -161,7 +211,16 @@ export function InvoicePreviewModalView({
     >
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm animate-fadeIn" />
 
-      <div className="relative w-full max-w-4xl h-[90vh] bg-white rounded-xl shadow-2xl animate-scaleIn flex flex-col overflow-hidden">
+      {/* Use dynamic viewport height (dvh) so the modal sizes against the
+          *visible* area on mobile — `vh` reports the large viewport (browser
+          chrome hidden) and would clip the modal behind Safari's URL bar /
+          bottom toolbar. Tailwind class provides a `vh` fallback for legacy
+          browsers (iOS < 15.4); the inline `dvh` overrides on modern browsers
+          and is silently dropped on older ones, falling back to the class. */}
+      <div
+        className="relative w-full max-w-4xl h-[90vh] bg-white rounded-xl shadow-2xl animate-scaleIn flex flex-col overflow-hidden"
+        style={{ height: '90dvh' }}
+      >
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-200 flex-shrink-0">
           <div className="flex items-center gap-2 min-w-0">
@@ -196,7 +255,7 @@ export function InvoicePreviewModalView({
 
             <button
               onClick={handleDownload}
-              disabled={!pdfLib || !docLib || !pdfData || downloading}
+              disabled={!pdfData || (!previewUrl && (!pdfLib || !docLib)) || downloading}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {downloading
@@ -265,15 +324,12 @@ export function InvoicePreviewModalView({
           </div>
         )}
 
-        {/* Body — PDFViewer fills remaining height */}
+        {/* Body. Canvas-based renderer (PdfPagesPreview) replaces the native
+            iframe PDFViewer because mobile browsers can only show page 1 of
+            iframe-embedded PDFs and provide no navigation controls. */}
         <div className="flex-1 bg-zinc-100 min-h-0">
-          {pdfLib && documentNode ? (
-            <pdfLib.PDFViewer
-              showToolbar={false}
-              style={{ width: '100%', height: '100%', border: 'none' }}
-            >
-              {documentNode}
-            </pdfLib.PDFViewer>
+          {previewLib ? (
+            <previewLib.PdfPagesPreview file={previewUrl} />
           ) : (
             <div className="w-full h-full flex flex-col items-center justify-center text-zinc-400">
               <Loader2 size={28} className="animate-spin mb-3" />
