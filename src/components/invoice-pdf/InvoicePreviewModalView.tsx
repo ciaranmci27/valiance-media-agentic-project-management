@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { X, Download, Loader2, FileText, Settings, RotateCcw } from 'lucide-react';
 import type { InvoicePdfData, InvoicePdfOptions } from '@/lib/invoice-pdf/types';
+import { DEFAULT_INVOICE_PDF_OPTIONS } from '@/lib/invoice-pdf/types';
 
 // React-PDF is heavy (~250KB gzipped). Load it on demand so callers don't pay
 // the cost until someone actually opens a preview.
@@ -40,6 +41,7 @@ const TOGGLE_DEFINITIONS: { key: keyof InvoicePdfOptions; label: string; descrip
   { key: 'showNotes',               label: 'Notes',                description: 'Per-invoice notes block.' },
   { key: 'showPaymentInstructions', label: 'Payment instructions', description: 'Payment instructions block from Business Info.' },
   { key: 'showFooter',              label: 'Footer',               description: 'Page numbers, business name, and generated date.' },
+  { key: 'showTimeLogs',            label: 'Time log page',        description: 'Append a second page listing the time entries that back the hourly line items.' },
 ];
 
 function sanitizeForFilename(input: string): string {
@@ -141,8 +143,12 @@ export function InvoicePreviewModalView({
     }
   };
 
+  // Badge counts toggles that have been changed from their default. This is
+  // more accurate than "count of off toggles" once defaults include opt-in
+  // values like showTimeLogs (default off): a fresh project would otherwise
+  // always show "1" without the user having touched anything.
   const hiddenCount = customizer
-    ? TOGGLE_DEFINITIONS.filter(t => !customizer.options[t.key]).length
+    ? TOGGLE_DEFINITIONS.filter(t => customizer.options[t.key] !== DEFAULT_INVOICE_PDF_OPTIONS[t.key]).length
     : 0;
 
   if (!isOpen) return null;

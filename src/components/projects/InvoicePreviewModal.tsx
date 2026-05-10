@@ -15,7 +15,7 @@ interface InvoicePreviewModalProps {
 export function InvoicePreviewModal({ invoiceId, onClose }: InvoicePreviewModalProps) {
   const {
     projectInvoices, getProject, getPrimaryClient, getContact, getPortalSettings,
-    businessSettings, updateProject, team,
+    businessSettings, updateProject, team, getTimeEntriesByProject,
   } = useApp();
   const { teamMemberId } = useAuth();
   const currentMember = team.find(m => m.id === teamMemberId);
@@ -23,6 +23,12 @@ export function InvoicePreviewModal({ invoiceId, onClose }: InvoicePreviewModalP
 
   const invoice = invoiceId ? projectInvoices.find(i => i.id === invoiceId) : null;
   const project = invoice ? getProject(invoice.project_id) : undefined;
+  // Stable identity so the pdfData useMemo doesn't refire on every parent
+  // render. getTimeEntriesByProject returns a fresh array each call.
+  const timeEntries = useMemo(
+    () => (invoice ? getTimeEntriesByProject(invoice.project_id) : []),
+    [invoice, getTimeEntriesByProject],
+  );
 
   // Toggles live on the project so each client/project can have its own
   // invoice presentation. Falls back to defaults for projects predating the
@@ -64,8 +70,10 @@ export function InvoicePreviewModal({ invoiceId, onClose }: InvoicePreviewModalP
       options,
       logoUrl: typeof window !== 'undefined' ? `${window.location.origin}/api/logo` : '/api/logo',
       portalUrl,
+      timeEntries,
+      team,
     });
-  }, [invoice, project, primaryContact, businessSettings, senderName, options, portalUrl]);
+  }, [invoice, project, primaryContact, businessSettings, senderName, options, portalUrl, timeEntries, team]);
 
   const clientLabel = pdfData?.billTo.company || pdfData?.billTo.name || 'Client';
 

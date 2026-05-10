@@ -16,6 +16,9 @@ export interface InvoicePdfOptions {
   showNotes: boolean;
   showPaymentInstructions: boolean;
   showFooter: boolean;
+  /** Append a second page with the underlying time-entry log for hourly work.
+   *  Off by default since older invoices and most clients won't expect it. */
+  showTimeLogs: boolean;
 }
 
 export const DEFAULT_INVOICE_PDF_OPTIONS: InvoicePdfOptions = {
@@ -28,7 +31,24 @@ export const DEFAULT_INVOICE_PDF_OPTIONS: InvoicePdfOptions = {
   showNotes: true,
   showPaymentInstructions: true,
   showFooter: true,
+  showTimeLogs: false,
 };
+
+/** A single time entry rendered on the optional time-logs page. */
+export interface InvoicePdfTimeLogEntry {
+  id: string;
+  /** YYYY-MM-DD in local time, used for grouping rows by day. */
+  dayKey: string;
+  /** ISO datetime of the first segment's start. */
+  startIso: string;
+  /** ISO datetime of the last segment's end (always set; unfinalized entries are filtered out). */
+  endIso: string;
+  /** Decimal hours worked across all segments. */
+  hours: number;
+  description: string;
+  /** Display name of the team member who logged the entry. Empty when unknown. */
+  memberName: string;
+}
 
 /**
  * Self-contained data shape consumed by InvoiceDocument. Build this with
@@ -87,4 +107,10 @@ export interface InvoicePdfData {
 
   // Per-invoice render toggles (logo, top bar, stamp, etc.)
   options: InvoicePdfOptions;
+
+  /** Finalized time entries that fall within the invoice's hourly line-item
+   *  date ranges. Sorted oldest-first. Empty when the invoice has no hourly
+   *  line items, or when no entries match. The optional second page only
+   *  renders when this is non-empty AND options.showTimeLogs is true. */
+  timeLogEntries: InvoicePdfTimeLogEntry[];
 }

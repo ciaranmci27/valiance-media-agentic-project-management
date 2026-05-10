@@ -48,6 +48,21 @@ function formatServicePeriod(start: string | null, end: string | null): string |
   return formatDate(start ?? end!);
 }
 
+function formatClock(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+}
+
+function formatHoursMinutes(hours: number): string {
+  const totalMinutes = Math.max(0, Math.round(hours * 60));
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  if (h === 0) return `${m}m`;
+  if (m === 0) return `${h}h`;
+  return `${h}h ${m}m`;
+}
+
 function statusPill(status: InvoicePdfData['status']): { label: string; color: string } {
   switch (status) {
     case 'paid':      return { label: 'Paid',      color: COLOR.emerald };
@@ -302,7 +317,128 @@ export function InvoiceDocument({ data }: { data: InvoicePdfData }) {
           </View>
         )}
       </Page>
+
+      {/* ── Optional second page: time-entry log for hourly work ── */}
+      {opts.showTimeLogs && data.timeLogEntries.length > 0 && (
+        <TimeLogsPage data={data} styles={styles} />
+      )}
     </Document>
+  );
+}
+
+// ── Time logs page ─────────────────────────────────────────────────────
+function TimeLogsPage({
+  data,
+  styles,
+}: {
+  data: InvoicePdfData;
+  styles: ReturnType<typeof createStyles>;
+}) {
+  const opts = data.options;
+  const entries = data.timeLogEntries;
+  const totalHours = entries.reduce((sum, e) => sum + e.hours, 0);
+  const firstDay = entries[0]?.dayKey ?? null;
+  const lastDay = entries[entries.length - 1]?.dayKey ?? null;
+  const rangeLabel = firstDay && lastDay
+    ? (firstDay === lastDay ? formatDate(firstDay) : `${formatDate(firstDay)} – ${formatDate(lastDay)}`)
+    : '';
+  // Member column only earns its keep when more than one person logged time.
+  const uniqueMembers = new Set(entries.map(e => e.memberName).filter(Boolean));
+  const showMember = uniqueMembers.size > 1;
+
+  // Group entries by day so the date label only prints on the first row of
+  // each day (rest collapse to keep the table scannable).
+  const seenDay = new Set<string>();
+
+  return (
+    <Page size="LETTER" style={styles.page}>
+      {opts.showTopAccent && <View style={styles.topAccent} fixed />}
+
+      <View style={styles.header}>
+        <View style={styles.headerLeft}>
+          <Text style={styles.logoFallback}>{data.business.name}</Text>
+        </View>
+        <View style={styles.headerRight}>
+          <Text style={styles.eyebrow}>Time Log</Text>
+          <Text style={styles.invoiceNumber}>{data.invoiceNumber}</Text>
+        </View>
+      </View>
+
+      <View style={styles.timeLogSummary}>
+        <View style={styles.detailsCell}>
+          <Text style={styles.detailsKey}>Period</Text>
+          <Text style={styles.detailsValue}>{rangeLabel || '—'}</Text>
+        </View>
+        <View style={styles.detailsCell}>
+          <Text style={styles.detailsKey}>Entries</Text>
+          <Text style={styles.detailsValue}>{entries.length}</Text>
+        </View>
+        <View style={styles.detailsCell}>
+          <Text style={styles.detailsKey}>Total Hours</Text>
+          <Text style={styles.detailsValue}>
+            {totalHours.toLocaleString('en-US', { maximumFractionDigits: 2 })}
+          </Text>
+        </View>
+      </View>
+
+      <View style={[styles.itemsHeading, styles.sectionLabel]}>
+        <View style={styles.sectionLabelDash} />
+        <Text style={styles.sectionLabelText}>Time Entries</Text>
+      </View>
+
+      <View style={styles.tableHeader} fixed>
+        <Text style={[styles.th, styles.tlColDate]}>Date</Text>
+        <Text style={[styles.th, styles.tlColTime]}>Time</Text>
+        <Text style={[styles.th, styles.tlColDescription]}>Description</Text>
+        {showMember && <Text style={[styles.th, styles.tlColMember]}>Member</Text>}
+        <Text style={[styles.th, styles.tlColDuration]}>Duration</Text>
+      </View>
+
+      {entries.map((entry) => {
+        const isFirstOfDay = !seenDay.has(entry.dayKey);
+        if (isFirstOfDay) seenDay.add(entry.dayKey);
+        const timeRange = `${formatClock(entry.startIso)} – ${formatClock(entry.endIso)}`;
+
+        return (
+          <View key={entry.id} style={styles.tr} wrap={false}>
+            <Text style={[styles.tdMono, styles.tlColDate]}>
+              {isFirstOfDay ? formatDate(entry.dayKey) : ''}
+            </Text>
+            <Text style={[styles.tdMono, styles.tlColTime]}>{timeRange}</Text>
+            <View style={styles.tlColDescription}>
+              <Text style={styles.tdDescription}>
+                {entry.description || <Text style={{ color: COLOR.faint }}>—</Text>}
+              </Text>
+            </View>
+            {showMember && (
+              <Text style={[styles.tdMono, styles.tlColMember]}>{entry.memberName || '—'}</Text>
+            )}
+            <Text style={[styles.tdMono, styles.tlColDuration]}>{formatHoursMinutes(entry.hours)}</Text>
+          </View>
+        );
+      })}
+
+      <View style={styles.timeLogTotalsWrap} wrap={false}>
+        <View style={styles.timeLogTotalsBox}>
+          <View style={styles.totalsAccent} />
+          <View style={styles.totalsRow}>
+            <Text style={styles.totalsLabelFinal}>Total Hours</Text>
+            <Text style={styles.timeLogTotalValue}>
+              {totalHours.toLocaleString('en-US', { maximumFractionDigits: 2 })}
+            </Text>
+          </View>
+        </View>
+      </View>
+
+      {opts.showFooter && <View style={styles.footerRule} fixed />}
+      {opts.showFooter && (
+        <View style={styles.footer} fixed>
+          <Text style={styles.footerText} render={({ pageNumber, totalPages }) => `${pageNumber} / ${totalPages}`} />
+          <Text style={[styles.footerText, { textAlign: 'center', flex: 1 }]}>{data.business.name}</Text>
+          <Text style={styles.footerText}>Generated {formatGenerated(data.generatedAt)}</Text>
+        </View>
+      )}
+    </Page>
   );
 }
 
@@ -560,6 +696,30 @@ function createStyles(brandColor: string) {
       fontSize: 18,
       fontWeight: 700,
       letterSpacing: 4,
+    },
+
+    // ── Time logs page ─────────────────────────
+    timeLogSummary: {
+      flexDirection: 'row',
+      borderTopWidth: 0.5,
+      borderTopColor: COLOR.hairline,
+      borderBottomWidth: 0.5,
+      borderBottomColor: COLOR.hairline,
+      paddingVertical: 12,
+      marginBottom: 32,
+    },
+    tlColDate:        { width: 96, paddingRight: 10 },
+    tlColTime:        { width: 110, paddingRight: 10 },
+    tlColDescription: { flex: 1, paddingRight: 10 },
+    tlColMember:      { width: 80, paddingRight: 10 },
+    tlColDuration:    { width: 60, textAlign: 'right' },
+    timeLogTotalsWrap: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 22 },
+    timeLogTotalsBox: { width: 200 },
+    timeLogTotalValue: {
+      fontSize: 16,
+      color: brandColor,
+      fontWeight: 700,
+      letterSpacing: 0.2,
     },
   });
 }

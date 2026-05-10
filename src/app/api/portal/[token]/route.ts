@@ -181,6 +181,10 @@ export async function GET(
   // Always fetch when show_hours OR (show_invoices + hourly_tracking) for billing calculations
   const needsHours = settings.show_hours || (settings.show_invoices && project.hourly_tracking);
   let hours: PortalData['hours'] = { total_hours: 0, entries: [] };
+  // Hoisted out of the `needsHours` block so the invoice-PDF builder below can
+  // attach the time-log page when the project enables it.
+  let portalTimeEntries: TimeEntry[] = [];
+  let portalTeam: { id: string; name: string }[] = [];
   if (needsHours) {
     const { data: timeEntries } = await supabase
       .from('project_time_entries')
@@ -190,12 +194,14 @@ export async function GET(
       .order('start_time', { ascending: false });
 
     if (timeEntries && timeEntries.length > 0) {
+      portalTimeEntries = timeEntries as unknown as TimeEntry[];
       const memberIds = [...new Set(timeEntries.map((te: any) => te.member_id))];
       const { data: members } = await supabase
         .from('team_members')
         .select('id, name')
         .in('id', memberIds);
 
+      portalTeam = (members || []) as { id: string; name: string }[];
       const memberMap = new Map((members || []).map((m: any) => [m.id, m.name]));
 
       // FIFO payment status (oldest entry drained first against paid hourly $).
@@ -304,6 +310,8 @@ export async function GET(
           logoUrl: `${origin}/api/logo`,
           portalUrl: `${origin}/portal/${token}?invoice=${encodeURIComponent(inv.invoice_number)}`,
           options: portalOptions,
+          timeEntries: portalTimeEntries,
+          team: portalTeam,
         }),
       ]),
     );

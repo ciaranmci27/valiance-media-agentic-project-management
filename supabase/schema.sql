@@ -63,7 +63,8 @@ create table public.projects (
     "showPortalLink": true,
     "showNotes": true,
     "showPaymentInstructions": true,
-    "showFooter": true
+    "showFooter": true,
+    "showTimeLogs": false
   }'::jsonb,
   autonomous_enabled boolean not null default false,
   deployment_policy text not null default 'production' check (deployment_policy in ('playground', 'production')),
