@@ -59,7 +59,7 @@ function formatDuration(seconds: number): string {
   return `${h}h ${m % 60}m`;
 }
 
-/** PostgreSQL `inet` values come back as CIDR-notated strings ("70.188.218.1/32"
+/** PostgreSQL `inet` values come back as CIDR-notated strings ("192.0.2.1/32"
  *  or "::1/128") even when they're single-host addresses. Strip the prefix when
  *  it's the trivial /32 (IPv4 host) or /128 (IPv6 host) so admins see the bare
  *  address. Keep the prefix on true network ranges (rare, but valid). */

@@ -165,7 +165,7 @@ export function AnalyticsExclusionsSection() {
           label="IP address"
           value={newIp}
           onChange={(e) => setNewIp(e.target.value)}
-          placeholder="70.188.218.1"
+          placeholder="192.0.2.1"
           disabled={isDemoMode}
         />
         <Input
