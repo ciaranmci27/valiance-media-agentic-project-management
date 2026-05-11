@@ -1,4 +1,4 @@
-import type { TeamMember, Contact, Project, ProjectContact, Task, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, Activity, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, TimeEntry, Notification, ProjectGoal, TaskSuggestion, AgentActivity, ProjectInvoice, ClientCommunication } from './types';
+import type { TeamMember, Contact, Project, ProjectContact, Task, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, Activity, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, TimeEntry, Notification, ProjectGoal, TaskSuggestion, AgentActivity, ProjectInvoice, ClientCommunication, PortalAnalyticsResponse, PortalSessionSummary } from './types';
 import { DEFAULT_SECTION_ORDER } from './types';
 import { siteConfig } from '@/site-config';
 
@@ -1638,3 +1638,183 @@ export const demoAgentActivity: AgentActivity[] = [
     created_at: daysAgo(8),
   },
 ];
+
+// ---------------------------------------------------------------------------
+// PORTAL ANALYTICS (demo)
+// ---------------------------------------------------------------------------
+//
+// The real analytics modal hits /api/projects/[id]/portal-analytics. Demo mode
+// short-circuits that and synthesizes a plausible rollup so the UI is never
+// empty in demos.
+
+function minutesAgo(n: number): string {
+  return new Date(Date.now() - n * 60_000).toISOString();
+}
+
+interface DemoSessionSeed extends Partial<PortalSessionSummary> {
+  session_id: string;
+  portal_settings_id: string;
+  project_id: string;
+  started_at: string;
+  last_seen_at: string;
+}
+
+function buildDemoSession(seed: DemoSessionSeed): PortalSessionSummary {
+  const start = new Date(seed.started_at).getTime();
+  const end = new Date(seed.last_seen_at).getTime();
+  return {
+    session_id: seed.session_id,
+    portal_settings_id: seed.portal_settings_id,
+    project_id: seed.project_id,
+    started_at: seed.started_at,
+    last_seen_at: seed.last_seen_at,
+    duration_seconds: Math.max(0, Math.round((end - start) / 1000)),
+    event_count: seed.event_count ?? 6,
+    views: seed.views ?? 1,
+    files_downloaded: seed.files_downloaded ?? 0,
+    files_previewed: seed.files_previewed ?? 0,
+    invoices_viewed: seed.invoices_viewed ?? 0,
+    invoice_pdfs_downloaded: seed.invoice_pdfs_downloaded ?? 0,
+    sections_viewed: seed.sections_viewed ?? 3,
+    credentials_submitted: seed.credentials_submitted ?? 0,
+    pin_failures: seed.pin_failures ?? 0,
+    had_failed_pin: seed.had_failed_pin ?? false,
+    ip_address: seed.ip_address ?? null,
+    ip_hash: seed.ip_hash ?? null,
+    user_agent: seed.user_agent ?? null,
+    referrer: seed.referrer ?? null,
+    device_type: seed.device_type ?? 'desktop',
+    browser: seed.browser ?? 'Chrome 138',
+    os: seed.os ?? 'macOS 15',
+    accept_language: seed.accept_language ?? 'en-US,en;q=0.9',
+    timezone: seed.timezone ?? 'America/Denver',
+    language: seed.language ?? 'en-US',
+    screen_width: seed.screen_width ?? 1920,
+    screen_height: seed.screen_height ?? 1080,
+    viewport_width: seed.viewport_width ?? 1440,
+    viewport_height: seed.viewport_height ?? 900,
+    connection_type: seed.connection_type ?? '4g',
+    color_scheme: seed.color_scheme ?? 'light',
+    reduced_motion: seed.reduced_motion ?? false,
+  };
+}
+
+const DEMO_SESSION_SEEDS: DemoSessionSeed[] = [
+  {
+    session_id: '11111111-1111-4111-8111-000000000001',
+    portal_settings_id: 'ps-0001-4000-8000-000000000001',
+    project_id: 'c3c3c3c3-0001-4000-8000-000000000001',
+    started_at: minutesAgo(45),
+    last_seen_at: minutesAgo(38),
+    event_count: 12, views: 1, files_previewed: 2, files_downloaded: 1, invoices_viewed: 1, invoice_pdfs_downloaded: 1, sections_viewed: 5,
+    ip_address: '174.62.83.41', ip_hash: 'a1b2c3d4e5f60718',
+    user_agent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15',
+    browser: 'Safari 18', os: 'macOS 15', device_type: 'desktop',
+    timezone: 'America/New_York', language: 'en-US',
+    viewport_width: 1680, viewport_height: 1050,
+  },
+  {
+    session_id: '11111111-1111-4111-8111-000000000002',
+    portal_settings_id: 'ps-0001-4000-8000-000000000001',
+    project_id: 'c3c3c3c3-0001-4000-8000-000000000001',
+    started_at: hoursAgo(6),
+    last_seen_at: new Date(Date.now() - 6 * 3_600_000 + 4 * 60_000).toISOString(),
+    event_count: 8, views: 1, files_previewed: 1, sections_viewed: 4,
+    ip_address: '174.62.83.41', ip_hash: 'a1b2c3d4e5f60718',
+    user_agent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1',
+    browser: 'Safari iOS 18', os: 'iOS 18.0', device_type: 'mobile',
+    timezone: 'America/New_York', language: 'en-US',
+    screen_width: 393, screen_height: 852, viewport_width: 393, viewport_height: 660,
+    connection_type: '4g',
+  },
+  {
+    session_id: '11111111-1111-4111-8111-000000000003',
+    portal_settings_id: 'ps-0001-4000-8000-000000000001',
+    project_id: 'c3c3c3c3-0001-4000-8000-000000000001',
+    started_at: daysAgo(2),
+    last_seen_at: new Date(Date.now() - 2 * 86_400_000 + 11 * 60_000).toISOString(),
+    event_count: 16, views: 2, files_previewed: 4, files_downloaded: 3, invoices_viewed: 2, invoice_pdfs_downloaded: 1, sections_viewed: 6,
+    ip_address: '174.62.83.41', ip_hash: 'a1b2c3d4e5f60718',
+    browser: 'Chrome 138', os: 'Windows 10/11', device_type: 'desktop',
+    timezone: 'America/New_York', language: 'en-US',
+    viewport_width: 1920, viewport_height: 1080,
+  },
+  {
+    session_id: '11111111-1111-4111-8111-000000000004',
+    portal_settings_id: 'ps-0001-4000-8000-000000000001',
+    project_id: 'c3c3c3c3-0001-4000-8000-000000000001',
+    started_at: daysAgo(5),
+    last_seen_at: new Date(Date.now() - 5 * 86_400_000 + 2 * 60_000).toISOString(),
+    event_count: 5, views: 1, sections_viewed: 2,
+    ip_address: '45.92.176.11', ip_hash: '7f8e9d0c1b2a3344',
+    browser: 'Firefox 130', os: 'Linux', device_type: 'desktop',
+    timezone: 'Europe/London', language: 'en-GB',
+    color_scheme: 'dark',
+  },
+  {
+    session_id: '11111111-1111-4111-8111-000000000005',
+    portal_settings_id: 'ps-0001-4000-8000-000000000001',
+    project_id: 'c3c3c3c3-0001-4000-8000-000000000001',
+    started_at: daysAgo(8),
+    last_seen_at: new Date(Date.now() - 8 * 86_400_000 + 30_000).toISOString(),
+    event_count: 3, views: 0, pin_failures: 3, had_failed_pin: true,
+    ip_address: '203.0.113.99', ip_hash: '0000deadbeef0001',
+    browser: 'Chrome 138', os: 'Windows 10/11', device_type: 'desktop',
+    timezone: 'Asia/Shanghai', language: 'zh-CN',
+  },
+];
+
+/** Synthesize a 30-day analytics rollup for one demo portal. The session ids
+ *  are stable so expanding a row twice shows the same timeline. */
+export function buildDemoPortalAnalytics(
+  portalSettingsId: string,
+  projectId: string,
+): PortalAnalyticsResponse {
+  const sessions = DEMO_SESSION_SEEDS
+    .filter(s => s.portal_settings_id === portalSettingsId)
+    .map(buildDemoSession);
+
+  const totals = {
+    total_events: sessions.reduce((s, x) => s + x.event_count, 0),
+    total_sessions: sessions.length,
+    unique_ip_hashes: new Set(sessions.map(s => s.ip_hash).filter(Boolean)).size,
+    last_seen_at: sessions[0]?.last_seen_at ?? null,
+    avg_duration_seconds: sessions.length === 0
+      ? 0
+      : Math.round(sessions.reduce((s, x) => s + x.duration_seconds, 0) / sessions.length),
+    total_pin_failures: sessions.reduce((s, x) => s + x.pin_failures, 0),
+  };
+
+  return {
+    range_days: 30,
+    totals,
+    // Left empty so the dashboard derives day buckets in the admin's local
+    // timezone from the sessions array (matches the real API contract).
+    views_by_day: [],
+    sessions,
+    top_sections: [
+      { section: 'show_progress',    views: 5 },
+      { section: 'show_files',       views: 4 },
+      { section: 'show_invoices',    views: 3 },
+      { section: 'show_hours',       views: 2 },
+    ],
+    top_files: [
+      { file_id: 'demo-file-brand-guide',  name: 'Brand Guidelines v3.pdf',  mime_type: 'application/pdf', previews: 4, downloads: 2 },
+      { file_id: 'demo-file-design-mocks', name: 'Homepage Mockups.zip',     mime_type: 'application/zip', previews: 3, downloads: 1 },
+      { file_id: 'demo-file-final-assets', name: 'Final Logo Assets.zip',    mime_type: 'application/zip', previews: 1, downloads: 1 },
+    ],
+    top_invoices: [
+      { invoice_id: `${projectId}-inv-001`, invoice_number: 'INV-001', amount: 4500, views: 3, pdf_downloads: 2 },
+      { invoice_id: `${projectId}-inv-002`, invoice_number: 'INV-002', amount: 2800, views: 2, pdf_downloads: 0 },
+    ],
+    pin_failures: sessions
+      .filter(s => s.had_failed_pin)
+      .map(s => ({
+        created_at: s.started_at,
+        ip_address: s.ip_address,
+        ip_hash: s.ip_hash,
+        user_agent: s.user_agent,
+        country_hint: null,
+      })),
+  };
+}

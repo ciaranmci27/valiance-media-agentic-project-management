@@ -14,6 +14,7 @@ import { toast } from '@/components/ui/Toast';
 import { useDemo } from '@/lib/demo-context';
 import { SmtpSection } from '@/components/settings/SmtpSection';
 import { BusinessInfoSection } from '@/components/settings/BusinessInfoSection';
+import { AnalyticsExclusionsSection } from '@/components/settings/AnalyticsExclusionsSection';
 import { Tooltip } from '@/components/ui/Tooltip';
 import Link from 'next/link';
 import { hashApiKey, generateApiKey } from '@/lib/api/crypto';
@@ -928,6 +929,9 @@ export default function SettingsPage() {
 
         {/* SMTP Email Section — admin only, hidden in demo mode */}
         {isAdmin && !isDemoMode && <SmtpSection />}
+
+        {/* Analytics Exclusions — admin only */}
+        {isAdmin && <AnalyticsExclusionsSection />}
 
         {/* Demo Mode Section — admin only, hidden when env-forced */}
         {isAdmin && !isEnvForcedDemo && (

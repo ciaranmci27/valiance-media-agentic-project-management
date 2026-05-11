@@ -357,10 +357,13 @@ function UpdateContent({ content }: { content: string }) {
 /* ── Updates Timeline Component ──────────────────── */
 const UPDATES_INITIAL_COUNT = 5;
 
-function UpdatesTimeline({ updates, accentColor, onPreview }: {
+function UpdatesTimeline({ updates, accentColor, onPreview, onDownload }: {
   updates: PortalData['updates'];
   accentColor: string;
-  onPreview: (file: { name: string; file_url: string; mime_type: string }) => void;
+  onPreview: (file: { id?: string; name: string; file_url: string; mime_type: string }) => void;
+  /** Fires when the client clicks the download button on an update
+   *  attachment. The portal page uses this to emit a file_download event. */
+  onDownload?: (file: { id: string; name: string }) => void;
 }) {
   const [showAll, setShowAll] = useState(false);
   const visible = showAll ? updates : updates.slice(0, UPDATES_INITIAL_COUNT);
@@ -450,7 +453,7 @@ function UpdatesTimeline({ updates, accentColor, onPreview }: {
                                 <div className="absolute inset-0 rounded-lg flex items-center justify-center gap-1.5 transition-colors sm:bg-black/0 sm:group-hover/img:bg-black/40 sm:opacity-0 sm:group-hover/img:opacity-100 sm:focus-within:opacity-100">
                                   <Tooltip content="Preview">
                                     <button
-                                      onClick={() => onPreview({ name: a.name, file_url: a.file_url, mime_type: a.mime_type })}
+                                      onClick={() => onPreview({ id: a.id, name: a.name, file_url: a.file_url, mime_type: a.mime_type })}
                                       className="p-1.5 bg-white/90 rounded-md text-zinc-700 hover:bg-white transition-colors"
                                     >
                                       <Eye size={13} />
@@ -459,6 +462,7 @@ function UpdatesTimeline({ updates, accentColor, onPreview }: {
                                   <Tooltip content="Download">
                                     <button
                                       onClick={async () => {
+                                        onDownload?.({ id: a.id, name: a.name });
                                         try {
                                           const res = await fetch(a.file_url);
                                           const blob = await res.blob();
@@ -494,7 +498,7 @@ function UpdatesTimeline({ updates, accentColor, onPreview }: {
                                   <span className="text-zinc-400">{formatFileSize(a.file_size)}</span>
                                   <Tooltip content="Preview">
                                     <button
-                                      onClick={() => onPreview({ name: a.name, file_url: a.file_url, mime_type: a.mime_type })}
+                                      onClick={() => onPreview({ id: a.id, name: a.name, file_url: a.file_url, mime_type: a.mime_type })}
                                       className="p-0.5 text-zinc-400 hover:text-zinc-700 transition-colors"
                                     >
                                       <Eye size={12} />
@@ -504,6 +508,7 @@ function UpdatesTimeline({ updates, accentColor, onPreview }: {
                                     <Tooltip content="Download">
                                       <button
                                         onClick={async () => {
+                                          onDownload?.({ id: a.id, name: a.name });
                                           try {
                                             const res = await fetch(a.file_url);
                                             const blob = await res.blob();
@@ -890,6 +895,44 @@ export default function PortalPage() {
   );
 }
 
+/* ── Analytics helpers (client) ───────────────────── */
+
+/** One session id per portal-token per tab. Regenerated each new tab so the
+ *  admin dashboard can tell separate visits apart even from the same client. */
+function getOrCreateClientSessionId(token: string): string {
+  const key = `portal-session-${token}`;
+  try {
+    const existing = sessionStorage.getItem(key);
+    if (existing && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(existing)) {
+      return existing;
+    }
+    const fresh = crypto.randomUUID();
+    sessionStorage.setItem(key, fresh);
+    return fresh;
+  } catch {
+    // sessionStorage can throw in privacy modes; fall back to in-memory.
+    return crypto.randomUUID();
+  }
+}
+
+/** Snapshot of client-reported context. Sent with every event the portal
+ *  page emits so the dashboard can break sessions down by device/timezone. */
+function getClientContext() {
+  if (typeof window === 'undefined') return undefined;
+  const conn = (navigator as unknown as { connection?: { effectiveType?: string } }).connection;
+  return {
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    language: navigator.language,
+    screen_width: window.screen?.width ?? null,
+    screen_height: window.screen?.height ?? null,
+    viewport_width: window.innerWidth,
+    viewport_height: window.innerHeight,
+    connection_type: conn?.effectiveType ?? null,
+    color_scheme: window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light',
+    reduced_motion: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false,
+  };
+}
+
 function PortalPageInner() {
   const params = useParams();
   const token = (params.token as string).toLowerCase();
@@ -904,12 +947,61 @@ function PortalPageInner() {
   const pinRef = useRef<PinInputRef>(null);
   const [branding, setBranding] = useState<{ logo_url: string; accent_color: string; project_name: string; welcome_message: string } | null>(null);
 
+  // Stable session id for the lifetime of this tab. Sent on every portal API
+  // call so the server can group events into one "visit" in the analytics view.
+  const sessionId = useRef<string>('');
+  if (typeof window !== 'undefined' && !sessionId.current) {
+    sessionId.current = getOrCreateClientSessionId(token);
+  }
+
+  /** Fire-and-forget event emitter. Uses keepalive so events sent during page
+   *  unload (e.g. final heartbeat) still flush. Swallows errors so analytics
+   *  can never break the UI. Skips events that have no session id yet
+   *  (SSR / pre-hydrate). */
+  const track = useCallback((eventType: string, metadata: Record<string, unknown> = {}) => {
+    if (!sessionId.current) return;
+    try {
+      const isDemo = localStorage.getItem('valiance-demo-mode') === 'true'
+        || process.env.NEXT_PUBLIC_DEMO_MODE === 'true';
+      const params = new URLSearchParams();
+      if (isDemo) params.set('demo', 'true');
+      const qs = params.toString();
+      const storedPin = sessionStorage.getItem(`portal-pin-${token}`) || '';
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'x-portal-session-id': sessionId.current,
+      };
+      if (storedPin) headers['x-portal-pin'] = storedPin;
+      fetch(`/api/portal/${token}/track${qs ? `?${qs}` : ''}`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          event_type: eventType,
+          session_id: sessionId.current,
+          metadata,
+          client: getClientContext(),
+        }),
+        keepalive: true,
+      }).catch(() => { /* silent */ });
+    } catch {
+      /* silent */
+    }
+  }, [token]);
+
   // File upload state
   const [localFiles, setLocalFiles] = useState<PortalData['files']>([]);
   const [fileUploading, setFileUploading] = useState(false);
 
   // File preview state
-  const [previewFile, setPreviewFile] = useState<{ name: string; file_url: string; mime_type: string } | null>(null);
+  const [previewFile, setPreviewFile] = useState<{ id?: string; name: string; file_url: string; mime_type: string } | null>(null);
+
+  // Emit file_preview the moment the preview modal opens. Using an effect
+  // keeps the tracking centralized so every call-site (project files,
+  // update attachments) gets it for free.
+  useEffect(() => {
+    if (!previewFile || !data || pinRequired) return;
+    track('file_preview', previewFile.id ? { file_id: previewFile.id } : {});
+  }, [previewFile, data, pinRequired, track]);
 
   // Invoice preview deep-linking via ?invoice=INV-001 search param so clients
   // can share a link to a specific invoice. Resolves to actual invoice data
@@ -930,6 +1022,23 @@ function PortalPageInner() {
     params.set('invoice', invoiceNumber);
     router.push(`${pathname}?${params.toString()}`, { scroll: false });
   }, [router, searchParams, pathname]);
+
+  // Fires once each time an invoice opens. The ref is cleared whenever the
+  // modal closes (activeInvoice → null) so closing and reopening the same
+  // invoice in one session counts as a fresh view; only back-to-back state
+  // changes that resolve to the same id (e.g., a deep-link refresh that
+  // keeps the invoice open) are deduped.
+  const lastInvoiceTrackedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!data || pinRequired) return;
+    if (!activeInvoice) {
+      lastInvoiceTrackedRef.current = null;
+      return;
+    }
+    if (lastInvoiceTrackedRef.current === activeInvoice.id) return;
+    lastInvoiceTrackedRef.current = activeInvoice.id;
+    track('invoice_view', { invoice_id: activeInvoice.id, invoice_number: activeInvoice.invoice_number });
+  }, [activeInvoice, data, pinRequired, track]);
 
   // Closing replaces (no extra history entry) so users don't end up with a
   // pile of modal-open/close states cluttering their back stack.
@@ -955,6 +1064,7 @@ function PortalPageInner() {
 
       const headers: Record<string, string> = {};
       if (pinValue) headers['x-portal-pin'] = pinValue;
+      if (sessionId.current) headers['x-portal-session-id'] = sessionId.current;
       const res = await fetch(url, { headers });
 
       if (res.status === 401) {
@@ -1010,6 +1120,55 @@ function PortalPageInner() {
   useEffect(() => {
     if (data?.files) setLocalFiles(data.files);
   }, [data?.files]);
+
+  // Heartbeat: ping while the tab is focused so the dashboard can show
+  // "spent 4 minutes here" rather than just "opened it". Skipped on the PIN
+  // screen because there's no session to attribute the ping to yet.
+  useEffect(() => {
+    if (!data || pinRequired) return;
+    const HEARTBEAT_MS = 30_000;
+    let timer: ReturnType<typeof setInterval> | null = null;
+    const start = () => {
+      if (timer != null) return;
+      timer = setInterval(() => {
+        if (document.visibilityState === 'visible') track('heartbeat');
+      }, HEARTBEAT_MS);
+    };
+    const stop = () => {
+      if (timer != null) {
+        clearInterval(timer);
+        timer = null;
+      }
+    };
+    if (document.visibilityState === 'visible') start();
+    const onVis = () => (document.visibilityState === 'visible' ? start() : stop());
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      document.removeEventListener('visibilitychange', onVis);
+      stop();
+    };
+  }, [data, pinRequired, track]);
+
+  // section_view: observe each top-level <section data-portal-section="..."> on
+  // the page and fire once per section per session. The set lives in a ref so
+  // re-renders don't re-fire events.
+  const firedSectionsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!data || pinRequired) return;
+    const els = document.querySelectorAll<HTMLElement>('[data-portal-section]');
+    if (els.length === 0) return;
+    const observer = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        const key = entry.target.getAttribute('data-portal-section');
+        if (!key || firedSectionsRef.current.has(key)) continue;
+        firedSectionsRef.current.add(key);
+        track('section_view', { section: key });
+      }
+    }, { threshold: 0.4 });
+    els.forEach((el) => observer.observe(el));
+    return () => observer.disconnect();
+  }, [data, pinRequired, track]);
 
   const handlePinComplete = (value: string) => {
     if (pinSubmitting) return;
@@ -1281,7 +1440,7 @@ function PortalPageInner() {
               switch (sectionKey) {
                 case 'show_progress':
                   return data.settings.show_progress && (data.project.status === 'completed' || (data.project.start_date && data.project.due_date)) ? (
-                    <section key={sectionKey}>
+                    <section key={sectionKey} data-portal-section={sectionKey}>
                       <SectionHeader icon={CheckCircle2} title="Project Progress" accentColor={accentColor} />
                       <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.04),0_8px_24px_rgba(0,0,0,0.03)] border border-white/60 p-5 sm:p-6">
                         <div className="flex items-center gap-5 mb-4">
@@ -1337,23 +1496,33 @@ function PortalPageInner() {
                     if (!a.pinned && b.pinned) return 1;
                     return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
                   });
-                  return <UpdatesTimeline key={sectionKey} updates={sorted} accentColor={accentColor} onPreview={setPreviewFile} />;
+                  return (
+                    <div key={sectionKey} data-portal-section={sectionKey}>
+                      <UpdatesTimeline
+                        updates={sorted}
+                        accentColor={accentColor}
+                        onPreview={setPreviewFile}
+                        onDownload={(file) => track('file_download', { file_id: file.id })}
+                      />
+                    </div>
+                  );
 
                 case 'show_hours':
                   if (!data.settings.show_hours || data.hours.entries.length === 0) return null;
                   return (
-                    <HoursSection
-                      key={sectionKey}
-                      entries={data.hours.entries}
-                      totalHours={data.hours.total_hours}
-                      memberHours={memberHours}
-                      accentColor={accentColor}
-                    />
+                    <div key={sectionKey} data-portal-section={sectionKey}>
+                      <HoursSection
+                        entries={data.hours.entries}
+                        totalHours={data.hours.total_hours}
+                        memberHours={memberHours}
+                        accentColor={accentColor}
+                      />
+                    </div>
                   );
 
                 case 'show_files':
                   return data.settings.show_files ? (
-                    <section key={sectionKey}>
+                    <section key={sectionKey} data-portal-section={sectionKey}>
                       <SectionHeader
                         icon={FolderOpen}
                         title="Shared Files"
@@ -1399,7 +1568,7 @@ function PortalPageInner() {
                                     <p className="text-xs text-zinc-400 mb-3">{formatFileSize(file.file_size)}</p>
                                     <div className="flex items-center gap-2">
                                       <button
-                                        onClick={() => setPreviewFile({ name: file.name, file_url: file.file_url, mime_type: file.mime_type })}
+                                        onClick={() => setPreviewFile({ id: file.id, name: file.name, file_url: file.file_url, mime_type: file.mime_type })}
                                         className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-zinc-50 text-zinc-600 hover:bg-zinc-100 transition-colors border border-zinc-100"
                                       >
                                         <Eye size={12} />
@@ -1407,6 +1576,7 @@ function PortalPageInner() {
                                       </button>
                                       <button
                                         onClick={async () => {
+                                          track('file_download', { file_id: file.id });
                                           try {
                                             const res = await fetch(file.file_url);
                                             const blob = await res.blob();
@@ -1470,7 +1640,7 @@ function PortalPageInner() {
                     : Math.max(0, portalInvoiced - portalPaid);
                   const fmtPortalCurrency = (v: number) => v % 1 === 0 ? v.toLocaleString('en-US') : v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
                   return data.settings.show_invoices && data.invoices.length > 0 ? (
-                    <section key={sectionKey}>
+                    <section key={sectionKey} data-portal-section={sectionKey}>
                       <SectionHeader icon={Receipt} title="Invoices" accentColor={accentColor} />
                       <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.04),0_8px_24px_rgba(0,0,0,0.03)] border border-white/60 mb-5 overflow-hidden">
                         <div className="grid grid-cols-3 [&>*]:border-l [&>*]:border-zinc-100 [&>*:nth-child(3n+1)]:border-l-0 [&>*:nth-child(n+4)]:border-t">
@@ -1572,7 +1742,9 @@ function PortalPageInner() {
 
                 case 'show_credentials':
                   return data.settings.show_credentials ? (
-                    <PortalCredentialForm key={sectionKey} token={token} pin={typeof window !== 'undefined' ? sessionStorage.getItem(`portal-pin-${token}`) || undefined : undefined} accentColor={accentColor} credentialsSubmitted={data.credentials_submitted} />
+                    <div key={sectionKey} data-portal-section={sectionKey}>
+                      <PortalCredentialForm token={token} pin={typeof window !== 'undefined' ? sessionStorage.getItem(`portal-pin-${token}`) || undefined : undefined} accentColor={accentColor} credentialsSubmitted={data.credentials_submitted} />
+                    </div>
                   ) : null;
 
                 default:
@@ -1619,6 +1791,10 @@ function PortalPageInner() {
         invoiceNumber={activeInvoice?.invoice_number ?? ''}
         clientLabel={activePdfData?.billTo.company || activePdfData?.billTo.name || data?.project.name || 'Client'}
         invoiceDate={activeInvoice?.date ?? ''}
+        onDownload={() => activeInvoice && track('invoice_pdf_download', {
+          invoice_id: activeInvoice.id,
+          invoice_number: activeInvoice.invoice_number,
+        })}
       />
     </div>
   );

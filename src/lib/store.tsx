@@ -417,6 +417,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         payment_terms: 'Upon Receipt',
         payment_instructions: '',
         default_invoice_notes: '',
+        excluded_ips: [],
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       });

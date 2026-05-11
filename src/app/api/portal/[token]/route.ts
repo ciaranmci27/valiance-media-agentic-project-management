@@ -13,6 +13,7 @@ import { siteConfig } from '@/site-config';
 import { getWorkedHours, getWorkedMs } from '@/lib/time-entry-utils';
 import { fifoPaymentStatuses, paidHourlyLineItemTotal } from '@/lib/invoice-utils';
 import { buildInvoiceData } from '@/lib/invoice-pdf/buildInvoiceData';
+import { recordPortalEvent, getOrCreateSessionId } from '@/lib/portal-analytics';
 
 /**
  * Pause duration within an entry: the part of the [start_time, end_time] span
@@ -114,6 +115,21 @@ export async function GET(
         .select('name')
         .eq('id', settings.project_id)
         .single();
+
+      // A submitted-but-wrong PIN is a security signal; "no PIN yet" is the
+      // normal first-load state and isn't worth logging.
+      if (pin) {
+        await recordPortalEvent({
+          supabase,
+          request,
+          token,
+          portalSettingsId: settings.id,
+          projectId: settings.project_id,
+          sessionId: getOrCreateSessionId(request),
+          eventType: 'pin_attempt',
+          metadata: { success: false },
+        });
+      }
 
       return NextResponse.json({
         error: pin ? 'Invalid PIN' : 'PIN required',
@@ -404,6 +420,16 @@ export async function GET(
     invoices,
     invoice_pdfs,
   };
+
+  await recordPortalEvent({
+    supabase,
+    request,
+    token,
+    portalSettingsId: settings.id,
+    projectId: settings.project_id,
+    sessionId: getOrCreateSessionId(request),
+    eventType: 'portal_view',
+  });
 
   return NextResponse.json(portalData);
 }

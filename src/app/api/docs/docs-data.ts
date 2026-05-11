@@ -126,7 +126,7 @@ export const endpoints: EndpointDoc[] = [
       { name: 'deployment_policy', type: 'playground|production', required: false, description: 'Deployment policy when autonomous is enabled (default production)' },
       { name: 'max_concurrent_tasks', type: 'number', required: false, description: 'Max tasks an agent may work on simultaneously (default 2). Requires agents enabled.' },
       { name: 'suggestions_per_cycle', type: 'number', required: false, description: 'Max suggestions an agent may propose per cycle (default 3). Requires agents enabled.' },
-      { name: 'repo_path', type: 'string|null', required: false, description: 'Absolute path to the project codebase on the VPS (e.g. /home/ciaran/Projects/my-project). Null for non-code projects.' },
+      { name: 'repo_path', type: 'string|null', required: false, description: 'Absolute path to the project codebase on the VPS (e.g. /home/user/Projects/my-project). Null for non-code projects.' },
       { name: 'member_ids', type: 'uuid[]', required: false, description: 'Team member IDs to assign to the project' },
       { name: 'contact_id', type: 'uuid|null', required: false, description: 'Existing contact ID to link as primary client. Takes priority over contact.' },
       { name: 'contact', type: 'object', required: false, description: 'Create a new contact inline: { name (required), email, phone, company }. Ignored if contact_id is set.' },

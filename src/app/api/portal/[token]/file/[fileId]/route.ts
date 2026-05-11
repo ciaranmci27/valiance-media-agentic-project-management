@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { demoPortalSettings, demoEntityFiles, demoProjects } from '@/lib/demo-data';
 import { siteConfig } from '@/site-config';
+import { recordPortalEvent, getOrCreateSessionId } from '@/lib/portal-analytics';
 
 function getServiceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -77,6 +78,17 @@ export async function GET(
   if (!file) {
     return NextResponse.json({ error: 'File not found' }, { status: 404 });
   }
+
+  await recordPortalEvent({
+    supabase,
+    request,
+    token,
+    portalSettingsId: settings.id,
+    projectId: settings.project_id,
+    sessionId: getOrCreateSessionId(request),
+    eventType: 'file_download',
+    metadata: { file_id: file.id },
+  });
 
   return NextResponse.json({ file_url: file.file_url, name: file.name, mime_type: file.mime_type });
 }

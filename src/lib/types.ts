@@ -34,6 +34,15 @@ export interface Project {
   updated_at: string;
 }
 
+/** One row in the analytics exclusion list. Admin-managed list of IPs that
+ *  should be filtered out of portal analytics by default — typically team
+ *  members' home/office IPs and known dev environments. The label is free
+ *  text so admins can tell entries apart in the settings UI. */
+export interface ExcludedIp {
+  ip: string;
+  label: string;
+}
+
 export interface BusinessSettings {
   id: string;
   business_name: string;
@@ -43,6 +52,7 @@ export interface BusinessSettings {
   payment_terms: string;
   payment_instructions: string;
   default_invoice_notes: string;
+  excluded_ips: ExcludedIp[];
   created_at: string;
   updated_at: string;
 }
@@ -494,6 +504,125 @@ export interface PortalUpdateAttachment {
   uploaded_by: string | null;
   created_at: string;
   updated_at: string;
+}
+
+// ============================================================
+// PORTAL ANALYTICS
+// ============================================================
+
+export const PORTAL_EVENT_TYPES = [
+  'portal_view',
+  'pin_attempt',
+  'section_view',
+  'file_preview',
+  'file_download',
+  'invoice_view',
+  'invoice_pdf_download',
+  'credential_submit',
+  'heartbeat',
+] as const;
+export type PortalEventType = typeof PORTAL_EVENT_TYPES[number];
+
+/** Client-reported context attached to the first event of a session. Trusted
+ *  for display only; never used for authorization. */
+export interface PortalEventClientContext {
+  timezone?: string | null;
+  language?: string | null;
+  screen_width?: number | null;
+  screen_height?: number | null;
+  viewport_width?: number | null;
+  viewport_height?: number | null;
+  connection_type?: string | null;
+  color_scheme?: 'light' | 'dark' | null;
+  reduced_motion?: boolean | null;
+}
+
+export interface PortalEvent {
+  id: string;
+  portal_settings_id: string;
+  project_id: string;
+  session_id: string;
+  event_type: PortalEventType;
+  ip_address: string | null;
+  ip_hash: string | null;
+  user_agent: string | null;
+  referrer: string | null;
+  device_type: 'mobile' | 'tablet' | 'desktop' | null;
+  browser: string | null;
+  os: string | null;
+  accept_language: string | null;
+  timezone: string | null;
+  language: string | null;
+  screen_width: number | null;
+  screen_height: number | null;
+  viewport_width: number | null;
+  viewport_height: number | null;
+  connection_type: string | null;
+  color_scheme: string | null;
+  reduced_motion: boolean | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface PortalSessionSummary {
+  session_id: string;
+  portal_settings_id: string;
+  project_id: string;
+  started_at: string;
+  last_seen_at: string;
+  duration_seconds: number;
+  event_count: number;
+  views: number;
+  files_downloaded: number;
+  files_previewed: number;
+  invoices_viewed: number;
+  invoice_pdfs_downloaded: number;
+  sections_viewed: number;
+  credentials_submitted: number;
+  pin_failures: number;
+  had_failed_pin: boolean;
+  ip_address: string | null;
+  ip_hash: string | null;
+  user_agent: string | null;
+  referrer: string | null;
+  device_type: string | null;
+  browser: string | null;
+  os: string | null;
+  accept_language: string | null;
+  timezone: string | null;
+  language: string | null;
+  screen_width: number | null;
+  screen_height: number | null;
+  viewport_width: number | null;
+  viewport_height: number | null;
+  connection_type: string | null;
+  color_scheme: string | null;
+  reduced_motion: boolean | null;
+}
+
+/** Aggregated analytics payload returned to the admin dashboard. */
+export interface PortalAnalyticsResponse {
+  range_days: number;
+  totals: {
+    total_events: number;
+    total_sessions: number;
+    unique_ip_hashes: number;
+    last_seen_at: string | null;
+    avg_duration_seconds: number;
+    total_pin_failures: number;
+  };
+  views_by_day: { date: string; views: number; sessions: number }[];
+  sessions: PortalSessionSummary[];
+  top_sections: { section: string; views: number }[];
+  top_files: { file_id: string; name: string | null; mime_type: string | null; previews: number; downloads: number }[];
+  top_invoices: { invoice_id: string; invoice_number: string | null; amount: number | null; views: number; pdf_downloads: number }[];
+  pin_failures: {
+    created_at: string;
+    ip_address: string | null;
+    ip_hash: string | null;
+    user_agent: string | null;
+    country_hint: string | null;
+  }[];
 }
 
 // ============================================================

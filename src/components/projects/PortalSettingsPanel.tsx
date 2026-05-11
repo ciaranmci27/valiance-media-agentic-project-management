@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import {
   Globe, Link2, Copy, Check, Eye, EyeOff, Lock, Pencil,
-  Trash2, Camera, Loader2, X, GripVertical,
+  Trash2, Camera, Loader2, X, GripVertical, Activity,
 } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { DEFAULT_SECTION_ORDER, PORTAL_SECTION_LABELS, type PortalSectionKey } from '@/lib/types';
@@ -15,6 +15,7 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { AvatarCropModal } from '@/components/ui/AvatarCropModal';
 import { PinInput, type PinInputRef } from '@/components/ui/PinInput';
+import { PortalAnalyticsModal } from '@/components/projects/PortalAnalyticsModal';
 import { createClient } from '@/lib/supabase/client';
 import { siteConfig } from '@/site-config';
 
@@ -40,6 +41,7 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
   const [pinConfirmed, setPinConfirmed] = useState(false);
   const [showPinConfirm, setShowPinConfirm] = useState(false);
   const [showDeletePinConfirm, setShowDeletePinConfirm] = useState(false);
+  const [analyticsOpen, setAnalyticsOpen] = useState(false);
   const pinInputRef = useRef<PinInputRef>(null);
   const logoInputRef = useRef<HTMLInputElement>(null);
 
@@ -345,6 +347,14 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
                     <Eye size={16} />
                   </button>
                 </Tooltip>
+                <Tooltip content="View activity">
+                  <button
+                    onClick={() => setAnalyticsOpen(true)}
+                    className="p-2 text-zinc-500 hover:text-brand-600 hover:bg-brand-50 rounded-lg transition-colors"
+                  >
+                    <Activity size={16} />
+                  </button>
+                </Tooltip>
               </div>
 
               {/* Accent Color + PIN */}
@@ -510,6 +520,15 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
         confirmLabel="Remove PIN"
         variant="default"
       />
+      {settings?.id && (
+        <PortalAnalyticsModal
+          isOpen={analyticsOpen}
+          onClose={() => setAnalyticsOpen(false)}
+          projectId={projectId}
+          portalSettingsId={settings.id}
+          accentColor={localAccentColor}
+        />
+      )}
     </div>
   );
 }

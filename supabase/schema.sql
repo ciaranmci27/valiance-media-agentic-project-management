@@ -454,6 +454,41 @@ create table public.portal_update_attachments (
 );
 
 -- ============================================================
+-- 22c. PORTAL EVENTS (per-event analytics log + session rollup view)
+-- ============================================================
+create table public.portal_events (
+  id                  uuid primary key default gen_random_uuid(),
+  portal_settings_id  uuid not null references public.portal_settings(id) on delete cascade,
+  project_id          uuid not null references public.projects(id) on delete cascade,
+  session_id          uuid not null,
+  event_type          text not null check (event_type in (
+    'portal_view', 'pin_attempt', 'section_view',
+    'file_preview', 'file_download',
+    'invoice_view', 'invoice_pdf_download',
+    'credential_submit', 'heartbeat'
+  )),
+  ip_address          inet,
+  ip_hash             text,
+  user_agent          text,
+  referrer            text,
+  device_type         text,
+  browser             text,
+  os                  text,
+  accept_language     text,
+  timezone            text,
+  language            text,
+  screen_width        integer,
+  screen_height       integer,
+  viewport_width      integer,
+  viewport_height     integer,
+  connection_type     text,
+  color_scheme        text,
+  reduced_motion      boolean,
+  metadata            jsonb not null default '{}',
+  created_at          timestamptz not null default now()
+);
+
+-- ============================================================
 -- 23. PROJECT CREDENTIALS (encrypted client credentials)
 -- ============================================================
 create table public.project_credentials (
@@ -539,6 +574,10 @@ create table public.business_settings (
   payment_terms text not null default 'Upon Receipt',
   payment_instructions text not null default '',
   default_invoice_notes text not null default '',
+  -- Admin-managed IP exclusion list for portal analytics: { ip, label }[].
+  -- The dashboard filters these out by default so internal/test traffic
+  -- doesn't get counted as real client engagement.
+  excluded_ips jsonb not null default '[]'::jsonb,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -633,6 +672,12 @@ create index idx_portal_updates_project_id on public.portal_updates(project_id);
 create index idx_portal_updates_created_at on public.portal_updates(created_at desc);
 
 create index idx_portal_update_attachments_update_id on public.portal_update_attachments(update_id);
+
+create index idx_portal_events_settings_created on public.portal_events(portal_settings_id, created_at desc);
+create index idx_portal_events_project_created on public.portal_events(project_id, created_at desc);
+create index idx_portal_events_session on public.portal_events(session_id);
+create index idx_portal_events_type on public.portal_events(portal_settings_id, event_type, created_at desc);
+create index idx_portal_events_ip_hash on public.portal_events(portal_settings_id, ip_hash);
 
 create index idx_entity_files_entity on public.entity_files(entity_type, entity_id);
 create index idx_entity_files_external_project on public.entity_files(entity_id) where entity_type = 'project' and visibility = 'external';
@@ -827,6 +872,7 @@ alter table public.entity_files enable row level security;
 alter table public.api_keys enable row level security;
 alter table public.portal_updates enable row level security;
 alter table public.portal_update_attachments enable row level security;
+alter table public.portal_events enable row level security;
 alter table public.project_time_entries enable row level security;
 alter table public.project_credentials enable row level security;
 alter table public.project_invoices enable row level security;
@@ -899,6 +945,9 @@ create policy "portal_updates_all" on public.portal_updates
   for all to authenticated using (true) with check (true);
 
 create policy "portal_update_attachments_all" on public.portal_update_attachments
+  for all to authenticated using (true) with check (true);
+
+create policy "portal_events_all" on public.portal_events
   for all to authenticated using (true) with check (true);
 
 create policy "project_time_entries_all" on public.project_time_entries

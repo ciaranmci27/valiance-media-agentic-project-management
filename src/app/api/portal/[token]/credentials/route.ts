@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { portalSubmitCredentialSchema } from '@/lib/schemas/credentials';
 import { encrypt, isEncryptionConfigured } from '@/lib/api/encryption';
 import type { CredentialPayload } from '@/lib/types';
+import { recordPortalEvent, getOrCreateSessionId } from '@/lib/portal-analytics';
 
 function getServiceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -29,7 +30,7 @@ export async function POST(
   // Verify portal
   const { data: settings } = await supabase
     .from('portal_settings')
-    .select('project_id, enabled, pin, show_credentials')
+    .select('id, project_id, enabled, pin, show_credentials')
     .eq('token', token)
     .maybeSingle();
 
@@ -67,7 +68,7 @@ export async function POST(
   const payload: CredentialPayload = { username, password, url, notes };
   const { encrypted_data, iv } = await encrypt(payload);
 
-  const { error: insertError } = await supabase
+  const { data: inserted, error: insertError } = await supabase
     .from('project_credentials')
     .insert({
       project_id: settings.project_id,
@@ -77,11 +78,24 @@ export async function POST(
       iv,
       submitted_by_client: true,
       submitted_by_name,
-    });
+    })
+    .select('id')
+    .single();
 
   if (insertError) {
     return NextResponse.json({ error: 'Failed to save credential' }, { status: 500 });
   }
+
+  await recordPortalEvent({
+    supabase,
+    request,
+    token,
+    portalSettingsId: settings.id,
+    projectId: settings.project_id,
+    sessionId: getOrCreateSessionId(request),
+    eventType: 'credential_submit',
+    metadata: inserted?.id ? { credential_id: inserted.id } : {},
+  });
 
   return NextResponse.json({ success: true });
 }

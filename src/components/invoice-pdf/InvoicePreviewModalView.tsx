@@ -30,6 +30,9 @@ interface InvoicePreviewModalViewProps {
   invoiceDate: string;
   /** Optional customizer panel. When provided, the Customize button is shown. */
   customizer?: CustomizerProps;
+  /** Fires when the user clicks Download PDF. Used by the portal page to
+   *  emit an analytics event; admin usage leaves this unset. */
+  onDownload?: () => void;
 }
 
 const TOGGLE_DEFINITIONS: { key: keyof InvoicePdfOptions; label: string; description: string }[] = [
@@ -57,6 +60,7 @@ export function InvoicePreviewModalView({
   clientLabel,
   invoiceDate,
   customizer,
+  onDownload,
 }: InvoicePreviewModalViewProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
   const customizeButtonRef = useRef<HTMLDivElement>(null);
@@ -168,6 +172,7 @@ export function InvoicePreviewModalView({
   const handleDownload = async () => {
     if (!pdfData) return;
     setDownloading(true);
+    onDownload?.();
     try {
       // Reuse the preview blob when available so we don't pay the
       // generation cost twice. Only fall back to a fresh render if the
