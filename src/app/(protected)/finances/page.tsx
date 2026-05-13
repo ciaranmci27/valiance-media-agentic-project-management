@@ -3,7 +3,7 @@
 import { useMemo, useState, useRef, useEffect } from 'react';
 import { useApp } from '@/lib/store';
 import { Header } from '@/components/layout/Header';
-import { getWorkedHours, getWorkedHoursByDay, isPaused, isRunning } from '@/lib/time-entry-utils';
+import { getWorkedHours, getWorkedHoursByDay, getWorkedHoursByHour, isRunning } from '@/lib/time-entry-utils';
 import { DateInput } from '@/components/ui/inputs/DateInput';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { ensureLineItems, spreadLineItem } from '@/lib/invoice-utils';
@@ -15,6 +15,7 @@ import {
   FolderKanban,
   CalendarRange,
   ChevronDown,
+  Check,
 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -46,6 +47,13 @@ function fmtDate(dateStr: string, withWeekday = false): string {
 /** YYYY-MM-DD from a Date in local time */
 function toDateKey(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/** "12 AM" / "9 AM" / "12 PM" / "11 PM" — 12-hour clock label for an hour 0..23. */
+function fmtHourLabel(hour: number): string {
+  const period = hour < 12 ? 'AM' : 'PM';
+  const h12 = hour % 12 === 0 ? 12 : hour % 12;
+  return `${h12} ${period}`;
 }
 
 /** Return ~4 nicely rounded tick values from 0 to ceiling */
@@ -350,6 +358,14 @@ export default function FinancesPage() {
   const [rangeOpen, setRangeOpen] = useState(false);
   const rangeDropdownRef = useRef<HTMLDivElement>(null);
 
+  // ── Project filter state ────────────────────────────────────
+  // Empty set means "All projects" (no filter applied). Adding ids narrows
+  // every metric on the page (chart, totals, project breakdown, invoice list)
+  // to just those projects.
+  const [selectedProjectIds, setSelectedProjectIds] = useState<Set<string>>(() => new Set());
+  const [projectFilterOpen, setProjectFilterOpen] = useState(false);
+  const projectFilterDropdownRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     if (!rangeOpen) return;
     const handler = (e: MouseEvent) => {
@@ -371,6 +387,26 @@ export default function FinancesPage() {
     };
   }, [rangeOpen]);
 
+  // Same outside-click + Escape handling for the project filter dropdown.
+  useEffect(() => {
+    if (!projectFilterOpen) return;
+    const handler = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (projectFilterDropdownRef.current && !projectFilterDropdownRef.current.contains(target)) {
+        setProjectFilterOpen(false);
+      }
+    };
+    const escHandler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setProjectFilterOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    document.addEventListener('keydown', escHandler);
+    return () => {
+      document.removeEventListener('mousedown', handler);
+      document.removeEventListener('keydown', escHandler);
+    };
+  }, [projectFilterOpen]);
+
   // Build a lookup: project_id -> hourly_rate (0 if not hourly)
   const rateByProject = useMemo(() => {
     const map = new Map<string, number>();
@@ -380,19 +416,24 @@ export default function FinancesPage() {
     return map;
   }, [projects]);
 
-  // Find earliest data point across invoices and time entries for "All time"
+  // Find earliest data point across invoices and time entries for "All time".
+  // Respects the project filter so "All time" with a project selected starts
+  // from that project's first data point rather than the workspace-wide one.
   const earliestDateKey = useMemo(() => {
+    const includes = (id: string) => selectedProjectIds.size === 0 || selectedProjectIds.has(id);
     let earliest: string | null = null;
     for (const inv of projectInvoices) {
+      if (!includes(inv.project_id)) continue;
       if (inv.date && (!earliest || inv.date < earliest)) earliest = inv.date;
     }
     for (const te of timeEntries) {
       if (!te.end_time) continue;
+      if (!includes(te.project_id)) continue;
       const k = toDateKey(new Date(te.end_time));
       if (!earliest || k < earliest) earliest = k;
     }
     return earliest;
-  }, [projectInvoices, timeEntries]);
+  }, [projectInvoices, timeEntries, selectedProjectIds]);
 
   const range = useMemo(
     // Passing nowDayKey makes the range re-resolve at local midnight, sliding
@@ -404,15 +445,30 @@ export default function FinancesPage() {
   const data = useMemo(() => {
     const { startKey, endKey } = range;
 
+    // ── Project filter ─────────────────────────────────────
+    // Empty selection = no filter (every project counts). When ids are
+    // selected, every downstream loop reads from these filtered arrays so
+    // chart bars, totals, project rows, and invoice lists all stay coherent.
+    const projectFilterActive = selectedProjectIds.size > 0;
+    const fProjects = projectFilterActive
+      ? projects.filter(p => selectedProjectIds.has(p.id))
+      : projects;
+    const fInvoices = projectFilterActive
+      ? projectInvoices.filter(i => selectedProjectIds.has(i.project_id))
+      : projectInvoices;
+    const fTimeEntries = projectFilterActive
+      ? timeEntries.filter(t => selectedProjectIds.has(t.project_id))
+      : timeEntries;
+
     // ── Range-aware invoice / payment filters ──────────────
-    const invoicesInRange = projectInvoices.filter(inv => inv.date >= startKey && inv.date <= endKey);
+    const invoicesInRange = fInvoices.filter(inv => inv.date >= startKey && inv.date <= endKey);
     const activeInvoices = invoicesInRange.filter(inv => inv.status !== 'cancelled');
     // Cash actually received during the range (by paid_date), regardless of when the invoice was issued
-    const paymentsInRange = projectInvoices.filter(
+    const paymentsInRange = fInvoices.filter(
       inv => inv.status === 'paid' && inv.paid_date && inv.paid_date >= startKey && inv.paid_date <= endKey,
     );
     // Overdue is a current-state snapshot, not a period stat — count all overdue invoices
-    const totalOverdue = projectInvoices
+    const totalOverdue = fInvoices
       .filter(inv => inv.status === 'overdue')
       .reduce((s, i) => s + i.amount, 0);
 
@@ -432,11 +488,11 @@ export default function FinancesPage() {
     let totalHours = 0;
     let hourlyEarnedInRange = 0;
 
-    for (const te of timeEntries) {
+    for (const te of fTimeEntries) {
       // Stopped entries count permanently. Running entries tick against `now`.
-      // Paused entries (unfinalized but no open segment) are hidden until the
-      // user resumes or clocks out — their hours snap back in on resume.
-      if (isPaused(te)) continue;
+      // Paused entries keep the time their closed segments already accumulated
+      // (getWorkedHoursByDay sums closed segments either way), so revenue
+      // doesn't flicker out the moment someone hits pause mid-session.
       const rate = rateByProject.get(te.project_id) ?? 0;
       for (const [dayKey, hours] of getWorkedHoursByDay(te, now)) {
         if (dayKey < startKey || dayKey > endKey) continue;
@@ -463,7 +519,7 @@ export default function FinancesPage() {
     // Collection rate: lifetime "money in hand" vs "money owed" snapshot.
     // = all-time received / (all-time received + currently outstanding)
     // Date-selector independent (matches Outstanding's all-time framing).
-    const totalReceivedAllTime = projectInvoices
+    const totalReceivedAllTime = fInvoices
       .filter(inv => inv.status === 'paid')
       .reduce((s, i) => s + i.amount, 0);
 
@@ -476,7 +532,7 @@ export default function FinancesPage() {
     // Note: this uses paid_date independently of the invoice date filter,
     // so the chart reflects actual cash flow on each day.
     const paymentsByDay = new Map<string, number>();
-    for (const inv of projectInvoices) {
+    for (const inv of fInvoices) {
       if (inv.status !== 'paid' || !inv.paid_date) continue;
       if (inv.paid_date < startKey || inv.paid_date > endKey) continue;
       paymentsByDay.set(inv.paid_date, (paymentsByDay.get(inv.paid_date) ?? 0) + inv.amount);
@@ -488,7 +544,7 @@ export default function FinancesPage() {
     // Hourly line items are ignored here (billable hours represent that revenue).
     const fixedByDayProject = new Map<string, Map<string, number>>();
     const recurringByDayProject = new Map<string, Map<string, number>>();
-    for (const inv of projectInvoices) {
+    for (const inv of fInvoices) {
       if (inv.status === 'cancelled') continue;
       for (const li of ensureLineItems(inv)) {
         if (li.item_type === 'hourly') continue;
@@ -503,8 +559,9 @@ export default function FinancesPage() {
       }
     }
 
-    // Lookup for project names/colors
-    const projectLookup = new Map(projects.map(p => [p.id, p]));
+    // Lookup for project names/colors. Filtered set keeps tooltip rows tied
+    // to currently-visible projects only.
+    const projectLookup = new Map(fProjects.map(p => [p.id, p]));
 
     // Build bar array across the range. Pick a granularity (day/week/month)
     // based on span so very wide ranges don't produce hundreds of hairline bars.
@@ -636,18 +693,18 @@ export default function FinancesPage() {
     //   hourly:     max(0, max(rate * hours, hourlyInvoiced) + fixedInvoiced - paid)
     //   non-hourly: max(0, invoiced - paid)
     const outstandingByProject = new Map<string, number>();
-    for (const p of projects) {
+    for (const p of fProjects) {
       if (p.status === 'archived') continue;
-      const pInvoicesAll = projectInvoices.filter(inv => inv.project_id === p.id && inv.status !== 'cancelled');
-      const pPaidAll = projectInvoices
+      const pInvoicesAll = fInvoices.filter(inv => inv.project_id === p.id && inv.status !== 'cancelled');
+      const pPaidAll = fInvoices
         .filter(inv => inv.project_id === p.id && inv.status === 'paid')
         .reduce((s, i) => s + i.amount, 0);
-      // Same pause rule as the chart: stopped entries always count, running
-      // entries tick against `now`, paused entries are excluded until resumed
-      // or finalized. Without this, Outstanding would jump the moment you
-      // clock out (running -> stopped) even though no work actually changed.
-      const pHoursAll = timeEntries
-        .filter(te => te.project_id === p.id && !isPaused(te))
+      // Stopped entries count permanently, running entries tick against `now`,
+      // paused entries keep their accumulated time (getWorkedHours sums closed
+      // segments). All three states contribute so Outstanding stays stable
+      // across pause/resume and clock-out transitions.
+      const pHoursAll = fTimeEntries
+        .filter(te => te.project_id === p.id)
         .reduce((s, te) => s + getWorkedHours(te, now), 0);
       const isHourly = !!p.hourly_tracking;
       const rate = p.hourly_rate ?? 0;
@@ -686,7 +743,7 @@ export default function FinancesPage() {
       }
     }
 
-    const projectBreakdown = projects
+    const projectBreakdown = fProjects
       .filter(p => p.status !== 'archived')
       .map(p => {
         const pInvoices = invoicesInRange.filter(inv => inv.project_id === p.id && inv.status !== 'cancelled');
@@ -724,8 +781,13 @@ export default function FinancesPage() {
       totalHours, collectionRate, activeInvoicesCount,
       dailyBars, maxBarTotal, granularity,
       projectBreakdown, allInvoices,
+      // Exposed for bucket drilldown (week/month → days). Each map is keyed by
+      // YYYY-MM-DD and contains the per-day data already used to build
+      // dailyBars; the drilldown just re-aggregates those days at day
+      // granularity without redoing the time-entry / invoice scans.
+      workByDay, fixedByDayProject, recurringByDayProject, paymentsByDay, projectLookup,
     };
-  }, [projects, projectInvoices, timeEntries, rateByProject, range, now]);
+  }, [projects, projectInvoices, timeEntries, rateByProject, range, now, selectedProjectIds]);
 
   // ── Chart state & constants ────────────────────────────────
   const [showHourly, setShowHourly] = useState(true);
@@ -733,7 +795,31 @@ export default function FinancesPage() {
   const [showFixed, setShowFixed] = useState(true);
   const [showPayments, setShowPayments] = useState(true);
   const [selectedBar, setSelectedBar] = useState<string | null>(null);
+  // Drilldown is a two-level stack on top of the main range view:
+  //   - drilldownBucket: a [startKey, endKey] window (set when the user clicks
+  //     a week/month bar). The chart then shows day-granularity bars inside it.
+  //   - drilldownDay: a single YYYY-MM-DD (set when the user clicks a day bar,
+  //     either from the main range at day-granularity or from a bucket view).
+  //     The chart then shows 24 hour-granularity bars for that day.
+  // Both null = main range view. Only `drilldownDay` set = drilled straight
+  // from a day-granularity main view. Both set = drilled bucket → day → hour.
+  const [drilldownBucket, setDrilldownBucket] = useState<{ startKey: string; endKey: string } | null>(null);
+  const [drilldownDay, setDrilldownDay] = useState<string | null>(null);
   const [togglesLoaded, setTogglesLoaded] = useState(false);
+
+  // Exit drilldown when the user changes the range OR the project filter —
+  // the drilled level might no longer be relevant under the new scope.
+  // Derived-from-props pattern: compare against the last filter snapshot
+  // and reset during render rather than in an effect (effect form triggers
+  // React's set-state-in-effect lint).
+  const filterKey = `${range.startKey}_${range.endKey}_${[...selectedProjectIds].sort().join(',')}`;
+  const [prevFilterKey, setPrevFilterKey] = useState(filterKey);
+  if (filterKey !== prevFilterKey) {
+    setPrevFilterKey(filterKey);
+    setDrilldownDay(null);
+    setDrilldownBucket(null);
+    setSelectedBar(null);
+  }
 
   // Restore toggle state from localStorage on mount
   useEffect(() => {
@@ -771,10 +857,217 @@ export default function FinancesPage() {
   }, [togglesLoaded, showHourly, showRecurring, showFixed, showPayments]);
   // Chart height is flex-driven (min 160px), bars use percentage heights
 
+  // ── Bucket drilldown bars (week/month → days) ──────────────
+  // When the user clicks a week or month bar, we surface the days inside that
+  // bucket as day-granularity bars. Reuses the per-day maps already built by
+  // the `data` useMemo so we don't re-scan time entries or invoices — just
+  // pluck out the days in the bucket window and shape them into DayBar[].
+  const bucketDayBars = useMemo<DayBar[] | null>(() => {
+    if (!drilldownBucket) return null;
+    const { startKey, endKey } = drilldownBucket;
+    const todayKey = toDateKey(new Date(now));
+    const numDays = daysBetween(startKey, endKey);
+    const [sy, sm, sd] = startKey.split('-').map(Number);
+    const startDate = new Date(sy, sm - 1, sd);
+
+    const bars: DayBar[] = [];
+    for (let i = 0; i < numDays; i++) {
+      const d = new Date(startDate);
+      d.setDate(d.getDate() + i);
+      const dk = toDateKey(d);
+
+      const projectMap = new Map<string, { hours: number; value: number; fixed: number; recurring: number }>();
+      const bumpProject = (pid: string, delta: { hours?: number; value?: number; fixed?: number; recurring?: number }) => {
+        const cur = projectMap.get(pid) ?? { hours: 0, value: 0, fixed: 0, recurring: 0 };
+        cur.hours += delta.hours ?? 0;
+        cur.value += delta.value ?? 0;
+        cur.fixed += delta.fixed ?? 0;
+        cur.recurring += delta.recurring ?? 0;
+        projectMap.set(pid, cur);
+      };
+
+      let hours = 0, hourly = 0, fixed = 0, recurring = 0;
+      const dayWork = data.workByDay.get(dk);
+      if (dayWork) {
+        for (const [pid, w] of dayWork) {
+          hours += w.hours;
+          hourly += w.value;
+          bumpProject(pid, { hours: w.hours, value: w.value });
+        }
+      }
+      const dayFixed = data.fixedByDayProject.get(dk);
+      if (dayFixed) {
+        for (const [pid, dollars] of dayFixed) {
+          fixed += dollars;
+          bumpProject(pid, { fixed: dollars });
+        }
+      }
+      const dayRecurring = data.recurringByDayProject.get(dk);
+      if (dayRecurring) {
+        for (const [pid, dollars] of dayRecurring) {
+          recurring += dollars;
+          bumpProject(pid, { recurring: dollars });
+        }
+      }
+      const payments = data.paymentsByDay.get(dk) ?? 0;
+
+      const projectWork: DayProjectWork[] = Array.from(projectMap.entries())
+        .map(([pid, w]) => {
+          const proj = data.projectLookup.get(pid);
+          return {
+            projectId: pid,
+            projectName: proj?.name ?? 'Unknown',
+            color: proj?.color,
+            hours: w.hours,
+            value: w.value,
+            fixed: w.fixed,
+            recurring: w.recurring,
+          };
+        })
+        .sort((a, b) => (b.value + b.fixed + b.recurring) - (a.value + a.fixed + a.recurring));
+
+      bars.push({
+        dateKey: dk,
+        endKey: dk,
+        label: bucketAxisLabel(dk, 'day', todayKey),
+        tooltipDate: bucketTooltipLabel(dk, dk, 'day'),
+        hourlyValue: hourly,
+        hoursWorked: hours,
+        fixedRevenue: fixed,
+        recurringRevenue: recurring,
+        paymentReceived: payments,
+        projectWork,
+      });
+    }
+    return bars;
+  }, [drilldownBucket, data, now]);
+
+  // ── Hourly drilldown bars ──────────────────────────────────
+  // When the user clicks a daily candle we surface a 24-bar view of that day,
+  // one bar per local hour. Time worked splits at hour boundaries (a session
+  // 9:45–10:15 contributes 15m to hour 9 and 15m to hour 10). Fixed and
+  // recurring revenue have no inherent time-of-day, so the day's amortized
+  // total for each is spread evenly across the 24 hours. Payments received on
+  // the day get the same even spread.
+  const hourlyBars = useMemo<DayBar[] | null>(() => {
+    if (!drilldownDay) return null;
+
+    interface HourBucket {
+      hours: number;
+      hourly: number;
+      fixed: number;
+      recurring: number;
+      payments: number;
+      projects: Map<string, { hours: number; value: number; fixed: number; recurring: number }>;
+    }
+    const buckets: HourBucket[] = Array.from({ length: 24 }, () => ({
+      hours: 0, hourly: 0, fixed: 0, recurring: 0, payments: 0, projects: new Map(),
+    }));
+
+    const bumpProject = (b: HourBucket, pid: string, delta: { hours?: number; value?: number; fixed?: number; recurring?: number }) => {
+      const cur = b.projects.get(pid) ?? { hours: 0, value: 0, fixed: 0, recurring: 0 };
+      cur.hours += delta.hours ?? 0;
+      cur.value += delta.value ?? 0;
+      cur.fixed += delta.fixed ?? 0;
+      cur.recurring += delta.recurring ?? 0;
+      b.projects.set(pid, cur);
+    };
+
+    // Hourly work, split per local hour-of-day. Respects the page-level
+    // project filter so the drilldown matches the parent chart.
+    const includeProject = (id: string) =>
+      selectedProjectIds.size === 0 || selectedProjectIds.has(id);
+    for (const te of timeEntries) {
+      if (!includeProject(te.project_id)) continue;
+      const rate = rateByProject.get(te.project_id) ?? 0;
+      const perHour = getWorkedHoursByHour(te, drilldownDay, now);
+      for (let h = 0; h < 24; h++) {
+        const hours = perHour[h];
+        if (hours <= 0) continue;
+        const value = hours * rate;
+        buckets[h].hours += hours;
+        buckets[h].hourly += value;
+        bumpProject(buckets[h], te.project_id, { hours, value });
+      }
+    }
+
+    // Fixed and recurring line items: take the day's amortized slice (same
+    // spreadLineItem the daily chart uses), then divide by 24 for an even
+    // distribution across the day.
+    for (const inv of projectInvoices) {
+      if (inv.status === 'cancelled') continue;
+      if (!includeProject(inv.project_id)) continue;
+      for (const li of ensureLineItems(inv)) {
+        if (li.item_type === 'hourly') continue;
+        const dollarsThatDay = spreadLineItem(li, inv.date).get(drilldownDay) ?? 0;
+        if (dollarsThatDay <= 0) continue;
+        const perHourDollars = dollarsThatDay / 24;
+        const isRecurring = li.item_type === 'recurring';
+        for (let h = 0; h < 24; h++) {
+          if (isRecurring) buckets[h].recurring += perHourDollars;
+          else buckets[h].fixed += perHourDollars;
+          bumpProject(buckets[h], inv.project_id, isRecurring ? { recurring: perHourDollars } : { fixed: perHourDollars });
+        }
+      }
+    }
+
+    // Payments received on this calendar day, spread evenly across the 24
+    // hours. paid_date carries no time-of-day so per-hour attribution is a
+    // visual convenience, not a claim about when the money arrived.
+    let paymentsToday = 0;
+    for (const inv of projectInvoices) {
+      if (!includeProject(inv.project_id)) continue;
+      if (inv.status === 'paid' && inv.paid_date === drilldownDay) paymentsToday += inv.amount;
+    }
+    if (paymentsToday > 0) {
+      const perHourPayment = paymentsToday / 24;
+      for (let h = 0; h < 24; h++) buckets[h].payments = perHourPayment;
+    }
+
+    const projectLookup = new Map(projects.map(p => [p.id, p]));
+    return buckets.map((b, h) => {
+      const projectWork: DayProjectWork[] = Array.from(b.projects.entries())
+        .map(([pid, w]) => {
+          const proj = projectLookup.get(pid);
+          return {
+            projectId: pid,
+            projectName: proj?.name ?? 'Unknown',
+            color: proj?.color,
+            hours: w.hours,
+            value: w.value,
+            fixed: w.fixed,
+            recurring: w.recurring,
+          };
+        })
+        .sort((a, b) => (b.value + b.fixed + b.recurring) - (a.value + a.fixed + a.recurring));
+      // dateKey must stay unique per bar (used as React key); embed the hour.
+      const key = `${drilldownDay}T${String(h).padStart(2, '0')}`;
+      return {
+        dateKey: key,
+        endKey: key,
+        label: fmtHourLabel(h),
+        tooltipDate: `${fmtHourLabel(h)} – ${fmtHourLabel((h + 1) % 24)}`,
+        hourlyValue: b.hourly,
+        hoursWorked: b.hours,
+        fixedRevenue: b.fixed,
+        recurringRevenue: b.recurring,
+        paymentReceived: b.payments,
+        projectWork,
+      };
+    });
+  }, [drilldownDay, timeEntries, rateByProject, projectInvoices, projects, now, selectedProjectIds]);
+
+  // What the chart actually renders, in priority order:
+  //   hour drilldown → bucket drilldown → main range.
+  const chartBars = hourlyBars ?? bucketDayBars ?? data.dailyBars;
+  const isHourView = hourlyBars !== null;
+  const isBucketView = !isHourView && bucketDayBars !== null;
+  const isDrilledDown = isHourView || isBucketView;
+
   // Recalculate max based on visible series
   const visibleMax = useMemo(() => {
     return Math.max(
-      ...data.dailyBars.map(d => {
+      ...chartBars.map(d => {
         let total = 0;
         if (showHourly) total += d.hourlyValue;
         if (showRecurring) total += d.recurringRevenue;
@@ -784,23 +1077,23 @@ export default function FinancesPage() {
       }),
       1,
     );
-  }, [data.dailyBars, showHourly, showRecurring, showFixed, showPayments]);
+  }, [chartBars, showHourly, showRecurring, showFixed, showPayments]);
 
   const axisTicks = useMemo(() => niceAxisTicks(visibleMax), [visibleMax]);
   const axisMax = axisTicks[axisTicks.length - 1] || 1;
 
   const hasAnyChartData = useMemo(
-    () => data.dailyBars.some(d => d.hourlyValue > 0 || d.fixedRevenue > 0 || d.recurringRevenue > 0 || d.paymentReceived > 0),
-    [data.dailyBars],
+    () => chartBars.some(d => d.hourlyValue > 0 || d.fixedRevenue > 0 || d.recurringRevenue > 0 || d.paymentReceived > 0),
+    [chartBars],
   );
 
   // Track which categories have data so legend only shows relevant items
   const categoryHasData = useMemo(() => ({
-    hourly: data.dailyBars.some(d => d.hourlyValue > 0),
-    recurring: data.dailyBars.some(d => d.recurringRevenue > 0),
-    fixed: data.dailyBars.some(d => d.fixedRevenue > 0),
-    payments: data.dailyBars.some(d => d.paymentReceived > 0),
-  }), [data.dailyBars]);
+    hourly: chartBars.some(d => d.hourlyValue > 0),
+    recurring: chartBars.some(d => d.recurringRevenue > 0),
+    fixed: chartBars.some(d => d.fixedRevenue > 0),
+    payments: chartBars.some(d => d.paymentReceived > 0),
+  }), [chartBars]);
 
   return (
     <div className="animate-fadeIn min-h-screen bg-zinc-50">
@@ -899,6 +1192,111 @@ export default function FinancesPage() {
                 </div>
               )}
             </div>
+
+            {/* Project filter dropdown — same compact pattern as the date
+                range dropdown. Empty selection = all projects (no filter). */}
+            {(() => {
+              // Show every non-archived project, sorted alphabetically for
+              // predictable scanning. Archived projects can still match the
+              // ids in the selection (if archived after selection) but aren't
+              // listed here.
+              const filterableProjects = projects
+                .filter(p => p.status !== 'archived')
+                .slice()
+                .sort((a, b) => a.name.localeCompare(b.name));
+              const selectedCount = selectedProjectIds.size;
+              const allSelectedOrNone = selectedCount === 0;
+              const buttonLabel = allSelectedOrNone
+                ? 'All projects'
+                : selectedCount === 1
+                  ? (projects.find(p => selectedProjectIds.has(p.id))?.name ?? '1 project')
+                  : `${selectedCount} projects`;
+
+              return (
+                <div ref={projectFilterDropdownRef} className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setProjectFilterOpen(o => !o)}
+                    aria-expanded={projectFilterOpen}
+                    aria-haspopup="menu"
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-zinc-50 hover:bg-zinc-100 border border-zinc-200 transition-colors"
+                  >
+                    <FolderKanban size={13} className="text-zinc-500" />
+                    <span className="text-xs font-medium text-zinc-700 truncate max-w-[140px]">{buttonLabel}</span>
+                    {!allSelectedOrNone && (
+                      <span className="inline-flex items-center justify-center min-w-[16px] h-[16px] px-1 text-[9px] font-semibold text-white bg-brand-600 rounded-full">
+                        {selectedCount}
+                      </span>
+                    )}
+                    <ChevronDown size={13} className={`text-zinc-400 transition-transform duration-150 ${projectFilterOpen ? 'rotate-180' : ''}`} />
+                  </button>
+
+                  {projectFilterOpen && (
+                    <div
+                      role="menu"
+                      className="absolute right-0 top-full mt-1.5 z-30 w-64 bg-white border border-zinc-200 rounded-lg shadow-lg overflow-hidden"
+                    >
+                      <div className="px-2.5 py-2 border-b border-zinc-100 flex items-center justify-between">
+                        <span className="text-[10px] uppercase tracking-wider font-semibold text-zinc-500">
+                          Projects
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedProjectIds(new Set())}
+                          disabled={allSelectedOrNone}
+                          className="text-[11px] font-medium text-zinc-500 hover:text-brand-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                        >
+                          Clear
+                        </button>
+                      </div>
+                      <div className="max-h-[320px] overflow-y-auto py-1">
+                        {filterableProjects.length === 0 ? (
+                          <p className="px-2.5 py-2 text-xs text-zinc-400">No active projects</p>
+                        ) : (
+                          filterableProjects.map((p) => {
+                            const checked = selectedProjectIds.has(p.id);
+                            return (
+                              <button
+                                key={p.id}
+                                type="button"
+                                role="menuitemcheckbox"
+                                aria-checked={checked}
+                                onClick={() => {
+                                  setSelectedProjectIds(prev => {
+                                    const next = new Set(prev);
+                                    if (next.has(p.id)) next.delete(p.id);
+                                    else next.add(p.id);
+                                    return next;
+                                  });
+                                }}
+                                className="w-full text-left text-sm px-2.5 py-1.5 hover:bg-zinc-50 transition-colors flex items-center gap-2"
+                              >
+                                <span
+                                  className={`flex items-center justify-center w-4 h-4 rounded border transition-colors flex-shrink-0 ${
+                                    checked
+                                      ? 'bg-brand-600 border-brand-600 text-white'
+                                      : 'border-zinc-300 bg-white'
+                                  }`}
+                                >
+                                  {checked && <Check size={11} strokeWidth={3} />}
+                                </span>
+                                {p.color && (
+                                  <span
+                                    className="w-2 h-2 rounded-full flex-shrink-0"
+                                    style={{ backgroundColor: p.color }}
+                                  />
+                                )}
+                                <span className="text-zinc-700 truncate flex-1 min-w-0">{p.name}</span>
+                              </button>
+                            );
+                          })
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
             </div>
           </div>
 
@@ -961,14 +1359,39 @@ export default function FinancesPage() {
           {/* ── Daily Earnings Chart (2/3) ──────────────────── */}
           <div className="lg:col-span-2 bg-white rounded-xl border border-zinc-200 overflow-hidden flex flex-col min-h-[500px]">
             <div className="px-5 py-4 flex items-center justify-between border-b border-zinc-100 flex-shrink-0">
-              <div className="flex items-center gap-2">
-                <TrendingUp size={18} className="text-zinc-500" />
-                <h2 className="font-semibold text-zinc-900">
-                  {data.granularity === 'month' ? 'Monthly Earnings' : data.granularity === 'week' ? 'Weekly Earnings' : 'Daily Earnings'}
+              <div className="flex items-center gap-2 min-w-0">
+                <TrendingUp size={18} className="text-zinc-500 flex-shrink-0" />
+                <h2 className="font-semibold text-zinc-900 truncate">
+                  {isHourView
+                    ? `Hourly Earnings · ${fmtDate(drilldownDay!, true)}`
+                    : isBucketView
+                      ? `Daily Earnings · ${fmtRangeDisplay(drilldownBucket!.startKey, drilldownBucket!.endKey)}`
+                      : data.granularity === 'month' ? 'Monthly Earnings' : data.granularity === 'week' ? 'Weekly Earnings' : 'Daily Earnings'}
                 </h2>
                 <LiveTickIndicator count={runningCount} />
+                {isDrilledDown && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      // Pop one level: hour → bucket (or main), bucket → main.
+                      if (isHourView) setDrilldownDay(null);
+                      else setDrilldownBucket(null);
+                    }}
+                    className="inline-flex items-center gap-1 text-xs font-medium text-zinc-500 hover:text-zinc-700 transition-colors px-1.5 py-0.5 rounded hover:bg-zinc-50 flex-shrink-0"
+                    aria-label="Back one level"
+                  >
+                    <ChevronDown size={14} className="rotate-90" />
+                    Back
+                  </button>
+                )}
               </div>
-              <span className="text-xs text-zinc-400 font-medium">{PRESET_OPTIONS.find(o => o.value === preset)?.label ?? 'Custom range'}</span>
+              <span className="text-xs text-zinc-400 font-medium hidden sm:inline">
+                {isHourView
+                  ? 'Click bar to pin hour'
+                  : isBucketView
+                    ? 'Click a day to drill in'
+                    : (PRESET_OPTIONS.find(o => o.value === preset)?.label ?? 'Custom range')}
+              </span>
             </div>
 
             <div className="px-5 pt-5 pb-4 flex-1 flex flex-col">
@@ -1023,7 +1446,7 @@ export default function FinancesPage() {
 
                       {/* Bars */}
                       <div className="flex items-end gap-[3px] relative z-[1] h-full">
-                        {data.dailyBars.map((day, barIdx) => {
+                        {chartBars.map((day, barIdx) => {
                           const visibleHourly = showHourly ? day.hourlyValue : 0;
                           const visibleRecurring = showRecurring ? day.recurringRevenue : 0;
                           const visibleFixed = showFixed ? day.fixedRevenue : 0;
@@ -1037,6 +1460,11 @@ export default function FinancesPage() {
                           const paymentPct = axisMax > 0 ? (visiblePayment / axisMax) * 100 : 0;
 
                           const isSelected = selectedBar === day.dateKey;
+                          // Drilldown ladder: week/month bar → bucket of days,
+                          // day bar → 24 hours, hour bar → no further drill.
+                          // Hour view bars only toggle their sticky tooltip.
+                          const canDrillToBucket = !isDrilledDown && data.granularity !== 'day';
+                          const canDrillToHour = !isHourView && (isBucketView || data.granularity === 'day');
 
                           // Figure out which segment is at the top so it gets rounded corners.
                           // Order top→bottom: payment, hourly, fixed, recurring.
@@ -1050,6 +1478,20 @@ export default function FinancesPage() {
                               className="flex-1 flex flex-col justify-end group relative h-full cursor-pointer"
                               onClick={(e) => {
                                 e.stopPropagation();
+                                if (!hasData) {
+                                  setSelectedBar(isSelected ? null : day.dateKey);
+                                  return;
+                                }
+                                if (canDrillToBucket) {
+                                  setDrilldownBucket({ startKey: day.dateKey, endKey: day.endKey });
+                                  setSelectedBar(null);
+                                  return;
+                                }
+                                if (canDrillToHour) {
+                                  setDrilldownDay(day.dateKey);
+                                  setSelectedBar(null);
+                                  return;
+                                }
                                 setSelectedBar(isSelected ? null : day.dateKey);
                               }}
                             >
@@ -1086,7 +1528,7 @@ export default function FinancesPage() {
 
                               {/* Tooltip - anchored just above the bar, edge-aware */}
                               {(visibleHourly > 0 || visibleFixed > 0 || visibleRecurring > 0 || visiblePayment > 0) && (() => {
-                                const barCount = data.dailyBars.length;
+                                const barCount = chartBars.length;
                                 // Use proportional thresholds so the tooltip flips to edge-anchored
                                 // well before it would overflow the card. Tooltips can be wide
                                 // (300+px), so center-align only for bars in the middle third.
@@ -1103,7 +1545,6 @@ export default function FinancesPage() {
                                 const visRecurringVal = showRecurring ? day.recurringRevenue : 0;
                                 const visPaymentVal = showPayments ? day.paymentReceived : 0;
                                 const totalEarnedDay = visHourlyVal + visFixedVal + visRecurringVal;
-                                const categoryCount = (visHourlyVal > 0 ? 1 : 0) + (visFixedVal > 0 ? 1 : 0) + (visRecurringVal > 0 ? 1 : 0);
                                 const totalPct = hourlyPct + recurringPct + fixedPct + paymentPct;
                                 // If the bar is too tall for the tooltip to fit above it,
                                 // flip and anchor the tooltip to the top of the chart instead.
@@ -1114,45 +1555,131 @@ export default function FinancesPage() {
                                 const spacingCls = flipBelow ? 'mt-1' : 'mb-1';
                                 return (
                                 <div className={`absolute ${spacingCls} z-10 pointer-events-none ${isSelected ? 'block' : 'hidden group-hover:block'} ${alignCls}`} style={posStyle}>
-                                  <div className="bg-zinc-900 text-white text-[10px] leading-relaxed px-2.5 py-1.5 rounded-md whitespace-nowrap shadow-lg">
-                                    <p className="font-semibold text-zinc-200 mb-1">{day.tooltipDate}</p>
-                                    {day.projectWork.length > 0 && (
-                                      <div className="space-y-0.5">
-                                        {day.projectWork.map((pw) => {
-                                          const pwTotal = (showHourly ? pw.value : 0) + (showFixed ? pw.fixed : 0) + (showRecurring ? pw.recurring : 0);
-                                          if (pwTotal === 0 && !(showHourly && pw.hours > 0)) return null;
-                                          return (
-                                            <div key={pw.projectId} className="flex items-center gap-1.5">
-                                              {pw.color && (
-                                                <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: pw.color }} />
-                                              )}
-                                              <span className="text-zinc-400">{pw.projectName}</span>
-                                              {showHourly && pw.hours > 0 && <span className="text-zinc-200">{pw.hours.toFixed(1)}h</span>}
-                                              <span className="font-semibold">${fmt(pwTotal)}</span>
-                                            </div>
-                                          );
-                                        })}
-                                      </div>
-                                    )}
-                                    {totalEarnedDay > 0 && (day.projectWork.length > 1 || categoryCount > 1) && (
-                                      <div className="mt-1 pt-1 border-t border-white/10 text-zinc-300 space-y-0.5">
-                                        {visHourlyVal > 0 && (
-                                          <div>Hourly: <span className="font-semibold">${fmt(visHourlyVal)}</span> <span className="text-zinc-400">({day.hoursWorked.toFixed(1)}h)</span></div>
-                                        )}
-                                        {visRecurringVal > 0 && (
-                                          <div>Recurring: <span className="font-semibold">${fmt(visRecurringVal)}</span></div>
-                                        )}
-                                        {visFixedVal > 0 && (
-                                          <div>Fixed: <span className="font-semibold">${fmt(visFixedVal)}</span></div>
-                                        )}
-                                        <div className="mt-1 pt-1 border-t border-white/10 flex items-center justify-between gap-3 text-zinc-100">
-                                          <span className="uppercase tracking-wider text-[9px] text-zinc-400">Total earned</span>
-                                          <span className="font-semibold">${fmt(totalEarnedDay)}</span>
+                                  {/* max-w caps width so long project names truncate inside the
+                                      row instead of widening the tooltip. The body uses a
+                                      flex-col layout with a flex-shrink-0 date header, a
+                                      scrollable middle (when row count overflows max-h), and
+                                      a flex-shrink-0 grand-total footer — so the user's
+                                      anchors (which day, what's the day's total) stay visible
+                                      no matter how many projects are on the bar. */}
+                                  <div
+                                    className="bg-zinc-900 text-white text-[10px] leading-relaxed px-2.5 py-1.5 rounded-md whitespace-nowrap shadow-lg max-w-[300px] max-h-[60vh] flex flex-col pointer-events-auto"
+                                    /* Stop clicks on the tooltip body from bubbling up to the
+                                       bar's onClick — otherwise tapping inside the tooltip
+                                       (e.g. trying to scroll on mobile) would drill the bar
+                                       or toggle its sticky state and hide the tooltip. */
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    <p className="font-semibold text-zinc-200 mb-1 flex-shrink-0 truncate">{day.tooltipDate}</p>
+                                    {day.projectWork.length > 0 && (() => {
+                                      // Group by earning category (Hourly / Fixed / Recurring)
+                                      // so each $ amount on a row maps to exactly one category —
+                                      // no more "{hours}h $bundled-total" ambiguity. Single-
+                                      // category days skip the category header to keep things
+                                      // light; multi-category days surface the headers so the
+                                      // visual hierarchy matches the math.
+                                      type CategorySection = {
+                                        key: 'hourly' | 'fixed' | 'recurring';
+                                        label: string;
+                                        totalAmount: number;
+                                        rows: { projectId: string; projectName: string; color?: string; hours?: number; amount: number }[];
+                                      };
+                                      const sections: CategorySection[] = [];
+
+                                      if (showHourly && visHourlyVal > 0) {
+                                        const rows = day.projectWork
+                                          .filter(pw => pw.value > 0 || pw.hours > 0)
+                                          .map(pw => ({
+                                            projectId: pw.projectId,
+                                            projectName: pw.projectName,
+                                            color: pw.color,
+                                            hours: pw.hours,
+                                            amount: pw.value,
+                                          }));
+                                        if (rows.length > 0) {
+                                          sections.push({ key: 'hourly', label: 'Hourly', totalAmount: visHourlyVal, rows });
+                                        }
+                                      }
+                                      if (showFixed && visFixedVal > 0) {
+                                        const rows = day.projectWork
+                                          .filter(pw => pw.fixed > 0)
+                                          .map(pw => ({ projectId: pw.projectId, projectName: pw.projectName, color: pw.color, amount: pw.fixed }));
+                                        if (rows.length > 0) {
+                                          sections.push({ key: 'fixed', label: 'Fixed', totalAmount: visFixedVal, rows });
+                                        }
+                                      }
+                                      if (showRecurring && visRecurringVal > 0) {
+                                        const rows = day.projectWork
+                                          .filter(pw => pw.recurring > 0)
+                                          .map(pw => ({ projectId: pw.projectId, projectName: pw.projectName, color: pw.color, amount: pw.recurring }));
+                                        if (rows.length > 0) {
+                                          sections.push({ key: 'recurring', label: 'Recurring', totalAmount: visRecurringVal, rows });
+                                        }
+                                      }
+
+                                      const isMultiCategory = sections.length > 1;
+                                      const totalRows = sections.reduce((n, s) => n + s.rows.length, 0);
+                                      // Only show totals when they actually summarize multiple
+                                      // rows. A 1-row section's total just restates the row, and
+                                      // a 1-row tooltip needs no grand total.
+                                      const showGrandTotal = totalRows > 1;
+
+                                      const renderProjectRow = (
+                                        sectionKey: string,
+                                        row: CategorySection['rows'][number],
+                                        indent: boolean,
+                                      ) => (
+                                        <div key={`${sectionKey}-${row.projectId}`} className={`flex items-center gap-1.5 ${indent ? 'pl-2' : ''}`}>
+                                          {row.color && (
+                                            <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: row.color }} />
+                                          )}
+                                          {/* flex-1 + min-w-0 + truncate lets a long project name
+                                              ellipsize inside the tooltip's max-width. The hours
+                                              and amount stay flex-shrink-0 so they're never the
+                                              ones to lose width. */}
+                                          <span className="text-zinc-400 flex-1 min-w-0 truncate" title={row.projectName}>{row.projectName}</span>
+                                          {row.hours !== undefined && row.hours > 0 && (
+                                            <span className="text-zinc-200 flex-shrink-0">{row.hours.toFixed(1)}h</span>
+                                          )}
+                                          <span className="font-semibold flex-shrink-0">${fmt(row.amount)}</span>
                                         </div>
-                                      </div>
-                                    )}
+                                      );
+
+                                      return (
+                                        <div className="flex flex-col min-h-0 flex-1">
+                                          {/* Scrollable middle — only this region scrolls when
+                                              the project list overflows the tooltip's max-h. */}
+                                          <div className="overflow-y-auto flex-1 min-h-0">
+                                            {sections.map((section, idx) => (
+                                              <div key={section.key} className={idx > 0 ? 'mt-1.5' : ''}>
+                                                {isMultiCategory && (
+                                                  <div className="flex items-baseline gap-1">
+                                                    <span className="uppercase tracking-wider text-[9px] text-zinc-400 font-semibold">{section.label}</span>
+                                                    {section.rows.length > 1 && (
+                                                      <span className="text-[9px] text-zinc-300">(${fmt(section.totalAmount)})</span>
+                                                    )}
+                                                  </div>
+                                                )}
+                                                <div className={`space-y-0.5 ${isMultiCategory ? 'mt-0.5' : ''}`}>
+                                                  {section.rows.map(row => renderProjectRow(section.key, row, isMultiCategory))}
+                                                </div>
+                                              </div>
+                                            ))}
+                                          </div>
+
+                                          {/* Pinned footer — flex-shrink-0 keeps it visible
+                                              even when the body above is scrolling. */}
+                                          {showGrandTotal && (
+                                            <div className="mt-1.5 pt-1.5 border-t border-white/10 flex items-center justify-between gap-3 text-zinc-100 flex-shrink-0">
+                                              <span className="uppercase tracking-wider text-[9px] text-zinc-400">Total earned</span>
+                                              <span className="font-semibold">${fmt(totalEarnedDay)}</span>
+                                            </div>
+                                          )}
+                                        </div>
+                                      );
+                                    })()}
                                     {visPaymentVal > 0 && (
-                                      <p className="text-emerald-300 mt-0.5">Payments: <span className="font-semibold">${fmt(visPaymentVal)}</span></p>
+                                      <p className="text-emerald-300 mt-0.5 flex-shrink-0">Payments: <span className="font-semibold">${fmt(visPaymentVal)}</span></p>
                                     )}
                                   </div>
                                 </div>
@@ -1167,11 +1694,15 @@ export default function FinancesPage() {
 
                   {/* Day labels - offset to align with bars (account for Y-axis width) */}
                   <div className="flex gap-[3px] mt-2" style={{ marginLeft: 44 }}>
-                    {data.dailyBars.map((day, i) => {
-                      const total = data.dailyBars.length;
-                      // Aim for ~6 labels regardless of range length
-                      const labelStep = Math.max(1, Math.floor(total / 6));
-                      const showLabel = i === 0 || i === total - 1 || i % labelStep === 0;
+                    {chartBars.map((day, i) => {
+                      const total = chartBars.length;
+                      // Hourly view has a known cadence: every 6 hours (12 AM,
+                      // 6 AM, 12 PM, 6 PM). Bucket and range views aim for ~6
+                      // labels regardless of bar count.
+                      const labelStep = isHourView ? 6 : Math.max(1, Math.floor(total / 6));
+                      const showLabel = isHourView
+                        ? i % labelStep === 0
+                        : i === 0 || i === total - 1 || i % labelStep === 0;
                       return (
                         <div key={`lbl-${day.dateKey}`} className="flex-1 text-center">
                           <span className="text-[9px] lg:text-[10px] text-zinc-400 font-medium truncate block">

@@ -57,7 +57,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
-        setUser(session?.user ?? null);
+        const nextUser = session?.user ?? null;
+        // Dedupe by id+updated_at so a no-op TOKEN_REFRESHED (Supabase
+        // auto-refreshes the JWT every tab focus) doesn't propagate a new
+        // user reference. Without this, every focus cascades through
+        // AppProvider's loadData effect and replaces every state array,
+        // causing visible re-renders downstream (e.g. the invoice PDF
+        // preview regenerating its blob on every tab switch).
+        setUser((prev) => {
+          if (
+            prev?.id === nextUser?.id &&
+            prev?.updated_at === nextUser?.updated_at
+          ) {
+            return prev;
+          }
+          return nextUser;
+        });
         if (!session?.user) {
           setTeamMemberId(null);
         }

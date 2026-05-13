@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Loader2 } from 'lucide-react';
+import { Loader2, ZoomIn, ZoomOut } from 'lucide-react';
 import { Document, Page, pdfjs } from 'react-pdf';
 
 // Self-hosted worker. The matching `pdf.worker.min.mjs` is copied into
@@ -9,6 +9,18 @@ import { Document, Page, pdfjs } from 'react-pdf';
 // tracks the bundled pdfjs-dist. Setting workerSrc once at module load is
 // the documented react-pdf pattern.
 pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
+
+// Zoom is applied as a scale multiplier on top of the fit-to-container width.
+// 25% increments hit familiar "100% / 125% / 150%" steps; 2.5x ceiling is enough
+// to read fine print without rendering a single page at 4000+ pixels.
+const ZOOM_STEP = 0.25;
+const ZOOM_MIN = 0.5;
+const ZOOM_MAX = 2.5;
+
+function clampZoom(z: number): number {
+  // toFixed avoids accumulating float drift (e.g. 1 + 0.25 + 0.25 = 1.4999...).
+  return Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, Math.round(z * 100) / 100));
+}
 
 interface PdfPagesPreviewProps {
   /** Blob URL or data URL pointing at a PDF. Null while the PDF is being generated. */
@@ -24,29 +36,34 @@ interface PdfPagesPreviewProps {
  */
 export function PdfPagesPreview({ file }: PdfPagesPreviewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  // Conservative initial width that fits any reasonable mobile viewport.
-  // Real value is set by the ResizeObserver as soon as the container mounts.
-  const [pageWidth, setPageWidth] = useState<number>(320);
-  // Track numPages alongside the file it belongs to. When `file` changes
-  // mid-render, `numPages` is treated as 0 until onLoadSuccess fires for the
-  // new file, avoiding both stale page renders and a setState-in-effect.
+  // Fallback for the brief window before the observer fires.
+  const [pageWidth, setPageWidth] = useState<number>(800);
+  const [zoom, setZoom] = useState(1);
+  // Pair numPages with the file it belongs to so a `file` swap doesn't render
+  // stale pages before onLoadSuccess fires for the new doc.
   const [loaded, setLoaded] = useState<{ file: string; numPages: number } | null>(null);
   const numPages = loaded && loaded.file === file ? loaded.numPages : 0;
 
   useEffect(() => {
     const node = containerRef.current;
     if (!node) return;
-    const update = () => {
-      // Subtract the container's horizontal padding (px-4 = 32px) and cap at
-      // 800px so pages don't get gigantic on ultrawide screens. Letter at 800w
-      // gives ~1035px tall, still crisp at typical zoom levels.
-      const w = Math.min(800, node.clientWidth - 32);
+    const apply = (w: number) => {
       if (w > 0) setPageWidth(w);
     };
-    update();
-    const observer = new ResizeObserver(update);
+    // Three measurements cover every layout race we've hit: synchronous for
+    // the common case, rAF for when synchronous read happened before final
+    // layout (modal animation / lazy mount), ResizeObserver for everything
+    // after (window resize, mobile chrome toggling).
+    apply(node.clientWidth - 32);
+    const raf = requestAnimationFrame(() => apply(node.clientWidth - 32));
+    const observer = new ResizeObserver((entries) => {
+      apply(Math.floor(entries[0]?.contentRect.width ?? 0));
+    });
     observer.observe(node);
-    return () => observer.disconnect();
+    return () => {
+      cancelAnimationFrame(raf);
+      observer.disconnect();
+    };
   }, []);
 
   if (!file) {
@@ -59,35 +76,84 @@ export function PdfPagesPreview({ file }: PdfPagesPreviewProps) {
   }
 
   return (
-    <div ref={containerRef} className="h-full overflow-y-auto bg-zinc-100 px-4 py-4">
-      <Document
-        file={file}
-        onLoadSuccess={({ numPages: n }) => setLoaded({ file, numPages: n })}
-        loading={
-          <div className="w-full flex flex-col items-center justify-center text-zinc-400 py-8">
-            <Loader2 size={28} className="animate-spin mb-3" />
-            <p className="text-sm">Loading preview…</p>
+    <div className="relative w-full h-full">
+      {/* overflow-auto handles both axes: vertical for page stacking, horizontal
+          for zoomed-in pages that exceed the container width. */}
+      <div ref={containerRef} className="w-full h-full overflow-auto bg-zinc-100 px-4 py-4">
+        <Document
+          file={file}
+          onLoadSuccess={({ numPages: n }) => setLoaded({ file, numPages: n })}
+          loading={
+            <div className="w-full flex flex-col items-center justify-center text-zinc-400 py-8">
+              <Loader2 size={28} className="animate-spin mb-3" />
+              <p className="text-sm">Loading preview…</p>
+            </div>
+          }
+          error={
+            <div className="w-full text-center text-zinc-500 py-8 text-sm">
+              Couldn&apos;t render preview. Try downloading the PDF instead.
+            </div>
+          }
+        >
+          {/* inline-flex + min-w-full lets pages stay centered when they fit
+              and pushes container scroll when they don't (zoomed in). Plain
+              `flex items-center` would left-align overflowing children. */}
+          <div className="inline-flex flex-col items-center min-w-full">
+            {Array.from({ length: numPages }, (_, i) => (
+              <div key={i} className="mb-4 last:mb-0 bg-white shadow-md">
+                <Page
+                  pageNumber={i + 1}
+                  width={pageWidth}
+                  scale={zoom}
+                  renderTextLayer={false}
+                  renderAnnotationLayer={false}
+                  loading={null}
+                />
+              </div>
+            ))}
           </div>
-        }
-        error={
-          <div className="w-full text-center text-zinc-500 py-8 text-sm">
-            Couldn&apos;t render preview. Try downloading the PDF instead.
-          </div>
-        }
-        className="flex flex-col items-center"
-      >
-        {Array.from({ length: numPages }, (_, i) => (
-          <div key={i} className="mb-4 last:mb-0 bg-white shadow-md">
-            <Page
-              pageNumber={i + 1}
-              width={pageWidth}
-              renderTextLayer={false}
-              renderAnnotationLayer={false}
-              loading={null}
-            />
-          </div>
-        ))}
-      </Document>
+        </Document>
+      </div>
+
+      {/* Floating zoom toolbar. Only renders once at least one page has loaded
+          so the controls don't appear during the initial spinner. */}
+      {numPages > 0 && (
+        <div
+          className="absolute bottom-3 right-3 z-10 flex items-center gap-0.5 bg-white/95 backdrop-blur-sm border border-zinc-200 rounded-lg shadow-lg p-1"
+          role="toolbar"
+          aria-label="Zoom"
+        >
+          <button
+            type="button"
+            onClick={() => setZoom((z) => clampZoom(z - ZOOM_STEP))}
+            disabled={zoom <= ZOOM_MIN}
+            aria-label="Zoom out"
+            title="Zoom out"
+            className="p-1.5 rounded text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          >
+            <ZoomOut size={14} />
+          </button>
+          <button
+            type="button"
+            onClick={() => setZoom(1)}
+            aria-label={`Reset zoom to 100% (current ${Math.round(zoom * 100)}%)`}
+            title="Reset to 100%"
+            className="px-2 py-1 text-[11px] font-medium text-zinc-700 tabular-nums hover:bg-zinc-100 rounded transition-colors min-w-[42px] text-center"
+          >
+            {Math.round(zoom * 100)}%
+          </button>
+          <button
+            type="button"
+            onClick={() => setZoom((z) => clampZoom(z + ZOOM_STEP))}
+            disabled={zoom >= ZOOM_MAX}
+            aria-label="Zoom in"
+            title="Zoom in"
+            className="p-1.5 rounded text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          >
+            <ZoomIn size={14} />
+          </button>
+        </div>
+      )}
     </div>
   );
 }

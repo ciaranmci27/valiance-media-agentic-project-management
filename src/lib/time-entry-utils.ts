@@ -93,6 +93,59 @@ export function getWorkedHoursByDay(entry: TimeEntry, now: number = Date.now()):
 }
 
 /**
+ * Worked hours split by local hour-of-day (0–23) within a single calendar day.
+ * Returns a 24-element array indexed by local hour. A session spanning hour
+ * boundaries credits each hour for its actual share of the time worked, and
+ * anything outside `dayKey` is ignored entirely.
+ *
+ * Paused gaps don't count (uses segments). An open final segment ticks against
+ * `now`, matching `getWorkedHours` / `getWorkedHoursByDay`.
+ */
+export function getWorkedHoursByHour(
+  entry: TimeEntry,
+  dayKey: string,
+  now: number = Date.now(),
+): number[] {
+  const result = new Array<number>(24).fill(0);
+  const segments: TimeSegment[] = entry.segments?.length
+    ? entry.segments
+    : entry.end_time
+      ? [{ start: entry.start_time, end: entry.end_time }]
+      : [];
+
+  const [y, m, d] = dayKey.split('-').map(Number);
+  if (!y || !m || !d) return result;
+  const dayStartMs = new Date(y, m - 1, d, 0, 0, 0, 0).getTime();
+  // setDate handles month/year rollover and is DST-safe (next-midnight pattern).
+  const dayEnd = new Date(y, m - 1, d, 0, 0, 0, 0);
+  dayEnd.setDate(dayEnd.getDate() + 1);
+  const dayEndMs = dayEnd.getTime();
+
+  for (const seg of segments) {
+    const segStart = new Date(seg.start).getTime();
+    const segEnd = seg.end ? new Date(seg.end).getTime() : now;
+    if (!Number.isFinite(segStart) || !Number.isFinite(segEnd) || segEnd <= segStart) continue;
+
+    const clipStart = Math.max(segStart, dayStartMs);
+    const clipEnd = Math.min(segEnd, dayEndMs);
+    if (clipEnd <= clipStart) continue;
+
+    let cursor = clipStart;
+    while (cursor < clipEnd) {
+      const cursorDate = new Date(cursor);
+      const hour = cursorDate.getHours();
+      const nextHour = new Date(cursorDate);
+      nextHour.setMinutes(0, 0, 0);
+      nextHour.setHours(nextHour.getHours() + 1);
+      const fragmentEnd = Math.min(clipEnd, nextHour.getTime());
+      result[hour] += (fragmentEnd - cursor) / 3_600_000;
+      cursor = fragmentEnd;
+    }
+  }
+  return result;
+}
+
+/**
  * Start-of-today epoch (in ms) in the given IANA timezone. Used for detecting
  * paused entries that crossed a day boundary and should be auto-finalized.
  *

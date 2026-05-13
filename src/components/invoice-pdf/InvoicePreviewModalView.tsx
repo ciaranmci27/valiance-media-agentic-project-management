@@ -221,9 +221,11 @@ export function InvoicePreviewModalView({
           chrome hidden) and would clip the modal behind Safari's URL bar /
           bottom toolbar. Tailwind class provides a `vh` fallback for legacy
           browsers (iOS < 15.4); the inline `dvh` overrides on modern browsers
-          and is silently dropped on older ones, falling back to the class. */}
+          and is silently dropped on older ones, falling back to the class.
+          max-w-6xl gives the PDF preview enough horizontal room to render
+          letter-size pages at readable detail without forcing horizontal scroll. */}
       <div
-        className="relative w-full max-w-4xl h-[90vh] bg-white rounded-xl shadow-2xl animate-scaleIn flex flex-col overflow-hidden"
+        className="relative w-full max-w-6xl h-[90vh] bg-white rounded-xl shadow-2xl animate-scaleIn flex flex-col overflow-hidden"
         style={{ height: '90dvh' }}
       >
         {/* Header */}
