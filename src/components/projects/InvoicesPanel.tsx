@@ -17,8 +17,8 @@ import { TextInput } from '@/components/ui/inputs/TextInput';
 import { DateInput } from '@/components/ui/inputs/DateInput';
 import { Textarea } from '@/components/ui/inputs/Textarea';
 import {
-  INVOICE_STATUSES, INVOICE_TYPES, RECURRENCE_FREQUENCIES,
-  type InvoiceStatus, type InvoiceType, type InvoiceLineItem, type RecurrenceFrequency,
+  INVOICE_STATUSES, INVOICE_LINE_ITEM_TYPES, RECURRENCE_FREQUENCIES,
+  type InvoiceStatus, type InvoiceLineItemType, type InvoiceLineItem, type RecurrenceFrequency,
 } from '@/lib/types';
 import { getWorkedHours } from '@/lib/time-entry-utils';
 import {
@@ -59,7 +59,11 @@ function fmtServicePeriod(start: string | null, end: string | null): string | nu
   return fmtDate(start ?? end!);
 }
 
-function makeLineItem(defaultType: InvoiceType, position = 0): InvoiceLineItem {
+function lineItemTypeLabel(type: InvoiceLineItemType): string {
+  return type.charAt(0).toUpperCase() + type.slice(1);
+}
+
+function makeLineItem(defaultType: InvoiceLineItemType, position = 0): InvoiceLineItem {
   return {
     id: newLineItemId(),
     position,
@@ -161,15 +165,18 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
   const totalInvoiced = activeInvoices.reduce((sum, inv) => sum + inv.amount, 0);
   const totalPaid = invoices.filter(inv => inv.status === 'paid').reduce((sum, inv) => sum + inv.amount, 0);
   let hourlyInvoiced = 0;
-  let fixedInvoiced = 0;
+  let serviceInvoiced = 0;
+  let reimbursementInvoiced = 0;
   for (const inv of activeInvoices) {
     for (const li of ensureLineItems(inv)) {
       if (li.item_type === 'hourly') hourlyInvoiced += Number(li.amount) || 0;
-      else fixedInvoiced += Number(li.amount) || 0;
+      else if (li.item_type === 'reimbursement') reimbursementInvoiced += Number(li.amount) || 0;
+      else serviceInvoiced += Number(li.amount) || 0;
     }
   }
-  // Billable = hourly work (whichever is higher: tracked or invoiced) + fixed/recurring charges
-  const billableTotal = Math.max(hourlyRate * totalHours, hourlyInvoiced) + fixedInvoiced;
+  const serviceLineTotal = hourlyInvoiced + serviceInvoiced;
+  // Billable = service work plus reimbursable charges the client still owes.
+  const billableTotal = Math.max(hourlyRate * totalHours, hourlyInvoiced) + serviceInvoiced + reimbursementInvoiced;
   const outstanding = isHourly
     ? Math.max(0, billableTotal - totalPaid)
     : Math.max(0, totalInvoiced - totalPaid);
@@ -180,16 +187,16 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
     if (budgetType === 'hours') {
       budgetUsed = totalHours;
     } else {
-      budgetUsed = isHourly ? hourlyRate * totalHours : totalInvoiced;
+      budgetUsed = isHourly ? hourlyRate * totalHours : serviceLineTotal;
     }
   }
   const budgetPct = hasBudget && budgetValue > 0 ? Math.min(100, (budgetUsed / budgetValue) * 100) : 0;
 
   // Type options: non-hourly projects can't create hourly line items.
   const typeOptions = isHourly
-    ? INVOICE_TYPES.map(t => ({ value: t, label: t.charAt(0).toUpperCase() + t.slice(1) }))
-    : INVOICE_TYPES.filter(t => t !== 'hourly').map(t => ({ value: t, label: t.charAt(0).toUpperCase() + t.slice(1) }));
-  const defaultType: InvoiceType = isHourly ? 'hourly' : 'fixed';
+    ? INVOICE_LINE_ITEM_TYPES.map(t => ({ value: t, label: lineItemTypeLabel(t) }))
+    : INVOICE_LINE_ITEM_TYPES.filter(t => t !== 'hourly').map(t => ({ value: t, label: lineItemTypeLabel(t) }));
+  const defaultType: InvoiceLineItemType = isHourly ? 'hourly' : 'fixed';
 
   // Roll up unpaid hours into a draft hourly line item. Computed from finalized
   // entries vs. the FIFO pool of dollars covered by paid hourly line items, so
@@ -360,8 +367,8 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
       if (patch.item_type && patch.item_type !== 'recurring' && li.item_type === 'recurring') {
         next.recurrence_frequency = null;
       }
-      // Hourly line items don't carry a service window.
-      if (patch.item_type === 'hourly') {
+      // Hourly and reimbursement line items don't carry a service window.
+      if (patch.item_type === 'hourly' || patch.item_type === 'reimbursement') {
         next.service_start_date = null;
         next.service_end_date = null;
       }
@@ -586,7 +593,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
   // Render a single editable line item row
   const renderLineItem = (li: InvoiceLineItem, canDelete: boolean) => {
     const showFrequency = li.item_type === 'recurring';
-    const showServiceDates = li.item_type !== 'hourly';
+    const showServiceDates = li.item_type === 'fixed' || li.item_type === 'recurring';
     return (
       <div key={li.id} className="rounded-md border border-zinc-200 bg-white p-2.5 space-y-2">
         <div className="flex flex-wrap items-start gap-2">
@@ -594,7 +601,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
             <Select
               size="sm"
               value={li.item_type}
-              onChange={v => patchLineItem(li.id, { item_type: v as InvoiceType })}
+              onChange={v => patchLineItem(li.id, { item_type: v as InvoiceLineItemType })}
               options={typeOptions}
             />
           </div>
@@ -1004,6 +1011,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
 
               const items = ensureLineItems(invoice);
               const hasMultipleLines = items.length > 1;
+              const singleItemType = items[0]?.item_type;
               const isExpanded = expandedIds.has(invoice.id);
               const hasDetails = items.length > 0 || !!invoice.description || !!invoice.file_url;
 
@@ -1052,9 +1060,9 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
                           <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium rounded bg-zinc-100 text-zinc-500">
                             {items.length} items
                           </span>
-                        ) : invoice.invoice_type && invoice.invoice_type !== 'hourly' && (
+                        ) : singleItemType && singleItemType !== 'hourly' && (
                           <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium rounded bg-zinc-100 text-zinc-500 capitalize">
-                            {invoice.invoice_type}
+                            {singleItemType}
                           </span>
                         )}
                       </div>
@@ -1125,7 +1133,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
                                   <div className="flex-1 min-w-0 space-y-1">
                                     <div className="flex items-center gap-1.5 flex-wrap">
                                       <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium rounded bg-zinc-100 text-zinc-600 capitalize">
-                                        {li.item_type}
+                                        {lineItemTypeLabel(li.item_type)}
                                       </span>
                                       {li.item_type === 'recurring' && li.recurrence_frequency && (
                                         <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium rounded bg-amber-50 text-amber-700 capitalize">

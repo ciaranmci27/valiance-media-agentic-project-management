@@ -518,8 +518,9 @@ create table public.project_invoices (
     check (status in ('draft', 'sent', 'paid', 'overdue', 'cancelled')),
   invoice_type text not null default 'hourly'
     check (invoice_type in ('hourly', 'fixed', 'recurring')),
-  -- Per-line breakdown so a single invoice can mix hourly + fixed + recurring
-  -- and carry service period info used for revenue amortization on the chart.
+  -- Per-line breakdown so a single invoice can mix hourly, fixed, recurring,
+  -- and reimbursement rows. Service rows can carry period info used for
+  -- revenue amortization on the chart.
   -- Empty array => app synthesizes a single line item from invoice_type+amount.
   line_items jsonb not null default '[]'::jsonb,
   date text not null,

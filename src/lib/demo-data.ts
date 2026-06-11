@@ -647,7 +647,7 @@ export const demoPortalSettings: PortalSettings[] = [
     show_hours: true,
     show_updates: true,
     show_credentials: false,
-    show_invoices: false,
+    show_invoices: true,
     section_order: [...DEFAULT_SECTION_ORDER],
     notification_thresholds: [50, 75, 90, 100],
     alert_mode: 'percentage',
@@ -1086,16 +1086,17 @@ export const demoProjectInvoices: ProjectInvoice[] = [
   // -----------------------------------------------------------------------
   { id: 'inv-0004-4000-8000-000000000004', project_id: 'c3c3c3c3-0002-4000-8000-000000000002', invoice_number: 'INV-001', amount: 8750.00,  status: 'paid',    invoice_type: 'hourly', line_items: [], date: '2026-02-01', due_date: '2026-03-01', paid_date: '2026-02-18', description: 'Sprint 1 - project setup, auth flow, and database schema.',             file_url: null, file_name: null, file_size: null, mime_type: null, created_by: 'a1a1a1a1-0001-4000-8000-000000000001', created_at: daysAgo(72), updated_at: daysAgo(55) },
   { id: 'inv-0005-4000-8000-000000000005', project_id: 'c3c3c3c3-0002-4000-8000-000000000002', invoice_number: 'INV-002', amount: 10500.00, status: 'overdue', invoice_type: 'hourly', line_items: [], date: '2026-02-15', due_date: '2026-02-25', paid_date: null,         description: 'Sprint 2 - patient dashboard, appointment booking, messaging.',          file_url: null, file_name: null, file_size: null, mime_type: null, created_by: 'a1a1a1a1-0001-4000-8000-000000000001', created_at: daysAgo(58), updated_at: daysAgo(48) },
-  // Bloomwell multi-line: billable hours (no service window) + monthly retainer.
+  // Bloomwell multi-line: billable hours, monthly retainer, and reimbursed travel.
   {
     id: 'inv-0008-4000-8000-000000000008', project_id: 'c3c3c3c3-0002-4000-8000-000000000002',
-    invoice_number: 'INV-003', amount: 5000.00, status: 'sent', invoice_type: 'hourly',
+    invoice_number: 'INV-003', amount: 5450.00, status: 'sent', invoice_type: 'hourly',
     line_items: [
       { id: 'li-0008-a', position: 0, item_type: 'hourly',    amount: 2000, description: 'Billable hours (Mar 15 - Apr 12)', service_start_date: null,        service_end_date: null,        recurrence_frequency: null },
       { id: 'li-0008-b', position: 1, item_type: 'recurring', amount: 3000, description: 'Monthly maintenance retainer',      service_start_date: '2026-03-15', service_end_date: '2026-04-14', recurrence_frequency: 'monthly' },
+      { id: 'li-0008-c', position: 2, item_type: 'reimbursement', amount: 450, description: 'Client-approved travel reimbursement', service_start_date: null, service_end_date: null, recurrence_frequency: null },
     ],
     date: '2026-03-15', due_date: '2026-04-15', paid_date: null,
-    description: 'Combined billable hours and monthly retainer.',
+    description: 'Combined billable hours, monthly retainer, and reimbursed travel.',
     file_url: null, file_name: null, file_size: null, mime_type: null,
     created_by: 'a1a1a1a1-0001-4000-8000-000000000001', created_at: daysAgo(30), updated_at: daysAgo(30),
   },

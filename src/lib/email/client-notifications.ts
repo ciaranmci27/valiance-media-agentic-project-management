@@ -242,8 +242,8 @@ function computeUnpaidHours(
   if (hourlyRate <= 0) return 0;
 
   // Pool only the hourly portion of paid invoices. A single invoice can mix
-  // hourly + fixed + recurring line items, so we walk line_items rather than
-  // bucketing by the invoice-level invoice_type.
+  // hourly, fixed, recurring, and reimbursement line items, so we walk
+  // line_items rather than bucketing by the invoice-level invoice_type.
   let pool = paidHourlyLineItemTotal(invoices);
 
   const finalized = entries
@@ -299,10 +299,11 @@ async function getBudgetUsage(project: ProjectRow): Promise<BudgetUsage> {
     } else {
       const { data: invoices } = await supabase
         .from('project_invoices')
-        .select('amount, status')
+        .select('id, amount, status, invoice_type, line_items')
         .eq('project_id', project.id)
         .neq('status', 'draft');
-      currentUsage = (invoices || []).reduce((sum, inv) => sum + inv.amount, 0);
+      const totals = invoicedTotalsByItemType((invoices || []) as ProjectInvoice[]);
+      currentUsage = totals.hourly + totals.fixed + totals.recurring;
     }
   }
 
@@ -399,8 +400,9 @@ export async function renderCommunication(
     // invoice_type, so a mixed invoice contributes correctly to each bucket.
     const invoicedByType = invoicedTotalsByItemType(activeInvoices);
     const hourlyInvoiced = invoicedByType.hourly;
-    const fixedInvoiced = invoicedByType.fixed + invoicedByType.recurring;
-    const billableTotal = Math.max(hourlyRate * usage.totalHours, hourlyInvoiced) + fixedInvoiced;
+    const nonHourlyOwed = invoicedByType.fixed + invoicedByType.recurring + invoicedByType.reimbursement;
+    const serviceInvoiced = invoicedByType.hourly + invoicedByType.fixed + invoicedByType.recurring;
+    const billableTotal = Math.max(hourlyRate * usage.totalHours, hourlyInvoiced) + nonHourlyOwed;
     const outstanding = isHourly
       ? Math.max(0, billableTotal - totalPaid)
       : Math.max(0, totalInvoiced - totalPaid);
@@ -427,7 +429,7 @@ export async function renderCommunication(
     if (project.budget_type && project.budget_value) {
       budgetUsed = project.budget_type === 'hours'
         ? usage.totalHours
-        : (isHourly ? hourlyRate * usage.totalHours : totalInvoiced);
+        : (isHourly ? hourlyRate * usage.totalHours : serviceInvoiced);
     }
 
     const defaults = projectSummaryDefaults({ projectName: project.name });

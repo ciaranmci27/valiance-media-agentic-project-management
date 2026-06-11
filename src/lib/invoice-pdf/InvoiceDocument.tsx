@@ -235,7 +235,13 @@ export function InvoiceDocument({ data }: { data: InvoicePdfData }) {
             <View key={li.id} style={styles.tr} wrap={false}>
               <View style={styles.colDescription}>
                 <Text style={styles.tdDescription}>
-                  {li.description || (li.item_type === 'recurring' ? 'Recurring charge' : li.item_type === 'fixed' ? 'Fixed charge' : 'Hourly work')}
+                  {li.description || (li.item_type === 'recurring'
+                    ? 'Recurring charge'
+                    : li.item_type === 'fixed'
+                    ? 'Fixed charge'
+                    : li.item_type === 'reimbursement'
+                    ? 'Reimbursement'
+                    : 'Hourly work')}
                 </Text>
                 {opts.showLineCaptions && caption ? <Text style={styles.tdCaption}>{caption}</Text> : null}
               </View>

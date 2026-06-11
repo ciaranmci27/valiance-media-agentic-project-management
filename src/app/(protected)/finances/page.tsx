@@ -6,7 +6,7 @@ import { Header } from '@/components/layout/Header';
 import { getWorkedHours, getWorkedHoursByDay, getWorkedHoursByHour, isRunning } from '@/lib/time-entry-utils';
 import { DateInput } from '@/components/ui/inputs/DateInput';
 import { Tooltip } from '@/components/ui/Tooltip';
-import { ensureLineItems, spreadLineItem } from '@/lib/invoice-utils';
+import { ensureLineItems, invoicedTotalsByItemType, spreadLineItem } from '@/lib/invoice-utils';
 import Link from 'next/link';
 import {
   DollarSign,
@@ -539,15 +539,15 @@ export default function FinancesPage() {
     }
 
     // Pre-index: amortized fixed and recurring line-item revenue per day, broken
-    // down by project. Each non-hourly line item is spread across its service
+    // down by project. Each service revenue line item is spread across its
     // period (or falls on the invoice date when no service window is set).
-    // Hourly line items are ignored here (billable hours represent that revenue).
+    // Hourly and reimbursement line items are ignored here.
     const fixedByDayProject = new Map<string, Map<string, number>>();
     const recurringByDayProject = new Map<string, Map<string, number>>();
     for (const inv of fInvoices) {
       if (inv.status === 'cancelled') continue;
       for (const li of ensureLineItems(inv)) {
-        if (li.item_type === 'hourly') continue;
+        if (li.item_type === 'hourly' || li.item_type === 'reimbursement') continue;
         const bucket = li.item_type === 'recurring' ? recurringByDayProject : fixedByDayProject;
         const spread = spreadLineItem(li, inv.date);
         for (const [dk, dollars] of spread) {
@@ -690,7 +690,7 @@ export default function FinancesPage() {
     // Outstanding is a current-state stat (what's still owed right now), so it's
     // computed from all-time invoices and time entries — NOT date-filtered.
     // Same formula as the project details InvoicesPanel:
-    //   hourly:     max(0, max(rate * hours, hourlyInvoiced) + fixedInvoiced - paid)
+    //   hourly:     max(0, max(rate * hours, hourlyInvoiced) + nonHourlyOwed - paid)
     //   non-hourly: max(0, invoiced - paid)
     const outstandingByProject = new Map<string, number>();
     for (const p of fProjects) {
@@ -709,17 +709,12 @@ export default function FinancesPage() {
       const isHourly = !!p.hourly_tracking;
       const rate = p.hourly_rate ?? 0;
       // Aggregate line-item amounts by type across all active invoices.
-      let pHourlyInvoiced = 0;
-      let pFixedInvoiced = 0;
-      for (const inv of pInvoicesAll) {
-        for (const li of ensureLineItems(inv)) {
-          if (li.item_type === 'hourly') pHourlyInvoiced += Number(li.amount) || 0;
-          else pFixedInvoiced += Number(li.amount) || 0;
-        }
-      }
+      const pInvoicedByType = invoicedTotalsByItemType(pInvoicesAll);
+      const pHourlyInvoiced = pInvoicedByType.hourly;
+      const pNonHourlyOwed = pInvoicedByType.fixed + pInvoicedByType.recurring + pInvoicedByType.reimbursement;
       const pInvoicedTotal = pInvoicesAll.reduce((s, i) => s + i.amount, 0);
       const pBillable = isHourly
-        ? Math.max(rate * pHoursAll, pHourlyInvoiced) + pFixedInvoiced
+        ? Math.max(rate * pHoursAll, pHourlyInvoiced) + pNonHourlyOwed
         : pInvoicedTotal;
       outstandingByProject.set(p.id, Math.max(0, pBillable - pPaidAll));
     }
@@ -998,7 +993,7 @@ export default function FinancesPage() {
       if (inv.status === 'cancelled') continue;
       if (!includeProject(inv.project_id)) continue;
       for (const li of ensureLineItems(inv)) {
-        if (li.item_type === 'hourly') continue;
+        if (li.item_type === 'hourly' || li.item_type === 'reimbursement') continue;
         const dollarsThatDay = spreadLineItem(li, inv.date).get(drilldownDay) ?? 0;
         if (dollarsThatDay <= 0) continue;
         const perHourDollars = dollarsThatDay / 24;
@@ -1784,6 +1779,7 @@ export default function FinancesPage() {
                   const project = projects.find(p => p.id === inv.project_id);
                   const items = ensureLineItems(inv);
                   const isMulti = items.length > 1;
+                  const singleItemType = items[0]?.item_type;
                   return (
                     <Link
                       key={inv.id}
@@ -1797,7 +1793,7 @@ export default function FinancesPage() {
                             {inv.status}
                           </span>
                           <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-zinc-100 text-zinc-600 capitalize">
-                            {isMulti ? `${items.length} items` : inv.invoice_type}
+                            {isMulti ? `${items.length} items` : (singleItemType ?? inv.invoice_type)}
                           </span>
                         </div>
                         <p className="text-xs text-zinc-500 mt-0.5 truncate">{project?.name || 'Unknown project'}</p>

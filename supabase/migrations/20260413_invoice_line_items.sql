@@ -1,12 +1,12 @@
 -- Add line_items JSONB column to project_invoices.
 -- Each invoice can now contain multiple line items so a single payment
--- can mix hourly work, fixed charges, and recurring retainers.
+-- can mix hourly work, fixed charges, recurring retainers, and reimbursements.
 --
 -- Shape of each line item:
 -- {
 --   "id": uuid,
 --   "position": int,
---   "item_type": "hourly" | "fixed" | "recurring",
+--   "item_type": "hourly" | "fixed" | "recurring" | "reimbursement",
 --   "amount": number,
 --   "description": string,
 --   "service_start_date": "YYYY-MM-DD" | null,

@@ -49,8 +49,11 @@ export function buildInvoiceData({
 }: BuildInvoiceDataInput): InvoicePdfData {
   const lineItems = ensureLineItems(invoice);
   const subtotal = lineItemsTotal(lineItems);
+  const taxableSubtotal = lineItems
+    .filter(li => li.item_type !== 'reimbursement')
+    .reduce((sum, li) => sum + (Number(li.amount) || 0), 0);
   const taxRate = project?.tax_rate ?? null;
-  const taxAmount = taxRate != null ? Math.round(subtotal * (taxRate / 100) * 100) / 100 : 0;
+  const taxAmount = taxRate != null ? Math.round(taxableSubtotal * (taxRate / 100) * 100) / 100 : 0;
   const total = subtotal + taxAmount;
 
   const business = {

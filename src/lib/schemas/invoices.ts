@@ -2,12 +2,13 @@ import { z } from 'zod';
 
 export const invoiceStatusEnum = z.enum(['draft', 'sent', 'paid', 'overdue', 'cancelled']);
 export const invoiceTypeEnum = z.enum(['hourly', 'fixed', 'recurring']);
+export const invoiceLineItemTypeEnum = z.enum(['hourly', 'fixed', 'recurring', 'reimbursement']);
 export const recurrenceFrequencyEnum = z.enum(['weekly', 'monthly', 'quarterly', 'annual']);
 
 export const invoiceLineItemSchema = z.object({
   id: z.string().min(1),
   position: z.number().int().min(0),
-  item_type: invoiceTypeEnum,
+  item_type: invoiceLineItemTypeEnum,
   amount: z.number().min(0),
   description: z.string().default(''),
   service_start_date: z.string().nullable().default(null),

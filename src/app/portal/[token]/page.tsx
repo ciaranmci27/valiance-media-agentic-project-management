@@ -1620,20 +1620,20 @@ function PortalPageInner() {
                   // Break down by line-item type so mixed invoices are counted correctly.
                   // Falls back to flat invoice_type when line_items is empty (legacy rows).
                   let portalHourlyInvoiced = 0;
-                  let portalFixedInvoiced = 0;
+                  let portalNonHourlyOwed = 0;
                   for (const inv of portalActive) {
                     const items = Array.isArray(inv.line_items) && inv.line_items.length > 0
                       ? inv.line_items
                       : [{ item_type: inv.invoice_type, amount: inv.amount }];
                     for (const li of items) {
                       if (li.item_type === 'hourly') portalHourlyInvoiced += Number(li.amount) || 0;
-                      else portalFixedInvoiced += Number(li.amount) || 0;
+                      else portalNonHourlyOwed += Number(li.amount) || 0;
                     }
                   }
                   const billing = data.billing;
-                  // Billable = hourly work (max of tracked vs invoiced) + fixed/recurring
+                  // Billable = hourly work plus service and reimbursement lines owed.
                   const portalBillableTotal = billing
-                    ? Math.max(billing.billable_total, portalHourlyInvoiced) + portalFixedInvoiced
+                    ? Math.max(billing.billable_total, portalHourlyInvoiced) + portalNonHourlyOwed
                     : portalInvoiced;
                   const balanceDue = billing
                     ? Math.max(0, portalBillableTotal - portalPaid)

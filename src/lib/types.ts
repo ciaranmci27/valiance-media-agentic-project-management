@@ -346,6 +346,8 @@ export type InvoiceStatus = typeof INVOICE_STATUSES[number];
 
 export const INVOICE_TYPES = ['hourly', 'fixed', 'recurring'] as const;
 export type InvoiceType = typeof INVOICE_TYPES[number];
+export const INVOICE_LINE_ITEM_TYPES = ['hourly', 'fixed', 'recurring', 'reimbursement'] as const;
+export type InvoiceLineItemType = typeof INVOICE_LINE_ITEM_TYPES[number];
 
 export const RECURRENCE_FREQUENCIES = ['weekly', 'monthly', 'quarterly', 'annual'] as const;
 export type RecurrenceFrequency = typeof RECURRENCE_FREQUENCIES[number];
@@ -353,7 +355,7 @@ export type RecurrenceFrequency = typeof RECURRENCE_FREQUENCIES[number];
 export interface InvoiceLineItem {
   id: string;
   position: number;
-  item_type: InvoiceType;
+  item_type: InvoiceLineItemType;
   amount: number;
   description: string;
   /** Inclusive YYYY-MM-DD; null means single-day (falls on parent invoice date). */

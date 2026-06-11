@@ -1,4 +1,4 @@
-import type { InvoiceLineItem, InvoiceType, ProjectInvoice, RecurrenceFrequency } from './types';
+import type { InvoiceLineItem, InvoiceLineItemType, InvoiceType, ProjectInvoice, RecurrenceFrequency } from './types';
 
 /**
  * Generate a stable client-side UUID for line items. Crypto.randomUUID is
@@ -64,16 +64,15 @@ export function paidHourlyLineItemTotal(invoices: ProjectInvoice[]): number {
 /**
  * Sum invoiced dollars across all non-draft invoices, broken down by line-item
  * type. Use this instead of bucketing by the invoice-level `invoice_type`,
- * which would misclassify mixed invoices (an `invoice_type='hourly'` invoice
- * may carry recurring line items, and vice versa).
+ * which would misclassify mixed invoices.
  *
  * Cancelled invoices are excluded; pass already-filtered input if you also
  * want to exclude drafts.
  */
 export function invoicedTotalsByItemType(
   invoices: ProjectInvoice[],
-): { hourly: number; fixed: number; recurring: number } {
-  const totals = { hourly: 0, fixed: 0, recurring: 0 };
+): { hourly: number; fixed: number; recurring: number; reimbursement: number } {
+  const totals: Record<InvoiceLineItemType, number> = { hourly: 0, fixed: 0, recurring: 0, reimbursement: 0 };
   for (const inv of invoices) {
     if (inv.status === 'cancelled') continue;
     for (const li of ensureLineItems(inv)) {
@@ -81,6 +80,7 @@ export function invoicedTotalsByItemType(
       if (li.item_type === 'hourly') totals.hourly += amt;
       else if (li.item_type === 'fixed') totals.fixed += amt;
       else if (li.item_type === 'recurring') totals.recurring += amt;
+      else if (li.item_type === 'reimbursement') totals.reimbursement += amt;
     }
   }
   return totals;
@@ -276,9 +276,12 @@ export function buildPartialUnpaidHoursLineItem(
 export function dominantInvoiceType(items: InvoiceLineItem[]): InvoiceType {
   if (items.length === 0) return 'fixed';
   const totals: Record<InvoiceType, number> = { hourly: 0, fixed: 0, recurring: 0 };
-  for (const li of items) totals[li.item_type] += Number(li.amount) || 0;
-  let best: InvoiceType = items[0].item_type;
-  let bestVal = -Infinity;
+  for (const li of items) {
+    if (li.item_type === 'reimbursement') continue;
+    totals[li.item_type] += Number(li.amount) || 0;
+  }
+  let best: InvoiceType = 'fixed';
+  let bestVal = 0;
   (Object.keys(totals) as InvoiceType[]).forEach((t) => {
     if (totals[t] > bestVal) {
       bestVal = totals[t];
@@ -344,16 +347,16 @@ export function* iterDateKeys(startKey: string, endKey: string): Generator<strin
 }
 
 /**
- * Spread a non-hourly line item's amount across the days it covers.
+ * Spread a fixed or recurring line item's amount across the days it covers.
  * - Items with both service_start_date and service_end_date amortize evenly.
  * - Items without service dates fall on `fallbackDate` as a single-day amount.
- * Hourly items contribute nothing here (already represented by tracked time).
+ * Hourly and reimbursement items contribute nothing here.
  *
  * Returns a Map<YYYY-MM-DD, dollars>.
  */
 export function spreadLineItem(item: InvoiceLineItem, fallbackDate: string): Map<string, number> {
   const out = new Map<string, number>();
-  if (item.item_type === 'hourly') return out;
+  if (item.item_type === 'hourly' || item.item_type === 'reimbursement') return out;
   const amount = Number(item.amount) || 0;
   if (amount <= 0) return out;
 
