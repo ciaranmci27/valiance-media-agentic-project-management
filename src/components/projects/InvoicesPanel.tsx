@@ -16,6 +16,7 @@ import { Select } from '@/components/ui/Select';
 import { TextInput } from '@/components/ui/inputs/TextInput';
 import { DateInput } from '@/components/ui/inputs/DateInput';
 import { Textarea } from '@/components/ui/inputs/Textarea';
+import { toLocalDateString } from '@/lib/date-utils';
 import {
   INVOICE_STATUSES, INVOICE_LINE_ITEM_TYPES, RECURRENCE_FREQUENCIES,
   type InvoiceStatus, type InvoiceLineItemType, type InvoiceLineItem, type RecurrenceFrequency,
@@ -84,15 +85,12 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
   const { teamMemberId } = useAuth();
   const { isDemoMode } = useDemo();
   const currentMember = team.find(m => m.id === teamMemberId);
-  // YYYY-MM-DD for "today" in the user's preferred zone. Falls back to the
-  // browser's resolved zone when the stored timezone is the unset default
-  // ("UTC") so a user who never opened settings still gets their local day.
+  // YYYY-MM-DD for "today" in the user's preferred zone. If the stored zone is
+  // still the unset default, fall back to the browser's local day.
   const todayLocalDate = (() => {
     const stored = currentMember?.timezone;
-    const tz = stored && stored !== 'UTC'
-      ? stored
-      : Intl.DateTimeFormat().resolvedOptions().timeZone;
-    return new Date().toLocaleDateString('en-CA', { timeZone: tz });
+    const tz = stored && stored !== 'UTC' ? stored : undefined;
+    return toLocalDateString(tz);
   })();
   const invoices = getInvoicesByProject(projectId);
   const project = getProject(projectId);

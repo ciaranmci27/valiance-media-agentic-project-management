@@ -327,6 +327,7 @@ export async function GET(
           portalUrl: `${origin}/portal/${token}?invoice=${encodeURIComponent(inv.invoice_number)}`,
           options: portalOptions,
           timeEntries: portalTimeEntries,
+          projectInvoices: allInvoices,
           team: portalTeam,
         }),
       ]),
@@ -559,6 +560,7 @@ function handleDemoMode(token: string, request: NextRequest) {
         logoUrl: `${origin}/api/logo`,
         portalUrl: `${origin}/portal/${token}?invoice=${encodeURIComponent(inv.invoice_number)}`,
         options: { showSenderName: false },
+        projectInvoices: demoActiveInvoices,
       });
     }
   }

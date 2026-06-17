@@ -88,6 +88,23 @@ export function invoicedTotalsByItemType(
 
 export type PaymentStatus = 'paid' | 'partial' | 'unpaid';
 
+// Invoice line items are stored in dollars and cents. Time entries can produce
+// sub-cent values, so FIFO comparisons need a half-cent tolerance.
+const MONEY_EPSILON = 0.005000001;
+
+function hasUsablePool(pool: number): boolean {
+  return pool > MONEY_EPSILON;
+}
+
+function poolCoversCost(pool: number, cost: number): boolean {
+  return pool + MONEY_EPSILON >= cost;
+}
+
+function subtractCost(pool: number, cost: number): number {
+  const remaining = pool - cost;
+  return remaining > MONEY_EPSILON ? remaining : 0;
+}
+
 /**
  * FIFO waterfall against a pool of paid hourly dollars: walk entries oldest-
  * first, draining the pool by each entry's billable cost. Returns a map of
@@ -106,10 +123,10 @@ export function fifoPaymentStatuses(
   let pool = paidPool;
   for (const entry of entries) {
     const cost = entry.hours * hourlyRate;
-    if (pool >= cost) {
+    if (poolCoversCost(pool, cost)) {
       map.set(entry.id, 'paid');
-      pool -= cost;
-    } else if (pool > 0) {
+      pool = subtractCost(pool, cost);
+    } else if (hasUsablePool(pool)) {
       map.set(entry.id, 'partial');
       pool = 0;
     } else {
@@ -135,13 +152,15 @@ export function unpaidHoursByEntry(
   let pool = paidPool;
   for (const entry of entries) {
     const cost = entry.hours * hourlyRate;
-    if (pool >= cost) {
-      pool -= cost;
+    if (poolCoversCost(pool, cost)) {
+      pool = subtractCost(pool, cost);
       continue;
     }
-    if (pool > 0) {
-      const coveredHours = pool / hourlyRate;
-      out.set(entry.id, Math.max(0, entry.hours - coveredHours));
+    if (hasUsablePool(pool)) {
+      const unpaidValue = cost - pool;
+      if (unpaidValue > MONEY_EPSILON) {
+        out.set(entry.id, unpaidValue / hourlyRate);
+      }
       pool = 0;
     } else {
       out.set(entry.id, entry.hours);

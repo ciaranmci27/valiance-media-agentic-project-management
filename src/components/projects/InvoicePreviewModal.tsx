@@ -29,14 +29,18 @@ export function InvoicePreviewModal({ invoiceId, onClose }: InvoicePreviewModalP
     () => (invoice ? getTimeEntriesByProject(invoice.project_id) : []),
     [invoice, getTimeEntriesByProject],
   );
+  const projectInvoiceRows = useMemo(
+    () => (invoice ? projectInvoices.filter(i => i.project_id === invoice.project_id) : []),
+    [invoice, projectInvoices],
+  );
 
   // Toggles live on the project so each client/project can have its own
   // invoice presentation. Falls back to defaults for projects predating the
   // column or for missing keys.
-  const options: InvoicePdfOptions = {
+  const options = useMemo<InvoicePdfOptions>(() => ({
     ...DEFAULT_INVOICE_PDF_OPTIONS,
     ...(project?.invoice_pdf_options ?? {}),
-  };
+  }), [project?.invoice_pdf_options]);
 
   const toggleOption = (key: keyof InvoicePdfOptions) => {
     if (!project) return;
@@ -71,9 +75,10 @@ export function InvoicePreviewModal({ invoiceId, onClose }: InvoicePreviewModalP
       logoUrl: typeof window !== 'undefined' ? `${window.location.origin}/api/logo` : '/api/logo',
       portalUrl,
       timeEntries,
+      projectInvoices: projectInvoiceRows,
       team,
     });
-  }, [invoice, project, primaryContact, businessSettings, senderName, options, portalUrl, timeEntries, team]);
+  }, [invoice, project, primaryContact, businessSettings, senderName, options, portalUrl, timeEntries, projectInvoiceRows, team]);
 
   const clientLabel = pdfData?.billTo.company || pdfData?.billTo.name || 'Client';
 

@@ -54,13 +54,8 @@ function formatClock(iso: string): string {
   return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 }
 
-function formatHoursMinutes(hours: number): string {
-  const totalMinutes = Math.max(0, Math.round(hours * 60));
-  const h = Math.floor(totalMinutes / 60);
-  const m = totalMinutes % 60;
-  if (h === 0) return `${m}m`;
-  if (m === 0) return `${h}h`;
-  return `${h}h ${m}m`;
+function formatDecimalHours(hours: number): string {
+  return `${hours.toLocaleString('en-US', { maximumFractionDigits: 4 })} hrs`;
 }
 
 function statusPill(status: InvoicePdfData['status']): { label: string; color: string } {
@@ -382,7 +377,7 @@ function TimeLogsPage({
         <View style={styles.detailsCell}>
           <Text style={styles.detailsKey}>Total Hours</Text>
           <Text style={styles.detailsValue}>
-            {totalHours.toLocaleString('en-US', { maximumFractionDigits: 2 })}
+            {formatDecimalHours(totalHours)}
           </Text>
         </View>
       </View>
@@ -419,7 +414,7 @@ function TimeLogsPage({
             {showMember && (
               <Text style={[styles.tdMono, styles.tlColMember]}>{entry.memberName || '—'}</Text>
             )}
-            <Text style={[styles.tdMono, styles.tlColDuration]}>{formatHoursMinutes(entry.hours)}</Text>
+            <Text style={[styles.tdMono, styles.tlColDuration]}>{formatDecimalHours(entry.hours)}</Text>
           </View>
         );
       })}
@@ -430,7 +425,7 @@ function TimeLogsPage({
           <View style={styles.totalsRow}>
             <Text style={styles.totalsLabelFinal}>Total Hours</Text>
             <Text style={styles.timeLogTotalValue}>
-              {totalHours.toLocaleString('en-US', { maximumFractionDigits: 2 })}
+              {formatDecimalHours(totalHours)}
             </Text>
           </View>
         </View>

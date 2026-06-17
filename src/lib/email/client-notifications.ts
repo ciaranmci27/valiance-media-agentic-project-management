@@ -42,7 +42,7 @@ import {
 import { getSiteUrl } from './templates/shared';
 import { getLatestBudgetHistoryId, type BudgetType } from '@/lib/project-budget-history';
 import type { ClientCommType, ProjectInvoice } from '@/lib/types';
-import { paidHourlyLineItemTotal, invoicedTotalsByItemType } from '@/lib/invoice-utils';
+import { paidHourlyLineItemTotal, invoicedTotalsByItemType, unpaidHoursByEntry } from '@/lib/invoice-utils';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -223,7 +223,9 @@ async function getApprovalRecipients(project: ProjectRow): Promise<string[]> {
 
 // ─── Hour + invoice helpers ───────────────────────────────────────────────────
 
-function getWorkedHoursFromSegments(segments: any[]): number {
+type SegmentLike = { start: string; end: string | null };
+
+function getWorkedHoursFromSegments(segments: SegmentLike[]): number {
   if (!segments || segments.length === 0) return 0;
   let totalMs = 0;
   for (const seg of segments) {
@@ -235,7 +237,7 @@ function getWorkedHoursFromSegments(segments: any[]): number {
 }
 
 function computeUnpaidHours(
-  entries: Array<{ end_time: string | null; start_time: string; segments: any[] }>,
+  entries: Array<{ id?: string; end_time: string | null; start_time: string; segments: SegmentLike[] }>,
   invoices: ProjectInvoice[],
   hourlyRate: number,
 ): number {
@@ -244,27 +246,16 @@ function computeUnpaidHours(
   // Pool only the hourly portion of paid invoices. A single invoice can mix
   // hourly, fixed, recurring, and reimbursement line items, so we walk
   // line_items rather than bucketing by the invoice-level invoice_type.
-  let pool = paidHourlyLineItemTotal(invoices);
-
   const finalized = entries
     .filter(e => e.end_time !== null)
-    .sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime());
+    .sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime())
+    .map((entry, index) => ({
+      id: entry.id ?? `${entry.start_time}:${index}`,
+      hours: getWorkedHoursFromSegments(entry.segments),
+    }));
 
-  let unpaid = 0;
-  for (const entry of finalized) {
-    const hours = getWorkedHoursFromSegments(entry.segments);
-    const cost = hours * hourlyRate;
-    if (pool >= cost) {
-      pool -= cost;
-    } else if (pool > 0) {
-      const coveredHours = pool / hourlyRate;
-      unpaid += hours - coveredHours;
-      pool = 0;
-    } else {
-      unpaid += hours;
-    }
-  }
-  return unpaid;
+  const unpaidByEntry = unpaidHoursByEntry(finalized, paidHourlyLineItemTotal(invoices), hourlyRate);
+  return [...unpaidByEntry.values()].reduce((sum, hours) => sum + hours, 0);
 }
 
 interface BudgetUsage {
@@ -387,7 +378,7 @@ export async function renderCommunication(
 
     const { data: entries } = await supabase
       .from('project_time_entries')
-      .select('start_time, end_time, segments')
+      .select('id, start_time, end_time, segments')
       .eq('project_id', projectId);
     const allEntries = entries || [];
 
