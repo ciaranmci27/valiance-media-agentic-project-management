@@ -1,7 +1,7 @@
 import { withApi } from '@/lib/api/middleware';
 import { success } from '@/lib/api/response';
 import { convertLeadSchema } from '@/lib/schemas';
-import { notFound } from '@/lib/api/errors';
+import { notFound, conflict } from '@/lib/api/errors';
 import { convertLead } from '@/lib/supabase/queries';
 import { logAudit } from '@/lib/api/audit';
 
@@ -18,6 +18,7 @@ export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMembe
 
   if (leadError) throw leadError;
   if (!leadData) throw notFound('Lead');
+  if (leadData.status === 'won') throw conflict('Lead has already been converted');
 
   const lead = {
     ...leadData,
@@ -25,14 +26,24 @@ export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMembe
     lead_members: undefined,
   };
 
-  const result = await convertLead(
-    supabase,
-    lead,
-    project_name,
-    project_color,
-    project_description,
-    null
-  );
+  let result;
+  try {
+    result = await convertLead(
+      supabase,
+      lead,
+      project_name,
+      project_color,
+      project_description,
+      null
+    );
+  } catch (err: any) {
+    // The convert_lead RPC raises LC409 when it loses a conversion race to a
+    // concurrent request; surface that as a conflict, not a server error
+    if (err?.code === 'LC409' || /already been converted/i.test(err?.message || '')) {
+      throw conflict('Lead has already been converted');
+    }
+    throw err;
+  }
 
   logAudit(supabase, { method: 'POST', endpoint: `/api/v1/leads/${id}/convert`, entityType: 'lead', entityId: id, apiKeyId, teamMemberId, requestBody: body, beforeSnapshot: lead, afterSnapshot: result, statusCode: 200 });
 

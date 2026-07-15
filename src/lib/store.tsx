@@ -22,6 +22,7 @@ import {
   insertTask,
   patchTask,
   removeTask,
+  reorderTasks as reorderTasksQuery,
   insertSubtask,
   toggleSubtaskCompleted,
   patchSubtask,
@@ -150,6 +151,7 @@ interface AppContextType {
   // Task CRUD
   addTask: (task: Omit<Task, 'id' | 'created_at' | 'updated_at'>) => void;
   updateTask: (id: string, updates: Partial<Task>) => void;
+  reorderTasks: (orders: { id: string; sort_order: number }[]) => void;
   deleteTask: (id: string) => void;
 
   // Subtasks
@@ -182,19 +184,19 @@ interface AppContextType {
 
   // Lead CRUD
   addLead: (lead: Omit<Lead, 'id' | 'created_at' | 'updated_at'>) => void;
-  updateLead: (id: string, updates: Partial<Lead>) => void;
-  deleteLead: (id: string) => void;
+  updateLead: (id: string, updates: Partial<Lead>) => Promise<boolean>;
+  deleteLead: (id: string) => Promise<boolean>;
   convertLead: (leadId: string, projectName: string, projectColor: string, projectDescription: string) => void;
 
   // Lead Interaction CRUD
   addLeadInteraction: (interaction: Omit<LeadInteraction, 'id' | 'created_at' | 'updated_at'>) => void;
-  updateLeadInteraction: (id: string, updates: Partial<LeadInteraction>) => void;
-  deleteLeadInteraction: (id: string) => void;
+  updateLeadInteraction: (id: string, updates: Partial<LeadInteraction>) => Promise<boolean>;
+  deleteLeadInteraction: (id: string) => Promise<boolean>;
 
   // Lead Proposal CRUD
   addLeadProposal: (proposal: Omit<LeadProposal, 'id' | 'created_at' | 'updated_at'>) => void;
   updateLeadProposal: (id: string, updates: Partial<LeadProposal>) => void;
-  deleteLeadProposal: (id: string) => void;
+  deleteLeadProposal: (id: string) => Promise<boolean>;
 
   // Lead Field CRUD
   setLeadField: (leadId: string, fieldKey: string, value: string) => void;
@@ -242,12 +244,12 @@ interface AppContextType {
   archiveGoal: (id: string) => void;
 
   // Task Suggestion review actions
-  approveSuggestion: (id: string, taskOverrides: { priority?: string; assigned_to?: string | null; due_date?: string | null; project_id?: string; task_type?: string | null; ai_managed?: boolean }, reviewedBy: string) => void;
-  rejectSuggestion: (id: string, reason: string | undefined, reviewedBy: string) => void;
+  approveSuggestion: (id: string, taskOverrides: { priority?: string; assigned_to?: string | null; due_date?: string | null; project_id?: string; task_type?: string | null; ai_managed?: boolean }, reviewedBy: string) => Promise<boolean>;
+  rejectSuggestion: (id: string, reason: string | undefined, reviewedBy: string) => Promise<boolean>;
   requestInfoOnSuggestion: (id: string, infoRequest: string, reviewedBy: string) => void;
   updateSuggestion: (id: string, updates: Partial<TaskSuggestion>) => void;
-  bulkApproveSuggestions: (ids: string[]) => void;
-  bulkRejectSuggestions: (ids: string[], reason?: string) => void;
+  bulkApproveSuggestions: (ids: string[]) => Promise<number>;
+  bulkRejectSuggestions: (ids: string[], reason?: string) => Promise<number>;
 
   // Agent helpers
   getGoalsByProject: (projectId: string) => ProjectGoal[];
@@ -266,8 +268,8 @@ interface AppContextType {
   getRunningTimer: (projectId: string, memberId?: string) => TimeEntry | undefined;
 
   // Credential CRUD
-  addCredential: (projectId: string, data: { label: string; category: string; username: string; password: string; url: string; notes: string }) => Promise<ProjectCredentialListItem | undefined>;
-  updateCredential: (id: string, data: { label?: string; category?: string; username?: string; password?: string; url?: string; notes?: string }) => Promise<void>;
+  addCredential: (projectId: string, data: { label: string; category: string; fields: Record<string, string> }) => Promise<ProjectCredentialListItem | undefined>;
+  updateCredential: (id: string, data: { label?: string; category?: string; fields?: Record<string, string> }) => Promise<boolean>;
   deleteCredential: (id: string) => void;
   revealCredential: (id: string) => Promise<CredentialPayload | null>;
   getCredentialsByProject: (projectId: string) => ProjectCredentialListItem[];
@@ -718,7 +720,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       await patchTask(supabase, id, updates, updates.assignee_ids);
 
-      if (existingTask) {
+      // Reorder-only updates are cosmetic; don't notify the whole team
+      const reorderOnly = Object.keys(updates).every(k => k === 'sort_order');
+
+      if (existingTask && !reorderOnly) {
         const project = projects.find(p => p.id === existingTask.project_id);
         const projectLink = `/projects/${existingTask.project_id}`;
 
@@ -755,6 +760,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
     } catch (err) {
       setTasks(prev);
       toast('error', 'Failed to update task');
+    }
+  };
+
+  const reorderTasks = async (orders: { id: string; sort_order: number }[]) => {
+    if (orders.length === 0) return;
+    const prev = tasks;
+    const orderById = new Map(orders.map(o => [o.id, o.sort_order]));
+    setTasks(t => t.map(task =>
+      orderById.has(task.id) ? { ...task, sort_order: orderById.get(task.id)! } : task
+    ));
+    if (skipSupabase) return;
+
+    try {
+      await reorderTasksQuery(supabase, orders);
+    } catch (err) {
+      setTasks(prev);
+      toast('error', 'Failed to reorder tasks');
     }
   };
 
@@ -1295,7 +1317,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         contact.id === contactId ? { ...contact, ...identityFields, updated_at: new Date().toISOString() } : contact
       ));
     }
-    if (skipSupabase) return;
+    if (skipSupabase) return true;
 
     try {
       await patchLead(supabase, id, updates, updates.member_ids);
@@ -1316,12 +1338,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
           notify(allMemberIds(), `Lead "${currentLead.name}" was updated`, `${actorName()} updated the lead.`, `/leads/${id}`, 'lead', id, 'lead_updates');
         }
       }
+      return true;
     } catch (err) {
       setLeads(prevLeads);
       if (hasIdentityUpdates && contactId) {
         setContacts(prevContacts);
       }
       toast('error', 'Failed to update lead');
+      return false;
     }
   };
 
@@ -1337,13 +1361,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setLeadProposals(p => p.filter(prop => prop.lead_id !== id));
     setLeadFields(f => f.filter(field => field.lead_id !== id));
     setLeadContacts(lc => lc.filter(c => c.lead_id !== id));
-    if (skipSupabase) return;
+    if (skipSupabase) return true;
 
     try {
       await removeLead(supabase, id);
       if (deletedLead) {
         notify(allMemberIds(), `Lead "${deletedLead.name}" was deleted`, `${actorName()} removed a lead.`, null, 'lead', id, 'lead_deleted');
       }
+      return true;
     } catch (err) {
       setLeads(prev);
       setLeadInteractions(prevInteractions);
@@ -1351,6 +1376,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setLeadFields(prevFields);
       setLeadContacts(prevLeadContacts);
       toast('error', 'Failed to delete lead');
+      return false;
     }
   };
 
@@ -1489,7 +1515,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setLeadInteractions(i => i.map(int =>
       int.id === id ? { ...int, ...updates, updated_at: new Date().toISOString() } : int
     ));
-    if (skipSupabase) return;
+    if (skipSupabase) return true;
 
     try {
       await patchLeadInteraction(supabase, id, updates);
@@ -1501,9 +1527,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
           notify(allMemberIds(), `Lead "${lead.name}" was updated`, `${actorName()} updated an interaction.`, `/leads/${lead.id}`, 'lead', lead.id, 'lead_interactions');
         }
       }
+      return true;
     } catch (err) {
       setLeadInteractions(prev);
       toast('error', 'Failed to update interaction');
+      return false;
     }
   };
 
@@ -1511,7 +1539,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const prev = leadInteractions;
     const deletedInteraction = leadInteractions.find(i => i.id === id);
     setLeadInteractions(i => i.filter(int => int.id !== id));
-    if (skipSupabase) return;
+    if (skipSupabase) return true;
 
     try {
       await removeLeadInteraction(supabase, id);
@@ -1521,9 +1549,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
           notify(allMemberIds(), `Lead "${lead.name}" interaction removed`, `${actorName()} deleted an interaction.`, `/leads/${lead.id}`, 'lead', lead.id, 'lead_interactions');
         }
       }
+      return true;
     } catch (err) {
       setLeadInteractions(prev);
       toast('error', 'Failed to delete interaction');
+      return false;
     }
   };
 
@@ -1582,7 +1612,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const prev = leadProposals;
     const deletedProposal = leadProposals.find(p => p.id === id);
     setLeadProposals(p => p.filter(prop => prop.id !== id));
-    if (skipSupabase) return;
+    if (skipSupabase) return true;
 
     try {
       await removeLeadProposal(supabase, id);
@@ -1592,9 +1622,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
           notify(allMemberIds(), `Lead "${lead.name}" proposal removed`, `${actorName()} deleted a proposal.`, `/leads/${lead.id}`, 'lead', lead.id, 'lead_proposals');
         }
       }
+      return true;
     } catch (err) {
       setLeadProposals(prev);
       toast('error', 'Failed to delete proposal');
+      return false;
     }
   };
 
@@ -2083,7 +2115,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // Credential CRUD (encryption happens server-side via internal API routes)
   const addCredential = async (
     projectId: string,
-    data: { label: string; category: string; username: string; password: string; url: string; notes: string },
+    data: { label: string; category: string; fields: Record<string, string> },
   ): Promise<ProjectCredentialListItem | undefined> => {
     const optimisticId = crypto.randomUUID();
     const now = new Date().toISOString();
@@ -2122,14 +2154,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const updateCredential = async (
     id: string,
-    data: { label?: string; category?: string; username?: string; password?: string; url?: string; notes?: string },
+    data: { label?: string; category?: string; fields?: Record<string, string> },
   ) => {
     const prev = projectCredentials;
     const existing = projectCredentials.find(c => c.id === id);
     setProjectCredentials(creds =>
       creds.map(c => c.id === id ? { ...c, ...('label' in data ? { label: data.label! } : {}), ...('category' in data ? { category: data.category as CredentialCategory } : {}), updated_at: new Date().toISOString() } : c),
     );
-    if (skipSupabase) return;
+    if (skipSupabase) return true;
 
     try {
       const res = await fetch(`/api/credentials/${id}/update`, {
@@ -2144,9 +2176,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const project = projects.find(p => p.id === existing.project_id);
         notify(allMemberIds(), 'Credential updated', `${actorName()} updated a credential in "${project?.name || 'project'}".`, `/projects/${existing.project_id}`, 'project', existing.project_id, 'portal_settings');
       }
+      return true;
     } catch {
       setProjectCredentials(prev);
       toast('error', 'Failed to update credential');
+      return false;
     }
   };
 
@@ -2257,6 +2291,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const getEntityFiles = (entityType: EntityFileType, entityId: string) =>
     entityFiles.filter(ef => ef.entity_type === entityType && ef.entity_id === entityId);
 
+  // Budget alert evaluation (threshold emails) runs server-side. The v1 API
+  // routes call it directly; dashboard time-entry mutations trigger it here.
+  // Fire-and-forget: alert failures must never surface in the timer UI.
+  const triggerBudgetAlerts = (projectId: string) => {
+    fetch(`/api/projects/${projectId}/budget-alerts`, { method: 'POST' })
+      .then(() => setCommsRefreshSignal(s => s + 1))
+      .catch(() => {});
+  };
+
   // Time Entry CRUD
   const addTimeEntry = async (entry: Omit<TimeEntry, 'id' | 'created_at' | 'updated_at'>) => {
     const optimisticId = crypto.randomUUID();
@@ -2276,6 +2319,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setTimeEntries(prev => prev.map(te => te.id === optimisticId ? created : te));
       const project = projects.find(p => p.id === entry.project_id);
       notify(allMemberIds(), `Time logged on "${project?.name || 'project'}"`, `${actorName()} logged time.`, `/projects/${entry.project_id}`, 'project', entry.project_id, 'time_entries');
+      triggerBudgetAlerts(entry.project_id);
     } catch (err) {
       setTimeEntries(prev => prev.filter(te => te.id !== optimisticId));
       toast('error', 'Failed to add time entry');
@@ -2300,6 +2344,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const project = projects.find(p => p.id === existing.project_id);
         notify(allMemberIds(), `Time entry updated on "${project?.name || 'project'}"`, `${actorName()} updated a time entry.`, `/projects/${existing.project_id}`, 'project', existing.project_id, 'time_entries');
       }
+      // Only time fields can move budget usage; description edits (debounced
+      // while typing) must not trigger a server-side evaluation each keystroke
+      const affectsBudget = 'segments' in updates || 'start_time' in updates || 'end_time' in updates;
+      if (existing && affectsBudget) triggerBudgetAlerts(existing.project_id);
     } catch (err) {
       setTimeEntries(prev);
       toast('error', 'Failed to update time entry');
@@ -2523,14 +2571,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     taskOverrides: { priority?: string; assigned_to?: string | null; due_date?: string | null; project_id?: string; task_type?: string | null; ai_managed?: boolean },
     reviewedBy: string
   ) => {
-    const prevSuggestions = taskSuggestions;
     const suggestion = taskSuggestions.find(s => s.id === id);
-    if (!suggestion) return;
+    if (!suggestion) return false;
 
     setTaskSuggestions(s => s.map(sug =>
       sug.id === id ? { ...sug, status: 'approved' as const, reviewed_by: reviewedBy, reviewed_at: new Date().toISOString() } : sug
     ));
-    if (skipSupabase) return;
+    if (skipSupabase) return true;
 
     try {
       const { ai_managed, ...overrides } = taskOverrides;
@@ -2540,20 +2587,32 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       // Notify all members that a suggestion was approved
       notify(adminMemberIds(), `Suggestion "${suggestion.title}" approved`, `${actorName()} approved the suggestion and created a task.`, null, 'suggestion', id, 'agent_suggestions');
+      return true;
     } catch (err) {
-      setTaskSuggestions(prevSuggestions);
+      if (err instanceof Error && err.message === 'Suggestion has already been reviewed') {
+        // Lost a review race: sync this row to the server's actual state
+        // instead of reverting to a phantom pending suggestion
+        const { data } = await supabase.from('task_suggestions').select('*').eq('id', id).maybeSingle();
+        if (data) setTaskSuggestions(s => s.map(sug => sug.id === id ? data as TaskSuggestion : sug));
+        toast('error', 'This suggestion was already reviewed by someone else');
+        return false;
+      }
+      // Revert only this suggestion; a mid-batch failure must not undo
+      // the optimistic state of other suggestions in a bulk approve
+      setTaskSuggestions(s => s.map(sug => sug.id === id ? suggestion : sug));
       toast('error', 'Failed to approve suggestion');
+      return false;
     }
   };
 
   const rejectSuggestionAction = async (id: string, reason: string | undefined, reviewedBy: string) => {
-    const prev = taskSuggestions;
     const suggestion = taskSuggestions.find(s => s.id === id);
+    if (!suggestion) return false;
 
     setTaskSuggestions(s => s.map(sug =>
       sug.id === id ? { ...sug, status: 'rejected' as const, reviewed_by: reviewedBy, reviewed_at: new Date().toISOString(), rejection_reason: reason || null } : sug
     ));
-    if (skipSupabase) return;
+    if (skipSupabase) return true;
 
     try {
       const updated = await rejectTaskSuggestionQuery(supabase, id, reason, reviewedBy);
@@ -2578,9 +2637,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (suggestion) {
         notify(adminMemberIds(), `Suggestion "${suggestion.title}" rejected`, reason ? `Reason: ${reason}` : `${actorName()} rejected the suggestion.`, null, 'suggestion', id, 'agent_suggestions');
       }
+      return true;
     } catch (err) {
-      setTaskSuggestions(prev);
+      if (err instanceof Error && err.message === 'Suggestion has already been reviewed') {
+        // Lost a review race: sync this row to the server's actual state
+        const { data } = await supabase.from('task_suggestions').select('*').eq('id', id).maybeSingle();
+        if (data) setTaskSuggestions(s => s.map(sug => sug.id === id ? data as TaskSuggestion : sug));
+        toast('error', 'This suggestion was already reviewed by someone else');
+        return false;
+      }
+      // Revert only this suggestion so bulk rejects don't undo earlier items
+      setTaskSuggestions(s => s.map(sug => sug.id === id ? suggestion : sug));
       toast('error', 'Failed to reject suggestion');
+      return false;
     }
   };
 
@@ -2639,15 +2708,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   const bulkApproveSuggestionsAction = async (ids: string[]) => {
+    let succeeded = 0;
     for (const id of ids) {
-      await approveSuggestionAction(id, {}, teamMemberId || '');
+      if (await approveSuggestionAction(id, {}, teamMemberId || '')) succeeded++;
     }
+    return succeeded;
   };
 
   const bulkRejectSuggestionsAction = async (ids: string[], reason?: string) => {
+    let succeeded = 0;
     for (const id of ids) {
-      await rejectSuggestionAction(id, reason, teamMemberId || '');
+      if (await rejectSuggestionAction(id, reason, teamMemberId || '')) succeeded++;
     }
+    return succeeded;
   };
 
   // Agent helpers
@@ -2816,6 +2889,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       deleteProject,
       addTask,
       updateTask,
+      reorderTasks,
       deleteTask,
       addSubtask,
       toggleSubtask,

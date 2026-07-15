@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import nodemailer from 'nodemailer';
-import { createClient } from '@/lib/supabase/server';
+import { requireAdmin } from '@/lib/api/require-admin';
 import { encrypt, decrypt, isSmtpEncryptionConfigured } from '@/lib/email/crypto';
 import type { SmtpAccount, SmtpAccountSafe } from '@/lib/email/types';
 
@@ -15,9 +15,9 @@ function toSafe(account: SmtpAccount): SmtpAccountSafe {
 
 export async function PUT(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const supabase = await createClient();
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
-  if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await requireAdmin();
+  if (auth.error) return auth.error;
+  const { supabase } = auth;
 
   if (!isSmtpEncryptionConfigured()) {
     return NextResponse.json({ error: 'SMTP encryption is not configured' }, { status: 400 });
@@ -116,9 +116,9 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
 
 export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const supabase = await createClient();
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
-  if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await requireAdmin();
+  if (auth.error) return auth.error;
+  const { supabase } = auth;
 
   // Fetch account to check if it exists and is the default
   const { data: account } = await supabase

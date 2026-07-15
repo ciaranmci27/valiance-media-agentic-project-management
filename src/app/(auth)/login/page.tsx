@@ -20,7 +20,11 @@ export default function LoginPage() {
   const supabase = createClient();
 
   useEffect(() => {
-    if (ENV_DEMO) {
+    // Skip the demo auto-redirect when the middleware just bounced us here
+    // (auth=required): the public demo flag is set but the server-side
+    // DEMO_MODE latch is not, so redirecting again would loop forever.
+    const bouncedByAuth = new URLSearchParams(window.location.search).has('auth');
+    if (ENV_DEMO && !bouncedByAuth) {
       router.replace('/dashboard');
     }
   }, [router]);

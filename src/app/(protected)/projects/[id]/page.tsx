@@ -42,7 +42,7 @@ export default function ProjectDetailPage() {
   const {
     getProject, getTasksByProject, getTeamMember,
     getContactsByProject,
-    deleteTask, deleteProject, updateTask, updateProject, filters, setFilters,
+    deleteTask, deleteProject, updateTask, reorderTasks, updateProject, filters, setFilters,
   } = useApp();
 
   useEffect(() => { setFilters(defaultFilters); }, []);
@@ -129,47 +129,51 @@ export default function ProjectDetailPage() {
     setConfirmDelete({ type: 'task', id });
   };
 
+  // Recomputes sort_order for a status column after a drag. The drop index
+  // refers to the filtered (visible) list, but the whole unfiltered column is
+  // resequenced so hidden tasks keep a valid, stable position.
+  const reorderColumn = (taskId: string, status: Task['status'], visibleIndex: number) => {
+    const bySort = (a: Task, b: Task) => (a.sort_order ?? 0) - (b.sort_order ?? 0);
+    const task = allProjectTasks.find(t => t.id === taskId);
+    if (!task) return;
+
+    const visibleSiblings = projectTasks
+      .filter(t => t.id !== taskId && t.status === status)
+      .sort(bySort);
+    const allSiblings = allProjectTasks
+      .filter(t => t.id !== taskId && t.status === status)
+      .sort(bySort);
+
+    // Map the visible drop position onto the unfiltered column: insert before
+    // the visible task now at that position, or at the end of the column.
+    const clamped = Math.min(visibleIndex, visibleSiblings.length);
+    const anchor = visibleSiblings[clamped];
+    const insertAt = anchor ? allSiblings.findIndex(t => t.id === anchor.id) : allSiblings.length;
+    allSiblings.splice(insertAt, 0, task);
+
+    // Each element still carries its pre-drag sort_order, so only rows whose
+    // position actually changed are written
+    reorderTasks(
+      allSiblings
+        .map((t, idx) => ({ task: t, sort_order: idx }))
+        .filter(({ task: t, sort_order }) => (t.sort_order ?? 0) !== sort_order)
+        .map(({ task: t, sort_order }) => ({ id: t.id, sort_order }))
+    );
+  };
+
   const handleStatusChange = (taskId: string, newStatus: Task['status'], targetIndex?: number) => {
     updateTask(taskId, { status: newStatus });
 
     // If a drop position was specified, reorder within the target column
     if (targetIndex !== undefined) {
-      const targetSiblings = projectTasks
-        .filter(t => t.id !== taskId && t.status === newStatus)
-        .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
-
-      const task = projectTasks.find(t => t.id === taskId);
-      if (!task) return;
-
-      const clamped = Math.min(targetIndex, targetSiblings.length);
-      targetSiblings.splice(clamped, 0, task);
-
-      targetSiblings.forEach((t, idx) => {
-        if ((t.sort_order ?? 0) !== idx) {
-          updateTask(t.id, { sort_order: idx });
-        }
-      });
+      reorderColumn(taskId, newStatus, targetIndex);
     }
   };
 
   const handleReorder = (taskId: string, newIndex: number) => {
-    const task = projectTasks.find(t => t.id === taskId);
+    const task = allProjectTasks.find(t => t.id === taskId);
     if (!task) return;
-    const siblings = projectTasks
-      .filter(t => t.status === task.status)
-      .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
-
-    // Remove the dragged task and insert at new position
-    const filtered = siblings.filter(s => s.id !== taskId);
-    const clamped = Math.min(newIndex, filtered.length);
-    filtered.splice(clamped, 0, task);
-
-    // Reassign sequential sort_order, only update tasks that changed
-    filtered.forEach((t, idx) => {
-      if ((t.sort_order ?? 0) !== idx) {
-        updateTask(t.id, { sort_order: idx });
-      }
-    });
+    reorderColumn(taskId, task.status, newIndex);
   };
 
   const handleCloseTaskForm = () => {

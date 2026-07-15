@@ -39,3 +39,22 @@ export function toLocalDateString(timezone?: string): string {
   const { year, month, day } = getParts(new Date().toISOString(), timezone);
   return `${year}-${month}-${day}`;
 }
+
+/**
+ * Parses a date-only value ("YYYY-MM-DD", or the date part of an ISO
+ * datetime) as LOCAL midnight. `new Date("YYYY-MM-DD")` parses as UTC
+ * midnight, which renders a day early for viewers west of UTC; use this for
+ * due dates and any other date-only fields.
+ */
+export function parseDateOnly(value: string): Date {
+  const [datePart] = value.split('T');
+  const [y, m, d] = datePart.split('-').map(Number);
+  return new Date(y, (m || 1) - 1, d || 1);
+}
+
+/** Day-level check: true when the date-only value is before today (local). */
+export function isDateOverdue(value: string): boolean {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return parseDateOnly(value).getTime() < today.getTime();
+}

@@ -1,6 +1,6 @@
 import { withApi } from '@/lib/api/middleware';
 import { success } from '@/lib/api/response';
-import { updateCredentialSchema } from '@/lib/schemas/credentials';
+import { updateCredentialSchema, payloadFromBody } from '@/lib/schemas/credentials';
 import { notFound, badRequest } from '@/lib/api/errors';
 import { logAudit } from '@/lib/api/audit';
 import { encrypt, decrypt, isEncryptionConfigured } from '@/lib/api/encryption';
@@ -38,7 +38,8 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
   if (entry.label !== undefined) updates.label = entry.label;
   if (entry.category !== undefined) updates.category = entry.category;
 
-  const hasSecretFields = entry.username !== undefined || entry.password !== undefined || entry.url !== undefined || entry.notes !== undefined;
+  const providedFields = payloadFromBody(entry);
+  const hasSecretFields = Object.keys(providedFields).length > 0;
 
   if (!hasSecretFields && Object.keys(updates).length === 0) {
     return success(existing);
@@ -50,12 +51,8 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
     }
     const full = await fetchCredentialWithEncryptedData(supabase, credentialId, id);
     const current = await decrypt<CredentialPayload>(full.encrypted_data, full.iv);
-    const merged: CredentialPayload = {
-      username: entry.username ?? current.username,
-      password: entry.password ?? current.password,
-      url: entry.url ?? current.url,
-      notes: entry.notes ?? current.notes,
-    };
+    // Keys not present in the request are preserved
+    const merged: CredentialPayload = { ...current, ...providedFields };
     const { encrypted_data, iv } = await encrypt(merged);
     updates.encrypted_data = encrypted_data;
     updates.iv = iv;

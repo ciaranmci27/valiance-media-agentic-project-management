@@ -7,10 +7,11 @@ import {
   Lock, Loader2, FileText, Image, Archive, File, Download, Globe,
   CheckCircle2, Clock, AlertCircle, FolderOpen, Timer, Upload,
   Flag, Package, MessageCircle, Pin, ChevronDown, KeyRound, Eye, EyeOff, Plus, Pencil, ShieldCheck,
-  Receipt, FileDown, CircleDollarSign,
+  Receipt, FileDown, CircleDollarSign, Code, Terminal, Database, CreditCard, Landmark,
 } from 'lucide-react';
-import type { PortalData, PortalSectionKey } from '@/lib/types';
+import type { PortalData, PortalSectionKey, CredentialCategory } from '@/lib/types';
 import { DEFAULT_SECTION_ORDER } from '@/lib/types';
+import { CREDENTIAL_FIELDS, type CredentialFieldDef } from '@/lib/credential-fields';
 import { Logo } from '@/components/ui/Logo';
 import { Select } from '@/components/ui/Select';
 import { PinInput, type PinInputRef } from '@/components/ui/PinInput';
@@ -565,30 +566,25 @@ function UpdatesTimeline({ updates, accentColor, onPreview, onDownload }: {
 
 /* ── Portal Credential Form ─────────────────────── */
 
-const CREDENTIAL_CATEGORIES = [
-  { value: 'login', label: 'Login' },
-  { value: 'api_key', label: 'API Key' },
-  { value: 'ssh_key', label: 'SSH Key' },
-  { value: 'database', label: 'Database' },
-  { value: 'hosting', label: 'Hosting' },
-  { value: 'cms', label: 'CMS' },
-  { value: 'ftp', label: 'FTP' },
-  { value: 'dns', label: 'DNS' },
-  { value: 'email', label: 'Email' },
-  { value: 'other', label: 'Other' },
+// Each credential type collects its own fields (see lib/credential-fields.ts)
+const CREDENTIAL_CATEGORIES: { value: string; label: string; icon: typeof KeyRound }[] = [
+  { value: 'login', label: 'Login', icon: KeyRound },
+  { value: 'api_key', label: 'API Key', icon: Code },
+  { value: 'ssh_key', label: 'SSH Key', icon: Terminal },
+  { value: 'database', label: 'Database', icon: Database },
+  { value: 'credit_card', label: 'Credit Card', icon: CreditCard },
+  { value: 'ach', label: 'ACH / Bank', icon: Landmark },
 ];
 
 const CATEGORY_STYLE: Record<string, { bg: string; iconColor: string }> = {
-  login:    { bg: '#F5F3FF', iconColor: '#8B5CF6' },
-  api_key:  { bg: '#EFF6FF', iconColor: '#3B82F6' },
-  ssh_key:  { bg: '#ECFDF5', iconColor: '#10B981' },
-  database: { bg: '#FFFBEB', iconColor: '#F59E0B' },
-  hosting:  { bg: '#FEF2F2', iconColor: '#EF4444' },
-  cms:      { bg: '#ECFEFF', iconColor: '#06B6D4' },
-  ftp:      { bg: '#FFF7ED', iconColor: '#F97316' },
-  dns:      { bg: '#EEF2FF', iconColor: '#6366F1' },
-  email:    { bg: '#FDF2F8', iconColor: '#EC4899' },
-  other:    { bg: '#F4F4F5', iconColor: '#71717A' },
+  login:       { bg: '#F5F3FF', iconColor: '#8B5CF6' },
+  api_key:     { bg: '#EFF6FF', iconColor: '#3B82F6' },
+  ssh_key:     { bg: '#ECFDF5', iconColor: '#10B981' },
+  database:    { bg: '#FFFBEB', iconColor: '#F59E0B' },
+  credit_card: { bg: '#FEF2F2', iconColor: '#EF4444' },
+  ach:         { bg: '#F0FDFA', iconColor: '#14B8A6' },
+  // Fallback for rows created before the category consolidation
+  other:       { bg: '#F4F4F5', iconColor: '#71717A' },
 };
 
 type SubmittedCredential = PortalData['credentials_submitted'][number];
@@ -605,13 +601,27 @@ function CredentialFormView({ token, pin, accentColor, editingCredential, onDone
   const isEditing = editingCredential !== null;
   const [label, setLabel] = useState(editingCredential?.label ?? '');
   const [category, setCategory] = useState<string>(editingCredential?.category ?? 'login');
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [url, setUrl] = useState('');
-  const [notes, setNotes] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
+  const [fields, setFields] = useState<Record<string, string>>({});
+  const [visibleSecrets, setVisibleSecrets] = useState<Set<string>>(new Set());
   const [submitting, setSubmitting] = useState(false);
   const [loadingFields, setLoadingFields] = useState(isEditing);
+  // Whether the edit prefill actually loaded; if it failed we must not send
+  // blank values for fields the client never saw
+  const [prefillLoaded, setPrefillLoaded] = useState(!isEditing);
+
+  const fieldDefs: CredentialFieldDef[] =
+    CREDENTIAL_FIELDS[category as CredentialCategory] ?? CREDENTIAL_FIELDS.login;
+
+  const setField = (key: string, value: string) =>
+    setFields(prev => ({ ...prev, [key]: value }));
+
+  const toggleSecret = (key: string) =>
+    setVisibleSecrets(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
 
   const pinHeaders = (): Record<string, string> => {
     const h: Record<string, string> = {};
@@ -619,7 +629,8 @@ function CredentialFormView({ token, pin, accentColor, editingCredential, onDone
     return h;
   };
 
-  // Fetch existing field values when editing
+  // Fetch existing field values when editing (sensitive fields are never
+  // returned; leaving them blank keeps the stored values)
   useEffect(() => {
     if (!isEditing) return;
     let cancelled = false;
@@ -629,17 +640,32 @@ function CredentialFormView({ token, pin, accentColor, editingCredential, onDone
         if (!res.ok) throw new Error();
         const data = await res.json();
         if (cancelled) return;
-        setUsername(data.username || '');
-        setUrl(data.url || '');
-        setNotes(data.notes || '');
+        setFields(data.fields || {});
+        setPrefillLoaded(true);
       } catch {
-        // If fetch fails, fields stay empty — they can still re-enter
+        // If fetch fails, fields stay empty; they can still re-enter values
       } finally {
         if (!cancelled) setLoadingFields(false);
       }
     })();
     return () => { cancelled = true; };
   }, []);
+
+  // Only submit values for the active category (plus notes). In edit mode,
+  // blank sensitive fields are omitted so the stored secrets are preserved,
+  // and if the prefill failed, blank fields are omitted entirely so values
+  // the client never saw are not wiped.
+  const collectFields = (): Record<string, string> => {
+    const collected: Record<string, string> = {};
+    for (const def of fieldDefs) {
+      const value = (fields[def.key] ?? '').trim();
+      if (isEditing && !value && (def.sensitive || !prefillLoaded)) continue;
+      collected[def.key] = value;
+    }
+    const notes = (fields.notes ?? '').trim();
+    if (!isEditing || notes || prefillLoaded) collected.notes = notes;
+    return collected;
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -648,21 +674,17 @@ function CredentialFormView({ token, pin, accentColor, editingCredential, onDone
 
     try {
       if (isEditing) {
-        // Always send username, url, notes (pre-filled or edited).
-        // Only send password if the client typed one — otherwise omit to preserve existing.
-        const payload: Record<string, string | undefined> = {
-          label: label.trim(),
-          category,
-          username: username.trim(),
-          url: url.trim(),
-          notes: notes.trim(),
-        };
-        if (password) payload.password = password;
-
+        // Rows still on a pre-migration category keep it unless the client
+        // picks one of the current types
+        const categoryIsCurrent = CREDENTIAL_CATEGORIES.some(c => c.value === category);
         const res = await fetch(`/api/portal/${token}/credentials/${editingCredential.id}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json', ...pinHeaders() },
-          body: JSON.stringify(payload),
+          body: JSON.stringify({
+            label: label.trim(),
+            ...(categoryIsCurrent ? { category } : {}),
+            fields: collectFields(),
+          }),
         });
         if (!res.ok) throw new Error();
         const json = await res.json();
@@ -672,19 +694,20 @@ function CredentialFormView({ token, pin, accentColor, editingCredential, onDone
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...pinHeaders() },
           body: JSON.stringify({
-            label: label.trim(), category,
-            username: username.trim(), password: password.trim(),
-            url: url.trim(), notes: notes.trim(),
+            label: label.trim(),
+            category,
+            fields: collectFields(),
             submitted_by_name: '',
           }),
         });
         if (!res.ok) throw new Error();
+        const json = await res.json();
         onDone({
-          id: crypto.randomUUID(),
-          label: label.trim(),
-          category: category as SubmittedCredential['category'],
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
+          id: json.data.id,
+          label: json.data.label ?? label.trim(),
+          category: (json.data.category ?? category) as SubmittedCredential['category'],
+          created_at: json.data.created_at ?? new Date().toISOString(),
+          updated_at: json.data.updated_at ?? new Date().toISOString(),
         }, 'add');
       }
     } catch {
@@ -695,6 +718,72 @@ function CredentialFormView({ token, pin, accentColor, editingCredential, onDone
   };
 
   const inputClass = 'px-3 py-2.5 text-sm bg-zinc-50 border border-zinc-200 rounded-lg outline-none focus:border-zinc-400 focus:ring-2 focus:ring-zinc-100 transition-all placeholder:text-zinc-400';
+
+  const renderField = (def: CredentialFieldDef) => {
+    const value = fields[def.key] ?? '';
+    if (def.options) {
+      return (
+        <Select
+          value={value}
+          onChange={v => setField(def.key, v)}
+          options={def.options.map(o => ({ value: o, label: o }))}
+          placeholder={def.placeholder}
+        />
+      );
+    }
+    if (def.multiline) {
+      return (
+        <textarea
+          value={value}
+          onChange={e => setField(def.key, e.target.value)}
+          placeholder={def.placeholder}
+          rows={4}
+          autoComplete="off"
+          data-1p-ignore
+          data-lpignore="true"
+          className={`w-full resize-none font-mono text-xs ${inputClass}`}
+        />
+      );
+    }
+    if (def.sensitive) {
+      const visible = visibleSecrets.has(def.key);
+      return (
+        <div className="relative">
+          <input
+            type="text"
+            value={value}
+            onChange={e => setField(def.key, e.target.value)}
+            placeholder={isEditing ? `${def.label} (leave blank to keep current)` : def.placeholder}
+            autoComplete="off"
+            data-1p-ignore
+            data-lpignore="true"
+            style={visible ? undefined : { WebkitTextSecurity: 'disc' } as React.CSSProperties}
+            className={`w-full pr-10 ${inputClass}`}
+          />
+          <button
+            type="button"
+            onClick={() => toggleSecret(def.key)}
+            aria-label={visible ? `Hide ${def.label}` : `Show ${def.label}`}
+            className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1.5 rounded-md text-zinc-400 hover:text-zinc-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-zinc-400"
+          >
+            {visible ? <EyeOff size={14} /> : <Eye size={14} />}
+          </button>
+        </div>
+      );
+    }
+    return (
+      <input
+        type="text"
+        value={value}
+        onChange={e => setField(def.key, e.target.value)}
+        placeholder={def.placeholder}
+        autoComplete="off"
+        data-1p-ignore
+        data-lpignore="true"
+        className={`w-full ${inputClass}`}
+      />
+    );
+  };
 
   return (
     <div style={{ animation: 'portalFadeUp 0.2s ease both' }}>
@@ -717,36 +806,46 @@ function CredentialFormView({ token, pin, accentColor, editingCredential, onDone
         </div>
       ) : (
         <form onSubmit={handleSubmit} className="space-y-3">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <input autoFocus type="text" value={label} onChange={e => setLabel(e.target.value)} placeholder="Name (e.g. Email Login)" required className={inputClass} />
-            <Select value={category} onChange={v => setCategory(v)} options={CREDENTIAL_CATEGORIES} />
+          {/* Type selector; each type collects its own fields */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+            {CREDENTIAL_CATEGORIES.map(cat => {
+              const TypeIcon = cat.icon;
+              const selected = category === cat.value;
+              return (
+                <button
+                  key={cat.value}
+                  type="button"
+                  onClick={() => setCategory(cat.value)}
+                  aria-pressed={selected}
+                  className={`flex items-center gap-1.5 px-2.5 py-2 rounded-lg border text-xs font-medium transition-all ${
+                    selected ? 'text-zinc-900 bg-white shadow-sm' : 'border-zinc-200 bg-zinc-50/50 text-zinc-500 hover:text-zinc-700 hover:border-zinc-300'
+                  }`}
+                  style={selected ? { borderColor: accentColor, boxShadow: `0 0 0 1px ${accentColor}66, 0 1px 2px rgba(0,0,0,0.05)` } : undefined}
+                >
+                  <TypeIcon size={13} style={selected ? { color: accentColor } : undefined} className={selected ? undefined : 'text-zinc-400'} />
+                  <span className="truncate">{cat.label}</span>
+                </button>
+              );
+            })}
           </div>
-          <input type="text" value={username} onChange={e => setUsername(e.target.value)} placeholder="Username" autoComplete="off" data-1p-ignore data-lpignore="true" className={`w-full ${inputClass}`} />
-          <div>
-            <div className="relative">
-              <input
-                type="text"
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                placeholder={isEditing ? 'Enter new password to replace' : 'Password / Secret'}
-                autoComplete="off"
-                data-1p-ignore
-                data-lpignore="true"
-                style={showPassword ? undefined : { WebkitTextSecurity: 'disc' } as React.CSSProperties}
-                className={`w-full pr-10 ${inputClass}`}
-              />
-              <button type="button" onClick={() => setShowPassword(v => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600">
-                {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
-              </button>
-            </div>
-            {isEditing && (
-              <p className="text-[11px] text-zinc-400 mt-1 ml-0.5">
-                {password ? 'This will replace the existing password.' : 'Leave blank to keep your current password.'}
-              </p>
-            )}
+
+          <input autoFocus={!isEditing} type="text" value={label} onChange={e => setLabel(e.target.value)} placeholder="Name (e.g. Email Login)" required className={`w-full ${inputClass}`} />
+
+          {/* Type-specific fields; half-width fields pair up */}
+          <div className="grid grid-cols-2 gap-3">
+            {fieldDefs.map(def => (
+              <div key={def.key} className={def.half ? 'col-span-1' : 'col-span-2'}>
+                {renderField(def)}
+              </div>
+            ))}
           </div>
-          <input type="text" value={url} onChange={e => setUrl(e.target.value)} placeholder="URL (optional)" className={`w-full ${inputClass}`} />
-          <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Notes (optional)" rows={2} className={`w-full resize-none ${inputClass}`} />
+          {isEditing && fieldDefs.some(d => d.sensitive) && (
+            <p className="text-[11px] text-zinc-400 ml-0.5">
+              Secret fields are hidden for your security. Leave them blank to keep the current values.
+            </p>
+          )}
+
+          <textarea value={fields.notes ?? ''} onChange={e => setField('notes', e.target.value)} placeholder="Notes (optional)" rows={2} className={`w-full resize-none ${inputClass}`} />
           <div className="flex items-center gap-2 justify-end pt-1">
             <button type="button" onClick={onCancel} className="px-4 py-2.5 text-sm font-medium text-zinc-500 hover:text-zinc-700 transition-colors">
               Cancel
@@ -820,7 +919,9 @@ function PortalCredentialForm({ token, pin, accentColor, credentialsSubmitted }:
             <div className="space-y-3">
               {localCredentials.map(cred => {
                 const catStyle = CATEGORY_STYLE[cred.category] || CATEGORY_STYLE.other;
-                const catLabel = CREDENTIAL_CATEGORIES.find(c => c.value === cred.category)?.label || cred.category;
+                const catMeta = CREDENTIAL_CATEGORIES.find(c => c.value === cred.category);
+                const catLabel = catMeta?.label || cred.category;
+                const CatIcon = catMeta?.icon || KeyRound;
                 return (
                   <div
                     key={cred.id}
@@ -831,7 +932,7 @@ function PortalCredentialForm({ token, pin, accentColor, credentialsSubmitted }:
                         className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
                         style={{ backgroundColor: catStyle.bg }}
                       >
-                        <KeyRound size={15} style={{ color: catStyle.iconColor }} />
+                        <CatIcon size={15} style={{ color: catStyle.iconColor }} />
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-zinc-800 truncate">{cred.label}</p>
@@ -1055,6 +1156,9 @@ function PortalPageInner() {
     setError(null);
     setPinError(false);
 
+    // Reuse a previously validated PIN so a reload doesn't force re-entry
+    const effectivePin = pinValue || sessionStorage.getItem(`portal-pin-${token}`) || undefined;
+
     try {
       const isDemo = localStorage.getItem('valiance-demo-mode') === 'true' || process.env.NEXT_PUBLIC_DEMO_MODE === 'true';
       const params = new URLSearchParams();
@@ -1063,13 +1167,15 @@ function PortalPageInner() {
       const url = `/api/portal/${token}${qs ? `?${qs}` : ''}`;
 
       const headers: Record<string, string> = {};
-      if (pinValue) headers['x-portal-pin'] = pinValue;
+      if (effectivePin) headers['x-portal-pin'] = effectivePin;
       if (sessionId.current) headers['x-portal-session-id'] = sessionId.current;
       const res = await fetch(url, { headers });
 
       if (res.status === 401) {
         const body = await res.json();
         if (body.pin_required) {
+          // A stored PIN that no longer works is stale; drop it silently
+          if (!pinValue && effectivePin) sessionStorage.removeItem(`portal-pin-${token}`);
           setPinRequired(true);
           if (body.branding) setBranding(body.branding);
           if (pinValue) {
@@ -1101,8 +1207,8 @@ function PortalPageInner() {
       setData(portalData);
       setPinRequired(false);
 
-      if (pinValue) {
-        sessionStorage.setItem(`portal-pin-${token}`, pinValue);
+      if (effectivePin) {
+        sessionStorage.setItem(`portal-pin-${token}`, effectivePin);
       }
     } catch {
       setError('Failed to load portal. Please check your connection.');

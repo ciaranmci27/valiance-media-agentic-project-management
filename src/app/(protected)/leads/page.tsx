@@ -37,10 +37,10 @@ export default function LeadsPage() {
     setDeletingLeadId(id);
   };
 
-  const executeDelete = () => {
+  const executeDelete = async () => {
     if (!deletingLeadId) return;
-    deleteLead(deletingLeadId);
-    toast('success', 'Lead deleted');
+    const ok = await deleteLead(deletingLeadId);
+    if (ok) toast('success', 'Lead deleted');
   };
 
   const handleCloseForm = () => {

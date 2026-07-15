@@ -917,20 +917,10 @@ export async function approveCommunication(
     return { success: false, error: 'Email is missing a subject or body' };
   }
 
-  const sendRes = await sendTransactional({
-    to: finalRecipients.to,
-    cc: finalRecipients.cc.length ? finalRecipients.cc : undefined,
-    bcc: finalRecipients.bcc.length ? finalRecipients.bcc : undefined,
-    subject,
-    html,
-    text: text || undefined,
-  });
-  if (!sendRes.success) return { success: false, error: sendRes.error || 'Send failed' };
-
-  // CAS on status='pending' so a racing dismiss can't leave this row in a
-  // half-dismissed / half-sent state. The pre-read check at line 868 is not
-  // enough on its own because a dismiss can land between read and write.
-  await supabase
+  // Claim the row BEFORE sending (CAS on status='pending') so a concurrent
+  // approval or dismiss can't race this one into a double-send. The loser of
+  // the race matches 0 rows and bails without emailing the client.
+  const { data: claimed, error: claimError } = await supabase
     .from('client_communications')
     .update({
       status: 'sent',
@@ -943,7 +933,32 @@ export async function approveCommunication(
       sent_at: new Date().toISOString(),
     })
     .eq('id', commId)
-    .eq('status', 'pending');
+    .eq('status', 'pending')
+    .select('id')
+    .maybeSingle();
+
+  // A DB error is retryable; only report "not pending" when the CAS genuinely
+  // matched zero rows (someone else approved or dismissed first).
+  if (claimError) return { success: false, error: claimError.message };
+  if (!claimed) return { success: false, error: 'Communication is not pending' };
+
+  const sendRes = await sendTransactional({
+    to: finalRecipients.to,
+    cc: finalRecipients.cc.length ? finalRecipients.cc : undefined,
+    bcc: finalRecipients.bcc.length ? finalRecipients.bcc : undefined,
+    subject,
+    html,
+    text: text || undefined,
+  });
+  if (!sendRes.success) {
+    // Release the claim so the approval can be retried
+    await supabase
+      .from('client_communications')
+      .update({ status: 'pending', sent_at: null, triggered_by: null })
+      .eq('id', commId)
+      .eq('status', 'sent');
+    return { success: false, error: sendRes.error || 'Send failed' };
+  }
 
   return { success: true, communicationId: commId };
 }

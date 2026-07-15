@@ -13,8 +13,10 @@ function isPublicRoute(pathname: string) {
 }
 
 export async function updateSession(request: NextRequest) {
-  // In env-forced demo mode, skip all auth checks
-  if (process.env.NEXT_PUBLIC_DEMO_MODE === 'true') {
+  // In env-forced demo mode, skip all auth checks. Requires the server-only
+  // DEMO_MODE flag in addition to the public one, so a mis-set public env var
+  // can never disable auth on a real deployment.
+  if (process.env.NEXT_PUBLIC_DEMO_MODE === 'true' && process.env.DEMO_MODE === 'true') {
     return NextResponse.next();
   }
 
@@ -53,10 +55,15 @@ export async function updateSession(request: NextRequest) {
     // If auth check fails, treat as unauthenticated
   }
 
-  // Redirect unauthenticated users to /login (except auth routes)
+  // Redirect unauthenticated users to /login (except auth routes). The
+  // auth=required marker tells the login page not to auto-redirect back to
+  // /dashboard when the public demo flag is set but the server-side DEMO_MODE
+  // latch is not (otherwise a mis-set NEXT_PUBLIC_DEMO_MODE causes a loop).
   if (!user && !isPublicRoute(request.nextUrl.pathname)) {
     const url = request.nextUrl.clone();
     url.pathname = '/login';
+    url.search = '';
+    url.searchParams.set('auth', 'required');
     return NextResponse.redirect(url);
   }
 

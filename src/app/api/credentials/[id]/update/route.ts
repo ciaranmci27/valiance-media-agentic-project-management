@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { encrypt, decrypt, isEncryptionConfigured } from '@/lib/api/encryption';
-import { updateCredentialSchema } from '@/lib/schemas/credentials';
+import { updateCredentialSchema, payloadFromBody } from '@/lib/schemas/credentials';
 import { fetchCredentialWithEncryptedData, patchProjectCredential } from '@/lib/supabase/queries';
 import type { CredentialPayload } from '@/lib/types';
 
@@ -34,8 +34,9 @@ export async function PATCH(
     return NextResponse.json({ error: 'Validation failed', details: parsed.error.flatten().fieldErrors }, { status: 422 });
   }
 
-  const { label, category, username, password, url, notes } = parsed.data;
-  const hasSecretFields = username !== undefined || password !== undefined || url !== undefined || notes !== undefined;
+  const { label, category } = parsed.data;
+  const providedFields = payloadFromBody(parsed.data);
+  const hasSecretFields = Object.keys(providedFields).length > 0;
 
   try {
     const updates: Record<string, any> = {};
@@ -43,16 +44,12 @@ export async function PATCH(
     if (category !== undefined) updates.category = category;
 
     if (hasSecretFields) {
-      // Decrypt current values, merge with updates, re-encrypt
+      // Decrypt current values, merge with updates, re-encrypt.
+      // Keys not present in the request are preserved.
       const existing = await fetchCredentialWithEncryptedData(supabase, id);
       const current = await decrypt<CredentialPayload>(existing.encrypted_data, existing.iv);
 
-      const merged: CredentialPayload = {
-        username: username ?? current.username,
-        password: password ?? current.password,
-        url: url ?? current.url,
-        notes: notes ?? current.notes,
-      };
+      const merged: CredentialPayload = { ...current, ...providedFields };
 
       const { encrypted_data, iv } = await encrypt(merged);
       updates.encrypted_data = encrypted_data;

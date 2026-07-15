@@ -134,8 +134,9 @@ Open-source agentic project management software. Manage projects, track leads, c
 To try the app without a database, set:
 ```
 NEXT_PUBLIC_DEMO_MODE=true
+DEMO_MODE=true
 ```
-This loads sample data in-memory. Nothing persists.
+This loads sample data in-memory. Nothing persists. Both flags are required: the server-only `DEMO_MODE` acts as a safety latch so a stray public env var cannot disable auth on a real deployment.
 
 ### Enabling Agentic Features
 

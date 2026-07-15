@@ -1,6 +1,6 @@
 import { withApi } from '@/lib/api/middleware';
 import { paginated, created } from '@/lib/api/response';
-import { createCredentialSchema } from '@/lib/schemas/credentials';
+import { createCredentialSchema, payloadFromBody } from '@/lib/schemas/credentials';
 import { notFound, badRequest } from '@/lib/api/errors';
 import { logAudit } from '@/lib/api/audit';
 import { parsePagination } from '@/lib/api/pagination';
@@ -38,12 +38,7 @@ export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMembe
     throw badRequest('Encryption not configured. Set PROJECT_CREDENTIALS_ENCRYPTION_KEY in your environment.');
   }
 
-  const payload: CredentialPayload = {
-    username: entry.username,
-    password: entry.password,
-    url: entry.url,
-    notes: entry.notes,
-  };
+  const payload: CredentialPayload = payloadFromBody(entry);
   const { encrypted_data, iv } = await encrypt(payload);
 
   const credential = await insertProjectCredential(supabase, {

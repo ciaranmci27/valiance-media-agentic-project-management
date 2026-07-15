@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { Download, Pencil } from 'lucide-react';
 import { marked } from 'marked';
+import DOMPurify from 'dompurify';
 import Modal from '@/components/ui/Modal';
 
 const MARKDOWN_STYLES = `<style>
@@ -264,7 +265,7 @@ export function FilePreviewModal({ isOpen, onClose, file, onEdit }: FilePreviewM
       return (
         <iframe
           srcDoc={content}
-          sandbox="allow-scripts allow-same-origin"
+          sandbox="allow-scripts"
           className="w-full h-[70vh] rounded-lg border border-zinc-200"
           title={file.name}
         />
@@ -272,7 +273,7 @@ export function FilePreviewModal({ isOpen, onClose, file, onEdit }: FilePreviewM
     }
 
     if (isMarkdown && content !== null) {
-      const html = marked.parse(content, { async: false }) as string;
+      const html = DOMPurify.sanitize(marked.parse(content, { async: false }) as string);
       const styledHtml = MARKDOWN_STYLES + html;
       return (
         <div className="max-h-[70vh] overflow-auto rounded-lg border border-zinc-200 bg-white">

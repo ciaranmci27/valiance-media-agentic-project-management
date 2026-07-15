@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { encrypt, isEncryptionConfigured } from '@/lib/api/encryption';
-import { createCredentialSchema } from '@/lib/schemas/credentials';
+import { createCredentialSchema, payloadFromBody } from '@/lib/schemas/credentials';
 import { insertProjectCredential } from '@/lib/supabase/queries';
 import type { CredentialPayload } from '@/lib/types';
 
@@ -35,9 +35,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Validation failed', details: parsed.error.flatten().fieldErrors }, { status: 422 });
   }
 
-  const { label, category, username, password, url, notes } = parsed.data;
+  const { label, category } = parsed.data;
 
-  const payload: CredentialPayload = { username, password, url, notes };
+  const payload: CredentialPayload = payloadFromBody(parsed.data);
   const { encrypted_data, iv } = await encrypt(payload);
 
   const credential = await insertProjectCredential(supabase, {

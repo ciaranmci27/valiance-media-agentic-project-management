@@ -9,6 +9,7 @@ import { StatusBadge } from '@/components/ui/Badge';
 import { AvatarGroup } from '@/components/ui/Avatar';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { useState } from 'react';
+import { parseDateOnly } from '@/lib/date-utils';
 
 interface ProjectCardProps {
   project: Project;
@@ -34,7 +35,7 @@ export function ProjectCard({ project, onEdit, onDelete }: ProjectCardProps) {
 
   const formatDate = (date: string | null) => {
     if (!date) return null;
-    return new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    return parseDateOnly(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   };
 
   return (

@@ -1,7 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
-import { updateCredentialSchema } from '@/lib/schemas/credentials';
+import { updateCredentialSchema, payloadFromBody } from '@/lib/schemas/credentials';
 import { encrypt, decrypt, isEncryptionConfigured } from '@/lib/api/encryption';
+import { isSensitiveKey } from '@/lib/credential-fields';
 import type { CredentialPayload } from '@/lib/types';
 
 function getServiceClient() {
@@ -56,11 +57,19 @@ export async function GET(
 
   const decrypted = await decrypt<CredentialPayload>(credential.encrypted_data, credential.iv);
 
-  // Return everything EXCEPT password
+  // Return everything EXCEPT sensitive fields (passwords, keys, card/account
+  // numbers). Clients re-enter those if they want to change them.
+  const fields: Record<string, string> = {};
+  for (const [key, value] of Object.entries(decrypted)) {
+    if (!isSensitiveKey(key)) fields[key] = value;
+  }
   return NextResponse.json({
-    username: decrypted.username,
-    url: decrypted.url,
-    notes: decrypted.notes,
+    fields,
+    // Transitional: portal bundles loaded before this deploy read these flat
+    // keys; without them a stale tab would prefill blanks and save them back
+    username: fields.username ?? '',
+    url: fields.url ?? '',
+    notes: fields.notes ?? '',
   });
 }
 
@@ -132,23 +141,19 @@ export async function PATCH(
     return NextResponse.json({ error: 'Validation failed', details: parsed.error.flatten().fieldErrors }, { status: 422 });
   }
 
-  const { label, category, username, password, url, notes } = parsed.data;
-  const hasSecretFields = username !== undefined || password !== undefined || url !== undefined || notes !== undefined;
+  const { label, category } = parsed.data;
+  const providedFields = payloadFromBody(parsed.data);
+  const hasSecretFields = Object.keys(providedFields).length > 0;
 
   const updates: Record<string, any> = {};
   if (label !== undefined) updates.label = label;
   if (category !== undefined) updates.category = category;
 
   if (hasSecretFields) {
-    // Decrypt current, merge, re-encrypt
+    // Decrypt current, merge, re-encrypt. Sensitive keys the client left
+    // blank are omitted from the request and therefore preserved.
     const current = await decrypt<CredentialPayload>(credential.encrypted_data, credential.iv);
-
-    const merged: CredentialPayload = {
-      username: username ?? current.username,
-      password: password ?? current.password,
-      url: url ?? current.url,
-      notes: notes ?? current.notes,
-    };
+    const merged: CredentialPayload = { ...current, ...providedFields };
 
     const { encrypted_data, iv } = await encrypt(merged);
     updates.encrypted_data = encrypted_data;

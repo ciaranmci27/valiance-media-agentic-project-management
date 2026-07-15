@@ -17,6 +17,7 @@ import {
   Edit, Trash2, MoreVertical,
 } from 'lucide-react';
 import { Task } from '@/lib/types';
+import { parseDateOnly } from '@/lib/date-utils';
 
 type SortField = 'due_date' | 'priority' | 'status' | 'project' | 'updated_at';
 type FilterTab = 'all' | 'active' | 'overdue';
@@ -50,9 +51,7 @@ export default function MyTasksPage() {
     } else if (filterTab === 'overdue') {
       result = result.filter(t => {
         if (!t.due_date || t.status === 'done') return false;
-        const due = new Date(t.due_date);
-        due.setHours(0, 0, 0, 0);
-        return due < today;
+        return parseDateOnly(t.due_date) < today;
       });
     }
 
@@ -66,7 +65,7 @@ export default function MyTasksPage() {
           if (!a.due_date && !b.due_date) return 0;
           if (!a.due_date) return 1;
           if (!b.due_date) return -1;
-          return new Date(a.due_date).getTime() - new Date(b.due_date).getTime();
+          return parseDateOnly(a.due_date).getTime() - parseDateOnly(b.due_date).getTime();
         }
         case 'project':
           return (a.project_id || '').localeCompare(b.project_id || '');
@@ -84,9 +83,7 @@ export default function MyTasksPage() {
 
   const overdueCount = myTasks.filter(t => {
     if (!t.due_date || t.status === 'done') return false;
-    const due = new Date(t.due_date);
-    due.setHours(0, 0, 0, 0);
-    return due < today;
+    return parseDateOnly(t.due_date) < today;
   }).length;
 
   const activeCount = myTasks.filter(t => t.status !== 'done').length;
@@ -108,11 +105,10 @@ export default function MyTasksPage() {
 
   const formatDueDate = (date: string | null) => {
     if (!date) return null;
-    const d = new Date(date);
-    const isOverdue = d < today;
+    const d = parseDateOnly(date);
     return {
       text: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-      isOverdue: isOverdue && true,
+      isOverdue: d < today,
     };
   };
 

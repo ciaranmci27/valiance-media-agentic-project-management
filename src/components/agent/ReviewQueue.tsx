@@ -26,7 +26,7 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
   const {
     taskSuggestions, projects, projectGoals, team,
     rejectSuggestion, requestInfoOnSuggestion, updateSuggestion,
-    bulkApproveSuggestions,
+    bulkApproveSuggestions, bulkRejectSuggestions,
   } = useApp();
   const { teamMemberId } = useAuth();
   const router = useRouter();
@@ -134,11 +134,11 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
     });
   };
 
-  const handleReject = (id: string) => {
-    rejectSuggestion(id, rejectReason || undefined, teamMemberId || '');
+  const handleReject = async (id: string) => {
     setRejectInputId(null);
     setRejectReason('');
-    toast('success', 'Suggestion rejected');
+    const ok = await rejectSuggestion(id, rejectReason || undefined, teamMemberId || '');
+    if (ok) toast('success', 'Suggestion rejected');
   };
 
   const handleRequestInfo = (id: string) => {
@@ -154,10 +154,11 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
     toast('success', 'Suggestion reopened');
   };
 
-  const handleBulkApprove = () => {
-    bulkApproveSuggestions([...selectedIds]);
+  const handleBulkApprove = async () => {
+    const ids = [...selectedIds];
     setSelectedIds(new Set());
-    toast('success', `Approved ${selectedIds.size} suggestion(s)`);
+    const approved = await bulkApproveSuggestions(ids);
+    if (approved > 0) toast('success', `Approved ${approved} suggestion(s)`);
   };
 
   const formatTime = (ts: string) => {
@@ -675,13 +676,12 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
             Approve All
           </button>
           <button
-            onClick={() => {
-              for (const id of selectedIds) {
-                rejectSuggestion(id, undefined, teamMemberId || '');
-              }
-              toast('success', `Rejected ${selectedIds.size} suggestion(s)`);
+            onClick={async () => {
+              const ids = [...selectedIds];
               setSelectedIds(new Set());
               setShowBulkModal(false);
+              const rejected = await bulkRejectSuggestions(ids);
+              if (rejected > 0) toast('success', `Rejected ${rejected} suggestion(s)`);
             }}
             className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-sm font-medium text-red-600 bg-red-50 hover:bg-red-100 transition-colors"
           >

@@ -4,6 +4,7 @@ import { useState, useMemo } from 'react';
 import { Task } from '@/lib/types';
 import { TaskRow, TaskRowDesktop } from '@/components/tasks/TaskRow';
 import { LayoutGrid, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react';
+import { parseDateOnly } from '@/lib/date-utils';
 
 type SortField = 'title' | 'priority' | 'due_date' | 'subtasks' | 'comments' | 'status';
 type SortDir = 'asc' | 'desc';
@@ -52,7 +53,7 @@ export function ListView({ tasks, onViewTask, onEditTask, onDeleteTask, selected
           if (!a.due_date && !b.due_date) cmp = 0;
           else if (!a.due_date) cmp = 1;
           else if (!b.due_date) cmp = -1;
-          else cmp = new Date(a.due_date).getTime() - new Date(b.due_date).getTime();
+          else cmp = parseDateOnly(a.due_date).getTime() - parseDateOnly(b.due_date).getTime();
           break;
         }
         case 'subtasks': {

@@ -10,6 +10,7 @@ import { TaskForm } from '@/components/tasks/TaskForm';
 import Link from 'next/link';
 import Modal from '@/components/ui/Modal';
 import { FolderKanban, CheckCircle, Clock, AlertTriangle, Plus, ArrowRight, TrendingUp, Calendar, Users, Target, UserCircle, Activity } from 'lucide-react';
+import { parseDateOnly } from '@/lib/date-utils';
 
 function getTimeAgo(dateStr: string): string {
   const now = new Date();
@@ -44,16 +45,13 @@ export default function DashboardPage() {
 
   const dueThisWeek = tasks.filter(t => {
     if (!t.due_date || t.status === 'done') return false;
-    const due = new Date(t.due_date);
-    due.setHours(0, 0, 0, 0);
+    const due = parseDateOnly(t.due_date);
     return due >= today && due <= thisWeek;
   });
 
   const overdue = tasks.filter(t => {
     if (!t.due_date || t.status === 'done') return false;
-    const due = new Date(t.due_date);
-    due.setHours(0, 0, 0, 0);
-    return due < today;
+    return parseDateOnly(t.due_date) < today;
   });
 
   const recentTasks = [...tasks]
@@ -155,7 +153,7 @@ export default function DashboardPage() {
             <div className="divide-y divide-red-100">
               {overdue.slice(0, 5).map((task) => {
                 const project = projects.find(p => p.id === task.project_id);
-                const daysOverdue = Math.floor((today.getTime() - new Date(task.due_date!).getTime()) / (1000 * 60 * 60 * 24));
+                const daysOverdue = Math.floor((today.getTime() - parseDateOnly(task.due_date!).getTime()) / (1000 * 60 * 60 * 24));
                 return (
                   <Link
                     key={task.id}
@@ -287,7 +285,7 @@ export default function DashboardPage() {
                         <p className="text-xs text-zinc-500">{project?.name}</p>
                         {task.due_date && (
                           <span className="text-xs text-zinc-400">
-                            &bull; {new Date(task.due_date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                            &bull; {parseDateOnly(task.due_date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
                           </span>
                         )}
                       </div>

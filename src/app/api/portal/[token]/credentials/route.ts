@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
-import { portalSubmitCredentialSchema } from '@/lib/schemas/credentials';
+import { portalSubmitCredentialSchema, payloadFromBody } from '@/lib/schemas/credentials';
 import { encrypt, isEncryptionConfigured } from '@/lib/api/encryption';
 import type { CredentialPayload } from '@/lib/types';
 import { recordPortalEvent, getOrCreateSessionId } from '@/lib/portal-analytics';
@@ -63,9 +63,9 @@ export async function POST(
     return NextResponse.json({ error: 'Validation failed', details: parsed.error.flatten().fieldErrors }, { status: 422 });
   }
 
-  const { label, category, username, password, url, notes, submitted_by_name } = parsed.data;
+  const { label, category, submitted_by_name } = parsed.data;
 
-  const payload: CredentialPayload = { username, password, url, notes };
+  const payload: CredentialPayload = payloadFromBody(parsed.data);
   const { encrypted_data, iv } = await encrypt(payload);
 
   const { data: inserted, error: insertError } = await supabase
@@ -79,7 +79,7 @@ export async function POST(
       submitted_by_client: true,
       submitted_by_name,
     })
-    .select('id')
+    .select('id, label, category, created_at, updated_at')
     .single();
 
   if (insertError) {
@@ -97,5 +97,6 @@ export async function POST(
     metadata: inserted?.id ? { credential_id: inserted.id } : {},
   });
 
-  return NextResponse.json({ success: true });
+  // Return the created row so the portal can use the real id for later edits
+  return NextResponse.json({ success: true, data: inserted });
 }

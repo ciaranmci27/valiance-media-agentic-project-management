@@ -1,11 +1,10 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
-  ShieldCheck, Plus, Eye, EyeOff, Pencil, Trash2, X, Copy, Check,
-  Loader2, Key, Code, Terminal, Database, Server, Globe,
-  HardDrive, Network, Mail, Hash, KeyRound, RefreshCw, Lock,
-  User as UserIcon,
+  ShieldCheck, Plus, Eye, EyeOff, Pencil, Trash2, Copy, Check,
+  Loader2, Code, Terminal, Database, CreditCard, Landmark, Hash,
+  KeyRound, RefreshCw, Lock, User as UserIcon,
 } from 'lucide-react';
 import { Select } from '@/components/ui/Select';
 import { TextInput } from '@/components/ui/inputs/TextInput';
@@ -16,30 +15,38 @@ import { useAuth } from '@/lib/auth-context';
 import { toast } from '@/components/ui/Toast';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Tooltip } from '@/components/ui/Tooltip';
-import type { CredentialCategory, CredentialPayload, ProjectCredentialListItem } from '@/lib/types';
+import { CREDENTIAL_FIELDS, isSensitiveKey, credentialFieldLabel, type CredentialFieldDef } from '@/lib/credential-fields';
+import { CREDENTIAL_CATEGORIES, type CredentialCategory, type CredentialPayload, type ProjectCredentialListItem } from '@/lib/types';
 
 interface CredentialsPanelProps {
   projectId: string;
 }
 
 // ── Category config ─────────────────────────────────
-const CATEGORY_CONFIG: Record<CredentialCategory, { label: string; icon: typeof Key; bg: string; text: string; iconColor: string }> = {
-  login:    { label: 'Login',    icon: Key,       bg: 'bg-violet-50',  text: 'text-violet-700',  iconColor: 'text-violet-500' },
-  api_key:  { label: 'API Key',  icon: Code,      bg: 'bg-blue-50',    text: 'text-blue-700',    iconColor: 'text-blue-500' },
-  ssh_key:  { label: 'SSH Key',  icon: Terminal,   bg: 'bg-emerald-50', text: 'text-emerald-700', iconColor: 'text-emerald-500' },
-  database: { label: 'Database', icon: Database,   bg: 'bg-amber-50',   text: 'text-amber-700',   iconColor: 'text-amber-500' },
-  hosting:  { label: 'Hosting',  icon: Server,     bg: 'bg-rose-50',    text: 'text-rose-700',    iconColor: 'text-rose-500' },
-  cms:      { label: 'CMS',      icon: Globe,      bg: 'bg-cyan-50',    text: 'text-cyan-700',    iconColor: 'text-cyan-500' },
-  ftp:      { label: 'FTP',      icon: HardDrive,  bg: 'bg-orange-50',  text: 'text-orange-700',  iconColor: 'text-orange-500' },
-  dns:      { label: 'DNS',      icon: Network,    bg: 'bg-indigo-50',  text: 'text-indigo-700',  iconColor: 'text-indigo-500' },
-  email:    { label: 'Email',    icon: Mail,       bg: 'bg-pink-50',    text: 'text-pink-700',    iconColor: 'text-pink-500' },
-  other:    { label: 'Other',    icon: Hash,       bg: 'bg-zinc-100',   text: 'text-zinc-600',    iconColor: 'text-zinc-400' },
+type CategoryStyle = { label: string; icon: typeof KeyRound; bg: string; text: string; iconColor: string };
+
+const CATEGORY_CONFIG: Record<CredentialCategory, CategoryStyle> = {
+  login:       { label: 'Login',       icon: KeyRound,   bg: 'bg-violet-50',  text: 'text-violet-700',  iconColor: 'text-violet-500' },
+  api_key:     { label: 'API Key',     icon: Code,       bg: 'bg-blue-50',    text: 'text-blue-700',    iconColor: 'text-blue-500' },
+  ssh_key:     { label: 'SSH Key',     icon: Terminal,   bg: 'bg-emerald-50', text: 'text-emerald-700', iconColor: 'text-emerald-500' },
+  database:    { label: 'Database',    icon: Database,   bg: 'bg-amber-50',   text: 'text-amber-700',   iconColor: 'text-amber-500' },
+  credit_card: { label: 'Credit Card', icon: CreditCard, bg: 'bg-rose-50',    text: 'text-rose-700',    iconColor: 'text-rose-500' },
+  ach:         { label: 'ACH / Bank',  icon: Landmark,   bg: 'bg-teal-50',    text: 'text-teal-700',    iconColor: 'text-teal-500' },
 };
 
-const CATEGORY_OPTIONS = Object.entries(CATEGORY_CONFIG).map(([value, cfg]) => ({
-  value,
-  label: cfg.label,
-}));
+// Rows created before the category consolidation migration may still carry a
+// legacy category (hosting, cms, ftp, dns, email, other)
+const LEGACY_CATEGORY_STYLE: CategoryStyle = { label: 'Other', icon: Hash, bg: 'bg-zinc-100', text: 'text-zinc-600', iconColor: 'text-zinc-400' };
+
+function categoryConfig(category: string): CategoryStyle {
+  return CATEGORY_CONFIG[category as CredentialCategory]
+    ?? { ...LEGACY_CATEGORY_STYLE, label: category.charAt(0).toUpperCase() + category.slice(1) };
+}
+
+function fieldsForCategory(category: string): CredentialFieldDef[] {
+  // Legacy categories were all username/password/url shaped
+  return CREDENTIAL_FIELDS[category as CredentialCategory] ?? CREDENTIAL_FIELDS.login;
+}
 
 function timeAgo(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -124,18 +131,36 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
   // UI state
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [editLoading, setEditLoading] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [revealedData, setRevealedData] = useState<Record<string, CredentialPayload>>({});
   const [revealingId, setRevealingId] = useState<string | null>(null);
+  // Which credential the in-flight edit reveal belongs to; a late response
+  // for a different credential must never populate the open form
+  const editTargetRef = useRef<string | null>(null);
 
-  // Form state
+  // Form state: field values are keyed by the active category's field defs
   const [label, setLabel] = useState('');
   const [category, setCategory] = useState<string>('login');
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [url, setUrl] = useState('');
-  const [notes, setNotes] = useState('');
+  const [fields, setFields] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+
+  const setField = (key: string, value: string) =>
+    setFields(prev => ({ ...prev, [key]: value }));
+
+  // Only submit values belonging to the active category (plus notes), so
+  // leftovers from switching type mid-form never get saved. In edit mode,
+  // blank sensitive fields are omitted so the stored secrets are preserved.
+  const collectFields = (mode: 'add' | 'edit'): Record<string, string> => {
+    const collected: Record<string, string> = {};
+    for (const def of fieldsForCategory(category)) {
+      const value = (fields[def.key] ?? '').trim();
+      if (mode === 'edit' && def.sensitive && !value) continue;
+      collected[def.key] = value;
+    }
+    collected.notes = (fields.notes ?? '').trim();
+    return collected;
+  };
 
   // Check encryption on mount
   useEffect(() => {
@@ -148,10 +173,7 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
   const resetForm = () => {
     setLabel('');
     setCategory('login');
-    setUsername('');
-    setPassword('');
-    setUrl('');
-    setNotes('');
+    setFields({});
   };
 
   const handleGenerate = async () => {
@@ -195,69 +217,83 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
   const handleAdd = async () => {
     if (!label.trim()) return;
     setSaving(true);
-    await addCredential(projectId, {
+    const created = await addCredential(projectId, {
       label: label.trim(),
       category,
-      username: username.trim(),
-      password: password.trim(),
-      url: url.trim(),
-      notes: notes.trim(),
+      fields: collectFields('add'),
     });
-    resetForm();
-    setIsAdding(false);
     setSaving(false);
-    toast('success', 'Credential saved');
+    // On failure the form stays open so nothing the admin typed is lost
+    if (created) {
+      resetForm();
+      setIsAdding(false);
+      toast('success', 'Credential saved');
+    }
   };
 
   const handleStartEdit = async (cred: ProjectCredentialListItem) => {
+    setIsAdding(false);
     setEditingId(cred.id);
+    setEditLoading(true);
     setLabel(cred.label);
     setCategory(cred.category);
-    // Load existing secret fields
-    const payload = revealedData[cred.id] || await revealCredential(cred.id);
+    setFields({});
+    editTargetRef.current = cred.id;
+
+    // Always fetch fresh values; a cached reveal could be minutes old and
+    // saving it back would silently revert concurrent changes
+    const payload = await revealCredential(cred.id);
+    if (editTargetRef.current !== cred.id) return; // user moved on mid-flight
+
     if (payload) {
-      setUsername(payload.username);
-      setPassword(payload.password);
-      setUrl(payload.url);
-      setNotes(payload.notes);
-      setRevealedData(prev => ({ ...prev, [cred.id]: payload }));
+      // Pre-fill only non-sensitive values. Secrets stay blank; blank means
+      // "keep the current value" on save (matches the portal's semantics)
+      const prefill: Record<string, string> = {};
+      for (const [key, value] of Object.entries(payload)) {
+        if (!isSensitiveKey(key)) prefill[key] = value;
+      }
+      setFields(prefill);
+      setEditLoading(false);
     } else {
-      // Reveal failed — reset secrets to prevent saving empty strings over real data
-      setUsername('');
-      setPassword('');
-      setUrl('');
-      setNotes('');
+      // Reveal failed; bail out to prevent saving empty strings over real data
       setEditingId(null);
+      setEditLoading(false);
       resetForm();
       toast('error', 'Could not load credential data for editing');
     }
   };
 
   const handleSaveEdit = async () => {
-    if (!editingId || !label.trim()) return;
+    if (!editingId || !label.trim() || editLoading) return;
     setSaving(true);
-    await updateCredential(editingId, {
+    // Rows still on a pre-migration category keep it unless the admin picks
+    // one of the current types (the schema only accepts current categories)
+    const categoryIsCurrent = (CREDENTIAL_CATEGORIES as readonly string[]).includes(category);
+    const ok = await updateCredential(editingId, {
       label: label.trim(),
-      category,
-      username: username.trim(),
-      url: url.trim(),
-      notes: notes.trim(),
+      ...(categoryIsCurrent ? { category } : {}),
+      fields: collectFields('edit'),
     });
-    // Clear revealed data for this credential since it was re-encrypted
-    setRevealedData(prev => {
-      const next = { ...prev };
-      delete next[editingId];
-      return next;
-    });
-    resetForm();
-    setEditingId(null);
     setSaving(false);
-    toast('success', 'Credential updated');
+    if (ok) {
+      // Clear revealed data for this credential since it was re-encrypted
+      const savedId = editingId;
+      setRevealedData(prev => {
+        const next = { ...prev };
+        delete next[savedId];
+        return next;
+      });
+      resetForm();
+      setEditingId(null);
+      toast('success', 'Credential updated');
+    }
   };
 
   const handleCancel = () => {
+    editTargetRef.current = null;
     resetForm();
     setEditingId(null);
+    setEditLoading(false);
     setIsAdding(false);
   };
 
@@ -377,84 +413,130 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
   }
 
   // ── Credential Manager ──────────────────────
-  const renderForm = (mode: 'add' | 'edit') => (
-    <div className={mode === 'add' ? 'border border-brand-200 bg-brand-50/30 rounded-lg p-4 space-y-3' : 'space-y-3'}>
-      <div className="flex gap-2">
+  const renderFieldInput = (def: CredentialFieldDef, mode: 'add' | 'edit') => {
+    const value = fields[def.key] ?? '';
+    const placeholder = mode === 'edit' && def.sensitive
+      ? `${def.label} (leave blank to keep current)`
+      : def.placeholder;
+    if (def.options) {
+      return (
+        <Select
+          value={value}
+          onChange={v => setField(def.key, v)}
+          options={def.options.map(o => ({ value: o, label: o }))}
+          placeholder={def.placeholder}
+          size="sm"
+        />
+      );
+    }
+    if (def.multiline) {
+      return (
+        <Textarea
+          value={value}
+          onChange={v => setField(def.key, v)}
+          placeholder={placeholder}
+          rows={3}
+          size="sm"
+        />
+      );
+    }
+    if (def.sensitive) {
+      return (
+        <PasswordInput
+          value={value}
+          onChange={v => setField(def.key, v)}
+          placeholder={placeholder}
+          autoComplete="new-password"
+          size="sm"
+          showIcon={false}
+        />
+      );
+    }
+    return (
+      <TextInput
+        value={value}
+        onChange={v => setField(def.key, v)}
+        placeholder={def.placeholder}
+        autoComplete="off"
+        size="sm"
+      />
+    );
+  };
+
+  const renderForm = (mode: 'add' | 'edit') => {
+    const defs = fieldsForCategory(category);
+    return (
+      <div className={mode === 'add' ? 'border border-brand-200 bg-brand-50/30 rounded-xl p-4 space-y-3' : 'space-y-3'}>
+        {/* Type selector; each type has its own set of fields. Edit renders
+            inside a narrow card, so drop to two columns there. */}
+        <div className={`grid gap-1.5 ${mode === 'add' ? 'grid-cols-3' : 'grid-cols-2'}`}>
+          {CREDENTIAL_CATEGORIES.map(cat => {
+            const cfg = CATEGORY_CONFIG[cat];
+            const TypeIcon = cfg.icon;
+            const selected = category === cat;
+            return (
+              <button
+                key={cat}
+                type="button"
+                onClick={() => setCategory(cat)}
+                aria-pressed={selected}
+                className={`flex items-center gap-1.5 px-2.5 py-2 rounded-lg border text-xs font-medium transition-all ${
+                  selected
+                    ? 'border-brand-400 bg-white text-zinc-900 shadow-sm ring-1 ring-brand-200'
+                    : 'border-zinc-200 bg-white/60 text-zinc-500 hover:border-zinc-300 hover:text-zinc-700'
+                }`}
+              >
+                <TypeIcon size={13} className={selected ? cfg.iconColor : 'text-zinc-400'} />
+                <span className="truncate">{cfg.label}</span>
+              </button>
+            );
+          })}
+        </div>
+
         <TextInput
-          autoFocus
+          autoFocus={mode === 'add'}
           value={label}
           onChange={setLabel}
-          placeholder="Name (i.e. Email Login)"
+          placeholder={`Name (e.g. ${category === 'credit_card' ? 'Company Amex' : category === 'ach' ? 'Operating Account' : 'Email Login'})`}
           size="sm"
         />
-        <div className="w-[130px] flex-shrink-0">
-          <Select
-            value={category}
-            onChange={v => setCategory(v)}
-            options={CATEGORY_OPTIONS}
-            size="sm"
-          />
+
+        {/* Type-specific fields; half-width fields pair up in a 2-col grid */}
+        <div className="grid grid-cols-2 gap-2">
+          {defs.map(def => (
+            <div key={def.key} className={def.half ? 'col-span-1' : 'col-span-2'}>
+              {renderFieldInput(def, mode)}
+            </div>
+          ))}
+        </div>
+
+        <Textarea
+          value={fields.notes ?? ''}
+          onChange={v => setField('notes', v)}
+          placeholder="Notes (optional)"
+          rows={2}
+          size="sm"
+        />
+
+        <div className="flex items-center gap-2 justify-end">
+          <button
+            onClick={handleCancel}
+            className="px-3 py-1.5 text-sm text-zinc-500 hover:text-zinc-700 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={mode === 'add' ? handleAdd : handleSaveEdit}
+            disabled={!label.trim() || saving}
+            className="inline-flex items-center gap-1.5 px-4 py-1.5 text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {saving && <Loader2 size={13} className="animate-spin" />}
+            {mode === 'add' ? 'Save' : 'Update'}
+          </button>
         </div>
       </div>
-      <div className="grid grid-cols-2 gap-2">
-        <TextInput
-          value={username}
-          onChange={setUsername}
-          placeholder="Username"
-          autoComplete="off"
-          size="sm"
-        />
-        {mode === 'edit' ? (
-          <TextInput
-            value=""
-            disabled
-            placeholder="••••••••"
-            rightIcon={Lock}
-            size="sm"
-          />
-        ) : (
-          <PasswordInput
-            value={password}
-            onChange={setPassword}
-            placeholder="Password / Secret"
-            autoComplete="new-password"
-            size="sm"
-            showIcon={false}
-          />
-        )}
-      </div>
-      <TextInput
-        value={url}
-        onChange={setUrl}
-        placeholder="URL (optional)"
-        type="url"
-        size="sm"
-      />
-      <Textarea
-        value={notes}
-        onChange={setNotes}
-        placeholder="Notes (optional)"
-        rows={2}
-        size="sm"
-      />
-      <div className="flex items-center gap-2 justify-end">
-        <button
-          onClick={handleCancel}
-          className="px-3 py-1.5 text-sm text-zinc-500 hover:text-zinc-700 transition-colors"
-        >
-          Cancel
-        </button>
-        <button
-          onClick={mode === 'add' ? handleAdd : handleSaveEdit}
-          disabled={!label.trim() || saving}
-          className="inline-flex items-center gap-1.5 px-4 py-1.5 text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {saving && <Loader2 size={13} className="animate-spin" />}
-          {mode === 'add' ? 'Save' : 'Update'}
-        </button>
-      </div>
-    </div>
-  );
+    );
+  };
 
   return (
     <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden flex flex-col max-h-[600px]">
@@ -470,7 +552,13 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
           </h2>
         </div>
         <button
-          onClick={() => { resetForm(); setIsAdding(true); }}
+          onClick={() => {
+            editTargetRef.current = null;
+            resetForm();
+            setEditingId(null);
+            setEditLoading(false);
+            setIsAdding(true);
+          }}
           className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition-colors"
         >
           <Plus size={14} />
@@ -490,7 +578,7 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
         {credentials.length > 0 ? (
           <div className="p-5 grid grid-cols-1 sm:grid-cols-2 gap-3">
             {credentials.map(cred => {
-              const config = CATEGORY_CONFIG[cred.category];
+              const config = categoryConfig(cred.category);
               const CategoryIcon = config.icon;
               const isEditing = editingId === cred.id;
               const isRevealed = !!revealedData[cred.id];
@@ -513,7 +601,13 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
                           <p className="text-sm font-semibold text-zinc-900 truncate">{cred.label}</p>
                         </div>
                       </div>
-                      {renderForm('edit')}
+                      {editLoading ? (
+                        <div className="flex items-center justify-center py-10">
+                          <Loader2 size={18} className="animate-spin text-zinc-300" />
+                        </div>
+                      ) : (
+                        renderForm('edit')
+                      )}
                     </div>
                   </div>
                 );
@@ -570,18 +664,39 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
                       </div>
                     </div>
 
-                    {/* Revealed data */}
-                    {isRevealed && revealedData[cred.id] && (
-                      <div className="mb-3 px-3 py-2.5 bg-zinc-50 border border-zinc-100 rounded-lg space-y-0.5 overflow-hidden" onClick={e => e.stopPropagation()}>
-                        <RevealedField label="Username" value={revealedData[cred.id].username} />
-                        <RevealedField label="Password" value={revealedData[cred.id].password} isSensitive />
-                        <RevealedField label="URL" value={revealedData[cred.id].url} />
-                        <RevealedField label="Notes" value={revealedData[cred.id].notes} />
-                        {!revealedData[cred.id].username && !revealedData[cred.id].password && !revealedData[cred.id].url && !revealedData[cred.id].notes && (
-                          <p className="text-xs text-zinc-400 italic">No fields stored</p>
-                        )}
-                      </div>
-                    )}
+                    {/* Revealed data: field order follows the category's
+                        definitions; legacy keys from older rows render after */}
+                    {isRevealed && revealedData[cred.id] && (() => {
+                      const payload = revealedData[cred.id];
+                      const defs = fieldsForCategory(cred.category);
+                      const defKeys = new Set(defs.map(d => d.key));
+                      const extraKeys = Object.keys(payload).filter(k => k !== 'notes' && !defKeys.has(k) && payload[k]);
+                      const hasAnyValue = Object.values(payload).some(Boolean);
+                      return (
+                        <div className="mb-3 px-3 py-2.5 bg-zinc-50 border border-zinc-100 rounded-lg space-y-0.5 overflow-hidden" onClick={e => e.stopPropagation()}>
+                          {defs.map(def => (
+                            <RevealedField
+                              key={def.key}
+                              label={def.label}
+                              value={payload[def.key] ?? ''}
+                              isSensitive={def.sensitive}
+                            />
+                          ))}
+                          {extraKeys.map(key => (
+                            <RevealedField
+                              key={key}
+                              label={credentialFieldLabel(cred.category, key)}
+                              value={payload[key]}
+                              isSensitive={isSensitiveKey(key)}
+                            />
+                          ))}
+                          <RevealedField label="Notes" value={payload.notes ?? ''} />
+                          {!hasAnyValue && (
+                            <p className="text-xs text-zinc-400 italic">No fields stored</p>
+                          )}
+                        </div>
+                      );
+                    })()}
 
                   </div>
                 </div>

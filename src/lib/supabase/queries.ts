@@ -216,6 +216,19 @@ export async function removeTask(supabase: SupabaseClient, id: string) {
   if (error) throw error;
 }
 
+export async function reorderTasks(
+  supabase: SupabaseClient,
+  orders: { id: string; sort_order: number }[]
+) {
+  const results = await Promise.all(
+    orders.map(({ id, sort_order }) =>
+      supabase.from('tasks').update({ sort_order }).eq('id', id)
+    )
+  );
+  const failed = results.find(r => r.error);
+  if (failed?.error) throw failed.error;
+}
+
 // ============================================================
 // SUBTASKS
 // ============================================================
@@ -952,116 +965,44 @@ export async function convertLead(
   projectDescription: string,
   createdBy: string | null
 ) {
-  // 1. Reuse existing contact if lead has one, otherwise create one
-  let contactId = lead.contact_id;
+  // The whole conversion (contact + project + contacts + members + lead
+  // status) runs atomically in the convert_lead RPC, which also locks the
+  // lead row and rejects leads that are already won.
+  const { data: rpcResult, error: rpcError } = await supabase.rpc('convert_lead', {
+    p_lead_id: lead.id,
+    p_project_name: projectName,
+    p_project_color: projectColor,
+    p_project_description: projectDescription,
+    p_created_by: createdBy,
+  });
 
-  if (!contactId) {
-    const { data: contact, error: contactError } = await supabase
-      .from('contacts')
-      .insert({
-        name: lead.name,
-        email: lead.email,
-        phone: lead.phone,
-        company: lead.company,
-        color: projectColor,
-        created_by: createdBy,
-      })
-      .select()
-      .single();
+  if (rpcError) throw rpcError;
 
-    if (contactError) throw contactError;
-    contactId = contact.id;
-  }
+  const projectId = rpcResult.project_id as string;
+  const contactId = rpcResult.contact_id as string;
 
-  // 2. Create project (no client_id)
-  const { data: project, error: projectError } = await supabase
-    .from('projects')
-    .insert({
-      name: projectName,
-      description: projectDescription,
-      color: projectColor,
-      status: 'active',
-      created_by: createdBy,
-    })
-    .select()
-    .single();
+  // Two follow-up reads; the contact comes embedded in the primary
+  // project_contact and the lead's final state is fully known locally.
+  const [projectRes, pcRes] = await Promise.all([
+    supabase.from('projects').select('*').eq('id', projectId).single(),
+    supabase.from('project_contacts').select('*, contact:contacts(*)').eq('project_id', projectId),
+  ]);
 
-  if (projectError) throw projectError;
+  if (projectRes.error) throw projectRes.error;
+  if (pcRes.error) throw pcRes.error;
 
-  // 3. Create project_contact (role='Client', is_primary_client=true)
-  const { data: projectContact, error: pcError } = await supabase
-    .from('project_contacts')
-    .insert({
-      project_id: project.id,
-      contact_id: contactId,
-      role: 'Client',
-      is_primary_client: true,
-    })
-    .select('*, contact:contacts(*)')
-    .single();
-
-  if (pcError) throw pcError;
-
-  // 4. Copy additional lead_contacts (non-primary) to project_contacts
-  const { data: additionalLeadContacts } = await supabase
-    .from('lead_contacts')
-    .select('*')
-    .eq('lead_id', lead.id)
-    .eq('is_primary_client', false);
-
-  const additionalProjectContacts: ProjectContact[] = [];
-  if (additionalLeadContacts && additionalLeadContacts.length > 0) {
-    for (const lc of additionalLeadContacts) {
-      const { data: newPc, error: addPcError } = await supabase
-        .from('project_contacts')
-        .insert({
-          project_id: project.id,
-          contact_id: lc.contact_id,
-          role: lc.role,
-          custom_role: lc.custom_role,
-          is_primary_client: false,
-        })
-        .select('*, contact:contacts(*)')
-        .single();
-
-      if (!addPcError && newPc) {
-        additionalProjectContacts.push(newPc as ProjectContact);
-      }
-    }
-  }
-
-  // 5. Copy lead_members to project_members
+  const allProjectContacts = (pcRes.data || []) as ProjectContact[];
+  const projectContact = allProjectContacts.find(pc => pc.is_primary_client);
+  if (!projectContact) throw new Error('Conversion succeeded but the primary client could not be loaded');
+  const additionalProjectContacts = allProjectContacts.filter(pc => !pc.is_primary_client);
   const leadMemberIds = lead.member_ids || [];
-  if (leadMemberIds.length > 0) {
-    const { error: pmError } = await supabase
-      .from('project_members')
-      .insert(leadMemberIds.map(mid => ({ project_id: project.id, member_id: mid })));
-    if (pmError) throw pmError;
-  }
-
-  // 6. Update lead status to won and link contact
-  const { data: updatedLead, error: leadError } = await supabase
-    .from('leads')
-    .update({ status: 'won', contact_id: contactId })
-    .eq('id', lead.id)
-    .select()
-    .single();
-
-  if (leadError) throw leadError;
-
-  // Fetch the contact for return
-  const { data: contact } = await supabase
-    .from('contacts')
-    .select('*')
-    .eq('id', contactId)
-    .single();
 
   return {
-    contact: contact as Contact,
-    project: { ...project, member_ids: leadMemberIds } as Project,
-    projectContact: projectContact as ProjectContact,
+    contact: (projectContact as ProjectContact & { contact: Contact }).contact,
+    project: { ...projectRes.data, member_ids: leadMemberIds } as Project,
+    projectContact,
     additionalProjectContacts,
-    lead: { ...updatedLead, member_ids: leadMemberIds } as Lead,
+    lead: { ...lead, status: 'won', contact_id: contactId, member_ids: leadMemberIds } as Lead,
   };
 }
 
@@ -1583,14 +1524,30 @@ export async function approveTaskSuggestion(
   reviewedBy: string,
   aiManaged?: boolean
 ) {
-  // Fetch the suggestion
-  const { data: suggestion, error: fetchErr } = await supabase
+  // Snapshot the pre-claim review state so a failed approval can restore it
+  // exactly (a needs_info suggestion must not silently become pending).
+  const { data: before } = await supabase
     .from('task_suggestions')
-    .select('*')
+    .select('status, reviewed_by, reviewed_at')
     .eq('id', id)
-    .single();
+    .maybeSingle();
 
-  if (fetchErr || !suggestion) throw fetchErr || new Error('Suggestion not found');
+  // Claim the suggestion with a compare-and-set on its status so two
+  // concurrent approvals can't both create a task.
+  const { data: suggestion, error: claimErr } = await supabase
+    .from('task_suggestions')
+    .update({
+      status: 'approved',
+      reviewed_by: reviewedBy,
+      reviewed_at: new Date().toISOString(),
+    })
+    .eq('id', id)
+    .in('status', ['pending', 'needs_info'])
+    .select()
+    .maybeSingle();
+
+  if (claimErr) throw claimErr;
+  if (!suggestion) throw new Error('Suggestion has already been reviewed');
 
   // Create the task
   const resolvedTaskType = taskOverrides.task_type !== undefined ? taskOverrides.task_type : suggestion.task_type || null;
@@ -1614,7 +1571,19 @@ export async function approveTaskSuggestion(
     .select()
     .single();
 
-  if (taskErr) throw taskErr;
+  if (taskErr) {
+    // Release the claim, restoring the exact pre-claim review state
+    await supabase
+      .from('task_suggestions')
+      .update({
+        status: before?.status ?? 'pending',
+        reviewed_by: before?.reviewed_by ?? null,
+        reviewed_at: before?.reviewed_at ?? null,
+      })
+      .eq('id', id)
+      .then(() => {}, () => {});
+    throw taskErr;
+  }
 
   // If assigned_to is set, create task_assignee
   const assignedTo = taskOverrides.assigned_to || suggestion.assigned_to;
@@ -1625,15 +1594,10 @@ export async function approveTaskSuggestion(
       .then(() => {}, () => {});
   }
 
-  // Update the suggestion
+  // Link the created task back to the suggestion
   const { data: updated, error: updateErr } = await supabase
     .from('task_suggestions')
-    .update({
-      status: 'approved',
-      reviewed_by: reviewedBy,
-      reviewed_at: new Date().toISOString(),
-      converted_task_id: task.id,
-    })
+    .update({ converted_task_id: task.id })
     .eq('id', id)
     .select()
     .single();
@@ -1652,6 +1616,8 @@ export async function rejectTaskSuggestion(
   reason: string | undefined,
   reviewedBy: string
 ) {
+  // Status guard mirrors the approve claim: don't overwrite a suggestion a
+  // concurrent approval already converted into a task.
   const { data, error } = await supabase
     .from('task_suggestions')
     .update({
@@ -1661,10 +1627,12 @@ export async function rejectTaskSuggestion(
       rejection_reason: reason || null,
     })
     .eq('id', id)
+    .in('status', ['pending', 'needs_info'])
     .select()
-    .single();
+    .maybeSingle();
 
   if (error) throw error;
+  if (!data) throw new Error('Suggestion has already been reviewed');
   return data as TaskSuggestion;
 }
 
@@ -1674,6 +1642,7 @@ export async function requestInfoTaskSuggestion(
   infoRequest: string,
   reviewedBy: string
 ) {
+  // Same status guard as approve/reject: never downgrade an approved row
   const { data, error } = await supabase
     .from('task_suggestions')
     .update({
@@ -1683,10 +1652,12 @@ export async function requestInfoTaskSuggestion(
       info_request: infoRequest,
     })
     .eq('id', id)
+    .in('status', ['pending', 'needs_info'])
     .select()
-    .single();
+    .maybeSingle();
 
   if (error) throw error;
+  if (!data) throw new Error('Suggestion has already been reviewed');
   return data as TaskSuggestion;
 }
 

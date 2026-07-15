@@ -4,6 +4,7 @@ import { useState, useMemo } from 'react';
 import { Task } from '@/lib/types';
 import { ChevronLeft, ChevronRight, AlertCircle } from 'lucide-react';
 import { Tooltip } from '@/components/ui/Tooltip';
+import { parseDateOnly } from '@/lib/date-utils';
 
 interface CalendarViewProps {
   tasks: Task[];
@@ -54,10 +55,11 @@ export function CalendarView({ tasks, onViewTask }: CalendarViewProps) {
 
   const monthName = currentDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 
-  // Normalize due_date to YYYY-MM-DD for robust matching (handles timestamps, timezone offsets)
+  // Normalize due_date to YYYY-MM-DD for robust matching. Date-only strings
+  // must be parsed as local time or the calendar shifts a day west of UTC.
   const normalizeDate = (dateStr: string | null): string | null => {
     if (!dateStr) return null;
-    const d = new Date(dateStr);
+    const d = parseDateOnly(dateStr);
     if (isNaN(d.getTime())) return null;
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   };

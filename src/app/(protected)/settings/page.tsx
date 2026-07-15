@@ -215,11 +215,11 @@ export default function SettingsPage() {
     }
   }, [currentMember?.id]);
 
-  // Check if any SMTP accounts are configured
+  // Check if any SMTP accounts are configured. Uses the status endpoint
+  // (member-accessible) rather than /api/smtp, which is admin-only.
   useEffect(() => {
-    fetch('/api/smtp').then(res => res.ok ? res.json() : null).then((data) => {
-      const accounts = data?.accounts;
-      setHasSmtp(Array.isArray(accounts) && accounts.length > 0);
+    fetch('/api/smtp/status').then(res => res.ok ? res.json() : null).then((data) => {
+      setHasSmtp(data?.hasAccounts === true);
     }).catch(() => setHasSmtp(false));
   }, []);
 

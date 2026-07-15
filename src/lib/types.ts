@@ -894,9 +894,10 @@ export interface PortalData {
 // PROJECT CREDENTIALS
 // ============================================================
 
+// Each category has its own input fields (see lib/credential-fields.ts).
+// Anything that is just username+password+url belongs under 'login'.
 export const CREDENTIAL_CATEGORIES = [
-  'login', 'api_key', 'ssh_key', 'database', 'hosting',
-  'cms', 'ftp', 'dns', 'email', 'other',
+  'login', 'api_key', 'ssh_key', 'database', 'credit_card', 'ach',
 ] as const;
 export type CredentialCategory = typeof CREDENTIAL_CATEGORIES[number];
 
@@ -927,10 +928,9 @@ export interface ProjectCredentialListItem {
   updated_at: string;
 }
 
-/** The decrypted payload returned by the reveal endpoint. */
-export interface CredentialPayload {
-  username: string;
-  password: string;
-  url: string;
-  notes: string;
-}
+/**
+ * The decrypted payload returned by the reveal endpoint. Keys vary by
+ * category (see lib/credential-fields.ts); legacy rows hold
+ * username/password/url/notes.
+ */
+export type CredentialPayload = Record<string, string>;

@@ -131,15 +131,15 @@ export default function LeadDetailPage() {
   const sourceCfg = SOURCE_CONFIG[lead.source] || SOURCE_CONFIG.other;
   const canConvert = lead.status !== 'won' && lead.status !== 'lost';
 
-  const handleDelete = () => {
-    deleteLead(leadId);
-    toast('success', 'Lead deleted');
+  const handleDelete = async () => {
     router.push('/leads');
+    const ok = await deleteLead(leadId);
+    if (ok) toast('success', 'Lead deleted');
   };
 
-  const handleMarkFollowUpComplete = (interaction: LeadInteraction) => {
-    updateLeadInteraction(interaction.id, { completed: true });
-    toast('success', 'Follow-up marked complete');
+  const handleMarkFollowUpComplete = async (interaction: LeadInteraction) => {
+    const ok = await updateLeadInteraction(interaction.id, { completed: true });
+    if (ok) toast('success', 'Follow-up marked complete');
   };
 
   const handleEditInteraction = (interaction: LeadInteraction) => {
@@ -152,16 +152,16 @@ export default function LeadDetailPage() {
     setIsProposalFormOpen(true);
   };
 
-  const executeDeleteInteraction = () => {
+  const executeDeleteInteraction = async () => {
     if (!deletingInteractionId) return;
-    deleteLeadInteraction(deletingInteractionId);
-    toast('success', 'Interaction deleted');
+    const ok = await deleteLeadInteraction(deletingInteractionId);
+    if (ok) toast('success', 'Interaction deleted');
   };
 
-  const executeDeleteProposal = () => {
+  const executeDeleteProposal = async () => {
     if (!deletingProposalId) return;
-    deleteLeadProposal(deletingProposalId);
-    toast('success', 'Proposal deleted');
+    const ok = await deleteLeadProposal(deletingProposalId);
+    if (ok) toast('success', 'Proposal deleted');
   };
 
   const isOverdue = (scheduledAt: string) => new Date(scheduledAt) < new Date();
@@ -293,10 +293,10 @@ export default function LeadDetailPage() {
                     Cancel
                   </button>
                   <button
-                    onClick={() => {
-                      updateLead(lead.id, { notes: notesValue });
+                    onClick={async () => {
                       setIsEditingNotes(false);
-                      toast('success', 'Notes updated');
+                      const ok = await updateLead(lead.id, { notes: notesValue });
+                      if (ok) toast('success', 'Notes updated');
                     }}
                     className="px-3 py-1.5 text-xs text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition-colors"
                   >

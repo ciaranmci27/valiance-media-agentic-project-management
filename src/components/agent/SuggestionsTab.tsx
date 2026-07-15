@@ -75,22 +75,24 @@ export function SuggestionsTab({ filters }: { filters: SuggestionsFilters }) {
   };
 
   const handleBulkApprove = async () => {
-    await bulkApproveSuggestions([...selectedIds]);
+    const ids = [...selectedIds];
     setSelectedIds(new Set());
-    toast('success', `Approved ${selectedIds.size} suggestion(s)`);
+    const approved = await bulkApproveSuggestions(ids);
+    if (approved > 0) toast('success', `Approved ${approved} suggestion(s)`);
   };
 
   const handleBulkReject = async () => {
-    await bulkRejectSuggestions([...selectedIds]);
+    const ids = [...selectedIds];
     setSelectedIds(new Set());
-    toast('success', `Rejected ${selectedIds.size} suggestion(s)`);
+    const rejected = await bulkRejectSuggestions(ids);
+    if (rejected > 0) toast('success', `Rejected ${rejected} suggestion(s)`);
   };
 
-  const handleReject = (id: string) => {
-    rejectSuggestion(id, rejectReason || undefined, teamMemberId || '');
+  const handleReject = async (id: string) => {
     setRejectInputId(null);
     setRejectReason('');
-    toast('success', 'Suggestion rejected');
+    const ok = await rejectSuggestion(id, rejectReason || undefined, teamMemberId || '');
+    if (ok) toast('success', 'Suggestion rejected');
   };
 
   const handleRequestInfo = (id: string) => {
@@ -105,9 +107,9 @@ export function SuggestionsTab({ filters }: { filters: SuggestionsFilters }) {
     setApproveModalId(id);
   };
 
-  const handleSwipeReject = (id: string) => {
-    rejectSuggestion(id, undefined, teamMemberId || '');
-    toast('success', 'Suggestion rejected');
+  const handleSwipeReject = async (id: string) => {
+    const ok = await rejectSuggestion(id, undefined, teamMemberId || '');
+    if (ok) toast('success', 'Suggestion rejected');
   };
 
   const priorityColors: Record<string, string> = {
@@ -356,15 +358,15 @@ export function SuggestionsTab({ filters }: { filters: SuggestionsFilters }) {
         <ApproveModal
           suggestion={taskSuggestions.find(s => s.id === approveModalId)!}
           onClose={() => setApproveModalId(null)}
-          onApprove={(overrides) => {
-            approveSuggestion(approveModalId, overrides, teamMemberId || '');
+          onApprove={async (overrides) => {
             setApproveModalId(null);
-            toast('success', 'Suggestion approved — task created');
+            const ok = await approveSuggestion(approveModalId, overrides, teamMemberId || '');
+            if (ok) toast('success', 'Suggestion approved, task created');
           }}
-          onApproveManual={(overrides) => {
-            approveSuggestion(approveModalId, { ...overrides, ai_managed: false }, teamMemberId || '');
+          onApproveManual={async (overrides) => {
             setApproveModalId(null);
-            toast('success', 'Suggestion approved as manual task');
+            const ok = await approveSuggestion(approveModalId, { ...overrides, ai_managed: false }, teamMemberId || '');
+            if (ok) toast('success', 'Suggestion approved as manual task');
           }}
         />
       )}

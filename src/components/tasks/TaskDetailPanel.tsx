@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Tooltip } from '@/components/ui/Tooltip';
+import { parseDateOnly, isDateOverdue } from '@/lib/date-utils';
 
 interface TaskDetailPanelProps {
   task: Task | null;
@@ -41,7 +42,6 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
   const backdropRef = useRef<HTMLDivElement>(null);
   const [newSubtask, setNewSubtask] = useState('');
   const [newComment, setNewComment] = useState('');
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showStatusMenu, setShowStatusMenu] = useState(false);
   const [showPriorityMenu, setShowPriorityMenu] = useState(false);
   const [editingSubtaskId, setEditingSubtaskId] = useState<string | null>(null);
@@ -49,6 +49,8 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
   const [editingCommentText, setEditingCommentText] = useState('');
   const [draggedSubtaskId, setDraggedSubtaskId] = useState<string | null>(null);
+  // Local subtask order while dragging; persisted once on drag end
+  const [dragSubtaskOrder, setDragSubtaskOrder] = useState<string[] | null>(null);
   const [deleteSubtaskTarget, setDeleteSubtaskTarget] = useState<string | null>(null);
   const [deleteCommentTarget, setDeleteCommentTarget] = useState<string | null>(null);
 
@@ -88,9 +90,8 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
 
   const formatDate = (date: string | null) => {
     if (!date) return null;
-    const d = new Date(date);
-    const today = new Date();
-    const isOverdue = d < today && task.status !== 'done';
+    const d = parseDateOnly(date);
+    const isOverdue = isDateOverdue(date) && task.status !== 'done';
     return {
       text: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
       isOverdue,
@@ -117,12 +118,9 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
   };
 
   const handleDelete = () => {
-    setShowDeleteConfirm(true);
-  };
-
-  const executeDelete = () => {
+    // The parent owns the delete and shows its own confirmation dialog;
+    // confirming here too would make the user confirm four times.
     onDelete(task.id);
-    onClose();
   };
 
   return (
@@ -354,23 +352,42 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
 
               {/* Subtask list */}
               <div className="space-y-1">
-                {task.subtasks.map((subtask) => (
+                {(dragSubtaskOrder
+                  ? dragSubtaskOrder
+                      .map(id => task.subtasks.find(s => s.id === id))
+                      .filter((s): s is NonNullable<typeof s> => !!s)
+                  : task.subtasks
+                ).map((subtask) => (
                   <div
                     key={subtask.id}
                     draggable
-                    onDragStart={() => setDraggedSubtaskId(subtask.id)}
-                    onDragEnd={() => setDraggedSubtaskId(null)}
+                    onDragStart={() => {
+                      setDraggedSubtaskId(subtask.id);
+                      setDragSubtaskOrder(task.subtasks.map(s => s.id));
+                    }}
+                    onDragEnd={() => {
+                      // Persist the final order once, only if it changed
+                      if (dragSubtaskOrder) {
+                        const original = task.subtasks.map(s => s.id);
+                        if (dragSubtaskOrder.join() !== original.join()) {
+                          reorderSubtasks(task.id, dragSubtaskOrder);
+                        }
+                      }
+                      setDraggedSubtaskId(null);
+                      setDragSubtaskOrder(null);
+                    }}
                     onDragOver={(e) => {
                       e.preventDefault();
                       if (draggedSubtaskId && draggedSubtaskId !== subtask.id) {
-                        const ids = task.subtasks.map(s => s.id);
-                        const fromIdx = ids.indexOf(draggedSubtaskId);
-                        const toIdx = ids.indexOf(subtask.id);
-                        if (fromIdx !== -1 && toIdx !== -1 && fromIdx !== toIdx) {
+                        setDragSubtaskOrder(order => {
+                          const ids = [...(order ?? task.subtasks.map(s => s.id))];
+                          const fromIdx = ids.indexOf(draggedSubtaskId);
+                          const toIdx = ids.indexOf(subtask.id);
+                          if (fromIdx === -1 || toIdx === -1 || fromIdx === toIdx) return order;
                           ids.splice(fromIdx, 1);
                           ids.splice(toIdx, 0, draggedSubtaskId);
-                          reorderSubtasks(task.id, ids);
-                        }
+                          return ids;
+                        });
                       }
                     }}
                     className={`flex items-center gap-2 p-2 rounded-lg hover:bg-zinc-50 group cursor-grab active:cursor-grabbing ${
@@ -586,16 +603,6 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
           </div>
         </div>
       </div>
-
-      <ConfirmDialog
-        isOpen={showDeleteConfirm}
-        onClose={() => setShowDeleteConfirm(false)}
-        onConfirm={executeDelete}
-        title="Delete Task"
-        message="This will permanently delete this task and all its subtasks and comments. This action cannot be undone."
-        confirmLabel="Delete"
-        variant="danger"
-      />
 
       <ConfirmDialog
         isOpen={!!deleteSubtaskTarget}

@@ -71,15 +71,15 @@ export default function AgentPage() {
         <ApproveModal
           suggestion={taskSuggestions.find(s => s.id === approveModalId)!}
           onClose={() => setApproveModalId(null)}
-          onApprove={(overrides) => {
-            approveSuggestion(approveModalId, overrides, teamMemberId || '');
+          onApprove={async (overrides) => {
             setApproveModalId(null);
-            toast('success', 'Suggestion approved, task created');
+            const ok = await approveSuggestion(approveModalId, overrides, teamMemberId || '');
+            if (ok) toast('success', 'Suggestion approved, task created');
           }}
-          onApproveManual={(overrides) => {
-            approveSuggestion(approveModalId, { ...overrides, ai_managed: false }, teamMemberId || '');
+          onApproveManual={async (overrides) => {
             setApproveModalId(null);
-            toast('success', 'Suggestion approved as manual task');
+            const ok = await approveSuggestion(approveModalId, { ...overrides, ai_managed: false }, teamMemberId || '');
+            if (ok) toast('success', 'Suggestion approved as manual task');
           }}
         />
       )}

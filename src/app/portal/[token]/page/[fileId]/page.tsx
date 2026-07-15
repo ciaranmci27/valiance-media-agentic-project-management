@@ -41,16 +41,21 @@ export default function PortalFilePage() {
       const effectivePin = pinValue ?? sessionStorage.getItem(`portal-pin-${token}`) ?? undefined;
       const isDemo = localStorage.getItem('valiance-demo-mode') === 'true' || process.env.NEXT_PUBLIC_DEMO_MODE === 'true';
       const params = new URLSearchParams();
-      if (effectivePin) params.set('pin', effectivePin);
       if (isDemo) params.set('demo', 'true');
       const qs = params.toString();
       const url = `/api/portal/${token}/file/${fileId}${qs ? `?${qs}` : ''}`;
 
-      const res = await fetch(url);
+      // PIN travels in a header (like the rest of the portal), never in the
+      // URL where it would leak into logs and browser history
+      const headers: Record<string, string> = {};
+      if (effectivePin) headers['x-portal-pin'] = effectivePin;
+      const res = await fetch(url, { headers });
 
       if (res.status === 401) {
         const body = await res.json();
         if (body.pin_required) {
+          // A stored PIN that no longer works is stale; drop it silently
+          if (!pinValue && effectivePin) sessionStorage.removeItem(`portal-pin-${token}`);
           setPinRequired(true);
           if (body.branding) setBranding(body.branding);
           if (pinValue) setPinError(true);
@@ -229,14 +234,14 @@ export default function PortalFilePage() {
         {htmlContent ? (
           <iframe
             srcDoc={htmlContent}
-            sandbox="allow-scripts allow-same-origin"
+            sandbox="allow-scripts"
             className="flex-1 w-full border-0"
             title={file.name}
           />
         ) : (
           <iframe
             src={file.file_url}
-            sandbox="allow-scripts allow-same-origin"
+            sandbox="allow-scripts"
             className="flex-1 w-full border-0"
             title={file.name}
           />

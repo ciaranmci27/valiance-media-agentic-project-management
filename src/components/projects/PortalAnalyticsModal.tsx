@@ -24,6 +24,7 @@ import { siteConfig } from '@/site-config';
 import { PORTAL_SECTION_LABELS, type PortalAnalyticsResponse, type PortalSessionSummary } from '@/lib/types';
 import { buildDemoPortalAnalytics } from '@/lib/demo-data';
 import { Tooltip } from '@/components/ui/Tooltip';
+import { Button } from '@/components/ui/Button';
 
 interface PortalAnalyticsModalProps {
   isOpen: boolean;
@@ -235,6 +236,7 @@ export function PortalAnalyticsModal({
   const [tab, setTab] = useState<Tab>('activity');
   const [data, setData] = useState<PortalAnalyticsResponse | null>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [expandedSession, setExpandedSession] = useState<string | null>(null);
   const [sessionEvents, setSessionEvents] = useState<Map<string, SessionEvent[]>>(new Map());
 
@@ -250,12 +252,16 @@ export function PortalAnalyticsModal({
       return;
     }
     setLoading(true);
+    setError(null);
     try {
       const params = new URLSearchParams({ range: '30d' });
       if (!hideLocal) params.set('hide_local', 'false');
       if (!hideTeam) params.set('hide_team', 'false');
       const res = await fetch(`/api/projects/${projectId}/portal-analytics?${params.toString()}`);
       if (res.ok) setData(await res.json());
+      else setError('Failed to load analytics.');
+    } catch {
+      setError('Failed to load analytics. Please check your connection.');
     } finally {
       setLoading(false);
     }
@@ -409,7 +415,14 @@ export function PortalAnalyticsModal({
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto px-6 py-5">
-          {loading || !data ? (
+          {error && !loading ? (
+            <div className="flex flex-col items-center justify-center py-20 gap-3">
+              <p className="text-sm text-zinc-500">{error}</p>
+              <Button variant="secondary" size="sm" onClick={load}>
+                Try again
+              </Button>
+            </div>
+          ) : loading || !data ? (
             <div className="flex items-center justify-center py-20">
               <Loader2 className="animate-spin text-zinc-300" size={28} />
             </div>

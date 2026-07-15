@@ -8,6 +8,7 @@ import { AvatarGroup } from '@/components/ui/Avatar';
 import { Calendar, MessageSquare, CheckSquare, MoreVertical, Edit, Trash2, Clock, User } from 'lucide-react';
 import { useState } from 'react';
 import { Tooltip } from '@/components/ui/Tooltip';
+import { parseDateOnly, isDateOverdue } from '@/lib/date-utils';
 
 function timeAgo(dateStr: string): string {
   const now = Date.now();
@@ -44,12 +45,11 @@ export function TaskCard({ task, onView, onEdit, onDelete }: TaskCardProps) {
 
   const formatDate = (date: string | null) => {
     if (!date) return null;
-    const d = new Date(date);
-    const today = new Date();
-    const isOverdue = d < today && task.status !== 'done';
-    return { 
+    const d = parseDateOnly(date);
+    const isOverdue = isDateOverdue(date) && task.status !== 'done';
+    return {
       text: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-      isOverdue 
+      isOverdue
     };
   };
 
