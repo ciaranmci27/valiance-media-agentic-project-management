@@ -55,7 +55,8 @@ function formatClock(iso: string): string {
 }
 
 function formatDecimalHours(hours: number): string {
-  return `${hours.toLocaleString('en-US', { maximumFractionDigits: 4 })} hrs`;
+  const unit = Math.abs(hours - 1) < 0.000001 ? 'hr' : 'hrs';
+  return `${hours.toLocaleString('en-US', { maximumFractionDigits: 4 })} ${unit}`;
 }
 
 function statusPill(status: InvoicePdfData['status']): { label: string; color: string } {
@@ -201,22 +202,10 @@ export function InvoiceDocument({ data }: { data: InvoicePdfData }) {
 
         {data.lineItems.map((li) => {
           const period = formatServicePeriod(li.service_start_date, li.service_end_date);
-          const isHourly = li.item_type === 'hourly';
-          // Hourly items: derive qty (hours) and rate from the project's hourly rate.
-          // Up to 4 decimals on hours so amount = hours × rate stays accurate.
-          let qtyText: string;
-          let rateText: string;
-          if (isHourly && data.projectHourlyRate && data.projectHourlyRate > 0) {
-            const hours = li.amount / data.projectHourlyRate;
-            qtyText = hours.toLocaleString('en-US', { maximumFractionDigits: 4 });
-            rateText = `$${formatMoney(data.projectHourlyRate)}`;
-          } else if (isHourly) {
-            qtyText = '—';
-            rateText = '—';
-          } else {
-            qtyText = '1';
-            rateText = `$${formatMoney(li.amount)}`;
-          }
+          const qtyText = li.quantity === null
+            ? 'N/A'
+            : li.quantity.toLocaleString('en-US', { maximumFractionDigits: 4 });
+          const rateText = li.rateLabel;
           const captionParts: string[] = [];
           if (li.item_type === 'recurring' && li.recurrence_frequency) {
             captionParts.push(`${li.recurrence_frequency.charAt(0).toUpperCase()}${li.recurrence_frequency.slice(1)}`);
@@ -224,6 +213,11 @@ export function InvoiceDocument({ data }: { data: InvoicePdfData }) {
             captionParts.push(`${li.item_type.charAt(0).toUpperCase()}${li.item_type.slice(1)}`);
           }
           if (period) captionParts.push(period);
+          if (li.rateBreakdown.length > 1) {
+            captionParts.push(li.rateBreakdown
+              .map(rate => `${formatDecimalHours(rate.hours)} @ $${formatMoney(rate.hourlyRate)}`)
+              .join(' + '));
+          }
           const caption = captionParts.join(' · ');
 
           return (
@@ -338,6 +332,7 @@ function TimeLogsPage({
   const opts = data.options;
   const entries = data.timeLogEntries;
   const totalHours = entries.reduce((sum, e) => sum + e.hours, 0);
+  const totalAmount = entries.reduce((sum, e) => sum + e.amount, 0);
   const firstDay = entries[0]?.dayKey ?? null;
   const lastDay = entries[entries.length - 1]?.dayKey ?? null;
   const rangeLabel = firstDay && lastDay
@@ -391,8 +386,8 @@ function TimeLogsPage({
         <Text style={[styles.th, styles.tlColDate]}>Date</Text>
         <Text style={[styles.th, styles.tlColTime]}>Time</Text>
         <Text style={[styles.th, styles.tlColDescription]}>Description</Text>
-        {showMember && <Text style={[styles.th, styles.tlColMember]}>Member</Text>}
         <Text style={[styles.th, styles.tlColDuration]}>Duration</Text>
+        <Text style={[styles.th, styles.tlColAmount]}>Amount</Text>
       </View>
 
       {entries.map((entry) => {
@@ -410,11 +405,12 @@ function TimeLogsPage({
               <Text style={styles.tdDescription}>
                 {entry.description || <Text style={{ color: COLOR.faint }}>—</Text>}
               </Text>
+              {showMember && entry.memberName ? (
+                <Text style={styles.tdCaption}>{entry.memberName}</Text>
+              ) : null}
             </View>
-            {showMember && (
-              <Text style={[styles.tdMono, styles.tlColMember]}>{entry.memberName || '—'}</Text>
-            )}
             <Text style={[styles.tdMono, styles.tlColDuration]}>{formatDecimalHours(entry.hours)}</Text>
+            <Text style={[styles.tdMono, styles.tlColAmount]}>${formatMoney(entry.amount)}</Text>
           </View>
         );
       })}
@@ -427,6 +423,10 @@ function TimeLogsPage({
             <Text style={styles.timeLogTotalValue}>
               {formatDecimalHours(totalHours)}
             </Text>
+          </View>
+          <View style={styles.totalsRow}>
+            <Text style={styles.totalsLabelFinal}>Time Charges</Text>
+            <Text style={styles.timeLogTotalValue}>${formatMoney(totalAmount)}</Text>
           </View>
         </View>
       </View>
@@ -709,11 +709,11 @@ function createStyles(brandColor: string) {
       paddingVertical: 12,
       marginBottom: 32,
     },
-    tlColDate:        { width: 96, paddingRight: 10 },
-    tlColTime:        { width: 110, paddingRight: 10 },
+    tlColDate:        { width: 75, paddingRight: 8 },
+    tlColTime:        { width: 115, paddingRight: 8 },
     tlColDescription: { flex: 1, paddingRight: 10 },
-    tlColMember:      { width: 80, paddingRight: 10 },
-    tlColDuration:    { width: 60, textAlign: 'right' },
+    tlColDuration:    { width: 64, paddingRight: 10, textAlign: 'right' },
+    tlColAmount:      { width: 72, textAlign: 'right' },
     timeLogTotalsWrap: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 22 },
     timeLogTotalsBox: { width: 200 },
     timeLogTotalValue: {

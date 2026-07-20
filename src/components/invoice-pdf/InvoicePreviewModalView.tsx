@@ -22,6 +22,8 @@ interface InvoicePreviewModalViewProps {
   onClose: () => void;
   /** Pre-built PDF data. Pass null while still loading. */
   pdfData: InvoicePdfData | null;
+  /** Blocks preview and download when billing facts fail integrity validation. */
+  integrityError?: string | null;
   /** Header label and filename input. */
   invoiceNumber: string;
   /** Used in the download filename. */
@@ -56,6 +58,7 @@ export function InvoicePreviewModalView({
   isOpen,
   onClose,
   pdfData,
+  integrityError,
   invoiceNumber,
   clientLabel,
   invoiceDate,
@@ -335,7 +338,17 @@ export function InvoicePreviewModalView({
             iframe PDFViewer because mobile browsers can only show page 1 of
             iframe-embedded PDFs and provide no navigation controls. */}
         <div className="flex-1 bg-zinc-100 min-h-0">
-          {previewLib ? (
+          {integrityError ? (
+            <div className="w-full h-full flex items-center justify-center p-8">
+              <div className="max-w-lg rounded-xl border border-red-200 bg-red-50 p-5 text-center">
+                <p className="text-sm font-semibold text-red-800">PDF generation blocked</p>
+                <p className="mt-2 text-sm leading-relaxed text-red-700">{integrityError}</p>
+                <p className="mt-3 text-xs text-red-600">
+                  The invoice was not rendered or downloaded because its saved billing details did not reconcile.
+                </p>
+              </div>
+            </div>
+          ) : previewLib ? (
             <previewLib.PdfPagesPreview file={previewUrl} />
           ) : (
             <div className="w-full h-full flex flex-col items-center justify-center text-zinc-400">
@@ -346,7 +359,9 @@ export function InvoicePreviewModalView({
         </div>
 
         <div className="px-5 py-2 border-t border-zinc-100 flex-shrink-0 text-[11px] text-zinc-400 text-center">
-          This preview reflects the invoice&apos;s current data. Changes update on reopen.
+          {integrityError
+            ? 'Download disabled until the invoice billing data reconciles.'
+            : 'This preview reflects the invoice\'s current data. Changes update on reopen.'}
         </div>
       </div>
     </div>

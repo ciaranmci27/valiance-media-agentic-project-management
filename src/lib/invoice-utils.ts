@@ -88,9 +88,80 @@ export function invoicedTotalsByItemType(
 
 export type PaymentStatus = 'paid' | 'partial' | 'unpaid';
 
+export interface PaymentBreakdown {
+  status: PaymentStatus;
+  totalAmount: number;
+  paidAmount: number;
+  unpaidAmount: number;
+}
+
+export interface BillableEntry {
+  id: string;
+  hours: number;
+  hourly_rate?: number | null;
+  start_time?: string;
+  end_time?: string | null;
+}
+
+export interface TimeAllocationDraft {
+  time_entry_id: string;
+  start_offset_hours: number;
+  allocated_hours: number;
+  allocated_amount: number;
+}
+
+interface UnpaidEntryPortion {
+  startOffsetHours: number;
+  hours: number;
+}
+
+export interface UnpaidHoursLineItemDraft {
+  description: string;
+  amount: number;
+  hours: number;
+  startDate: string;
+  endDate: string;
+  allocations: TimeAllocationDraft[];
+}
+
+function reconcileAllocationCents(
+  allocations: TimeAllocationDraft[],
+  targetAmount: number,
+): TimeAllocationDraft[] {
+  if (allocations.length === 0) return allocations;
+  const targetCents = Math.round(targetAmount * 100);
+  const cents = allocations.map(allocation => Math.round(allocation.allocated_amount * 100));
+  let difference = targetCents - cents.reduce((sum, value) => sum + value, 0);
+  if (difference === 0) return allocations;
+
+  // Spread reconciliation across rows one cent at a time. Concentrating the
+  // whole difference in the final row can make that row disagree with its
+  // session rate when an invoice contains many sub-cent allocations.
+  const direction = difference > 0 ? 1 : -1;
+  let cursor = 0;
+  while (difference !== 0) {
+    const index = cursor % cents.length;
+    if (direction > 0 || cents[index] > 0) {
+      cents[index] += direction;
+      difference -= direction;
+    }
+    cursor += 1;
+  }
+
+  return allocations.map((allocation, index) => ({
+    ...allocation,
+    allocated_amount: cents[index] / 100,
+  }));
+}
+
 // Invoice line items are stored in dollars and cents. Time entries can produce
 // sub-cent values, so FIFO comparisons need a half-cent tolerance.
 const MONEY_EPSILON = 0.005000001;
+
+// Hours are entered and displayed to four decimal places. Treat a remainder
+// below half of the smallest visible unit as rounding noise so it cannot
+// create a phantom allocation that renders as 0 hrs / $0.
+const HOURS_EPSILON = 0.000050001;
 
 function hasUsablePool(pool: number): boolean {
   return pool > MONEY_EPSILON;
@@ -113,24 +184,65 @@ function subtractCost(pool: number, cost: number): number {
  * Decoupled from the time-entry type so both the admin tracker and the
  * portal API can reuse it without depending on each other.
  */
+function rateForEntry(entry: BillableEntry, fallbackRate: number): number {
+  return entry.hourly_rate ?? fallbackRate;
+}
+
+export function billableAmountForEntry(entry: BillableEntry, fallbackRate = 0): number {
+  return entry.hours * rateForEntry(entry, fallbackRate);
+}
+
+export function totalBillableAmount(entries: BillableEntry[], fallbackRate = 0): number {
+  return entries.reduce((sum, entry) => sum + billableAmountForEntry(entry, fallbackRate), 0);
+}
+
 export function fifoPaymentStatuses(
-  entries: Array<{ id: string; hours: number }>,
+  entries: BillableEntry[],
   paidPool: number,
-  hourlyRate: number,
+  fallbackRate = 0,
 ): Map<string, PaymentStatus> {
-  const map = new Map<string, PaymentStatus>();
-  if (hourlyRate <= 0) return map;
+  return new Map(
+    [...fifoPaymentBreakdowns(entries, paidPool, fallbackRate)]
+      .map(([id, breakdown]) => [id, breakdown.status]),
+  );
+}
+
+/** FIFO payment status plus paid and unpaid dollar amounts for each entry. */
+export function fifoPaymentBreakdowns(
+  entries: BillableEntry[],
+  paidPool: number,
+  fallbackRate = 0,
+): Map<string, PaymentBreakdown> {
+  const map = new Map<string, PaymentBreakdown>();
   let pool = paidPool;
   for (const entry of entries) {
-    const cost = entry.hours * hourlyRate;
+    const cost = billableAmountForEntry(entry, fallbackRate);
+    if (cost <= MONEY_EPSILON) continue;
+    const totalCents = Math.round(cost * 100);
     if (poolCoversCost(pool, cost)) {
-      map.set(entry.id, 'paid');
+      map.set(entry.id, {
+        status: 'paid',
+        totalAmount: totalCents / 100,
+        paidAmount: totalCents / 100,
+        unpaidAmount: 0,
+      });
       pool = subtractCost(pool, cost);
     } else if (hasUsablePool(pool)) {
-      map.set(entry.id, 'partial');
+      const paidCents = Math.min(totalCents, Math.round(pool * 100));
+      map.set(entry.id, {
+        status: 'partial',
+        totalAmount: totalCents / 100,
+        paidAmount: paidCents / 100,
+        unpaidAmount: (totalCents - paidCents) / 100,
+      });
       pool = 0;
     } else {
-      map.set(entry.id, 'unpaid');
+      map.set(entry.id, {
+        status: 'unpaid',
+        totalAmount: totalCents / 100,
+        paidAmount: 0,
+        unpaidAmount: totalCents / 100,
+      });
     }
   }
   return map;
@@ -143,15 +255,27 @@ export function fifoPaymentStatuses(
  * its full hours. Used to build a single rolled-up hourly line item.
  */
 export function unpaidHoursByEntry(
-  entries: Array<{ id: string; hours: number }>,
+  entries: BillableEntry[],
   paidPool: number,
-  hourlyRate: number,
+  fallbackRate = 0,
 ): Map<string, number> {
-  const out = new Map<string, number>();
-  if (hourlyRate <= 0) return out;
+  return new Map(
+    [...unpaidPortionsByEntry(entries, paidPool, fallbackRate)]
+      .map(([id, portion]) => [id, portion.hours]),
+  );
+}
+
+function unpaidPortionsByEntry(
+  entries: BillableEntry[],
+  paidPool: number,
+  fallbackRate = 0,
+): Map<string, UnpaidEntryPortion> {
+  const out = new Map<string, UnpaidEntryPortion>();
   let pool = paidPool;
   for (const entry of entries) {
-    const cost = entry.hours * hourlyRate;
+    const rate = rateForEntry(entry, fallbackRate);
+    const cost = entry.hours * rate;
+    if (rate <= 0 || cost <= MONEY_EPSILON) continue;
     if (poolCoversCost(pool, cost)) {
       pool = subtractCost(pool, cost);
       continue;
@@ -159,11 +283,15 @@ export function unpaidHoursByEntry(
     if (hasUsablePool(pool)) {
       const unpaidValue = cost - pool;
       if (unpaidValue > MONEY_EPSILON) {
-        out.set(entry.id, unpaidValue / hourlyRate);
+        const paidHours = pool / rate;
+        out.set(entry.id, {
+          startOffsetHours: paidHours,
+          hours: unpaidValue / rate,
+        });
       }
       pool = 0;
     } else {
-      out.set(entry.id, entry.hours);
+      out.set(entry.id, { startOffsetHours: 0, hours: entry.hours });
     }
   }
   return out;
@@ -196,23 +324,34 @@ function fmtMDY(value: string): string {
  * unfinalized entries don't have billable hours yet.
  */
 export function buildUnpaidHoursLineItem(
-  entries: Array<{ id: string; start_time: string; end_time: string | null; hours: number }>,
+  entries: Array<BillableEntry & { start_time: string; end_time: string | null }>,
   paidPool: number,
-  hourlyRate: number,
-): { description: string; amount: number; hours: number; startDate: string; endDate: string } | null {
-  if (hourlyRate <= 0) return null;
+  fallbackRate = 0,
+  eligibleEntryIds?: ReadonlySet<string>,
+): UnpaidHoursLineItemDraft | null {
   // Oldest-first ordering is required by the FIFO walk. Sort defensively.
   const sorted = [...entries].sort((a, b) => a.start_time.localeCompare(b.start_time));
-  const unpaidMap = unpaidHoursByEntry(sorted, paidPool, hourlyRate);
+  const unpaidMap = unpaidPortionsByEntry(sorted, paidPool, fallbackRate);
   if (unpaidMap.size === 0) return null;
 
   let totalHours = 0;
   let earliestStart: string | null = null;
   let latestEnd: string | null = null;
+  let totalAmount = 0;
+  const allocations: TimeAllocationDraft[] = [];
   for (const entry of sorted) {
+    if (eligibleEntryIds && !eligibleEntryIds.has(entry.id)) continue;
     const unpaid = unpaidMap.get(entry.id);
-    if (!unpaid || unpaid <= 0) continue;
-    totalHours += unpaid;
+    if (!unpaid || unpaid.hours <= 0) continue;
+    totalHours += unpaid.hours;
+    const amount = unpaid.hours * rateForEntry(entry, fallbackRate);
+    totalAmount += amount;
+    allocations.push({
+      time_entry_id: entry.id,
+      start_offset_hours: unpaid.startOffsetHours,
+      allocated_hours: unpaid.hours,
+      allocated_amount: Math.round(amount * 100) / 100,
+    });
     if (!earliestStart || entry.start_time < earliestStart) earliestStart = entry.start_time;
     const end = entry.end_time ?? entry.start_time;
     if (!latestEnd || end > latestEnd) latestEnd = end;
@@ -221,10 +360,11 @@ export function buildUnpaidHoursLineItem(
 
   return {
     description: formatUnpaidHoursDescription(totalHours, earliestStart, latestEnd),
-    amount: Math.round(totalHours * hourlyRate * 100) / 100,
+    amount: Math.round(totalAmount * 100) / 100,
     hours: totalHours,
     startDate: earliestStart,
     endDate: latestEnd,
+    allocations: reconcileAllocationCents(allocations, totalAmount),
   };
 }
 
@@ -250,41 +390,107 @@ export function formatUnpaidHoursDescription(hours: number, startDate: string, e
  * targetHours larger than the available unpaid balance is clamped silently.
  */
 export function buildPartialUnpaidHoursLineItem(
-  entries: Array<{ id: string; start_time: string; end_time: string | null; hours: number }>,
+  entries: Array<BillableEntry & { start_time: string; end_time: string | null }>,
   paidPool: number,
-  hourlyRate: number,
+  fallbackRate: number,
   targetHours: number,
-): { description: string; amount: number; hours: number; startDate: string; endDate: string } | null {
-  if (hourlyRate <= 0 || targetHours <= 0) return null;
+  eligibleEntryIds?: ReadonlySet<string>,
+): UnpaidHoursLineItemDraft | null {
+  if (targetHours <= 0) return null;
   const sorted = [...entries].sort((a, b) => a.start_time.localeCompare(b.start_time));
-  const unpaidMap = unpaidHoursByEntry(sorted, paidPool, hourlyRate);
+  const unpaidMap = unpaidPortionsByEntry(sorted, paidPool, fallbackRate);
   if (unpaidMap.size === 0) return null;
 
   let acc = 0;
   let earliestStart: string | null = null;
   let cutoffEnd: string | null = null;
+  let amount = 0;
+  const allocations: TimeAllocationDraft[] = [];
 
   for (const entry of sorted) {
+    if (eligibleEntryIds && !eligibleEntryIds.has(entry.id)) continue;
     const unpaid = unpaidMap.get(entry.id);
-    if (!unpaid || unpaid <= 0) continue;
+    if (!unpaid || unpaid.hours <= 0) continue;
+    const remainingHours = targetHours - acc;
+    if (remainingHours <= HOURS_EPSILON) break;
+
+    const used = Math.min(unpaid.hours, remainingHours);
+    if (used <= HOURS_EPSILON) continue;
     if (!earliestStart) earliestStart = entry.start_time;
-
-    if (acc >= targetHours) break;
-
-    const used = Math.min(unpaid, targetHours - acc);
     acc += used;
+    const usedAmount = used * rateForEntry(entry, fallbackRate);
+    amount += usedAmount;
+    allocations.push({
+      time_entry_id: entry.id,
+      start_offset_hours: unpaid.startOffsetHours,
+      allocated_hours: used,
+      allocated_amount: Math.round(usedAmount * 100) / 100,
+    });
     cutoffEnd = entry.end_time ?? entry.start_time;
   }
 
   if (acc <= 0 || !earliestStart || !cutoffEnd) return null;
 
-  const finalHours = Math.min(acc, targetHours);
+  const finalHours = acc;
   return {
     description: formatUnpaidHoursDescription(finalHours, earliestStart, cutoffEnd),
-    amount: Math.round(finalHours * hourlyRate * 100) / 100,
+    amount: Math.round(amount * 100) / 100,
     hours: finalHours,
     startDate: earliestStart,
     endDate: cutoffEnd,
+    allocations: reconcileAllocationCents(allocations, amount),
+  };
+}
+
+/** Build the same FIFO draft when the user chooses a dollar amount. */
+export function buildPartialUnpaidHoursLineItemByAmount(
+  entries: Array<BillableEntry & { start_time: string; end_time: string | null }>,
+  paidPool: number,
+  fallbackRate: number,
+  targetAmount: number,
+  eligibleEntryIds?: ReadonlySet<string>,
+): UnpaidHoursLineItemDraft | null {
+  if (targetAmount <= 0) return null;
+  const sorted = [...entries].sort((a, b) => a.start_time.localeCompare(b.start_time));
+  const unpaidMap = unpaidPortionsByEntry(sorted, paidPool, fallbackRate);
+  let remaining = targetAmount;
+  let hours = 0;
+  let amount = 0;
+  let earliestStart: string | null = null;
+  let cutoffEnd: string | null = null;
+  const allocations: TimeAllocationDraft[] = [];
+
+  for (const entry of sorted) {
+    if (!hasUsablePool(remaining)) break;
+    if (eligibleEntryIds && !eligibleEntryIds.has(entry.id)) continue;
+    const unpaid = unpaidMap.get(entry.id);
+    const unpaidHours = unpaid?.hours ?? 0;
+    const rate = rateForEntry(entry, fallbackRate);
+    if (unpaidHours <= 0 || rate <= 0) continue;
+    if (!earliestStart) earliestStart = entry.start_time;
+    const availableAmount = unpaidHours * rate;
+    const usedAmount = Math.min(availableAmount, remaining);
+    const usedHours = usedAmount / rate;
+    hours += usedHours;
+    amount += usedAmount;
+    remaining -= usedAmount;
+    cutoffEnd = entry.end_time ?? entry.start_time;
+    allocations.push({
+      time_entry_id: entry.id,
+      start_offset_hours: unpaid?.startOffsetHours ?? 0,
+      allocated_hours: usedHours,
+      allocated_amount: Math.round(usedAmount * 100) / 100,
+    });
+  }
+
+  if (hours <= 0 || !earliestStart || !cutoffEnd) return null;
+  return {
+    description: formatUnpaidHoursDescription(hours, earliestStart, cutoffEnd),
+    amount: Math.round(amount * 100) / 100,
+    hours,
+    startDate: earliestStart,
+    endDate: cutoffEnd,
+    allocations: reconcileAllocationCents(allocations, amount),
   };
 }
 

@@ -2339,7 +2339,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (skipSupabase) return;
 
     try {
-      await patchTimeEntryQuery(supabase, id, updates);
+      const updated = await patchTimeEntryQuery(supabase, id, updates);
+      setTimeEntries(entries => entries.map(entry => entry.id === id ? updated : entry));
       if (!options.silent && existing) {
         const project = projects.find(p => p.id === existing.project_id);
         notify(allMemberIds(), `Time entry updated on "${project?.name || 'project'}"`, `${actorName()} updated a time entry.`, `/projects/${existing.project_id}`, 'project', existing.project_id, 'time_entries');
@@ -2391,6 +2392,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       start_time: startTime,
       end_time: null,
       segments: [{ start: startTime, end: null }],
+      hourly_rate: projects.find(project => project.id === projectId)?.hourly_rate ?? 0,
       description,
     };
     await addTimeEntry(entry);

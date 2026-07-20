@@ -6,6 +6,7 @@ import { notFound, badRequest } from '@/lib/api/errors';
 import { logAudit } from '@/lib/api/audit';
 import { evaluateBudgetAlerts } from '@/lib/email/client-notifications';
 import type { TimeSegment } from '@/lib/types';
+import { resolveProjectHourlyRate } from '@/lib/supabase/queries';
 
 export const GET = withApi(async ({ supabase, params }) => {
   const { id, entryId } = params as any;
@@ -62,6 +63,10 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
     }
     const nextSegments: TimeSegment[] = [{ start: nextStart, end: nextEnd }];
     patch.segments = nextSegments;
+  }
+
+  if (hasStartUpdate) {
+    patch.hourly_rate = await resolveProjectHourlyRate(supabase, id, patch.start_time as string);
   }
 
   const { data, error } = await supabase

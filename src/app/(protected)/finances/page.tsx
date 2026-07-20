@@ -6,7 +6,7 @@ import { Header } from '@/components/layout/Header';
 import { getWorkedHours, getWorkedHoursByDay, getWorkedHoursByHour, isRunning } from '@/lib/time-entry-utils';
 import { DateInput } from '@/components/ui/inputs/DateInput';
 import { Tooltip } from '@/components/ui/Tooltip';
-import { ensureLineItems, invoicedTotalsByItemType, spreadLineItem } from '@/lib/invoice-utils';
+import { ensureLineItems, invoicedTotalsByItemType, spreadLineItem, totalBillableAmount } from '@/lib/invoice-utils';
 import Link from 'next/link';
 import {
   DollarSign,
@@ -493,7 +493,7 @@ export default function FinancesPage() {
       // Paused entries keep the time their closed segments already accumulated
       // (getWorkedHoursByDay sums closed segments either way), so revenue
       // doesn't flicker out the moment someone hits pause mid-session.
-      const rate = rateByProject.get(te.project_id) ?? 0;
+      const rate = te.hourly_rate ?? rateByProject.get(te.project_id) ?? 0;
       for (const [dayKey, hours] of getWorkedHoursByDay(te, now)) {
         if (dayKey < startKey || dayKey > endKey) continue;
         const value = hours * rate;
@@ -703,9 +703,7 @@ export default function FinancesPage() {
       // paused entries keep their accumulated time (getWorkedHours sums closed
       // segments). All three states contribute so Outstanding stays stable
       // across pause/resume and clock-out transitions.
-      const pHoursAll = fTimeEntries
-        .filter(te => te.project_id === p.id)
-        .reduce((s, te) => s + getWorkedHours(te, now), 0);
+      const projectEntries = fTimeEntries.filter(te => te.project_id === p.id);
       const isHourly = !!p.hourly_tracking;
       const rate = p.hourly_rate ?? 0;
       // Aggregate line-item amounts by type across all active invoices.
@@ -714,7 +712,13 @@ export default function FinancesPage() {
       const pNonHourlyOwed = pInvoicedByType.fixed + pInvoicedByType.recurring + pInvoicedByType.reimbursement;
       const pInvoicedTotal = pInvoicesAll.reduce((s, i) => s + i.amount, 0);
       const pBillable = isHourly
-        ? Math.max(rate * pHoursAll, pHourlyInvoiced) + pNonHourlyOwed
+        ? Math.max(
+            totalBillableAmount(
+              projectEntries.map(te => ({ id: te.id, hours: getWorkedHours(te, now), hourly_rate: te.hourly_rate })),
+              rate,
+            ),
+            pHourlyInvoiced,
+          ) + pNonHourlyOwed
         : pInvoicedTotal;
       outstandingByProject.set(p.id, Math.max(0, pBillable - pPaidAll));
     }
@@ -974,7 +978,7 @@ export default function FinancesPage() {
       selectedProjectIds.size === 0 || selectedProjectIds.has(id);
     for (const te of timeEntries) {
       if (!includeProject(te.project_id)) continue;
-      const rate = rateByProject.get(te.project_id) ?? 0;
+      const rate = te.hourly_rate ?? rateByProject.get(te.project_id) ?? 0;
       const perHour = getWorkedHoursByHour(te, drilldownDay, now);
       for (let h = 0; h < 24; h++) {
         const hours = perHour[h];

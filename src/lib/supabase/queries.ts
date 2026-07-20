@@ -1,5 +1,5 @@
 import { SupabaseClient } from '@supabase/supabase-js';
-import type { Project, Task, TeamMember, Subtask, Comment, Activity, Contact, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, ApiKey, ProjectGoal, TaskSuggestion, AgentActivity, ApiAuditEntry, TimeEntry, ProjectCredential, ProjectCredentialListItem, ProjectInvoice, BusinessSettings } from '@/lib/types';
+import type { Project, Task, TeamMember, Subtask, Comment, Activity, Contact, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, ApiKey, ProjectGoal, TaskSuggestion, AgentActivity, ApiAuditEntry, TimeEntry, ProjectCredential, ProjectCredentialListItem, ProjectInvoice, BusinessSettings, InvoiceTimeEntryAllocation } from '@/lib/types';
 import { notFound } from '@/lib/api/errors';
 import { siteConfig } from '@/site-config';
 import { generatePortalSlug } from '@/lib/portal-slug';
@@ -14,17 +14,32 @@ export async function fetchProjects(supabase: SupabaseClient) {
     .from('projects')
     .select(`
       *,
-      project_members ( member_id )
+      project_members ( member_id ),
+      project_hourly_rates ( hourly_rate, effective_at )
     `)
     .order('created_at', { ascending: false });
 
   if (error) throw error;
 
-  return (projects || []).map((p: any) => ({
-    ...p,
-    member_ids: (p.project_members || []).map((pm: any) => pm.member_id),
-    project_members: undefined,
-  })) as Project[];
+  type ProjectRateJoin = { hourly_rate: number; effective_at: string };
+  type ProjectMemberJoin = { member_id: string };
+  type ProjectWithJoins = Project & {
+    project_members?: ProjectMemberJoin[];
+    project_hourly_rates?: ProjectRateJoin[];
+  };
+  const now = Date.now();
+  return ((projects || []) as ProjectWithJoins[]).map((p) => {
+    const activeRate = (p.project_hourly_rates || [])
+      .filter((rate) => new Date(rate.effective_at).getTime() <= now)
+      .sort((a, b) => b.effective_at.localeCompare(a.effective_at))[0];
+    return {
+      ...p,
+      hourly_rate: activeRate ? Number(activeRate.hourly_rate) : p.hourly_rate,
+      member_ids: (p.project_members || []).map((pm) => pm.member_id),
+      project_members: undefined,
+      project_hourly_rates: undefined,
+    };
+  }) as Project[];
 }
 
 export async function insertProject(
@@ -1751,6 +1766,32 @@ export async function fetchAuditLogForEntity(supabase: SupabaseClient, entityTyp
 // TIME ENTRIES
 // ============================================================
 
+export async function resolveProjectHourlyRate(
+  supabase: SupabaseClient,
+  projectId: string,
+  startTime: string,
+  fallbackRate?: number,
+): Promise<number> {
+  const { data: scheduled, error } = await supabase
+    .from('project_hourly_rates')
+    .select('hourly_rate')
+    .eq('project_id', projectId)
+    .lte('effective_at', startTime)
+    .order('effective_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  if (scheduled) return Number(scheduled.hourly_rate) || 0;
+  if (fallbackRate !== undefined) return fallbackRate;
+  const { data: project, error: projectError } = await supabase
+    .from('projects')
+    .select('hourly_rate')
+    .eq('id', projectId)
+    .single();
+  if (projectError) throw projectError;
+  return Number(project.hourly_rate) || 0;
+}
+
 export async function fetchAllTimeEntries(supabase: SupabaseClient) {
   const { data, error } = await supabase
     .from('project_time_entries')
@@ -1776,6 +1817,12 @@ export async function insertTimeEntry(
   supabase: SupabaseClient,
   entry: Omit<TimeEntry, 'id' | 'created_at' | 'updated_at'>
 ) {
+  const hourlyRate = await resolveProjectHourlyRate(
+    supabase,
+    entry.project_id,
+    entry.start_time,
+    entry.hourly_rate,
+  );
   const { data, error } = await supabase
     .from('project_time_entries')
     .insert({
@@ -1784,6 +1831,7 @@ export async function insertTimeEntry(
       start_time: entry.start_time,
       end_time: entry.end_time,
       segments: entry.segments ?? [],
+      hourly_rate: hourlyRate,
       description: entry.description,
     })
     .select()
@@ -1798,9 +1846,19 @@ export async function patchTimeEntry(
   id: string,
   updates: Partial<Pick<TimeEntry, 'member_id' | 'start_time' | 'end_time' | 'segments' | 'description'>>
 ) {
+  const patch: typeof updates & { hourly_rate?: number } = { ...updates };
+  if (updates.start_time) {
+    const { data: existing, error: existingError } = await supabase
+      .from('project_time_entries')
+      .select('project_id')
+      .eq('id', id)
+      .single();
+    if (existingError) throw existingError;
+    patch.hourly_rate = await resolveProjectHourlyRate(supabase, existing.project_id, updates.start_time);
+  }
   const { data, error } = await supabase
     .from('project_time_entries')
-    .update(updates)
+    .update(patch)
     .eq('id', id)
     .select()
     .single();
@@ -1901,13 +1959,16 @@ export async function removeProjectCredential(supabase: SupabaseClient, id: stri
 export async function fetchAllProjectInvoices(supabase: SupabaseClient) {
   const { data, error } = await supabase
     .from('project_invoices')
-    .select('*')
+    .select('*, invoice_time_entry_allocations(*)')
     .order('date', { ascending: false });
   if (error) throw error;
   // Hydrate line_items via lazy synthesis so consumers always see a populated array.
   return (data || []).map((row) => {
     const inv = row as ProjectInvoice;
-    return { ...inv, line_items: ensureLineItems(inv) };
+    const allocations = ((row as ProjectInvoice & {
+      invoice_time_entry_allocations?: InvoiceTimeEntryAllocation[];
+    }).invoice_time_entry_allocations || []);
+    return { ...inv, line_items: ensureLineItems(inv), time_allocations: allocations };
   });
 }
 
@@ -1915,30 +1976,17 @@ export async function insertProjectInvoice(
   supabase: SupabaseClient,
   invoice: Omit<ProjectInvoice, 'id' | 'created_at' | 'updated_at'>
 ) {
+  const { time_allocations = [], ...invoiceRow } = invoice;
   const { data, error } = await supabase
-    .from('project_invoices')
-    .insert({
-      project_id: invoice.project_id,
-      invoice_number: invoice.invoice_number,
-      amount: invoice.amount,
-      status: invoice.status,
-      invoice_type: invoice.invoice_type,
-      line_items: invoice.line_items ?? [],
-      date: invoice.date,
-      due_date: invoice.due_date,
-      paid_date: invoice.paid_date,
-      description: invoice.description,
-      file_url: invoice.file_url,
-      file_name: invoice.file_name,
-      file_size: invoice.file_size,
-      mime_type: invoice.mime_type,
-      created_by: invoice.created_by,
+    .rpc('save_project_invoice_with_allocations', {
+      p_invoice_id: null,
+      p_invoice: invoiceRow,
+      p_allocations: time_allocations,
     })
-    .select()
     .single();
   if (error) throw error;
   const inv = data as ProjectInvoice;
-  return { ...inv, line_items: ensureLineItems(inv) };
+  return { ...inv, line_items: ensureLineItems(inv), time_allocations };
 }
 
 export async function patchProjectInvoice(
@@ -1946,16 +1994,31 @@ export async function patchProjectInvoice(
   id: string,
   updates: Partial<ProjectInvoice>
 ) {
-  const { id: _id, created_at, updated_at, ...rest } = updates as any;
+  const rest: Partial<ProjectInvoice> = { ...updates };
+  const time_allocations = rest.time_allocations;
+  delete rest.id;
+  delete rest.created_at;
+  delete rest.updated_at;
+  delete rest.time_allocations;
   const { data, error } = await supabase
-    .from('project_invoices')
-    .update(rest)
-    .eq('id', id)
-    .select()
+    .rpc('save_project_invoice_with_allocations', {
+      p_invoice_id: id,
+      p_invoice: rest,
+      p_allocations: time_allocations === undefined ? null : time_allocations,
+    })
     .single();
   if (error) throw error;
+  const { data: allocationRows, error: allocationError } = await supabase
+    .from('invoice_time_entry_allocations')
+    .select('*')
+    .eq('invoice_id', id);
+  if (allocationError) throw allocationError;
   const inv = data as ProjectInvoice;
-  return { ...inv, line_items: ensureLineItems(inv) };
+  return {
+    ...inv,
+    line_items: ensureLineItems(inv),
+    time_allocations: (allocationRows || []) as InvoiceTimeEntryAllocation[],
+  };
 }
 
 export async function removeProjectInvoice(supabase: SupabaseClient, id: string) {

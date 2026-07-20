@@ -332,9 +332,31 @@ export interface TimeEntry {
   start_time: string;       // ISO datetime (denormalized: first segment's start)
   end_time: string | null;  // ISO datetime (denormalized: last segment's end), null while unfinalized
   segments: TimeSegment[];  // Individual worked intervals; sum gives total worked time
+  hourly_rate?: number;     // Immutable rate selected from this session's start time
   description: string;
   created_at: string;
   updated_at: string;
+}
+
+export interface ProjectHourlyRate {
+  id: string;
+  project_id: string;
+  hourly_rate: number;
+  effective_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface InvoiceTimeEntryAllocation {
+  id?: string;
+  invoice_id?: string;
+  line_item_id: string;
+  time_entry_id: string;
+  /** Worked-hours offset where this billed slice begins within the session. */
+  start_offset_hours: number;
+  allocated_hours: number;
+  allocated_amount: number;
+  created_at?: string;
 }
 
 // ============================================================
@@ -374,6 +396,8 @@ export interface ProjectInvoice {
   /** Dominant line-item type by amount. Kept for back-compat with filters. */
   invoice_type: InvoiceType;
   line_items: InvoiceLineItem[];
+  /** Persisted FIFO result for generated hourly line items. */
+  time_allocations?: InvoiceTimeEntryAllocation[];
   date: string;
   due_date: string | null;
   paid_date: string | null;
@@ -880,6 +904,7 @@ export interface PortalData {
    *  Empty when invoices aren't shown. Lets the portal preview the same
    *  invoice PDF the admin sees, without requiring AppProvider/useApp(). */
   invoice_pdfs: Record<string, InvoicePdfData>;
+  invoice_pdf_errors?: Record<string, string>;
   credentials_submitted_count: number;
   credentials_submitted: {
     id: string;

@@ -413,9 +413,24 @@ create table public.project_time_entries (
   -- Running: end_time IS NULL and last segment has end: null.
   -- Stopped: end_time IS NOT NULL and all segments have a non-null end.
   segments jsonb not null default '[]'::jsonb,
+  -- Immutable billing-rate snapshot selected from the session start time.
+  hourly_rate numeric(10,2) not null default 0 check (hourly_rate >= 0),
   description text not null default '',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
+);
+
+-- ============================================================
+-- 21b. PROJECT HOURLY RATE SCHEDULE
+-- ============================================================
+create table public.project_hourly_rates (
+  id uuid primary key default gen_random_uuid(),
+  project_id uuid not null references public.projects(id) on delete cascade,
+  hourly_rate numeric(10,2) not null check (hourly_rate >= 0),
+  effective_at timestamptz not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (project_id, effective_at)
 );
 
 -- Only one running timer per (project, member) at a time — each teammate can
@@ -534,6 +549,20 @@ create table public.project_invoices (
   created_by uuid references public.team_members(id) on delete set null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
+);
+
+-- Exact time-session portions represented by generated hourly line items.
+-- line_item_id refers to the stable id stored in project_invoices.line_items.
+create table public.invoice_time_entry_allocations (
+  id uuid primary key default gen_random_uuid(),
+  invoice_id uuid not null references public.project_invoices(id) on delete cascade,
+  line_item_id text not null,
+  time_entry_id uuid not null references public.project_time_entries(id) on delete restrict,
+  start_offset_hours numeric(14,6) not null default 0 check (start_offset_hours >= 0),
+  allocated_hours numeric(14,6) not null check (allocated_hours > 0),
+  allocated_amount numeric(12,2) not null check (allocated_amount >= 0),
+  created_at timestamptz not null default now(),
+  unique (invoice_id, line_item_id, time_entry_id)
 );
 
 -- ============================================================
@@ -716,6 +745,9 @@ create index idx_leads_archived_at on public.leads(archived_at) where archived_a
 create index idx_project_time_entries_project on public.project_time_entries(project_id);
 create index idx_project_time_entries_member on public.project_time_entries(member_id);
 create index idx_project_time_entries_start_time on public.project_time_entries(start_time desc);
+create index idx_project_hourly_rates_lookup on public.project_hourly_rates(project_id, effective_at desc);
+create index idx_invoice_time_allocations_invoice on public.invoice_time_entry_allocations(invoice_id);
+create index idx_invoice_time_allocations_entry on public.invoice_time_entry_allocations(time_entry_id);
 
 create index idx_team_member_notifications_user_id on public.team_member_notifications(user_id);
 create index idx_team_member_notifications_unread on public.team_member_notifications(user_id, is_read) where is_read = false;
@@ -886,6 +918,235 @@ create trigger set_project_time_entries_updated_at
   before update on public.project_time_entries
   for each row execute function public.handle_updated_at();
 
+create trigger set_project_hourly_rates_updated_at
+  before update on public.project_hourly_rates
+  for each row execute function public.handle_updated_at();
+
+create or replace function public.protect_invoiced_time_entry()
+returns trigger as $$
+begin
+  if exists (
+    select 1 from public.invoice_time_entry_allocations allocation
+    where allocation.time_entry_id = old.id
+  ) and (
+    new.start_time is distinct from old.start_time or
+    new.end_time is distinct from old.end_time or
+    new.segments is distinct from old.segments or
+    new.hourly_rate is distinct from old.hourly_rate
+  ) then
+    raise exception 'Invoiced time entry billing details are locked';
+  end if;
+  return new;
+end;
+$$ language plpgsql;
+
+create trigger protect_invoiced_time_entry
+  before update on public.project_time_entries
+  for each row execute function public.protect_invoiced_time_entry();
+
+create or replace function public.validate_invoice_time_allocations(target_invoice_id uuid)
+returns void
+language plpgsql
+security invoker
+set search_path = public
+as $$
+begin
+  if exists (
+    select 1
+    from public.invoice_time_entry_allocations allocation
+    join public.project_invoices invoice on invoice.id = allocation.invoice_id
+    left join lateral jsonb_array_elements(invoice.line_items) line_item
+      on line_item->>'id' = allocation.line_item_id
+    where allocation.invoice_id = target_invoice_id
+      and (line_item is null or line_item->>'item_type' is distinct from 'hourly')
+  ) then
+    raise exception 'Invoice allocation points to a missing or non-hourly line item';
+  end if;
+
+  if exists (
+    select 1
+    from public.invoice_time_entry_allocations allocation
+    join public.project_invoices invoice on invoice.id = allocation.invoice_id
+    left join public.project_time_entries entry on entry.id = allocation.time_entry_id
+    where allocation.invoice_id = target_invoice_id
+      and (
+        entry.id is null
+        or entry.project_id is distinct from invoice.project_id
+        or entry.end_time is null
+        or entry.hourly_rate <= 0
+      )
+  ) then
+    raise exception 'Invoice allocation points to an invalid time session';
+  end if;
+
+  if exists (
+    select 1
+    from public.invoice_time_entry_allocations allocation
+    join public.project_time_entries entry on entry.id = allocation.time_entry_id
+    cross join lateral (
+      select case
+        when jsonb_array_length(coalesce(entry.segments, '[]'::jsonb)) > 0 then
+          coalesce(sum(
+            extract(epoch from ((segment->>'end')::timestamptz - (segment->>'start')::timestamptz)) / 3600
+          ) filter (where segment->>'end' is not null), 0)
+        else extract(epoch from (entry.end_time - entry.start_time)) / 3600
+      end as worked_hours
+      from jsonb_array_elements(coalesce(entry.segments, '[]'::jsonb)) segment
+    ) worked
+    where allocation.invoice_id = target_invoice_id
+      and allocation.start_offset_hours + allocation.allocated_hours > worked.worked_hours + 0.0000011
+  ) then
+    raise exception 'Invoice allocation extends beyond its tracked session';
+  end if;
+
+  if exists (
+    select 1
+    from public.invoice_time_entry_allocations allocation
+    join public.project_time_entries entry on entry.id = allocation.time_entry_id
+    where allocation.invoice_id = target_invoice_id
+      and abs(
+        round(allocation.allocated_hours * entry.hourly_rate, 2)
+        - allocation.allocated_amount
+      ) > 0.01
+  ) then
+    raise exception 'Invoice allocation amount disagrees with its session rate';
+  end if;
+
+  if exists (
+    select 1
+    from public.invoice_time_entry_allocations left_allocation
+    join public.invoice_time_entry_allocations right_allocation
+      on right_allocation.invoice_id = left_allocation.invoice_id
+      and right_allocation.time_entry_id = left_allocation.time_entry_id
+      and right_allocation.id > left_allocation.id
+    where left_allocation.invoice_id = target_invoice_id
+      and numrange(
+        left_allocation.start_offset_hours,
+        left_allocation.start_offset_hours + left_allocation.allocated_hours,
+        '[)'
+      ) && numrange(
+        right_allocation.start_offset_hours,
+        right_allocation.start_offset_hours + right_allocation.allocated_hours,
+        '[)'
+      )
+  ) then
+    raise exception 'A time session is billed more than once on the same invoice';
+  end if;
+
+  if exists (
+    select 1
+    from public.project_invoices invoice
+    cross join lateral jsonb_array_elements(invoice.line_items) line_item
+    join (
+      select line_item_id, sum(allocated_amount) as allocated_amount
+      from public.invoice_time_entry_allocations
+      where invoice_id = target_invoice_id
+      group by line_item_id
+    ) totals on totals.line_item_id = line_item->>'id'
+    where invoice.id = target_invoice_id
+      and totals.allocated_amount is distinct from round((line_item->>'amount')::numeric, 2)
+  ) then
+    raise exception 'Hourly allocation totals do not match the invoice line amount';
+  end if;
+end;
+$$;
+
+create or replace function public.save_project_invoice_with_allocations(
+  p_invoice_id uuid,
+  p_invoice jsonb,
+  p_allocations jsonb
+)
+returns public.project_invoices
+language plpgsql
+security invoker
+set search_path = public
+as $$
+declare
+  saved public.project_invoices;
+begin
+  if p_invoice_id is null then
+    insert into public.project_invoices (
+      project_id, invoice_number, amount, status, invoice_type, line_items,
+      date, due_date, paid_date, description, file_url, file_name, file_size,
+      mime_type, created_by
+    ) values (
+      (p_invoice->>'project_id')::uuid,
+      p_invoice->>'invoice_number',
+      coalesce((p_invoice->>'amount')::numeric, 0),
+      coalesce(p_invoice->>'status', 'draft'),
+      coalesce(p_invoice->>'invoice_type', 'hourly'),
+      coalesce(nullif(p_invoice->'line_items', 'null'::jsonb), '[]'::jsonb),
+      p_invoice->>'date',
+      p_invoice->>'due_date',
+      p_invoice->>'paid_date',
+      coalesce(p_invoice->>'description', ''),
+      p_invoice->>'file_url',
+      p_invoice->>'file_name',
+      (p_invoice->>'file_size')::bigint,
+      p_invoice->>'mime_type',
+      (p_invoice->>'created_by')::uuid
+    )
+    returning * into saved;
+  else
+    update public.project_invoices invoice
+    set
+      project_id = case when p_invoice ? 'project_id' then (p_invoice->>'project_id')::uuid else invoice.project_id end,
+      invoice_number = case when p_invoice ? 'invoice_number' then p_invoice->>'invoice_number' else invoice.invoice_number end,
+      amount = case when p_invoice ? 'amount' then (p_invoice->>'amount')::numeric else invoice.amount end,
+      status = case when p_invoice ? 'status' then p_invoice->>'status' else invoice.status end,
+      invoice_type = case when p_invoice ? 'invoice_type' then p_invoice->>'invoice_type' else invoice.invoice_type end,
+      line_items = case when p_invoice ? 'line_items' then coalesce(nullif(p_invoice->'line_items', 'null'::jsonb), '[]'::jsonb) else invoice.line_items end,
+      date = case when p_invoice ? 'date' then p_invoice->>'date' else invoice.date end,
+      due_date = case when p_invoice ? 'due_date' then p_invoice->>'due_date' else invoice.due_date end,
+      paid_date = case when p_invoice ? 'paid_date' then p_invoice->>'paid_date' else invoice.paid_date end,
+      description = case when p_invoice ? 'description' then coalesce(p_invoice->>'description', '') else invoice.description end,
+      file_url = case when p_invoice ? 'file_url' then p_invoice->>'file_url' else invoice.file_url end,
+      file_name = case when p_invoice ? 'file_name' then p_invoice->>'file_name' else invoice.file_name end,
+      file_size = case when p_invoice ? 'file_size' then (p_invoice->>'file_size')::bigint else invoice.file_size end,
+      mime_type = case when p_invoice ? 'mime_type' then p_invoice->>'mime_type' else invoice.mime_type end,
+      created_by = case when p_invoice ? 'created_by' then (p_invoice->>'created_by')::uuid else invoice.created_by end
+    where invoice.id = p_invoice_id
+    returning * into saved;
+
+    if not found then
+      raise exception 'Invoice not found';
+    end if;
+  end if;
+
+  if p_allocations is not null then
+    delete from public.invoice_time_entry_allocations
+    where invoice_id = saved.id;
+
+    insert into public.invoice_time_entry_allocations (
+      invoice_id, line_item_id, time_entry_id, start_offset_hours,
+      allocated_hours, allocated_amount
+    )
+    select
+      saved.id,
+      allocation.line_item_id,
+      allocation.time_entry_id,
+      allocation.start_offset_hours,
+      allocation.allocated_hours,
+      allocation.allocated_amount
+    from jsonb_to_recordset(coalesce(p_allocations, '[]'::jsonb)) as allocation(
+      line_item_id text,
+      time_entry_id uuid,
+      start_offset_hours numeric,
+      allocated_hours numeric,
+      allocated_amount numeric
+    );
+  end if;
+
+  perform public.validate_invoice_time_allocations(saved.id);
+  return saved;
+end;
+$$;
+
+revoke all on function public.validate_invoice_time_allocations(uuid) from public;
+revoke all on function public.save_project_invoice_with_allocations(uuid, jsonb, jsonb) from public;
+grant execute on function public.save_project_invoice_with_allocations(uuid, jsonb, jsonb) to authenticated;
+grant execute on function public.save_project_invoice_with_allocations(uuid, jsonb, jsonb) to service_role;
+
 create trigger set_portal_updates_updated_at
   before update on public.portal_updates
   for each row execute function public.handle_updated_at();
@@ -959,6 +1220,8 @@ alter table public.portal_updates enable row level security;
 alter table public.portal_update_attachments enable row level security;
 alter table public.portal_events enable row level security;
 alter table public.project_time_entries enable row level security;
+alter table public.project_hourly_rates enable row level security;
+alter table public.invoice_time_entry_allocations enable row level security;
 alter table public.project_credentials enable row level security;
 alter table public.project_invoices enable row level security;
 alter table public.team_member_notifications enable row level security;
@@ -1036,6 +1299,12 @@ create policy "portal_events_all" on public.portal_events
   for all to authenticated using (true) with check (true);
 
 create policy "project_time_entries_all" on public.project_time_entries
+  for all to authenticated using (true) with check (true);
+
+create policy "project_hourly_rates_all" on public.project_hourly_rates
+  for all to authenticated using (true) with check (true);
+
+create policy "invoice_time_entry_allocations_all" on public.invoice_time_entry_allocations
   for all to authenticated using (true) with check (true);
 
 create policy "api_keys_all" on public.api_keys

@@ -11,9 +11,11 @@ import {
 } from '@/lib/demo-data';
 import { siteConfig } from '@/site-config';
 import { getWorkedHours, getWorkedMs } from '@/lib/time-entry-utils';
-import { fifoPaymentStatuses, paidHourlyLineItemTotal } from '@/lib/invoice-utils';
+import { fifoPaymentStatuses, paidHourlyLineItemTotal, totalBillableAmount } from '@/lib/invoice-utils';
 import { buildInvoiceData } from '@/lib/invoice-pdf/buildInvoiceData';
+import { InvoicePdfIntegrityError } from '@/lib/invoice-pdf/resolveInvoicePdfBilling';
 import { recordPortalEvent, getOrCreateSessionId } from '@/lib/portal-analytics';
+import { resolveProjectHourlyRate } from '@/lib/supabase/queries';
 
 /**
  * Pause duration within an entry: the part of the [start_time, end_time] span
@@ -155,6 +157,9 @@ export async function GET(
   if (!project) {
     return NextResponse.json({ error: 'Project not found' }, { status: 404 });
   }
+  const currentHourlyRate = project.hourly_tracking
+    ? await resolveProjectHourlyRate(supabase, project.id, new Date().toISOString(), project.hourly_rate ?? 0)
+    : 0;
 
   // Compute timeline-based progress
   const timelineProgress = computeTimelineProgress(project.start_date, project.due_date, project.status);
@@ -186,11 +191,17 @@ export async function GET(
   if (needsInvoices) {
     const { data: invoiceData } = await supabase
       .from('project_invoices')
-      .select('*')
+      .select('*, invoice_time_entry_allocations(*)')
       .eq('project_id', settings.project_id)
       .neq('status', 'draft')
       .order('date', { ascending: false });
-    allInvoices = (invoiceData || []) as ProjectInvoice[];
+    allInvoices = (invoiceData || []).map((row) => ({
+      ...row,
+      time_allocations: (row as ProjectInvoice & {
+        invoice_time_entry_allocations?: ProjectInvoice['time_allocations'];
+      }).invoice_time_entry_allocations ?? [],
+      invoice_time_entry_allocations: undefined,
+    })) as ProjectInvoice[];
   }
 
   // Fetch time entries with member names (exclude running timers)
@@ -204,7 +215,7 @@ export async function GET(
   if (needsHours) {
     const { data: timeEntries } = await supabase
       .from('project_time_entries')
-      .select('id, start_time, end_time, segments, description, member_id')
+      .select('id, start_time, end_time, segments, description, member_id, hourly_rate')
       .eq('project_id', settings.project_id)
       .not('end_time', 'is', null)
       .order('start_time', { ascending: false });
@@ -222,12 +233,12 @@ export async function GET(
 
       // FIFO payment status (oldest entry drained first against paid hourly $).
       // Only meaningful on hourly projects with a rate set.
-      const hourlyRate = project.hourly_rate ?? 0;
+      const hourlyRate = currentHourlyRate;
       const paymentMap = (project.hourly_tracking && hourlyRate > 0)
         ? fifoPaymentStatuses(
             [...timeEntries]
               .sort((a: any, b: any) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime())
-              .map((te: any) => ({ id: te.id, hours: getWorkedHours(te as TimeEntry) })),
+              .map((te: any) => ({ id: te.id, hours: getWorkedHours(te as TimeEntry), hourly_rate: te.hourly_rate })),
             paidHourlyLineItemTotal(allInvoices),
             hourlyRate,
           )
@@ -292,7 +303,8 @@ export async function GET(
   // Pre-build per-invoice PDF data so the portal can render the same preview
   // the admin sees. Done server-side so the portal doesn't need access to
   // business_settings / primary_contact rows directly.
-  let invoice_pdfs: Record<string, InvoicePdfData> = {};
+  const invoice_pdfs: Record<string, InvoicePdfData> = {};
+  const invoice_pdf_errors: Record<string, string> = {};
   if (settings.show_invoices && allInvoices.length > 0) {
     const [{ data: bizSettings }, { data: primaryClientLink }] = await Promise.all([
       supabase.from('business_settings').select('*').limit(1).maybeSingle(),
@@ -313,10 +325,9 @@ export async function GET(
     const projectOptions = ((project as { invoice_pdf_options?: Partial<InvoicePdfOptions> }).invoice_pdf_options) ?? {};
     const portalOptions: Partial<InvoicePdfOptions> = { ...projectOptions, showSenderName: false };
 
-    invoice_pdfs = Object.fromEntries(
-      allInvoices.map((inv: ProjectInvoice) => [
-        inv.id,
-        buildInvoiceData({
+    for (const inv of allInvoices) {
+      try {
+        invoice_pdfs[inv.id] = buildInvoiceData({
           invoice: inv,
           project: project as Project,
           primaryContact,
@@ -329,9 +340,13 @@ export async function GET(
           timeEntries: portalTimeEntries,
           projectInvoices: allInvoices,
           team: portalTeam,
-        }),
-      ]),
-    );
+        });
+      } catch (error) {
+        invoice_pdf_errors[inv.id] = error instanceof InvoicePdfIntegrityError
+          ? error.message
+          : 'The PDF could not be verified against the invoice billing data.';
+      }
+    }
   }
 
   // Fetch portal updates with author names and attachments
@@ -412,14 +427,18 @@ export async function GET(
     updates,
     billing: project.hourly_tracking ? {
       hourly_tracking: true,
-      hourly_rate: project.hourly_rate ?? 0,
+      hourly_rate: currentHourlyRate,
       total_hours: hours.total_hours,
-      billable_total: (project.hourly_rate ?? 0) * hours.total_hours,
+      billable_total: totalBillableAmount(
+        portalTimeEntries.map(te => ({ id: te.id, hours: getWorkedHours(te), hourly_rate: te.hourly_rate })),
+        currentHourlyRate,
+      ),
     } : null,
     credentials_submitted_count,
     credentials_submitted,
     invoices,
     invoice_pdfs,
+    invoice_pdf_errors,
   };
 
   await recordPortalEvent({
@@ -491,7 +510,7 @@ function handleDemoMode(token: string, request: NextRequest) {
       ? fifoPaymentStatuses(
           [...projectEntries]
             .sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime())
-            .map(te => ({ id: te.id, hours: getWorkedHours(te) })),
+            .map(te => ({ id: te.id, hours: getWorkedHours(te), hourly_rate: te.hourly_rate })),
           paidHourlyLineItemTotal(demoActiveInvoices),
           hourlyRate,
         )
@@ -548,6 +567,7 @@ function handleDemoMode(token: string, request: NextRequest) {
   // business/contact metadata. Portal still renders cards; clicking opens an
   // empty preview gracefully.
   const invoice_pdfs: Record<string, InvoicePdfData> = {};
+  const invoice_pdf_errors: Record<string, string> = {};
   if (settings.show_invoices && demoActiveInvoices.length > 0) {
     const origin = request.nextUrl.origin;
     for (const inv of demoActiveInvoices) {
@@ -594,12 +614,18 @@ function handleDemoMode(token: string, request: NextRequest) {
       hourly_tracking: true,
       hourly_rate: project.hourly_rate ?? 0,
       total_hours: hours.total_hours,
-      billable_total: (project.hourly_rate ?? 0) * hours.total_hours,
+      billable_total: totalBillableAmount(
+        demoTimeEntries
+          .filter(te => te.project_id === settings.project_id && te.end_time !== null)
+          .map(te => ({ id: te.id, hours: getWorkedHours(te), hourly_rate: te.hourly_rate })),
+        project.hourly_rate ?? 0,
+      ),
     } : null,
     credentials_submitted_count: 0,
     credentials_submitted: [],
     invoices,
     invoice_pdfs,
+    invoice_pdf_errors,
   };
 
   return NextResponse.json(portalData);

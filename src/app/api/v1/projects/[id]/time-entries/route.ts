@@ -5,6 +5,7 @@ import { notFound, badRequest } from '@/lib/api/errors';
 import { logAudit } from '@/lib/api/audit';
 import { parsePagination } from '@/lib/api/pagination';
 import { z } from 'zod';
+import { resolveProjectHourlyRate } from '@/lib/supabase/queries';
 
 // POST body: either a manual entry (start_time + end_time) or a timer start (no end_time)
 const postSchema = z.union([createTimeEntrySchema, startTimerSchema]);
@@ -126,6 +127,12 @@ export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMembe
   const segments = isTimer
     ? [{ start: startTime, end: null }]
     : [{ start: startTime, end: endTime }];
+  const hourlyRate = await resolveProjectHourlyRate(
+    supabase,
+    id,
+    startTime,
+    Number((project as any).hourly_rate) || undefined,
+  );
 
   const insertPayload = {
     project_id: id,
@@ -133,6 +140,7 @@ export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMembe
     start_time: startTime,
     end_time: endTime,
     segments,
+    hourly_rate: hourlyRate,
     description: entry.description || '',
   };
 

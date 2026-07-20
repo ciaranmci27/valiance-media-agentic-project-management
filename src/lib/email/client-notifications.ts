@@ -43,6 +43,7 @@ import { getSiteUrl } from './templates/shared';
 import { getLatestBudgetHistoryId, type BudgetType } from '@/lib/project-budget-history';
 import type { ClientCommType, ProjectInvoice } from '@/lib/types';
 import { paidHourlyLineItemTotal, invoicedTotalsByItemType, unpaidHoursByEntry } from '@/lib/invoice-utils';
+import { resolveProjectHourlyRate } from '@/lib/supabase/queries';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -207,7 +208,15 @@ async function getProject(projectId: string): Promise<ProjectRow | null> {
     .select('id, name, hourly_tracking, hourly_rate, budget_type, budget_value, created_by')
     .eq('id', projectId)
     .maybeSingle();
-  return (data as ProjectRow | null) ?? null;
+  const project = (data as ProjectRow | null) ?? null;
+  if (!project || !project.hourly_tracking) return project;
+  const currentRate = await resolveProjectHourlyRate(
+    supabase,
+    project.id,
+    new Date().toISOString(),
+    project.hourly_rate ?? 0,
+  );
+  return { ...project, hourly_rate: currentRate };
 }
 
 /** Returns the team member who should approve automated emails for this project. */
@@ -237,12 +246,10 @@ function getWorkedHoursFromSegments(segments: SegmentLike[]): number {
 }
 
 function computeUnpaidHours(
-  entries: Array<{ id?: string; end_time: string | null; start_time: string; segments: SegmentLike[] }>,
+  entries: Array<{ id?: string; end_time: string | null; start_time: string; segments: SegmentLike[]; hourly_rate?: number | null }>,
   invoices: ProjectInvoice[],
   hourlyRate: number,
 ): number {
-  if (hourlyRate <= 0) return 0;
-
   // Pool only the hourly portion of paid invoices. A single invoice can mix
   // hourly, fixed, recurring, and reimbursement line items, so we walk
   // line_items rather than bucketing by the invoice-level invoice_type.
@@ -252,6 +259,7 @@ function computeUnpaidHours(
     .map((entry, index) => ({
       id: entry.id ?? `${entry.start_time}:${index}`,
       hours: getWorkedHoursFromSegments(entry.segments),
+      hourly_rate: entry.hourly_rate,
     }));
 
   const unpaidByEntry = unpaidHoursByEntry(finalized, paidHourlyLineItemTotal(invoices), hourlyRate);
@@ -269,7 +277,7 @@ async function getBudgetUsage(project: ProjectRow): Promise<BudgetUsage> {
   const supabase = getServiceClient();
   const { data: entries } = await supabase
     .from('project_time_entries')
-    .select('segments, end_time')
+    .select('segments, end_time, hourly_rate')
     .eq('project_id', project.id)
     .not('end_time', 'is', null);
 
@@ -279,7 +287,10 @@ async function getBudgetUsage(project: ProjectRow): Promise<BudgetUsage> {
   );
 
   const rate = project.hourly_rate || 0;
-  const totalAccrued = rate * totalHours;
+  const totalAccrued = (entries || []).reduce(
+    (sum, entry) => sum + getWorkedHoursFromSegments(entry.segments || []) * (Number(entry.hourly_rate) || rate),
+    0,
+  );
 
   let currentUsage = 0;
   if (project.budget_type === 'hours') {
@@ -378,7 +389,7 @@ export async function renderCommunication(
 
     const { data: entries } = await supabase
       .from('project_time_entries')
-      .select('id, start_time, end_time, segments')
+      .select('id, start_time, end_time, segments, hourly_rate')
       .eq('project_id', projectId);
     const allEntries = entries || [];
 
@@ -393,7 +404,7 @@ export async function renderCommunication(
     const hourlyInvoiced = invoicedByType.hourly;
     const nonHourlyOwed = invoicedByType.fixed + invoicedByType.recurring + invoicedByType.reimbursement;
     const serviceInvoiced = invoicedByType.hourly + invoicedByType.fixed + invoicedByType.recurring;
-    const billableTotal = Math.max(hourlyRate * usage.totalHours, hourlyInvoiced) + nonHourlyOwed;
+    const billableTotal = Math.max(usage.totalAccrued, hourlyInvoiced) + nonHourlyOwed;
     const outstanding = isHourly
       ? Math.max(0, billableTotal - totalPaid)
       : Math.max(0, totalInvoiced - totalPaid);
@@ -404,7 +415,8 @@ export async function renderCommunication(
         allEntries.map(e => ({
           end_time: e.end_time,
           start_time: e.start_time,
-          segments: e.segments || [],
+            segments: e.segments || [],
+            hourly_rate: e.hourly_rate,
         })),
         activeInvoices,
         hourlyRate,
@@ -420,7 +432,7 @@ export async function renderCommunication(
     if (project.budget_type && project.budget_value) {
       budgetUsed = project.budget_type === 'hours'
         ? usage.totalHours
-        : (isHourly ? hourlyRate * usage.totalHours : serviceInvoiced);
+        : (isHourly ? usage.totalAccrued : serviceInvoiced);
     }
 
     const defaults = projectSummaryDefaults({ projectName: project.name });

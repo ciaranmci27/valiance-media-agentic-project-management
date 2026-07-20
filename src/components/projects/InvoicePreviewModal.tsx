@@ -4,6 +4,7 @@ import { useMemo } from 'react';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { buildInvoiceData } from '@/lib/invoice-pdf/buildInvoiceData';
+import { InvoicePdfIntegrityError } from '@/lib/invoice-pdf/resolveInvoicePdfBilling';
 import { DEFAULT_INVOICE_PDF_OPTIONS, type InvoicePdfOptions } from '@/lib/invoice-pdf/types';
 import { InvoicePreviewModalView } from '@/components/invoice-pdf/InvoicePreviewModalView';
 
@@ -63,22 +64,35 @@ export function InvoicePreviewModal({ invoiceId, onClose }: InvoicePreviewModalP
     ? `${window.location.origin}/portal/${portalSettings.token}?invoice=${encodeURIComponent(invoice.invoice_number)}`
     : null;
 
-  const pdfData = useMemo(() => {
-    if (!invoice) return null;
-    return buildInvoiceData({
-      invoice,
-      project,
-      primaryContact,
-      businessSettings,
-      senderName,
-      options,
-      logoUrl: typeof window !== 'undefined' ? `${window.location.origin}/api/logo` : '/api/logo',
-      portalUrl,
-      timeEntries,
-      projectInvoices: projectInvoiceRows,
-      team,
-    });
+  const pdfResult = useMemo(() => {
+    if (!invoice) return { data: null, error: null };
+    try {
+      return {
+        data: buildInvoiceData({
+          invoice,
+          project,
+          primaryContact,
+          businessSettings,
+          senderName,
+          options,
+          logoUrl: typeof window !== 'undefined' ? `${window.location.origin}/api/logo` : '/api/logo',
+          portalUrl,
+          timeEntries,
+          projectInvoices: projectInvoiceRows,
+          team,
+        }),
+        error: null,
+      };
+    } catch (error) {
+      return {
+        data: null,
+        error: error instanceof InvoicePdfIntegrityError
+          ? error.message
+          : 'The PDF could not be verified against the invoice billing data.',
+      };
+    }
   }, [invoice, project, primaryContact, businessSettings, senderName, options, portalUrl, timeEntries, projectInvoiceRows, team]);
+  const pdfData = pdfResult.data;
 
   const clientLabel = pdfData?.billTo.company || pdfData?.billTo.name || 'Client';
 
@@ -87,6 +101,7 @@ export function InvoicePreviewModal({ invoiceId, onClose }: InvoicePreviewModalP
       isOpen={!!invoiceId}
       onClose={onClose}
       pdfData={pdfData}
+      integrityError={pdfResult.error}
       invoiceNumber={invoice?.invoice_number ?? ''}
       clientLabel={clientLabel}
       invoiceDate={invoice?.date ?? ''}

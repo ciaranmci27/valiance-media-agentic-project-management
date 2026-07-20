@@ -40,6 +40,12 @@ export function toLocalDateString(timezone?: string): string {
   return `${year}-${month}-${day}`;
 }
 
+/** UTC ISO string to YYYY-MM-DD in the requested timezone. */
+export function toLocalDateKey(iso: string, timezone?: string): string {
+  const { year, month, day } = getParts(iso, timezone);
+  return `${year}-${month}-${day}`;
+}
+
 /**
  * Parses a date-only value ("YYYY-MM-DD", or the date part of an ISO
  * datetime) as LOCAL midnight. `new Date("YYYY-MM-DD")` parses as UTC

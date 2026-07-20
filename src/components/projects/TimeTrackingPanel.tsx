@@ -17,7 +17,7 @@ import { TimeEntry } from '@/lib/types';
 import { siteConfig } from '@/site-config';
 import { toLocalTimeString, toLocalDateString } from '@/lib/date-utils';
 import { getWorkedHours, getWorkedMs, isPaused } from '@/lib/time-entry-utils';
-import { paidHourlyLineItemTotal, fifoPaymentStatuses, type PaymentStatus } from '@/lib/invoice-utils';
+import { paidHourlyLineItemTotal, fifoPaymentBreakdowns, type PaymentBreakdown } from '@/lib/invoice-utils';
 
 /* ── Types ── */
 
@@ -27,6 +27,10 @@ type ManualEntryMode = 'range' | 'duration';
 interface TimeTrackingPanelProps {
   projectId: string;
   projectColor?: string;
+}
+
+function formatRate(value: number): string {
+  return value.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 }
 
 /* ── Helpers ── */
@@ -101,13 +105,13 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
   const hourlyRate = project?.hourly_rate ?? 0;
   const isHourly = project?.hourly_tracking ?? false;
 
-  const paymentStatusMap = useMemo<Map<string, PaymentStatus>>(() => {
-    if (!isHourly || hourlyRate <= 0) return new Map();
+  const paymentBreakdownMap = useMemo<Map<string, PaymentBreakdown>>(() => {
+    if (!isHourly) return new Map();
     const finalized = entries
       .filter(e => e.end_time !== null)
       .sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime())
-      .map(e => ({ id: e.id, hours: getWorkedHours(e) }));
-    return fifoPaymentStatuses(finalized, paidHourlyLineItemTotal(invoices), hourlyRate);
+      .map(e => ({ id: e.id, hours: getWorkedHours(e), hourly_rate: e.hourly_rate }));
+    return fifoPaymentBreakdowns(finalized, paidHourlyLineItemTotal(invoices), hourlyRate);
   }, [isHourly, hourlyRate, invoices, entries]);
 
   // ── Mode selection (persisted per project, defaults to timer) ──
@@ -340,6 +344,7 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
       start_time: start.toISOString(),
       end_time: end.toISOString(),
       segments: [{ start: start.toISOString(), end: end.toISOString() }],
+      hourly_rate: project?.hourly_rate ?? 0,
       description: manualDescription,
     });
     toast('success', 'Time entry added');
@@ -979,17 +984,38 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                             >
                               {formatHM(hours)}
                             </span>
+                            {isHourly ? (
+                              <span className="flex-shrink-0 tabular-nums text-zinc-400">
+                                ${formatRate(entry.hourly_rate ?? hourlyRate)}/hr
+                              </span>
+                            ) : null}
                             {(() => {
-                              const status = paymentStatusMap.get(entry.id);
-                              if (!status) return null;
-                              const cfg = status === 'paid'
-                                ? { color: 'text-emerald-500', tip: 'Paid' }
-                                : status === 'partial'
-                                ? { color: 'text-amber-500', tip: 'Partially paid' }
-                                : { color: 'text-zinc-300', tip: 'Unpaid' };
+                              const breakdown = paymentBreakdownMap.get(entry.id);
+                              if (!breakdown) return null;
+                              const cfg = breakdown.status === 'paid'
+                                ? { color: 'text-emerald-500', label: 'Paid' }
+                                : breakdown.status === 'partial'
+                                ? { color: 'text-amber-500', label: 'Partially paid' }
+                                : { color: 'text-zinc-300', label: 'Unpaid' };
+                              const amountParts = [
+                                breakdown.paidAmount > 0 ? `$${formatRate(breakdown.paidAmount)} paid` : null,
+                                breakdown.unpaidAmount > 0 ? `$${formatRate(breakdown.unpaidAmount)} unpaid` : null,
+                              ].filter((part): part is string => Boolean(part));
+                              const amountLabel = amountParts.join(' · ');
                               return (
-                                <Tooltip content={cfg.tip}>
-                                  <CircleDollarSign size={11} className={`flex-shrink-0 ${cfg.color}`} />
+                                <Tooltip content={(
+                                  <div className="space-y-0.5">
+                                    <p>{cfg.label}</p>
+                                    <p className="font-normal text-zinc-500 tabular-nums">
+                                      {amountLabel}
+                                    </p>
+                                  </div>
+                                )}>
+                                  <CircleDollarSign
+                                    size={11}
+                                    className={`flex-shrink-0 ${cfg.color}`}
+                                    aria-label={`${cfg.label}: ${amountParts.join(', ')}`}
+                                  />
                                 </Tooltip>
                               );
                             })()}

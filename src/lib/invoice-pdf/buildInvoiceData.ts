@@ -1,12 +1,21 @@
 import type {
   Project, ProjectInvoice, Contact, BusinessSettings,
-  TimeEntry, TeamMember, InvoiceLineItem,
+  TimeEntry, TeamMember, InvoiceLineItem, InvoiceTimeEntryAllocation,
 } from '@/lib/types';
-import { ensureLineItems, lineItemsTotal, paidHourlyLineItemTotal, unpaidHoursByEntry } from '@/lib/invoice-utils';
+import {
+  buildUnpaidHoursLineItem,
+  ensureLineItems,
+  lineItemsTotal,
+  paidHourlyLineItemTotal,
+} from '@/lib/invoice-utils';
 import { getWorkedHours } from '@/lib/time-entry-utils';
 import { siteConfig } from '@/site-config';
 import type { InvoicePdfData, InvoicePdfOptions, InvoicePdfTimeLogEntry } from './types';
 import { DEFAULT_INVOICE_PDF_OPTIONS } from './types';
+import {
+  resolveInvoicePdfBilling,
+  type ResolvedInvoicePdfAllocation,
+} from './resolveInvoicePdfBilling';
 
 interface BuildInvoiceDataInput {
   invoice: ProjectInvoice;
@@ -82,14 +91,24 @@ export function buildInvoiceData({
   const paymentInstructions = businessSettings?.payment_instructions?.trim() || '';
   const paymentTerms = businessSettings?.payment_terms?.trim() || 'Upon Receipt';
 
-  const projectHourlyRate = project?.hourly_tracking ? (project?.hourly_rate ?? null) : null;
-  const timeLogEntries = buildTimeLogEntries({
-    invoice,
+  const storedAllocations = invoice.time_allocations ?? [];
+  const effectiveAllocations = storedAllocations.length > 0
+    ? storedAllocations
+    : buildLegacyInvoiceAllocations({
+        invoice,
+        lineItems,
+        timeEntries: timeEntries ?? [],
+        projectInvoices: projectInvoices ?? [],
+        fallbackRate: project?.hourly_tracking ? (project.hourly_rate ?? 0) : 0,
+      });
+  const billing = resolveInvoicePdfBilling(
     lineItems,
-    timeEntries: timeEntries ?? [],
-    projectInvoices: projectInvoices ?? [],
+    effectiveAllocations,
+    timeEntries ?? [],
+  );
+  const timeLogEntries = buildTimeLogEntries({
+    allocations: billing.allocations,
     team: team ?? [],
-    hourlyRate: projectHourlyRate,
   });
 
   return {
@@ -103,8 +122,7 @@ export function buildInvoiceData({
     dueDate: invoice.due_date,
     paidDate: invoice.paid_date,
     paymentTerms,
-    lineItems,
-    projectHourlyRate,
+    lineItems: billing.lineItems,
     subtotal,
     taxRate,
     taxAmount,
@@ -131,62 +149,149 @@ function localDayKey(iso: string): string {
   return `${y}-${m}-${day}`;
 }
 
-/** Parse "MM/DD/YYYY" → "YYYY-MM-DD". Returns null on malformed input. */
 function mdyToYmd(mdy: string): string | null {
-  const m = mdy.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  if (!m) return null;
-  const mm = m[1].padStart(2, '0');
-  const dd = m[2].padStart(2, '0');
-  return `${m[3]}-${mm}-${dd}`;
+  const match = mdy.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (!match) return null;
+  return `${match[3]}-${match[1].padStart(2, '0')}-${match[2].padStart(2, '0')}`;
 }
 
-/**
- * Pull the YYYY-MM-DD start/end span from an hourly line item. Tries explicit
- * service dates first (treating a single-bound item as a single-day range to
- * match `spreadLineItem`'s convention), then falls back to parsing the
- * description that the unpaid-hours roll-up writes
- * ("X hours worked between MM/DD/YYYY and MM/DD/YYYY"). Returns null when no
- * usable range can be determined.
- */
-function rangeForHourlyLineItem(li: InvoiceLineItem): { start: string; end: string } | null {
-  const rawStart = li.service_start_date || li.service_end_date;
-  const rawEnd = li.service_end_date || li.service_start_date;
+function rangeForHourlyLineItem(lineItem: InvoiceLineItem): { start: string; end: string } | null {
+  const rawStart = lineItem.service_start_date || lineItem.service_end_date;
+  const rawEnd = lineItem.service_end_date || lineItem.service_start_date;
   if (rawStart && rawEnd) {
     return rawStart <= rawEnd
       ? { start: rawStart, end: rawEnd }
       : { start: rawEnd, end: rawStart };
   }
-  const m = li.description.match(/between\s+(\d{1,2}\/\d{1,2}\/\d{4})\s+and\s+(\d{1,2}\/\d{1,2}\/\d{4})/i);
-  if (m) {
-    const start = mdyToYmd(m[1]);
-    const end = mdyToYmd(m[2]);
-    if (start && end) {
-      return start <= end ? { start, end } : { start: end, end: start };
-    }
-  }
-  return null;
+
+  const match = lineItem.description.match(
+    /between\s+(\d{1,2}\/\d{1,2}\/\d{4})\s+and\s+(\d{1,2}\/\d{1,2}\/\d{4})/i,
+  );
+  if (!match) return null;
+  const start = mdyToYmd(match[1]);
+  const end = mdyToYmd(match[2]);
+  if (!start || !end) return null;
+  return start <= end ? { start, end } : { start: end, end: start };
 }
 
-function invoiceTimestamp(inv: ProjectInvoice): number {
-  const created = Date.parse(inv.created_at);
+function invoiceTimestamp(invoice: ProjectInvoice): number {
+  const created = Date.parse(invoice.created_at);
   if (Number.isFinite(created)) return created;
-  const dated = Date.parse(`${inv.date}T00:00:00`);
+  const dated = Date.parse(`${invoice.date}T00:00:00`);
   return Number.isFinite(dated) ? dated : 0;
 }
 
-function priorPaidInvoicesForTimeLog(
+function priorPaidInvoices(
   invoice: ProjectInvoice,
   projectInvoices: ProjectInvoice[],
 ): ProjectInvoice[] {
-  const currentTs = invoiceTimestamp(invoice);
-  return projectInvoices.filter((candidate) => {
-    if (candidate.id === invoice.id) return false;
-    if (candidate.project_id !== invoice.project_id) return false;
+  const currentTimestamp = invoiceTimestamp(invoice);
+  return projectInvoices.filter(candidate => {
+    if (candidate.id === invoice.id || candidate.project_id !== invoice.project_id) return false;
     if (candidate.status !== 'paid') return false;
-    if (currentTs <= 0) return true;
-    const candidateTs = invoiceTimestamp(candidate);
-    return candidateTs > 0 ? candidateTs < currentTs : true;
+    if (currentTimestamp <= 0) return true;
+    const candidateTimestamp = invoiceTimestamp(candidate);
+    return candidateTimestamp > 0 ? candidateTimestamp < currentTimestamp : true;
   });
+}
+
+interface LegacyRemainingPortion {
+  startOffsetHours: number;
+  hours: number;
+}
+
+/**
+ * Historical invoices predate persisted allocation rows. Reconstruct only
+ * their preview mapping with the same FIFO inputs used when they were created.
+ * New invoices never use this path because they always carry saved mappings.
+ */
+function buildLegacyInvoiceAllocations({
+  invoice,
+  lineItems,
+  timeEntries,
+  projectInvoices,
+  fallbackRate,
+}: {
+  invoice: ProjectInvoice;
+  lineItems: InvoiceLineItem[];
+  timeEntries: TimeEntry[];
+  projectInvoices: ProjectInvoice[];
+  fallbackRate: number;
+}): InvoiceTimeEntryAllocation[] {
+  const finalizedEntries = [...timeEntries]
+    .filter((entry): entry is TimeEntry & { end_time: string } => entry.end_time !== null)
+    .sort((a, b) => a.start_time.localeCompare(b.start_time));
+  if (finalizedEntries.length === 0) return [];
+
+  const unpaidDraft = buildUnpaidHoursLineItem(
+    finalizedEntries.map(entry => ({
+      id: entry.id,
+      hours: getWorkedHours(entry),
+      hourly_rate: entry.hourly_rate,
+      start_time: entry.start_time,
+      end_time: entry.end_time,
+    })),
+    paidHourlyLineItemTotal(priorPaidInvoices(invoice, projectInvoices)),
+    fallbackRate,
+  );
+  if (!unpaidDraft) return [];
+
+  let remainingByEntry = new Map<string, LegacyRemainingPortion>(
+    unpaidDraft.allocations.map(allocation => [allocation.time_entry_id, {
+      startOffsetHours: allocation.start_offset_hours,
+      hours: allocation.allocated_hours,
+    }]),
+  );
+  const reconstructed: InvoiceTimeEntryAllocation[] = [];
+
+  for (const lineItem of lineItems) {
+    if (lineItem.item_type !== 'hourly') continue;
+    const range = rangeForHourlyLineItem(lineItem);
+    let remainingCents = Math.round((Number(lineItem.amount) || 0) * 100);
+    if (!range || remainingCents <= 0) continue;
+
+    const candidateRemaining = new Map(
+      [...remainingByEntry].map(([id, portion]) => [id, { ...portion }]),
+    );
+    const lineAllocations: InvoiceTimeEntryAllocation[] = [];
+
+    for (const entry of finalizedEntries) {
+      if (remainingCents <= 0) break;
+      const dayKey = localDayKey(entry.start_time);
+      if (!dayKey || dayKey < range.start || dayKey > range.end) continue;
+
+      const portion = candidateRemaining.get(entry.id);
+      const hourlyRate = Number(entry.hourly_rate ?? fallbackRate);
+      if (!portion || portion.hours <= 0 || !Number.isFinite(hourlyRate) || hourlyRate <= 0) continue;
+
+      const availableCents = Math.round(portion.hours * hourlyRate * 100);
+      const allocatedCents = Math.min(availableCents, remainingCents);
+      if (allocatedCents <= 0) continue;
+      const allocatedHours = allocatedCents === availableCents
+        ? portion.hours
+        : allocatedCents / 100 / hourlyRate;
+
+      lineAllocations.push({
+        line_item_id: lineItem.id,
+        time_entry_id: entry.id,
+        start_offset_hours: portion.startOffsetHours,
+        allocated_hours: allocatedHours,
+        allocated_amount: allocatedCents / 100,
+      });
+      portion.startOffsetHours += allocatedHours;
+      portion.hours = Math.max(0, portion.hours - allocatedHours);
+      remainingCents -= allocatedCents;
+    }
+
+    // If historical data cannot explain the full saved line amount, leave the
+    // line custom instead of presenting a partial or misleading time log.
+    if (remainingCents === 0) {
+      reconstructed.push(...lineAllocations);
+      remainingByEntry = candidateRemaining;
+    }
+  }
+
+  return reconstructed;
 }
 
 type ClosedSegment = { startMs: number; endMs: number };
@@ -211,9 +316,12 @@ function closedSegmentsForEntry(entry: TimeEntry): ClosedSegment[] {
 function timeAtWorkedOffset(segments: ClosedSegment[], offsetHours: number): number {
   const targetMs = Math.max(0, offsetHours) * 3_600_000;
   let walkedMs = 0;
-  for (const segment of segments) {
+  for (let index = 0; index < segments.length; index += 1) {
+    const segment = segments[index];
     const durationMs = segment.endMs - segment.startMs;
-    if (walkedMs + durationMs >= targetMs) {
+    const reachesTarget = walkedMs + durationMs > targetMs;
+    const endsAtFinalBoundary = index === segments.length - 1 && walkedMs + durationMs >= targetMs;
+    if (reachesTarget || endsAtFinalBoundary) {
       return segment.startMs + Math.max(0, targetMs - walkedMs);
     }
     walkedMs += durationMs;
@@ -245,94 +353,35 @@ function workedSliceRange(
   };
 }
 
-const HOURS_EPSILON = 0.000001;
-
 function buildTimeLogEntries({
-  invoice,
-  lineItems,
-  timeEntries,
-  projectInvoices,
+  allocations,
   team,
-  hourlyRate,
 }: {
-  invoice: ProjectInvoice;
-  lineItems: InvoiceLineItem[];
-  timeEntries: TimeEntry[];
-  projectInvoices: ProjectInvoice[];
+  allocations: ResolvedInvoicePdfAllocation[];
   team: Pick<TeamMember, 'id' | 'name'>[];
-  hourlyRate: number | null;
 }): InvoicePdfTimeLogEntry[] {
-  const hourlyItems = lineItems
-    .filter(li => li.item_type === 'hourly')
-    .map(li => ({ lineItem: li, range: rangeForHourlyLineItem(li) }))
-    .filter((item): item is { lineItem: InvoiceLineItem; range: { start: string; end: string } } => item.range !== null);
-
-  if (hourlyItems.length === 0 || timeEntries.length === 0) return [];
-
   const memberById = new Map(team.map(m => [m.id, m.name] as const));
-  const finalizedEntries = [...timeEntries]
-    .filter(te => te.end_time !== null)
-    .sort((a, b) => a.start_time.localeCompare(b.start_time));
-
-  if (finalizedEntries.length === 0) return [];
-
-  const entryHours = new Map(finalizedEntries.map(te => [te.id, getWorkedHours(te)] as const));
-  const priorPaidPool = hourlyRate && hourlyRate > 0
-    ? paidHourlyLineItemTotal(priorPaidInvoicesForTimeLog(invoice, projectInvoices))
-    : 0;
-  const initialBillableByEntry = hourlyRate && hourlyRate > 0
-    ? unpaidHoursByEntry(
-        finalizedEntries.map(te => ({ id: te.id, hours: entryHours.get(te.id) ?? 0 })),
-        priorPaidPool,
-        hourlyRate,
-      )
-    : new Map(finalizedEntries.map(te => [te.id, entryHours.get(te.id) ?? 0] as const));
-  const remainingByEntry = new Map(initialBillableByEntry);
-
-  const entries: InvoicePdfTimeLogEntry[] = [];
-  let allocationIndex = 0;
-
-  for (const { lineItem, range } of hourlyItems) {
-    const targetHours = hourlyRate && hourlyRate > 0
-      ? (Number(lineItem.amount) || 0) / hourlyRate
-      : Number.POSITIVE_INFINITY;
-    let allocatedHours = 0;
-
-    for (const te of finalizedEntries) {
-      if (allocatedHours + HOURS_EPSILON >= targetHours) break;
-
-      const dayKey = localDayKey(te.start_time);
-      if (!dayKey || dayKey < range.start || dayKey > range.end) continue;
-
-      const remaining = remainingByEntry.get(te.id) ?? 0;
-      if (remaining <= HOURS_EPSILON) continue;
-
-      const takeHours = Math.min(remaining, targetHours - allocatedHours);
-      if (takeHours <= HOURS_EPSILON) continue;
-
-      const totalHours = entryHours.get(te.id) ?? 0;
-      const initialBillableHours = initialBillableByEntry.get(te.id) ?? 0;
-      const alreadyAllocatedFromEntry = initialBillableHours - remaining;
-      const paidPrefixHours = Math.max(0, totalHours - initialBillableHours);
-      const slice = workedSliceRange(te, paidPrefixHours + alreadyAllocatedFromEntry, takeHours);
-      const sliceDayKey = localDayKey(slice.startIso) || dayKey;
-
-      entries.push({
-        id: `${te.id}:${allocationIndex}`,
-        dayKey: sliceDayKey,
+  return [...allocations]
+    .sort((a, b) => (
+      a.timeEntry.start_time.localeCompare(b.timeEntry.start_time)
+      || a.startOffsetHours - b.startOffsetHours
+    ))
+    .map((allocation, index): InvoicePdfTimeLogEntry => {
+      const slice = workedSliceRange(
+        allocation.timeEntry,
+        allocation.startOffsetHours,
+        allocation.hours,
+      );
+      return {
+        id: `${allocation.lineItemId}:${allocation.timeEntry.id}:${index}`,
+        dayKey: localDayKey(slice.startIso) || localDayKey(allocation.timeEntry.start_time),
         startIso: slice.startIso,
         endIso: slice.endIso,
-        hours: takeHours,
-        description: te.description ?? '',
-        memberName: memberById.get(te.member_id) ?? '',
-      });
-
-      allocationIndex += 1;
-      allocatedHours += takeHours;
-      remainingByEntry.set(te.id, remaining - takeHours);
-    }
-  }
-
-  entries.sort((a, b) => a.startIso.localeCompare(b.startIso));
-  return entries;
+        hours: allocation.hours,
+        hourlyRate: allocation.hourlyRate,
+        amount: allocation.amount,
+        description: allocation.timeEntry.description ?? '',
+        memberName: memberById.get(allocation.timeEntry.member_id) ?? '',
+      };
+    });
 }

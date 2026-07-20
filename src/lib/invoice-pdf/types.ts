@@ -1,5 +1,20 @@
 import type { InvoiceLineItem, InvoiceStatus } from '@/lib/types';
 
+export interface InvoicePdfRateBreakdown {
+  hourlyRate: number;
+  hours: number;
+  amount: number;
+}
+
+export interface InvoicePdfLineItem extends InvoiceLineItem {
+  /** Exact mapped hours. Null means the hourly row is intentionally custom. */
+  quantity: number | null;
+  /** A formatted dollar rate, "Mixed", or "Custom". */
+  rateLabel: string;
+  allocationStatus: 'exact' | 'custom';
+  rateBreakdown: InvoicePdfRateBreakdown[];
+}
+
 /**
  * Per-invoice rendering toggles. Required elements (parties, items table,
  * totals, dates) are always rendered; these flags only gate optional/decorative
@@ -45,6 +60,8 @@ export interface InvoicePdfTimeLogEntry {
   endIso: string;
   /** Decimal hours worked across all segments. */
   hours: number;
+  hourlyRate: number;
+  amount: number;
   description: string;
   /** Display name of the team member who logged the entry. Empty when unknown. */
   memberName: string;
@@ -85,10 +102,7 @@ export interface InvoicePdfData {
   paymentTerms: string;
 
   // Line items (subset shape we actually render)
-  lineItems: InvoiceLineItem[];
-  /** Project's hourly rate (null if non-hourly project). Used to derive
-   *  Qty (= amount / rate) and Rate columns for hourly line items. */
-  projectHourlyRate: number | null;
+  lineItems: InvoicePdfLineItem[];
 
   // Money
   subtotal: number;

@@ -1115,6 +1115,7 @@ function PortalPageInner() {
     ? data.invoices.find(i => i.invoice_number === activeInvoiceNumber) ?? null
     : null;
   const activePdfData = activeInvoice && data ? data.invoice_pdfs?.[activeInvoice.id] ?? null : null;
+  const activePdfError = activeInvoice && data ? data.invoice_pdf_errors?.[activeInvoice.id] ?? null : null;
 
   // Opening pushes a new history entry so the browser back button closes the
   // modal — matches conventional deep-linkable modal behavior (Twitter, etc).
@@ -1894,6 +1895,7 @@ function PortalPageInner() {
         isOpen={!!activeInvoice}
         onClose={closeInvoice}
         pdfData={activePdfData}
+        integrityError={activePdfError}
         invoiceNumber={activeInvoice?.invoice_number ?? ''}
         clientLabel={activePdfData?.billTo.company || activePdfData?.billTo.name || data?.project.name || 'Client'}
         invoiceDate={activeInvoice?.date ?? ''}
