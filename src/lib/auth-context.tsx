@@ -1,16 +1,20 @@
 'use client';
 
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, ReactNode } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
 import type { User } from '@supabase/supabase-js';
 import { useDemo } from '@/lib/demo-context';
 import { DEMO_USER_ID, DEMO_ADMIN_TEAM_MEMBER_ID } from '@/lib/demo-data';
+import type { AccessContext } from '@/lib/access-control';
 
 interface AuthContextType {
   user: User | null;
   teamMemberId: string | null;
+  access: AccessContext | null;
+  accessError: string | null;
   loading: boolean;
+  refreshAccess: () => Promise<void>;
   signOut: () => Promise<void>;
 }
 
@@ -19,38 +23,70 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [teamMemberId, setTeamMemberId] = useState<string | null>(null);
+  const [access, setAccess] = useState<AccessContext | null>(null);
+  const [accessError, setAccessError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
   const { isDemoMode, isEnvForcedDemo } = useDemo();
+
+  const loadWorkspaceIdentity = useCallback(async () => {
+    const response = await fetch('/api/workspace/me', { cache: 'no-store' });
+    const payload = await response.json();
+    if (!response.ok) {
+      const message = payload.error || 'Failed to load workspace access';
+      setAccessError(message);
+      throw new Error(message);
+    }
+    const resolvedAccess = payload.data.access as AccessContext;
+    setTeamMemberId(resolvedAccess.member_id);
+    setAccess((current) => JSON.stringify(current) === JSON.stringify(resolvedAccess) ? current : resolvedAccess);
+    setAccessError(null);
+  }, []);
 
   useEffect(() => {
     if (isEnvForcedDemo) {
       setUser({ id: DEMO_USER_ID, email: 'demo@example.com' } as User);
       setTeamMemberId(DEMO_ADMIN_TEAM_MEMBER_ID);
+      setAccess({
+        member_id: DEMO_ADMIN_TEAM_MEMBER_ID,
+        role: 'owner',
+        status: 'active',
+        app_permissions: ['*'],
+        api_permissions: ['*'],
+        project_ids: [],
+      });
+      setAccessError(null);
       setLoading(false);
       return;
     }
 
     const getUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      setUser(user);
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        setUser(user);
 
-      if (user) {
-        // Find the team_member linked to this auth user
-        // (auto-created by DB trigger on signup)
-        const { data: teamMember } = await supabase
-          .from('team_members')
-          .select('id')
-          .eq('auth_user_id', user.id)
-          .single();
-
-        if (teamMember) {
-          setTeamMemberId(teamMember.id);
+        if (user) {
+          try {
+            await loadWorkspaceIdentity();
+          } catch (error) {
+            setTeamMemberId(null);
+            setAccess(null);
+            setAccessError(error instanceof Error ? error.message : 'Failed to load workspace access');
+          }
+        } else {
+          setTeamMemberId(null);
+          setAccess(null);
+          setAccessError(null);
         }
+      } catch {
+        setUser(null);
+        setTeamMemberId(null);
+        setAccess(null);
+        setAccessError(null);
+      } finally {
+        setLoading(false);
       }
-
-      setLoading(false);
     };
 
     getUser();
@@ -75,17 +111,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         });
         if (!session?.user) {
           setTeamMemberId(null);
+          setAccess(null);
+          setAccessError(null);
+        } else if (_event === 'SIGNED_IN' || _event === 'USER_UPDATED') {
+          try {
+            await loadWorkspaceIdentity();
+          } catch (error) {
+            setTeamMemberId(null);
+            setAccess(null);
+            setAccessError(error instanceof Error ? error.message : 'Failed to load workspace access');
+          }
         }
       }
     );
 
     return () => subscription.unsubscribe();
-  }, [isEnvForcedDemo]);
+  }, [isEnvForcedDemo, loadWorkspaceIdentity, supabase]);
+
+  useEffect(() => {
+    if (!user || isEnvForcedDemo) return;
+    const refreshOnFocus = () => { void loadWorkspaceIdentity().catch(() => {}); };
+    window.addEventListener('focus', refreshOnFocus);
+    return () => window.removeEventListener('focus', refreshOnFocus);
+  }, [isEnvForcedDemo, loadWorkspaceIdentity, user]);
 
   const signOut = async () => {
     await supabase.auth.signOut();
     setUser(null);
     setTeamMemberId(null);
+    setAccess(null);
+    setAccessError(null);
     router.push('/login');
   };
 
@@ -96,8 +151,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     ? DEMO_ADMIN_TEAM_MEMBER_ID
     : teamMemberId;
 
+  const effectiveAccess = isDemoMode && !isEnvForcedDemo
+    ? {
+        member_id: DEMO_ADMIN_TEAM_MEMBER_ID,
+        role: 'owner' as const,
+        status: 'active' as const,
+        app_permissions: ['*' as const],
+        api_permissions: ['*' as const],
+        project_ids: [],
+      }
+    : access;
+
   return (
-    <AuthContext.Provider value={{ user, teamMemberId: effectiveTeamMemberId, loading, signOut }}>
+    <AuthContext.Provider value={{ user, teamMemberId: effectiveTeamMemberId, access: effectiveAccess, accessError, loading, refreshAccess: loadWorkspaceIdentity, signOut }}>
       {children}
     </AuthContext.Provider>
   );

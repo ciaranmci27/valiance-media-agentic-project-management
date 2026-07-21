@@ -35,7 +35,7 @@ export function ContactCard({ contact, onEdit, onDelete }: ContactCardProps) {
           </div>
         </div>
 
-        <div className="relative flex-shrink-0">
+        {(onEdit || onDelete) && <div className="relative flex-shrink-0">
           <button
             onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }}
             className="lg:opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 transition-all"
@@ -64,7 +64,7 @@ export function ContactCard({ contact, onEdit, onDelete }: ContactCardProps) {
               </div>
             </>
           )}
-        </div>
+        </div>}
       </div>
 
       <div className="flex items-center gap-4 text-xs lg:text-sm text-zinc-500">

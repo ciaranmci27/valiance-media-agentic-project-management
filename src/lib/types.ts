@@ -13,6 +13,8 @@ export interface Project {
   due_date: string | null;
   hourly_tracking: boolean;
   hourly_rate: number | null;
+  time_tracking_enabled?: boolean;
+  client_time_billing?: 'hourly' | 'included';
   budget_type: 'hours' | 'amount' | null;
   budget_value: number | null;
   autonomous_enabled: boolean;
@@ -53,6 +55,7 @@ export interface BusinessSettings {
   payment_instructions: string;
   default_invoice_notes: string;
   excluded_ips: ExcludedIp[];
+  api_enabled?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -283,7 +286,10 @@ export interface TeamMember {
   name: string;
   email: string;
   avatar: string;
-  role: 'admin' | 'member' | 'guest' | 'agent';
+  role: 'owner' | 'admin' | 'member' | 'guest' | 'agent';
+  status?: 'active' | 'suspended';
+  suspended_at?: string | null;
+  suspended_by?: string | null;
   timezone?: string;
   notification_prefs?: NotificationPreferences;
   email_notifications_enabled?: boolean;
@@ -333,6 +339,13 @@ export interface TimeEntry {
   end_time: string | null;  // ISO datetime (denormalized: last segment's end), null while unfinalized
   segments: TimeSegment[];  // Individual worked intervals; sum gives total worked time
   hourly_rate?: number;     // Immutable rate selected from this session's start time
+  compensation_rate?: number;
+  work_type?: 'client' | 'internal';
+  approval_status?: 'draft' | 'pending' | 'approved' | 'rejected';
+  submitted_at?: string | null;
+  approved_at?: string | null;
+  approved_by?: string | null;
+  rejection_reason?: string | null;
   description: string;
   created_at: string;
   updated_at: string;
@@ -698,13 +711,91 @@ export interface ApiKey {
   id: string;
   name: string;
   key_prefix: string;
-  permissions: 'full' | 'read_only';
+  permissions: 'full' | 'read_only' | 'scoped';
+  scopes?: string[];
+  expires_at?: string | null;
+  disabled_at?: string | null;
   last_used_at: string | null;
   revoked_at: string | null;
   created_by: string | null;
   team_member_id: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface RolePermission {
+  role: 'admin' | 'member' | 'guest' | 'agent';
+  permission_key: string;
+  access_channel: 'app' | 'api';
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TeamMemberPermission {
+  member_id: string;
+  permission_key: string;
+  access_channel: 'app' | 'api';
+  effect: 'allow' | 'deny';
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TeamMemberHourlyRate {
+  id: string;
+  member_id: string;
+  hourly_rate: number;
+  effective_at: string;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TeamMemberEarningAdjustment {
+  id: string;
+  member_id: string;
+  adjustment_type: 'bonus' | 'deduction';
+  amount: number;
+  effective_date: string;
+  project_id: string | null;
+  description: string;
+  created_by: string | null;
+  voided_at: string | null;
+  voided_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TeamMemberPayout {
+  id: string;
+  member_id: string;
+  payment_date: string;
+  amount: number;
+  payment_method: string;
+  reference: string;
+  notes: string;
+  created_by: string | null;
+  voided_at: string | null;
+  voided_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TeamMemberPayoutAllocation {
+  id: string;
+  payout_id: string;
+  time_entry_id: string | null;
+  adjustment_id: string | null;
+  allocated_amount: number;
+  created_at: string;
+}
+
+export interface EmployeeEarningsData {
+  entries: TimeEntry[];
+  rates: TeamMemberHourlyRate[];
+  adjustments: TeamMemberEarningAdjustment[];
+  payouts: TeamMemberPayout[];
+  allocations: TeamMemberPayoutAllocation[];
 }
 
 // ============================================================
@@ -951,6 +1042,7 @@ export interface ProjectCredentialListItem {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+  shared_member_ids?: string[];
 }
 
 /**

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
 import { getServiceClient } from '@/lib/api/supabase-service';
+import { accessAllows, accessAllowsProject, requireSessionAccess } from '@/lib/api/access';
 import { isLocalIp, stripCidrHostPrefix } from '@/lib/portal-analytics';
 import type {
   ExcludedIp,
@@ -10,19 +10,6 @@ import type {
 } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
-
-async function requireTeamMember() {
-  const supabase = await createClient();
-  const { data: { user }, error } = await supabase.auth.getUser();
-  if (error || !user) return null;
-  const service = getServiceClient();
-  const { data } = await service
-    .from('team_members')
-    .select('id')
-    .eq('auth_user_id', user.id)
-    .maybeSingle();
-  return data?.id ?? null;
-}
 
 function parseRangeDays(input: string | null): number {
   const n = Number(input?.replace(/d$/i, '') ?? '');
@@ -156,8 +143,11 @@ export async function GET(
   ctx: { params: Promise<{ id: string }> },
 ) {
   const { id: projectId } = await ctx.params;
-  const memberId = await requireTeamMember();
-  if (!memberId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await requireSessionAccess();
+  if (auth.error) return auth.error;
+  if (!accessAllows(auth.data.access, 'portal.read') || !accessAllowsProject(auth.data.access, projectId)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
 
   const service = getServiceClient();
   const sessionDrilldown = req.nextUrl.searchParams.get('session');

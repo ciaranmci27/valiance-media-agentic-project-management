@@ -1,14 +1,19 @@
 import { withApi } from '@/lib/api/middleware';
-import { success, created, paginated } from '@/lib/api/response';
+import { created, paginated } from '@/lib/api/response';
 import { createTeamMemberSchema } from '@/lib/schemas';
 import { parsePagination, sanitizeSearch } from '@/lib/api/pagination';
 import { logAudit } from '@/lib/api/audit';
+import { forbidden } from '@/lib/api/errors';
+import { accessAllows } from '@/lib/api/access';
 
-export const GET = withApi(async ({ supabase, searchParams }) => {
+export const GET = withApi(async ({ supabase, searchParams, access }) => {
   const { page, limit, offset } = parsePagination(searchParams);
   const search = searchParams.get('search');
 
-  let query = supabase.from('team_members').select('*', { count: 'exact' });
+  const selection = accessAllows(access, 'team.manage', 'api')
+    ? '*'
+    : 'id, name, email, avatar, role, status, timezone, created_at, updated_at';
+  let query = supabase.from('team_members').select(selection, { count: 'exact' });
 
   if (search) {
     const s = sanitizeSearch(search);
@@ -23,8 +28,13 @@ export const GET = withApi(async ({ supabase, searchParams }) => {
   return paginated(data || [], { page, limit, total: count || 0 });
 });
 
-export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId }) => {
-  const member = body as any;
+export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId, access }) => {
+  const member = body as Record<string, unknown>;
+  if ((member.role === 'owner' || member.role === 'admin') && access.role !== 'owner') {
+    throw forbidden('Only an Owner can create an Owner or Admin');
+  }
+  const emailNotificationsEnabled = member.email_notifications_enabled;
+  const emailNotificationPrefs = member.email_notification_prefs;
   const { data, error } = await supabase
     .from('team_members')
     .insert({
@@ -33,9 +43,8 @@ export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId }) =
       avatar: member.avatar || '',
       role: member.role || 'member',
       timezone: member.timezone || 'UTC',
-      auth_user_id: member.auth_user_id || null,
-      ...(member.email_notifications_enabled !== undefined && { email_notifications_enabled: member.email_notifications_enabled }),
-      ...(member.email_notification_prefs && { email_notification_prefs: member.email_notification_prefs }),
+      ...(typeof emailNotificationsEnabled === 'boolean' ? { email_notifications_enabled: emailNotificationsEnabled } : {}),
+      ...(emailNotificationPrefs && typeof emailNotificationPrefs === 'object' ? { email_notification_prefs: emailNotificationPrefs } : {}),
     })
     .select()
     .single();

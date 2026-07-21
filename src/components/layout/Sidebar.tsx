@@ -24,11 +24,12 @@ import { Logo } from '@/components/ui/Logo';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { isRunning } from '@/lib/time-entry-utils';
 import { siteConfig } from '@/site-config';
+import { hasPermission } from '@/lib/access-control';
 
 export function Sidebar() {
   const pathname = usePathname();
   const { projects, team, loading, getPendingSuggestionCount, timeEntries } = useApp();
-  const { user, teamMemberId, signOut } = useAuth();
+  const { user, teamMemberId, access, signOut } = useAuth();
 
   // Project IDs where the current user has an actively-running timer. Used
   // to surface a green pulse next to the project's row in the sidebar so the
@@ -53,21 +54,26 @@ export function Sidebar() {
 
   const currentMember = team.find(m => m.id === teamMemberId);
   const displayName = currentMember?.name || user?.user_metadata?.display_name || user?.email?.split('@')[0] || 'User';
-  const displayRole = currentMember?.role || 'Member';
+  const displayRole = access?.role || currentMember?.role || 'member';
 
   const isAgentsEnabled = process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true';
-  const isAdmin = currentMember?.role === 'admin';
-  const pendingSuggestionCount = isAgentsEnabled && isAdmin ? getPendingSuggestionCount() : 0;
+  const canManageAgents = hasPermission(access, 'agents.manage');
+  const pendingSuggestionCount = isAgentsEnabled && canManageAgents ? getPendingSuggestionCount() : 0;
 
   const navItems = [
     { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', badge: 0 },
     { href: '/my-tasks', icon: CheckSquare, label: 'My Tasks', badge: 0 },
-    { href: '/projects', icon: FolderKanban, label: 'Projects', badge: 0 },
-    { href: '/leads', icon: Target, label: 'Leads', badge: 0 },
-    { href: '/contacts', icon: UserCircle, label: 'Contacts', badge: 0 },
-    { href: '/team', icon: Users, label: 'Team', badge: 0 },
-    { href: '/finances', icon: DollarSign, label: 'Finances', badge: 0 },
-    ...(isAgentsEnabled && isAdmin ? [{ href: '/agent', icon: Bot, label: 'Agent', badge: pendingSuggestionCount }] : []),
+    ...(hasPermission(access, 'projects.read') || hasPermission(access, 'projects.read_all')
+      ? [{ href: '/projects', icon: FolderKanban, label: 'Projects', badge: 0 }] : []),
+    ...(hasPermission(access, 'leads.read') || hasPermission(access, 'leads.read_all') || hasPermission(access, 'leads.manage')
+      ? [{ href: '/leads', icon: Target, label: 'Leads', badge: 0 }] : []),
+    ...(hasPermission(access, 'contacts.read') || hasPermission(access, 'contacts.read_all')
+      ? [{ href: '/contacts', icon: UserCircle, label: 'Contacts', badge: 0 }] : []),
+    ...(hasPermission(access, 'team.read') || hasPermission(access, 'team.manage')
+      ? [{ href: '/team', icon: Users, label: 'Team', badge: 0 }] : []),
+    ...(hasPermission(access, 'finance.company.read') || hasPermission(access, 'earnings.own.read')
+      ? [{ href: '/finances', icon: DollarSign, label: 'Finances', badge: 0 }] : []),
+    ...(isAgentsEnabled && canManageAgents ? [{ href: '/agent', icon: Bot, label: 'Agent', badge: pendingSuggestionCount }] : []),
   ];
 
   const closeSidebar = () => setIsOpen(false);
@@ -135,13 +141,15 @@ export function Sidebar() {
           <div className="pt-4">
             <div className="flex items-center justify-between px-3 mb-2">
               <p className="text-xs text-zinc-600 uppercase tracking-wider font-medium">Projects</p>
-              <Link
-                href="/projects?new=true"
-                onClick={closeSidebar}
-                className="p-1 rounded text-zinc-500 hover:text-zinc-300 hover:bg-white/5 transition-colors"
-              >
-                <Plus size={14} />
-              </Link>
+              {hasPermission(access, 'projects.manage') && (
+                <Link
+                  href="/projects?new=true"
+                  onClick={closeSidebar}
+                  className="p-1 rounded text-zinc-500 hover:text-zinc-300 hover:bg-white/5 transition-colors"
+                >
+                  <Plus size={14} />
+                </Link>
+              )}
             </div>
 
             <div className="space-y-0.5">

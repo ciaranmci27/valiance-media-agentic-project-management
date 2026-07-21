@@ -23,7 +23,7 @@ export const DEMO_ADMIN_TEAM_MEMBER_ID = 'a1a1a1a1-0001-4000-8000-000000000001';
 // 1. TEAM MEMBERS
 // ---------------------------------------------------------------------------
 export const demoTeam: TeamMember[] = [
-  { id: 'a1a1a1a1-0001-4000-8000-000000000001', auth_user_id: DEMO_USER_ID, name: 'Sarah Chen',     email: 'sarah@valiancemedia.com',  avatar: '', role: 'admin',  timezone: 'America/Phoenix' },
+  { id: 'a1a1a1a1-0001-4000-8000-000000000001', auth_user_id: DEMO_USER_ID, name: 'Sarah Chen',     email: 'sarah@valiancemedia.com',  avatar: '', role: 'owner',  timezone: 'America/Phoenix' },
   { id: 'a1a1a1a1-0002-4000-8000-000000000002', auth_user_id: null, name: 'Marcus Johnson',  email: 'marcus@valiancemedia.com', avatar: '', role: 'member', timezone: 'America/New_York' },
   { id: 'a1a1a1a1-0003-4000-8000-000000000003', auth_user_id: null, name: 'Emily Rodriguez', email: 'emily@valiancemedia.com',  avatar: '', role: 'member', timezone: 'America/Los_Angeles' },
   { id: 'a1a1a1a1-0004-4000-8000-000000000004', auth_user_id: null, name: 'Jake Thompson',   email: 'jake@valiancemedia.com',   avatar: '', role: 'member', timezone: 'America/Chicago' },

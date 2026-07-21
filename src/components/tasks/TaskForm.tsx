@@ -11,6 +11,7 @@ import { Select } from '@/components/ui/Select';
 import { Textarea } from '@/components/ui/inputs/Textarea';
 import { MultiSelect } from '@/components/ui/inputs/MultiSelect';
 import { DateInput } from '@/components/ui/inputs/DateInput';
+import { hasPermission } from '@/lib/access-control';
 
 interface TaskFormProps {
   isOpen: boolean;
@@ -21,11 +22,11 @@ interface TaskFormProps {
 
 export function TaskForm({ isOpen, onClose, projectId, task }: TaskFormProps) {
   const { team, addTask, updateTask } = useApp();
-  const { teamMemberId } = useAuth();
+  const { teamMemberId, access } = useAuth();
 
   const isAgentsEnabled = process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true';
-  const currentMember = team.find(m => m.id === teamMemberId);
-  const isAdmin = currentMember?.role === 'admin';
+  const canManageAgents = hasPermission(access, 'agents.manage');
+  const canAssignOthers = hasPermission(access, 'tasks.manage_all');
 
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -52,12 +53,12 @@ export function TaskForm({ isOpen, onClose, projectId, task }: TaskFormProps) {
       setDescription('');
       setStatus('todo');
       setPriority('medium');
-      setAssigneeIds([]);
+      setAssigneeIds(!canAssignOthers && teamMemberId ? [teamMemberId] : []);
       setDueDate('');
       setTags('');
       setTaskType('');
     }
-  }, [task, isOpen]);
+  }, [canAssignOthers, isOpen, task, teamMemberId]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -65,17 +66,16 @@ export function TaskForm({ isOpen, onClose, projectId, task }: TaskFormProps) {
     if (!title.trim()) return;
 
     setSaving(true);
-    const taskData = {
+    const taskData: Partial<Task> & { project_id: string; title: string } = {
       project_id: projectId,
       title: title.trim(),
       description: description.trim(),
       status,
       priority,
-      assignee_ids: assigneeIds,
+      ...((canAssignOthers || !task) ? { assignee_ids: assigneeIds } : {}),
       due_date: dueDate || null,
       tags: tags.split(',').map(t => t.trim()).filter(Boolean),
-      task_type: taskType || null,
-      ai_managed: task?.ai_managed ?? true,
+      ...(canManageAgents ? { task_type: taskType || null, ai_managed: task?.ai_managed ?? true } : {}),
       subtasks: task?.subtasks || [],
       comments: task?.comments || [],
     };
@@ -83,7 +83,7 @@ export function TaskForm({ isOpen, onClose, projectId, task }: TaskFormProps) {
     if (task) {
       await updateTask(task.id, taskData);
     } else {
-      await addTask(taskData);
+      await addTask(taskData as Omit<Task, 'id' | 'created_at' | 'updated_at'>);
     }
 
     setSaving(false);
@@ -155,7 +155,7 @@ export function TaskForm({ isOpen, onClose, projectId, task }: TaskFormProps) {
 
         <MultiSelect
           label="Team Members"
-          options={team.map(m => ({ value: m.id, label: m.name }))}
+          options={(canAssignOthers ? team : team.filter((member) => member.id === teamMemberId)).map(m => ({ value: m.id, label: m.name }))}
           value={assigneeIds}
           onChange={setAssigneeIds}
           placeholder="Select team members..."
@@ -163,7 +163,7 @@ export function TaskForm({ isOpen, onClose, projectId, task }: TaskFormProps) {
           searchable={team.length > 4}
         />
 
-        {isAgentsEnabled && isAdmin && (
+        {isAgentsEnabled && canManageAgents && (
           <Select
             label="Task Type"
             value={taskType}

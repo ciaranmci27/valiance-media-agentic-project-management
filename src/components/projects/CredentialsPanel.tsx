@@ -5,11 +5,13 @@ import {
   ShieldCheck, Plus, Eye, EyeOff, Pencil, Trash2, Copy, Check,
   Loader2, Code, Terminal, Database, CreditCard, Landmark, Hash,
   KeyRound, RefreshCw, Lock, User as UserIcon,
+  Users,
 } from 'lucide-react';
 import { Select } from '@/components/ui/Select';
 import { TextInput } from '@/components/ui/inputs/TextInput';
 import { PasswordInput } from '@/components/ui/inputs/PasswordInput';
 import { Textarea } from '@/components/ui/inputs/Textarea';
+import { Checkbox } from '@/components/ui/inputs/Checkbox';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { toast } from '@/components/ui/Toast';
@@ -17,6 +19,9 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { CREDENTIAL_FIELDS, isSensitiveKey, credentialFieldLabel, type CredentialFieldDef } from '@/lib/credential-fields';
 import { CREDENTIAL_CATEGORIES, type CredentialCategory, type CredentialPayload, type ProjectCredentialListItem } from '@/lib/types';
+import Modal from '@/components/ui/Modal';
+import { Button } from '@/components/ui/Button';
+import { hasPermission } from '@/lib/access-control';
 
 interface CredentialsPanelProps {
   projectId: string;
@@ -112,8 +117,11 @@ function RevealedField({ label, value, isSensitive }: { label: string; value: st
 
 // ── Main Component ──────────────────────────────────
 export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
-  const { addCredential, updateCredential, deleteCredential, revealCredential, getCredentialsByProject } = useApp();
-  const { teamMemberId } = useAuth();
+  const { addCredential, updateCredential, deleteCredential, revealCredential, getCredentialsByProject, team, getProject } = useApp();
+  const { teamMemberId, access } = useAuth();
+  const canManageCredentials = hasPermission(access, 'credentials.manage');
+  const projectMemberIds = new Set(getProject(projectId)?.member_ids || []);
+  const shareableMembers = team.filter((member) => member.id !== teamMemberId && member.role !== 'owner' && projectMemberIds.has(member.id));
   const categoryOrder = Object.keys(CATEGORY_CONFIG) as CredentialCategory[];
   const credentials = [...getCredentialsByProject(projectId)].sort((a, b) => {
     const catDiff = categoryOrder.indexOf(a.category) - categoryOrder.indexOf(b.category);
@@ -135,6 +143,9 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [revealedData, setRevealedData] = useState<Record<string, CredentialPayload>>({});
   const [revealingId, setRevealingId] = useState<string | null>(null);
+  const [shareTarget, setShareTarget] = useState<ProjectCredentialListItem | null>(null);
+  const [shareMemberIds, setShareMemberIds] = useState<Set<string>>(new Set());
+  const [sharing, setSharing] = useState(false);
   // Which credential the in-flight edit reveal belongs to; a late response
   // for a different credential must never populate the open form
   const editTargetRef = useRef<string | null>(null);
@@ -327,6 +338,25 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
     }
   };
 
+  const openSharing = (credential: ProjectCredentialListItem) => {
+    setShareTarget(credential);
+    setShareMemberIds(new Set(credential.shared_member_ids || []));
+  };
+
+  const saveSharing = async () => {
+    if (!shareTarget) return;
+    setSharing(true);
+    try {
+      const response = await fetch('/api/workspace/credentials', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ credential_id: shareTarget.id, member_ids: [...shareMemberIds] }) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || 'Failed to update credential access');
+      shareTarget.shared_member_ids = [...shareMemberIds];
+      setShareTarget(null);
+      toast('success', 'Credential access updated');
+    } catch (error) { toast('error', error instanceof Error ? error.message : 'Failed to update credential access'); }
+    finally { setSharing(false); }
+  };
+
   // ── Loading state ───────────────────────────
   if (encryptionStatus === 'loading') {
     return (
@@ -344,6 +374,14 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
 
   // ── Encryption setup ────────────────────────
   if (encryptionStatus === 'not_configured') {
+    if (!canManageCredentials) {
+      return (
+        <div className="bg-white rounded-xl border border-zinc-200 p-5">
+          <div className="flex items-center gap-2"><Lock size={18} className="text-zinc-500" /><h2 className="font-semibold text-zinc-900">Credentials unavailable</h2></div>
+          <p className="mt-2 text-sm text-zinc-500">Credential encryption has not been configured by an authorized manager.</p>
+        </div>
+      );
+    }
     return (
       <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
         <div className="px-5 py-4 border-b border-zinc-100 flex items-center gap-2">
@@ -551,7 +589,7 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
             )}
           </h2>
         </div>
-        <button
+        {canManageCredentials && <button
           onClick={() => {
             editTargetRef.current = null;
             resetForm();
@@ -563,12 +601,12 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
         >
           <Plus size={14} />
           Add
-        </button>
+        </button>}
       </div>
 
       <div className="flex-1 flex flex-col overflow-y-auto">
         {/* Add form */}
-        {isAdding && !editingId && (
+        {canManageCredentials && isAdding && !editingId && (
           <div className="mx-5 mt-5">
             {renderForm('add')}
           </div>
@@ -645,6 +683,10 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
                         </div>
                       </div>
                       <div className="flex items-center gap-0.5 flex-shrink-0 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
+                        {canManageCredentials && <Tooltip content="Share with team">
+                          <button onClick={() => openSharing(cred)} className="p-1.5 text-zinc-400 hover:text-brand-600 transition-colors rounded-md hover:bg-zinc-50"><Users size={14} /></button>
+                        </Tooltip>}
+                        {canManageCredentials && <>
                         <Tooltip content="Edit">
                           <button
                             onClick={() => handleStartEdit(cred)}
@@ -661,6 +703,7 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
                             <Trash2 size={14} />
                           </button>
                         </Tooltip>
+                        </>}
                       </div>
                     </div>
 
@@ -723,6 +766,29 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
         confirmLabel="Delete"
         variant="danger"
       />
+      <Modal isOpen={Boolean(shareTarget)} onClose={() => setShareTarget(null)} title="Share credential" size="sm">
+        <div className="space-y-4">
+          <p className="text-sm text-zinc-600">Choose assigned project members who can reveal <span className="font-medium text-zinc-900">{shareTarget?.label}</span>.</p>
+          <div className="rounded-lg border border-zinc-200 divide-y divide-zinc-100 max-h-64 overflow-y-auto">
+            {shareableMembers.map((member) => (
+              <Checkbox
+                key={member.id}
+                checked={shareMemberIds.has(member.id)}
+                onChange={(checked) => setShareMemberIds((current) => {
+                  const next = new Set(current);
+                  if (checked) next.add(member.id);
+                  else next.delete(member.id);
+                  return next;
+                })}
+                label={<span className="flex w-full items-center justify-between gap-3"><span className="text-zinc-800">{member.name}</span><span className="text-xs font-normal capitalize text-zinc-400">{member.role}</span></span>}
+                className="w-full px-3 py-2.5"
+              />
+            ))}
+            {shareableMembers.length === 0 && <p className="px-3 py-4 text-sm text-zinc-500">Assign another team member to this project before sharing credentials.</p>}
+          </div>
+          <div className="flex justify-end gap-2"><Button variant="ghost" onClick={() => setShareTarget(null)}>Cancel</Button><Button onClick={saveSharing} disabled={sharing}>{sharing ? 'Saving...' : 'Save access'}</Button></div>
+        </div>
+      </Modal>
     </div>
   );
 }

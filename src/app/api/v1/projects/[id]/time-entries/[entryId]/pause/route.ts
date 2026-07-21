@@ -3,8 +3,9 @@ import { success } from '@/lib/api/response';
 import { notFound, badRequest } from '@/lib/api/errors';
 import { logAudit } from '@/lib/api/audit';
 import type { TimeSegment } from '@/lib/types';
+import { apiKeyAllows, sanitizeTimeEntryForAccess } from '@/lib/api/access';
 
-export const POST = withApi(async ({ supabase, params, apiKeyId, teamMemberId }) => {
+export const POST = withApi(async ({ supabase, params, apiKeyId, teamMemberId, access, scopes }) => {
   const { id, entryId } = params as any;
 
   const { data: before } = await supabase
@@ -15,6 +16,9 @@ export const POST = withApi(async ({ supabase, params, apiKeyId, teamMemberId })
     .maybeSingle();
 
   if (!before) throw notFound('Time entry');
+  if (!apiKeyAllows(access, scopes, 'time.manage_all') && before.member_id !== teamMemberId) {
+    throw notFound('Time entry');
+  }
   if (before.end_time) throw badRequest('Timer is not running');
 
   const segments: TimeSegment[] = Array.isArray(before.segments) ? before.segments : [];
@@ -48,5 +52,5 @@ export const POST = withApi(async ({ supabase, params, apiKeyId, teamMemberId })
     statusCode: 200,
   });
 
-  return success(data);
-});
+  return success(sanitizeTimeEntryForAccess(data, access, 'api'));
+}, { permission: ['time.manage_own', 'time.manage_all'] });

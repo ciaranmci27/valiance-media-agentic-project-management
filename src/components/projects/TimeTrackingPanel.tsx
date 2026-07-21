@@ -18,6 +18,7 @@ import { siteConfig } from '@/site-config';
 import { toLocalTimeString, toLocalDateString } from '@/lib/date-utils';
 import { getWorkedHours, getWorkedMs, isPaused } from '@/lib/time-entry-utils';
 import { paidHourlyLineItemTotal, fifoPaymentBreakdowns, type PaymentBreakdown } from '@/lib/invoice-utils';
+import { hasPermission } from '@/lib/access-control';
 
 /* ── Types ── */
 
@@ -81,13 +82,20 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
     addTimeEntry, updateTimeEntry, deleteTimeEntry,
     startTimer, pauseTimer, resumeTimer, stopTimer, getRunningTimer,
   } = useApp();
-  const { teamMemberId } = useAuth();
+  const { teamMemberId, access } = useAuth();
 
   const tz = team.find(m => m.id === teamMemberId)?.timezone;
   const entries = getTimeEntriesByProject(projectId);
   const project = getProject(projectId);
   const projectMembers = team.filter(m => project?.member_ids?.includes(m.id));
-  const memberOptions = projectMembers.length > 0 ? projectMembers : team;
+  const canManageAllTime = hasPermission(access, 'time.manage_all');
+  const canManageOwnTime = hasPermission(access, 'time.manage_own');
+  const canSeeClientBilling = hasPermission(access, 'billing.manage') || hasPermission(access, 'invoices.read');
+  const currentMember = team.find((member) => member.id === teamMemberId);
+  const availableMembers = projectMembers.length > 0
+    ? [...projectMembers, ...(currentMember && !projectMembers.some((member) => member.id === currentMember.id) ? [currentMember] : [])]
+    : team;
+  const memberOptions = canManageAllTime ? availableMembers : availableMembers.filter((member) => member.id === teamMemberId);
   // Current user's own running timer (may be null even when teammates are tracking).
   const runningTimer = getRunningTimer(projectId, teamMemberId || undefined);
   // Other members' running timers on this same project — rendered as read-only cards.
@@ -103,12 +111,16 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
   // ── Per-entry payment status (FIFO waterfall against paid hourly invoices) ──
   const invoices = getInvoicesByProject(projectId);
   const hourlyRate = project?.hourly_rate ?? 0;
-  const isHourly = project?.hourly_tracking ?? false;
+  const isHourly = project?.client_time_billing
+    ? project.client_time_billing === 'hourly'
+    : project?.hourly_tracking ?? false;
 
   const paymentBreakdownMap = useMemo<Map<string, PaymentBreakdown>>(() => {
     if (!isHourly) return new Map();
     const finalized = entries
-      .filter(e => e.end_time !== null)
+      .filter(e => e.end_time !== null
+        && e.work_type !== 'internal'
+        && (e.approval_status === undefined || e.approval_status === 'approved'))
       .sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime())
       .map(e => ({ id: e.id, hours: getWorkedHours(e), hourly_rate: e.hourly_rate }));
     return fifoPaymentBreakdowns(finalized, paidHourlyLineItemTotal(invoices), hourlyRate);
@@ -174,6 +186,7 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
   // ── Timer form state ──
   const [timerMemberId, setTimerMemberId] = useState('');
   const [timerDescription, setTimerDescription] = useState('');
+  const [timerWorkType, setTimerWorkType] = useState<'client' | 'internal'>('client');
   const [adjustingStart, setAdjustingStart] = useState(false);
   const [adjustStartTime, setAdjustStartTime] = useState('');
   const descDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -187,11 +200,23 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
   const [manualDurationMinutes, setManualDurationMinutes] = useState<number | ''>('');
   const [manualMemberId, setManualMemberId] = useState('');
   const [manualDescription, setManualDescription] = useState('');
+  const [manualWorkType, setManualWorkType] = useState<'client' | 'internal'>('client');
+
+  useEffect(() => {
+    if (!teamMemberId) return;
+    if (!canManageAllTime) {
+      setTimerMemberId(teamMemberId);
+      setManualMemberId(teamMemberId);
+      return;
+    }
+    setManualMemberId((current) => current || teamMemberId);
+  }, [canManageAllTime, teamMemberId]);
 
   // ── Edit state ──
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editState, setEditState] = useState<{
     date: string; startTime: string; endTime: string; description: string; memberId: string;
+    workType: 'client' | 'internal';
   } | null>(null);
 
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
@@ -251,7 +276,7 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
   const handleStartTimer = () => {
     const memberId = timerMemberId || teamMemberId;
     if (!memberId) { toast('error', 'Please select a team member'); return; }
-    startTimer(projectId, memberId, timerDescription);
+    startTimer(projectId, memberId, timerDescription, undefined, timerWorkType);
     setTimerDescription('');
     toast('success', 'Timer started');
   };
@@ -346,6 +371,7 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
       segments: [{ start: start.toISOString(), end: end.toISOString() }],
       hourly_rate: project?.hourly_rate ?? 0,
       description: manualDescription,
+      work_type: manualWorkType,
     });
     toast('success', 'Time entry added');
     setManualDescription('');
@@ -365,6 +391,7 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
       endTime: toLocalTimeString(entry.end_time || new Date().toISOString(), tz),
       description: entry.description,
       memberId: entry.member_id,
+      workType: entry.work_type || 'client',
     });
   };
 
@@ -471,9 +498,10 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
       editState.startTime !== originalStartTime ||
       editState.endTime !== originalEndTime;
 
-    const patch: Partial<Pick<TimeEntry, 'member_id' | 'start_time' | 'end_time' | 'segments' | 'description'>> = {
+    const patch: Partial<Pick<TimeEntry, 'member_id' | 'start_time' | 'end_time' | 'segments' | 'description' | 'work_type'>> = {
       description: editState.description,
       member_id: editState.memberId,
+      work_type: editState.workType,
     };
 
     if (timeFieldsChanged) {
@@ -496,8 +524,21 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
     cancelEdit();
   };
 
-  const executeDelete = () => {
-    if (deleteTarget) { deleteTimeEntry(deleteTarget); toast('success', 'Time entry removed'); }
+  const executeDelete = async () => {
+    if (!deleteTarget) return;
+    const entry = entries.find(item => item.id === deleteTarget);
+    const canModifyEntry = Boolean(
+      entry && (
+        canManageAllTime
+        || (canManageOwnTime && entry.member_id === teamMemberId && entry.approval_status !== 'approved')
+      ),
+    );
+    if (!canModifyEntry) {
+      setDeleteTarget(null);
+      return;
+    }
+    const deleted = await deleteTimeEntry(deleteTarget);
+    if (deleted) toast('success', 'Time entry removed');
   };
 
   const dateGroups = Object.entries(groupedByDate);
@@ -692,18 +733,25 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
               </div>
             ) : (
               <div className="rounded-xl bg-zinc-50/80 border border-zinc-100 p-4 space-y-3">
-                <div className="flex gap-2">
-                  <div className="flex-1 min-w-[140px]">
-                    <Select
-                      value={timerMemberId || teamMemberId || ''}
-                      onChange={setTimerMemberId}
-                      options={memberOptions.map(m => ({ value: m.id, label: m.name, icon: <Avatar name={m.name} src={m.avatar} size="xs" /> }))}
-                      placeholder="Select member"
-                    />
-                  </div>
+                <div className={`grid grid-cols-1 gap-2 ${canManageAllTime ? 'sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]' : 'sm:grid-cols-[minmax(0,1fr)_auto]'}`}>
+                  {canManageAllTime && (
+                    <div className="min-w-0">
+                      <Select
+                        value={timerMemberId || teamMemberId || ''}
+                        onChange={setTimerMemberId}
+                        options={memberOptions.map(m => ({ value: m.id, label: m.name, icon: <Avatar name={m.name} src={m.avatar} size="xs" /> }))}
+                        placeholder="Select member"
+                      />
+                    </div>
+                  )}
+                  <Select
+                    value={timerWorkType}
+                    onChange={(value) => setTimerWorkType(value as 'client' | 'internal')}
+                    options={[{ value: 'client', label: 'Client work' }, { value: 'internal', label: 'Internal work' }]}
+                  />
                   <button
                     onClick={handleStartTimer}
-                    className="px-5 h-[38px] rounded-lg text-white font-medium text-sm transition-all flex items-center gap-2 flex-shrink-0 bg-brand-600 hover:bg-brand-700 active:scale-[0.97]"
+                    className="h-[38px] justify-center rounded-lg bg-brand-600 px-5 text-sm font-medium text-white transition-all flex items-center gap-2 hover:bg-brand-700 active:scale-[0.97]"
                   >
                     <Play size={14} />
                     Start
@@ -771,23 +819,25 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
            ═══════════════════════════════════════════════════════ */}
         {mode === 'manual' && (
           <form onSubmit={handleManualAdd} className="mx-4 mt-3 mb-2 rounded-xl bg-zinc-50/80 border border-zinc-100 p-4 space-y-3">
-            {/* Grid: Date + Member */}
+            {/* Date and, for time managers only, the team member */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
-              <div className="md:col-span-2">
+              <div className={canManageAllTime ? 'md:col-span-2' : 'md:col-span-4'}>
                 <DateInput
                   value={manualDate}
                   onChange={setManualDate}
                   placeholder="Date"
                 />
               </div>
-              <div className="md:col-span-2">
-                <Select
-                  value={manualMemberId}
-                  onChange={setManualMemberId}
-                  options={memberOptions.map(m => ({ value: m.id, label: m.name, icon: <Avatar name={m.name} src={m.avatar} size="xs" /> }))}
-                  placeholder="Team member"
-                />
-              </div>
+              {canManageAllTime && (
+                <div className="md:col-span-2">
+                  <Select
+                    value={manualMemberId}
+                    onChange={setManualMemberId}
+                    options={memberOptions.map(m => ({ value: m.id, label: m.name, icon: <Avatar name={m.name} src={m.avatar} size="xs" /> }))}
+                    placeholder="Team member"
+                  />
+                </div>
+              )}
             </div>
 
             {/* Time mode tabs + fields */}
@@ -881,6 +931,7 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                 <Plus size={18} strokeWidth={2.5} />
               </button>
             </div>
+            <Select value={manualWorkType} onChange={(value) => setManualWorkType(value as 'client' | 'internal')} options={[{ value: 'client', label: 'Client work' }, { value: 'internal', label: 'Internal work' }]} />
           </form>
         )}
 
@@ -897,7 +948,9 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                 <div className="divide-y divide-zinc-100">
                   {dateEntries.map(entry => {
                     const member = getMember(entry.member_id);
-                    const isEditing = editingId === entry.id;
+                    const canModifyEntry = canManageAllTime
+                      || (canManageOwnTime && entry.member_id === teamMemberId && entry.approval_status !== 'approved');
+                    const isEditing = canModifyEntry && editingId === entry.id;
                     const hours = getWorkedHours(entry);
                     const hasMultipleSegments = entry.segments && entry.segments.length > 1;
 
@@ -926,39 +979,42 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                               />
                             </div>
                           </div>
-                          {/* Description + member + actions. On mobile: stack description,
-                              then member/actions share a row. On sm+: single row. */}
-                          <div className="flex flex-col sm:flex-row gap-2 sm:items-center pb-1">
-                            <div className="flex-1">
-                              <TextInput
-                                value={editState.description}
-                                onChange={v => setEditState({ ...editState, description: v })}
-                                placeholder="Description"
-                              />
-                            </div>
-                            <div className="flex gap-2 items-center">
-                              <div className="flex-1 sm:flex-none sm:min-w-[130px]">
+                          <TextInput
+                            value={editState.description}
+                            onChange={v => setEditState({ ...editState, description: v })}
+                            placeholder="Description"
+                          />
+                          <div className="flex flex-col gap-2 pb-1 sm:flex-row sm:items-center">
+                            <div className={`grid min-w-0 flex-1 gap-2 ${canManageAllTime ? 'grid-cols-2' : 'grid-cols-1'}`}>
+                              {canManageAllTime && (
                                 <Select
                                   value={editState.memberId}
                                   onChange={v => setEditState({ ...editState, memberId: v })}
                                   options={memberOptions.map(m => ({ value: m.id, label: m.name, icon: <Avatar name={m.name} src={m.avatar} size="xs" /> }))}
-                                  placeholder="Member"
+                                  placeholder="Team member"
                                 />
-                              </div>
-                              <div className="flex items-center gap-0.5 flex-shrink-0">
-                                <button
-                                  onClick={saveEdit}
-                                  className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-md transition-colors"
-                                >
-                                  <Check size={14} />
-                                </button>
-                                <button
-                                  onClick={cancelEdit}
-                                  className="p-1.5 text-zinc-400 hover:bg-zinc-100 rounded-md transition-colors"
-                                >
-                                  <X size={14} />
-                                </button>
-                              </div>
+                              )}
+                              <Select
+                                value={editState.workType}
+                                onChange={v => setEditState({ ...editState, workType: v as 'client' | 'internal' })}
+                                options={[{ value: 'client', label: 'Client work' }, { value: 'internal', label: 'Internal work' }]}
+                              />
+                            </div>
+                            <div className="flex items-center justify-end gap-0.5">
+                              <button
+                                aria-label="Save time entry changes"
+                                onClick={saveEdit}
+                                className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-md transition-colors"
+                              >
+                                <Check size={14} />
+                              </button>
+                              <button
+                                aria-label="Cancel time entry changes"
+                                onClick={cancelEdit}
+                                className="p-1.5 text-zinc-400 hover:bg-zinc-100 rounded-md transition-colors"
+                              >
+                                <X size={14} />
+                              </button>
                             </div>
                           </div>
                         </div>
@@ -984,12 +1040,12 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                             >
                               {formatHM(hours)}
                             </span>
-                            {isHourly ? (
+                            {canSeeClientBilling && isHourly ? (
                               <span className="flex-shrink-0 tabular-nums text-zinc-400">
                                 ${formatRate(entry.hourly_rate ?? hourlyRate)}/hr
                               </span>
                             ) : null}
-                            {(() => {
+                            {canSeeClientBilling && (() => {
                               const breakdown = paymentBreakdownMap.get(entry.id);
                               if (!breakdown) return null;
                               const cfg = breakdown.status === 'paid'
@@ -1019,24 +1075,28 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                                 </Tooltip>
                               );
                             })()}
-                            <div className="flex items-center gap-0.5 sm:opacity-0 sm:group-hover/entry:opacity-100 sm:group-has-[.seg-zone:hover]/entry:!opacity-0 transition-opacity flex-shrink-0">
-                              <Tooltip content="Edit">
-                                <button
-                                  onClick={() => startEdit(entry)}
-                                  className="p-1 text-zinc-300 hover:text-brand-600 transition-colors"
-                                >
-                                  <Pencil size={12} />
-                                </button>
-                              </Tooltip>
-                              <Tooltip content="Delete">
-                                <button
-                                  onClick={() => setDeleteTarget(entry.id)}
-                                  className="p-1 text-zinc-300 hover:text-red-500 transition-colors"
-                                >
-                                  <Trash2 size={12} />
-                                </button>
-                              </Tooltip>
-                            </div>
+                            {entry.work_type === 'internal' && <span className="flex-shrink-0 rounded bg-sky-50 px-1.5 py-0.5 text-[10px] font-medium text-sky-700">Internal</span>}
+                            {entry.approval_status && entry.approval_status !== 'approved' && <span className={`flex-shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${entry.approval_status === 'rejected' ? 'bg-red-50 text-red-700' : 'bg-amber-50 text-amber-700'}`}>{entry.approval_status === 'pending' ? 'Awaiting approval' : entry.approval_status}</span>}
+                            {canModifyEntry ? (
+                              <div className="flex items-center gap-0.5 sm:opacity-0 sm:group-hover/entry:opacity-100 sm:group-has-[.seg-zone:hover]/entry:!opacity-0 transition-opacity flex-shrink-0">
+                                <Tooltip content="Edit">
+                                  <button
+                                    onClick={() => startEdit(entry)}
+                                    className="p-1 text-zinc-300 hover:text-brand-600 transition-colors"
+                                  >
+                                    <Pencil size={12} />
+                                  </button>
+                                </Tooltip>
+                                <Tooltip content="Delete">
+                                  <button
+                                    onClick={() => setDeleteTarget(entry.id)}
+                                    className="p-1 text-zinc-300 hover:text-red-500 transition-colors"
+                                  >
+                                    <Trash2 size={12} />
+                                  </button>
+                                </Tooltip>
+                              </div>
+                            ) : null}
                           </div>
                           {hasMultipleSegments && (
                             <ul className="seg-zone mt-2 mb-1 rounded-lg bg-zinc-50/70 border border-zinc-100 px-2.5 py-1.5 space-y-1">
@@ -1120,24 +1180,26 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                                           {formatHM(segDurationHours)}
                                         </span>
                                       )}
-                                      <div className="flex items-center gap-0.5 sm:opacity-0 sm:group-hover/seg:opacity-100 transition-opacity">
-                                        <Tooltip content="Edit segment">
-                                          <button
-                                            onClick={() => startEditSegment(entry, i)}
-                                            className="p-1 text-zinc-400 hover:text-brand-600 hover:bg-white rounded transition-colors"
-                                          >
-                                            <Pencil size={11} />
-                                          </button>
-                                        </Tooltip>
-                                        <Tooltip content="Delete segment">
-                                          <button
-                                            onClick={() => setDeleteSegmentTarget({ entryId: entry.id, index: i })}
-                                            className="p-1 text-zinc-400 hover:text-red-500 hover:bg-white rounded transition-colors"
-                                          >
-                                            <Trash2 size={11} />
-                                          </button>
-                                        </Tooltip>
-                                      </div>
+                                      {canModifyEntry ? (
+                                        <div className="flex items-center gap-0.5 sm:opacity-0 sm:group-hover/seg:opacity-100 transition-opacity">
+                                          <Tooltip content="Edit segment">
+                                            <button
+                                              onClick={() => startEditSegment(entry, i)}
+                                              className="p-1 text-zinc-400 hover:text-brand-600 hover:bg-white rounded transition-colors"
+                                            >
+                                              <Pencil size={11} />
+                                            </button>
+                                          </Tooltip>
+                                          <Tooltip content="Delete segment">
+                                            <button
+                                              onClick={() => setDeleteSegmentTarget({ entryId: entry.id, index: i })}
+                                              className="p-1 text-zinc-400 hover:text-red-500 hover:bg-white rounded transition-colors"
+                                            >
+                                              <Trash2 size={11} />
+                                            </button>
+                                          </Tooltip>
+                                        </div>
+                                      ) : null}
                                     </li>
                                     {gapLabel}
                                   </Fragment>

@@ -9,6 +9,7 @@ import { Calendar, MessageSquare, CheckSquare, MoreVertical, Edit, Trash2, Clock
 import { useState } from 'react';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { parseDateOnly, isDateOverdue } from '@/lib/date-utils';
+import { hasPermission } from '@/lib/access-control';
 
 function timeAgo(dateStr: string): string {
   const now = Date.now();
@@ -32,14 +33,15 @@ interface TaskCardProps {
 
 export function TaskCard({ task, onView, onEdit, onDelete }: TaskCardProps) {
   const { team, getProject } = useApp();
-  const { teamMemberId } = useAuth();
+  const { teamMemberId, access } = useAuth();
   const [showMenu, setShowMenu] = useState(false);
 
   const isAgentsEnabled = process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true';
-  const currentMember = team.find(m => m.id === teamMemberId);
-  const isAdmin = currentMember?.role === 'admin';
+  const canManageAgents = hasPermission(access, 'agents.manage');
 
   const assignees = team.filter(m => task.assignee_ids.includes(m.id));
+  const canEdit = hasPermission(access, 'tasks.manage_all') || (hasPermission(access, 'tasks.manage_assigned') && task.assignee_ids.includes(teamMemberId || ''));
+  const canDelete = hasPermission(access, 'tasks.manage_all');
   const completedSubtasks = task.subtasks.filter(s => s.completed).length;
   const hasComments = task.comments.length > 0;
 
@@ -64,10 +66,10 @@ export function TaskCard({ task, onView, onEdit, onDelete }: TaskCardProps) {
         <div className="flex items-center gap-1.5 lg:gap-2 flex-wrap">
           <StatusBadge status={task.status} />
           <PriorityBadge priority={task.priority} />
-          {isAgentsEnabled && isAdmin && task.task_type && (
+          {isAgentsEnabled && canManageAgents && task.task_type && (
             <TaskTypeBadge taskType={task.task_type} />
           )}
-          {isAgentsEnabled && isAdmin && !task.ai_managed && getProject(task.project_id)?.autonomous_enabled && (
+          {isAgentsEnabled && canManageAgents && !task.ai_managed && getProject(task.project_id)?.autonomous_enabled && (
             <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] lg:text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200 rounded-full">
               <User size={10} />
               Manual
@@ -75,7 +77,7 @@ export function TaskCard({ task, onView, onEdit, onDelete }: TaskCardProps) {
           )}
         </div>
         
-        <div className="relative">
+        {(canEdit || canDelete) && <div className="relative">
           <button
             onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }}
             className="lg:opacity-0 group-hover:opacity-100 p-1 rounded text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 transition-all"
@@ -87,24 +89,24 @@ export function TaskCard({ task, onView, onEdit, onDelete }: TaskCardProps) {
             <>
               <div className="fixed inset-0 z-10 cursor-default" onClick={(e) => { e.stopPropagation(); setShowMenu(false); }} />
               <div className="absolute right-0 top-8 bg-white rounded-lg shadow-xl border border-zinc-200 py-1 z-20 min-w-[120px] cursor-pointer">
-                <button
+                {canEdit && <button
                   onClick={(e) => { e.stopPropagation(); onEdit?.(task); setShowMenu(false); }}
                   className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-100"
                 >
                   <Edit size={14} />
                   Edit
-                </button>
-                <button
+                </button>}
+                {canDelete && <button
                   onClick={(e) => { e.stopPropagation(); onDelete?.(task.id); setShowMenu(false); }}
                   className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50"
                 >
                   <Trash2 size={14} />
                   Delete
-                </button>
+                </button>}
               </div>
             </>
           )}
-        </div>
+        </div>}
       </div>
 
       <h3 className="font-medium text-zinc-900 text-sm lg:text-base mb-1 lg:mb-2 line-clamp-2">{task.title}</h3>

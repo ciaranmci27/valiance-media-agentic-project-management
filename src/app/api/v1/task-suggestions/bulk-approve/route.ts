@@ -4,8 +4,9 @@ import { bulkApproveSchema } from '@/lib/schemas';
 import { requireAgentsEnabled } from '@/lib/api/agents';
 import { approveTaskSuggestion } from '@/lib/supabase/queries';
 import { logAudit } from '@/lib/api/audit';
+import { accessAllowsProject } from '@/lib/api/access';
 
-export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId }) => {
+export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId, access }) => {
   requireAgentsEnabled();
 
   const { ids } = body as { ids: string[] };
@@ -15,8 +16,9 @@ export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId }) =
 
   for (const id of ids) {
     try {
-      const { data: suggestion } = await supabase.from('task_suggestions').select('status').eq('id', id).maybeSingle();
+      const { data: suggestion } = await supabase.from('task_suggestions').select('status, project_id').eq('id', id).maybeSingle();
       if (!suggestion) { results.push({ id, success: false, error: 'Suggestion not found' }); continue; }
+      if (!accessAllowsProject(access, suggestion.project_id, 'api')) { results.push({ id, success: false, error: 'Project scope denied' }); continue; }
       if (suggestion.status !== 'pending' && suggestion.status !== 'needs_info') { results.push({ id, success: false, error: `Cannot approve a suggestion with status "${suggestion.status}"` }); continue; }
       const result = await approveTaskSuggestion(supabase, id, {}, reviewedBy);
       results.push({ id, success: true, task_id: result.task.id });
@@ -41,4 +43,4 @@ export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId }) =
     failed: results.filter(r => !r.success).length,
     results,
   });
-}, { schema: bulkApproveSchema });
+}, { schema: bulkApproveSchema, permission: 'suggestions.manage' });

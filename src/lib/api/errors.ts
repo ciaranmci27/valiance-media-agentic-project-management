@@ -18,12 +18,12 @@ export function badRequest(message: string, details?: unknown) {
   return new ApiError(400, 'BAD_REQUEST', message, details);
 }
 
-export function unauthorized(message = 'Unauthorized') {
-  return new ApiError(401, 'UNAUTHORIZED', message);
+export function unauthorized(message = 'Unauthorized', details?: unknown) {
+  return new ApiError(401, 'UNAUTHORIZED', message, details);
 }
 
-export function forbidden(message = 'Forbidden') {
-  return new ApiError(403, 'FORBIDDEN', message);
+export function forbidden(message = 'Forbidden', details?: unknown) {
+  return new ApiError(403, 'FORBIDDEN', message, details);
 }
 
 export function conflict(message: string) {

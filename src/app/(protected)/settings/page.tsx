@@ -19,6 +19,8 @@ import { Tooltip } from '@/components/ui/Tooltip';
 import Link from 'next/link';
 import { hashApiKey, generateApiKey } from '@/lib/api/crypto';
 import type { ApiKey, NotificationCategory, NotificationPreferences } from '@/lib/types';
+import { API_ENDPOINT_PERMISSIONS, API_ENDPOINT_PERMISSION_SET, hasPermission } from '@/lib/access-control';
+import { Checkbox } from '@/components/ui/inputs/Checkbox';
 
 const NOTIF_GROUPS: { group: string; adminOnly?: boolean; agentOnly?: boolean; items: { key: NotificationCategory; label: string; desc: string }[] }[] = [
   {
@@ -89,13 +91,15 @@ const NOTIF_GROUPS: { group: string; adminOnly?: boolean; agentOnly?: boolean; i
 
 export default function SettingsPage() {
   const { team, updateTeamMember, apiKeys, addApiKey, revokeApiKey } = useApp();
-  const { user, teamMemberId } = useAuth();
+  const { user, teamMemberId, access } = useAuth();
   const supabase = createClient();
 
   const { isDemoMode, isEnvForcedDemo, toggleDemoMode } = useDemo();
 
   const currentMember = team.find(m => m.id === teamMemberId);
-  const isAdmin = currentMember?.role === 'admin';
+  const canManageSettings = hasPermission(access, 'settings.manage');
+  const canManageSmtp = hasPermission(access, 'smtp.manage');
+  const canManageAgents = hasPermission(access, 'agents.manage');
 
   const [userName, setUserName] = useState('');
   const [userEmail, setUserEmail] = useState('');
@@ -112,7 +116,7 @@ export default function SettingsPage() {
   // API Key state
   const [showKeyForm, setShowKeyForm] = useState(false);
   const [keyName, setKeyName] = useState('');
-  const [keyPermissions, setKeyPermissions] = useState<'full' | 'read_only'>('full');
+  const [keyScopes, setKeyScopes] = useState<string[]>([]);
   const [generatingKey, setGeneratingKey] = useState(false);
   const [revealedKey, setRevealedKey] = useState<string | null>(null);
   const [copiedKey, setCopiedKey] = useState(false);
@@ -406,11 +410,11 @@ export default function SettingsPage() {
       const keyHash = await hashApiKey(fullKey);
       const keyPrefix = fullKey.slice(0, 15);
 
-      const result = await addApiKey(keyName.trim(), keyHash, keyPrefix, keyPermissions, teamMemberId);
+      const result = await addApiKey(keyName.trim(), keyHash, keyPrefix, keyScopes, teamMemberId);
       if (result) {
         setRevealedKey(fullKey);
         setKeyName('');
-        setKeyPermissions('full');
+        setKeyScopes([]);
         setShowKeyForm(false);
       }
     } catch {
@@ -511,7 +515,7 @@ export default function SettingsPage() {
         </section>
 
         {/* Business Info Section */}
-        <BusinessInfoSection />
+        {canManageSettings && <BusinessInfoSection />}
 
         {/* Timezone Section */}
         <section className={`rounded-xl border p-4 lg:p-6 ${
@@ -678,7 +682,7 @@ export default function SettingsPage() {
           <div className="space-y-6">
             {NOTIF_GROUPS.filter(g => {
               if (g.agentOnly && process.env.NEXT_PUBLIC_ENABLE_AGENTS !== 'true') return false;
-              if (g.adminOnly && !isAdmin) return false;
+              if (g.adminOnly && !canManageAgents) return false;
               return true;
             }).map(({ group, items }) => (
               <div key={group}>
@@ -750,8 +754,8 @@ export default function SettingsPage() {
           </div>
         </section>
 
-        {/* API Keys Section — admin and agent only */}
-        {(isAdmin || currentMember?.role === 'agent') && !isDemoMode && (
+        {/* Every active member can create personal keys from their Owner-approved API scopes. */}
+        {!isDemoMode && (
           <section className="bg-white rounded-xl border border-zinc-200 p-4 lg:p-6">
             <div className="flex items-center justify-between mb-6">
               <div className="flex items-center gap-3">
@@ -820,32 +824,24 @@ export default function SettingsPage() {
                   placeholder='e.g. "Zapier Integration"'
                 />
                 <div>
-                  <label className="block text-sm font-medium text-zinc-700 mb-1.5">Permissions</label>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => setKeyPermissions('full')}
-                      className={`px-3 py-1.5 text-sm rounded-lg border transition-colors ${
-                        keyPermissions === 'full'
-                          ? 'bg-brand-50 border-brand-200 text-brand-700'
-                          : 'bg-white border-zinc-200 text-zinc-600 hover:border-zinc-300'
-                      }`}
-                    >
-                      Full Access
-                    </button>
-                    <button
-                      onClick={() => setKeyPermissions('read_only')}
-                      className={`px-3 py-1.5 text-sm rounded-lg border transition-colors ${
-                        keyPermissions === 'read_only'
-                          ? 'bg-brand-50 border-brand-200 text-brand-700'
-                          : 'bg-white border-zinc-200 text-zinc-600 hover:border-zinc-300'
-                      }`}
-                    >
-                      Read Only
-                    </button>
+                  <label className="block text-sm font-medium text-zinc-700 mb-1.5">API scopes</label>
+                  <p className="text-xs text-zinc-500 mb-2">Choose only what this integration needs. Available scopes are controlled by the Owner.</p>
+                  <div className="max-h-52 overflow-y-auto rounded-lg border border-zinc-200 bg-white divide-y divide-zinc-100">
+                    {(access?.api_permissions.includes('*') ? API_ENDPOINT_PERMISSIONS : (access?.api_permissions || []).filter((scope) => scope !== '*' && API_ENDPOINT_PERMISSION_SET.has(scope))).map((scope) => (
+                      <Checkbox
+                        key={scope}
+                        size="sm"
+                        checked={keyScopes.includes(scope)}
+                        onChange={(checked) => setKeyScopes((current) => checked ? [...current, scope] : current.filter((item) => item !== scope))}
+                        label={<span className="font-mono text-xs font-normal text-zinc-700">{scope}</span>}
+                        className="w-full px-3 py-2"
+                      />
+                    ))}
+                    {access?.api_permissions.length === 0 && <p className="px-3 py-3 text-xs text-zinc-500">No API scopes are enabled for your account.</p>}
                   </div>
                 </div>
                 <div className="flex gap-2">
-                  <Button onClick={handleGenerateKey} disabled={generatingKey || !keyName.trim()}>
+                  <Button onClick={handleGenerateKey} disabled={generatingKey || !keyName.trim() || keyScopes.length === 0}>
                     {generatingKey ? 'Generating...' : 'Generate'}
                   </Button>
                   <Button variant="secondary" onClick={() => { setShowKeyForm(false); setKeyName(''); }}>
@@ -864,13 +860,7 @@ export default function SettingsPage() {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
                           <p className="text-sm font-medium text-zinc-900 truncate">{key.name}</p>
-                          <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium flex-shrink-0 ${
-                            key.permissions === 'full'
-                              ? 'bg-brand-50 text-brand-600'
-                              : 'bg-zinc-100 text-zinc-500'
-                          }`}>
-                            {key.permissions === 'full' ? 'Full' : 'Read Only'}
-                          </span>
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium flex-shrink-0 bg-brand-50 text-brand-600">{key.scopes?.length || 0} scopes</span>
                         </div>
                         <code className="text-xs text-zinc-500 font-mono mt-0.5 block">{key.key_prefix}...****</code>
                         <div className="flex items-center gap-2 mt-0.5">
@@ -928,13 +918,13 @@ export default function SettingsPage() {
         )}
 
         {/* SMTP Email Section — admin only, hidden in demo mode */}
-        {isAdmin && !isDemoMode && <SmtpSection />}
+        {canManageSmtp && !isDemoMode && <SmtpSection />}
 
         {/* Analytics Exclusions — admin only */}
-        {isAdmin && <AnalyticsExclusionsSection />}
+        {canManageSettings && <AnalyticsExclusionsSection />}
 
         {/* Demo Mode Section — admin only, hidden when env-forced */}
-        {isAdmin && !isEnvForcedDemo && (
+        {canManageSettings && !isEnvForcedDemo && (
           <section className="bg-white rounded-xl border border-zinc-200 p-4 lg:p-6">
             <div className="flex items-center gap-3 mb-6">
               <div className="p-2 bg-amber-50 rounded-lg">

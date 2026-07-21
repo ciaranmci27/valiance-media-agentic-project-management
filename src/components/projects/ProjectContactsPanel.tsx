@@ -14,6 +14,8 @@ import { ContactForm } from '@/components/contacts/ContactForm';
 import Modal from '@/components/ui/Modal';
 import { TextInput } from '@/components/ui/inputs/TextInput';
 import { ProjectContact, CONTACT_ROLES } from '@/lib/types';
+import { useAuth } from '@/lib/auth-context';
+import { hasPermission } from '@/lib/access-control';
 
 interface ProjectContactsPanelProps {
   isOpen: boolean;
@@ -23,6 +25,8 @@ interface ProjectContactsPanelProps {
 
 export function ProjectContactsPanel({ isOpen, onClose, projectId }: ProjectContactsPanelProps) {
   const { contacts, getContactsByProject, getPrimaryClient, addProjectContact, updateProjectContact, removeProjectContact } = useApp();
+  const { access } = useAuth();
+  const canManageContacts = hasPermission(access, 'contacts.manage');
 
   const [removeTarget, setRemoveTarget] = useState<string | null>(null);
 
@@ -168,18 +172,18 @@ export function ProjectContactsPanel({ isOpen, onClose, projectId }: ProjectCont
                       {!isEditing && (
                         <div className="flex items-center gap-2 flex-shrink-0">
                           <Badge variant="default">{displayRole}</Badge>
-                          <button
+                          {canManageContacts && <button
                             onClick={() => handleStartEdit(pc)}
                             className="p-1 rounded text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 transition-all"
                           >
                             <Edit size={14} />
-                          </button>
-                          <button
+                          </button>}
+                          {canManageContacts && <button
                             onClick={() => handleRemove(pc.id)}
                             className="p-1 rounded text-zinc-400 hover:text-red-600 hover:bg-red-50 transition-all"
                           >
                             <Trash2 size={14} />
-                          </button>
+                          </button>}
                         </div>
                       )}
                     </div>
@@ -234,12 +238,12 @@ export function ProjectContactsPanel({ isOpen, onClose, projectId }: ProjectCont
                 <UserCircle size={18} className="text-zinc-400" />
               </div>
               <p className="text-sm font-medium text-zinc-500">No contacts linked yet</p>
-              <p className="text-xs text-zinc-400 mt-1">Add contacts to this project</p>
+              <p className="text-xs text-zinc-400 mt-1">{canManageContacts ? 'Add contacts to this project' : 'No contacts are linked to this project'}</p>
             </div>
           ) : null}
 
           {/* Inline add contact form */}
-          {showAddForm ? (
+          {canManageContacts && showAddForm ? (
             <div className="border border-zinc-200 rounded-lg p-4 bg-zinc-50 space-y-3">
               <div className="flex items-center justify-between">
                 <h4 className="text-sm font-medium text-zinc-900">Add Contact</h4>
@@ -344,7 +348,7 @@ export function ProjectContactsPanel({ isOpen, onClose, projectId }: ProjectCont
                 </Button>
               </div>
             </div>
-          ) : (
+          ) : canManageContacts ? (
             <Button
               onClick={() => setShowAddForm(true)}
               icon={<Plus size={14} />}
@@ -353,17 +357,17 @@ export function ProjectContactsPanel({ isOpen, onClose, projectId }: ProjectCont
             >
               Add Contact
             </Button>
-          )}
+          ) : null}
         </div>
       </Modal>
 
       {/* Create new contact form (only extra modal needed) */}
-      <ContactForm
+      {canManageContacts && <ContactForm
         isOpen={showNewContactForm}
         onClose={() => setShowNewContactForm(false)}
-      />
+      />}
 
-      <ConfirmDialog
+      {canManageContacts && <ConfirmDialog
         isOpen={!!removeTarget}
         onClose={() => setRemoveTarget(null)}
         onConfirm={executeRemove}
@@ -371,7 +375,7 @@ export function ProjectContactsPanel({ isOpen, onClose, projectId }: ProjectCont
         message="Remove this contact from the project?"
         confirmLabel="Remove"
         variant="danger"
-      />
+      />}
     </>
   );
 }

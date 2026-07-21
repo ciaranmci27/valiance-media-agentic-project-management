@@ -1,9 +1,10 @@
 import { withApi } from '@/lib/api/middleware';
 import { success } from '@/lib/api/response';
 import { updateTaskSchema } from '@/lib/schemas';
-import { notFound } from '@/lib/api/errors';
+import { forbidden, notFound } from '@/lib/api/errors';
 import { patchTask } from '@/lib/supabase/queries';
 import { logAudit } from '@/lib/api/audit';
+import { accessAllows } from '@/lib/api/access';
 
 export const GET = withApi(async ({ supabase, params }) => {
   const { data, error } = await supabase
@@ -33,11 +34,14 @@ export const GET = withApi(async ({ supabase, params }) => {
   return success(task);
 });
 
-export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemberId }) => {
+export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemberId, access, scopes }) => {
   const id = (params as any).id;
   const { data: before } = await supabase.from('tasks').select('*').eq('id', id).maybeSingle();
   if (!before) throw notFound('Task');
   const { assignee_ids, ...updates } = body as any;
+  if (assignee_ids !== undefined && !(scopes.includes('tasks.manage_all') && accessAllows(access, 'tasks.manage_all', 'api'))) {
+    throw forbidden('Changing task assignments requires the tasks.manage_all API scope');
+  }
   const data = await patchTask(supabase, id, updates, assignee_ids);
   logAudit(supabase, { method: 'PATCH', endpoint: `/api/v1/tasks/${id}`, entityType: 'task', entityId: id, apiKeyId, teamMemberId, requestBody: body, beforeSnapshot: before, afterSnapshot: data, statusCode: 200 });
   return success(data);

@@ -4,8 +4,9 @@ import { bulkRejectSchema } from '@/lib/schemas';
 import { requireAgentsEnabled } from '@/lib/api/agents';
 import { rejectTaskSuggestion } from '@/lib/supabase/queries';
 import { logAudit } from '@/lib/api/audit';
+import { accessAllowsProject } from '@/lib/api/access';
 
-export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId }) => {
+export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId, access }) => {
   requireAgentsEnabled();
 
   const { ids, rejection_reason } = body as { ids: string[]; rejection_reason?: string };
@@ -15,8 +16,9 @@ export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId }) =
 
   for (const id of ids) {
     try {
-      const { data: suggestion } = await supabase.from('task_suggestions').select('status').eq('id', id).maybeSingle();
+      const { data: suggestion } = await supabase.from('task_suggestions').select('status, project_id').eq('id', id).maybeSingle();
       if (!suggestion) { results.push({ id, success: false, error: 'Suggestion not found' }); continue; }
+      if (!accessAllowsProject(access, suggestion.project_id, 'api')) { results.push({ id, success: false, error: 'Project scope denied' }); continue; }
       if (suggestion.status === 'approved' || suggestion.status === 'rejected') { results.push({ id, success: false, error: `Cannot reject a suggestion with status "${suggestion.status}"` }); continue; }
       const updated = await rejectTaskSuggestion(supabase, id, rejection_reason, reviewedBy);
       results.push({ id, success: true });
@@ -41,4 +43,4 @@ export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId }) =
     failed: results.filter(r => !r.success).length,
     results,
   });
-}, { schema: bulkRejectSchema });
+}, { schema: bulkRejectSchema, permission: 'suggestions.manage' });

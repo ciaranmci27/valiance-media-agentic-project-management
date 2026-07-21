@@ -1,18 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
 import { encrypt, isEncryptionConfigured } from '@/lib/api/encryption';
 import { createCredentialSchema, payloadFromBody } from '@/lib/schemas/credentials';
 import { insertProjectCredential } from '@/lib/supabase/queries';
 import type { CredentialPayload } from '@/lib/types';
+import { accessAllowsProject, requireSessionAccess } from '@/lib/api/access';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
-  const supabase = await createClient();
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
-  if (authError || !user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const auth = await requireSessionAccess({ permission: 'credentials.manage' });
+  if (auth.error) return auth.error;
+  const { access, memberId, service } = auth.data;
 
   if (!isEncryptionConfigured()) {
     return NextResponse.json({ error: 'Encryption not configured' }, { status: 503 });
@@ -25,9 +23,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
-  const { project_id, created_by, ...rest } = body;
+  const { project_id, ...rest } = body;
   if (!project_id) {
     return NextResponse.json({ error: 'project_id is required' }, { status: 400 });
+  }
+  if (!accessAllowsProject(access, project_id)) {
+    return NextResponse.json({ error: 'Project access denied' }, { status: 403 });
   }
 
   const parsed = createCredentialSchema.safeParse(rest);
@@ -40,13 +41,13 @@ export async function POST(req: NextRequest) {
   const payload: CredentialPayload = payloadFromBody(parsed.data);
   const { encrypted_data, iv } = await encrypt(payload);
 
-  const credential = await insertProjectCredential(supabase, {
+  const credential = await insertProjectCredential(service, {
     project_id,
     label,
     category,
     encrypted_data,
     iv,
-    created_by: created_by || null,
+    created_by: memberId,
   });
 
   return NextResponse.json({ success: true, data: credential }, { status: 201 });

@@ -7,8 +7,9 @@ import { logAudit } from '@/lib/api/audit';
 import { evaluateBudgetAlerts } from '@/lib/email/client-notifications';
 import type { TimeSegment } from '@/lib/types';
 import { resolveProjectHourlyRate } from '@/lib/supabase/queries';
+import { apiKeyAllows, sanitizeTimeEntryForAccess } from '@/lib/api/access';
 
-export const GET = withApi(async ({ supabase, params }) => {
+export const GET = withApi(async ({ supabase, params, access, teamMemberId, scopes }) => {
   const { id, entryId } = params as any;
 
   const { data, error } = await supabase
@@ -20,10 +21,13 @@ export const GET = withApi(async ({ supabase, params }) => {
 
   if (error) throw error;
   if (!data) throw notFound('Time entry');
-  return success(data);
-});
+  if (!apiKeyAllows(access, scopes, 'time.read_all') && data.member_id !== teamMemberId) {
+    throw notFound('Time entry');
+  }
+  return success(sanitizeTimeEntryForAccess(data, access, 'api'));
+}, { permission: ['time.manage_own', 'time.read_all', 'time.manage_all'] });
 
-export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemberId }) => {
+export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemberId, access, scopes }) => {
   const { id, entryId } = params as any;
 
   const { data: before } = await supabase
@@ -34,6 +38,13 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
     .maybeSingle();
 
   if (!before) throw notFound('Time entry');
+  const canManageAll = apiKeyAllows(access, scopes, 'time.manage_all');
+  if (!canManageAll && before.member_id !== teamMemberId) {
+    throw notFound('Time entry');
+  }
+  if (!canManageAll && before.approval_status === 'approved') {
+    throw badRequest('Approved time cannot be edited');
+  }
 
   // Canonicalize segments when the denormalized range of a finalized entry
   // is being updated. Rule: for a finalized entry (end_time not null before
@@ -48,6 +59,19 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
   // or vice versa. Require the caller to send segments explicitly in that
   // case so the state machine stays their responsibility.
   const patch: Record<string, unknown> = { ...(body as Record<string, unknown>) };
+  if (!canManageAll) delete patch.member_id;
+  if (canManageAll && typeof patch.member_id === 'string') {
+    const { data: targetMember } = await supabase.from('team_members').select('id, status').eq('id', patch.member_id).maybeSingle();
+    if (!targetMember || targetMember.status !== 'active') throw badRequest('Active team member not found');
+    if (patch.member_id !== teamMemberId) {
+      const { data: assignment } = await supabase.from('project_members').select('project_id').eq('project_id', id).eq('member_id', patch.member_id).maybeSingle();
+      if (!assignment) throw badRequest('Team member is not assigned to this project');
+    }
+  }
+  if (patch.work_type && patch.work_type !== (before.work_type || 'client')) {
+    const { data: allocation } = await supabase.from('invoice_time_entry_allocations').select('id').eq('time_entry_id', entryId).limit(1).maybeSingle();
+    if (allocation) throw badRequest('Invoiced time entry work type is locked');
+  }
   const hasStartUpdate = 'start_time' in patch;
   const hasEndUpdate = 'end_time' in patch;
   const hasSegmentsUpdate = 'segments' in patch;
@@ -96,10 +120,10 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
   // platforms; a bare .catch() can be killed when the response sends.
   after(() => evaluateBudgetAlerts(id));
 
-  return success(data);
-}, { schema: updateTimeEntrySchema });
+  return success(sanitizeTimeEntryForAccess(data, access, 'api'));
+}, { schema: updateTimeEntrySchema, permission: ['time.manage_own', 'time.manage_all'] });
 
-export const DELETE = withApi(async ({ supabase, params, apiKeyId, teamMemberId }) => {
+export const DELETE = withApi(async ({ supabase, params, apiKeyId, teamMemberId, access, scopes }) => {
   const { id, entryId } = params as any;
 
   const { data: before } = await supabase
@@ -110,6 +134,12 @@ export const DELETE = withApi(async ({ supabase, params, apiKeyId, teamMemberId 
     .maybeSingle();
 
   if (!before) throw notFound('Time entry');
+  if (!apiKeyAllows(access, scopes, 'time.manage_all') && before.member_id !== teamMemberId) {
+    throw notFound('Time entry');
+  }
+  if (!apiKeyAllows(access, scopes, 'time.manage_all') && before.approval_status === 'approved') {
+    throw badRequest('Approved time cannot be deleted');
+  }
 
   const { error } = await supabase
     .from('project_time_entries')
@@ -131,4 +161,4 @@ export const DELETE = withApi(async ({ supabase, params, apiKeyId, teamMemberId 
   });
 
   return success({ deleted: true });
-});
+}, { permission: ['time.manage_own', 'time.manage_all'] });

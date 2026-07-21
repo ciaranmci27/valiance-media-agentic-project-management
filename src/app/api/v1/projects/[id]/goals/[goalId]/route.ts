@@ -45,6 +45,7 @@ export const PATCH = withApi<any, { id: string; goalId: string }>(async ({ supab
     .from('project_goals')
     .select('*')
     .eq('id', params.goalId)
+    .eq('project_id', params.id)
     .maybeSingle();
   if (!before) throw notFound('Goal');
 
@@ -73,6 +74,7 @@ export const DELETE = withApi<unknown, { id: string; goalId: string }>(async ({ 
     .from('project_goals')
     .select('*')
     .eq('id', params.goalId)
+    .eq('project_id', params.id)
     .maybeSingle();
   if (!before) throw notFound('Goal');
 

@@ -29,7 +29,6 @@ export const approveSuggestionSchema = z.object({
   priority: z.enum(['low', 'medium', 'high', 'urgent']).optional(),
   assigned_to: z.string().uuid().nullable().optional(),
   due_date: z.string().nullable().optional(),
-  project_id: z.string().uuid().optional(),
   task_type: taskTypeEnum.nullable().optional(),
   ai_managed: z.boolean().optional(),
 });

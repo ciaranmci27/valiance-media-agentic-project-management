@@ -103,12 +103,10 @@ export async function patchProject(
   // Remove fields that aren't DB columns
   delete dbUpdates.project_members;
 
-  const { data, error } = await supabase
-    .from('projects')
-    .update(dbUpdates)
-    .eq('id', id)
-    .select()
-    .single();
+  const projectQuery = Object.keys(dbUpdates).length > 0
+    ? supabase.from('projects').update(dbUpdates).eq('id', id).select().single()
+    : supabase.from('projects').select('*').eq('id', id).single();
+  const { data, error } = await projectQuery;
 
   if (error) throw error;
 
@@ -122,7 +120,17 @@ export async function patchProject(
     }
   }
 
-  return { ...data, member_ids: memberIds ?? [] } as Project;
+  let resolvedMemberIds = memberIds;
+  if (resolvedMemberIds === undefined) {
+    const { data: memberships, error: membershipError } = await supabase
+      .from('project_members')
+      .select('member_id')
+      .eq('project_id', id);
+    if (membershipError) throw membershipError;
+    resolvedMemberIds = (memberships || []).map((membership: { member_id: string }) => membership.member_id);
+  }
+
+  return { ...data, member_ids: resolvedMemberIds } as Project;
 }
 
 export async function removeProject(supabase: SupabaseClient, id: string) {
@@ -999,7 +1007,7 @@ export async function convertLead(
   // Two follow-up reads; the contact comes embedded in the primary
   // project_contact and the lead's final state is fully known locally.
   const [projectRes, pcRes] = await Promise.all([
-    supabase.from('projects').select('*').eq('id', projectId).single(),
+    supabase.from('projects').select('id, name, description, color, status, start_date, due_date, hourly_tracking, time_tracking_enabled, created_by, created_at, updated_at, archived_at').eq('id', projectId).single(),
     supabase.from('project_contacts').select('*, contact:contacts(*)').eq('project_id', projectId),
   ]);
 
@@ -1014,7 +1022,19 @@ export async function convertLead(
 
   return {
     contact: (projectContact as ProjectContact & { contact: Contact }).contact,
-    project: { ...projectRes.data, member_ids: leadMemberIds } as Project,
+    project: {
+      ...projectRes.data,
+      hourly_rate: null,
+      client_time_billing: 'included',
+      budget_type: null,
+      budget_value: null,
+      autonomous_enabled: false,
+      deployment_policy: 'production',
+      max_concurrent_tasks: 0,
+      suggestions_per_cycle: 0,
+      repo_path: null,
+      member_ids: leadMemberIds,
+    } as Project,
     projectContact,
     additionalProjectContacts,
     lead: { ...lead, status: 'won', contact_id: contactId, member_ids: leadMemberIds } as Lead,
@@ -1353,7 +1373,7 @@ export async function updateEntityFileVisibility(supabase: SupabaseClient, id: s
 export async function fetchApiKeys(supabase: SupabaseClient) {
   const { data, error } = await supabase
     .from('api_keys')
-    .select('id, name, key_prefix, permissions, last_used_at, revoked_at, created_by, team_member_id, created_at, updated_at')
+    .select('id, name, key_prefix, permissions, scopes, expires_at, disabled_at, last_used_at, revoked_at, created_by, team_member_id, created_at, updated_at')
     .order('created_at', { ascending: false });
 
   if (error) throw error;
@@ -1362,7 +1382,7 @@ export async function fetchApiKeys(supabase: SupabaseClient) {
 
 export async function insertApiKey(
   supabase: SupabaseClient,
-  apiKey: { name: string; key_prefix: string; key_hash: string; created_by: string | null; permissions?: string; team_member_id?: string | null }
+  apiKey: { name: string; key_prefix: string; key_hash: string; created_by: string | null; permissions?: string; scopes: string[]; team_member_id?: string | null }
 ) {
   const { data, error } = await supabase
     .from('api_keys')
@@ -1372,9 +1392,10 @@ export async function insertApiKey(
       key_hash: apiKey.key_hash,
       created_by: apiKey.created_by,
       permissions: apiKey.permissions || 'full',
+      scopes: apiKey.scopes,
       team_member_id: apiKey.team_member_id || null,
     })
-    .select('id, name, key_prefix, permissions, last_used_at, revoked_at, created_by, team_member_id, created_at, updated_at')
+    .select('id, name, key_prefix, permissions, scopes, expires_at, disabled_at, last_used_at, revoked_at, created_by, team_member_id, created_at, updated_at')
     .single();
 
   if (error) throw error;

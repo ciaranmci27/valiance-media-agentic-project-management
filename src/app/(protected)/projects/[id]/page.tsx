@@ -32,12 +32,23 @@ import {
 import { Task, ViewMode, TeamMember } from '@/lib/types';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Tooltip } from '@/components/ui/Tooltip';
-import { siteConfig } from '@/site-config';
+import { useAuth } from '@/lib/auth-context';
+import { hasPermission } from '@/lib/access-control';
 
 export default function ProjectDetailPage() {
   const params = useParams();
   const router = useRouter();
   const projectId = params.id as string;
+  const { access } = useAuth();
+  const canManageProject = hasPermission(access, 'projects.manage');
+  const canCreateTasks = hasPermission(access, 'tasks.create');
+  const canReadContacts = hasPermission(access, 'contacts.read') || hasPermission(access, 'contacts.read_all');
+  const canReadFiles = hasPermission(access, 'files.read');
+  const canReadPortal = hasPermission(access, 'portal.read') || hasPermission(access, 'portal.manage');
+  const canReadCommunications = hasPermission(access, 'communications.read') || hasPermission(access, 'communications.manage');
+  const canReadCredentials = hasPermission(access, 'credentials.reveal_shared') || hasPermission(access, 'credentials.manage');
+  const canReadInvoices = hasPermission(access, 'invoices.read') || hasPermission(access, 'invoices.manage');
+  const canReadTime = hasPermission(access, 'time.manage_own') || hasPermission(access, 'time.read_all') || hasPermission(access, 'time.manage_all');
 
   const {
     getProject, getTasksByProject, getTeamMember,
@@ -262,7 +273,7 @@ export default function ProjectDetailPage() {
             )}
           </div>
         }
-        actions={
+        actions={canManageProject ?
           <Button
             variant="secondary"
             icon={<Edit size={16} />}
@@ -270,7 +281,7 @@ export default function ProjectDetailPage() {
           >
             <span className="hidden sm:inline">Edit</span>
           </Button>
-        }
+        : undefined}
       />
 
       {/* Overview Card */}
@@ -467,13 +478,13 @@ export default function ProjectDetailPage() {
               </div>
             )}
 
-            <Button
+            {canCreateTasks && <Button
               onClick={() => setIsTaskFormOpen(true)}
               icon={<Plus size={16} />}
               className="whitespace-nowrap"
             >
               <span className="hidden sm:inline">Add Task</span>
-            </Button>
+            </Button>}
           </div>
         </div>
 
@@ -523,20 +534,20 @@ export default function ProjectDetailPage() {
 
       {/* Management sections: 2-column grid when time tracking enabled */}
       <div className="px-4 lg:px-6 pb-4 lg:pb-6">
-        <div className={`grid grid-cols-1 ${project.hourly_tracking ? 'lg:grid-cols-2' : ''} gap-6 items-stretch`}>
-          {project.hourly_tracking && (
+        <div className={`grid grid-cols-1 ${(project.time_tracking_enabled ?? project.hourly_tracking) && canReadTime ? 'lg:grid-cols-2' : ''} gap-6 items-stretch`}>
+          {(project.time_tracking_enabled ?? project.hourly_tracking) && canReadTime && (
             <TimeTrackingPanel projectId={projectId} projectColor={project.color} />
           )}
 
-          <FileAttachments entityType="project" entityId={projectId} />
+          {canReadFiles && <FileAttachments entityType="project" entityId={projectId} />}
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch mt-6">
+        {canReadPortal && <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch mt-6">
           <PortalSettingsPanel projectId={projectId} />
           <PortalUpdatesPanel projectId={projectId} />
-        </div>
+        </div>}
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch mt-6">
+        {canReadCommunications && <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch mt-6">
           <ClientCommunicationsPanel
             projectId={projectId}
             onSent={() => setCommsRefreshKey(k => k + 1)}
@@ -545,23 +556,23 @@ export default function ProjectDetailPage() {
             projectId={projectId}
             refreshSignal={commsRefreshKey}
           />
-        </div>
+        </div>}
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch mt-6">
-          <CredentialsPanel projectId={projectId} />
-          <InvoicesPanel projectId={projectId} projectColor={project.color} />
-        </div>
+        {(canReadCredentials || canReadInvoices) && <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch mt-6">
+          {canReadCredentials && <CredentialsPanel projectId={projectId} />}
+          {canReadInvoices && <InvoicesPanel projectId={projectId} projectColor={project.color} />}
+        </div>}
 
       </div>
 
       {/* Delete Project */}
-      <div className="px-4 lg:px-6 pb-6">
+      {canManageProject && <div className="px-4 lg:px-6 pb-6">
         <div className="flex justify-end">
           <Button variant="danger" onClick={handleDeleteProject} icon={<Trash2 size={16} />}>
             Delete Project
           </Button>
         </div>
-      </div>
+      </div>}
 
       {/* Edit Project Modal */}
       <ProjectForm
@@ -579,11 +590,11 @@ export default function ProjectDetailPage() {
       />
 
       {/* Contacts Panel Modal */}
-      <ProjectContactsPanel
+      {canReadContacts && <ProjectContactsPanel
         isOpen={isContactsPanelOpen}
         onClose={() => setIsContactsPanelOpen(false)}
         projectId={projectId}
-      />
+      />}
 
       {/* Task Detail Panel */}
       <TaskDetailPanel

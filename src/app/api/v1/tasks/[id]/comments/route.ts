@@ -27,8 +27,8 @@ export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMembe
   const { data: task } = await supabase.from('tasks').select('id').eq('id', id).maybeSingle();
   if (!task) throw notFound('Task');
 
-  const { user_id, text } = body as any;
-  const comment = await insertComment(supabase, id, user_id, text);
+  const { text } = body as any;
+  const comment = await insertComment(supabase, id, teamMemberId, text);
   logAudit(supabase, { method: 'POST', endpoint: `/api/v1/tasks/${id}/comments`, entityType: 'comment', entityId: comment.id, apiKeyId, teamMemberId, requestBody: body, afterSnapshot: comment, statusCode: 201 });
   return created(comment);
 }, { schema: createCommentSchema });

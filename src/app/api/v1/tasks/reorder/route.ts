@@ -1,25 +1,30 @@
 import { z } from 'zod';
 import { withApi } from '@/lib/api/middleware';
 import { success } from '@/lib/api/response';
-import { notFound } from '@/lib/api/errors';
+import { forbidden, notFound } from '@/lib/api/errors';
 import { logAudit } from '@/lib/api/audit';
+import { accessAllows, accessAllowsProject } from '@/lib/api/access';
 
 const reorderSchema = z.object({
   task_id: z.string().uuid(),
   new_sort_order: z.number().int().min(0),
 });
 
-export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId }) => {
+export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId, access, scopes }) => {
   const { task_id, new_sort_order } = body as z.infer<typeof reorderSchema>;
 
   // Fetch the task to get project_id and status
   const { data: task } = await supabase
     .from('tasks')
-    .select('id, project_id, status, sort_order')
+    .select('id, project_id, status, sort_order, task_assignees(member_id)')
     .eq('id', task_id)
     .maybeSingle();
 
   if (!task) throw notFound('Task');
+  if (!accessAllowsProject(access, task.project_id, 'api')) throw forbidden('Project scope denied');
+  const canManageAll = scopes.includes('tasks.manage_all') && accessAllows(access, 'tasks.manage_all', 'api');
+  const assigned = (task.task_assignees || []).some((row: { member_id: string }) => row.member_id === teamMemberId);
+  if (!canManageAll && !assigned) throw forbidden('This API key can only reorder assigned tasks');
 
   const oldOrder = task.sort_order;
 
@@ -71,4 +76,4 @@ export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId }) =
   });
 
   return success({ task_id, sort_order: finalOrder });
-}, { schema: reorderSchema });
+}, { schema: reorderSchema, permission: 'tasks.manage_all' });

@@ -1,7 +1,8 @@
 import { withApi } from '@/lib/api/middleware';
 import { paginated, created } from '@/lib/api/response';
 import { createEntityFileSchema } from '@/lib/schemas';
-import { badRequest } from '@/lib/api/errors';
+import { badRequest, forbidden } from '@/lib/api/errors';
+import { accessAllowsEntity } from '@/lib/api/access';
 import { logAudit } from '@/lib/api/audit';
 import { parsePagination } from '@/lib/api/pagination';
 import { z } from 'zod';
@@ -11,10 +12,9 @@ const ENTITY_TYPES = ['lead', 'project', 'contact'] as const;
 const postSchema = createEntityFileSchema.extend({
   entity_type: z.enum(ENTITY_TYPES),
   entity_id: z.string().uuid('Invalid entity ID'),
-  uploaded_by: z.string().uuid('Invalid member ID').nullable().default(null),
 });
 
-export const GET = withApi(async ({ supabase, searchParams }) => {
+export const GET = withApi(async ({ supabase, searchParams, access, teamMemberId }) => {
   const { page, limit, offset } = parsePagination(searchParams);
 
   const entityType = searchParams.get('entity_type');
@@ -25,12 +25,15 @@ export const GET = withApi(async ({ supabase, searchParams }) => {
     throw badRequest('entity_type and entity_id query parameters are required');
   }
 
-  if (!ENTITY_TYPES.includes(entityType as any)) {
+  if (!ENTITY_TYPES.some((type) => type === entityType)) {
     throw badRequest(`entity_type must be one of: ${ENTITY_TYPES.join(', ')}`);
   }
 
   if (visibility && visibility !== 'internal' && visibility !== 'external') {
     throw badRequest('visibility must be one of: internal, external');
+  }
+  if (!await accessAllowsEntity(supabase, access, teamMemberId, entityType, entityId, 'api')) {
+    throw forbidden('Entity scope denied');
   }
 
   let query = supabase
@@ -51,8 +54,11 @@ export const GET = withApi(async ({ supabase, searchParams }) => {
   return paginated(data || [], { page, limit, total: count || 0 });
 });
 
-export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId }) => {
+export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId, access }) => {
   const entry = body as z.infer<typeof postSchema>;
+  if (!await accessAllowsEntity(supabase, access, teamMemberId, entry.entity_type, entry.entity_id, 'api')) {
+    throw forbidden('Entity scope denied');
+  }
 
   const { data, error } = await supabase
     .from('entity_files')
@@ -64,7 +70,7 @@ export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId }) =
       file_size: entry.file_size,
       mime_type: entry.mime_type,
       visibility: entry.visibility || 'internal',
-      uploaded_by: entry.uploaded_by,
+      uploaded_by: teamMemberId,
     })
     .select()
     .single();

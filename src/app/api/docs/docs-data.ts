@@ -8,6 +8,52 @@ export interface EndpointDoc {
   body?: { name: string; type: string; required: boolean; description: string }[];
 }
 
+export function getEndpointScopes(endpoint: EndpointDoc): string[] {
+  const { method, path } = endpoint;
+  const write = method !== 'GET' && method !== 'HEAD';
+
+  if (path.includes('/client-notifications')) return ['communications.manage'];
+  if (path.includes('/communications')) return [write ? 'communications.manage' : 'communications.read'];
+  if (path.endsWith('/time-entries/review')) return ['time.approve'];
+  if (path.includes('/hourly-rates')) return ['billing.manage'];
+  if (path.includes('/invoices')) return write ? ['invoices.manage'] : ['invoices.read', 'invoices.manage'];
+  if (path === '/api/v1/agent-activities') {
+    return [write ? 'agent_activity.write' : 'audit.read'];
+  }
+  if (path.includes('/task-suggestions')) {
+    if (method === 'POST' && path === '/api/v1/task-suggestions') return ['suggestions.create'];
+    if (method === 'GET' || method === 'PATCH') return ['suggestions.create', 'suggestions.manage'];
+    return ['suggestions.manage'];
+  }
+  if (path.includes('/credentials')) {
+    return path.endsWith('/reveal') || !write
+      ? ['credentials.reveal_shared', 'credentials.manage']
+      : ['credentials.manage'];
+  }
+  if (path.includes('/notifications')) return ['notifications.manage_own'];
+  if (path.includes('/time-entries')) {
+    return write
+      ? ['time.manage_own', 'time.manage_all']
+      : ['time.manage_own', 'time.read_all', 'time.manage_all'];
+  }
+  if (path.includes('/tasks')) {
+    if (!write) return ['tasks.read', 'tasks.manage_all'];
+    if (path === '/api/v1/tasks' && method === 'POST') return ['tasks.create'];
+    if (/\/api\/v1\/tasks\/:id$/.test(path) && method === 'DELETE') return ['tasks.manage_all'];
+    if (path.includes('/comments')) return ['tasks.read', 'tasks.manage_all'];
+    return ['tasks.manage_assigned', 'tasks.manage_all'];
+  }
+  if (path.includes('/leads')) return write ? ['leads.manage'] : ['leads.read', 'leads.read_all', 'leads.manage'];
+  if (path.includes('/contacts')) return write ? ['contacts.manage'] : ['contacts.read', 'contacts.read_all', 'contacts.manage'];
+  if (path.includes('/entity-files')) return method === 'POST' ? ['files.upload'] : write ? ['files.manage'] : ['files.read', 'files.manage'];
+  if (path.includes('/portal')) return write ? ['portal.manage'] : ['portal.read', 'portal.manage'];
+  if (path.includes('/context')) return write ? ['project_context.manage'] : ['project_context.read', 'project_context.manage'];
+  if (path.includes('/goals')) return write ? ['goals.manage'] : ['goals.read', 'goals.manage'];
+  if (path.includes('/audit-log') || path.includes('/activities')) return ['audit.read'];
+  if (path.includes('/team-members')) return write ? ['team.manage'] : ['team.read', 'team.manage'];
+  return write ? ['projects.manage'] : ['projects.read', 'projects.read_all', 'projects.manage'];
+}
+
 export const endpoints: EndpointDoc[] = [
   // ─── Contacts ─────────────────────────────────────────────────────
   { method: 'GET', path: '/api/v1/contacts', description: 'List all contacts with optional search and sorting. Returns paginated results.', group: 'Contacts',
@@ -62,9 +108,8 @@ export const endpoints: EndpointDoc[] = [
       { name: 'name', type: 'string', required: true, description: 'Display name' },
       { name: 'email', type: 'string', required: true, description: 'Email address (must be valid format)' },
       { name: 'avatar', type: 'string', required: false, description: 'Avatar image URL (defaults to empty string)' },
-      { name: 'role', type: 'admin|member|guest|agent', required: false, description: 'Role (default member). Use "agent" for AI agent accounts.' },
+      { name: 'role', type: 'owner|admin|member|guest|agent', required: false, description: 'Role (default member). Only an Owner can create an Owner or Admin.' },
       { name: 'timezone', type: 'string', required: false, description: 'IANA timezone e.g. America/New_York (default UTC). Used for time entry timezone defaults.' },
-      { name: 'auth_user_id', type: 'uuid|null', required: false, description: 'Supabase Auth user ID to link this member to a login account' },
       { name: 'email_notifications_enabled', type: 'boolean', required: false, description: 'Enable email notifications for this member (default: false)' },
       { name: 'email_notification_prefs', type: 'object', required: false, description: 'Email notification preferences. JSON object mapping category keys to booleans (default: all disabled).' },
     ],
@@ -78,14 +123,15 @@ export const endpoints: EndpointDoc[] = [
       { name: 'name', type: 'string', required: false, description: 'Display name' },
       { name: 'email', type: 'string', required: false, description: 'Email address' },
       { name: 'avatar', type: 'string', required: false, description: 'Avatar URL' },
-      { name: 'role', type: 'admin|member|guest|agent', required: false, description: 'Role' },
+      { name: 'role', type: 'owner|admin|member|guest|agent', required: false, description: 'Role. Only an Owner can change roles; the existing Owner role is immutable.' },
+      { name: 'status', type: 'active|suspended', required: false, description: 'Account status. The Owner account cannot be suspended.' },
       { name: 'timezone', type: 'string', required: false, description: 'IANA timezone (e.g. America/New_York). Used for displaying times and as default timezone for API time entries.' },
       { name: 'notification_prefs', type: 'object', required: false, description: 'In-app notification preferences. JSON object mapping category keys to booleans (default: all enabled). Categories: task_created, task_deleted, task_status, task_assignments, task_updates, task_subtasks, task_comments, project_created, project_deleted, project_updates, project_contacts, portal_updates, portal_settings, time_entries, entity_files, lead_created, lead_deleted, lead_status, lead_updates, lead_interactions, lead_proposals, lead_contacts, lead_conversions, contact_created, contact_deleted, contact_updates, team_members, api_keys, agent_suggestions, agent_activity, agent_goals, agent_autonomous' },
       { name: 'email_notifications_enabled', type: 'boolean', required: false, description: 'Master toggle for email notifications. Must be true for any email notifications to send. Default: false.' },
       { name: 'email_notification_prefs', type: 'object', required: false, description: 'Email notification preferences. JSON object mapping category keys to booleans (default: all disabled). Same categories as notification_prefs. Set a category to true to receive email notifications for it.' },
     ],
   },
-  { method: 'DELETE', path: '/api/v1/team-members/:id', description: 'Permanently delete a team member. Cascades to API keys, assignments, and notifications.', group: 'Team Members',
+  { method: 'DELETE', path: '/api/v1/team-members/:id', description: 'Owner-only permanent deletion. This is irreversible and applies the database foreign-key behavior to related keys, assignments, notifications, and work records. Prefer suspension when history should remain untouched. The Owner cannot be deleted.', group: 'Team Members',
     params: [{ name: 'id', type: 'uuid', required: true, description: 'Team member ID' }],
   },
 
@@ -122,6 +168,8 @@ export const endpoints: EndpointDoc[] = [
       { name: 'start_date', type: 'string|null', required: false, description: 'Start date (ISO date string or null)' },
       { name: 'due_date', type: 'string|null', required: false, description: 'Due date (ISO date string or null)' },
       { name: 'hourly_tracking', type: 'boolean', required: false, description: 'Enable hourly time tracking (default false). Must be true to use /time-entries.' },
+      { name: 'time_tracking_enabled', type: 'boolean', required: false, description: 'Enable time tracking for hourly, fixed, or recurring work (default false)' },
+      { name: 'client_time_billing', type: 'hourly|included', required: false, description: 'Whether tracked client work is billable by the hour or included in fixed/recurring revenue. Requires billing.manage.' },
       { name: 'autonomous_enabled', type: 'boolean', required: false, description: 'Enable autonomous agent features (default false)' },
       { name: 'deployment_policy', type: 'playground|production', required: false, description: 'Deployment policy when autonomous is enabled (default production)' },
       { name: 'max_concurrent_tasks', type: 'number', required: false, description: 'Max tasks an agent may work on simultaneously (default 2). Requires agents enabled.' },
@@ -145,6 +193,8 @@ export const endpoints: EndpointDoc[] = [
       { name: 'start_date', type: 'string|null', required: false, description: 'Start date (ISO date string or null)' },
       { name: 'due_date', type: 'string|null', required: false, description: 'Due date (ISO date string or null)' },
       { name: 'hourly_tracking', type: 'boolean', required: false, description: 'Enable/disable hourly time tracking' },
+      { name: 'time_tracking_enabled', type: 'boolean', required: false, description: 'Enable/disable time tracking independently of billing model' },
+      { name: 'client_time_billing', type: 'hourly|included', required: false, description: 'Set client work billing treatment. Requires billing.manage.' },
       { name: 'autonomous_enabled', type: 'boolean', required: false, description: 'Enable/disable autonomous agents' },
       { name: 'deployment_policy', type: 'playground|production', required: false, description: 'Deployment policy: playground or production' },
       { name: 'max_concurrent_tasks', type: 'number', required: false, description: 'Max tasks an agent may work on simultaneously' },
@@ -283,7 +333,7 @@ export const endpoints: EndpointDoc[] = [
   },
 
   // ─── Credentials ───────────────────────────────────────────────────
-  { method: 'GET', path: '/api/v1/projects/:id/credentials', description: 'List credentials stored for a project. Returns metadata only — encrypted fields (username, password, URL, notes) are never included. Use the /reveal endpoint to decrypt. Paginated.', group: 'Credentials',
+  { method: 'GET', path: '/api/v1/projects/:id/credentials', description: 'List credential metadata. credentials.manage sees all credentials in the accessible project; credentials.reveal_shared sees only credentials explicitly shared with the linked member. Secret fields are never included. Paginated.', group: 'Credentials',
     params: [{ name: 'id', type: 'uuid', required: true, description: 'Project ID' }],
     queryParams: [
       { name: 'page', type: 'number', description: 'Page number (default 1)' },
@@ -302,7 +352,7 @@ export const endpoints: EndpointDoc[] = [
       { name: 'notes', type: 'string', required: false, description: 'Additional notes (encrypted at rest)' },
     ],
   },
-  { method: 'GET', path: '/api/v1/projects/:id/credentials/:credentialId', description: 'Get credential metadata by ID. Returns label, category, timestamps, and submission info — but NOT the encrypted secret fields. Use /reveal to decrypt.', group: 'Credentials',
+  { method: 'GET', path: '/api/v1/projects/:id/credentials/:credentialId', description: 'Get metadata for a managed credential or one explicitly shared with the linked member. Secret fields are not returned; use /reveal.', group: 'Credentials',
     params: [
       { name: 'id', type: 'uuid', required: true, description: 'Project ID' },
       { name: 'credentialId', type: 'uuid', required: true, description: 'Credential ID' },
@@ -329,7 +379,7 @@ export const endpoints: EndpointDoc[] = [
       { name: 'credentialId', type: 'uuid', required: true, description: 'Credential ID' },
     ],
   },
-  { method: 'GET', path: '/api/v1/projects/:id/credentials/:credentialId/reveal', description: 'Decrypt and return the full credential payload as a string-to-string map of category-specific fields. This action is audit-logged separately as a "credential_reveal" event for security tracking. Requires encryption to be configured.', group: 'Credentials',
+  { method: 'GET', path: '/api/v1/projects/:id/credentials/:credentialId/reveal', description: 'Decrypt a managed credential or one explicitly shared with the linked member. Returns a string-to-string field map and creates a dedicated credential_reveal audit event. Requires encryption to be configured.', group: 'Credentials',
     params: [
       { name: 'id', type: 'uuid', required: true, description: 'Project ID' },
       { name: 'credentialId', type: 'uuid', required: true, description: 'Credential ID' },
@@ -337,8 +387,8 @@ export const endpoints: EndpointDoc[] = [
   },
 
   // ─── Time Entries ─────────────────────────────────────────────────
-  { method: 'GET', path: '/api/v1/projects/:id/time-entries', description: 'List human work hour entries for a project. Use this for billing queries. Filter by member or running status. Paginated.', group: 'Time Entries',
-    params: [{ name: 'id', type: 'uuid', required: true, description: 'Project ID (must have hourly_tracking enabled)' }],
+  { method: 'GET', path: '/api/v1/projects/:id/time-entries', description: 'List human work sessions for a project. Own-time keys see only their linked member; time.read_all or time.manage_all can see other members. Billing and compensation snapshots are removed unless the caller also has the corresponding finance permission. Paginated.', group: 'Time Entries',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'Project ID with time tracking enabled' }],
     queryParams: [
       { name: 'page', type: 'number', description: 'Page number (default 1)' },
       { name: 'limit', type: 'number', description: 'Items per page (default 25, max 100)' },
@@ -347,12 +397,13 @@ export const endpoints: EndpointDoc[] = [
     ],
   },
   { method: 'POST', path: '/api/v1/projects/:id/time-entries', description: 'Track human work hours for billing. Two modes: (1) Manual entry — provide member_id + start_time + end_time. (2) Live timer — provide only member_id (optionally description) to start a timer at the current time. This is for HUMAN time tracking, not agent activity. Bare timestamps without Z or offset are interpreted in the given timezone, or the API key owner\'s timezone preference, or UTC.', group: 'Time Entries',
-    params: [{ name: 'id', type: 'uuid', required: true, description: 'Project ID (must have hourly_tracking enabled)' }],
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'Project ID with time tracking enabled' }],
     body: [
-      { name: 'member_id', type: 'uuid', required: true, description: 'Team member ID' },
+      { name: 'member_id', type: 'uuid', required: true, description: 'Target member. Without time.manage_all this must be the member linked to the API key.' },
       { name: 'start_time', type: 'string', required: false, description: 'ISO datetime. Required for manual entries. Omit entirely to start a live timer.' },
       { name: 'end_time', type: 'string', required: false, description: 'ISO datetime. Required for manual entries. Omit entirely to start a live timer.' },
       { name: 'description', type: 'string', required: false, description: 'What was worked on' },
+      { name: 'work_type', type: 'client|internal', required: false, description: 'Client work may feed hourly invoicing; internal work never does (default client)' },
       { name: 'timezone', type: 'string', required: false, description: 'IANA timezone (e.g. America/Phoenix). Only applies to manual entries. Bare timestamps are interpreted in this timezone. Falls back to the API key owner\'s timezone preference if omitted.' },
     ],
   },
@@ -373,6 +424,7 @@ export const endpoints: EndpointDoc[] = [
       { name: 'end_time', type: 'string|null', required: false, description: 'ISO datetime, or null to re-open as a running timer' },
       { name: 'segments', type: 'array', required: false, description: 'Worked intervals: [{start: ISO, end: ISO | null}]. Advanced: direct segment rewrites bypass pause/resume invariants, so ensure end_time stays consistent with the last segment.' },
       { name: 'description', type: 'string', required: false, description: 'What was worked on' },
+      { name: 'work_type', type: 'client|internal', required: false, description: 'Change billing treatment. Cannot change after any part of the session is invoiced.' },
     ],
   },
   { method: 'DELETE', path: '/api/v1/projects/:id/time-entries/:entryId', description: 'Permanently delete a time entry', group: 'Time Entries',
@@ -857,7 +909,6 @@ export const endpoints: EndpointDoc[] = [
       { name: 'priority', type: 'low|medium|high|urgent', required: false, description: 'Override the suggested priority' },
       { name: 'assigned_to', type: 'uuid|null', required: false, description: 'Override the suggested assignee' },
       { name: 'due_date', type: 'string|null', required: false, description: 'Set a due date on the created task' },
-      { name: 'project_id', type: 'uuid', required: false, description: 'Override the project (move to a different project)' },
       { name: 'task_type', type: 'string', required: false, description: 'Set the task type on the created task' },
       { name: 'ai_managed', type: 'boolean', required: false, description: 'Set to false to approve as a manual (human-managed) task. Defaults to true (AI-managed).' },
     ],
@@ -939,7 +990,6 @@ export const endpoints: EndpointDoc[] = [
       { name: 'file_size', type: 'number', required: false, description: 'File size in bytes (default 0)' },
       { name: 'mime_type', type: 'string', required: false, description: 'MIME type (default application/octet-stream)' },
       { name: 'visibility', type: 'internal|external', required: false, description: 'File visibility (default internal). Files with external visibility are shown on the client portal.' },
-      { name: 'uploaded_by', type: 'uuid|null', required: false, description: 'Team member ID of uploader' },
     ],
   },
   { method: 'GET', path: '/api/v1/entity-files/:fileId', description: 'Get a single file attachment by ID', group: 'Entity Files',
@@ -957,6 +1007,121 @@ export const endpoints: EndpointDoc[] = [
   },
 
   // ─── Notifications ────────────────────────────────────────────────
+  { method: 'POST', path: '/api/v1/projects/:id/time-entries/review', description: 'Approve or reject pending completed time entries in one project. Reviewers cannot approve their own time. Employee approvals fail if no compensation rate was effective when the session began.', group: 'Time Entries',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'Project ID' }],
+    body: [
+      { name: 'entry_ids', type: 'uuid[]', required: true, description: 'One or more time entry IDs from this project' },
+      { name: 'decision', type: 'approved|rejected', required: true, description: 'Review decision' },
+      { name: 'reason', type: 'string|null', required: false, description: 'Rejection reason, up to 2,000 characters' },
+    ],
+  },
+
+  { method: 'GET', path: '/api/v1/projects/:id/hourly-rates', description: 'List the complete hourly-rate schedule for an accessible project, newest effective date first. Time sessions snapshot the rate effective at their start time.', group: 'Billing Rates',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'Project ID' }],
+  },
+  { method: 'POST', path: '/api/v1/projects/:id/hourly-rates', description: 'Schedule an hourly rate. Existing time sessions keep their stored rate. A project cannot have two rates with the same effective timestamp.', group: 'Billing Rates',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'Project ID' }],
+    body: [
+      { name: 'hourly_rate', type: 'number', required: true, description: 'Non-negative hourly billing rate' },
+      { name: 'effective_at', type: 'ISO 8601 timestamp', required: true, description: 'Timestamp with timezone offset at which this rate begins' },
+    ],
+  },
+  { method: 'DELETE', path: '/api/v1/projects/:id/hourly-rates/:rateId', description: 'Remove one scheduled rate. At least one rate must remain. Existing sessions are not recalculated because each session stores its own rate snapshot.', group: 'Billing Rates',
+    params: [
+      { name: 'id', type: 'uuid', required: true, description: 'Project ID' },
+      { name: 'rateId', type: 'uuid', required: true, description: 'Scheduled rate ID' },
+    ],
+  },
+
+  { method: 'GET', path: '/api/v1/projects/:id/invoices', description: 'List invoices for an accessible project with their exact hourly time-session allocations. Paginated.', group: 'Invoices',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'Project ID' }],
+    queryParams: [
+      { name: 'status', type: 'draft|sent|paid|overdue|cancelled', description: 'Filter by invoice status' },
+      { name: 'page', type: 'number', description: 'Page number (default 1)' },
+      { name: 'limit', type: 'number', description: 'Items per page (default 25, max 100)' },
+    ],
+  },
+  { method: 'POST', path: '/api/v1/projects/:id/invoices', description: 'Create an invoice and its time allocations atomically. The amount must equal the line-item total. Hourly allocations must reference finalized sessions in this project and reconcile to their stored rates.', group: 'Invoices',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'Project ID' }],
+    body: [
+      { name: 'invoice_number', type: 'string', required: true, description: 'Invoice number' },
+      { name: 'amount', type: 'number', required: true, description: 'Total; must equal the sum of line_items[].amount to the cent' },
+      { name: 'status', type: 'draft|sent|paid|overdue|cancelled', required: false, description: 'Initial status (default draft)' },
+      { name: 'invoice_type', type: 'hourly|fixed|recurring', required: false, description: 'Dominant invoice type (default hourly)' },
+      { name: 'line_items', type: 'InvoiceLineItem[]', required: true, description: 'Items with id, position, item_type, amount, description, service dates, and optional recurrence frequency' },
+      { name: 'time_allocations', type: 'TimeAllocation[]', required: false, description: 'Mappings with line_item_id, time_entry_id, start_offset_hours, allocated_hours, and allocated_amount' },
+      { name: 'date', type: 'YYYY-MM-DD', required: true, description: 'Invoice date' },
+      { name: 'due_date', type: 'YYYY-MM-DD|null', required: false, description: 'Due date' },
+      { name: 'paid_date', type: 'YYYY-MM-DD|null', required: false, description: 'Paid date' },
+      { name: 'description', type: 'string', required: false, description: 'Invoice notes' },
+    ],
+  },
+  { method: 'GET', path: '/api/v1/projects/:id/invoices/:invoiceId', description: 'Get one invoice and its persisted time-session allocations.', group: 'Invoices',
+    params: [
+      { name: 'id', type: 'uuid', required: true, description: 'Project ID' },
+      { name: 'invoiceId', type: 'uuid', required: true, description: 'Invoice ID' },
+    ],
+  },
+  { method: 'PATCH', path: '/api/v1/projects/:id/invoices/:invoiceId', description: 'Update an invoice atomically. Omitting time_allocations preserves existing mappings; providing it replaces all mappings after database validation.', group: 'Invoices',
+    params: [
+      { name: 'id', type: 'uuid', required: true, description: 'Project ID' },
+      { name: 'invoiceId', type: 'uuid', required: true, description: 'Invoice ID' },
+    ],
+    body: [
+      { name: 'invoice_number', type: 'string', required: false, description: 'Invoice number' },
+      { name: 'amount', type: 'number', required: false, description: 'Total; must equal the resulting line-item total' },
+      { name: 'status', type: 'draft|sent|paid|overdue|cancelled', required: false, description: 'Invoice status' },
+      { name: 'invoice_type', type: 'hourly|fixed|recurring', required: false, description: 'Dominant invoice type' },
+      { name: 'line_items', type: 'InvoiceLineItem[]', required: false, description: 'Replacement line-item array' },
+      { name: 'time_allocations', type: 'TimeAllocation[]', required: false, description: 'Replacement allocation array; omit to preserve current mappings' },
+      { name: 'date', type: 'YYYY-MM-DD', required: false, description: 'Invoice date' },
+      { name: 'due_date', type: 'YYYY-MM-DD|null', required: false, description: 'Due date' },
+      { name: 'paid_date', type: 'YYYY-MM-DD|null', required: false, description: 'Paid date' },
+      { name: 'description', type: 'string', required: false, description: 'Invoice notes' },
+    ],
+  },
+  { method: 'DELETE', path: '/api/v1/projects/:id/invoices/:invoiceId', description: 'Delete an invoice. Its allocation rows are removed by the database, making the represented time available for future invoicing again.', group: 'Invoices',
+    params: [
+      { name: 'id', type: 'uuid', required: true, description: 'Project ID' },
+      { name: 'invoiceId', type: 'uuid', required: true, description: 'Invoice ID' },
+    ],
+  },
+
+  { method: 'GET', path: '/api/v1/projects/:id/communications', description: 'List client communication history for an accessible project, including queued, approved, dismissed, sent, and failed records. Paginated.', group: 'Client Communications',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'Project ID' }],
+    queryParams: [
+      { name: 'status', type: 'string', description: 'Filter by communication status; omit or use all for every status' },
+      { name: 'page', type: 'number', description: 'Page number (default 1)' },
+      { name: 'limit', type: 'number', description: 'Items per page (default 25, max 100)' },
+    ],
+  },
+  { method: 'POST', path: '/api/v1/projects/:id/communications', description: 'Preview or send one of the supported client communication templates. Preview returns rendered recipients, subject, HTML, and text without sending. Send performs a real outbound email and records the communication.', group: 'Client Communications',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'Project ID' }],
+    body: [
+      { name: 'action', type: 'preview|send', required: true, description: 'Whether to render only or send the email' },
+      { name: 'type', type: 'ClientCommType', required: true, description: 'Supported communication template type' },
+      { name: 'slot_overrides', type: 'object', required: false, description: 'Template slot values to override' },
+      { name: 'context', type: 'object', required: false, description: 'Optional threshold, milestone, and budget values used by automated templates' },
+      { name: 'recipients', type: 'object', required: false, description: 'Optional { to, cc, bcc } email arrays' },
+    ],
+  },
+  { method: 'PATCH', path: '/api/v1/projects/:id/communications/:communicationId', description: 'Approve and send a queued communication, or dismiss it. The communication must belong to the project in the path.', group: 'Client Communications',
+    params: [
+      { name: 'id', type: 'uuid', required: true, description: 'Project ID' },
+      { name: 'communicationId', type: 'uuid', required: true, description: 'Communication ID' },
+    ],
+    body: [
+      { name: 'action', type: 'approve|dismiss', required: true, description: 'Review action' },
+      { name: 'slot_overrides', type: 'object', required: false, description: 'Final template slot overrides when approving' },
+      { name: 'recipients', type: 'object', required: false, description: 'Optional final { to, cc, bcc } email arrays' },
+    ],
+  },
+
+  { method: 'POST', path: '/api/v1/projects/:id/client-notifications', description: 'Send either the portal welcome email or a current project summary to the project client. This performs a real outbound email send.', group: 'Client Communications',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'Project ID' }],
+    body: [{ name: 'type', type: 'portal_welcome|project_summary', required: true, description: 'Email template to send' }],
+  },
+
   { method: 'GET', path: '/api/v1/notifications', description: 'List notifications for the team member linked to this API key. Requires the API key to be linked to a team member. Paginated.', group: 'Notifications',
     queryParams: [
       { name: 'page', type: 'number', description: 'Page number (default 1)' },

@@ -16,6 +16,14 @@ export const invoiceLineItemSchema = z.object({
   recurrence_frequency: recurrenceFrequencyEnum.nullable().default(null),
 });
 
+export const invoiceTimeAllocationSchema = z.object({
+  line_item_id: z.string().min(1),
+  time_entry_id: z.string().uuid(),
+  start_offset_hours: z.number().min(0).default(0),
+  allocated_hours: z.number().positive(),
+  allocated_amount: z.number().min(0),
+});
+
 export const createInvoiceSchema = z.object({
   invoice_number: z.string().min(1, 'Invoice number is required'),
   amount: z.number().min(0, 'Amount must be positive'),
@@ -26,6 +34,7 @@ export const createInvoiceSchema = z.object({
   due_date: z.string().nullable().default(null),
   paid_date: z.string().nullable().default(null),
   description: z.string().default(''),
+  time_allocations: z.array(invoiceTimeAllocationSchema).default([]),
 });
 
 export const updateInvoiceSchema = z.object({
@@ -38,4 +47,5 @@ export const updateInvoiceSchema = z.object({
   due_date: z.string().nullable().optional(),
   paid_date: z.string().nullable().optional(),
   description: z.string().optional(),
+  time_allocations: z.array(invoiceTimeAllocationSchema).optional(),
 });

@@ -1,16 +1,17 @@
 import { withApi } from '@/lib/api/middleware';
 import { paginated, created } from '@/lib/api/response';
 import { createTimeEntrySchema, startTimerSchema } from '@/lib/schemas';
-import { notFound, badRequest } from '@/lib/api/errors';
+import { notFound, badRequest, forbidden } from '@/lib/api/errors';
 import { logAudit } from '@/lib/api/audit';
 import { parsePagination } from '@/lib/api/pagination';
 import { z } from 'zod';
 import { resolveProjectHourlyRate } from '@/lib/supabase/queries';
+import { apiKeyAllows, sanitizeTimeEntryForAccess } from '@/lib/api/access';
 
 // POST body: either a manual entry (start_time + end_time) or a timer start (no end_time)
 const postSchema = z.union([createTimeEntrySchema, startTimerSchema]);
 
-export const GET = withApi(async ({ supabase, params, searchParams }) => {
+export const GET = withApi(async ({ supabase, params, searchParams, access, teamMemberId, scopes }) => {
   const { id } = params as any;
   const { page, limit, offset } = parsePagination(searchParams);
 
@@ -19,7 +20,10 @@ export const GET = withApi(async ({ supabase, params, searchParams }) => {
   if (!project) throw notFound('Project');
 
   // Optional filters
-  const memberId = searchParams.get('member_id');
+  const requestedMemberId = searchParams.get('member_id');
+  const memberId = apiKeyAllows(access, scopes, 'time.read_all')
+    ? requestedMemberId
+    : teamMemberId;
   const running = searchParams.get('running'); // "true" = only running timers
 
   let query = supabase
@@ -35,8 +39,8 @@ export const GET = withApi(async ({ supabase, params, searchParams }) => {
   const { data, count, error } = await query.range(offset, offset + limit - 1);
   if (error) throw error;
 
-  return paginated(data || [], { page, limit, total: count || 0 });
-});
+  return paginated((data || []).map((entry) => sanitizeTimeEntryForAccess(entry, access, 'api')), { page, limit, total: count || 0 });
+}, { permission: ['time.manage_own', 'time.read_all', 'time.manage_all'] });
 
 /**
  * If a timezone is provided and the timestamp has no offset indicator
@@ -77,14 +81,28 @@ function applyTimezone(timestamp: string, timezone: string): string {
   return utc.toISOString();
 }
 
-export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMemberId }) => {
+export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMemberId, access, scopes }) => {
   const { id } = params as any;
-  const entry = body as z.infer<typeof postSchema>;
+  const requestedEntry = body as z.infer<typeof postSchema>;
+  const entry = {
+    ...requestedEntry,
+    member_id: apiKeyAllows(access, scopes, 'time.manage_all')
+      ? requestedEntry.member_id
+      : teamMemberId,
+  };
 
   // Verify project exists
-  const { data: project } = await supabase.from('projects').select('id, hourly_tracking').eq('id', id).maybeSingle();
+  const { data: project } = await supabase.from('projects').select('id, hourly_tracking, time_tracking_enabled').eq('id', id).maybeSingle();
   if (!project) throw notFound('Project');
-  if (!project.hourly_tracking) throw badRequest('Hourly tracking is not enabled for this project');
+  if (!(project as any).time_tracking_enabled && !project.hourly_tracking) {
+    throw badRequest('Time tracking is not enabled for this project');
+  }
+  const { data: targetMember } = await supabase.from('team_members').select('id, status').eq('id', entry.member_id).maybeSingle();
+  if (!targetMember || targetMember.status !== 'active') throw badRequest('Active team member not found');
+  if (entry.member_id !== teamMemberId) {
+    const { data: assignment } = await supabase.from('project_members').select('project_id').eq('project_id', id).eq('member_id', entry.member_id).maybeSingle();
+    if (!assignment) throw forbidden('Team member is not assigned to this project');
+  }
 
   const isTimer = !('end_time' in entry) || !entry.end_time;
 
@@ -142,6 +160,7 @@ export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMembe
     segments,
     hourly_rate: hourlyRate,
     description: entry.description || '',
+    work_type: entry.work_type || 'client',
   };
 
   const { data, error } = await supabase
@@ -164,5 +183,5 @@ export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMembe
     statusCode: 201,
   });
 
-  return created(data);
-}, { schema: postSchema });
+  return created(sanitizeTimeEntryForAccess(data, access, 'api'));
+}, { schema: postSchema, permission: ['time.manage_own', 'time.manage_all'] });

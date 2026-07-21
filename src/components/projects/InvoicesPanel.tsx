@@ -202,11 +202,15 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
 
   // Calculate hours from time entries
   const timeEntries = getTimeEntriesByProject(projectId);
-  const isHourly = project?.hourly_tracking ?? false;
+  const isHourly = project?.client_time_billing
+    ? project.client_time_billing === 'hourly'
+    : project?.hourly_tracking ?? false;
   const hourlyRate = project?.hourly_rate ?? 0;
   const finalizedHourEntries = isHourly
     ? timeEntries
-        .filter(te => te.end_time !== null)
+        .filter(te => te.end_time !== null
+          && te.work_type !== 'internal'
+          && (te.approval_status === undefined || te.approval_status === 'approved'))
         .map(te => ({
           id: te.id,
           start_time: te.start_time,

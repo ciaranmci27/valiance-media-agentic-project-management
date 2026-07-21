@@ -4,8 +4,10 @@ import { createTaskSchema } from '@/lib/schemas';
 import { parsePagination, sanitizeSearch, validateSort } from '@/lib/api/pagination';
 import { insertTask } from '@/lib/supabase/queries';
 import { logAudit } from '@/lib/api/audit';
+import { accessAllows, accessAllowsProject } from '@/lib/api/access';
+import { forbidden } from '@/lib/api/errors';
 
-export const GET = withApi(async ({ supabase, searchParams }) => {
+export const GET = withApi(async ({ supabase, searchParams, access }) => {
   const { page, limit, offset } = parsePagination(searchParams);
   const sort = validateSort('tasks', searchParams.get('sort'));
   const order = searchParams.get('order') === 'asc';
@@ -23,6 +25,10 @@ export const GET = withApi(async ({ supabase, searchParams }) => {
     subtasks:task_subtasks(id, task_id, title, completed, sort_order),
     comments:task_comments(id, task_id, user_id, text, created_at)
   `, { count: 'exact' });
+  if (!accessAllows(access, 'projects.read_all', 'api')) {
+    if (access.project_ids.length === 0) return paginated([], { page, limit, total: 0 });
+    query = query.in('project_id', access.project_ids);
+  }
 
   if (status) query = query.eq('status', status);
   if (priority) query = query.eq('priority', priority);
@@ -60,9 +66,18 @@ export const GET = withApi(async ({ supabase, searchParams }) => {
   return paginated(tasks, { page, limit, total: count || 0 });
 });
 
-export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId }) => {
+export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId, access, scopes }) => {
   const { assignee_ids, ...taskData } = body as any;
-  const task = await insertTask(supabase, { ...taskData, created_by: teamMemberId || null }, assignee_ids || []);
+  if (!taskData.project_id || !accessAllowsProject(access, taskData.project_id, 'api')) {
+    throw forbidden('Project scope denied');
+  }
+  const canAssignOthers = scopes.includes('tasks.manage_all') && accessAllows(access, 'tasks.manage_all', 'api');
+  const requestedAssignees = Array.isArray(assignee_ids) ? assignee_ids : [];
+  if (!canAssignOthers && requestedAssignees.some((id: string) => id !== teamMemberId)) {
+    throw forbidden('This API key can only assign newly created tasks to its own member');
+  }
+  const effectiveAssignees = canAssignOthers ? requestedAssignees : [teamMemberId];
+  const task = await insertTask(supabase, { ...taskData, created_by: teamMemberId || null }, effectiveAssignees);
   logAudit(supabase, { method: 'POST', endpoint: '/api/v1/tasks', entityType: 'task', entityId: task.id, apiKeyId, teamMemberId, requestBody: body, afterSnapshot: task, statusCode: 201 });
   return created(task);
 }, { schema: createTaskSchema });

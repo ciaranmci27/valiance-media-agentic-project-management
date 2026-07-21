@@ -14,6 +14,7 @@ import {
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { parseDateOnly, isDateOverdue } from '@/lib/date-utils';
+import { hasPermission } from '@/lib/access-control';
 
 interface TaskDetailPanelProps {
   task: Task | null;
@@ -38,7 +39,7 @@ const PRIORITY_OPTIONS: { value: Task['priority']; label: string; color: string 
 
 export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailPanelProps) {
   const { team, getTeamMember, getProject, updateTask, toggleSubtask, addSubtask, updateSubtask, reorderSubtasks, deleteSubtask, addComment, updateComment, deleteComment } = useApp();
-  const { teamMemberId } = useAuth();
+  const { teamMemberId, access } = useAuth();
   const backdropRef = useRef<HTMLDivElement>(null);
   const [newSubtask, setNewSubtask] = useState('');
   const [newComment, setNewComment] = useState('');
@@ -78,12 +79,12 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
   }, [task, onClose]);
 
   if (!task) return null;
+  const canEdit = hasPermission(access, 'tasks.manage_all') || (hasPermission(access, 'tasks.manage_assigned') && task.assignee_ids.includes(teamMemberId || ''));
+  const canDelete = hasPermission(access, 'tasks.manage_all');
 
   const isAgentsEnabled = process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true';
-  const currentMember = team.find(m => m.id === teamMemberId);
-  const isAdmin = currentMember?.role === 'admin';
   const project = getProject(task.project_id);
-  const showAiToggle = isAgentsEnabled && isAdmin && project?.autonomous_enabled;
+  const showAiToggle = isAgentsEnabled && hasPermission(access, 'agents.manage') && project?.autonomous_enabled;
 
   const assignees = team.filter(m => task.assignee_ids.includes(m.id));
   const completedSubtasks = task.subtasks.filter(s => s.completed).length;
@@ -105,7 +106,7 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
 
   const handleAddSubtask = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newSubtask.trim()) return;
+    if (!canEdit || !newSubtask.trim()) return;
     addSubtask(task.id, newSubtask.trim());
     setNewSubtask('');
   };
@@ -120,7 +121,7 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
   const handleDelete = () => {
     // The parent owns the delete and shows its own confirmation dialog;
     // confirming here too would make the user confirm four times.
-    onDelete(task.id);
+    if (canDelete) onDelete(task.id);
   };
 
   return (
@@ -138,22 +139,22 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
         <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-200 flex-shrink-0">
           <h2 className="text-lg font-semibold text-zinc-900 truncate pr-3">{task.title}</h2>
           <div className="flex items-center gap-1.5 flex-shrink-0">
-            <Tooltip content="Edit task">
+            {canEdit && <Tooltip content="Edit task">
               <button
                 onClick={() => onEdit(task)}
                 className="p-1.5 rounded-lg text-zinc-500 hover:text-brand-600 hover:bg-brand-50 transition-colors"
               >
                 <Edit size={16} />
               </button>
-            </Tooltip>
-            <Tooltip content="Delete task">
+            </Tooltip>}
+            {canDelete && <Tooltip content="Delete task">
               <button
                 onClick={handleDelete}
                 className="p-1.5 rounded-lg text-zinc-500 hover:text-red-600 hover:bg-red-50 transition-colors"
               >
                 <Trash2 size={16} />
               </button>
-            </Tooltip>
+            </Tooltip>}
             <button
               onClick={onClose}
               className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 transition-colors"
@@ -171,12 +172,12 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
               {/* Clickable Status */}
               <div className="relative">
                 <button
-                  onClick={() => setShowStatusMenu(!showStatusMenu)}
-                  className="hover:ring-2 hover:ring-brand-200 rounded-full transition-all"
+                  onClick={() => canEdit && setShowStatusMenu(!showStatusMenu)}
+                  className={canEdit ? 'hover:ring-2 hover:ring-brand-200 rounded-full transition-all' : 'cursor-default'}
                 >
                   <StatusBadge status={task.status} />
                 </button>
-                {showStatusMenu && (
+                {canEdit && showStatusMenu && (
                   <>
                     <div className="fixed inset-0 z-10 cursor-default" onClick={() => setShowStatusMenu(false)} />
                     <div className="absolute left-0 top-8 bg-white rounded-lg shadow-xl border border-zinc-200 py-1 z-20 min-w-[160px] cursor-pointer">
@@ -203,12 +204,12 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
               {/* Clickable Priority */}
               <div className="relative">
                 <button
-                  onClick={() => setShowPriorityMenu(!showPriorityMenu)}
-                  className="hover:ring-2 hover:ring-brand-200 rounded-full transition-all"
+                  onClick={() => canEdit && setShowPriorityMenu(!showPriorityMenu)}
+                  className={canEdit ? 'hover:ring-2 hover:ring-brand-200 rounded-full transition-all' : 'cursor-default'}
                 >
                   <PriorityBadge priority={task.priority} />
                 </button>
-                {showPriorityMenu && (
+                {canEdit && showPriorityMenu && (
                   <>
                     <div className="fixed inset-0 z-10 cursor-default" onClick={() => setShowPriorityMenu(false)} />
                     <div className="absolute left-0 top-8 bg-white rounded-lg shadow-xl border border-zinc-200 py-1 z-20 min-w-[140px] cursor-pointer">

@@ -6,8 +6,9 @@ import { parsePagination } from '@/lib/api/pagination';
 import { forbidden, badRequest } from '@/lib/api/errors';
 import { insertTaskSuggestion } from '@/lib/supabase/queries';
 import { logAudit } from '@/lib/api/audit';
+import { accessAllows, accessAllowsProject } from '@/lib/api/access';
 
-export const GET = withApi(async ({ supabase, searchParams }) => {
+export const GET = withApi(async ({ supabase, searchParams, access }) => {
   requireAgentsEnabled();
 
   const { page, limit, offset } = parsePagination(searchParams);
@@ -19,6 +20,11 @@ export const GET = withApi(async ({ supabase, searchParams }) => {
   let query = supabase
     .from('task_suggestions')
     .select('*', { count: 'exact' });
+
+  if (!accessAllows(access, 'projects.read_all', 'api')) {
+    if (access.project_ids.length === 0) return paginated([], { page, limit, total: 0 });
+    query = query.in('project_id', access.project_ids);
+  }
 
   if (status) query = query.eq('status', status);
   if (projectId) query = query.eq('project_id', projectId);
@@ -33,9 +39,9 @@ export const GET = withApi(async ({ supabase, searchParams }) => {
 
   if (error) throw error;
   return paginated(data || [], { page, limit, total: count || 0 });
-});
+}, { permission: ['suggestions.create', 'suggestions.manage'] });
 
-export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId }) => {
+export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId, access }) => {
   requireAgentsEnabled();
 
   if (!teamMemberId) {
@@ -52,6 +58,18 @@ export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId }) =
   if (!member || member.role !== 'agent') {
     throw forbidden('Only agent team members can create suggestions');
   }
+
+  const suggestionInput = body as { project_id: string; goal_id: string };
+  if (!accessAllowsProject(access, suggestionInput.project_id, 'api')) {
+    throw forbidden('Project scope denied');
+  }
+  const { data: goal } = await supabase
+    .from('project_goals')
+    .select('id')
+    .eq('id', suggestionInput.goal_id)
+    .eq('project_id', suggestionInput.project_id)
+    .maybeSingle();
+  if (!goal) throw badRequest('goal_id must belong to project_id');
 
   const suggestion = await insertTaskSuggestion(supabase, {
     ...body,
@@ -95,4 +113,4 @@ export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId }) =
   }
 
   return created(suggestion);
-}, { schema: createSuggestionSchema });
+}, { schema: createSuggestionSchema, permission: 'suggestions.create' });

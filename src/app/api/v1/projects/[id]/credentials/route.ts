@@ -8,18 +8,32 @@ import { encrypt, isEncryptionConfigured } from '@/lib/api/encryption';
 import { insertProjectCredential } from '@/lib/supabase/queries';
 import type { CredentialPayload } from '@/lib/types';
 import { z } from 'zod';
+import { apiKeyAllows } from '@/lib/api/access';
 
-export const GET = withApi(async ({ supabase, params, searchParams }) => {
+export const GET = withApi(async ({ supabase, params, searchParams, access, scopes, teamMemberId }) => {
   const { id } = params as any;
   const { page, limit, offset } = parsePagination(searchParams);
 
   const { data: project } = await supabase.from('projects').select('id').eq('id', id).maybeSingle();
   if (!project) throw notFound('Project');
 
-  const { data, count, error } = await supabase
+  let query = supabase
     .from('project_credentials')
     .select('id, project_id, label, category, submitted_by_client, submitted_by_name, created_by, created_at, updated_at', { count: 'exact' })
-    .eq('project_id', id)
+    .eq('project_id', id);
+
+  if (!apiKeyAllows(access, scopes, 'credentials.manage')) {
+    const { data: grants, error: grantError } = await supabase
+      .from('project_credential_members')
+      .select('credential_id')
+      .eq('member_id', teamMemberId);
+    if (grantError) throw grantError;
+    const credentialIds = (grants || []).map((grant) => grant.credential_id);
+    if (credentialIds.length === 0) return paginated([], { page, limit, total: 0 });
+    query = query.in('id', credentialIds);
+  }
+
+  const { data, count, error } = await query
     .order('created_at', { ascending: false })
     .range(offset, offset + limit - 1);
 

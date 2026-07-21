@@ -11,10 +11,14 @@ import { Plus, FolderKanban } from 'lucide-react';
 import { Project } from '@/lib/types';
 import { toast } from '@/components/ui/Toast';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { useAuth } from '@/lib/auth-context';
+import { hasPermission } from '@/lib/access-control';
 
 function ProjectsContent() {
   const searchParams = useSearchParams();
   const { projects, deleteProject, filters, setFilters } = useApp();
+  const { access } = useAuth();
+  const canManageProjects = hasPermission(access, 'projects.manage');
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
@@ -23,10 +27,10 @@ function ProjectsContent() {
 
   // Check for ?new=true in URL
   useEffect(() => {
-    if (searchParams.get('new') === 'true') {
+    if (canManageProjects && searchParams.get('new') === 'true') {
       setIsFormOpen(true);
     }
-  }, [searchParams]);
+  }, [canManageProjects, searchParams]);
 
   const handleEdit = (project: Project) => {
     setEditingProject(project);
@@ -65,11 +69,11 @@ function ProjectsContent() {
         title="Projects"
         subtitle={<span className="hidden sm:inline">{projects.length} total projects</span>}
         searchPlaceholder="Search projects..."
-        actions={
+        actions={canManageProjects ? (
           <Button onClick={() => setIsFormOpen(true)} icon={<Plus size={16} />}>
             New Project
           </Button>
-        }
+        ) : undefined}
       />
 
       <div className="p-4 lg:p-6 space-y-6 lg:space-y-8">
@@ -79,10 +83,8 @@ function ProjectsContent() {
               <FolderKanban className="text-zinc-400" size={32} />
             </div>
             <h3 className="text-lg font-semibold text-zinc-900 mb-2">No projects yet</h3>
-            <p className="text-zinc-500 mb-4">Create your first project to get started</p>
-            <Button onClick={() => setIsFormOpen(true)}>
-              Create Project
-            </Button>
+            <p className="text-zinc-500 mb-4">{canManageProjects ? 'Create your first project to get started' : 'No projects are assigned to you'}</p>
+            {canManageProjects && <Button onClick={() => setIsFormOpen(true)}>Create Project</Button>}
           </div>
         ) : (
           <>
@@ -96,8 +98,8 @@ function ProjectsContent() {
                     <ProjectCard
                       key={project.id}
                       project={project}
-                      onEdit={handleEdit}
-                      onDelete={handleDelete}
+                      onEdit={canManageProjects ? handleEdit : undefined}
+                      onDelete={canManageProjects ? handleDelete : undefined}
                     />
                   ))}
                 </div>
@@ -114,8 +116,8 @@ function ProjectsContent() {
                     <ProjectCard
                       key={project.id}
                       project={project}
-                      onEdit={handleEdit}
-                      onDelete={handleDelete}
+                      onEdit={canManageProjects ? handleEdit : undefined}
+                      onDelete={canManageProjects ? handleDelete : undefined}
                     />
                   ))}
                 </div>
@@ -132,8 +134,8 @@ function ProjectsContent() {
                     <ProjectCard
                       key={project.id}
                       project={project}
-                      onEdit={handleEdit}
-                      onDelete={handleDelete}
+                      onEdit={canManageProjects ? handleEdit : undefined}
+                      onDelete={canManageProjects ? handleDelete : undefined}
                     />
                   ))}
                 </div>
@@ -143,11 +145,11 @@ function ProjectsContent() {
         )}
       </div>
 
-      <ProjectForm
+      {canManageProjects && <ProjectForm
         isOpen={isFormOpen}
         onClose={handleCloseForm}
         project={editingProject}
-      />
+      />}
 
       <ConfirmDialog
         isOpen={!!deletingProjectId}

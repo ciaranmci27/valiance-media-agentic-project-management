@@ -1175,17 +1175,25 @@ create trigger set_project_context_updated_at
 -- AUTO-CREATE TEAM MEMBER ON SIGNUP
 -- ============================================================
 create or replace function public.handle_new_user()
-returns trigger as $$
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
 begin
-  insert into public.team_members (auth_user_id, name, email)
+  insert into public.team_members (auth_user_id, name, email, role)
   values (
     new.id,
     coalesce(new.raw_user_meta_data->>'display_name', split_part(new.email, '@', 1)),
-    new.email
+    new.email,
+    case
+      when exists (select 1 from public.team_members) then 'member'
+      else 'owner'
+    end
   );
   return new;
 end;
-$$ language plpgsql security definer;
+$$;
 
 create trigger on_auth_user_created
   after insert on auth.users
@@ -1417,3 +1425,1924 @@ create policy "Public can read entity files"
   on storage.objects for select
   to public
   using (bucket_id = 'entity-files');
+
+-- ============================================================
+-- CURRENT TEAM ACCESS, COMPENSATION, AND PERMISSION MODEL
+-- Kept in sync with the 20260720 and 20260721 migrations.
+-- ============================================================
+-- Team authorization, scoped API access, time approval, employee compensation,
+-- credential sharing, and payout accounting.
+--
+-- This migration is additive. Legacy billing and API permission columns remain
+-- in place so the application can be deployed before the database cutover.
+
+BEGIN;
+SET LOCAL lock_timeout = '5s';
+SET LOCAL statement_timeout = '10min';
+
+-- ---------------------------------------------------------------------------
+-- Preflight and role lifecycle
+-- ---------------------------------------------------------------------------
+
+-- Fresh schema bootstrap has no legacy rows to validate.
+ALTER TABLE public.team_members
+  DROP CONSTRAINT IF EXISTS team_members_role_check;
+
+ALTER TABLE public.team_members
+  ADD CONSTRAINT team_members_role_check
+  CHECK (role IN ('owner', 'admin', 'member', 'guest', 'agent'));
+
+ALTER TABLE public.team_members
+  ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'active',
+  ADD COLUMN IF NOT EXISTS suspended_at timestamptz,
+  ADD COLUMN IF NOT EXISTS suspended_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL;
+
+ALTER TABLE public.team_members
+  DROP CONSTRAINT IF EXISTS team_members_status_check;
+
+ALTER TABLE public.team_members
+  ADD CONSTRAINT team_members_status_check CHECK (status IN ('active', 'suspended'));
+
+UPDATE public.team_members
+SET role = 'owner'
+WHERE role = 'admin'
+  AND NOT EXISTS (SELECT 1 FROM public.team_members WHERE role = 'owner');
+
+-- ---------------------------------------------------------------------------
+-- App and API permissions
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE public.role_permissions (
+  role text NOT NULL CHECK (role IN ('admin', 'member', 'guest', 'agent')),
+  permission_key text NOT NULL,
+  access_channel text NOT NULL CHECK (access_channel IN ('app', 'api')),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (role, permission_key, access_channel)
+);
+
+CREATE TABLE public.team_member_permissions (
+  member_id uuid NOT NULL REFERENCES public.team_members(id) ON DELETE CASCADE,
+  permission_key text NOT NULL,
+  access_channel text NOT NULL CHECK (access_channel IN ('app', 'api')),
+  effect text NOT NULL CHECK (effect IN ('allow', 'deny')),
+  created_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (member_id, permission_key, access_channel)
+);
+
+CREATE INDEX idx_team_member_permissions_member
+  ON public.team_member_permissions(member_id);
+
+CREATE TRIGGER set_role_permissions_updated_at
+  BEFORE UPDATE ON public.role_permissions
+  FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+
+CREATE TRIGGER set_team_member_permissions_updated_at
+  BEFORE UPDATE ON public.team_member_permissions
+  FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+
+INSERT INTO public.role_permissions (role, permission_key, access_channel)
+VALUES
+  -- Admin app permissions. Access policy and Owner lifecycle remain Owner-only.
+  ('admin','team.read','app'), ('admin','team.manage','app'),
+  ('admin','settings.manage','app'), ('admin','smtp.manage','app'),
+  ('admin','audit.read','app'), ('admin','projects.read','app'),
+  ('admin','projects.read_all','app'), ('admin','projects.manage','app'),
+  ('admin','project_members.manage','app'), ('admin','tasks.read','app'),
+  ('admin','tasks.create','app'), ('admin','tasks.manage_assigned','app'),
+  ('admin','tasks.manage_all','app'), ('admin','time.manage_own','app'),
+  ('admin','time.read_all','app'), ('admin','time.manage_all','app'),
+  ('admin','time.approve','app'), ('admin','contacts.read','app'),
+  ('admin','contacts.read_all','app'), ('admin','contacts.manage','app'),
+  ('admin','leads.read','app'), ('admin','leads.read_all','app'),
+  ('admin','leads.manage','app'), ('admin','files.read','app'),
+  ('admin','files.upload','app'), ('admin','files.manage','app'),
+  ('admin','portal.read','app'), ('admin','portal.manage','app'),
+  ('admin','communications.read','app'), ('admin','communications.manage','app'),
+  ('admin','credentials.reveal_shared','app'), ('admin','credentials.manage','app'),
+  ('admin','invoices.read','app'), ('admin','invoices.manage','app'),
+  ('admin','billing.manage','app'), ('admin','finance.company.read','app'),
+  ('admin','earnings.own.read','app'), ('admin','compensation.manage','app'),
+  ('admin','payouts.manage','app'), ('admin','agents.manage','app'),
+  ('admin','project_context.read','app'), ('admin','project_context.manage','app'),
+  ('admin','goals.read','app'), ('admin','goals.manage','app'),
+  ('admin','suggestions.manage','app'),
+
+  -- Admin API defaults intentionally omit finance, credentials, access, and SMTP.
+  ('admin','projects.read','api'), ('admin','projects.read_all','api'),
+  ('admin','projects.manage','api'), ('admin','project_members.manage','api'),
+  ('admin','tasks.read','api'), ('admin','tasks.create','api'),
+  ('admin','tasks.manage_assigned','api'), ('admin','tasks.manage_all','api'),
+  ('admin','time.manage_own','api'), ('admin','time.read_all','api'),
+  ('admin','time.manage_all','api'), ('admin','time.approve','api'),
+  ('admin','contacts.read','api'), ('admin','contacts.read_all','api'),
+  ('admin','contacts.manage','api'), ('admin','leads.read','api'),
+  ('admin','leads.read_all','api'), ('admin','leads.manage','api'),
+  ('admin','files.read','api'), ('admin','files.upload','api'),
+  ('admin','files.manage','api'), ('admin','portal.read','api'),
+  ('admin','portal.manage','api'), ('admin','communications.read','api'),
+  ('admin','communications.manage','api'), ('admin','project_context.read','api'),
+  ('admin','project_context.manage','api'), ('admin','goals.read','api'),
+  ('admin','goals.manage','api'), ('admin','suggestions.manage','api'),
+  ('admin','notifications.manage_own','api'),
+
+  -- Member defaults.
+  ('member','team.read','app'), ('member','projects.read','app'),
+  ('member','tasks.read','app'), ('member','tasks.create','app'),
+  ('member','tasks.manage_assigned','app'), ('member','time.manage_own','app'),
+  ('member','contacts.read','app'), ('member','files.read','app'),
+  ('member','files.upload','app'), ('member','credentials.reveal_shared','app'),
+  ('member','earnings.own.read','app'),
+  ('member','projects.read','api'), ('member','tasks.read','api'),
+  ('member','tasks.create','api'), ('member','tasks.manage_assigned','api'),
+  ('member','time.manage_own','api'), ('member','files.read','api'),
+  ('member','files.upload','api'), ('member','notifications.manage_own','api'),
+
+  -- Guest defaults.
+  ('guest','team.read','app'), ('guest','projects.read','app'),
+  ('guest','tasks.read','app'), ('guest','files.read','app'),
+  ('guest','projects.read','api'), ('guest','tasks.read','api'),
+  ('guest','files.read','api'), ('guest','notifications.manage_own','api'),
+
+  -- Agents can use assigned project work in the app and API without client,
+  -- credential, billing, finance, or team-management access.
+  ('agent','team.read','app'), ('agent','projects.read','app'),
+  ('agent','tasks.read','app'), ('agent','tasks.create','app'),
+  ('agent','tasks.manage_assigned','app'), ('agent','files.read','app'),
+  ('agent','files.upload','app'), ('agent','project_context.read','app'),
+  ('agent','project_context.manage','app'), ('agent','goals.read','app'),
+  ('agent','goals.manage','app'), ('agent','suggestions.manage','app'),
+  ('agent','projects.read','api'), ('agent','tasks.read','api'),
+  ('agent','tasks.create','api'), ('agent','tasks.manage_assigned','api'),
+  ('agent','project_context.read','api'), ('agent','project_context.manage','api'),
+  ('agent','goals.read','api'), ('agent','goals.manage','api'),
+  ('agent','suggestions.manage','api'), ('agent','files.read','api'),
+  ('agent','notifications.manage_own','api')
+ON CONFLICT DO NOTHING;
+
+-- ---------------------------------------------------------------------------
+-- API key evolution
+-- ---------------------------------------------------------------------------
+
+ALTER TABLE public.api_keys
+  ADD COLUMN IF NOT EXISTS team_member_id uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS scopes text[] NOT NULL DEFAULT '{}',
+  ADD COLUMN IF NOT EXISTS expires_at timestamptz,
+  ADD COLUMN IF NOT EXISTS disabled_at timestamptz;
+
+ALTER TABLE public.api_keys
+  DROP CONSTRAINT IF EXISTS api_keys_permissions_check;
+ALTER TABLE public.api_keys
+  ADD CONSTRAINT api_keys_permissions_check CHECK (permissions IN ('full', 'read_only', 'scoped'));
+
+CREATE INDEX IF NOT EXISTS idx_api_keys_team_member_id ON public.api_keys(team_member_id);
+
+-- Existing keys are unused and cannot be safely translated from full/read-only.
+UPDATE public.api_keys
+SET revoked_at = COALESCE(revoked_at, now());
+
+ALTER TABLE public.business_settings
+  ADD COLUMN IF NOT EXISTS api_enabled boolean NOT NULL DEFAULT true;
+
+-- ---------------------------------------------------------------------------
+-- Project time configuration and approval lifecycle
+-- ---------------------------------------------------------------------------
+
+ALTER TABLE public.projects
+  ADD COLUMN IF NOT EXISTS time_tracking_enabled boolean NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS client_time_billing text NOT NULL DEFAULT 'included';
+
+ALTER TABLE public.projects
+  DROP CONSTRAINT IF EXISTS projects_client_time_billing_check;
+
+ALTER TABLE public.projects
+  ADD CONSTRAINT projects_client_time_billing_check
+  CHECK (client_time_billing IN ('hourly', 'included'));
+
+UPDATE public.projects
+SET time_tracking_enabled = hourly_tracking,
+    client_time_billing = CASE WHEN hourly_tracking THEN 'hourly' ELSE 'included' END;
+
+ALTER TABLE public.project_time_entries
+  ADD COLUMN IF NOT EXISTS work_type text NOT NULL DEFAULT 'client',
+  ADD COLUMN IF NOT EXISTS approval_status text NOT NULL DEFAULT 'draft',
+  ADD COLUMN IF NOT EXISTS submitted_at timestamptz,
+  ADD COLUMN IF NOT EXISTS approved_at timestamptz,
+  ADD COLUMN IF NOT EXISTS approved_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS rejection_reason text,
+  ADD COLUMN IF NOT EXISTS compensation_rate numeric(10,2) NOT NULL DEFAULT 0;
+
+ALTER TABLE public.project_time_entries
+  DROP CONSTRAINT IF EXISTS project_time_entries_work_type_check,
+  DROP CONSTRAINT IF EXISTS project_time_entries_approval_status_check,
+  DROP CONSTRAINT IF EXISTS project_time_entries_compensation_rate_check;
+
+ALTER TABLE public.project_time_entries
+  ADD CONSTRAINT project_time_entries_work_type_check CHECK (work_type IN ('client', 'internal')),
+  ADD CONSTRAINT project_time_entries_approval_status_check
+    CHECK (approval_status IN ('draft', 'pending', 'approved', 'rejected')),
+  ADD CONSTRAINT project_time_entries_compensation_rate_check CHECK (compensation_rate >= 0);
+
+DO $$
+DECLARE
+  owner_id uuid;
+BEGIN
+  SELECT id INTO owner_id FROM public.team_members WHERE role = 'owner' ORDER BY created_at LIMIT 1;
+
+  IF EXISTS (
+    SELECT 1 FROM public.project_time_entries WHERE member_id IS DISTINCT FROM owner_id
+  ) THEN
+    RAISE EXCEPTION 'Historical time contains a non-Owner member; manual compensation backfill required';
+  END IF;
+
+  UPDATE public.project_time_entries
+  SET approval_status = CASE WHEN end_time IS NULL THEN 'draft' ELSE 'approved' END,
+      submitted_at = CASE WHEN end_time IS NULL THEN NULL ELSE COALESCE(updated_at, created_at) END,
+      approved_at = CASE WHEN end_time IS NULL THEN NULL ELSE COALESCE(updated_at, created_at) END,
+      approved_by = CASE WHEN end_time IS NULL THEN NULL ELSE owner_id END,
+      compensation_rate = 0;
+END;
+$$;
+
+CREATE TABLE public.team_member_hourly_rates (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  member_id uuid NOT NULL REFERENCES public.team_members(id) ON DELETE CASCADE,
+  hourly_rate numeric(10,2) NOT NULL CHECK (hourly_rate >= 0),
+  effective_at timestamptz NOT NULL,
+  created_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (member_id, effective_at)
+);
+
+CREATE TABLE public.team_member_earning_adjustments (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  member_id uuid NOT NULL REFERENCES public.team_members(id) ON DELETE RESTRICT,
+  adjustment_type text NOT NULL CHECK (adjustment_type IN ('bonus', 'deduction')),
+  amount numeric(12,2) NOT NULL CHECK (amount > 0),
+  effective_date date NOT NULL,
+  project_id uuid REFERENCES public.projects(id) ON DELETE SET NULL,
+  description text NOT NULL DEFAULT '',
+  created_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  voided_at timestamptz,
+  voided_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE public.team_member_payouts (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  member_id uuid NOT NULL REFERENCES public.team_members(id) ON DELETE RESTRICT,
+  payment_date date NOT NULL,
+  amount numeric(12,2) NOT NULL CHECK (amount >= 0),
+  payment_method text NOT NULL DEFAULT '',
+  reference text NOT NULL DEFAULT '',
+  notes text NOT NULL DEFAULT '',
+  created_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  voided_at timestamptz,
+  voided_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE public.team_member_payout_allocations (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  payout_id uuid NOT NULL REFERENCES public.team_member_payouts(id) ON DELETE CASCADE,
+  time_entry_id uuid REFERENCES public.project_time_entries(id) ON DELETE RESTRICT,
+  adjustment_id uuid REFERENCES public.team_member_earning_adjustments(id) ON DELETE RESTRICT,
+  allocated_amount numeric(12,2) NOT NULL CHECK (allocated_amount <> 0),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  CHECK (num_nonnulls(time_entry_id, adjustment_id) = 1),
+  UNIQUE NULLS NOT DISTINCT (payout_id, time_entry_id, adjustment_id)
+);
+
+CREATE INDEX idx_team_member_hourly_rates_lookup
+  ON public.team_member_hourly_rates(member_id, effective_at DESC);
+CREATE INDEX idx_team_member_earning_adjustments_member
+  ON public.team_member_earning_adjustments(member_id, effective_date DESC);
+CREATE INDEX idx_team_member_payouts_member
+  ON public.team_member_payouts(member_id, payment_date DESC);
+CREATE INDEX idx_team_member_payout_allocations_payout
+  ON public.team_member_payout_allocations(payout_id);
+CREATE INDEX idx_team_member_payout_allocations_time_entry
+  ON public.team_member_payout_allocations(time_entry_id) WHERE time_entry_id IS NOT NULL;
+CREATE INDEX idx_team_member_payout_allocations_adjustment
+  ON public.team_member_payout_allocations(adjustment_id) WHERE adjustment_id IS NOT NULL;
+
+CREATE TRIGGER set_team_member_hourly_rates_updated_at
+  BEFORE UPDATE ON public.team_member_hourly_rates
+  FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+CREATE TRIGGER set_team_member_earning_adjustments_updated_at
+  BEFORE UPDATE ON public.team_member_earning_adjustments
+  FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+CREATE TRIGGER set_team_member_payouts_updated_at
+  BEFORE UPDATE ON public.team_member_payouts
+  FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+
+-- Owner rate is explicit and remains zero unless ownership changes.
+INSERT INTO public.team_member_hourly_rates (member_id, hourly_rate, effective_at, created_by)
+SELECT id, 0, created_at, id FROM public.team_members WHERE role = 'owner'
+ON CONFLICT DO NOTHING;
+
+-- ---------------------------------------------------------------------------
+-- Per-credential sharing
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE public.project_credential_members (
+  credential_id uuid NOT NULL REFERENCES public.project_credentials(id) ON DELETE CASCADE,
+  member_id uuid NOT NULL REFERENCES public.team_members(id) ON DELETE CASCADE,
+  granted_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (credential_id, member_id)
+);
+
+CREATE INDEX idx_project_credential_members_member
+  ON public.project_credential_members(member_id);
+
+-- ---------------------------------------------------------------------------
+-- Access helpers. Each helper has a fixed search path and bypasses recursive RLS.
+-- ---------------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION public.current_team_member_id()
+RETURNS uuid
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT id
+  FROM public.team_members
+  WHERE auth_user_id = auth.uid()
+    AND status = 'active'
+  LIMIT 1
+$$;
+
+CREATE OR REPLACE FUNCTION public.current_team_member_role()
+RETURNS text
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT role
+  FROM public.team_members
+  WHERE auth_user_id = auth.uid() AND status = 'active'
+  LIMIT 1
+$$;
+
+CREATE OR REPLACE FUNCTION public.has_permission(p_permission_key text, p_access_channel text DEFAULT 'app')
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  WITH actor AS (
+    SELECT id, role
+    FROM public.team_members
+    WHERE auth_user_id = auth.uid() AND status = 'active'
+    LIMIT 1
+  )
+  SELECT COALESCE(
+    (SELECT role = 'owner' FROM actor), false
+  ) OR COALESCE(
+    (SELECT effect = 'allow'
+     FROM public.team_member_permissions override_permission, actor
+     WHERE override_permission.member_id = actor.id
+       AND override_permission.permission_key = p_permission_key
+       AND override_permission.access_channel = p_access_channel),
+    EXISTS (
+      SELECT 1
+      FROM public.role_permissions role_permission, actor
+      WHERE role_permission.role = actor.role
+        AND role_permission.permission_key = p_permission_key
+        AND role_permission.access_channel = p_access_channel
+    )
+  )
+$$;
+
+CREATE OR REPLACE FUNCTION public.can_access_project(p_project_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT public.has_permission('projects.read_all', 'app')
+    OR (
+      public.has_permission('projects.read', 'app')
+      AND EXISTS (
+        SELECT 1 FROM public.project_members
+        WHERE project_id = p_project_id
+          AND member_id = public.current_team_member_id()
+      )
+    )
+$$;
+
+CREATE OR REPLACE FUNCTION public.can_access_lead(p_lead_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT public.has_permission('leads.read_all', 'app')
+    OR (
+      public.has_permission('leads.read', 'app')
+      AND EXISTS (
+        SELECT 1 FROM public.lead_members
+        WHERE lead_id = p_lead_id
+          AND member_id = public.current_team_member_id()
+      )
+    )
+$$;
+
+CREATE OR REPLACE FUNCTION public.can_access_task(p_task_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.tasks
+    WHERE id = p_task_id AND public.can_access_project(project_id)
+  )
+$$;
+
+CREATE OR REPLACE FUNCTION public.can_access_credential(p_credential_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT public.has_permission('credentials.manage', 'app')
+    OR (
+      public.has_permission('credentials.reveal_shared', 'app')
+      AND EXISTS (
+        SELECT 1
+        FROM public.project_credential_members grant_row
+        JOIN public.project_credentials credential ON credential.id = grant_row.credential_id
+        WHERE grant_row.credential_id = p_credential_id
+          AND grant_row.member_id = public.current_team_member_id()
+          AND public.can_access_project(credential.project_id)
+      )
+    )
+$$;
+
+CREATE OR REPLACE FUNCTION public.get_my_access_context()
+RETURNS jsonb
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  WITH actor AS (
+    SELECT id, role, status
+    FROM public.team_members
+    WHERE auth_user_id = auth.uid()
+    LIMIT 1
+  ), keys AS (
+    SELECT permission_key, access_channel
+    FROM public.role_permissions, actor
+    WHERE role_permissions.role = actor.role
+      AND actor.status = 'active'
+    UNION
+    SELECT permission_key, access_channel
+    FROM public.team_member_permissions, actor
+    WHERE team_member_permissions.member_id = actor.id
+      AND team_member_permissions.effect = 'allow'
+      AND actor.status = 'active'
+    EXCEPT
+    SELECT permission_key, access_channel
+    FROM public.team_member_permissions, actor
+    WHERE team_member_permissions.member_id = actor.id
+      AND team_member_permissions.effect = 'deny'
+      AND actor.status = 'active'
+  )
+  SELECT jsonb_build_object(
+    'member_id', actor.id,
+    'role', actor.role,
+    'status', actor.status,
+    'app_permissions', CASE WHEN actor.role = 'owner' THEN jsonb_build_array('*') ELSE
+      COALESCE((SELECT jsonb_agg(permission_key ORDER BY permission_key) FROM keys WHERE access_channel = 'app'), '[]'::jsonb) END,
+    'api_permissions', CASE WHEN actor.role = 'owner' THEN jsonb_build_array('*') ELSE
+      COALESCE((SELECT jsonb_agg(permission_key ORDER BY permission_key) FROM keys WHERE access_channel = 'api'), '[]'::jsonb) END,
+    'project_ids', COALESCE((SELECT jsonb_agg(project_id) FROM public.project_members WHERE member_id = actor.id), '[]'::jsonb)
+  )
+  FROM actor
+$$;
+
+CREATE OR REPLACE FUNCTION public.get_team_directory()
+RETURNS TABLE (id uuid, name text, avatar text, role text, status text)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT member.id, member.name, member.avatar, member.role, member.status
+  FROM public.team_members member
+  WHERE public.has_permission('team.read', 'app')
+     OR member.id = public.current_team_member_id()
+  ORDER BY member.name
+$$;
+
+CREATE OR REPLACE FUNCTION public.get_accessible_time_entries(p_project_id uuid DEFAULT NULL)
+RETURNS SETOF jsonb
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  -- Mask sensitive rate columns independently, mirroring the app-layer rule in
+  -- sanitizeTimeEntryForAccess: the client billing rate (hourly_rate) requires
+  -- billing.manage; the employee pay rate (compensation_rate) requires
+  -- compensation.manage/payouts.manage, or the caller's own entry with
+  -- earnings.own.read. Removing the empty key '' is a no-op when access is allowed.
+  SELECT (
+    (to_jsonb(entry)
+      - (CASE WHEN public.has_permission('billing.manage', 'app') THEN '' ELSE 'hourly_rate' END))
+      - (CASE
+           WHEN public.has_permission('compensation.manage', 'app')
+             OR public.has_permission('payouts.manage', 'app')
+             OR (entry.member_id = public.current_team_member_id() AND public.has_permission('earnings.own.read', 'app'))
+           THEN '' ELSE 'compensation_rate'
+         END)
+  )
+  FROM public.project_time_entries entry
+  WHERE (p_project_id IS NULL OR entry.project_id = p_project_id)
+    AND public.can_access_project(entry.project_id)
+    AND (
+      public.has_permission('time.read_all', 'app')
+      OR entry.member_id = public.current_team_member_id()
+    )
+  ORDER BY entry.start_time DESC
+$$;
+
+CREATE OR REPLACE FUNCTION public.get_accessible_credential_metadata(p_project_id uuid DEFAULT NULL)
+RETURNS TABLE (
+  id uuid, project_id uuid, label text, category text,
+  submitted_by_client boolean, submitted_by_name text,
+  created_by uuid, created_at timestamptz, updated_at timestamptz
+)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT credential.id, credential.project_id, credential.label, credential.category,
+         credential.submitted_by_client, credential.submitted_by_name,
+         credential.created_by, credential.created_at, credential.updated_at
+  FROM public.project_credentials credential
+  WHERE (p_project_id IS NULL OR credential.project_id = p_project_id)
+    AND public.can_access_credential(credential.id)
+  ORDER BY credential.created_at DESC
+$$;
+
+CREATE OR REPLACE FUNCTION public.resolve_team_member_hourly_rate(
+  p_member_id uuid,
+  p_effective_at timestamptz
+)
+RETURNS numeric
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT CASE WHEN member.role IN ('owner', 'agent') THEN 0 ELSE COALESCE((
+    SELECT rate.hourly_rate
+    FROM public.team_member_hourly_rates rate
+    WHERE rate.member_id = p_member_id AND rate.effective_at <= p_effective_at
+    ORDER BY rate.effective_at DESC
+    LIMIT 1
+  ), 0) END
+  FROM public.team_members member
+  WHERE member.id = p_member_id
+$$;
+
+CREATE OR REPLACE FUNCTION public.protect_project_billing_fields()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF auth.role() = 'service_role' OR public.has_permission('billing.manage', 'app') THEN
+    RETURN NEW;
+  END IF;
+
+  IF TG_OP = 'INSERT' THEN
+    IF NEW.hourly_rate IS NOT NULL OR NEW.budget_type IS NOT NULL OR NEW.budget_value IS NOT NULL
+      OR NEW.billing_address IS NOT NULL OR NEW.billing_email IS NOT NULL OR NEW.tax_rate IS NOT NULL
+      OR NEW.client_time_billing IS DISTINCT FROM 'included' THEN
+      RAISE EXCEPTION 'Billing permission required';
+    END IF;
+  ELSIF NEW.hourly_rate IS DISTINCT FROM OLD.hourly_rate
+    OR NEW.budget_type IS DISTINCT FROM OLD.budget_type
+    OR NEW.budget_value IS DISTINCT FROM OLD.budget_value
+    OR NEW.billing_address IS DISTINCT FROM OLD.billing_address
+    OR NEW.billing_email IS DISTINCT FROM OLD.billing_email
+    OR NEW.tax_rate IS DISTINCT FROM OLD.tax_rate
+    OR NEW.invoice_pdf_options IS DISTINCT FROM OLD.invoice_pdf_options
+    OR NEW.client_time_billing IS DISTINCT FROM OLD.client_time_billing THEN
+    RAISE EXCEPTION 'Billing permission required';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER protect_project_billing_fields
+  BEFORE INSERT OR UPDATE ON public.projects
+  FOR EACH ROW EXECUTE FUNCTION public.protect_project_billing_fields();
+
+CREATE OR REPLACE FUNCTION public.apply_time_entry_compensation()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  member_role text;
+BEGIN
+  SELECT role INTO member_role FROM public.team_members WHERE id = NEW.member_id;
+
+  IF TG_OP = 'INSERT' OR NEW.start_time IS DISTINCT FROM OLD.start_time OR NEW.member_id IS DISTINCT FROM OLD.member_id THEN
+    IF TG_OP = 'UPDATE' AND OLD.approval_status = 'approved' THEN
+      RAISE EXCEPTION 'Approved time entry compensation is locked';
+    END IF;
+    NEW.compensation_rate := public.resolve_team_member_hourly_rate(NEW.member_id, NEW.start_time);
+  END IF;
+
+  IF NEW.end_time IS NULL THEN
+    NEW.approval_status := 'draft';
+    NEW.submitted_at := NULL;
+    NEW.approved_at := NULL;
+    NEW.approved_by := NULL;
+  ELSIF TG_OP = 'INSERT' OR OLD.end_time IS NULL THEN
+    NEW.submitted_at := now();
+    IF member_role = 'owner' THEN
+      NEW.approval_status := 'approved';
+      NEW.approved_at := now();
+      NEW.approved_by := NEW.member_id;
+      NEW.compensation_rate := 0;
+    ELSE
+      NEW.approval_status := 'pending';
+      NEW.approved_at := NULL;
+      NEW.approved_by := NULL;
+    END IF;
+  ELSIF TG_OP = 'UPDATE' AND OLD.approval_status = 'rejected' AND member_role <> 'owner' THEN
+    NEW.approval_status := 'pending';
+    NEW.submitted_at := now();
+    NEW.approved_at := NULL;
+    NEW.approved_by := NULL;
+    NEW.rejection_reason := NULL;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER apply_time_entry_compensation
+  BEFORE INSERT OR UPDATE ON public.project_time_entries
+  FOR EACH ROW EXECUTE FUNCTION public.apply_time_entry_compensation();
+
+CREATE OR REPLACE FUNCTION public.review_time_entries(
+  p_entry_ids uuid[],
+  p_decision text,
+  p_reason text DEFAULT NULL
+)
+RETURNS SETOF public.project_time_entries
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF NOT public.has_permission('time.approve', 'app') THEN
+    RAISE EXCEPTION 'Permission denied';
+  END IF;
+  IF p_decision NOT IN ('approved', 'rejected') THEN
+    RAISE EXCEPTION 'Invalid review decision';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM public.project_time_entries
+    WHERE id = ANY(p_entry_ids)
+      AND member_id = public.current_team_member_id()
+  ) THEN
+    RAISE EXCEPTION 'Time entries cannot be self-approved';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM public.project_time_entries
+    WHERE id = ANY(p_entry_ids)
+      AND NOT public.can_access_project(project_id)
+  ) THEN
+    RAISE EXCEPTION 'Project access denied';
+  END IF;
+
+  RETURN QUERY
+  UPDATE public.project_time_entries entry
+  SET approval_status = p_decision,
+      approved_at = CASE WHEN p_decision = 'approved' THEN now() ELSE NULL END,
+      approved_by = CASE WHEN p_decision = 'approved' THEN public.current_team_member_id() ELSE NULL END,
+      rejection_reason = CASE WHEN p_decision = 'rejected' THEN COALESCE(p_reason, '') ELSE NULL END,
+      updated_at = now()
+  WHERE entry.id = ANY(p_entry_ids)
+    AND entry.approval_status = 'pending'
+    AND entry.end_time IS NOT NULL
+  RETURNING entry.*;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.validate_team_member_payout(p_payout_id uuid)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  payout_row public.team_member_payouts;
+  allocation_total numeric;
+  allocation_row record;
+  source_amount numeric;
+  source_allocated numeric;
+BEGIN
+  SELECT * INTO payout_row FROM public.team_member_payouts WHERE id = p_payout_id;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Payout not found'; END IF;
+
+  SELECT COALESCE(SUM(allocated_amount), 0)
+  INTO allocation_total
+  FROM public.team_member_payout_allocations
+  WHERE payout_id = p_payout_id;
+
+  IF ROUND(allocation_total, 2) IS DISTINCT FROM ROUND(payout_row.amount, 2) THEN
+    RAISE EXCEPTION 'Payout allocations do not match payout amount';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM public.team_member_payout_allocations allocation
+    LEFT JOIN public.project_time_entries entry ON entry.id = allocation.time_entry_id
+    LEFT JOIN public.team_member_earning_adjustments adjustment ON adjustment.id = allocation.adjustment_id
+    WHERE allocation.payout_id = p_payout_id
+      AND COALESCE(entry.member_id, adjustment.member_id) IS DISTINCT FROM payout_row.member_id
+  ) THEN
+    RAISE EXCEPTION 'Payout allocation belongs to another member';
+  END IF;
+
+  FOR allocation_row IN
+    SELECT * FROM public.team_member_payout_allocations WHERE payout_id = p_payout_id
+  LOOP
+    IF allocation_row.time_entry_id IS NOT NULL THEN
+      SELECT
+        CASE
+          WHEN entry.approval_status = 'approved' AND entry.end_time IS NOT NULL THEN
+            ROUND(
+              COALESCE((
+                SELECT SUM(
+                  EXTRACT(EPOCH FROM (
+                    (segment.value->>'end')::timestamptz
+                    - (segment.value->>'start')::timestamptz
+                  )) / 3600
+                )
+                FROM jsonb_array_elements(COALESCE(entry.segments, '[]'::jsonb)) segment
+                WHERE NULLIF(segment.value->>'end', '') IS NOT NULL
+              ), 0) * entry.compensation_rate,
+              2
+            )
+          ELSE NULL
+        END
+      INTO source_amount
+      FROM public.project_time_entries entry
+      WHERE entry.id = allocation_row.time_entry_id;
+
+      IF source_amount IS NULL THEN
+        RAISE EXCEPTION 'Payouts can only allocate approved completed time';
+      END IF;
+    ELSE
+      SELECT
+        CASE
+          WHEN adjustment.voided_at IS NULL THEN
+            CASE WHEN adjustment.adjustment_type = 'deduction' THEN -adjustment.amount ELSE adjustment.amount END
+          ELSE NULL
+        END
+      INTO source_amount
+      FROM public.team_member_earning_adjustments adjustment
+      WHERE adjustment.id = allocation_row.adjustment_id;
+
+      IF source_amount IS NULL THEN
+        RAISE EXCEPTION 'Payouts cannot allocate a missing or voided adjustment';
+      END IF;
+    END IF;
+
+    IF source_amount = 0
+      OR sign(allocation_row.allocated_amount) IS DISTINCT FROM sign(source_amount) THEN
+      RAISE EXCEPTION 'Payout allocation has an invalid direction';
+    END IF;
+
+    SELECT COALESCE(SUM(existing.allocated_amount), 0)
+    INTO source_allocated
+    FROM public.team_member_payout_allocations existing
+    JOIN public.team_member_payouts existing_payout ON existing_payout.id = existing.payout_id
+    WHERE existing_payout.voided_at IS NULL
+      AND (
+        (allocation_row.time_entry_id IS NOT NULL AND existing.time_entry_id = allocation_row.time_entry_id)
+        OR (allocation_row.adjustment_id IS NOT NULL AND existing.adjustment_id = allocation_row.adjustment_id)
+      );
+
+    IF (source_amount > 0 AND source_allocated > source_amount + 0.005)
+      OR (source_amount < 0 AND source_allocated < source_amount - 0.005) THEN
+      RAISE EXCEPTION 'Payout allocation exceeds the remaining source balance';
+    END IF;
+  END LOOP;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.record_team_member_payout(
+  p_member_id uuid,
+  p_payment_date text,
+  p_amount numeric,
+  p_payment_method text,
+  p_reference text,
+  p_notes text,
+  p_allocations jsonb
+)
+RETURNS public.team_member_payouts
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  payout_row public.team_member_payouts;
+  allocation jsonb;
+BEGIN
+  IF NOT public.has_permission('payouts.manage', 'app') THEN
+    RAISE EXCEPTION 'Permission denied';
+  END IF;
+  IF p_amount <= 0 OR jsonb_typeof(p_allocations) IS DISTINCT FROM 'array' THEN
+    RAISE EXCEPTION 'A positive payout and allocations are required';
+  END IF;
+
+  INSERT INTO public.team_member_payouts (
+    member_id, payment_date, amount, payment_method, reference, notes, created_by
+  ) VALUES (
+    p_member_id, p_payment_date::date, p_amount, COALESCE(p_payment_method, ''),
+    COALESCE(p_reference, ''), COALESCE(p_notes, ''), public.current_team_member_id()
+  ) RETURNING * INTO payout_row;
+
+  FOR allocation IN SELECT value FROM jsonb_array_elements(p_allocations)
+  LOOP
+    INSERT INTO public.team_member_payout_allocations (
+      payout_id, time_entry_id, adjustment_id, allocated_amount
+    ) VALUES (
+      payout_row.id,
+      NULLIF(allocation->>'time_entry_id', '')::uuid,
+      NULLIF(allocation->>'adjustment_id', '')::uuid,
+      (allocation->>'allocated_amount')::numeric
+    );
+  END LOOP;
+
+  PERFORM public.validate_team_member_payout(payout_row.id);
+  RETURN payout_row;
+END;
+$$;
+
+-- Enforce payout accounting invariants at the database layer, not only inside
+-- record_team_member_payout. Deferred constraint triggers run once at commit,
+-- after the payout row and all of its allocations exist, so any direct DML that
+-- bypasses the RPC (a client insert by a payouts.manage holder, a SQL console)
+-- is still validated: allocations must sum to the payout amount, belong to the
+-- payout's member, match direction, and not over-allocate a source.
+CREATE OR REPLACE FUNCTION public.enforce_team_member_payout_integrity()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  target_payout uuid;
+BEGIN
+  IF TG_TABLE_NAME = 'team_member_payouts' THEN
+    target_payout := NEW.id;
+  ELSE
+    target_payout := NEW.payout_id;
+  END IF;
+  -- Nothing to validate if the payout no longer exists (e.g. a cascaded delete).
+  IF target_payout IS NULL
+    OR NOT EXISTS (SELECT 1 FROM public.team_member_payouts WHERE id = target_payout) THEN
+    RETURN NULL;
+  END IF;
+  PERFORM public.validate_team_member_payout(target_payout);
+  RETURN NULL;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_team_member_payout_integrity ON public.team_member_payouts;
+CREATE CONSTRAINT TRIGGER trg_team_member_payout_integrity
+  AFTER INSERT OR UPDATE ON public.team_member_payouts
+  DEFERRABLE INITIALLY DEFERRED
+  FOR EACH ROW EXECUTE FUNCTION public.enforce_team_member_payout_integrity();
+
+DROP TRIGGER IF EXISTS trg_team_member_payout_allocation_integrity ON public.team_member_payout_allocations;
+CREATE CONSTRAINT TRIGGER trg_team_member_payout_allocation_integrity
+  AFTER INSERT OR UPDATE ON public.team_member_payout_allocations
+  DEFERRABLE INITIALLY DEFERRED
+  FOR EACH ROW EXECUTE FUNCTION public.enforce_team_member_payout_integrity();
+
+CREATE OR REPLACE FUNCTION public.set_credential_members(
+  p_credential_id uuid,
+  p_member_ids uuid[]
+)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  credential_project_id uuid;
+BEGIN
+  SELECT project_id INTO credential_project_id
+  FROM public.project_credentials WHERE id = p_credential_id;
+  IF credential_project_id IS NULL
+    OR NOT public.has_permission('credentials.manage', 'app')
+    OR NOT public.can_access_project(credential_project_id) THEN
+    RAISE EXCEPTION 'Permission denied';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM unnest(COALESCE(p_member_ids, ARRAY[]::uuid[])) requested(member_id)
+    WHERE NOT EXISTS (
+      SELECT 1 FROM public.project_members assignment
+      WHERE assignment.project_id = credential_project_id
+        AND assignment.member_id = requested.member_id
+    )
+  ) THEN
+    RAISE EXCEPTION 'Credentials can only be shared with assigned project members';
+  END IF;
+
+  DELETE FROM public.project_credential_members WHERE credential_id = p_credential_id;
+  INSERT INTO public.project_credential_members (credential_id, member_id, granted_by)
+  SELECT p_credential_id, requested.member_id, public.current_team_member_id()
+  FROM unnest(COALESCE(p_member_ids, ARRAY[]::uuid[])) requested(member_id)
+  ON CONFLICT DO NOTHING;
+END;
+$$;
+
+-- ---------------------------------------------------------------------------
+-- Restrictive RLS policies
+-- ---------------------------------------------------------------------------
+
+ALTER TABLE public.role_permissions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.team_member_permissions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.team_member_hourly_rates ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.team_member_earning_adjustments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.team_member_payouts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.team_member_payout_allocations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.project_credential_members ENABLE ROW LEVEL SECURITY;
+
+DO $$
+DECLARE
+  table_name text;
+  policy_name text;
+BEGIN
+  FOREACH table_name IN ARRAY ARRAY[
+    'team_members','contacts','projects','project_members','project_contacts','tasks',
+    'task_assignees','task_subtasks','task_comments','activities','leads',
+    'lead_interactions','lead_proposals','lead_fields','lead_members','lead_contacts',
+    'portal_settings','client_communications','entity_files','api_keys','portal_updates',
+    'portal_update_attachments','portal_events','project_time_entries',
+    'project_hourly_rates','invoice_time_entry_allocations','project_credentials',
+    'project_invoices','team_member_notifications','project_context','project_budget_history',
+    'business_settings','smtp_accounts','role_permissions','team_member_permissions',
+    'team_member_hourly_rates','team_member_earning_adjustments','team_member_payouts',
+    'team_member_payout_allocations','project_credential_members'
+  ] LOOP
+    IF to_regclass('public.' || table_name) IS NOT NULL THEN
+      FOR policy_name IN
+        SELECT policyname FROM pg_policies WHERE schemaname = 'public' AND tablename = table_name
+      LOOP
+        EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', policy_name, table_name);
+      END LOOP;
+    END IF;
+  END LOOP;
+END;
+$$;
+
+CREATE POLICY team_members_self_or_manage_select ON public.team_members FOR SELECT TO authenticated
+  USING (id = public.current_team_member_id() OR public.has_permission('team.manage'));
+-- Team member writes go through guarded server routes. Direct authenticated
+-- writes are Owner-only so a member cannot change their own role or status and
+-- an Admin cannot elevate themselves or modify the Owner.
+CREATE POLICY team_members_owner_write ON public.team_members FOR ALL TO authenticated
+  USING (public.current_team_member_role() = 'owner')
+  WITH CHECK (public.current_team_member_role() = 'owner');
+
+CREATE POLICY role_permissions_owner ON public.role_permissions FOR ALL TO authenticated
+  USING (public.current_team_member_role() = 'owner')
+  WITH CHECK (public.current_team_member_role() = 'owner');
+CREATE POLICY member_permissions_owner ON public.team_member_permissions FOR ALL TO authenticated
+  USING (public.current_team_member_role() = 'owner')
+  WITH CHECK (public.current_team_member_role() = 'owner');
+
+CREATE POLICY contacts_select ON public.contacts FOR SELECT TO authenticated
+  USING (public.has_permission('contacts.read_all') OR (
+    public.has_permission('contacts.read') AND EXISTS (
+      SELECT 1 FROM public.project_contacts pc
+      WHERE pc.contact_id = contacts.id AND public.can_access_project(pc.project_id)
+    )
+  ));
+CREATE POLICY contacts_manage ON public.contacts FOR ALL TO authenticated
+  USING (public.has_permission('contacts.manage')) WITH CHECK (public.has_permission('contacts.manage'));
+
+CREATE POLICY projects_management_select ON public.projects FOR SELECT TO authenticated
+  USING (public.has_permission('projects.read_all') OR (
+    public.has_permission('projects.read') AND public.can_access_project(id)
+  ));
+CREATE POLICY projects_manage ON public.projects FOR ALL TO authenticated
+  USING (public.has_permission('projects.manage')) WITH CHECK (public.has_permission('projects.manage'));
+
+CREATE POLICY project_members_select ON public.project_members FOR SELECT TO authenticated
+  USING (public.can_access_project(project_id));
+CREATE POLICY project_members_manage ON public.project_members FOR ALL TO authenticated
+  USING (public.has_permission('project_members.manage') AND public.can_access_project(project_id))
+  WITH CHECK (public.has_permission('project_members.manage') AND public.can_access_project(project_id));
+
+CREATE POLICY project_contacts_select ON public.project_contacts FOR SELECT TO authenticated
+  USING (public.can_access_project(project_id) AND public.has_permission('contacts.read'));
+CREATE POLICY project_contacts_manage ON public.project_contacts FOR ALL TO authenticated
+  USING (public.has_permission('contacts.manage')) WITH CHECK (public.has_permission('contacts.manage'));
+
+CREATE POLICY tasks_select ON public.tasks FOR SELECT TO authenticated
+  USING (public.has_permission('tasks.read') AND public.can_access_project(project_id));
+CREATE POLICY tasks_insert ON public.tasks FOR INSERT TO authenticated
+  WITH CHECK (public.has_permission('tasks.create') AND public.can_access_project(project_id)
+    AND created_by = public.current_team_member_id());
+CREATE POLICY tasks_update ON public.tasks FOR UPDATE TO authenticated
+  USING (public.can_access_project(project_id) AND (public.has_permission('tasks.manage_all') OR (
+    public.has_permission('tasks.manage_assigned') AND EXISTS (
+      SELECT 1 FROM public.task_assignees ta
+      WHERE ta.task_id = tasks.id AND ta.member_id = public.current_team_member_id()
+    )
+  )));
+CREATE POLICY tasks_delete ON public.tasks FOR DELETE TO authenticated
+  USING (public.has_permission('tasks.manage_all') AND public.can_access_project(project_id));
+
+CREATE POLICY task_assignees_select ON public.task_assignees FOR SELECT TO authenticated
+  USING (public.can_access_task(task_id));
+CREATE POLICY task_assignees_manage ON public.task_assignees FOR ALL TO authenticated
+  USING (public.has_permission('tasks.manage_all')) WITH CHECK (public.has_permission('tasks.manage_all'));
+CREATE POLICY task_assignees_creator_self_insert ON public.task_assignees FOR INSERT TO authenticated
+  WITH CHECK (member_id = public.current_team_member_id() AND EXISTS (
+    SELECT 1 FROM public.tasks task
+    WHERE task.id = task_id AND task.created_by = public.current_team_member_id()
+  ));
+
+CREATE POLICY task_subtasks_select ON public.task_subtasks FOR SELECT TO authenticated
+  USING (public.can_access_task(task_id));
+CREATE POLICY task_subtasks_manage ON public.task_subtasks FOR ALL TO authenticated
+  USING (public.can_access_task(task_id) AND (
+    public.has_permission('tasks.manage_all') OR (
+      public.has_permission('tasks.manage_assigned') AND EXISTS (
+        SELECT 1 FROM public.task_assignees assignment
+        WHERE assignment.task_id = task_subtasks.task_id
+          AND assignment.member_id = public.current_team_member_id()
+      )
+    )
+  )) WITH CHECK (public.can_access_task(task_id) AND (
+    public.has_permission('tasks.manage_all') OR EXISTS (
+      SELECT 1 FROM public.task_assignees assignment
+      WHERE assignment.task_id = task_subtasks.task_id
+        AND assignment.member_id = public.current_team_member_id()
+    )
+  ));
+
+CREATE POLICY task_comments_select ON public.task_comments FOR SELECT TO authenticated
+  USING (public.can_access_task(task_id));
+CREATE POLICY task_comments_insert ON public.task_comments FOR INSERT TO authenticated
+  WITH CHECK (public.can_access_task(task_id) AND user_id = public.current_team_member_id());
+CREATE POLICY task_comments_update_delete ON public.task_comments FOR ALL TO authenticated
+  USING (user_id = public.current_team_member_id() OR public.has_permission('tasks.manage_all'));
+
+CREATE POLICY activities_select ON public.activities FOR SELECT TO authenticated
+  USING (user_id = public.current_team_member_id() OR public.has_permission('audit.read'));
+CREATE POLICY activities_insert ON public.activities FOR INSERT TO authenticated
+  WITH CHECK (user_id = public.current_team_member_id());
+
+CREATE POLICY leads_select ON public.leads FOR SELECT TO authenticated
+  USING (public.can_access_lead(id));
+CREATE POLICY leads_manage ON public.leads FOR ALL TO authenticated
+  USING (public.has_permission('leads.manage')) WITH CHECK (public.has_permission('leads.manage'));
+CREATE POLICY lead_members_select ON public.lead_members FOR SELECT TO authenticated
+  USING (public.can_access_lead(lead_id));
+CREATE POLICY lead_members_manage ON public.lead_members FOR ALL TO authenticated
+  USING (public.has_permission('leads.manage')) WITH CHECK (public.has_permission('leads.manage'));
+CREATE POLICY lead_interactions_access ON public.lead_interactions FOR ALL TO authenticated
+  USING (public.can_access_lead(lead_id)) WITH CHECK (public.can_access_lead(lead_id));
+CREATE POLICY lead_proposals_access ON public.lead_proposals FOR ALL TO authenticated
+  USING (public.can_access_lead(lead_id)) WITH CHECK (public.can_access_lead(lead_id));
+CREATE POLICY lead_fields_access ON public.lead_fields FOR ALL TO authenticated
+  USING (public.can_access_lead(lead_id)) WITH CHECK (public.can_access_lead(lead_id));
+CREATE POLICY lead_contacts_access ON public.lead_contacts FOR ALL TO authenticated
+  USING (public.can_access_lead(lead_id)) WITH CHECK (public.can_access_lead(lead_id));
+
+CREATE POLICY portal_settings_access ON public.portal_settings FOR ALL TO authenticated
+  USING (public.has_permission('portal.read') AND public.can_access_project(project_id))
+  WITH CHECK (public.has_permission('portal.manage') AND public.can_access_project(project_id));
+CREATE POLICY client_communications_access ON public.client_communications FOR ALL TO authenticated
+  USING (public.has_permission('communications.read') AND public.can_access_project(project_id))
+  WITH CHECK (public.has_permission('communications.manage') AND public.can_access_project(project_id));
+CREATE POLICY portal_updates_access ON public.portal_updates FOR ALL TO authenticated
+  USING (public.has_permission('portal.read') AND public.can_access_project(project_id))
+  WITH CHECK (public.has_permission('portal.manage') AND public.can_access_project(project_id));
+CREATE POLICY portal_update_attachments_access ON public.portal_update_attachments FOR ALL TO authenticated
+  USING (EXISTS (SELECT 1 FROM public.portal_updates pu WHERE pu.id = update_id AND public.has_permission('portal.read')))
+  WITH CHECK (public.has_permission('portal.manage'));
+CREATE POLICY portal_events_access ON public.portal_events FOR SELECT TO authenticated
+  USING (public.has_permission('portal.read'));
+
+CREATE POLICY entity_files_select ON public.entity_files FOR SELECT TO authenticated
+  USING (public.has_permission('files.read') AND (
+    (entity_type = 'project' AND public.can_access_project(entity_id)) OR
+    (entity_type = 'task' AND public.can_access_task(entity_id)) OR
+    public.has_permission('files.manage')
+  ));
+CREATE POLICY entity_files_insert ON public.entity_files FOR INSERT TO authenticated
+  WITH CHECK (public.has_permission('files.upload') AND uploaded_by = public.current_team_member_id());
+CREATE POLICY entity_files_update_delete ON public.entity_files FOR ALL TO authenticated
+  USING (public.has_permission('files.manage') OR (
+    uploaded_by = public.current_team_member_id() AND visibility = 'internal'
+  ));
+
+CREATE POLICY api_keys_select ON public.api_keys FOR SELECT TO authenticated
+  USING (team_member_id = public.current_team_member_id()
+    OR created_by = public.current_team_member_id()
+    OR public.has_permission('api_keys.manage_all'));
+CREATE POLICY api_keys_insert_own ON public.api_keys FOR INSERT TO authenticated
+  WITH CHECK (team_member_id = public.current_team_member_id()
+    AND created_by = public.current_team_member_id());
+CREATE POLICY api_keys_update_own ON public.api_keys FOR UPDATE TO authenticated
+  USING (team_member_id = public.current_team_member_id()
+    OR public.has_permission('api_keys.manage_all'));
+
+CREATE POLICY time_entries_management_select ON public.project_time_entries FOR SELECT TO authenticated
+  USING (public.has_permission('time.read_all') AND public.can_access_project(project_id));
+CREATE POLICY time_entries_own_select ON public.project_time_entries FOR SELECT TO authenticated
+  USING (public.has_permission('time.manage_own')
+    AND member_id = public.current_team_member_id()
+    AND public.can_access_project(project_id));
+CREATE POLICY time_entries_insert ON public.project_time_entries FOR INSERT TO authenticated
+  WITH CHECK (public.can_access_project(project_id) AND (
+    (public.has_permission('time.manage_own') AND member_id = public.current_team_member_id())
+    OR public.has_permission('time.manage_all')
+  ));
+CREATE POLICY time_entries_update ON public.project_time_entries FOR UPDATE TO authenticated
+  USING (public.can_access_project(project_id) AND (
+    public.has_permission('time.manage_all') OR (
+      public.has_permission('time.manage_own')
+      AND member_id = public.current_team_member_id()
+      AND approval_status IN ('draft', 'pending', 'rejected')
+    )
+  ));
+CREATE POLICY time_entries_delete ON public.project_time_entries FOR DELETE TO authenticated
+  USING (public.has_permission('time.manage_all') OR (
+    public.has_permission('time.manage_own')
+    AND member_id = public.current_team_member_id()
+    AND approval_status IN ('draft', 'pending', 'rejected')
+  ));
+
+CREATE POLICY hourly_rates_manage ON public.project_hourly_rates FOR ALL TO authenticated
+  USING (public.has_permission('billing.manage') AND public.can_access_project(project_id))
+  WITH CHECK (public.has_permission('billing.manage') AND public.can_access_project(project_id));
+CREATE POLICY invoice_allocations_access ON public.invoice_time_entry_allocations FOR ALL TO authenticated
+  USING (public.has_permission('invoices.read') AND EXISTS (
+    SELECT 1 FROM public.project_invoices invoice WHERE invoice.id = invoice_id AND public.can_access_project(invoice.project_id)
+  )) WITH CHECK (public.has_permission('invoices.manage'));
+CREATE POLICY invoices_access ON public.project_invoices FOR ALL TO authenticated
+  USING (public.has_permission('invoices.read') AND public.can_access_project(project_id))
+  WITH CHECK (public.has_permission('invoices.manage') AND public.can_access_project(project_id));
+
+CREATE POLICY credentials_management ON public.project_credentials FOR ALL TO authenticated
+  USING (public.has_permission('credentials.manage') AND public.can_access_project(project_id))
+  WITH CHECK (public.has_permission('credentials.manage') AND public.can_access_project(project_id));
+CREATE POLICY credential_members_management ON public.project_credential_members FOR ALL TO authenticated
+  USING (public.has_permission('credentials.manage')) WITH CHECK (public.has_permission('credentials.manage'));
+
+CREATE POLICY notifications_own_select ON public.team_member_notifications FOR SELECT TO authenticated
+  USING (user_id = public.current_team_member_id());
+CREATE POLICY notifications_own_update ON public.team_member_notifications FOR UPDATE TO authenticated
+  USING (user_id = public.current_team_member_id());
+CREATE POLICY notifications_own_delete ON public.team_member_notifications FOR DELETE TO authenticated
+  USING (user_id = public.current_team_member_id());
+
+CREATE POLICY project_context_select ON public.project_context FOR SELECT TO authenticated
+  USING (public.has_permission('project_context.read') AND public.can_access_project(project_id));
+CREATE POLICY project_context_manage ON public.project_context FOR ALL TO authenticated
+  USING (public.has_permission('project_context.manage') AND public.can_access_project(project_id))
+  WITH CHECK (public.has_permission('project_context.manage') AND public.can_access_project(project_id));
+CREATE POLICY budget_history_access ON public.project_budget_history FOR SELECT TO authenticated
+  USING (public.has_permission('billing.manage'));
+
+CREATE POLICY business_settings_access ON public.business_settings FOR ALL TO authenticated
+  USING (public.has_permission('settings.manage')) WITH CHECK (public.has_permission('settings.manage'));
+CREATE POLICY smtp_accounts_access ON public.smtp_accounts FOR ALL TO authenticated
+  USING (public.has_permission('smtp.manage')) WITH CHECK (public.has_permission('smtp.manage'));
+
+CREATE POLICY member_rates_own_or_manage ON public.team_member_hourly_rates FOR SELECT TO authenticated
+  USING (member_id = public.current_team_member_id() OR public.has_permission('compensation.manage'));
+CREATE POLICY member_rates_manage ON public.team_member_hourly_rates FOR ALL TO authenticated
+  USING (public.has_permission('compensation.manage')) WITH CHECK (public.has_permission('compensation.manage'));
+CREATE POLICY adjustments_own_or_manage ON public.team_member_earning_adjustments FOR SELECT TO authenticated
+  USING (member_id = public.current_team_member_id() OR public.has_permission('compensation.manage'));
+CREATE POLICY adjustments_manage ON public.team_member_earning_adjustments FOR ALL TO authenticated
+  USING (public.has_permission('compensation.manage')) WITH CHECK (public.has_permission('compensation.manage'));
+CREATE POLICY payouts_own_or_manage ON public.team_member_payouts FOR SELECT TO authenticated
+  USING (member_id = public.current_team_member_id() OR public.has_permission('payouts.manage'));
+CREATE POLICY payouts_manage ON public.team_member_payouts FOR ALL TO authenticated
+  USING (public.has_permission('payouts.manage')) WITH CHECK (public.has_permission('payouts.manage'));
+CREATE POLICY payout_allocations_own_or_manage ON public.team_member_payout_allocations FOR SELECT TO authenticated
+  USING (EXISTS (
+    SELECT 1 FROM public.team_member_payouts payout
+    WHERE payout.id = payout_id
+      AND (payout.member_id = public.current_team_member_id() OR public.has_permission('payouts.manage'))
+  ));
+CREATE POLICY payout_allocations_manage ON public.team_member_payout_allocations FOR ALL TO authenticated
+  USING (public.has_permission('payouts.manage')) WITH CHECK (public.has_permission('payouts.manage'));
+
+-- Supplemental Agent tables are optional in a fresh non-Agent installation.
+DO $$
+BEGIN
+  IF to_regclass('public.project_goals') IS NOT NULL THEN
+    EXECUTE 'DROP POLICY IF EXISTS "project_goals_all" ON public.project_goals';
+    EXECUTE 'CREATE POLICY project_goals_access ON public.project_goals FOR ALL TO authenticated
+      USING (public.has_permission(''goals.read'') AND public.can_access_project(project_id))
+      WITH CHECK (public.has_permission(''goals.manage'') AND public.can_access_project(project_id))';
+  END IF;
+  IF to_regclass('public.task_suggestions') IS NOT NULL THEN
+    EXECUTE 'DROP POLICY IF EXISTS "task_suggestions_all" ON public.task_suggestions';
+    EXECUTE 'CREATE POLICY task_suggestions_access ON public.task_suggestions FOR ALL TO authenticated
+      USING (public.has_permission(''suggestions.manage'') AND public.can_access_project(project_id))
+      WITH CHECK (public.has_permission(''suggestions.manage'') AND public.can_access_project(project_id))';
+  END IF;
+  IF to_regclass('public.agent_activities') IS NOT NULL THEN
+    EXECUTE 'DROP POLICY IF EXISTS "agent_activities_all" ON public.agent_activities';
+    EXECUTE 'CREATE POLICY agent_activities_access ON public.agent_activities FOR ALL TO authenticated
+      USING (public.has_permission(''agents.manage'') OR agent_id = public.current_team_member_id())
+      WITH CHECK (public.has_permission(''agents.manage'') OR agent_id = public.current_team_member_id())';
+  END IF;
+  IF to_regclass('public.api_audit_log') IS NOT NULL THEN
+    EXECUTE 'DROP POLICY IF EXISTS "api_audit_log_all" ON public.api_audit_log';
+    EXECUTE 'CREATE POLICY api_audit_log_access ON public.api_audit_log FOR SELECT TO authenticated
+      USING (public.has_permission(''audit.read''))';
+  END IF;
+END;
+$$;
+
+-- ---------------------------------------------------------------------------
+-- Function privileges and final validation
+-- ---------------------------------------------------------------------------
+
+REVOKE ALL ON FUNCTION public.current_team_member_id() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.current_team_member_role() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.has_permission(text, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.can_access_project(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.can_access_lead(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.can_access_task(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.can_access_credential(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.get_my_access_context() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.get_team_directory() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.get_accessible_time_entries(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.get_accessible_credential_metadata(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.resolve_team_member_hourly_rate(uuid, timestamptz) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.review_time_entries(uuid[], text, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.record_team_member_payout(uuid, text, numeric, text, text, text, jsonb) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.set_credential_members(uuid, uuid[]) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.protect_project_billing_fields() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.validate_team_member_payout(uuid) FROM PUBLIC;
+
+GRANT EXECUTE ON FUNCTION public.current_team_member_id() TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.current_team_member_role() TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.has_permission(text, text) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.can_access_project(uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.can_access_lead(uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.can_access_task(uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.can_access_credential(uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.get_my_access_context() TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_team_directory() TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_accessible_time_entries(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_accessible_credential_metadata(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.resolve_team_member_hourly_rate(uuid, timestamptz) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.review_time_entries(uuid[], text, text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.record_team_member_payout(uuid, text, numeric, text, text, text, jsonb) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.set_credential_members(uuid, uuid[]) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.validate_team_member_payout(uuid) TO authenticated, service_role;
+
+DO $$
+BEGIN
+  IF (SELECT COUNT(*) FROM public.team_members WHERE role = 'owner' AND status = 'active') < 1 THEN
+    RAISE EXCEPTION 'At least one active Owner is required';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM public.project_time_entries
+    WHERE approval_status = 'approved' AND compensation_rate <> 0
+  ) THEN
+    RAISE EXCEPTION 'Historical Owner compensation backfill must remain zero';
+  END IF;
+  IF EXISTS (
+    SELECT 1
+    FROM public.invoice_time_entry_allocations allocation
+    LEFT JOIN public.project_time_entries entry ON entry.id = allocation.time_entry_id
+    WHERE entry.id IS NULL
+  ) THEN
+    RAISE EXCEPTION 'Invoice allocation integrity check failed';
+  END IF;
+END;
+$$;
+
+COMMIT;
+
+BEGIN;
+
+-- Owners and AI agents never accrue employee compensation, even if an old or
+-- mistakenly-created rate row exists for them.
+CREATE OR REPLACE FUNCTION public.resolve_team_member_hourly_rate(
+  p_member_id uuid,
+  p_effective_at timestamptz
+)
+RETURNS numeric
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT CASE WHEN member.role IN ('owner', 'agent') THEN 0 ELSE COALESCE((
+    SELECT rate.hourly_rate
+    FROM public.team_member_hourly_rates rate
+    WHERE rate.member_id = p_member_id AND rate.effective_at <= p_effective_at
+    ORDER BY rate.effective_at DESC
+    LIMIT 1
+  ), 0) END
+  FROM public.team_members member
+  WHERE member.id = p_member_id
+$$;
+
+-- Existing deployments already ran the initial access migration. Add the
+-- app-facing Agent defaults idempotently so assigned work is usable there too.
+INSERT INTO public.role_permissions (role, permission_key, access_channel) VALUES
+  ('agent','team.read','app'), ('agent','projects.read','app'),
+  ('agent','tasks.read','app'), ('agent','tasks.create','app'),
+  ('agent','tasks.manage_assigned','app'), ('agent','files.read','app'),
+  ('agent','files.upload','app'), ('agent','project_context.read','app'),
+  ('agent','project_context.manage','app'), ('agent','goals.read','app'),
+  ('agent','goals.manage','app'), ('agent','suggestions.manage','app')
+ON CONFLICT DO NOTHING;
+
+INSERT INTO public.role_permissions (role, permission_key, access_channel) VALUES
+  ('admin','notifications.manage_own','api'),
+  ('member','notifications.manage_own','api'),
+  ('guest','notifications.manage_own','api'),
+  ('agent','notifications.manage_own','api')
+ON CONFLICT DO NOTHING;
+
+-- Preserve access for legacy lead assignments that predate lead_members.
+INSERT INTO public.lead_members (lead_id, member_id)
+SELECT lead.id, lead.assigned_to
+FROM public.leads lead
+WHERE lead.assigned_to IS NOT NULL
+ON CONFLICT DO NOTHING;
+
+CREATE OR REPLACE FUNCTION public.can_access_lead(p_lead_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT public.has_permission('leads.read_all', 'app')
+    OR (
+      public.has_permission('leads.read', 'app')
+      AND EXISTS (
+        SELECT 1 FROM public.leads lead
+        WHERE lead.id = p_lead_id
+          AND (
+            lead.assigned_to = public.current_team_member_id()
+            OR EXISTS (
+              SELECT 1 FROM public.lead_members assignment
+              WHERE assignment.lead_id = lead.id
+                AND assignment.member_id = public.current_team_member_id()
+            )
+          )
+      )
+    )
+$$;
+
+CREATE OR REPLACE FUNCTION public.can_access_file_entity(p_entity_type text, p_entity_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT CASE p_entity_type
+    WHEN 'project' THEN public.can_access_project(p_entity_id)
+    WHEN 'lead' THEN public.can_access_lead(p_entity_id)
+    WHEN 'contact' THEN
+      public.has_permission('contacts.read_all', 'app')
+      OR (
+        public.has_permission('contacts.read', 'app')
+        AND EXISTS (
+          SELECT 1 FROM public.project_contacts link
+          WHERE link.contact_id = p_entity_id
+            AND public.can_access_project(link.project_id)
+        )
+      )
+    ELSE false
+  END
+$$;
+
+-- Editing a rejected completed entry resubmits it for review. Without this,
+-- rejected work can be corrected but remains permanently excluded from pay.
+CREATE OR REPLACE FUNCTION public.apply_time_entry_compensation()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  member_role text;
+BEGIN
+  SELECT role INTO member_role FROM public.team_members WHERE id = NEW.member_id;
+
+  IF TG_OP = 'INSERT' OR NEW.start_time IS DISTINCT FROM OLD.start_time OR NEW.member_id IS DISTINCT FROM OLD.member_id THEN
+    IF TG_OP = 'UPDATE' AND OLD.approval_status = 'approved' THEN
+      RAISE EXCEPTION 'Approved time entry compensation is locked';
+    END IF;
+    NEW.compensation_rate := public.resolve_team_member_hourly_rate(NEW.member_id, NEW.start_time);
+  END IF;
+
+  IF NEW.end_time IS NULL THEN
+    NEW.approval_status := 'draft';
+    NEW.submitted_at := NULL;
+    NEW.approved_at := NULL;
+    NEW.approved_by := NULL;
+  ELSIF TG_OP = 'INSERT' OR OLD.end_time IS NULL THEN
+    NEW.submitted_at := now();
+    IF member_role = 'owner' THEN
+      NEW.approval_status := 'approved';
+      NEW.approved_at := now();
+      NEW.approved_by := NEW.member_id;
+      NEW.compensation_rate := 0;
+    ELSE
+      NEW.approval_status := 'pending';
+      NEW.approved_at := NULL;
+      NEW.approved_by := NULL;
+    END IF;
+  ELSIF TG_OP = 'UPDATE' AND OLD.approval_status = 'rejected' AND member_role <> 'owner' THEN
+    NEW.approval_status := 'pending';
+    NEW.submitted_at := now();
+    NEW.approved_at := NULL;
+    NEW.approved_by := NULL;
+    NEW.rejection_reason := NULL;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.review_time_entries(
+  p_entry_ids uuid[],
+  p_decision text,
+  p_reason text DEFAULT NULL
+)
+RETURNS SETOF public.project_time_entries
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF NOT public.has_permission('time.approve', 'app') THEN
+    RAISE EXCEPTION 'Permission denied';
+  END IF;
+  IF p_decision NOT IN ('approved', 'rejected') THEN
+    RAISE EXCEPTION 'Invalid review decision';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM public.project_time_entries
+    WHERE id = ANY(p_entry_ids)
+      AND member_id = public.current_team_member_id()
+  ) THEN
+    RAISE EXCEPTION 'Time entries cannot be self-approved';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM public.project_time_entries
+    WHERE id = ANY(p_entry_ids)
+      AND NOT public.can_access_project(project_id)
+  ) THEN
+    RAISE EXCEPTION 'Project access denied';
+  END IF;
+  IF p_decision = 'approved' AND EXISTS (
+    SELECT 1
+    FROM public.project_time_entries entry
+    JOIN public.team_members member ON member.id = entry.member_id
+    WHERE entry.id = ANY(p_entry_ids)
+      AND entry.approval_status = 'pending'
+      AND member.role NOT IN ('owner', 'agent')
+      AND NOT EXISTS (
+        SELECT 1 FROM public.team_member_hourly_rates rate
+        WHERE rate.member_id = entry.member_id
+          AND rate.effective_at <= entry.start_time
+      )
+  ) THEN
+    RAISE EXCEPTION 'Compensation rate missing for one or more time entries';
+  END IF;
+
+  RETURN QUERY
+  UPDATE public.project_time_entries entry
+  SET approval_status = p_decision,
+      compensation_rate = CASE WHEN p_decision = 'approved'
+        THEN public.resolve_team_member_hourly_rate(entry.member_id, entry.start_time)
+        ELSE entry.compensation_rate END,
+      approved_at = CASE WHEN p_decision = 'approved' THEN now() ELSE NULL END,
+      approved_by = CASE WHEN p_decision = 'approved' THEN public.current_team_member_id() ELSE NULL END,
+      rejection_reason = CASE WHEN p_decision = 'rejected' THEN COALESCE(p_reason, '') ELSE NULL END,
+      updated_at = now()
+  WHERE entry.id = ANY(p_entry_ids)
+    AND entry.approval_status = 'pending'
+    AND entry.end_time IS NOT NULL
+  RETURNING entry.*;
+END;
+$$;
+
+-- Adding or backdating a rate repairs every affected unpaid snapshot. Entries
+-- with any payout allocation remain immutable so recorded payroll never moves.
+CREATE OR REPLACE FUNCTION public.schedule_team_member_hourly_rate(
+  p_member_id uuid,
+  p_hourly_rate numeric,
+  p_effective_at timestamptz,
+  p_created_by uuid DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  member_role text;
+  inserted_rate public.team_member_hourly_rates%ROWTYPE;
+  updated_entries integer;
+BEGIN
+  IF auth.role() <> 'service_role' AND NOT public.has_permission('compensation.manage', 'app') THEN
+    RAISE EXCEPTION 'Permission denied';
+  END IF;
+  IF p_hourly_rate IS NULL OR p_hourly_rate < 0 OR p_effective_at IS NULL THEN
+    RAISE EXCEPTION 'Valid rate and effective date are required';
+  END IF;
+
+  SELECT role INTO member_role FROM public.team_members WHERE id = p_member_id;
+  IF member_role IS NULL THEN
+    RAISE EXCEPTION 'Team member not found';
+  END IF;
+  IF member_role IN ('owner', 'agent') THEN
+    RAISE EXCEPTION 'Owners and AI agents cannot receive compensation rates';
+  END IF;
+
+  INSERT INTO public.team_member_hourly_rates (
+    member_id, hourly_rate, effective_at, created_by
+  ) VALUES (
+    p_member_id, p_hourly_rate, p_effective_at,
+    COALESCE(public.current_team_member_id(), p_created_by)
+  )
+  RETURNING * INTO inserted_rate;
+
+  UPDATE public.project_time_entries entry
+  SET compensation_rate = public.resolve_team_member_hourly_rate(entry.member_id, entry.start_time),
+      updated_at = now()
+  WHERE entry.member_id = p_member_id
+    AND entry.start_time >= p_effective_at
+    AND NOT EXISTS (
+      SELECT 1 FROM public.team_member_payout_allocations allocation
+      WHERE allocation.time_entry_id = entry.id
+    )
+    AND entry.compensation_rate IS DISTINCT FROM public.resolve_team_member_hourly_rate(entry.member_id, entry.start_time);
+  GET DIAGNOSTICS updated_entries = ROW_COUNT;
+
+  RETURN jsonb_build_object(
+    'rate', to_jsonb(inserted_rate),
+    'updated_entries', updated_entries
+  );
+END;
+$$;
+
+-- Lead readers may read related records, but only lead managers may mutate them.
+DROP POLICY IF EXISTS lead_interactions_access ON public.lead_interactions;
+DROP POLICY IF EXISTS lead_proposals_access ON public.lead_proposals;
+DROP POLICY IF EXISTS lead_fields_access ON public.lead_fields;
+DROP POLICY IF EXISTS lead_contacts_access ON public.lead_contacts;
+DROP POLICY IF EXISTS lead_interactions_select ON public.lead_interactions;
+DROP POLICY IF EXISTS lead_interactions_manage ON public.lead_interactions;
+DROP POLICY IF EXISTS lead_proposals_select ON public.lead_proposals;
+DROP POLICY IF EXISTS lead_proposals_manage ON public.lead_proposals;
+DROP POLICY IF EXISTS lead_fields_select ON public.lead_fields;
+DROP POLICY IF EXISTS lead_fields_manage ON public.lead_fields;
+DROP POLICY IF EXISTS lead_contacts_select ON public.lead_contacts;
+DROP POLICY IF EXISTS lead_contacts_manage ON public.lead_contacts;
+
+CREATE POLICY lead_interactions_select ON public.lead_interactions FOR SELECT TO authenticated
+  USING (public.can_access_lead(lead_id));
+CREATE POLICY lead_interactions_manage ON public.lead_interactions FOR ALL TO authenticated
+  USING (public.has_permission('leads.manage') AND public.can_access_lead(lead_id))
+  WITH CHECK (public.has_permission('leads.manage') AND public.can_access_lead(lead_id));
+CREATE POLICY lead_proposals_select ON public.lead_proposals FOR SELECT TO authenticated
+  USING (public.can_access_lead(lead_id));
+CREATE POLICY lead_proposals_manage ON public.lead_proposals FOR ALL TO authenticated
+  USING (public.has_permission('leads.manage') AND public.can_access_lead(lead_id))
+  WITH CHECK (public.has_permission('leads.manage') AND public.can_access_lead(lead_id));
+CREATE POLICY lead_fields_select ON public.lead_fields FOR SELECT TO authenticated
+  USING (public.can_access_lead(lead_id));
+CREATE POLICY lead_fields_manage ON public.lead_fields FOR ALL TO authenticated
+  USING (public.has_permission('leads.manage') AND public.can_access_lead(lead_id))
+  WITH CHECK (public.has_permission('leads.manage') AND public.can_access_lead(lead_id));
+CREATE POLICY lead_contacts_select ON public.lead_contacts FOR SELECT TO authenticated
+  USING (public.can_access_lead(lead_id));
+CREATE POLICY lead_contacts_manage ON public.lead_contacts FOR ALL TO authenticated
+  USING (public.has_permission('leads.manage') AND public.can_access_lead(lead_id))
+  WITH CHECK (public.has_permission('leads.manage') AND public.can_access_lead(lead_id));
+
+-- Split read and write policies so read access never authorizes deletes.
+DROP POLICY IF EXISTS portal_settings_access ON public.portal_settings;
+DROP POLICY IF EXISTS client_communications_access ON public.client_communications;
+DROP POLICY IF EXISTS portal_updates_access ON public.portal_updates;
+DROP POLICY IF EXISTS portal_update_attachments_access ON public.portal_update_attachments;
+DROP POLICY IF EXISTS portal_events_access ON public.portal_events;
+DROP POLICY IF EXISTS portal_settings_select ON public.portal_settings;
+DROP POLICY IF EXISTS portal_settings_manage ON public.portal_settings;
+DROP POLICY IF EXISTS client_communications_select ON public.client_communications;
+DROP POLICY IF EXISTS client_communications_manage ON public.client_communications;
+DROP POLICY IF EXISTS portal_updates_select ON public.portal_updates;
+DROP POLICY IF EXISTS portal_updates_manage ON public.portal_updates;
+DROP POLICY IF EXISTS portal_update_attachments_select ON public.portal_update_attachments;
+DROP POLICY IF EXISTS portal_update_attachments_manage ON public.portal_update_attachments;
+DROP POLICY IF EXISTS portal_events_select ON public.portal_events;
+
+CREATE POLICY portal_settings_select ON public.portal_settings FOR SELECT TO authenticated
+  USING (public.has_permission('portal.read') AND public.can_access_project(project_id));
+CREATE POLICY portal_settings_manage ON public.portal_settings FOR ALL TO authenticated
+  USING (public.has_permission('portal.manage') AND public.can_access_project(project_id))
+  WITH CHECK (public.has_permission('portal.manage') AND public.can_access_project(project_id));
+CREATE POLICY client_communications_select ON public.client_communications FOR SELECT TO authenticated
+  USING (public.has_permission('communications.read') AND public.can_access_project(project_id));
+CREATE POLICY client_communications_manage ON public.client_communications FOR ALL TO authenticated
+  USING (public.has_permission('communications.manage') AND public.can_access_project(project_id))
+  WITH CHECK (public.has_permission('communications.manage') AND public.can_access_project(project_id));
+CREATE POLICY portal_updates_select ON public.portal_updates FOR SELECT TO authenticated
+  USING (public.has_permission('portal.read') AND public.can_access_project(project_id));
+CREATE POLICY portal_updates_manage ON public.portal_updates FOR ALL TO authenticated
+  USING (public.has_permission('portal.manage') AND public.can_access_project(project_id))
+  WITH CHECK (public.has_permission('portal.manage') AND public.can_access_project(project_id));
+CREATE POLICY portal_update_attachments_select ON public.portal_update_attachments FOR SELECT TO authenticated
+  USING (public.has_permission('portal.read') AND EXISTS (
+    SELECT 1 FROM public.portal_updates update_row
+    WHERE update_row.id = update_id AND public.can_access_project(update_row.project_id)
+  ));
+CREATE POLICY portal_update_attachments_manage ON public.portal_update_attachments FOR ALL TO authenticated
+  USING (public.has_permission('portal.manage') AND EXISTS (
+    SELECT 1 FROM public.portal_updates update_row
+    WHERE update_row.id = update_id AND public.can_access_project(update_row.project_id)
+  ))
+  WITH CHECK (public.has_permission('portal.manage') AND EXISTS (
+    SELECT 1 FROM public.portal_updates update_row
+    WHERE update_row.id = update_id AND public.can_access_project(update_row.project_id)
+  ));
+CREATE POLICY portal_events_select ON public.portal_events FOR SELECT TO authenticated
+  USING (public.has_permission('portal.read') AND public.can_access_project(project_id));
+
+DROP POLICY IF EXISTS entity_files_select ON public.entity_files;
+DROP POLICY IF EXISTS entity_files_insert ON public.entity_files;
+DROP POLICY IF EXISTS entity_files_update_delete ON public.entity_files;
+CREATE POLICY entity_files_select ON public.entity_files FOR SELECT TO authenticated
+  USING (public.has_permission('files.read') AND public.can_access_file_entity(entity_type, entity_id));
+CREATE POLICY entity_files_insert ON public.entity_files FOR INSERT TO authenticated
+  WITH CHECK (
+    public.has_permission('files.upload')
+    AND uploaded_by = public.current_team_member_id()
+    AND public.can_access_file_entity(entity_type, entity_id)
+  );
+CREATE POLICY entity_files_update_delete ON public.entity_files FOR ALL TO authenticated
+  USING (
+    public.can_access_file_entity(entity_type, entity_id)
+    AND (public.has_permission('files.manage') OR (
+      uploaded_by = public.current_team_member_id() AND visibility = 'internal'
+    ))
+  )
+  WITH CHECK (
+    public.can_access_file_entity(entity_type, entity_id)
+    AND (public.has_permission('files.manage') OR uploaded_by = public.current_team_member_id())
+  );
+
+-- A project manager without assignment-management access can still retain
+-- access to a project they personally create.
+DROP POLICY IF EXISTS project_members_creator_self_insert ON public.project_members;
+CREATE POLICY project_members_creator_self_insert ON public.project_members FOR INSERT TO authenticated
+  WITH CHECK (
+    member_id = public.current_team_member_id()
+    AND EXISTS (
+      SELECT 1 FROM public.projects project
+      WHERE project.id = project_id
+        AND project.created_by = public.current_team_member_id()
+    )
+  );
+
+DROP POLICY IF EXISTS invoice_allocations_access ON public.invoice_time_entry_allocations;
+DROP POLICY IF EXISTS invoices_access ON public.project_invoices;
+DROP POLICY IF EXISTS invoice_allocations_select ON public.invoice_time_entry_allocations;
+DROP POLICY IF EXISTS invoice_allocations_manage ON public.invoice_time_entry_allocations;
+DROP POLICY IF EXISTS invoices_select ON public.project_invoices;
+DROP POLICY IF EXISTS invoices_manage ON public.project_invoices;
+CREATE POLICY invoice_allocations_select ON public.invoice_time_entry_allocations FOR SELECT TO authenticated
+  USING (public.has_permission('invoices.read') AND EXISTS (
+    SELECT 1 FROM public.project_invoices invoice
+    WHERE invoice.id = invoice_id AND public.can_access_project(invoice.project_id)
+  ));
+CREATE POLICY invoice_allocations_manage ON public.invoice_time_entry_allocations FOR ALL TO authenticated
+  USING (public.has_permission('invoices.manage') AND EXISTS (
+    SELECT 1 FROM public.project_invoices invoice
+    WHERE invoice.id = invoice_id AND public.can_access_project(invoice.project_id)
+  ))
+  WITH CHECK (public.has_permission('invoices.manage') AND EXISTS (
+    SELECT 1 FROM public.project_invoices invoice
+    WHERE invoice.id = invoice_id AND public.can_access_project(invoice.project_id)
+  ));
+CREATE POLICY invoices_select ON public.project_invoices FOR SELECT TO authenticated
+  USING (public.has_permission('invoices.read') AND public.can_access_project(project_id));
+CREATE POLICY invoices_manage ON public.project_invoices FOR ALL TO authenticated
+  USING (public.has_permission('invoices.manage') AND public.can_access_project(project_id))
+  WITH CHECK (public.has_permission('invoices.manage') AND public.can_access_project(project_id));
+
+DROP POLICY IF EXISTS time_entries_delete ON public.project_time_entries;
+CREATE POLICY time_entries_delete ON public.project_time_entries FOR DELETE TO authenticated
+  USING (public.can_access_project(project_id) AND (
+    public.has_permission('time.manage_all') OR (
+      public.has_permission('time.manage_own')
+      AND member_id = public.current_team_member_id()
+      AND approval_status IN ('draft', 'pending', 'rejected')
+    )
+  ));
+
+-- Personal compensation is visible only when own-earnings access is enabled.
+DROP POLICY IF EXISTS member_rates_own_or_manage ON public.team_member_hourly_rates;
+DROP POLICY IF EXISTS adjustments_own_or_manage ON public.team_member_earning_adjustments;
+DROP POLICY IF EXISTS payouts_own_or_manage ON public.team_member_payouts;
+DROP POLICY IF EXISTS payout_allocations_own_or_manage ON public.team_member_payout_allocations;
+CREATE POLICY member_rates_own_or_manage ON public.team_member_hourly_rates FOR SELECT TO authenticated
+  USING ((member_id = public.current_team_member_id() AND public.has_permission('earnings.own.read'))
+    OR public.has_permission('compensation.manage'));
+CREATE POLICY adjustments_own_or_manage ON public.team_member_earning_adjustments FOR SELECT TO authenticated
+  USING ((member_id = public.current_team_member_id() AND public.has_permission('earnings.own.read'))
+    OR public.has_permission('compensation.manage'));
+CREATE POLICY payouts_own_or_manage ON public.team_member_payouts FOR SELECT TO authenticated
+  USING ((member_id = public.current_team_member_id() AND public.has_permission('earnings.own.read'))
+    OR public.has_permission('payouts.manage'));
+CREATE POLICY payout_allocations_own_or_manage ON public.team_member_payout_allocations FOR SELECT TO authenticated
+  USING (EXISTS (
+    SELECT 1 FROM public.team_member_payouts payout
+    WHERE payout.id = payout_id AND (
+      (payout.member_id = public.current_team_member_id() AND public.has_permission('earnings.own.read'))
+      OR public.has_permission('payouts.manage')
+    )
+  ));
+
+REVOKE ALL ON FUNCTION public.can_access_file_entity(text, uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.can_access_file_entity(text, uuid) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.schedule_team_member_hourly_rate(uuid, numeric, timestamptz, uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.schedule_team_member_hourly_rate(uuid, numeric, timestamptz, uuid) TO authenticated, service_role;
+
+-- Project and time mutations are handled by permission-aware server routes.
+-- Keep direct authenticated reads limited to non-financial columns so RLS
+-- cannot expose client billing rates or employee compensation rates.
+REVOKE SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON public.projects FROM authenticated;
+GRANT SELECT (
+  id, name, description, color, status, start_date, due_date,
+  hourly_tracking, time_tracking_enabled, created_by, created_at, updated_at, archived_at
+) ON public.projects TO authenticated;
+
+REVOKE SELECT, INSERT, UPDATE, TRUNCATE, REFERENCES, TRIGGER ON public.project_time_entries FROM authenticated;
+GRANT SELECT (
+  id, project_id, member_id, start_time, end_time, description,
+  created_at, updated_at, segments, work_type, approval_status,
+  submitted_at, approved_at, approved_by, rejection_reason
+) ON public.project_time_entries TO authenticated;
+GRANT DELETE ON public.project_time_entries TO authenticated;
+
+COMMIT;
+-- API scope integrity follow-up (20260721_api_scope_integrity.sql)
+BEGIN;
+
+DELETE FROM public.role_permissions
+WHERE role = 'agent'
+  AND permission_key = 'suggestions.manage';
+
+INSERT INTO public.role_permissions (role, permission_key, access_channel) VALUES
+  ('agent', 'suggestions.create', 'api'),
+  ('agent', 'agent_activity.write', 'api')
+ON CONFLICT DO NOTHING;
+
+UPDATE public.api_keys key
+SET scopes = ARRAY(
+  SELECT DISTINCT scope
+  FROM unnest(
+    array_remove(COALESCE(key.scopes, '{}'), 'suggestions.manage')
+      || ARRAY['suggestions.create', 'agent_activity.write']
+  ) AS scope
+  ORDER BY scope
+)
+WHERE EXISTS (
+  SELECT 1
+  FROM public.team_members member
+  WHERE member.id = key.team_member_id
+    AND member.role = 'agent'
+);
+
+CREATE OR REPLACE FUNCTION public.review_time_entries_api(
+  p_project_id uuid,
+  p_entry_ids uuid[],
+  p_decision text,
+  p_reason text,
+  p_reviewer_id uuid
+)
+RETURNS SETOF public.project_time_entries
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF auth.role() <> 'service_role' THEN RAISE EXCEPTION 'Service role required'; END IF;
+  IF COALESCE(array_length(p_entry_ids, 1), 0) = 0 THEN RAISE EXCEPTION 'Select at least one time entry'; END IF;
+  IF p_decision NOT IN ('approved', 'rejected') THEN RAISE EXCEPTION 'Invalid review decision'; END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.team_members WHERE id = p_reviewer_id AND status = 'active') THEN RAISE EXCEPTION 'Active reviewer not found'; END IF;
+  IF (SELECT count(*) FROM public.project_time_entries WHERE id = ANY(p_entry_ids)) <> cardinality(p_entry_ids) THEN RAISE EXCEPTION 'One or more time entries were not found'; END IF;
+  IF EXISTS (SELECT 1 FROM public.project_time_entries WHERE id = ANY(p_entry_ids) AND project_id IS DISTINCT FROM p_project_id) THEN RAISE EXCEPTION 'Time entry does not belong to the project'; END IF;
+  IF EXISTS (SELECT 1 FROM public.project_time_entries WHERE id = ANY(p_entry_ids) AND member_id = p_reviewer_id) THEN RAISE EXCEPTION 'Time entries cannot be self-approved'; END IF;
+  IF p_decision = 'approved' AND EXISTS (
+    SELECT 1 FROM public.project_time_entries entry
+    JOIN public.team_members member ON member.id = entry.member_id
+    WHERE entry.id = ANY(p_entry_ids) AND entry.approval_status = 'pending'
+      AND member.role NOT IN ('owner', 'agent')
+      AND NOT EXISTS (SELECT 1 FROM public.team_member_hourly_rates rate WHERE rate.member_id = entry.member_id AND rate.effective_at <= entry.start_time)
+  ) THEN RAISE EXCEPTION 'Compensation rate missing for one or more time entries'; END IF;
+  RETURN QUERY
+  UPDATE public.project_time_entries entry
+  SET approval_status = p_decision,
+      compensation_rate = CASE WHEN p_decision = 'approved' THEN public.resolve_team_member_hourly_rate(entry.member_id, entry.start_time) ELSE entry.compensation_rate END,
+      approved_at = CASE WHEN p_decision = 'approved' THEN now() ELSE NULL END,
+      approved_by = CASE WHEN p_decision = 'approved' THEN p_reviewer_id ELSE NULL END,
+      rejection_reason = CASE WHEN p_decision = 'rejected' THEN COALESCE(p_reason, '') ELSE NULL END,
+      updated_at = now()
+  WHERE entry.id = ANY(p_entry_ids) AND entry.project_id = p_project_id
+    AND entry.approval_status = 'pending' AND entry.end_time IS NOT NULL
+  RETURNING entry.*;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.review_time_entries_api(uuid, uuid[], text, text, uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.review_time_entries_api(uuid, uuid[], text, text, uuid) TO service_role;
+
+CREATE TABLE IF NOT EXISTS public.api_rate_limit_windows (
+  api_key_id uuid PRIMARY KEY REFERENCES public.api_keys(id) ON DELETE CASCADE,
+  window_start timestamptz NOT NULL,
+  request_count integer NOT NULL CHECK (request_count > 0)
+);
+ALTER TABLE public.api_rate_limit_windows ENABLE ROW LEVEL SECURITY;
+
+CREATE OR REPLACE FUNCTION public.consume_api_rate_limit(
+  p_api_key_id uuid,
+  p_limit integer DEFAULT 120,
+  p_window_seconds integer DEFAULT 60
+)
+RETURNS TABLE (allowed boolean, remaining integer, reset_at timestamptz)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  rate_window public.api_rate_limit_windows%ROWTYPE;
+  v_now timestamptz := clock_timestamp();
+BEGIN
+  IF auth.role() <> 'service_role' THEN RAISE EXCEPTION 'Service role required'; END IF;
+  IF p_limit <= 0 OR p_window_seconds <= 0 THEN RAISE EXCEPTION 'Invalid rate limit'; END IF;
+  INSERT INTO public.api_rate_limit_windows (api_key_id, window_start, request_count)
+  VALUES (p_api_key_id, v_now, 1)
+  ON CONFLICT (api_key_id) DO UPDATE
+  SET window_start = CASE WHEN api_rate_limit_windows.window_start + make_interval(secs => p_window_seconds) <= v_now THEN v_now ELSE api_rate_limit_windows.window_start END,
+      request_count = CASE WHEN api_rate_limit_windows.window_start + make_interval(secs => p_window_seconds) <= v_now THEN 1 ELSE api_rate_limit_windows.request_count + 1 END
+  RETURNING * INTO rate_window;
+  allowed := rate_window.request_count <= p_limit;
+  remaining := GREATEST(0, p_limit - rate_window.request_count);
+  reset_at := rate_window.window_start + make_interval(secs => p_window_seconds);
+  RETURN NEXT;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.consume_api_rate_limit(uuid, integer, integer) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.consume_api_rate_limit(uuid, integer, integer) TO service_role;
+
+COMMIT;

@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { createClient } from '@/lib/supabase/server';
-import { getServiceClient } from '@/lib/api/supabase-service';
+import { accessAllows, accessAllowsProject, requireSessionAccess } from '@/lib/api/access';
 import { handleBudgetChange } from '@/lib/email/client-notifications';
 import { logProjectBudgetChange, type BudgetType } from '@/lib/project-budget-history';
 
@@ -36,17 +35,11 @@ export async function POST(
 ) {
   const { id: projectId } = await ctx.params;
 
-  const supabase = await createClient();
-  const { data: { user }, error } = await supabase.auth.getUser();
-  if (error || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
-  const service = getServiceClient();
-  const { data: member } = await service
-    .from('team_members')
-    .select('id')
-    .eq('auth_user_id', user.id)
-    .maybeSingle();
-  if (!member) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await requireSessionAccess();
+  if (auth.error) return auth.error;
+  if (!accessAllows(auth.data.access, 'billing.manage') || !accessAllowsProject(auth.data.access, projectId)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
 
   let body: z.infer<typeof schema>;
   try {
@@ -73,7 +66,7 @@ export async function POST(
     projectId,
     oldSnapshot,
     newSnapshot,
-    changedBy: member.id,
+    changedBy: auth.data.memberId,
   }).catch(() => null);
 
   // 2. Run notification orchestration inline so the response only comes back
@@ -89,7 +82,7 @@ export async function POST(
     oldSnapshot.value,
     newSnapshot.type,
     newSnapshot.value,
-    member.id,
+    auth.data.memberId,
     newHistoryId,
   ).catch(() => {});
 

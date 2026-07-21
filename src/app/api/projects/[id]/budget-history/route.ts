@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
 import { getProjectBudgetHistory } from '@/lib/project-budget-history';
+import { accessAllows, accessAllowsProject, requireSessionAccess } from '@/lib/api/access';
 
 export const dynamic = 'force-dynamic';
 
@@ -10,9 +10,11 @@ export async function GET(
 ) {
   const { id: projectId } = await ctx.params;
 
-  const supabase = await createClient();
-  const { data: { user }, error } = await supabase.auth.getUser();
-  if (error || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await requireSessionAccess();
+  if (auth.error) return auth.error;
+  if (!accessAllows(auth.data.access, 'billing.manage') || !accessAllowsProject(auth.data.access, projectId)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
 
   const entries = await getProjectBudgetHistory(projectId, 50);
   return NextResponse.json({ entries });

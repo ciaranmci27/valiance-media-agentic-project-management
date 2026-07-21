@@ -76,7 +76,7 @@ export function LeadCard({ lead, onEdit, onDelete, onConvert }: LeadCardProps) {
           </p>
         </div>
 
-        <div className="relative flex-shrink-0">
+        {(onEdit || onDelete || onConvert) && <div className="relative flex-shrink-0">
           <button
             onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }}
             className="lg:opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 transition-all"
@@ -114,7 +114,7 @@ export function LeadCard({ lead, onEdit, onDelete, onConvert }: LeadCardProps) {
               </div>
             </>
           )}
-        </div>
+        </div>}
       </div>
 
       {/* Source + Status badges */}

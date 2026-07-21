@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
 import { encrypt, decrypt, isEncryptionConfigured } from '@/lib/api/encryption';
 import { updateCredentialSchema, payloadFromBody } from '@/lib/schemas/credentials';
 import { fetchCredentialWithEncryptedData, patchProjectCredential } from '@/lib/supabase/queries';
 import type { CredentialPayload } from '@/lib/types';
+import { requireSessionAccess } from '@/lib/api/access';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,11 +12,9 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
-  const supabase = await createClient();
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
-  if (authError || !user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const auth = await requireSessionAccess({ permission: 'credentials.manage' });
+  if (auth.error) return auth.error;
+  const { service } = auth.data;
 
   if (!isEncryptionConfigured()) {
     return NextResponse.json({ error: 'Encryption not configured' }, { status: 503 });
@@ -46,7 +44,7 @@ export async function PATCH(
     if (hasSecretFields) {
       // Decrypt current values, merge with updates, re-encrypt.
       // Keys not present in the request are preserved.
-      const existing = await fetchCredentialWithEncryptedData(supabase, id);
+      const existing = await fetchCredentialWithEncryptedData(service, id);
       const current = await decrypt<CredentialPayload>(existing.encrypted_data, existing.iv);
 
       const merged: CredentialPayload = { ...current, ...providedFields };
@@ -60,7 +58,7 @@ export async function PATCH(
       return NextResponse.json({ error: 'No fields to update' }, { status: 400 });
     }
 
-    const updated = await patchProjectCredential(supabase, id, updates);
+    const updated = await patchProjectCredential(service, id, updates);
     return NextResponse.json({ success: true, data: updated });
   } catch {
     return NextResponse.json({ error: 'Credential not found' }, { status: 404 });

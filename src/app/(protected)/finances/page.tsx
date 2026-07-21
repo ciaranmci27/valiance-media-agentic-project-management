@@ -17,10 +17,23 @@ import {
   ChevronDown,
   Check,
 } from 'lucide-react';
+import { PayrollPanel } from '@/components/finances/PayrollPanel';
+import { EmployeeEarningsDashboard } from '@/components/finances/EmployeeEarningsDashboard';
+import { useAuth } from '@/lib/auth-context';
+import { hasPermission } from '@/lib/access-control';
+import type { EmployeeEarningsData } from '@/lib/types';
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+const EMPTY_EMPLOYEE_EARNINGS: EmployeeEarningsData = {
+  entries: [],
+  rates: [],
+  adjustments: [],
+  payouts: [],
+  allocations: [],
+};
 
 function fmt(value: number): string {
   if (value >= 1000) {
@@ -31,6 +44,10 @@ function fmt(value: number): string {
     minimumFractionDigits: hasCents ? 2 : 0,
     maximumFractionDigits: 2,
   });
+}
+
+function fmtCurrency(value: number): string {
+  return value < 0 ? `-$${fmt(Math.abs(value))}` : `$${fmt(value)}`;
 }
 
 function fmtDate(dateStr: string, withWeekday = false): string {
@@ -85,8 +102,10 @@ function fmtAxis(val: number): string {
   if (val === 0) return '$0';
   // Round to avoid floating-point artifacts like $0.600000000000001
   const rounded = Math.round(val * 100) / 100;
-  if (rounded >= 1000) return `$${(rounded / 1000).toFixed(rounded % 1000 === 0 ? 0 : 1)}K`;
-  return `$${rounded}`;
+  const absolute = Math.abs(rounded);
+  const prefix = rounded < 0 ? '-$' : '$';
+  if (absolute >= 1000) return `${prefix}${(absolute / 1000).toFixed(absolute % 1000 === 0 ? 0 : 1)}K`;
+  return `${prefix}${absolute}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -196,6 +215,7 @@ interface DayProjectWork {
   value: number;   // hourly value (hours * rate)
   fixed: number;   // amortized fixed line-item revenue for this project on the day
   recurring: number; // amortized recurring line-item revenue for this project on the day
+  teamContribution: number; // employee billable revenue minus employee compensation
 }
 
 interface DayBar {
@@ -208,6 +228,7 @@ interface DayBar {
   fixedRevenue: number;    // amortized fixed line items spread across their service period
   recurringRevenue: number;// amortized recurring line items spread across their service period
   paymentReceived: number; // sum of invoices with paid_date in this bucket
+  teamContribution: number; // signed employee margin or internal labor cost
   projectWork: DayProjectWork[]; // per-project breakdown for tooltip
 }
 
@@ -320,7 +341,10 @@ function LiveTickIndicator({ count }: { count: number }) {
 // ---------------------------------------------------------------------------
 
 export default function FinancesPage() {
-  const { projects, projectInvoices, timeEntries } = useApp();
+  const { projects, projectInvoices, timeEntries, team, employeeEarnings } = useApp();
+  const { access } = useAuth();
+  const canReadCompanyFinance = hasPermission(access, 'finance.company.read');
+  const canReadOwnEarnings = hasPermission(access, 'earnings.own.read');
 
   // ── Live-tick clock for active timers ───────────────────────
   // While any entry is running, bump `now` once a second so the chart, totals,
@@ -482,11 +506,16 @@ export default function FinancesPage() {
     // 1h on the next). The chart (workByDay), range totals (totalHours,
     // hourlyEarnedInRange), and per-project rows are all derived from the same
     // fragments in one pass so they stay coherent.
-    const workByDay = new Map<string, Map<string, { hours: number; value: number }>>();
+    const workByDay = new Map<string, Map<string, { hours: number; value: number; teamContribution: number }>>();
     const hoursByProjectInRange = new Map<string, number>();
     const hourlyEarnedByProjectInRange = new Map<string, number>();
+    const teamContributionByProjectInRange = new Map<string, number>();
+    const payableMemberIds = new Set(
+      team.filter(member => member.role !== 'owner' && member.role !== 'agent').map(member => member.id),
+    );
     let totalHours = 0;
     let hourlyEarnedInRange = 0;
+    let teamContributionInRange = 0;
 
     for (const te of fTimeEntries) {
       // Stopped entries count permanently. Running entries tick against `now`.
@@ -496,22 +525,34 @@ export default function FinancesPage() {
       const rate = te.hourly_rate ?? rateByProject.get(te.project_id) ?? 0;
       for (const [dayKey, hours] of getWorkedHoursByDay(te, now)) {
         if (dayKey < startKey || dayKey > endKey) continue;
-        const value = hours * rate;
+        const billableValue = te.work_type === 'internal' ? 0 : hours * rate;
+        const isEmployee = payableMemberIds.has(te.member_id);
+        const isApprovedEmployeeWork = isEmployee && te.approval_status === 'approved';
+        const value = isEmployee ? 0 : billableValue;
+        const teamContribution = isApprovedEmployeeWork
+          ? billableValue - (hours * Number(te.compensation_rate || 0))
+          : 0;
         totalHours += hours;
         hourlyEarnedInRange += value;
+        teamContributionInRange += teamContribution;
         hoursByProjectInRange.set(te.project_id, (hoursByProjectInRange.get(te.project_id) ?? 0) + hours);
         hourlyEarnedByProjectInRange.set(
           te.project_id,
           (hourlyEarnedByProjectInRange.get(te.project_id) ?? 0) + value,
+        );
+        teamContributionByProjectInRange.set(
+          te.project_id,
+          (teamContributionByProjectInRange.get(te.project_id) ?? 0) + teamContribution,
         );
         let dayMap = workByDay.get(dayKey);
         if (!dayMap) {
           dayMap = new Map();
           workByDay.set(dayKey, dayMap);
         }
-        const cur = dayMap.get(te.project_id) ?? { hours: 0, value: 0 };
+        const cur = dayMap.get(te.project_id) ?? { hours: 0, value: 0, teamContribution: 0 };
         cur.hours += hours;
         cur.value += value;
+        cur.teamContribution += teamContribution;
         dayMap.set(te.project_id, cur);
       }
     }
@@ -579,7 +620,8 @@ export default function FinancesPage() {
       fixed: number;
       recurring: number;
       payments: number;
-      projects: Map<string, { hours: number; value: number; fixed: number; recurring: number }>;
+      teamContribution: number;
+      projects: Map<string, { hours: number; value: number; fixed: number; recurring: number; teamContribution: number }>;
     }
     const buckets = new Map<string, BucketAgg>();
     const getBucket = (dk: string): BucketAgg => {
@@ -595,19 +637,20 @@ export default function FinancesPage() {
         b = {
           startKey: clampedStart,
           endKey: clampedEnd,
-          hours: 0, hourly: 0, fixed: 0, recurring: 0, payments: 0,
+          hours: 0, hourly: 0, fixed: 0, recurring: 0, payments: 0, teamContribution: 0,
           projects: new Map(),
         };
         buckets.set(bStart, b);
       }
       return b;
     };
-    const mergeProject = (b: BucketAgg, pid: string, delta: { hours?: number; value?: number; fixed?: number; recurring?: number }) => {
-      const cur = b.projects.get(pid) ?? { hours: 0, value: 0, fixed: 0, recurring: 0 };
+    const mergeProject = (b: BucketAgg, pid: string, delta: { hours?: number; value?: number; fixed?: number; recurring?: number; teamContribution?: number }) => {
+      const cur = b.projects.get(pid) ?? { hours: 0, value: 0, fixed: 0, recurring: 0, teamContribution: 0 };
       cur.hours += delta.hours ?? 0;
       cur.value += delta.value ?? 0;
       cur.fixed += delta.fixed ?? 0;
       cur.recurring += delta.recurring ?? 0;
+      cur.teamContribution += delta.teamContribution ?? 0;
       b.projects.set(pid, cur);
     };
 
@@ -624,7 +667,8 @@ export default function FinancesPage() {
         for (const [pid, w] of dayProjects) {
           b.hours += w.hours;
           b.hourly += w.value;
-          mergeProject(b, pid, { hours: w.hours, value: w.value });
+          b.teamContribution += w.teamContribution;
+          mergeProject(b, pid, { hours: w.hours, value: w.value, teamContribution: w.teamContribution });
         }
       }
       const dayFixed = fixedByDayProject.get(dk);
@@ -659,6 +703,7 @@ export default function FinancesPage() {
               value: w.value,
               fixed: w.fixed,
               recurring: w.recurring,
+              teamContribution: w.teamContribution,
             };
           })
           .sort((a, b) => (b.value + b.fixed + b.recurring) - (a.value + a.fixed + a.recurring));
@@ -672,19 +717,20 @@ export default function FinancesPage() {
           fixedRevenue: b.fixed,
           recurringRevenue: b.recurring,
           paymentReceived: b.payments,
+          teamContribution: b.teamContribution,
           projectWork,
         };
       });
 
     // Max bar height = max(hourly + fixed + recurring + payment) across the range
     const maxBarTotal = Math.max(
-      ...dailyBars.map(d => d.hourlyValue + d.fixedRevenue + d.recurringRevenue + d.paymentReceived),
+      ...dailyBars.map(d => d.hourlyValue + d.fixedRevenue + d.recurringRevenue + d.paymentReceived + Math.max(0, d.teamContribution)),
       1,
     );
 
     // Range-scoped totals derived from the daily bars (so Earned matches the chart)
     const totalAccruedInRange = dailyBars.reduce((s, d) => s + d.fixedRevenue + d.recurringRevenue, 0);
-    const totalEarned = hourlyEarnedInRange + totalAccruedInRange;
+    const totalEarned = hourlyEarnedInRange + totalAccruedInRange + teamContributionInRange;
 
     // ── Per-project outstanding (all-time, current snapshot) ─
     // Outstanding is a current-state stat (what's still owed right now), so it's
@@ -751,8 +797,9 @@ export default function FinancesPage() {
         // match the chart (a session that crosses midnight is split by day).
         const pHours = hoursByProjectInRange.get(p.id) ?? 0;
         const pHourlyEarned = hourlyEarnedByProjectInRange.get(p.id) ?? 0;
+        const pTeamContribution = teamContributionByProjectInRange.get(p.id) ?? 0;
         const pAccrued = accruedByProjectInRange.get(p.id) ?? 0;
-        const pEarned = pHourlyEarned + pAccrued;
+        const pEarned = pHourlyEarned + pAccrued + pTeamContribution;
 
         return {
           id: p.id,
@@ -768,7 +815,7 @@ export default function FinancesPage() {
           hours: pHours,
         };
       })
-      .filter(p => p.invoiced > 0 || p.hours > 0 || p.outstanding > 0 || p.earned > 0)
+      .filter(p => p.invoiced > 0 || p.hours > 0 || p.outstanding > 0 || Math.abs(p.earned) > 0.005)
       .sort((a, b) => b.earned - a.earned);
 
     // ── Invoices in range (sorted newest first) ─────────────
@@ -786,12 +833,13 @@ export default function FinancesPage() {
       // granularity without redoing the time-entry / invoice scans.
       workByDay, fixedByDayProject, recurringByDayProject, paymentsByDay, projectLookup,
     };
-  }, [projects, projectInvoices, timeEntries, rateByProject, range, now, selectedProjectIds]);
+  }, [projects, projectInvoices, timeEntries, team, rateByProject, range, now, selectedProjectIds]);
 
   // ── Chart state & constants ────────────────────────────────
   const [showHourly, setShowHourly] = useState(true);
   const [showRecurring, setShowRecurring] = useState(true);
   const [showFixed, setShowFixed] = useState(true);
+  const [showTeam, setShowTeam] = useState(true);
   const [showPayments, setShowPayments] = useState(true);
   const [selectedBar, setSelectedBar] = useState<string | null>(null);
   // Drilldown is a two-level stack on top of the main range view:
@@ -822,19 +870,23 @@ export default function FinancesPage() {
 
   // Restore toggle state from localStorage on mount
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem('finances:chartToggles');
-      if (raw) {
-        const saved = JSON.parse(raw);
-        if (typeof saved.hourly === 'boolean') setShowHourly(saved.hourly);
-        if (typeof saved.recurring === 'boolean') setShowRecurring(saved.recurring);
-        if (typeof saved.fixed === 'boolean') setShowFixed(saved.fixed);
-        if (typeof saved.payments === 'boolean') setShowPayments(saved.payments);
+    const timeoutId = window.setTimeout(() => {
+      try {
+        const raw = localStorage.getItem('finances:chartToggles');
+        if (raw) {
+          const saved = JSON.parse(raw);
+          if (typeof saved.hourly === 'boolean') setShowHourly(saved.hourly);
+          if (typeof saved.recurring === 'boolean') setShowRecurring(saved.recurring);
+          if (typeof saved.fixed === 'boolean') setShowFixed(saved.fixed);
+          if (typeof saved.team === 'boolean') setShowTeam(saved.team);
+          if (typeof saved.payments === 'boolean') setShowPayments(saved.payments);
+        }
+      } catch {
+        // ignore malformed storage
       }
-    } catch {
-      // ignore malformed storage
-    }
-    setTogglesLoaded(true);
+      setTogglesLoaded(true);
+    }, 0);
+    return () => window.clearTimeout(timeoutId);
   }, []);
 
   // Persist toggle state whenever it changes (after initial load)
@@ -847,13 +899,14 @@ export default function FinancesPage() {
           hourly: showHourly,
           recurring: showRecurring,
           fixed: showFixed,
+          team: showTeam,
           payments: showPayments,
         }),
       );
     } catch {
       // ignore quota / privacy-mode errors
     }
-  }, [togglesLoaded, showHourly, showRecurring, showFixed, showPayments]);
+  }, [togglesLoaded, showHourly, showRecurring, showFixed, showTeam, showPayments]);
   // Chart height is flex-driven (min 160px), bars use percentage heights
 
   // ── Bucket drilldown bars (week/month → days) ──────────────
@@ -875,23 +928,25 @@ export default function FinancesPage() {
       d.setDate(d.getDate() + i);
       const dk = toDateKey(d);
 
-      const projectMap = new Map<string, { hours: number; value: number; fixed: number; recurring: number }>();
-      const bumpProject = (pid: string, delta: { hours?: number; value?: number; fixed?: number; recurring?: number }) => {
-        const cur = projectMap.get(pid) ?? { hours: 0, value: 0, fixed: 0, recurring: 0 };
+      const projectMap = new Map<string, { hours: number; value: number; fixed: number; recurring: number; teamContribution: number }>();
+      const bumpProject = (pid: string, delta: { hours?: number; value?: number; fixed?: number; recurring?: number; teamContribution?: number }) => {
+        const cur = projectMap.get(pid) ?? { hours: 0, value: 0, fixed: 0, recurring: 0, teamContribution: 0 };
         cur.hours += delta.hours ?? 0;
         cur.value += delta.value ?? 0;
         cur.fixed += delta.fixed ?? 0;
         cur.recurring += delta.recurring ?? 0;
+        cur.teamContribution += delta.teamContribution ?? 0;
         projectMap.set(pid, cur);
       };
 
-      let hours = 0, hourly = 0, fixed = 0, recurring = 0;
+      let hours = 0, hourly = 0, fixed = 0, recurring = 0, teamContribution = 0;
       const dayWork = data.workByDay.get(dk);
       if (dayWork) {
         for (const [pid, w] of dayWork) {
           hours += w.hours;
           hourly += w.value;
-          bumpProject(pid, { hours: w.hours, value: w.value });
+          teamContribution += w.teamContribution;
+          bumpProject(pid, { hours: w.hours, value: w.value, teamContribution: w.teamContribution });
         }
       }
       const dayFixed = data.fixedByDayProject.get(dk);
@@ -921,6 +976,7 @@ export default function FinancesPage() {
             value: w.value,
             fixed: w.fixed,
             recurring: w.recurring,
+            teamContribution: w.teamContribution,
           };
         })
         .sort((a, b) => (b.value + b.fixed + b.recurring) - (a.value + a.fixed + a.recurring));
@@ -935,6 +991,7 @@ export default function FinancesPage() {
         fixedRevenue: fixed,
         recurringRevenue: recurring,
         paymentReceived: payments,
+        teamContribution,
         projectWork,
       });
     }
@@ -957,18 +1014,20 @@ export default function FinancesPage() {
       fixed: number;
       recurring: number;
       payments: number;
-      projects: Map<string, { hours: number; value: number; fixed: number; recurring: number }>;
+      teamContribution: number;
+      projects: Map<string, { hours: number; value: number; fixed: number; recurring: number; teamContribution: number }>;
     }
     const buckets: HourBucket[] = Array.from({ length: 24 }, () => ({
-      hours: 0, hourly: 0, fixed: 0, recurring: 0, payments: 0, projects: new Map(),
+      hours: 0, hourly: 0, fixed: 0, recurring: 0, payments: 0, teamContribution: 0, projects: new Map(),
     }));
 
-    const bumpProject = (b: HourBucket, pid: string, delta: { hours?: number; value?: number; fixed?: number; recurring?: number }) => {
-      const cur = b.projects.get(pid) ?? { hours: 0, value: 0, fixed: 0, recurring: 0 };
+    const bumpProject = (b: HourBucket, pid: string, delta: { hours?: number; value?: number; fixed?: number; recurring?: number; teamContribution?: number }) => {
+      const cur = b.projects.get(pid) ?? { hours: 0, value: 0, fixed: 0, recurring: 0, teamContribution: 0 };
       cur.hours += delta.hours ?? 0;
       cur.value += delta.value ?? 0;
       cur.fixed += delta.fixed ?? 0;
       cur.recurring += delta.recurring ?? 0;
+      cur.teamContribution += delta.teamContribution ?? 0;
       b.projects.set(pid, cur);
     };
 
@@ -976,6 +1035,9 @@ export default function FinancesPage() {
     // project filter so the drilldown matches the parent chart.
     const includeProject = (id: string) =>
       selectedProjectIds.size === 0 || selectedProjectIds.has(id);
+    const payableMemberIds = new Set(
+      team.filter(member => member.role !== 'owner' && member.role !== 'agent').map(member => member.id),
+    );
     for (const te of timeEntries) {
       if (!includeProject(te.project_id)) continue;
       const rate = te.hourly_rate ?? rateByProject.get(te.project_id) ?? 0;
@@ -983,10 +1045,16 @@ export default function FinancesPage() {
       for (let h = 0; h < 24; h++) {
         const hours = perHour[h];
         if (hours <= 0) continue;
-        const value = hours * rate;
+        const billableValue = te.work_type === 'internal' ? 0 : hours * rate;
+        const isEmployee = payableMemberIds.has(te.member_id);
+        const value = isEmployee ? 0 : billableValue;
+        const teamContribution = isEmployee && te.approval_status === 'approved'
+          ? billableValue - (hours * Number(te.compensation_rate || 0))
+          : 0;
         buckets[h].hours += hours;
         buckets[h].hourly += value;
-        bumpProject(buckets[h], te.project_id, { hours, value });
+        buckets[h].teamContribution += teamContribution;
+        bumpProject(buckets[h], te.project_id, { hours, value, teamContribution });
       }
     }
 
@@ -1036,6 +1104,7 @@ export default function FinancesPage() {
             value: w.value,
             fixed: w.fixed,
             recurring: w.recurring,
+            teamContribution: w.teamContribution,
           };
         })
         .sort((a, b) => (b.value + b.fixed + b.recurring) - (a.value + a.fixed + a.recurring));
@@ -1051,10 +1120,11 @@ export default function FinancesPage() {
         fixedRevenue: b.fixed,
         recurringRevenue: b.recurring,
         paymentReceived: b.payments,
+        teamContribution: b.teamContribution,
         projectWork,
       };
     });
-  }, [drilldownDay, timeEntries, rateByProject, projectInvoices, projects, now, selectedProjectIds]);
+  }, [drilldownDay, timeEntries, team, rateByProject, projectInvoices, projects, now, selectedProjectIds]);
 
   // What the chart actually renders, in priority order:
   //   hour drilldown → bucket drilldown → main range.
@@ -1063,26 +1133,39 @@ export default function FinancesPage() {
   const isBucketView = !isHourView && bucketDayBars !== null;
   const isDrilledDown = isHourView || isBucketView;
 
-  // Recalculate max based on visible series
-  const visibleMax = useMemo(() => {
-    return Math.max(
-      ...chartBars.map(d => {
-        let total = 0;
-        if (showHourly) total += d.hourlyValue;
-        if (showRecurring) total += d.recurringRevenue;
-        if (showFixed) total += d.fixedRevenue;
-        if (showPayments) total += d.paymentReceived;
-        return total;
-      }),
+  // Positive employee margin stacks with revenue. Internal or included-work
+  // labor can be negative, so the chart reserves space below the zero line.
+  const axisTicks = useMemo(() => {
+    const positiveMax = Math.max(
+      ...chartBars.map(d =>
+        (showHourly ? d.hourlyValue : 0)
+        + (showRecurring ? d.recurringRevenue : 0)
+        + (showFixed ? d.fixedRevenue : 0)
+        + (showPayments ? d.paymentReceived : 0)
+        + (showTeam ? Math.max(0, d.teamContribution) : 0)),
       1,
     );
-  }, [chartBars, showHourly, showRecurring, showFixed, showPayments]);
+    const negativeMin = showTeam
+      ? Math.min(...chartBars.map(d => Math.min(0, d.teamContribution)), 0)
+      : 0;
+    const positiveTicks = niceAxisTicks(positiveMax, negativeMin < 0 ? 3 : 4);
+    if (negativeMin >= 0) return positiveTicks;
+    const negativeTicks = niceAxisTicks(Math.abs(negativeMin), 2)
+      .slice(1)
+      .map(value => -value)
+      .reverse();
+    return [...negativeTicks, ...positiveTicks];
+  }, [chartBars, showHourly, showRecurring, showFixed, showPayments, showTeam]);
 
-  const axisTicks = useMemo(() => niceAxisTicks(visibleMax), [visibleMax]);
-  const axisMax = axisTicks[axisTicks.length - 1] || 1;
+  const axisMin = Math.min(0, axisTicks[0] || 0);
+  const axisMax = Math.max(1, axisTicks[axisTicks.length - 1] || 1);
+  const axisRange = axisMax - axisMin;
+  const zeroBottomPct = Math.abs(axisMin) / axisRange * 100;
+  const positiveAreaPct = axisMax / axisRange * 100;
+  const negativeAreaPct = Math.abs(axisMin) / axisRange * 100;
 
   const hasAnyChartData = useMemo(
-    () => chartBars.some(d => d.hourlyValue > 0 || d.fixedRevenue > 0 || d.recurringRevenue > 0 || d.paymentReceived > 0),
+    () => chartBars.some(d => d.hourlyValue > 0 || d.fixedRevenue > 0 || d.recurringRevenue > 0 || d.paymentReceived > 0 || Math.abs(d.teamContribution) > 0.005),
     [chartBars],
   );
 
@@ -1092,7 +1175,12 @@ export default function FinancesPage() {
     recurring: chartBars.some(d => d.recurringRevenue > 0),
     fixed: chartBars.some(d => d.fixedRevenue > 0),
     payments: chartBars.some(d => d.paymentReceived > 0),
+    team: chartBars.some(d => Math.abs(d.teamContribution) > 0.005),
   }), [chartBars]);
+
+  if (!canReadCompanyFinance) {
+    return <div className="animate-fadeIn min-h-screen bg-zinc-50"><Header title="My earnings" /><div className="p-4 lg:p-6">{canReadOwnEarnings ? <EmployeeEarningsDashboard projects={projects} data={employeeEarnings ?? EMPTY_EMPLOYEE_EARNINGS} /> : <div className="rounded-xl border border-zinc-200 bg-white p-8 text-center text-sm text-zinc-500">You do not have access to financial information.</div>}</div></div>;
+  }
 
   return (
     <div className="animate-fadeIn min-h-screen bg-zinc-50">
@@ -1303,7 +1391,7 @@ export default function FinancesPage() {
             <div className="flex gap-6 lg:gap-8 min-w-max">
               <div className="shrink-0 min-w-[5.5rem]">
                 <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-400 mb-0.5">Earned</p>
-                <p className="text-sm font-semibold text-emerald-600">${fmt(data.totalEarned)}</p>
+                <p className={`text-sm font-semibold ${data.totalEarned >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{fmtCurrency(data.totalEarned)}</p>
               </div>
               <div className="shrink-0 min-w-[5.5rem]">
                 <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-400 mb-0.5">Outstanding</p>
@@ -1394,7 +1482,7 @@ export default function FinancesPage() {
             </div>
 
             <div className="px-5 pt-5 pb-4 flex-1 flex flex-col">
-              {(!showHourly && !showRecurring && !showFixed && !showPayments) ? (
+              {(!showHourly && !showRecurring && !showFixed && !showTeam && !showPayments) ? (
                 /* Empty state when both series are toggled off */
                 <div className="flex-1 flex flex-col items-center justify-center text-center px-6">
                   <div className="w-10 h-10 rounded-full bg-zinc-100 flex items-center justify-center mb-3">
@@ -1433,11 +1521,11 @@ export default function FinancesPage() {
                     <div className="flex-1 relative" onClick={() => setSelectedBar(null)}>
                       {/* Horizontal grid lines */}
                       {axisTicks.map((tick) => {
-                        const pct = axisMax > 0 ? ((axisMax - tick) / axisMax) * 100 : 0;
+                        const pct = axisRange > 0 ? ((axisMax - tick) / axisRange) * 100 : 0;
                         return (
                           <div
                             key={`grid-${tick}`}
-                            className="absolute left-0 right-0 border-t border-zinc-100"
+                            className={`absolute left-0 right-0 border-t ${tick === 0 && axisMin < 0 ? 'border-zinc-300' : 'border-zinc-100'}`}
                             style={{ top: `${pct}%` }}
                           />
                         );
@@ -1450,13 +1538,18 @@ export default function FinancesPage() {
                           const visibleRecurring = showRecurring ? day.recurringRevenue : 0;
                           const visibleFixed = showFixed ? day.fixedRevenue : 0;
                           const visiblePayment = showPayments ? day.paymentReceived : 0;
-                          const total = visibleHourly + visibleRecurring + visibleFixed + visiblePayment;
-                          const hasData = total > 0;
+                          const visibleTeam = showTeam ? day.teamContribution : 0;
+                          const positiveTeam = Math.max(0, visibleTeam);
+                          const negativeTeam = Math.min(0, visibleTeam);
+                          const positiveTotal = visibleHourly + visibleRecurring + visibleFixed + visiblePayment + positiveTeam;
+                          const hasData = positiveTotal > 0 || negativeTeam < -0.005;
 
                           const hourlyPct = axisMax > 0 ? (visibleHourly / axisMax) * 100 : 0;
                           const recurringPct = axisMax > 0 ? (visibleRecurring / axisMax) * 100 : 0;
                           const fixedPct = axisMax > 0 ? (visibleFixed / axisMax) * 100 : 0;
                           const paymentPct = axisMax > 0 ? (visiblePayment / axisMax) * 100 : 0;
+                          const teamPositivePct = axisMax > 0 ? (positiveTeam / axisMax) * 100 : 0;
+                          const teamNegativePct = axisMin < 0 ? (Math.abs(negativeTeam) / Math.abs(axisMin)) * 100 : 0;
 
                           const isSelected = selectedBar === day.dateKey;
                           // Drilldown ladder: week/month bar → bucket of days,
@@ -1468,8 +1561,9 @@ export default function FinancesPage() {
                           // Figure out which segment is at the top so it gets rounded corners.
                           // Order top→bottom: payment, hourly, fixed, recurring.
                           const topIsPayment = visiblePayment > 0;
-                          const topIsHourly = !topIsPayment && visibleHourly > 0;
-                          const topIsFixed = !topIsPayment && !topIsHourly && visibleFixed > 0;
+                          const topIsTeam = !topIsPayment && positiveTeam > 0;
+                          const topIsHourly = !topIsPayment && !topIsTeam && visibleHourly > 0;
+                          const topIsFixed = !topIsPayment && !topIsTeam && !topIsHourly && visibleFixed > 0;
 
                           return (
                             <div
@@ -1496,37 +1590,28 @@ export default function FinancesPage() {
                             >
                               {hasData ? (
                                 <>
-                                  {visiblePayment > 0 && (
-                                    <div
-                                      className="w-full rounded-t bg-emerald-500 group-hover:bg-emerald-600 transition-colors duration-150"
-                                      style={{ height: `${Math.max(paymentPct, 1.5)}%` }}
-                                    />
-                                  )}
-                                  {visibleHourly > 0 && (
-                                    <div
-                                      className={`w-full bg-sky-400 group-hover:bg-sky-500 transition-colors duration-150 ${topIsHourly ? 'rounded-t' : ''}`}
-                                      style={{ height: `${Math.max(hourlyPct, 1.5)}%` }}
-                                    />
-                                  )}
-                                  {visibleFixed > 0 && (
-                                    <div
-                                      className={`w-full bg-violet-500 group-hover:bg-violet-600 transition-colors duration-150 ${topIsFixed ? 'rounded-t' : ''}`}
-                                      style={{ height: `${Math.max(fixedPct, 1.5)}%` }}
-                                    />
-                                  )}
-                                  {visibleRecurring > 0 && (
-                                    <div
-                                      className={`w-full bg-amber-400 group-hover:bg-amber-500 transition-colors duration-150 ${!topIsPayment && !topIsHourly && !topIsFixed ? 'rounded-t' : ''}`}
-                                      style={{ height: `${Math.max(recurringPct, 1.5)}%` }}
-                                    />
+                                  <div
+                                    className="absolute inset-x-0 flex flex-col justify-end"
+                                    style={{ bottom: `${zeroBottomPct}%`, height: `${positiveAreaPct}%` }}
+                                  >
+                                    {visiblePayment > 0 && <div className="w-full rounded-t bg-emerald-500 transition-colors duration-150 group-hover:bg-emerald-600" style={{ height: `${Math.max(paymentPct, 1.5)}%` }} />}
+                                    {positiveTeam > 0 && <div className={`w-full bg-teal-500 transition-colors duration-150 group-hover:bg-teal-600 ${topIsTeam ? 'rounded-t' : ''}`} style={{ height: `${Math.max(teamPositivePct, 1.5)}%` }} />}
+                                    {visibleHourly > 0 && <div className={`w-full bg-sky-400 transition-colors duration-150 group-hover:bg-sky-500 ${topIsHourly ? 'rounded-t' : ''}`} style={{ height: `${Math.max(hourlyPct, 1.5)}%` }} />}
+                                    {visibleFixed > 0 && <div className={`w-full bg-violet-500 transition-colors duration-150 group-hover:bg-violet-600 ${topIsFixed ? 'rounded-t' : ''}`} style={{ height: `${Math.max(fixedPct, 1.5)}%` }} />}
+                                    {visibleRecurring > 0 && <div className={`w-full bg-amber-400 transition-colors duration-150 group-hover:bg-amber-500 ${!topIsPayment && !topIsTeam && !topIsHourly && !topIsFixed ? 'rounded-t' : ''}`} style={{ height: `${Math.max(recurringPct, 1.5)}%` }} />}
+                                  </div>
+                                  {negativeTeam < 0 && (
+                                    <div className="absolute inset-x-0" style={{ top: `${positiveAreaPct}%`, height: `${negativeAreaPct}%` }}>
+                                      <div className="w-full rounded-b bg-rose-400 transition-colors duration-150 group-hover:bg-rose-500" style={{ height: `${Math.max(teamNegativePct, 2)}%` }} />
+                                    </div>
                                   )}
                                 </>
                               ) : (
-                                <div className="w-full rounded-t bg-zinc-100" style={{ height: 2 }} />
+                                <div className="absolute inset-x-0 bg-zinc-100" style={{ bottom: `${zeroBottomPct}%`, height: 2 }} />
                               )}
 
                               {/* Tooltip - anchored just above the bar, edge-aware */}
-                              {(visibleHourly > 0 || visibleFixed > 0 || visibleRecurring > 0 || visiblePayment > 0) && (() => {
+                              {(visibleHourly > 0 || visibleFixed > 0 || visibleRecurring > 0 || visiblePayment > 0 || Math.abs(visibleTeam) > 0.005) && (() => {
                                 const barCount = chartBars.length;
                                 // Use proportional thresholds so the tooltip flips to edge-anchored
                                 // well before it would overflow the card. Tooltips can be wide
@@ -1543,14 +1628,15 @@ export default function FinancesPage() {
                                 const visFixedVal = showFixed ? day.fixedRevenue : 0;
                                 const visRecurringVal = showRecurring ? day.recurringRevenue : 0;
                                 const visPaymentVal = showPayments ? day.paymentReceived : 0;
-                                const totalEarnedDay = visHourlyVal + visFixedVal + visRecurringVal;
-                                const totalPct = hourlyPct + recurringPct + fixedPct + paymentPct;
+                                const visTeamVal = showTeam ? day.teamContribution : 0;
+                                const totalEarnedDay = visHourlyVal + visFixedVal + visRecurringVal + visTeamVal;
+                                const totalPct = axisRange > 0 ? (positiveTotal / axisRange) * 100 : 0;
                                 // If the bar is too tall for the tooltip to fit above it,
                                 // flip and anchor the tooltip to the top of the chart instead.
                                 const flipBelow = totalPct > 65;
                                 const posStyle: React.CSSProperties = flipBelow
                                   ? { top: 0 }
-                                  : { bottom: `${Math.min(totalPct, 95)}%` };
+                                  : { bottom: `${Math.min(zeroBottomPct + totalPct, 95)}%` };
                                 const spacingCls = flipBelow ? 'mt-1' : 'mb-1';
                                 return (
                                 <div className={`absolute ${spacingCls} z-10 pointer-events-none ${isSelected ? 'block' : 'hidden group-hover:block'} ${alignCls}`} style={posStyle}>
@@ -1578,7 +1664,7 @@ export default function FinancesPage() {
                                       // light; multi-category days surface the headers so the
                                       // visual hierarchy matches the math.
                                       type CategorySection = {
-                                        key: 'hourly' | 'fixed' | 'recurring';
+                                        key: 'hourly' | 'fixed' | 'recurring' | 'team';
                                         label: string;
                                         totalAmount: number;
                                         rows: { projectId: string; projectName: string; color?: string; hours?: number; amount: number }[];
@@ -1587,7 +1673,7 @@ export default function FinancesPage() {
 
                                       if (showHourly && visHourlyVal > 0) {
                                         const rows = day.projectWork
-                                          .filter(pw => pw.value > 0 || pw.hours > 0)
+                                          .filter(pw => pw.value > 0)
                                           .map(pw => ({
                                             projectId: pw.projectId,
                                             projectName: pw.projectName,
@@ -1615,6 +1701,14 @@ export default function FinancesPage() {
                                           sections.push({ key: 'recurring', label: 'Recurring', totalAmount: visRecurringVal, rows });
                                         }
                                       }
+                                      if (showTeam && Math.abs(visTeamVal) > 0.005) {
+                                        const rows = day.projectWork
+                                          .filter(pw => Math.abs(pw.teamContribution) > 0.005)
+                                          .map(pw => ({ projectId: pw.projectId, projectName: pw.projectName, color: pw.color, amount: pw.teamContribution }));
+                                        if (rows.length > 0) {
+                                          sections.push({ key: 'team', label: 'Team contribution', totalAmount: visTeamVal, rows });
+                                        }
+                                      }
 
                                       const isMultiCategory = sections.length > 1;
                                       const totalRows = sections.reduce((n, s) => n + s.rows.length, 0);
@@ -1640,7 +1734,7 @@ export default function FinancesPage() {
                                           {row.hours !== undefined && row.hours > 0 && (
                                             <span className="text-zinc-200 flex-shrink-0">{row.hours.toFixed(1)}h</span>
                                           )}
-                                          <span className="font-semibold flex-shrink-0">${fmt(row.amount)}</span>
+                                          <span className={`font-semibold flex-shrink-0 ${row.amount < 0 ? 'text-rose-300' : ''}`}>{fmtCurrency(row.amount)}</span>
                                         </div>
                                       );
 
@@ -1655,7 +1749,7 @@ export default function FinancesPage() {
                                                   <div className="flex items-baseline gap-1">
                                                     <span className="uppercase tracking-wider text-[9px] text-zinc-400 font-semibold">{section.label}</span>
                                                     {section.rows.length > 1 && (
-                                                      <span className="text-[9px] text-zinc-300">(${fmt(section.totalAmount)})</span>
+                                                      <span className="text-[9px] text-zinc-300">({fmtCurrency(section.totalAmount)})</span>
                                                     )}
                                                   </div>
                                                 )}
@@ -1671,7 +1765,7 @@ export default function FinancesPage() {
                                           {showGrandTotal && (
                                             <div className="mt-1.5 pt-1.5 border-t border-white/10 flex items-center justify-between gap-3 text-zinc-100 flex-shrink-0">
                                               <span className="uppercase tracking-wider text-[9px] text-zinc-400">Total earned</span>
-                                              <span className="font-semibold">${fmt(totalEarnedDay)}</span>
+                                              <span className="font-semibold">{fmtCurrency(totalEarnedDay)}</span>
                                             </div>
                                           )}
                                         </div>
@@ -1715,7 +1809,7 @@ export default function FinancesPage() {
               )}
 
               {/* Legend (toggleable) - only show categories that have data */}
-              {(categoryHasData.hourly || categoryHasData.recurring || categoryHasData.fixed || categoryHasData.payments) && (
+              {(categoryHasData.hourly || categoryHasData.recurring || categoryHasData.fixed || categoryHasData.team || categoryHasData.payments) && (
                 <div className="flex items-center gap-3 mt-3 pt-3 border-t border-zinc-100 flex-wrap">
                   {categoryHasData.hourly && (
                     <button
@@ -1745,6 +1839,18 @@ export default function FinancesPage() {
                     >
                       <div className={`w-2.5 h-2.5 rounded-sm ${showFixed ? 'bg-violet-500' : 'bg-zinc-300'}`} />
                       <span className="text-[11px] text-zinc-600 font-medium">Fixed</span>
+                    </button>
+                  )}
+                  {categoryHasData.team && (
+                    <button
+                      type="button"
+                      onClick={() => setShowTeam(prev => !prev)}
+                      className={`flex items-center gap-1.5 px-2 py-1 rounded-md transition-colors ${showTeam ? 'bg-teal-50' : 'opacity-40 hover:opacity-70'}`}
+                    >
+                      <div className={`flex w-2.5 h-2.5 overflow-hidden rounded-sm ${showTeam ? '' : 'bg-zinc-300'}`}>
+                        {showTeam && <><span className="w-1/2 bg-teal-500" /><span className="w-1/2 bg-rose-400" /></>}
+                      </div>
+                      <span className="text-[11px] text-zinc-600 font-medium">Team contribution</span>
                     </button>
                   )}
                   {categoryHasData.payments && (
@@ -1874,7 +1980,7 @@ export default function FinancesPage() {
                           </div>
                         </div>
                       </div>
-                      <span className="text-sm text-emerald-600 font-semibold text-right w-24">${fmt(p.earned)}</span>
+                      <span className={`text-sm font-semibold text-right w-24 ${p.earned >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{fmtCurrency(p.earned)}</span>
                       <span className="text-sm text-emerald-700 font-semibold text-right w-24">${fmt(p.received)}</span>
                       <span className="text-sm text-zinc-700 font-medium text-right w-24">${fmt(p.invoiced)}</span>
                       <span className={`text-sm font-medium text-right w-24 ${p.outstanding > 0 ? 'text-amber-600' : 'text-zinc-300'}`}>
@@ -1891,7 +1997,7 @@ export default function FinancesPage() {
               {/* Totals */}
               <div className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] gap-x-6 px-5 py-3.5 border-t border-zinc-200 bg-zinc-50/50">
                 <span className="text-sm font-semibold text-zinc-700">Total</span>
-                <span className="text-sm font-bold text-emerald-600 text-right w-24">${fmt(data.totalEarned)}</span>
+                <span className={`text-sm font-bold text-right w-24 ${data.totalEarned >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{fmtCurrency(data.totalEarned)}</span>
                 <span className="text-sm font-bold text-emerald-700 text-right w-24">${fmt(data.totalPaymentsReceived)}</span>
                 <span className="text-sm font-bold text-zinc-900 text-right w-24">${fmt(data.totalInvoiced)}</span>
                 <span className={`text-sm font-bold text-right w-24 ${data.totalOutstanding > 0 ? 'text-amber-600' : 'text-zinc-300'}`}>
@@ -1916,7 +2022,7 @@ export default function FinancesPage() {
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <p className="text-[10px] uppercase tracking-wider text-zinc-400 font-medium">Earned</p>
-                      <p className="text-sm font-semibold text-emerald-600">${fmt(p.earned)}</p>
+                      <p className={`text-sm font-semibold ${p.earned >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{fmtCurrency(p.earned)}</p>
                     </div>
                     <div>
                       <p className="text-[10px] uppercase tracking-wider text-zinc-400 font-medium">Received</p>
@@ -1949,6 +2055,7 @@ export default function FinancesPage() {
               </div>
             )}
           </div>
+        <PayrollPanel team={team} projects={projects} />
       </div>
     </div>
   );

@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { createClient } from '@/lib/supabase/server';
-import { getServiceClient } from '@/lib/api/supabase-service';
+import { accessAllows, requireSessionAccess } from '@/lib/api/access';
 
 const updateEmailSchema = z.object({
   team_member_id: z.string().uuid(),
@@ -9,12 +8,8 @@ const updateEmailSchema = z.object({
 });
 
 export async function POST(req: NextRequest) {
-  // 1. Verify caller session
-  const supabase = await createClient();
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
-  if (authError || !user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const auth = await requireSessionAccess();
+  if (auth.error) return auth.error;
 
   // 2. Validate body
   let body: z.infer<typeof updateEmailSchema>;
@@ -27,36 +22,27 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
-  const service = getServiceClient();
-
-  // 3. Get caller's team member
-  const { data: callerMember } = await service
-    .from('team_members')
-    .select('id, role')
-    .eq('auth_user_id', user.id)
-    .single();
-
-  if (!callerMember) {
-    return NextResponse.json({ error: 'Team member not found for your account' }, { status: 404 });
-  }
-
-  const isSelf = callerMember.id === body.team_member_id;
-  const isAdmin = callerMember.role === 'admin';
+  const { access, memberId, service } = auth.data;
+  const isSelf = memberId === body.team_member_id;
+  const canManageTeam = accessAllows(access, 'team.manage', 'app');
 
   // 4. Permission check: must be self or admin
-  if (!isSelf && !isAdmin) {
-    return NextResponse.json({ error: 'Forbidden — only admins can change other members\' emails' }, { status: 403 });
+  if (!isSelf && !canManageTeam) {
+    return NextResponse.json({ error: 'Only team managers can change another member email' }, { status: 403 });
   }
 
   // 5. Get the target team member's auth_user_id
   const { data: targetMember } = await service
     .from('team_members')
-    .select('id, auth_user_id, email')
+    .select('id, auth_user_id, email, role')
     .eq('id', body.team_member_id)
     .single();
 
   if (!targetMember) {
     return NextResponse.json({ error: 'Team member not found' }, { status: 404 });
+  }
+  if (targetMember.role === 'owner' && !isSelf) {
+    return NextResponse.json({ error: 'The Owner account cannot be modified by another member' }, { status: 403 });
   }
 
   if (!targetMember.auth_user_id) {

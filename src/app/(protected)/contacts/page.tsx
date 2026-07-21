@@ -10,9 +10,13 @@ import { Plus, UserCircle } from 'lucide-react';
 import { Contact } from '@/lib/types';
 import { toast } from '@/components/ui/Toast';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { useAuth } from '@/lib/auth-context';
+import { hasPermission } from '@/lib/access-control';
 
 export default function ContactsPage() {
   const { contacts, deleteContact, filters, setFilters } = useApp();
+  const { access } = useAuth();
+  const canManageContacts = hasPermission(access, 'contacts.manage');
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingContact, setEditingContact] = useState<Contact | null>(null);
   const [deletingContactId, setDeletingContactId] = useState<string | null>(null);
@@ -54,11 +58,11 @@ export default function ContactsPage() {
         title="Contacts"
         subtitle={<span className="hidden sm:inline">{contacts.length} contacts</span>}
         searchPlaceholder="Search contacts by name, company, or email..."
-        actions={
+        actions={canManageContacts ? (
           <Button onClick={() => setIsFormOpen(true)} icon={<Plus size={16} />}>
             Add Contact
           </Button>
-        }
+        ) : undefined}
       />
 
       <div className="p-4 lg:p-6 space-y-4">
@@ -68,10 +72,8 @@ export default function ContactsPage() {
               <UserCircle className="text-zinc-400" size={32} />
             </div>
             <h3 className="text-lg font-semibold text-zinc-900 mb-2">No contacts yet</h3>
-            <p className="text-zinc-500 mb-4">Add a contact or convert a lead to get started</p>
-            <Button onClick={() => setIsFormOpen(true)}>
-              Add Contact
-            </Button>
+            <p className="text-zinc-500 mb-4">{canManageContacts ? 'Add a contact or convert a lead to get started' : 'No contacts are available to you'}</p>
+            {canManageContacts && <Button onClick={() => setIsFormOpen(true)}>Add Contact</Button>}
           </div>
         ) : (
           <>
@@ -80,8 +82,8 @@ export default function ContactsPage() {
                 <ContactCard
                   key={contact.id}
                   contact={contact}
-                  onEdit={handleEdit}
-                  onDelete={handleDelete}
+                  onEdit={canManageContacts ? handleEdit : undefined}
+                  onDelete={canManageContacts ? handleDelete : undefined}
                 />
               ))}
             </div>
@@ -99,11 +101,11 @@ export default function ContactsPage() {
         )}
       </div>
 
-      <ContactForm
+      {canManageContacts && <ContactForm
         isOpen={isFormOpen}
         onClose={handleCloseForm}
         contact={editingContact}
-      />
+      />}
 
       <ConfirmDialog
         isOpen={!!deletingContactId}

@@ -14,6 +14,8 @@ import { Textarea } from '@/components/ui/inputs/Textarea';
 import { MultiSelect } from '@/components/ui/inputs/MultiSelect';
 import { DateInput } from '@/components/ui/inputs/DateInput';
 import { siteConfig } from '@/site-config';
+import { useAuth } from '@/lib/auth-context';
+import { hasPermission } from '@/lib/access-control';
 
 const DEFAULT_PROJECT_COLOR = '';
 const PROJECT_COLORS = [
@@ -61,6 +63,11 @@ interface ProjectFormProps {
 
 export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
   const { team, contacts, addProject, updateProject, addProjectContact, getPrimaryClient } = useApp();
+  const { access, teamMemberId } = useAuth();
+  const canManageBilling = hasPermission(access, 'billing.manage');
+  const canManageProjectMembers = hasPermission(access, 'project_members.manage');
+  const canManageContacts = hasPermission(access, 'contacts.manage');
+  const canManageAgents = hasPermission(access, 'agents.manage');
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [color, setColor] = useState(DEFAULT_PROJECT_COLOR);
@@ -68,6 +75,7 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
   const [startDate, setStartDate] = useState('');
   const [dueDate, setDueDate] = useState('');
   const [hourlyTracking, setHourlyTracking] = useState(false);
+  const [clientTimeBilling, setClientTimeBilling] = useState<'hourly' | 'included'>('included');
   const [budgetType, setBudgetType] = useState<'hours' | 'amount' | ''>('');
   const [budgetValue, setBudgetValue] = useState('');
   const [billingAddress, setBillingAddress] = useState('');
@@ -99,7 +107,8 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
       setStatus(project.status);
       setStartDate(project.start_date || '');
       setDueDate(project.due_date || '');
-      setHourlyTracking(project.hourly_tracking ?? false);
+      setHourlyTracking(project.time_tracking_enabled ?? project.hourly_tracking ?? false);
+      setClientTimeBilling(project.client_time_billing ?? (project.hourly_tracking ? 'hourly' : 'included'));
       setBudgetType(project.budget_type ?? '');
       setBudgetValue(project.budget_value != null ? String(project.budget_value) : '');
       setBillingAddress(project.billing_address ?? '');
@@ -120,6 +129,7 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
       setStartDate('');
       setDueDate('');
       setHourlyTracking(false);
+      setClientTimeBilling('included');
       setBudgetType('');
       setBudgetValue('');
       setBillingAddress('');
@@ -141,7 +151,7 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
   }, [project, isOpen]);
 
   useEffect(() => {
-    if (!isOpen || !project) return;
+    if (!isOpen || !project || !canManageBilling) return;
     let cancelled = false;
     (async () => {
       try {
@@ -154,7 +164,7 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
       }
     })();
     return () => { cancelled = true; };
-  }, [isOpen, project]);
+  }, [canManageBilling, isOpen, project]);
 
   const doSave = async () => {
     setSaving(true);
@@ -166,23 +176,31 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
       start_date: startDate || null,
       due_date: dueDate || null,
       hourly_tracking: hourlyTracking,
-      hourly_rate: project?.hourly_rate ?? null,
-      budget_type: budgetType || null,
-      budget_value: budgetValue && !isNaN(parseFloat(budgetValue)) ? parseFloat(budgetValue) : null,
-      billing_address: billingAddress.trim() || null,
-      billing_email: billingEmail.trim() || null,
-      tax_rate: taxRate && !isNaN(parseFloat(taxRate)) ? parseFloat(taxRate) : null,
-      autonomous_enabled: autonomousEnabled,
-      deployment_policy: deploymentPolicy,
-      max_concurrent_tasks: maxConcurrentTasks,
-      suggestions_per_cycle: suggestionsPerCycle,
-      repo_path: project?.repo_path ?? null,
-      member_ids: memberIds,
-    };
+      time_tracking_enabled: hourlyTracking,
+      member_ids: canManageProjectMembers ? memberIds : (project?.member_ids || (teamMemberId ? [teamMemberId] : [])),
+      ...(canManageBilling ? {
+        client_time_billing: clientTimeBilling,
+        hourly_rate: project?.hourly_rate ?? null,
+        budget_type: budgetType || null,
+        budget_value: budgetValue && !isNaN(parseFloat(budgetValue)) ? parseFloat(budgetValue) : null,
+        billing_address: billingAddress.trim() || null,
+        billing_email: billingEmail.trim() || null,
+        tax_rate: taxRate && !isNaN(parseFloat(taxRate)) ? parseFloat(taxRate) : null,
+      } : {}),
+      ...(canManageAgents ? {
+        autonomous_enabled: autonomousEnabled,
+        deployment_policy: deploymentPolicy,
+        max_concurrent_tasks: maxConcurrentTasks,
+        suggestions_per_cycle: suggestionsPerCycle,
+        repo_path: project?.repo_path ?? null,
+      } : {}),
+    } as Omit<Project, 'id' | 'created_at' | 'updated_at'>;
 
     if (project) {
-      await updateProject(project.id, projectData);
-      if (selectedContactId) {
+      const updateData: Partial<Project> = { ...projectData };
+      if (!canManageProjectMembers) delete updateData.member_ids;
+      await updateProject(project.id, updateData);
+      if (canManageContacts && selectedContactId) {
         const currentPrimary = getPrimaryClient(project.id);
         if (currentPrimary?.contact_id !== selectedContactId) {
           await addProjectContact(project.id, selectedContactId, 'Client', null, true);
@@ -190,7 +208,7 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
       }
     } else {
       const newProject = await addProject(projectData);
-      if (newProject && selectedContactId) {
+      if (newProject && canManageContacts && selectedContactId) {
         await addProjectContact(newProject.id, selectedContactId, 'Client', null, true);
       }
     }
@@ -207,7 +225,7 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
     e.preventDefault();
     if (!name.trim()) return;
 
-    if (!project && !selectedContactId) {
+    if (!project && canManageContacts && !selectedContactId) {
       setClientError(true);
       return;
     }
@@ -281,7 +299,7 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
           showCharCount
         />
 
-        <div className="space-y-1.5" ref={contactDropdownRef}>
+        {canManageContacts && <div className="space-y-1.5" ref={contactDropdownRef}>
           <label className="block text-sm font-medium text-zinc-700">
             Primary Client {!project && <span className="text-red-500">*</span>}
           </label>
@@ -389,9 +407,9 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
           {clientError && !selectedContactId && (
             <p className="text-xs text-red-500">Please select a primary client for this project</p>
           )}
-        </div>
+        </div>}
 
-        <MultiSelect
+        {canManageProjectMembers && <MultiSelect
           label="Team Members"
           options={team.map(m => ({ value: m.id, label: m.name }))}
           value={memberIds}
@@ -399,7 +417,7 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
           placeholder="Select team members..."
           selectAll
           searchable={team.length > 4}
-        />
+        />}
 
         <div className="grid grid-cols-2 gap-4">
           <DateInput
@@ -436,9 +454,16 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
             />
           </button>
         </div>
+        {hourlyTracking && canManageBilling && (
+          <div>
+            <label className="block text-sm font-medium text-zinc-700 mb-1.5">Client billing treatment</label>
+            <Select value={clientTimeBilling} onChange={(value) => setClientTimeBilling(value as 'hourly' | 'included')} options={[{ value: 'hourly', label: 'Bill tracked time to client' }, { value: 'included', label: 'Time is included in project price' }]} />
+            <p className="text-xs text-zinc-400 mt-1">Employee compensation is calculated either way. Included time never enters the client invoice queue.</p>
+          </div>
+        )}
 
         {/* Budget */}
-        <div className="space-y-2">
+        {canManageBilling && <><div className="space-y-2">
           <label className="block text-sm font-medium text-zinc-700">Budget <span className="font-normal text-zinc-400">(optional)</span></label>
           <div className="flex gap-2">
             <div className="flex rounded-lg border border-zinc-200 overflow-hidden">
@@ -565,7 +590,7 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
               />
             </div>
           </div>
-        </div>
+        </div></>}
 
         <div className="space-y-1.5">
           <label className="block text-sm font-medium text-zinc-700">Color <span className="font-normal text-zinc-400">(optional)</span></label>
@@ -594,7 +619,7 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
         </div>
       </form>
 
-      <ContactForm
+      {canManageContacts && <ContactForm
         isOpen={showNewContactForm}
         onClose={() => {
           setShowNewContactForm(false);
@@ -607,7 +632,7 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
             }
           }
         }}
-      />
+      />}
 
       <ConfirmDialog
         isOpen={confirmStatusChange}

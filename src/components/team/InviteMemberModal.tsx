@@ -13,10 +13,10 @@ interface InviteMemberModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: (member: TeamMember) => void;
-  showAgentRole?: boolean;
+  canAssignOwner?: boolean;
 }
 
-export default function InviteMemberModal({ isOpen, onClose, onSuccess, showAgentRole }: InviteMemberModalProps) {
+export default function InviteMemberModal({ isOpen, onClose, onSuccess, canAssignOwner = false }: InviteMemberModalProps) {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -166,12 +166,19 @@ export default function InviteMemberModal({ isOpen, onClose, onSuccess, showAgen
           value={role}
           onChange={(value) => setRole(value as TeamMember['role'])}
           options={[
+            ...(canAssignOwner ? [{ value: 'owner', label: 'Owner' }] : []),
             { value: 'admin', label: 'Admin' },
             { value: 'member', label: 'Member' },
             { value: 'guest', label: 'Guest' },
-            ...(showAgentRole ? [{ value: 'agent', label: 'Agent' }] : []),
+            { value: 'agent', label: 'Agent' },
           ]}
         />
+
+        {role === 'owner' && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+            Owners have unrestricted access to billing, credentials, permissions, API scopes, and team management.
+          </div>
+        )}
 
         <div className="flex justify-end gap-3 pt-4">
           <Button type="button" variant="ghost" onClick={handleClose} disabled={loading}>

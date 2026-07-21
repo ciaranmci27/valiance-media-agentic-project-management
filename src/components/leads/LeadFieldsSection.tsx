@@ -61,9 +61,10 @@ const PRIORITY_COLORS: Record<string, { variant: 'danger' | 'warning' | 'info'; 
 
 interface LeadFieldsSectionProps {
   leadId: string;
+  readOnly?: boolean;
 }
 
-export function LeadFieldsSection({ leadId }: LeadFieldsSectionProps) {
+export function LeadFieldsSection({ leadId, readOnly = false }: LeadFieldsSectionProps) {
   const { getFieldsByLead, setLeadField, deleteLeadField } = useApp();
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [editingKey, setEditingKey] = useState<string | null>(null);
@@ -87,12 +88,12 @@ export function LeadFieldsSection({ leadId }: LeadFieldsSectionProps) {
     <div>
       <div className="flex items-center justify-between mb-4">
         <h2 className="font-semibold text-zinc-900">Lead Details</h2>
-        <Button
+        {!readOnly && <Button
           onClick={() => setIsAddOpen(true)}
           icon={<Plus size={16} />}
         >
           Add Field
-        </Button>
+        </Button>}
       </div>
 
       {grouped.length > 0 ? (
@@ -144,6 +145,7 @@ export function LeadFieldsSection({ leadId }: LeadFieldsSectionProps) {
                             }}
                             onRemove={() => deleteLeadField(field.id, leadId)}
                             categoryConfig={config}
+                            readOnly={readOnly}
                           />
                         </div>
                       );
@@ -173,6 +175,7 @@ export function LeadFieldsSection({ leadId }: LeadFieldsSectionProps) {
                           }}
                           onRemove={() => deleteLeadField(field.id, leadId)}
                           categoryConfig={config}
+                          readOnly={readOnly}
                         />
                       );
                     })}
@@ -217,9 +220,10 @@ interface LeadFieldItemProps {
   onSave: (value: string) => void;
   onRemove: () => void;
   categoryConfig: (typeof CATEGORY_CONFIG)[LeadFieldCategory];
+  readOnly: boolean;
 }
 
-function LeadFieldItem({ definition, value, isEditing, onStartEdit, onStopEdit, onSave, onRemove, categoryConfig }: LeadFieldItemProps) {
+function LeadFieldItem({ definition, value, isEditing, onStartEdit, onStopEdit, onSave, onRemove, categoryConfig, readOnly }: LeadFieldItemProps) {
   const [editValue, setEditValue] = useState(value);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
@@ -250,7 +254,7 @@ function LeadFieldItem({ definition, value, isEditing, onStartEdit, onStopEdit, 
           <p className="text-[11px] font-medium uppercase tracking-wider mb-1.5 text-zinc-400">{definition.label}</p>
           <FieldValueDisplay definition={definition} value={value} categoryConfig={categoryConfig} />
         </div>
-        <div className="flex items-center gap-1 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-opacity ml-2 flex-shrink-0">
+        {!readOnly && <div className="flex items-center gap-1 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-opacity ml-2 flex-shrink-0">
           <button
             onClick={onStartEdit}
             className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 transition-all"
@@ -263,8 +267,8 @@ function LeadFieldItem({ definition, value, isEditing, onStartEdit, onStopEdit, 
           >
             <Trash2 size={14} />
           </button>
-        </div>
-        <ConfirmDialog
+        </div>}
+        {!readOnly && <ConfirmDialog
           isOpen={showDeleteConfirm}
           onClose={() => setShowDeleteConfirm(false)}
           onConfirm={onRemove}
@@ -272,7 +276,7 @@ function LeadFieldItem({ definition, value, isEditing, onStartEdit, onStopEdit, 
           message={`Remove the "${definition.label}" field from this lead?`}
           confirmLabel="Delete"
           variant="danger"
-        />
+        />}
       </div>
     );
   }

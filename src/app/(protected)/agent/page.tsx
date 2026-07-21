@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
+import { hasPermission } from '@/lib/access-control';
 import { Header } from '@/components/layout/Header';
 import { ReviewQueue } from '@/components/agent/ReviewQueue';
 import { AutonomousProjects } from '@/components/agent/AutonomousProjects';
@@ -14,18 +15,17 @@ import { toast } from '@/components/ui/Toast';
 
 export default function AgentPage() {
   const {
-    team, taskSuggestions,
+    taskSuggestions,
     approveSuggestion, updateSuggestion,
   } = useApp();
-  const { teamMemberId } = useAuth();
+  const { access, teamMemberId } = useAuth();
   const [approveModalId, setApproveModalId] = useState<string | null>(null);
   const [editModalId, setEditModalId] = useState<string | null>(null);
 
-  const currentMember = team.find(m => m.id === teamMemberId);
   const isAgentsEnabled = process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true';
-  const isAdmin = currentMember?.role === 'admin';
+  const canManageAgents = hasPermission(access, 'agents.manage');
 
-  if (!isAgentsEnabled || !isAdmin) {
+  if (!isAgentsEnabled || !canManageAgents) {
     return (
       <div className="animate-fadeIn min-h-screen bg-zinc-50 flex items-center justify-center">
         <div className="text-center">

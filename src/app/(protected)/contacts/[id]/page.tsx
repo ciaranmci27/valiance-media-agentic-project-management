@@ -18,11 +18,17 @@ import { Project } from '@/lib/types';
 import { formatPhone } from '@/lib/format-phone';
 import { toast } from '@/components/ui/Toast';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { useAuth } from '@/lib/auth-context';
+import { hasPermission } from '@/lib/access-control';
 
 export default function ContactDetailPage() {
   const params = useParams();
   const router = useRouter();
   const { getContact, getProjectsByContact, getInvoicesByContact, getProject, leads, deleteProject, addProjectContact, updateContact } = useApp();
+  const { access } = useAuth();
+  const canManageContacts = hasPermission(access, 'contacts.manage');
+  const canManageProjects = hasPermission(access, 'projects.manage');
+  const canReadFiles = hasPermission(access, 'files.read');
 
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isProjectFormOpen, setIsProjectFormOpen] = useState(false);
@@ -87,13 +93,13 @@ export default function ContactDetailPage() {
     <div className="animate-fadeIn min-h-screen bg-zinc-50">
       <Header
         title="Contact Details"
-        actions={
+        actions={canManageContacts ? (
           <div className="flex items-center gap-2">
             <Button variant="secondary" onClick={() => setIsEditOpen(true)} icon={<Edit size={16} />}>
               <span className="hidden [@media(min-width:400px)]:inline">Edit</span>
             </Button>
           </div>
-        }
+        ) : undefined}
       />
 
       <div className="p-4 lg:p-6 space-y-6">
@@ -147,7 +153,7 @@ export default function ContactDetailPage() {
                 <StickyNote size={14} />
                 <span>Notes</span>
               </div>
-              {!isEditingNotes && (
+              {canManageContacts && !isEditingNotes && (
                 <button
                   onClick={() => { setNotesValue(contact.notes || ''); setIsEditingNotes(true); }}
                   className="text-xs text-brand-600 hover:text-brand-700 transition-colors"
@@ -313,13 +319,13 @@ export default function ContactDetailPage() {
                   Projects ({linkedProjects.length})
                 </h2>
               </div>
-              <Button
+              {canManageProjects && <Button
                 size="sm"
                 onClick={() => setIsProjectFormOpen(true)}
                 icon={<Plus size={14} />}
               >
                 New Project
-              </Button>
+              </Button>}
             </div>
 
             {linkedProjects.length > 0 ? (
@@ -329,8 +335,8 @@ export default function ContactDetailPage() {
                     <ProjectCard
                       key={project.id}
                       project={project}
-                      onEdit={handleEditProject}
-                      onDelete={handleDeleteProject}
+                      onEdit={canManageProjects ? handleEditProject : undefined}
+                      onDelete={canManageProjects ? handleDeleteProject : undefined}
                     />
                   ))}
                 </div>
@@ -346,22 +352,22 @@ export default function ContactDetailPage() {
             )}
           </div>
 
-          <FileAttachments entityType="contact" entityId={contactId} />
+          {canReadFiles && <FileAttachments entityType="contact" entityId={contactId} />}
         </div>
 
       </div>
 
-      <ContactForm
+      {canManageContacts && <ContactForm
         isOpen={isEditOpen}
         onClose={() => setIsEditOpen(false)}
         contact={contact}
-      />
+      />}
 
-      <ProjectForm
+      {canManageProjects && <ProjectForm
         isOpen={isProjectFormOpen}
         onClose={handleCloseProjectForm}
         project={editingProject}
-      />
+      />}
 
       <ConfirmDialog
         isOpen={!!deletingProjectId}

@@ -25,6 +25,8 @@ import {
   PhoneCall, Users, Check,
 } from 'lucide-react';
 import { formatPhone } from '@/lib/format-phone';
+import { useAuth } from '@/lib/auth-context';
+import { hasPermission } from '@/lib/access-control';
 
 const STATUS_CONFIG: Record<string, { label: string; variant: 'default' | 'success' | 'warning' | 'danger' | 'info' | 'purple' }> = {
   new: { label: 'New', variant: 'info' },
@@ -90,6 +92,9 @@ export default function LeadDetailPage() {
     getLead, getTeamMember, getInteractionsByLead, getProposalsByLead, getUpcomingFollowUps,
     updateLead, deleteLead, updateLeadInteraction, deleteLeadInteraction, deleteLeadProposal,
   } = useApp();
+  const { access } = useAuth();
+  const canManageLeads = hasPermission(access, 'leads.manage');
+  const canReadFiles = hasPermission(access, 'files.read');
 
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isConvertOpen, setIsConvertOpen] = useState(false);
@@ -170,7 +175,7 @@ export default function LeadDetailPage() {
     <div className="animate-fadeIn min-h-screen bg-zinc-50">
       <Header
         title="Lead Details"
-        actions={
+        actions={canManageLeads ? (
           <div className="flex items-center gap-2">
             <Button variant="secondary" onClick={() => setIsEditOpen(true)} icon={<Edit size={16} />}>
               <span className="hidden [@media(min-width:400px)]:inline">Edit</span>
@@ -181,7 +186,7 @@ export default function LeadDetailPage() {
               </Button>
             )}
           </div>
-        }
+        ) : undefined}
       />
 
       <div className="p-4 lg:p-6 space-y-6">
@@ -268,7 +273,7 @@ export default function LeadDetailPage() {
                 <StickyNote size={14} />
                 <span>Notes</span>
               </div>
-              {!isEditingNotes && (
+              {canManageLeads && !isEditingNotes && (
                 <button
                   onClick={() => { setNotesValue(lead.notes || ''); setIsEditingNotes(true); }}
                   className="text-xs text-brand-600 hover:text-brand-700 transition-colors"
@@ -318,7 +323,7 @@ export default function LeadDetailPage() {
         </div>
 
         {/* Lead Details (Dynamic Fields) */}
-        <LeadFieldsSection leadId={leadId} />
+        <LeadFieldsSection leadId={leadId} readOnly={!canManageLeads} />
 
         {/* Upcoming Follow-ups */}
         {upcomingFollowUps.length > 0 && (
@@ -330,13 +335,13 @@ export default function LeadDetailPage() {
                   Upcoming Follow-ups ({upcomingFollowUps.length})
                 </h2>
               </div>
-              <Button
+              {canManageLeads && <Button
                 size="sm"
                 onClick={() => { setEditingInteraction(null); setIsInteractionFormOpen(true); }}
                 icon={<Plus size={14} />}
               >
                 Add Follow-up
-              </Button>
+              </Button>}
             </div>
             <div className="space-y-3">
               {upcomingFollowUps.map((fu) => {
@@ -360,13 +365,13 @@ export default function LeadDetailPage() {
                         </p>
                       </div>
                     </div>
-                    <button
+                    {canManageLeads && <button
                       onClick={() => handleMarkFollowUpComplete(fu)}
                       className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-amber-700 hover:bg-amber-100 rounded-lg transition-colors flex-shrink-0"
                     >
                       <Check size={14} />
                       Mark Complete
-                    </button>
+                    </button>}
                   </div>
                 );
               })}
@@ -385,13 +390,13 @@ export default function LeadDetailPage() {
                   Interactions ({interactions.length})
                 </h2>
               </div>
-              <Button
+              {canManageLeads && <Button
                 size="sm"
                 onClick={() => { setEditingInteraction(null); setIsInteractionFormOpen(true); }}
                 icon={<Plus size={14} />}
               >
                 Add
-              </Button>
+              </Button>}
             </div>
 
             {interactions.length > 0 ? (
@@ -431,7 +436,7 @@ export default function LeadDetailPage() {
                           {author && <span>by {author.name}</span>}
                         </div>
                       </div>
-                      <div className="flex items-center gap-1 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-opacity flex-shrink-0">
+                      {canManageLeads && <div className="flex items-center gap-1 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-opacity flex-shrink-0">
                         <button
                           onClick={() => handleEditInteraction(interaction)}
                           className="p-1.5 text-zinc-300 hover:text-brand-500 transition-all"
@@ -444,7 +449,7 @@ export default function LeadDetailPage() {
                         >
                           <Trash2 size={14} />
                         </button>
-                      </div>
+                      </div>}
                     </div>
                   );
                 })}
@@ -469,13 +474,13 @@ export default function LeadDetailPage() {
                   Proposals ({proposals.length})
                 </h2>
               </div>
-              <Button
+              {canManageLeads && <Button
                 size="sm"
                 onClick={() => { setEditingProposal(null); setIsProposalFormOpen(true); }}
                 icon={<Plus size={14} />}
               >
                 Add
-              </Button>
+              </Button>}
             </div>
 
             {proposals.length > 0 ? (
@@ -501,7 +506,7 @@ export default function LeadDetailPage() {
                           </p>
                         )}
                       </div>
-                      <div className="flex items-center gap-1 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-opacity flex-shrink-0">
+                      {canManageLeads && <div className="flex items-center gap-1 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-opacity flex-shrink-0">
                         <button
                           onClick={() => handleEditProposal(proposal)}
                           className="p-1.5 text-zinc-300 hover:text-brand-500 transition-all"
@@ -514,7 +519,7 @@ export default function LeadDetailPage() {
                         >
                           <Trash2 size={14} />
                         </button>
-                      </div>
+                      </div>}
                     </div>
                   );
                 })}
@@ -533,44 +538,44 @@ export default function LeadDetailPage() {
 
         {/* Contacts + Files row */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
-          <LeadContactsSection leadId={leadId} />
-          <FileAttachments entityType="lead" entityId={leadId} />
+          <LeadContactsSection leadId={leadId} readOnly={!canManageLeads} />
+          {canReadFiles && <FileAttachments entityType="lead" entityId={leadId} />}
         </div>
 
-        <div className="flex justify-end">
+        {canManageLeads && <div className="flex justify-end">
           <Button variant="danger" onClick={() => setIsDeleteOpen(true)} icon={<Trash2 size={16} />}>
             Delete Lead
           </Button>
-        </div>
+        </div>}
       </div>
 
       {/* Modals */}
-      <LeadForm
+      {canManageLeads && <LeadForm
         isOpen={isEditOpen}
         onClose={() => setIsEditOpen(false)}
         lead={lead}
         onConvertRequested={() => setIsConvertOpen(true)}
-      />
+      />}
 
-      <ConvertLeadModal
+      {canManageLeads && <ConvertLeadModal
         isOpen={isConvertOpen}
         onClose={() => setIsConvertOpen(false)}
         lead={lead}
-      />
+      />}
 
-      <LeadInteractionForm
+      {canManageLeads && <LeadInteractionForm
         isOpen={isInteractionFormOpen}
         onClose={() => { setIsInteractionFormOpen(false); setEditingInteraction(null); }}
         leadId={leadId}
         interaction={editingInteraction}
-      />
+      />}
 
-      <LeadProposalForm
+      {canManageLeads && <LeadProposalForm
         isOpen={isProposalFormOpen}
         onClose={() => { setIsProposalFormOpen(false); setEditingProposal(null); }}
         leadId={leadId}
         proposal={editingProposal}
-      />
+      />}
 
       <ConfirmDialog
         isOpen={isDeleteOpen}

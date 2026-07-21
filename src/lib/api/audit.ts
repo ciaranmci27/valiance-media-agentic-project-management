@@ -1,6 +1,7 @@
 import { SupabaseClient } from '@supabase/supabase-js';
+import { after } from 'next/server';
 
-export async function logAudit(
+export function logAudit(
   supabase: SupabaseClient,
   params: {
     method: string;
@@ -9,17 +10,17 @@ export async function logAudit(
     entityId?: string;
     apiKeyId: string;
     teamMemberId?: string | null;
-    requestBody?: any;
-    beforeSnapshot?: any;
-    afterSnapshot?: any;
+    requestBody?: unknown;
+    beforeSnapshot?: unknown;
+    afterSnapshot?: unknown;
     statusCode: number;
     error?: string;
   }
-): Promise<void> {
-  // Fire-and-forget: don't await, don't let failures propagate
-  supabase
-    .from('api_audit_log')
-    .insert({
+): void {
+  // Keep the request fast while guaranteeing Next.js keeps the work alive
+  // after the response has been sent.
+  after(async () => {
+    await supabase.from('api_audit_log').insert({
       method: params.method,
       endpoint: params.endpoint,
       entity_type: params.entityType || null,
@@ -31,11 +32,8 @@ export async function logAudit(
       after_snapshot: params.afterSnapshot || null,
       status_code: params.statusCode,
       error: params.error || null,
-    })
-    .then(() => {
-      // Opportunistic cleanup: ~1% chance per write
-      if (Math.random() < 0.01) {
-        supabase.rpc('cleanup_api_audit_log').then(() => {}, () => {});
-      }
-    }, () => {});
+    });
+    // Opportunistic cleanup: ~1% chance per write
+    if (Math.random() < 0.01) await supabase.rpc('cleanup_api_audit_log');
+  });
 }

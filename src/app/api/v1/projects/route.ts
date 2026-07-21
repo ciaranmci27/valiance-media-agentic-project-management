@@ -4,8 +4,10 @@ import { createProjectSchema } from '@/lib/schemas';
 import { parsePagination, sanitizeSearch, validateSort } from '@/lib/api/pagination';
 import { insertProject } from '@/lib/supabase/queries';
 import { logAudit } from '@/lib/api/audit';
+import { accessAllows, apiKeyAllows, sanitizeProjectForAccess } from '@/lib/api/access';
+import { forbidden } from '@/lib/api/errors';
 
-export const GET = withApi(async ({ supabase, searchParams }) => {
+export const GET = withApi(async ({ supabase, searchParams, access }) => {
   const { page, limit, offset } = parsePagination(searchParams);
   const sort = validateSort('projects', searchParams.get('sort'));
   const order = searchParams.get('order') === 'asc';
@@ -14,6 +16,10 @@ export const GET = withApi(async ({ supabase, searchParams }) => {
   const includeArchived = searchParams.get('include_archived') === 'true';
 
   let query = supabase.from('projects').select('*, project_members(member_id)', { count: 'exact' });
+  if (!accessAllows(access, 'projects.read_all', 'api')) {
+    if (access.project_ids.length === 0) return paginated([], { page, limit, total: 0 });
+    query = query.in('id', access.project_ids);
+  }
 
   if (!includeArchived) {
     query = query.is('archived_at', null);
@@ -34,17 +40,33 @@ export const GET = withApi(async ({ supabase, searchParams }) => {
 
   if (error) throw error;
 
-  const projects = (data || []).map((p: any) => ({
+  const projects = (data || []).map((p: any) => sanitizeProjectForAccess({
     ...p,
     member_ids: (p.project_members || []).map((pm: any) => pm.member_id),
     project_members: undefined,
-  }));
+  }, access, 'api'));
 
   return paginated(projects, { page, limit, total: count || 0 });
 });
 
-export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId }) => {
+export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId, access, scopes }) => {
   const { member_ids, contact_id, contact, ...projectData } = body as any;
+  if (Array.isArray(member_ids) && !apiKeyAllows(access, scopes, 'project_members.manage')) {
+    throw forbidden('Assigning project members requires the project_members.manage API scope');
+  }
+  if (contact && !apiKeyAllows(access, scopes, 'contacts.manage')) {
+    throw forbidden('Creating a project contact requires the contacts.manage API scope');
+  }
+  if (!apiKeyAllows(access, scopes, 'billing.manage')) {
+    for (const field of ['hourly_rate', 'budget_type', 'budget_value', 'billing_address', 'billing_email', 'tax_rate', 'invoice_pdf_options', 'client_time_billing']) {
+      delete projectData[field];
+    }
+  }
+  if (!apiKeyAllows(access, scopes, 'agents.manage')) {
+    for (const field of ['autonomous_enabled', 'deployment_policy', 'max_concurrent_tasks', 'suggestions_per_cycle', 'repo_path']) {
+      delete projectData[field];
+    }
+  }
 
   // Resolve contact: use existing contact_id, or create a new contact inline
   let resolvedContactId = contact_id || null;

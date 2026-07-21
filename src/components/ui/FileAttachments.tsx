@@ -13,6 +13,7 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { FilePreviewModal } from '@/components/ui/FilePreviewModal';
 import { NewNoteModal } from '@/components/ui/NewNoteModal';
 import type { EntityFileType, EntityFile } from '@/lib/types';
+import { hasPermission } from '@/lib/access-control';
 
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -35,7 +36,10 @@ interface FileAttachmentsProps {
 
 export function FileAttachments({ entityType, entityId }: FileAttachmentsProps) {
   const { getEntityFiles, addEntityFile, renameEntityFile, deleteEntityFile, updateEntityFileVisibility } = useApp();
-  const { teamMemberId } = useAuth();
+  const { teamMemberId, access } = useAuth();
+  const canUpload = hasPermission(access, 'files.upload');
+  const canManageFiles = hasPermission(access, 'files.manage');
+  const canDeleteFile = (file: EntityFile) => canManageFiles || (file.uploaded_by === teamMemberId && file.visibility === 'internal');
   const { isDemoMode } = useDemo();
 
   const [uploading, setUploading] = useState(false);
@@ -293,7 +297,7 @@ export function FileAttachments({ entityType, entityId }: FileAttachmentsProps) 
               Files ({files.length})
             </h2>
           </div>
-          <div className="flex items-center gap-2">
+          {canUpload && <div className="flex items-center gap-2">
             <button
               onClick={() => { setNoteEditMode(undefined); setShowNewNote(true); }}
               className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-brand-600 bg-brand-50 hover:bg-brand-100 rounded-lg transition-colors"
@@ -314,7 +318,7 @@ export function FileAttachments({ entityType, entityId }: FileAttachmentsProps) 
                 <span className="hidden min-[400px]:inline">{uploading ? 'Uploading...' : 'Upload'}</span>
               </span>
             </label>
-          </div>
+          </div>}
         </div>
 
         {files.length > 0 ? (
@@ -368,7 +372,7 @@ export function FileAttachments({ entityType, entityId }: FileAttachmentsProps) 
                     )}
                     <p className="text-xs text-zinc-400">{formatFileSize(file.file_size)} &middot; {new Date(file.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p>
                   </div>
-                  {!isEditing && isProject && (
+                  {!isEditing && isProject && canManageFiles && (
                     <Tooltip content={isExternal ? 'Shared on portal (click to remove)' : 'Share to portal'}>
                       <button
                         onClick={() => handleToggleVisibility(file.id, file.visibility)}
@@ -402,7 +406,7 @@ export function FileAttachments({ entityType, entityId }: FileAttachmentsProps) 
               <Paperclip size={18} className="text-zinc-400" />
             </div>
             <p className="text-sm font-medium text-zinc-500">No files attached yet</p>
-            <p className="text-xs text-zinc-400 mt-1">Upload files to attach them to this project</p>
+            <p className="text-xs text-zinc-400 mt-1">{canUpload ? 'Upload files to attach them to this project' : 'No files are available for this project'}</p>
           </div>
         )}
       </div>
@@ -432,14 +436,14 @@ export function FileAttachments({ entityType, entityId }: FileAttachmentsProps) 
             <Download size={14} className="text-zinc-400" />
             Download
           </button>
-          <button
+          {canManageFiles && <button
             onClick={() => { setEditingFileId(currentMenuFile.id); setEditingFileName(currentMenuFile.name); setOpenMenuId(null); }}
             className="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-50 transition-colors"
           >
             <Pencil size={14} className="text-zinc-400" />
             Rename
-          </button>
-          {isProject && (
+          </button>}
+          {isProject && canManageFiles && (
             <>
               <div className="border-t border-zinc-100 my-1" />
               <button
@@ -460,14 +464,14 @@ export function FileAttachments({ entityType, entityId }: FileAttachmentsProps) 
               </button>
             </>
           )}
-          <div className="border-t border-zinc-100 my-1" />
+          {canDeleteFile(currentMenuFile) && <><div className="border-t border-zinc-100 my-1" />
           <button
             onClick={() => handleDeleteFile(currentMenuFile.id)}
             className="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors"
           >
             <Trash2 size={14} />
             Delete
-          </button>
+          </button></>}
         </div>,
         document.body
       )}

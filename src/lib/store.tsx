@@ -1,7 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { Project, Task, TeamMember, FilterState, ViewMode, Subtask, Comment, Contact, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, Activity, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, EntityFileType, ApiKey, NotificationCategory, ProjectGoal, TaskSuggestion, AgentActivity, TimeEntry, ProjectCredentialListItem, CredentialPayload, CredentialCategory, ProjectInvoice, InvoiceStatus, BusinessSettings, DEFAULT_SECTION_ORDER } from './types';
+import { Project, Task, TeamMember, FilterState, ViewMode, Subtask, Comment, Contact, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, Activity, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, EntityFileType, ApiKey, NotificationCategory, ProjectGoal, TaskSuggestion, AgentActivity, TimeEntry, ProjectCredentialListItem, CredentialPayload, CredentialCategory, ProjectInvoice, InvoiceStatus, BusinessSettings, EmployeeEarningsData, DEFAULT_SECTION_ORDER } from './types';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
@@ -14,10 +14,6 @@ import {
   demoProjectGoals, demoTaskSuggestions, demoAgentActivity, demoProjectInvoices,
 } from '@/lib/demo-data';
 import {
-  fetchProjects,
-  insertProject,
-  patchProject,
-  removeProject,
   fetchTasks,
   insertTask,
   patchTask,
@@ -33,7 +29,6 @@ import {
   removeComment,
   fetchTeamMembers,
   insertTeamMember,
-  patchTeamMember,
   removeTeamMember,
   fetchContacts,
   insertContact,
@@ -93,11 +88,6 @@ import {
   requestInfoTaskSuggestion as requestInfoTaskSuggestionQuery,
   patchTaskSuggestion as patchTaskSuggestionQuery,
   fetchAgentActivity,
-  fetchAllTimeEntries,
-  insertTimeEntry as insertTimeEntryQuery,
-  patchTimeEntry as patchTimeEntryQuery,
-  removeTimeEntry as removeTimeEntryQuery,
-  fetchAllProjectCredentials,
   fetchAllProjectInvoices,
   insertProjectInvoice as insertProjectInvoiceQuery,
   patchProjectInvoice as patchProjectInvoiceQuery,
@@ -108,6 +98,7 @@ import {
 import { toast } from '@/components/ui/Toast';
 import { siteConfig } from '@/site-config';
 import { findStalePausedEntries, startOfDayInTz } from '@/lib/time-entry-utils';
+import { hasPermission } from '@/lib/access-control';
 
 interface AppContextType {
   // Data
@@ -130,6 +121,7 @@ interface AppContextType {
   projectCredentials: ProjectCredentialListItem[];
   projectInvoices: ProjectInvoice[];
   businessSettings: BusinessSettings | null;
+  employeeEarnings: EmployeeEarningsData | null;
   loading: boolean;
 
   // Filters
@@ -230,7 +222,7 @@ interface AppContextType {
   getEntityFiles: (entityType: EntityFileType, entityId: string) => EntityFile[];
 
   // API Key CRUD
-  addApiKey: (name: string, keyHash: string, keyPrefix: string, permissions?: string, teamMemberId?: string | null) => Promise<ApiKey | undefined>;
+  addApiKey: (name: string, keyHash: string, keyPrefix: string, scopes: string[], teamMemberId?: string | null) => Promise<ApiKey | undefined>;
   revokeApiKey: (id: string) => void;
 
   // Agent data (conditionally loaded when NEXT_PUBLIC_ENABLE_AGENTS=true)
@@ -258,10 +250,10 @@ interface AppContextType {
 
   // Time Entry CRUD
   addTimeEntry: (entry: Omit<TimeEntry, 'id' | 'created_at' | 'updated_at'>) => void;
-  updateTimeEntry: (id: string, updates: Partial<Pick<TimeEntry, 'member_id' | 'start_time' | 'end_time' | 'segments' | 'description'>>, options?: { silent?: boolean }) => void;
-  deleteTimeEntry: (id: string) => void;
+  updateTimeEntry: (id: string, updates: Partial<Pick<TimeEntry, 'member_id' | 'start_time' | 'end_time' | 'segments' | 'description' | 'work_type'>>, options?: { silent?: boolean }) => void;
+  deleteTimeEntry: (id: string) => Promise<boolean>;
   getTimeEntriesByProject: (projectId: string) => TimeEntry[];
-  startTimer: (projectId: string, memberId: string, description?: string, customStartTime?: string) => void;
+  startTimer: (projectId: string, memberId: string, description?: string, customStartTime?: string, workType?: 'client' | 'internal') => void;
   pauseTimer: (entryId: string) => void;
   resumeTimer: (entryId: string) => void;
   stopTimer: (entryId: string) => void;
@@ -334,6 +326,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [projectCredentials, setProjectCredentials] = useState<ProjectCredentialListItem[]>([]);
   const [projectInvoices, setProjectInvoices] = useState<ProjectInvoice[]>([]);
   const [businessSettings, setBusinessSettings] = useState<BusinessSettings | null>(null);
+  const [employeeEarnings, setEmployeeEarnings] = useState<EmployeeEarningsData | null>(null);
   const [projectGoals, setProjectGoals] = useState<ProjectGoal[]>([]);
   const [taskSuggestions, setTaskSuggestions] = useState<TaskSuggestion[]>([]);
   const [agentActivityList, setAgentActivityList] = useState<AgentActivity[]>([]);
@@ -342,14 +335,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [commsRefreshSignal, setCommsRefreshSignal] = useState(0);
 
-  const { user, teamMemberId } = useAuth();
+  const { user, teamMemberId, access } = useAuth();
   const { isDemoMode } = useDemo();
   const supabase = createClient();
   const skipSupabase = isDemoMode;
 
   // Fire-and-forget notification helper — uses upsert RPC for dedup
   const allMemberIds = () => team.map(m => m.id);
-  const adminMemberIds = () => team.filter(m => m.role === 'admin').map(m => m.id);
+  const adminMemberIds = () => team.filter(m => m.role === 'owner' || m.role === 'admin').map(m => m.id);
 
   const notify = (userIds: string[], title: string, message: string, link: string | null, entityType: string | null, entityId: string | null, category: NotificationCategory, emailOverrides?: { subject?: string; details?: Array<{ label: string; value: string }> }) => {
     if (skipSupabase) return;
@@ -410,6 +403,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setTimeEntries([...demoTimeEntries]);
       setProjectInvoices([...demoProjectInvoices]);
       setProjectCredentials([]);
+      setEmployeeEarnings({ entries: [...demoTimeEntries], rates: [], adjustments: [], payouts: [], allocations: [] });
       setBusinessSettings({
         id: 'demo-business-settings',
         business_name: siteConfig.name,
@@ -432,34 +426,62 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    if (!user) {
+    if (!user || !access) {
       setLoading(false);
       return;
     }
 
     const loadData = async () => {
       try {
+        const workspaceData = async <T,>(path: string): Promise<T> => {
+          const response = await fetch(path, { cache: 'no-store' });
+          const payload = await response.json();
+          if (!response.ok) throw new Error(payload.error || 'Workspace request failed');
+          return payload.data as T;
+        };
+        const safeLoad = async <T,>(label: string, request: Promise<T>, fallback: T): Promise<T> => {
+          try {
+            return await request;
+          } catch (error) {
+            console.error(`Failed to load ${label}:`, error);
+            return fallback;
+          }
+        };
+        const canReadProjects = hasPermission(access, 'projects.read') || hasPermission(access, 'projects.read_all');
+        const canReadTasks = hasPermission(access, 'tasks.read');
+        const canReadContacts = hasPermission(access, 'contacts.read') || hasPermission(access, 'contacts.read_all') || hasPermission(access, 'contacts.manage');
+        const canReadLeads = hasPermission(access, 'leads.read') || hasPermission(access, 'leads.read_all') || hasPermission(access, 'leads.manage');
+        const canReadPortal = hasPermission(access, 'portal.read') || hasPermission(access, 'portal.manage');
+        const canReadFiles = hasPermission(access, 'files.read') || hasPermission(access, 'files.upload') || hasPermission(access, 'files.manage');
+        const canReadTime = hasPermission(access, 'time.manage_own') || hasPermission(access, 'time.read_all') || hasPermission(access, 'time.manage_all');
+        const canReadCredentials = hasPermission(access, 'credentials.reveal_shared') || hasPermission(access, 'credentials.manage');
+        const canReadInvoices = hasPermission(access, 'invoices.read') || hasPermission(access, 'invoices.manage');
+        const canReadSettings = hasPermission(access, 'settings.manage') || hasPermission(access, 'billing.manage');
+        const shouldLoadEmployeeEarnings = hasPermission(access, 'earnings.own.read') && !hasPermission(access, 'finance.company.read');
+        const employeeEarningsRequest = shouldLoadEmployeeEarnings
+          ? safeLoad<EmployeeEarningsData>('employee earnings', workspaceData<EmployeeEarningsData>('/api/workspace/payroll'), { entries: [], rates: [], adjustments: [], payouts: [], allocations: [] })
+          : Promise.resolve(null);
         const [projectsData, tasksData, teamData, contactsData, projectContactsData, leadsData, leadInteractionsData, leadProposalsData, leadFieldsData, leadContactsData, activitiesData, portalSettingsData, portalUpdatesData, portalUpdateAttachmentsData, entityFilesData, apiKeysData, timeEntriesData, projectCredentialsData, projectInvoicesData, businessSettingsData] = await Promise.all([
-          fetchProjects(supabase),
-          fetchTasks(supabase),
-          fetchTeamMembers(supabase),
-          fetchContacts(supabase),
-          fetchAllProjectContacts(supabase),
-          fetchLeads(supabase),
-          fetchLeadInteractions(supabase),
-          fetchLeadProposals(supabase),
-          fetchLeadFields(supabase),
-          fetchAllLeadContacts(supabase),
-          fetchActivities(supabase),
-          fetchAllPortalSettings(supabase),
-          fetchAllPortalUpdates(supabase),
-          fetchAllPortalUpdateAttachments(supabase),
-          fetchAllEntityFiles(supabase),
-          fetchApiKeys(supabase),
-          fetchAllTimeEntries(supabase),
-          fetchAllProjectCredentials(supabase),
-          fetchAllProjectInvoices(supabase),
-          fetchBusinessSettings(supabase),
+          canReadProjects ? safeLoad('projects', workspaceData<Project[]>('/api/workspace/projects'), []) : Promise.resolve([]),
+          canReadTasks ? safeLoad('tasks', fetchTasks(supabase), []) : Promise.resolve([]),
+          safeLoad('team directory', workspaceData<TeamMember[]>('/api/workspace/team-directory'), []),
+          canReadContacts ? safeLoad('contacts', fetchContacts(supabase), []) : Promise.resolve([]),
+          canReadContacts ? safeLoad('project contacts', fetchAllProjectContacts(supabase), []) : Promise.resolve([]),
+          canReadLeads ? safeLoad('leads', fetchLeads(supabase), []) : Promise.resolve([]),
+          canReadLeads ? safeLoad('lead interactions', fetchLeadInteractions(supabase), []) : Promise.resolve([]),
+          canReadLeads ? safeLoad('lead proposals', fetchLeadProposals(supabase), []) : Promise.resolve([]),
+          canReadLeads ? safeLoad('lead fields', fetchLeadFields(supabase), []) : Promise.resolve([]),
+          canReadLeads ? safeLoad('lead contacts', fetchAllLeadContacts(supabase), []) : Promise.resolve([]),
+          safeLoad('activities', fetchActivities(supabase), []),
+          canReadPortal ? safeLoad('portal settings', fetchAllPortalSettings(supabase), []) : Promise.resolve([]),
+          canReadPortal ? safeLoad('portal updates', fetchAllPortalUpdates(supabase), []) : Promise.resolve([]),
+          canReadPortal ? safeLoad('portal update attachments', fetchAllPortalUpdateAttachments(supabase), []) : Promise.resolve([]),
+          canReadFiles ? safeLoad('files', fetchAllEntityFiles(supabase), []) : Promise.resolve([]),
+          safeLoad('API keys', fetchApiKeys(supabase), []),
+          canReadTime ? safeLoad('time entries', workspaceData<TimeEntry[]>('/api/workspace/time-entries'), []) : Promise.resolve([]),
+          canReadCredentials ? safeLoad('credentials', workspaceData<ProjectCredentialListItem[]>('/api/workspace/credentials'), []) : Promise.resolve([]),
+          canReadInvoices ? safeLoad('invoices', fetchAllProjectInvoices(supabase), []) : Promise.resolve([]),
+          canReadSettings ? safeLoad('business settings', fetchBusinessSettings(supabase), null) : Promise.resolve(null),
         ]);
 
         setProjects(projectsData);
@@ -490,7 +512,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
             const lastEnd = entry.segments[entry.segments.length - 1]?.end;
             if (!lastEnd) return;
             try {
-              await patchTimeEntryQuery(supabase, entry.id, { end_time: lastEnd });
+              const response = await fetch('/api/workspace/time-entries', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: entry.id, end_time: lastEnd }),
+              });
+              if (!response.ok) throw new Error('Failed to finalize stale time entry');
               // Mutate the local copy so the first paint already reflects finalization
               entry.end_time = lastEnd;
             } catch (e) {
@@ -503,6 +530,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setProjectCredentials(projectCredentialsData);
         setProjectInvoices(projectInvoicesData);
         setBusinessSettings(businessSettingsData);
+        setEmployeeEarnings(await employeeEarningsRequest);
 
         // Conditionally load agent data when feature is enabled
         if (process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true') {
@@ -528,7 +556,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
 
     loadData();
-  }, [user, isDemoMode]);
+  }, [user, access, isDemoMode]);
 
   // Project CRUD
   const addProject = async (project: Omit<Project, 'id' | 'created_at' | 'updated_at'>) => {
@@ -547,7 +575,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (skipSupabase) return optimistic;
 
     try {
-      const newProject = await insertProject(supabase, { ...project, created_by: teamMemberId }, memberIds);
+      const response = await fetch('/api/workspace/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(project),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || 'Failed to create project');
+      const newProject = payload.data as Project;
       setProjects(prev => prev.map(p => p.id === optimisticId ? newProject : p));
 
       // If the project was created with a budget set, log that as a
@@ -591,7 +626,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (skipSupabase) return;
 
     try {
-      await patchProject(supabase, id, updates, updates.member_ids);
+      const response = await fetch('/api/workspace/projects', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, ...updates }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || 'Failed to update project');
+      setProjects(current => current.map(project => project.id === id ? payload.data as Project : project));
 
       // Auto-sync portal slug when project name changes
       if (updates.name && updates.name !== projectBefore?.name) {
@@ -659,7 +701,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (skipSupabase) return;
 
     try {
-      await removeProject(supabase, id);
+      const response = await fetch(`/api/workspace/projects?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
+      if (!response.ok) {
+        const payload = await response.json();
+        throw new Error(payload.error || 'Failed to delete project');
+      }
       if (deletedProject) {
         notify(allMemberIds(), `Project "${deletedProject.name}" was archived`, `${actorName()} archived the project.`, '/projects', 'project', id, 'project_deleted');
       }
@@ -1046,7 +1092,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (skipSupabase) return;
 
     try {
-      await patchTeamMember(supabase, id, updates);
+      const response = await fetch(`/api/workspace/team-members/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      });
+      if (!response.ok) {
+        const payload = await response.json();
+        throw new Error(payload.error || 'Failed to update team member');
+      }
     } catch (err) {
       setTeam(prev);
       toast('error', 'Failed to update team member');
@@ -2315,7 +2369,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (skipSupabase) return;
 
     try {
-      const created = await insertTimeEntryQuery(supabase, entry);
+      const response = await fetch('/api/workspace/time-entries', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(entry),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || 'Failed to add time entry');
+      const created = payload.data as TimeEntry;
       setTimeEntries(prev => prev.map(te => te.id === optimisticId ? created : te));
       const project = projects.find(p => p.id === entry.project_id);
       notify(allMemberIds(), `Time logged on "${project?.name || 'project'}"`, `${actorName()} logged time.`, `/projects/${entry.project_id}`, 'project', entry.project_id, 'time_entries');
@@ -2328,7 +2389,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const updateTimeEntry = async (
     id: string,
-    updates: Partial<Pick<TimeEntry, 'member_id' | 'start_time' | 'end_time' | 'segments' | 'description'>>,
+    updates: Partial<Pick<TimeEntry, 'member_id' | 'start_time' | 'end_time' | 'segments' | 'description' | 'work_type'>>,
     options: { silent?: boolean } = {},
   ) => {
     const prev = timeEntries;
@@ -2339,7 +2400,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (skipSupabase) return;
 
     try {
-      const updated = await patchTimeEntryQuery(supabase, id, updates);
+      const response = await fetch('/api/workspace/time-entries', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, ...updates }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || 'Failed to update time entry');
+      const updated = payload.data as TimeEntry;
       setTimeEntries(entries => entries.map(entry => entry.id === id ? updated : entry));
       if (!options.silent && existing) {
         const project = projects.find(p => p.id === existing.project_id);
@@ -2351,32 +2419,39 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (existing && affectsBudget) triggerBudgetAlerts(existing.project_id);
     } catch (err) {
       setTimeEntries(prev);
-      toast('error', 'Failed to update time entry');
+      toast('error', err instanceof Error ? err.message : 'Failed to update time entry');
     }
   };
 
   const deleteTimeEntry = async (id: string) => {
-    const prev = timeEntries;
     const existing = timeEntries.find(te => te.id === id);
-    setTimeEntries(te => te.filter(entry => entry.id !== id));
-    if (skipSupabase) return;
+    if (skipSupabase) {
+      setTimeEntries(te => te.filter(entry => entry.id !== id));
+      return true;
+    }
 
     try {
-      await removeTimeEntryQuery(supabase, id);
-      if (existing) {
-        const project = projects.find(p => p.id === existing.project_id);
-        notify(allMemberIds(), `Time entry deleted on "${project?.name || 'project'}"`, `${actorName()} removed a time entry.`, `/projects/${existing.project_id}`, 'project', existing.project_id, 'time_entries');
+      const response = await fetch(`/api/workspace/time-entries?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
+      if (!response.ok) {
+        const payload = await response.json();
+        throw new Error(payload.error || 'Failed to delete time entry');
       }
+      setTimeEntries(te => te.filter(entry => entry.id !== id));
+      if (existing) {
+          const project = projects.find(p => p.id === existing.project_id);
+          notify(allMemberIds(), `Time entry deleted on "${project?.name || 'project'}"`, `${actorName()} removed a time entry.`, `/projects/${existing.project_id}`, 'project', existing.project_id, 'time_entries');
+      }
+      return true;
     } catch (err) {
-      setTimeEntries(prev);
       toast('error', 'Failed to delete time entry');
+      return false;
     }
   };
 
   const getTimeEntriesByProject = (projectId: string) =>
     timeEntries.filter(te => te.project_id === projectId);
 
-  const startTimer = async (projectId: string, memberId: string, description = '', customStartTime?: string) => {
+  const startTimer = async (projectId: string, memberId: string, description = '', customStartTime?: string, workType: 'client' | 'internal' = 'client') => {
     // Check if this member already has an unfinalized timer (running or paused) on this project.
     // Per-member check so multiple teammates can track simultaneously on the same project.
     const existing = timeEntries.find(te => te.project_id === projectId && te.member_id === memberId && te.end_time === null);
@@ -2394,6 +2469,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       segments: [{ start: startTime, end: null }],
       hourly_rate: projects.find(project => project.id === projectId)?.hourly_rate ?? 0,
       description,
+      work_type: workType,
     };
     await addTimeEntry(entry);
   };
@@ -2456,7 +2532,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     );
 
   // API Key CRUD
-  const addApiKeyAction = async (name: string, keyHash: string, keyPrefix: string, permissions = 'full', linkedTeamMemberId?: string | null): Promise<ApiKey | undefined> => {
+  const addApiKeyAction = async (name: string, keyHash: string, keyPrefix: string, scopes: string[], linkedTeamMemberId?: string | null): Promise<ApiKey | undefined> => {
     if (skipSupabase) return undefined;
 
     try {
@@ -2465,7 +2541,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         key_prefix: keyPrefix,
         key_hash: keyHash,
         created_by: teamMemberId,
-        permissions,
+        permissions: 'scoped',
+        scopes,
         team_member_id: linkedTeamMemberId || null,
       });
       setApiKeys(prev => [newKey, ...prev]);
@@ -2993,6 +3070,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       getInvoicesByProject,
       getInvoicesByContact,
       businessSettings,
+      employeeEarnings,
       updateBusinessSettings,
       getPortalSettings,
     }}>

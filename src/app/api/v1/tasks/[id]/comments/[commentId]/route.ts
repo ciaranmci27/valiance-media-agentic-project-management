@@ -1,13 +1,17 @@
 import { withApi } from '@/lib/api/middleware';
 import { success } from '@/lib/api/response';
 import { updateCommentSchema } from '@/lib/schemas';
-import { notFound } from '@/lib/api/errors';
+import { forbidden, notFound } from '@/lib/api/errors';
 import { logAudit } from '@/lib/api/audit';
+import { accessAllows } from '@/lib/api/access';
 
-export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemberId }) => {
+export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemberId, access, scopes }) => {
   const { id, commentId } = params as any;
   const { data: before } = await supabase.from('task_comments').select('*').eq('id', commentId).eq('task_id', id).maybeSingle();
   if (!before) throw notFound('Comment');
+  if (before.user_id !== teamMemberId && !(scopes.includes('tasks.manage_all') && accessAllows(access, 'tasks.manage_all', 'api'))) {
+    throw forbidden('This API key can only edit its own comments');
+  }
 
   const { data, error } = await supabase
     .from('task_comments')
@@ -23,10 +27,13 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
   return success(data);
 }, { schema: updateCommentSchema });
 
-export const DELETE = withApi(async ({ supabase, params, apiKeyId, teamMemberId }) => {
+export const DELETE = withApi(async ({ supabase, params, apiKeyId, teamMemberId, access, scopes }) => {
   const { id, commentId } = params as any;
   const { data: before } = await supabase.from('task_comments').select('*').eq('id', commentId).eq('task_id', id).maybeSingle();
   if (!before) throw notFound('Comment');
+  if (before.user_id !== teamMemberId && !(scopes.includes('tasks.manage_all') && accessAllows(access, 'tasks.manage_all', 'api'))) {
+    throw forbidden('This API key can only delete its own comments');
+  }
 
   const { error } = await supabase
     .from('task_comments')

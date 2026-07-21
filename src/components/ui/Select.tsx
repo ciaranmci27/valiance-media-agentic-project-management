@@ -20,6 +20,7 @@ interface SelectProps {
   onChange?: (value: string) => void;
   disabled?: boolean;
   size?: 'default' | 'sm';
+  ariaLabel?: string;
 }
 
 export function Select({
@@ -31,6 +32,7 @@ export function Select({
   onChange,
   disabled = false,
   size = 'default',
+  ariaLabel,
 }: SelectProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [dropdownPos, setDropdownPos] = useState({ top: 0, left: 0, width: 0, maxHeight: 240, openAbove: false });
@@ -123,6 +125,7 @@ export function Select({
       <button
         ref={triggerRef}
         type="button"
+        aria-label={ariaLabel}
         disabled={disabled}
         onClick={() => setIsOpen(!isOpen)}
         onKeyDown={handleKeyDown}

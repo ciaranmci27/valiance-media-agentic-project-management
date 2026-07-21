@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { useApp, defaultFilters } from '@/lib/store';
 import { Header } from '@/components/layout/Header';
 import { Avatar } from '@/components/ui/Avatar';
@@ -10,17 +11,20 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import Modal from '@/components/ui/Modal';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import { MoreVertical, Edit, Shield, User, UserMinus, Bot, UserPlus, Globe, Check } from 'lucide-react';
+import { MoreVertical, Edit, Shield, User, UserMinus, Bot, UserPlus, Globe, Check, Crown, SlidersHorizontal, DollarSign, type LucideIcon } from 'lucide-react';
 import { TeamMember } from '@/lib/types';
 import { toast } from '@/components/ui/Toast';
 import { createClient } from '@/lib/supabase/client';
 import { useDemo } from '@/lib/demo-context';
 import { useAuth } from '@/lib/auth-context';
 import InviteMemberModal from '@/components/team/InviteMemberModal';
+import { AccessControlModal } from '@/components/team/AccessControlModal';
+import { CompensationRateModal } from '@/components/team/CompensationRateModal';
+import { hasPermission } from '@/lib/access-control';
 
 export default function TeamPage() {
-  const { team, updateTeamMember, upsertLocalTeamMember, tasks, filters, setFilters, getTeamMember } = useApp();
-  const { teamMemberId: currentTeamMemberId } = useAuth();
+  const { team, updateTeamMember, upsertLocalTeamMember, tasks, filters, setFilters } = useApp();
+  const { teamMemberId: currentTeamMemberId, access } = useAuth();
   const { isDemoMode } = useDemo();
   const supabase = createClient();
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -28,20 +32,27 @@ export default function TeamPage() {
   const [editingMember, setEditingMember] = useState<TeamMember | null>(null);
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [showEmailConfirm, setShowEmailConfirm] = useState(false);
+  const [isAccessOpen, setIsAccessOpen] = useState(false);
+  const [accessMemberId, setAccessMemberId] = useState<string | null>(null);
+  const [compensationMember, setCompensationMember] = useState<TeamMember | null>(null);
 
-  const currentMember = getTeamMember(currentTeamMemberId || '');
-  const isAdmin = currentMember?.role === 'admin';
+  const isOwner = access?.role === 'owner';
+  const canManageTeam = hasPermission(access, 'team.manage');
+  const canManageCompensation = hasPermission(access, 'compensation.manage');
 
-  useEffect(() => { setFilters(defaultFilters); }, []);
+  useEffect(() => { setFilters(defaultFilters); }, [setFilters]);
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [emailError, setEmailError] = useState('');
   const [role, setRole] = useState<TeamMember['role']>('member');
+  const [memberStatus, setMemberStatus] = useState<'active' | 'suspended'>('active');
   const [memberTz, setMemberTz] = useState('UTC');
   const [tzSearch, setTzSearch] = useState('');
   const [tzOpen, setTzOpen] = useState(false);
+  const [tzDropdownPos, setTzDropdownPos] = useState({ top: 0, left: 0, width: 0, maxHeight: 240, openAbove: false });
   const [formLoading, setFormLoading] = useState(false);
+  const tzTriggerRef = useRef<HTMLDivElement>(null);
   const tzDropdownRef = useRef<HTMLDivElement>(null);
 
   const tzEntries = useMemo(() => {
@@ -70,18 +81,48 @@ export default function TeamPage() {
     return groups;
   }, [tzEntries, tzSearch]);
 
+  const updateTimezoneDropdownPosition = useCallback(() => {
+    if (!tzTriggerRef.current) return;
+    const rect = tzTriggerRef.current.getBoundingClientRect();
+    const desiredHeight = 288;
+    const spaceBelow = window.innerHeight - rect.bottom - 16;
+    const spaceAbove = rect.top - 16;
+    const openAbove = spaceBelow < desiredHeight && spaceAbove > spaceBelow;
+    setTzDropdownPos({
+      top: openAbove ? rect.top - 4 : rect.bottom + 4,
+      left: rect.left,
+      width: rect.width,
+      maxHeight: Math.max(160, Math.min(desiredHeight, openAbove ? spaceAbove : spaceBelow)),
+      openAbove,
+    });
+  }, []);
+
   useEffect(() => {
     if (!tzOpen) return;
-    const handler = (e: MouseEvent) => { if (tzDropdownRef.current && !tzDropdownRef.current.contains(e.target as Node)) { setTzOpen(false); setTzSearch(''); } };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [tzOpen]);
+    updateTimezoneDropdownPosition();
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (!tzTriggerRef.current?.contains(target) && !tzDropdownRef.current?.contains(target)) {
+        setTzOpen(false);
+        setTzSearch('');
+      }
+    };
+    document.addEventListener('mousedown', handlePointerDown);
+    window.addEventListener('resize', updateTimezoneDropdownPosition);
+    window.addEventListener('scroll', updateTimezoneDropdownPosition, true);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      window.removeEventListener('resize', updateTimezoneDropdownPosition);
+      window.removeEventListener('scroll', updateTimezoneDropdownPosition, true);
+    };
+  }, [tzOpen, updateTimezoneDropdownPosition]);
 
   const resetForm = () => {
     setName('');
     setEmail('');
     setEmailError('');
     setRole('member');
+    setMemberStatus('active');
     setMemberTz('UTC');
     setTzSearch('');
     setTzOpen(false);
@@ -95,6 +136,7 @@ export default function TeamPage() {
     setEmail(member.email);
     setEmailError('');
     setRole(member.role);
+    setMemberStatus(member.status || 'active');
     setMemberTz(member.timezone || 'UTC');
     setIsFormOpen(true);
   };
@@ -145,7 +187,7 @@ export default function TeamPage() {
       return;
     }
 
-    updateTeamMember(editingMember.id, { name: name.trim(), role, timezone: memberTz });
+    updateTeamMember(editingMember.id, { name: name.trim(), role, status: memberStatus, timezone: memberTz });
     toast('success', 'Team member updated');
     handleCloseForm();
   };
@@ -169,7 +211,7 @@ export default function TeamPage() {
         return;
       }
 
-      updateTeamMember(editingMember.id, { name: name.trim(), role, timezone: memberTz, email: email.trim().toLowerCase() });
+      updateTeamMember(editingMember.id, { name: name.trim(), role, status: memberStatus, timezone: memberTz, email: email.trim().toLowerCase() });
       toast('success', 'Team member updated');
       handleCloseForm();
     } catch {
@@ -179,14 +221,16 @@ export default function TeamPage() {
     }
   };
 
-  const roleIcons: Record<string, any> = {
+  const roleIcons: Record<TeamMember['role'], LucideIcon> = {
+    owner: Crown,
     admin: Shield,
     member: User,
     guest: UserMinus,
     agent: Bot,
   };
 
-  const roleColors: Record<string, string> = {
+  const roleColors: Record<TeamMember['role'], string> = {
+    owner: 'bg-amber-100 text-amber-800',
     admin: 'bg-brand-100 text-brand-700',
     member: 'bg-zinc-100 text-zinc-700',
     guest: 'bg-amber-100 text-amber-700',
@@ -198,11 +242,19 @@ export default function TeamPage() {
   };
 
   const searchLower = filters.search.toLowerCase();
-  const filtered = filters.search
+  const roleRank: Record<TeamMember['role'], number> = {
+    owner: 0,
+    admin: 1,
+    member: 2,
+    agent: 3,
+    guest: 4,
+  };
+  const filtered = (filters.search
     ? team.filter(m =>
         m.name.toLowerCase().includes(searchLower) ||
         m.email.toLowerCase().includes(searchLower))
-    : team;
+    : [...team])
+    .sort((a, b) => roleRank[a.role] - roleRank[b.role] || a.name.localeCompare(b.name));
 
   const MemberCard = ({ member }: { member: TeamMember }) => {
     const [showMenu, setShowMenu] = useState(false);
@@ -220,7 +272,7 @@ export default function TeamPage() {
             </div>
           </div>
 
-          {(isAdmin || member.id === currentTeamMemberId) && (
+          {(canManageTeam || canManageCompensation || member.id === currentTeamMemberId) && (
             <div className="relative">
               <button
                 onClick={() => setShowMenu(!showMenu)}
@@ -233,13 +285,31 @@ export default function TeamPage() {
                 <>
                   <div className="fixed inset-0 z-10 cursor-default" onClick={(e) => { e.stopPropagation(); setShowMenu(false); }} />
                   <div className="absolute right-0 top-10 bg-white rounded-lg shadow-xl border border-zinc-200 py-1 z-20 min-w-[140px] cursor-pointer">
-                    <button
+                    {(canManageTeam || member.id === currentTeamMemberId) && <button
                       onClick={() => { handleOpenForm(member); setShowMenu(false); }}
                       className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-100"
                     >
                       <Edit size={14} />
                       Edit
-                    </button>
+                    </button>}
+                    {isOwner && member.role !== 'owner' && (
+                      <button
+                        onClick={() => { setAccessMemberId(member.id); setIsAccessOpen(true); setShowMenu(false); }}
+                        className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-100"
+                      >
+                        <SlidersHorizontal size={14} />
+                        Permissions
+                      </button>
+                    )}
+                    {canManageCompensation && member.role !== 'owner' && (
+                      <button
+                        onClick={() => { setCompensationMember(member); setShowMenu(false); }}
+                        className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-100"
+                      >
+                        <DollarSign size={14} />
+                        Compensation
+                      </button>
+                    )}
                   </div>
                 </>
               )}
@@ -252,6 +322,7 @@ export default function TeamPage() {
             <RoleIcon size={12} />
             {member.role.charAt(0).toUpperCase() + member.role.slice(1)}
           </span>
+          {member.status === 'suspended' && <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-50 text-red-700">Suspended</span>}
           <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-zinc-100 text-zinc-700">
             {taskCount} task{taskCount !== 1 ? 's' : ''}
           </span>
@@ -266,11 +337,7 @@ export default function TeamPage() {
         title="Team"
         subtitle={<span className="hidden sm:inline">{team.length} team members</span>}
         searchPlaceholder="Search team members..."
-        actions={isAdmin && !isDemoMode ? (
-          <Button icon={<UserPlus size={16} />} onClick={() => setIsInviteOpen(true)}>
-            Invite
-          </Button>
-        ) : undefined}
+        actions={canManageTeam && !isDemoMode ? <div className="flex gap-2">{isOwner && <Button variant="secondary" icon={<SlidersHorizontal size={16} />} onClick={() => { setAccessMemberId(null); setIsAccessOpen(true); }}>Roles & permissions</Button>}<Button icon={<UserPlus size={16} />} onClick={() => setIsInviteOpen(true)}>Invite</Button></div> : undefined}
       />
 
       <div className="p-4 lg:p-6 space-y-4">
@@ -297,7 +364,7 @@ export default function TeamPage() {
           upsertLocalTeamMember(member);
           toast('success', `${member.name} has been invited`);
         }}
-        showAgentRole={isAdmin && process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true'}
+        canAssignOwner={isOwner}
       />
 
       {/* Edit Member Modal */}
@@ -347,23 +414,31 @@ export default function TeamPage() {
             label="Role"
             value={role}
             onChange={(value) => setRole(value as TeamMember['role'])}
-            disabled={!isAdmin}
+            disabled={!isOwner || editingMember?.id === currentTeamMemberId}
             options={[
+              { value: 'owner', label: 'Owner' },
               { value: 'admin', label: 'Admin' },
               { value: 'member', label: 'Member' },
               { value: 'guest', label: 'Guest' },
-              ...(isAdmin && process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true'
-                ? [{ value: 'agent', label: 'Agent' }]
-                : []),
+              { value: 'agent', label: 'Agent' },
             ]}
           />
 
+          {canManageTeam && editingMember?.id !== currentTeamMemberId && (
+            <Select label="Account status" value={memberStatus} onChange={(value) => setMemberStatus(value as 'active' | 'suspended')} options={[{ value: 'active', label: 'Active' }, { value: 'suspended', label: 'Suspended' }]} />
+          )}
+
           <div>
             <label className="block text-sm font-medium text-zinc-700 mb-1.5">Timezone</label>
-            <div className="relative" ref={tzDropdownRef}>
+            <div className="relative" ref={tzTriggerRef}>
               <button
                 type="button"
-                onClick={() => setTzOpen(!tzOpen)}
+                aria-expanded={tzOpen}
+                aria-haspopup="dialog"
+                onClick={() => {
+                  if (!tzOpen) updateTimezoneDropdownPosition();
+                  setTzOpen(!tzOpen);
+                }}
                 className="w-full flex items-center justify-between px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg hover:border-zinc-300 transition-colors text-left"
               >
                 <span className="flex items-center gap-2 text-zinc-900">
@@ -374,19 +449,31 @@ export default function TeamPage() {
                   {tzEntries.find(e => e.id === memberTz)?.label || 'UTC+0'}
                 </span>
               </button>
-              {tzOpen && (
-                <div className="absolute z-50 mt-1 w-full bg-white border border-zinc-200 rounded-lg shadow-lg">
+              {tzOpen && createPortal(
+                <div
+                  ref={tzDropdownRef}
+                  role="dialog"
+                  aria-label="Choose timezone"
+                  className="fixed z-[9999] flex flex-col overflow-hidden bg-white border border-zinc-200 rounded-lg shadow-lg"
+                  style={{
+                    top: tzDropdownPos.top,
+                    left: tzDropdownPos.left,
+                    width: tzDropdownPos.width,
+                    maxHeight: tzDropdownPos.maxHeight,
+                    transform: tzDropdownPos.openAbove ? 'translateY(-100%)' : undefined,
+                  }}
+                >
                   <div className="p-2 border-b border-zinc-100">
-                    <input
+                    <Input
                       type="text"
                       value={tzSearch}
                       onChange={e => setTzSearch(e.target.value)}
                       placeholder="Search timezones..."
-                      className="w-full px-3 py-1.5 text-sm bg-zinc-50 border border-zinc-200 rounded-md outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-100"
+                      className="bg-zinc-50 py-1.5 rounded-md"
                       autoFocus
                     />
                   </div>
-                  <div className="max-h-48 overflow-y-auto">
+                  <div className="min-h-0 flex-1 overflow-y-auto">
                     {filteredTz.length === 0 ? (
                       <p className="px-3 py-2 text-sm text-zinc-400">No matching timezones</p>
                     ) : filteredTz.map(group => (
@@ -410,7 +497,8 @@ export default function TeamPage() {
                       </div>
                     ))}
                   </div>
-                </div>
+                </div>,
+                document.body,
               )}
             </div>
           </div>
@@ -436,6 +524,8 @@ export default function TeamPage() {
         variant="default"
         doubleConfirm={false}
       />
+      <AccessControlModal isOpen={isAccessOpen} onClose={() => setIsAccessOpen(false)} team={team} initialMemberId={accessMemberId} />
+      <CompensationRateModal isOpen={Boolean(compensationMember)} onClose={() => setCompensationMember(null)} member={compensationMember} />
     </div>
   );
 }

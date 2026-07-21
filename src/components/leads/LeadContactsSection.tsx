@@ -16,9 +16,10 @@ import { LeadContact, CONTACT_ROLES } from '@/lib/types';
 
 interface LeadContactsSectionProps {
   leadId: string;
+  readOnly?: boolean;
 }
 
-export function LeadContactsSection({ leadId }: LeadContactsSectionProps) {
+export function LeadContactsSection({ leadId, readOnly = false }: LeadContactsSectionProps) {
   const {
     contacts,
     getContactsByLead,
@@ -132,7 +133,7 @@ export function LeadContactsSection({ leadId }: LeadContactsSectionProps) {
               Contacts ({leadContactsList.length})
             </h2>
           </div>
-          {!showAddForm && (
+          {!readOnly && !showAddForm && (
             <Button
               size="sm"
               onClick={() => setShowAddForm(true)}
@@ -185,18 +186,18 @@ export function LeadContactsSection({ leadId }: LeadContactsSectionProps) {
                       {!isEditing && (
                         <div className="flex items-center gap-2 flex-shrink-0">
                           <Badge variant="default">{displayRole}</Badge>
-                          <button
+                          {!readOnly && <button
                             onClick={() => handleStartEdit(lc)}
                             className="p-1.5 text-zinc-300 hover:text-brand-500 transition-all sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
                           >
                             <Edit size={14} />
-                          </button>
-                          <button
+                          </button>}
+                          {!readOnly && <button
                             onClick={() => handleRemove(lc.id)}
                             className="p-1.5 text-zinc-300 hover:text-red-500 transition-all sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
                           >
                             <Trash2 size={14} />
-                          </button>
+                          </button>}
                         </div>
                       )}
                     </div>
@@ -366,10 +367,10 @@ export function LeadContactsSection({ leadId }: LeadContactsSectionProps) {
       </div>
 
       {/* Create new contact form */}
-      <ContactForm
+      {!readOnly && <ContactForm
         isOpen={showNewContactForm}
         onClose={() => setShowNewContactForm(false)}
-      />
+      />}
 
       <ConfirmDialog
         isOpen={!!removingLcId}

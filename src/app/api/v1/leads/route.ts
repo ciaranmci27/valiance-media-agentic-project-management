@@ -4,8 +4,9 @@ import { createLeadSchema } from '@/lib/schemas';
 import { parsePagination, sanitizeSearch, validateSort } from '@/lib/api/pagination';
 import { insertLead } from '@/lib/supabase/queries';
 import { logAudit } from '@/lib/api/audit';
+import { accessAllows } from '@/lib/api/access';
 
-export const GET = withApi(async ({ supabase, searchParams }) => {
+export const GET = withApi(async ({ supabase, searchParams, access, teamMemberId }) => {
   const { page, limit, offset } = parsePagination(searchParams);
   const sort = validateSort('leads', searchParams.get('sort'));
   const order = searchParams.get('order') === 'asc';
@@ -16,6 +17,13 @@ export const GET = withApi(async ({ supabase, searchParams }) => {
   const includeArchived = searchParams.get('include_archived') === 'true';
 
   let query = supabase.from('leads').select('*, lead_members(member_id)', { count: 'exact' });
+  if (!accessAllows(access, 'leads.read_all', 'api')) {
+    const { data: memberships } = await supabase.from('lead_members').select('lead_id').eq('member_id', teamMemberId);
+    const leadIds = (memberships || []).map((row) => row.lead_id);
+    query = leadIds.length > 0
+      ? query.or(`assigned_to.eq.${teamMemberId},id.in.(${leadIds.join(',')})`)
+      : query.eq('assigned_to', teamMemberId);
+  }
 
   if (!includeArchived) {
     query = query.is('archived_at', null);

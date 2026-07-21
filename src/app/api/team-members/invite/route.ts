@@ -1,34 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { createClient } from '@/lib/supabase/server';
-import { getServiceClient } from '@/lib/api/supabase-service';
+import { requireSessionAccess } from '@/lib/api/access';
 
 const inviteSchema = z.object({
   name: z.string().min(1, 'Name is required').max(100),
   email: z.string().email('Invalid email address'),
   password: z.string().min(6, 'Password must be at least 6 characters'),
-  role: z.enum(['admin', 'member', 'guest', 'agent']),
+  role: z.enum(['owner', 'admin', 'member', 'guest', 'agent']),
 });
 
 export async function POST(req: NextRequest) {
-  // 1. Verify caller session
-  const supabase = await createClient();
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
-  if (authError || !user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
-  // 2. Verify caller is admin
-  const service = getServiceClient();
-  const { data: callerMember } = await service
-    .from('team_members')
-    .select('role')
-    .eq('auth_user_id', user.id)
-    .single();
-
-  if (!callerMember || callerMember.role !== 'admin') {
-    return NextResponse.json({ error: 'Forbidden – admin role required' }, { status: 403 });
-  }
+  const auth = await requireSessionAccess({ permission: 'team.manage' });
+  if (auth.error) return auth.error;
+  const { access, service } = auth.data;
 
   // 3. Validate body
   let body: z.infer<typeof inviteSchema>;
@@ -39,6 +23,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Validation failed', details: err.flatten().fieldErrors }, { status: 422 });
     }
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
+  }
+  if ((body.role === 'owner' || body.role === 'admin') && access.role !== 'owner') {
+    return NextResponse.json({ error: 'Only an Owner can create an Owner or Admin' }, { status: 403 });
   }
 
   // 4. Create auth user via Admin API

@@ -1,14 +1,15 @@
 import { withApi } from '@/lib/api/middleware';
 import { success } from '@/lib/api/response';
 import { updateCredentialSchema, payloadFromBody } from '@/lib/schemas/credentials';
-import { notFound, badRequest } from '@/lib/api/errors';
+import { forbidden, notFound, badRequest } from '@/lib/api/errors';
 import { logAudit } from '@/lib/api/audit';
 import { encrypt, decrypt, isEncryptionConfigured } from '@/lib/api/encryption';
 import { fetchCredentialWithEncryptedData, patchProjectCredential, removeProjectCredential } from '@/lib/supabase/queries';
 import type { CredentialPayload } from '@/lib/types';
 import { z } from 'zod';
+import { apiKeyAllows } from '@/lib/api/access';
 
-export const GET = withApi(async ({ supabase, params }) => {
+export const GET = withApi(async ({ supabase, params, access, scopes, teamMemberId }) => {
   const { id, credentialId } = params as any;
 
   const { data } = await supabase
@@ -19,6 +20,15 @@ export const GET = withApi(async ({ supabase, params }) => {
     .maybeSingle();
 
   if (!data) throw notFound('Credential');
+  if (!apiKeyAllows(access, scopes, 'credentials.manage')) {
+    const { data: grant } = await supabase
+      .from('project_credential_members')
+      .select('credential_id')
+      .eq('credential_id', credentialId)
+      .eq('member_id', teamMemberId)
+      .maybeSingle();
+    if (!grant) throw forbidden('Credential has not been shared with this team member');
+  }
   return success(data);
 });
 

@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
-import { getServiceClient } from '@/lib/api/supabase-service';
+import { accessAllowsProject, requireSessionAccess } from '@/lib/api/access';
 import { evaluateBudgetAlerts } from '@/lib/email/client-notifications';
 
 export const dynamic = 'force-dynamic';
@@ -15,18 +14,9 @@ export async function POST(
 ) {
   const { id: projectId } = await ctx.params;
 
-  const supabase = await createClient();
-  const { data: { user }, error } = await supabase.auth.getUser();
-  if (error || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
-  // Same membership check as the sibling budget-change route
-  const service = getServiceClient();
-  const { data: member } = await service
-    .from('team_members')
-    .select('id')
-    .eq('auth_user_id', user.id)
-    .maybeSingle();
-  if (!member) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await requireSessionAccess();
+  if (auth.error) return auth.error;
+  if (!accessAllowsProject(auth.data.access, projectId)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
   await evaluateBudgetAlerts(projectId);
   return NextResponse.json({ evaluated: true });

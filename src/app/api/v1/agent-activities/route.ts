@@ -6,8 +6,9 @@ import { parsePagination } from '@/lib/api/pagination';
 import { forbidden, badRequest } from '@/lib/api/errors';
 import { insertAgentActivity } from '@/lib/supabase/queries';
 import { logAudit } from '@/lib/api/audit';
+import { accessAllowsProject } from '@/lib/api/access';
 
-export const GET = withApi(async ({ supabase, searchParams }) => {
+export const GET = withApi(async ({ supabase, searchParams, access }) => {
   requireAgentsEnabled();
 
   const { page, limit, offset } = parsePagination(searchParams);
@@ -19,6 +20,11 @@ export const GET = withApi(async ({ supabase, searchParams }) => {
     .from('agent_activities')
     .select('*', { count: 'exact' });
 
+  if (!access.api_permissions.includes('*') && !access.api_permissions.includes('projects.read_all')) {
+    if (access.project_ids.length === 0) return paginated([], { page, limit, total: 0 });
+    query = query.in('project_id', access.project_ids);
+  }
+
   if (agentId) query = query.eq('agent_id', agentId);
   if (projectId) query = query.eq('project_id', projectId);
   if (activityType) query = query.eq('activity_type', activityType);
@@ -29,9 +35,9 @@ export const GET = withApi(async ({ supabase, searchParams }) => {
 
   if (error) throw error;
   return paginated(data || [], { page, limit, total: count || 0 });
-});
+}, { permission: 'audit.read' });
 
-export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId }) => {
+export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId, access }) => {
   requireAgentsEnabled();
 
   if (!teamMemberId) {
@@ -47,6 +53,11 @@ export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId }) =
 
   if (!member || member.role !== 'agent') {
     throw forbidden('Only agent team members can log activity');
+  }
+
+  const projectId = (body as { project_id?: string | null }).project_id;
+  if (projectId && !accessAllowsProject(access, projectId, 'api')) {
+    throw forbidden('Project scope denied');
   }
 
   const entry = await insertAgentActivity(supabase, {
@@ -67,4 +78,4 @@ export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId }) =
   });
 
   return created(entry);
-}, { schema: createAgentActivitySchema });
+}, { schema: createAgentActivitySchema, permission: 'agent_activity.write' });

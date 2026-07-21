@@ -5,6 +5,7 @@ import { Calendar, Users, MoreVertical, Edit, Trash2, Bot } from 'lucide-react';
 import { Project } from '@/lib/types';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
+import { hasPermission } from '@/lib/access-control';
 import { StatusBadge } from '@/components/ui/Badge';
 import { AvatarGroup } from '@/components/ui/Avatar';
 import { Tooltip } from '@/components/ui/Tooltip';
@@ -19,12 +20,11 @@ interface ProjectCardProps {
 
 export function ProjectCard({ project, onEdit, onDelete }: ProjectCardProps) {
   const { team, getTasksByProject, getPrimaryClient } = useApp();
-  const { teamMemberId } = useAuth();
+  const { access } = useAuth();
   const [showMenu, setShowMenu] = useState(false);
 
   const isAgentsEnabled = process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true';
-  const currentMember = team.find(m => m.id === teamMemberId);
-  const isAdmin = currentMember?.role === 'admin';
+  const canManageAgents = hasPermission(access, 'agents.manage');
 
   const projectTasks = getTasksByProject(project.id);
   const completedTasks = projectTasks.filter(t => t.status === 'done').length;
@@ -56,7 +56,7 @@ export function ProjectCard({ project, onEdit, onDelete }: ProjectCardProps) {
           </span>
           <div className="mt-1 flex items-center gap-1.5 flex-wrap">
             <StatusBadge status={project.status} />
-            {isAgentsEnabled && isAdmin && project.autonomous_enabled && (
+            {isAgentsEnabled && canManageAgents && project.autonomous_enabled && (
               <Tooltip content="Autonomous agents enabled">
                 <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-violet-100 text-violet-700">
                   <Bot size={12} />
@@ -71,7 +71,7 @@ export function ProjectCard({ project, onEdit, onDelete }: ProjectCardProps) {
           </div>
         </div>
 
-        <div className="relative flex-shrink-0">
+        {(onEdit || onDelete) && <div className="relative flex-shrink-0">
           <button
             onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowMenu(!showMenu); }}
             className="lg:opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 transition-all"
@@ -100,7 +100,7 @@ export function ProjectCard({ project, onEdit, onDelete }: ProjectCardProps) {
               </div>
             </>
           )}
-        </div>
+        </div>}
       </div>
 
       <p className="text-xs lg:text-sm text-zinc-500 mb-3 lg:mb-4 line-clamp-2">

@@ -11,6 +11,8 @@ import { Plus, Target, DollarSign } from 'lucide-react';
 import { Lead } from '@/lib/types';
 import { toast } from '@/components/ui/Toast';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { useAuth } from '@/lib/auth-context';
+import { hasPermission } from '@/lib/access-control';
 
 const PIPELINE_STAGES: { status: Lead['status']; label: string }[] = [
   { status: 'new', label: 'New' },
@@ -21,6 +23,8 @@ const PIPELINE_STAGES: { status: Lead['status']; label: string }[] = [
 
 export default function LeadsPage() {
   const { leads, deleteLead, filters, setFilters } = useApp();
+  const { access } = useAuth();
+  const canManageLeads = hasPermission(access, 'leads.manage');
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingLead, setEditingLead] = useState<Lead | null>(null);
   const [convertingLead, setConvertingLead] = useState<Lead | null>(null);
@@ -76,11 +80,11 @@ export default function LeadsPage() {
         title="Leads"
         subtitle={<span className="hidden sm:inline">{activeLeads.length} active leads</span>}
         searchPlaceholder="Search leads by name, company, or email..."
-        actions={
+        actions={canManageLeads ? (
           <Button onClick={() => setIsFormOpen(true)} icon={<Plus size={16} />}>
             Add Lead
           </Button>
-        }
+        ) : undefined}
       />
 
       <div className="p-4 lg:p-6 space-y-6 lg:space-y-8">
@@ -90,10 +94,8 @@ export default function LeadsPage() {
               <Target className="text-zinc-400" size={32} />
             </div>
             <h3 className="text-lg font-semibold text-zinc-900 mb-2">No leads yet</h3>
-            <p className="text-zinc-500 mb-4">Add your first lead to start building your pipeline</p>
-            <Button onClick={() => setIsFormOpen(true)}>
-              Add Lead
-            </Button>
+            <p className="text-zinc-500 mb-4">{canManageLeads ? 'Add your first lead to start building your pipeline' : 'No leads are available to you'}</p>
+            {canManageLeads && <Button onClick={() => setIsFormOpen(true)}>Add Lead</Button>}
           </div>
         ) : (
           <>
@@ -112,9 +114,9 @@ export default function LeadsPage() {
                       <LeadCard
                         key={lead.id}
                         lead={lead}
-                        onEdit={handleEdit}
-                        onDelete={handleDelete}
-                        onConvert={setConvertingLead}
+                        onEdit={canManageLeads ? handleEdit : undefined}
+                        onDelete={canManageLeads ? handleDelete : undefined}
+                        onConvert={canManageLeads ? setConvertingLead : undefined}
                       />
                     ))}
                   </div>
@@ -133,8 +135,8 @@ export default function LeadsPage() {
                     <LeadCard
                       key={lead.id}
                       lead={lead}
-                      onEdit={handleEdit}
-                      onDelete={handleDelete}
+                      onEdit={canManageLeads ? handleEdit : undefined}
+                      onDelete={canManageLeads ? handleDelete : undefined}
                     />
                   ))}
                 </div>
@@ -152,8 +154,8 @@ export default function LeadsPage() {
                     <LeadCard
                       key={lead.id}
                       lead={lead}
-                      onEdit={handleEdit}
-                      onDelete={handleDelete}
+                      onEdit={canManageLeads ? handleEdit : undefined}
+                      onDelete={canManageLeads ? handleDelete : undefined}
                     />
                   ))}
                 </div>
@@ -185,18 +187,18 @@ export default function LeadsPage() {
         )}
       </div>
 
-      <LeadForm
+      {canManageLeads && <LeadForm
         isOpen={isFormOpen}
         onClose={handleCloseForm}
         lead={editingLead}
         onConvertRequested={(lead) => setConvertingLead(lead)}
-      />
+      />}
 
-      <ConvertLeadModal
+      {canManageLeads && <ConvertLeadModal
         isOpen={!!convertingLead}
         onClose={() => setConvertingLead(null)}
         lead={convertingLead}
-      />
+      />}
 
       <ConfirmDialog
         isOpen={!!deletingLeadId}

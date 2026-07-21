@@ -18,7 +18,7 @@ import {
   Hash,
 } from 'lucide-react';
 import { headers } from 'next/headers';
-import { endpoints, groups, METHOD_COLORS } from './docs-data';
+import { endpoints, getEndpointScopes, groups, METHOD_COLORS } from './docs-data';
 import { DocsTocNav, type TocSection } from './DocsTocNav';
 
 /* ── Helpers ───────────────────────────────────────────────── */
@@ -188,6 +188,12 @@ export default async function ApiDocsPage() {
                 .
               </p>
 
+              <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+                A request is allowed only when the key includes the endpoint scope, the linked team member is
+                allowed that API permission, and the member can access the target project or record. Selecting a
+                scope on a key never bypasses the member&apos;s role defaults or individual overrides.
+              </div>
+
               <div className="bg-zinc-900 rounded-lg p-4 mb-4">
                 <pre className="text-sm text-emerald-400 font-mono overflow-x-auto whitespace-pre">{`curl -H "x-api-key: pk_live_abc123..." \\
   https://${host}/api/v1/contacts`}</pre>
@@ -255,6 +261,82 @@ export default async function ApiDocsPage() {
 }`}</pre>
                 </div>
               </div>
+
+              {/* Status and error code reference */}
+              <div className="mt-6">
+                <p className="text-xs font-medium text-zinc-500 uppercase tracking-wide mb-2">Status and error codes</p>
+                <div className="overflow-x-auto rounded-lg border border-zinc-200">
+                  <table className="w-full text-sm">
+                    <thead className="bg-zinc-50">
+                      <tr>
+                        <th className="text-left py-2 px-3 text-xs font-medium text-zinc-500">HTTP</th>
+                        <th className="text-left py-2 px-3 text-xs font-medium text-zinc-500">error.code</th>
+                        <th className="text-left py-2 px-3 text-xs font-medium text-zinc-500">Meaning</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-zinc-100">
+                      {[
+                        ['401', 'UNAUTHORIZED', 'Missing, invalid, disabled, or expired API key. See error.details.reason.'],
+                        ['403', 'FORBIDDEN', 'Authenticated but not allowed. error.details says what to grant and where.'],
+                        ['400', 'BAD_REQUEST', 'Malformed request, e.g. the body is not valid JSON.'],
+                        ['422', 'VALIDATION_ERROR', 'Body failed validation. error.details lists the offending fields.'],
+                        ['404', 'NOT_FOUND', 'The requested record does not exist.'],
+                        ['409', 'CONFLICT', 'The request conflicts with the current state.'],
+                        ['429', 'RATE_LIMIT_EXCEEDED', 'Too many requests. Retry after the X-RateLimit-Reset time.'],
+                        ['500', 'INTERNAL_ERROR', 'Unexpected server error. error.details.request_id identifies the server log.'],
+                      ].map(([status, code, meaning]) => (
+                        <tr key={code}>
+                          <td className="py-2 px-3 font-mono text-xs text-zinc-700 align-top">{status}</td>
+                          <td className="py-2 px-3 font-mono text-xs text-zinc-700 align-top whitespace-nowrap">{code}</td>
+                          <td className="py-2 px-3 text-xs text-zinc-500">{meaning}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Access-denied detail example */}
+              <div className="mt-6">
+                <p className="text-xs font-medium text-red-600 uppercase tracking-wide mb-2">Access denied (403) with guidance</p>
+                <p className="text-sm text-zinc-500 mb-2">
+                  Authorization is two-factor: a permission must be on both the API key&apos;s scopes and the linked
+                  member&apos;s role. A 403 reports which side is missing, so a client knows exactly what to grant and where.
+                </p>
+                <pre className="bg-zinc-900 rounded-lg p-4 text-xs text-zinc-300 font-mono overflow-x-auto whitespace-pre">{`{
+  "success": false,
+  "error": {
+    "code": "FORBIDDEN",
+    "message": "API scope required: tasks.manage_assigned or tasks.manage_all",
+    "details": {
+      "reason": "missing_key_scope",
+      "grant_on": "api_key",
+      "hint": "Add one of [tasks.manage_assigned] to this API key's scopes.",
+      "required": ["tasks.manage_assigned", "tasks.manage_all"],
+      "missing_key_scopes": ["tasks.manage_assigned", "tasks.manage_all"],
+      "missing_member_permissions": []
+    }
+  }
+}`}</pre>
+                <p className="text-xs text-zinc-500 mt-2">
+                  <span className="font-medium text-zinc-600">reason</span> values include{' '}
+                  <code className="rounded bg-zinc-100 px-1 py-0.5 text-[11px]">missing_key_scope</code>,{' '}
+                  <code className="rounded bg-zinc-100 px-1 py-0.5 text-[11px]">missing_member_permission</code>,{' '}
+                  <code className="rounded bg-zinc-100 px-1 py-0.5 text-[11px]">missing_key_scope_and_member_permission</code>,{' '}
+                  <code className="rounded bg-zinc-100 px-1 py-0.5 text-[11px]">project_scope</code>,{' '}
+                  <code className="rounded bg-zinc-100 px-1 py-0.5 text-[11px]">lead_scope</code>,{' '}
+                  <code className="rounded bg-zinc-100 px-1 py-0.5 text-[11px]">contact_scope</code>,{' '}
+                  <code className="rounded bg-zinc-100 px-1 py-0.5 text-[11px]">assigned_only</code>,{' '}
+                  <code className="rounded bg-zinc-100 px-1 py-0.5 text-[11px]">read_only_key</code>,{' '}
+                  <code className="rounded bg-zinc-100 px-1 py-0.5 text-[11px]">api_disabled</code>, and{' '}
+                  <code className="rounded bg-zinc-100 px-1 py-0.5 text-[11px]">member_suspended</code>. The{' '}
+                  <span className="font-medium text-zinc-600">grant_on</span> field points to where to make the change:{' '}
+                  <code className="rounded bg-zinc-100 px-1 py-0.5 text-[11px]">api_key</code>,{' '}
+                  <code className="rounded bg-zinc-100 px-1 py-0.5 text-[11px]">member_role</code>,{' '}
+                  <code className="rounded bg-zinc-100 px-1 py-0.5 text-[11px]">project_membership</code>, or{' '}
+                  <code className="rounded bg-zinc-100 px-1 py-0.5 text-[11px]">lead_assignment</code>.
+                </p>
+              </div>
             </div>
           </section>
 
@@ -299,6 +381,15 @@ export default async function ApiDocsPage() {
                               {ep.path}
                             </code>
                             <p className="text-sm text-zinc-500 mt-0.5">{ep.description}</p>
+                            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                              <span className="text-[11px] font-medium uppercase tracking-wide text-zinc-400">Scope</span>
+                              {getEndpointScopes(ep).map((scope, index, scopes) => (
+                                <span key={scope} className="inline-flex items-center gap-1">
+                                  <code className="rounded bg-zinc-100 px-1.5 py-0.5 text-[11px] text-zinc-700">{scope}</code>
+                                  {index < scopes.length - 1 && <span className="text-[11px] text-zinc-400">or</span>}
+                                </span>
+                              ))}
+                            </div>
                           </div>
                         </div>
 

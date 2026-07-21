@@ -1,12 +1,13 @@
 import { withApi } from '@/lib/api/middleware';
 import { success } from '@/lib/api/response';
-import { notFound, badRequest } from '@/lib/api/errors';
+import { notFound, badRequest, forbidden } from '@/lib/api/errors';
 import { logAudit } from '@/lib/api/audit';
 import { decrypt, isEncryptionConfigured } from '@/lib/api/encryption';
 import { fetchCredentialWithEncryptedData } from '@/lib/supabase/queries';
 import type { CredentialPayload } from '@/lib/types';
+import { apiKeyAllows } from '@/lib/api/access';
 
-export const GET = withApi(async ({ supabase, params, apiKeyId, teamMemberId }) => {
+export const GET = withApi(async ({ supabase, params, apiKeyId, teamMemberId, access, scopes }) => {
   const { id, credentialId } = params as any;
 
   if (!isEncryptionConfigured()) {
@@ -20,6 +21,15 @@ export const GET = withApi(async ({ supabase, params, apiKeyId, teamMemberId }) 
     .eq('project_id', id)
     .maybeSingle();
   if (!check) throw notFound('Credential');
+  if (!apiKeyAllows(access, scopes, 'credentials.manage')) {
+    const { data: grant } = await supabase
+      .from('project_credential_members')
+      .select('credential_id')
+      .eq('credential_id', credentialId)
+      .eq('member_id', teamMemberId)
+      .maybeSingle();
+    if (!grant) throw forbidden('Credential has not been shared with this team member');
+  }
 
   const credential = await fetchCredentialWithEncryptedData(supabase, credentialId, id);
   const payload = await decrypt<CredentialPayload>(credential.encrypted_data, credential.iv);

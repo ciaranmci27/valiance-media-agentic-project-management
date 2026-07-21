@@ -11,6 +11,7 @@ import Link from 'next/link';
 import Modal from '@/components/ui/Modal';
 import { FolderKanban, CheckCircle, Clock, AlertTriangle, Plus, ArrowRight, TrendingUp, Calendar, Users, Target, UserCircle, Activity } from 'lucide-react';
 import { parseDateOnly } from '@/lib/date-utils';
+import { hasPermission } from '@/lib/access-control';
 
 function getTimeAgo(dateStr: string): string {
   const now = new Date();
@@ -28,7 +29,12 @@ function getTimeAgo(dateStr: string): string {
 
 export default function DashboardPage() {
   const { projects, tasks, team, contacts, leads, activities, getTeamMember } = useApp();
-  const { user, teamMemberId } = useAuth();
+  const { user, teamMemberId, access } = useAuth();
+  const canManageProjects = hasPermission(access, 'projects.manage');
+  const canCreateTasks = hasPermission(access, 'tasks.create');
+  const canViewTeam = hasPermission(access, 'team.read') || hasPermission(access, 'team.manage');
+  const canViewContacts = hasPermission(access, 'contacts.read') || hasPermission(access, 'contacts.read_all') || hasPermission(access, 'contacts.manage');
+  const canViewLeads = hasPermission(access, 'leads.read') || hasPermission(access, 'leads.read_all') || hasPermission(access, 'leads.manage');
   const [showProjectPicker, setShowProjectPicker] = useState(false);
   const [quickAddProjectId, setQuickAddProjectId] = useState<string | null>(null);
 
@@ -85,20 +91,20 @@ export default function DashboardPage() {
       color: 'text-emerald-600',
       bg: 'bg-emerald-50',
     },
-    {
+    ...(canViewContacts ? [{
       label: 'Contacts',
       value: contacts.length,
       icon: UserCircle,
       color: contacts.length > 0 ? 'text-cyan-600' : 'text-zinc-400',
       bg: contacts.length > 0 ? 'bg-cyan-50' : 'bg-zinc-50',
-    },
-    {
+    }] : []),
+    ...(canViewLeads ? [{
       label: 'Active Leads',
       value: activeLeads.length,
       icon: Target,
       color: activeLeads.length > 0 ? 'text-violet-600' : 'text-zinc-400',
       bg: activeLeads.length > 0 ? 'bg-violet-50' : 'bg-zinc-50',
-    },
+    }] : []),
   ];
 
   return (
@@ -238,14 +244,14 @@ export default function DashboardPage() {
             <div className="bg-white rounded-xl border border-zinc-200 p-4 lg:p-5">
               <h2 className="font-semibold text-zinc-900 mb-4">Quick Actions</h2>
               <div className="space-y-2">
-                <Link
+                {canManageProjects && <Link
                   href="/projects?new=true"
                   className="flex items-center gap-3 p-3 rounded-lg bg-brand-50 text-brand-700 hover:bg-brand-100 transition-colors"
                 >
                   <Plus size={18} />
                   <span className="font-medium text-sm lg:text-base">New Project</span>
-                </Link>
-                {activeProjects.length > 0 && (
+                </Link>}
+                {canCreateTasks && activeProjects.length > 0 && (
                   <button
                     onClick={() => setShowProjectPicker(true)}
                     className="w-full flex items-center gap-3 p-3 rounded-lg bg-zinc-50 text-zinc-700 hover:bg-zinc-100 transition-colors"
@@ -254,13 +260,13 @@ export default function DashboardPage() {
                     <span className="font-medium text-sm lg:text-base">Add Task</span>
                   </button>
                 )}
-                <Link
+                {canViewTeam && <Link
                   href="/team"
                   className="flex items-center gap-3 p-3 rounded-lg bg-zinc-50 text-zinc-700 hover:bg-zinc-100 transition-colors"
                 >
                   <Users size={18} />
-                  <span className="font-medium text-sm lg:text-base">Manage Team</span>
-                </Link>
+                  <span className="font-medium text-sm lg:text-base">{hasPermission(access, 'team.manage') ? 'Manage Team' : 'View Team'}</span>
+                </Link>}
               </div>
             </div>
 
@@ -300,7 +306,7 @@ export default function DashboardPage() {
         </div>
 
         {/* Leads Pipeline */}
-        {leads.length > 0 && (
+        {canViewLeads && leads.length > 0 && (
           <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
             <div className="flex items-center justify-between p-4 border-b border-zinc-100">
               <h2 className="font-semibold text-zinc-900">Leads Pipeline</h2>
@@ -419,7 +425,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Project Picker Modal */}
-      <Modal
+      {canCreateTasks && <Modal
         isOpen={showProjectPicker}
         onClose={() => setShowProjectPicker(false)}
         title="Add Task to Project"
@@ -447,10 +453,10 @@ export default function DashboardPage() {
             </button>
           ))}
         </div>
-      </Modal>
+      </Modal>}
 
       {/* Quick Add Task Form */}
-      {quickAddProjectId && (
+      {canCreateTasks && quickAddProjectId && (
         <TaskForm
           isOpen={!!quickAddProjectId}
           onClose={() => setQuickAddProjectId(null)}
