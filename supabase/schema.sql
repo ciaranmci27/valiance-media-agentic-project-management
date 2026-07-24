@@ -333,6 +333,7 @@ create table public.client_communications (
   notification_type text not null check (notification_type in (
     'portal_welcome',
     'project_summary',
+    'invoice',
     'budget_threshold',
     'dollar_interval',
     'budget_extended'
@@ -1058,19 +1059,38 @@ create or replace function public.save_project_invoice_with_allocations(
 )
 returns public.project_invoices
 language plpgsql
-security invoker
+security definer
 set search_path = public
 as $$
 declare
+  existing_invoice public.project_invoices;
   saved public.project_invoices;
+  target_project_id uuid;
 begin
+  p_invoice := coalesce(p_invoice, '{}'::jsonb);
+
+  if coalesce(auth.role(), '') <> 'service_role' then
+    if not public.has_permission('invoices.manage', 'app') then
+      raise exception 'Missing permission to manage invoices';
+    end if;
+  end if;
+
   if p_invoice_id is null then
+    target_project_id := (p_invoice->>'project_id')::uuid;
+    if target_project_id is null then
+      raise exception 'Invoice project is required';
+    end if;
+    if coalesce(auth.role(), '') <> 'service_role'
+      and not public.can_access_project(target_project_id) then
+      raise exception 'Project access denied';
+    end if;
+
     insert into public.project_invoices (
       project_id, invoice_number, amount, status, invoice_type, line_items,
       date, due_date, paid_date, description, file_url, file_name, file_size,
       mime_type, created_by
     ) values (
-      (p_invoice->>'project_id')::uuid,
+      target_project_id,
       p_invoice->>'invoice_number',
       coalesce((p_invoice->>'amount')::numeric, 0),
       coalesce(p_invoice->>'status', 'draft'),
@@ -1088,9 +1108,32 @@ begin
     )
     returning * into saved;
   else
+    select * into existing_invoice
+    from public.project_invoices
+    where id = p_invoice_id;
+
+    if not found then
+      raise exception 'Invoice not found';
+    end if;
+
+    target_project_id := case
+      when p_invoice ? 'project_id' then (p_invoice->>'project_id')::uuid
+      else existing_invoice.project_id
+    end;
+    if target_project_id is null then
+      raise exception 'Invoice project is required';
+    end if;
+    if coalesce(auth.role(), '') <> 'service_role'
+      and (
+        not public.can_access_project(existing_invoice.project_id)
+        or not public.can_access_project(target_project_id)
+      ) then
+      raise exception 'Project access denied';
+    end if;
+
     update public.project_invoices invoice
     set
-      project_id = case when p_invoice ? 'project_id' then (p_invoice->>'project_id')::uuid else invoice.project_id end,
+      project_id = case when p_invoice ? 'project_id' then target_project_id else invoice.project_id end,
       invoice_number = case when p_invoice ? 'invoice_number' then p_invoice->>'invoice_number' else invoice.invoice_number end,
       amount = case when p_invoice ? 'amount' then (p_invoice->>'amount')::numeric else invoice.amount end,
       status = case when p_invoice ? 'status' then p_invoice->>'status' else invoice.status end,

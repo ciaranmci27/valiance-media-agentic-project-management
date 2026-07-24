@@ -1,8 +1,6 @@
-'use client';
-
 import { Document, Page, View, Text, Image, Link, StyleSheet } from '@react-pdf/renderer';
 import type { InvoicePdfData } from './types';
-import { registerInvoiceFonts } from './registerFonts';
+import { INVOICE_FONT_FAMILY, registerInvoiceFonts } from './registerFonts';
 
 registerInvoiceFonts();
 
@@ -352,7 +350,11 @@ function TimeLogsPage({
 
       <View style={styles.header}>
         <View style={styles.headerLeft}>
-          <Text style={styles.logoFallback}>{data.business.name}</Text>
+          {opts.showLogo && data.logoUrl ? (
+            <Image src={data.logoUrl} style={styles.logo} />
+          ) : (
+            <Text style={styles.logoFallback}>{data.business.name}</Text>
+          )}
         </View>
         <View style={styles.headerRight}>
           <Text style={styles.eyebrow}>Time Log</Text>
@@ -450,7 +452,7 @@ function createStyles(brandColor: string) {
       paddingTop: PAGE_MARGIN_TOP,
       paddingBottom: PAGE_MARGIN_BOTTOM,
       paddingHorizontal: PAGE_MARGIN_X,
-      fontFamily: 'DM Sans',
+      fontFamily: INVOICE_FONT_FAMILY,
       fontSize: 9.5,
       color: COLOR.body,
       backgroundColor: '#FFFFFF',

@@ -1,13 +1,15 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import {
   Receipt, Plus, Edit2, Trash2, FileDown, X, Upload, File,
-  Loader2, ChevronDown, Copy, Clock, Eye, AlertTriangle, ListChecks,
+  Loader2, ChevronDown, Copy, Clock, Eye, AlertTriangle, ListChecks, Send,
 } from 'lucide-react';
 import { InvoicePreviewModal } from '@/components/projects/InvoicePreviewModal';
+import ClientEmailPreviewModal from '@/components/projects/ClientEmailPreviewModal';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
+import { hasPermission } from '@/lib/access-control';
 import { createClient } from '@/lib/supabase/client';
 import { toast } from '@/components/ui/Toast';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
@@ -131,9 +133,9 @@ function makeLineItem(defaultType: InvoiceLineItemType, position = 0): InvoiceLi
 export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanelProps) {
   const {
     addInvoice, updateInvoice, deleteInvoice, getInvoicesByProject,
-    getProject, updateProject, getTimeEntriesByProject, team,
+    getProject, updateProject, getTimeEntriesByProject, getPrimaryClient, team,
   } = useApp();
-  const { teamMemberId } = useAuth();
+  const { teamMemberId, access } = useAuth();
   const { isDemoMode } = useDemo();
   const currentMember = team.find(m => m.id === teamMemberId);
   const preferredTimezone = currentMember?.timezone && currentMember.timezone !== 'UTC'
@@ -144,13 +146,22 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
   const todayLocalDate = toLocalDateString(preferredTimezone);
   const invoices = getInvoicesByProject(projectId);
   const project = getProject(projectId);
+  const primaryClient = getPrimaryClient(projectId);
+  const hasPrimaryClientEmail = !!primaryClient?.contact?.email;
+  const canEmailInvoices = hasPermission(access, 'communications.manage')
+    && hasPermission(access, 'invoices.manage');
 
   // UI state
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [previewInvoiceId, setPreviewInvoiceId] = useState<string | null>(null);
+  const [emailInvoiceId, setEmailInvoiceId] = useState<string | null>(null);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const emailManual = useMemo(
+    () => (emailInvoiceId ? { type: 'invoice' as const, context: { invoiceId: emailInvoiceId } } : undefined),
+    [emailInvoiceId],
+  );
 
   // Unpaid-hours partial picker — lets the user invoice less than the full
   // outstanding balance with auto-synced amount/hours fields.
@@ -171,6 +182,22 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
       else next.add(id);
       return next;
     });
+  };
+
+  const openInvoiceEmailPreview = (invoiceId: string) => {
+    if (!canEmailInvoices) {
+      toast('error', 'You do not have permission to send invoices');
+      return;
+    }
+    if (!hasPrimaryClientEmail) {
+      toast('error', 'Set a primary client contact with an email first');
+      return;
+    }
+    if (isDemoMode) {
+      toast('success', 'Invoice email sent (demo)');
+      return;
+    }
+    setEmailInvoiceId(invoiceId);
   };
 
   // Form state
@@ -657,7 +684,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
       const items = validLineItems(formLineItems).map((li, i) => ({ ...li, position: i, amount: Number(li.amount) || 0 }));
       const validIds = new Set(items.map(item => item.id));
 
-      await addInvoice({
+      const created = await addInvoice({
         project_id: projectId,
         invoice_number: formNumber.trim(),
         amount: lineItemsTotal(items),
@@ -677,6 +704,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
         mime_type: fileData?.mime_type ?? null,
         created_by: teamMemberId,
       });
+      if (!created) return;
 
       resetForm();
       setIsAdding(false);
@@ -770,7 +798,8 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
         updates.mime_type = fileData.mime_type;
       }
 
-      await updateInvoice(editingId, updates);
+      const updated = await updateInvoice(editingId, updates);
+      if (!updated) return;
 
       resetForm();
       setEditingId(null);
@@ -1490,7 +1519,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
                             <Select
                               size="sm"
                               value={invoice.status}
-                              onChange={v => updateInvoice(invoice.id, { status: v as InvoiceStatus })}
+                              onChange={v => { void updateInvoice(invoice.id, { status: v as InvoiceStatus }); }}
                               options={INVOICE_STATUSES.map(s => ({ value: s, label: s.charAt(0).toUpperCase() + s.slice(1) }))}
                             />
                           </div>
@@ -1525,6 +1554,15 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
                           >
                             <Eye size={13} />
                           </button>
+                          {canEmailInvoices ? (
+                            <button
+                              onClick={e => { e.stopPropagation(); openInvoiceEmailPreview(invoice.id); }}
+                              aria-label="Email invoice"
+                              className="p-1.5 text-zinc-400 hover:text-brand-600 transition-colors rounded-md hover:bg-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
+                            >
+                              <Send size={13} />
+                            </button>
+                          ) : null}
                           <button
                             onClick={e => { e.stopPropagation(); startEditing(invoice); }}
                             aria-label="Edit invoice"
@@ -1673,6 +1711,14 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
       <InvoicePreviewModal
         invoiceId={previewInvoiceId}
         onClose={() => setPreviewInvoiceId(null)}
+      />
+
+      <ClientEmailPreviewModal
+        open={Boolean(emailInvoiceId)}
+        onClose={() => setEmailInvoiceId(null)}
+        projectId={projectId}
+        manual={emailManual}
+        onCompleted={() => setEmailInvoiceId(null)}
       />
     </>
   );

@@ -9,6 +9,12 @@ interface SendMailResult {
   error?: string;
 }
 
+interface TransactionalAttachment {
+  filename: string;
+  content: Buffer;
+  contentType?: string;
+}
+
 async function getAccountAndTransport(accountId?: string) {
   const supabase = getServiceClient();
 
@@ -78,6 +84,7 @@ interface TransactionalOptions {
   html: string;
   text?: string;
   accountId?: string;
+  attachments?: TransactionalAttachment[];
 }
 
 function joinList(v: string | string[] | undefined): string | undefined {
@@ -103,6 +110,7 @@ export async function sendTransactional(options: TransactionalOptions): Promise<
       subject: options.subject,
       html: options.html,
       text: options.text,
+      attachments: options.attachments?.length ? options.attachments : undefined,
     });
 
     return { success: true, messageId: info.messageId };

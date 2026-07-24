@@ -8,7 +8,7 @@ import { emailLayout, getSiteUrl, getSiteName, brandPrimary, brandSubtle, escape
 interface ClientLayoutOptions {
   preheader?: string;
   body: string;
-  portalUrl?: string;
+  portalUrl?: string | null;
   accentColor?: string;
 }
 

@@ -75,7 +75,7 @@ export function InvoicePreviewModal({ invoiceId, onClose }: InvoicePreviewModalP
           businessSettings,
           senderName,
           options,
-          logoUrl: typeof window !== 'undefined' ? `${window.location.origin}/api/logo` : '/api/logo',
+          logoUrl: typeof window !== 'undefined' ? `${window.location.origin}/logos/logo.png` : '/logos/logo.png',
           portalUrl,
           timeEntries,
           projectInvoices: projectInvoiceRows,

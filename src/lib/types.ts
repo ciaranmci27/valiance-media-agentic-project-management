@@ -474,6 +474,7 @@ export type AlertMode = typeof ALERT_MODES[number];
 export const CLIENT_COMM_TYPES = [
   'portal_welcome',
   'project_summary',
+  'invoice',
   'budget_threshold',
   'dollar_interval',
   'budget_extended',

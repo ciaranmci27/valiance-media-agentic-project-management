@@ -268,7 +268,7 @@ interface AppContextType {
 
   // Invoice CRUD
   addInvoice: (invoice: Omit<ProjectInvoice, 'id' | 'created_at' | 'updated_at'>) => Promise<ProjectInvoice | undefined>;
-  updateInvoice: (id: string, updates: Partial<ProjectInvoice>) => void;
+  updateInvoice: (id: string, updates: Partial<ProjectInvoice>) => Promise<boolean>;
   deleteInvoice: (id: string) => void;
   getInvoicesByProject: (projectId: string) => ProjectInvoice[];
   getInvoicesByContact: (contactId: string) => ProjectInvoice[];
@@ -2858,31 +2858,34 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const project = projects.find(p => p.id === invoice.project_id);
       notify(allMemberIds(), `Invoice added to "${project?.name || 'project'}"`, `${actorName()} created invoice ${invoice.invoice_number}.`, `/projects/${invoice.project_id}`, 'project', invoice.project_id, 'portal_settings');
       return created;
-    } catch {
+    } catch (error) {
+      console.error('Failed to create invoice:', error);
       setProjectInvoices(prev => prev.filter(i => i.id !== optimisticId));
       toast('error', 'Failed to create invoice');
       return undefined;
     }
   };
 
-  const updateInvoice = async (id: string, updates: Partial<ProjectInvoice>) => {
+  const updateInvoice = async (id: string, updates: Partial<ProjectInvoice>): Promise<boolean> => {
     const prev = projectInvoices;
     const existing = projectInvoices.find(i => i.id === id);
+    if (!existing) return false;
     setProjectInvoices(invoices =>
       invoices.map(i => i.id === id ? { ...i, ...updates, updated_at: new Date().toISOString() } : i),
     );
-    if (skipSupabase) return;
+    if (skipSupabase) return true;
 
     try {
       const updated = await patchProjectInvoiceQuery(supabase, id, updates);
       setProjectInvoices(invoices => invoices.map(i => i.id === id ? updated : i));
-      if (existing) {
-        const project = projects.find(p => p.id === existing.project_id);
-        notify(allMemberIds(), `Invoice updated on "${project?.name || 'project'}"`, `${actorName()} updated invoice ${existing.invoice_number}.`, `/projects/${existing.project_id}`, 'project', existing.project_id, 'portal_settings');
-      }
-    } catch {
+      const project = projects.find(p => p.id === existing.project_id);
+      notify(allMemberIds(), `Invoice updated on "${project?.name || 'project'}"`, `${actorName()} updated invoice ${existing.invoice_number}.`, `/projects/${existing.project_id}`, 'project', existing.project_id, 'portal_settings');
+      return true;
+    } catch (error) {
+      console.error('Failed to update invoice:', error);
       setProjectInvoices(prev);
       toast('error', 'Failed to update invoice');
+      return false;
     }
   };
 

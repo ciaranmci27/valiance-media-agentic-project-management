@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Send, Loader2, X as XIcon, RotateCcw } from 'lucide-react';
+import { Send, Loader2, X as XIcon, RotateCcw, Paperclip, FileText, ExternalLink } from 'lucide-react';
 import Modal from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { TextInput } from '@/components/ui/inputs/TextInput';
@@ -44,6 +44,14 @@ const SLOT_CONFIGS: Record<ClientCommType, { title: string; fields: SlotField[] 
       { key: 'closing_line', label: 'Closing line', kind: 'input' },
     ],
   },
+  invoice: {
+    title: 'Invoice email',
+    fields: [
+      { key: 'subject', label: 'Subject', kind: 'input' },
+      { key: 'opening_line', label: 'Opening line', kind: 'textarea', rows: 2 },
+      { key: 'closing_line', label: 'Closing line', kind: 'input' },
+    ],
+  },
   budget_threshold: {
     title: 'Budget threshold alert',
     fields: [
@@ -79,6 +87,7 @@ export interface RenderContext {
   newBudget?: number;
   oldBudgetType?: 'hours' | 'amount';
   newBudgetType?: 'hours' | 'amount';
+  invoiceId?: string;
 }
 
 interface PreviewResult {
@@ -89,7 +98,14 @@ interface PreviewResult {
   html: string;
   text: string;
   defaults: Record<string, string>;
-  metadata: Record<string, any>;
+  metadata: Record<string, unknown>;
+  attachments?: PreviewAttachment[];
+}
+
+interface PreviewAttachment {
+  filename: string;
+  contentType: string;
+  previewUrl: string;
 }
 
 export interface ClientEmailPreviewModalProps {
@@ -121,7 +137,29 @@ function contextFromPending(pending: ClientCommunication): RenderContext {
     newBudget: typeof meta.newBudget === 'number' ? meta.newBudget : undefined,
     oldBudgetType: oldT === 'hours' || oldT === 'amount' ? oldT : undefined,
     newBudgetType: newT === 'hours' || newT === 'amount' ? newT : undefined,
+    invoiceId: typeof meta.invoiceId === 'string' ? meta.invoiceId : undefined,
   };
+}
+
+function attachmentsFromMetadata(
+  projectId: string,
+  type: ClientCommType | undefined,
+  metadata: Record<string, unknown> | undefined,
+  fallbackInvoiceId?: string,
+): PreviewAttachment[] {
+  if (type !== 'invoice') return [];
+  const invoiceId = typeof metadata?.invoiceId === 'string'
+    ? metadata.invoiceId
+    : fallbackInvoiceId;
+  if (!invoiceId) return [];
+  const filename = typeof metadata?.attachmentFilename === 'string'
+    ? metadata.attachmentFilename
+    : 'invoice.pdf';
+  return [{
+    filename,
+    contentType: 'application/pdf',
+    previewUrl: `/api/projects/${projectId}/invoices/${invoiceId}/pdf`,
+  }];
 }
 
 // ─── Modal ───────────────────────────────────────────────────────────────────
@@ -167,6 +205,10 @@ export default function ClientEmailPreviewModal(props: ClientEmailPreviewModalPr
   const [showCc, setShowCc] = useState(false);
   const [showBcc, setShowBcc] = useState(false);
   const recipientsSeededRef = useRef(false);
+  const attachments = useMemo<PreviewAttachment[]>(() => {
+    if (preview?.attachments?.length) return preview.attachments;
+    return attachmentsFromMetadata(projectId, type, preview?.metadata, context.invoiceId);
+  }, [context.invoiceId, preview, projectId, type]);
 
   // Reset state when modal (re)opens
   useEffect(() => {
@@ -421,6 +463,7 @@ export default function ClientEmailPreviewModal(props: ClientEmailPreviewModalPr
       : mode === 'pending'
         ? `Review: ${config.title}`
         : config.title;
+  const showsInvoiceAttachment = type === 'invoice';
 
   return (
     <Modal
@@ -515,6 +558,9 @@ export default function ClientEmailPreviewModal(props: ClientEmailPreviewModalPr
                 disabled={submitting}
               />
             ))}
+            {showsInvoiceAttachment ? (
+              <AttachmentPreviewList attachments={attachments} />
+            ) : null}
           </div>
         </div>
         )}
@@ -616,6 +662,44 @@ export default function ClientEmailPreviewModal(props: ClientEmailPreviewModalPr
 }
 
 // ─── RecipientRow ────────────────────────────────────────────────────────────
+
+function AttachmentPreviewList({ attachments }: { attachments: PreviewAttachment[] }) {
+  if (attachments.length === 0) {
+    return (
+      <div className="flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
+        <Paperclip size={13} className="text-zinc-400" aria-hidden="true" />
+        <span>Invoice PDF attaches automatically when this email sends.</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-lg border border-zinc-200 bg-white px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900">
+      <div className="mb-1 flex items-center gap-1.5 text-[11px] font-medium uppercase text-zinc-400">
+        <Paperclip size={12} aria-hidden="true" />
+        <span>Attachments</span>
+      </div>
+      <div className="flex flex-col gap-1.5">
+        {attachments.map(attachment => (
+          <a
+            key={`${attachment.previewUrl}:${attachment.filename}`}
+            href={attachment.previewUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex min-w-0 items-center gap-2 rounded-md border border-zinc-200 bg-zinc-50 px-2.5 py-2 text-xs text-zinc-700 transition-colors hover:border-brand-200 hover:bg-brand-50 hover:text-brand-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-200"
+          >
+            <FileText size={14} className="shrink-0 text-zinc-400" aria-hidden="true" />
+            <span className="min-w-0 flex-1 truncate">{attachment.filename}</span>
+            <span className="shrink-0 rounded bg-white px-1.5 py-0.5 text-[10px] font-medium text-zinc-500 dark:bg-zinc-800 dark:text-zinc-300">
+              PDF
+            </span>
+            <ExternalLink size={12} className="shrink-0 text-zinc-400" aria-hidden="true" />
+          </a>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 interface ContactOption {
   email: string;

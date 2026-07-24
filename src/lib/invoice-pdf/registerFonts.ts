@@ -1,5 +1,7 @@
 import { Font } from '@react-pdf/renderer';
 
+export const INVOICE_FONT_FAMILY = 'Invoice DM Sans';
+
 let registered = false;
 
 /**
@@ -12,13 +14,15 @@ let registered = false;
 export function registerInvoiceFonts() {
   if (registered) return;
 
-  // Resolve to an absolute URL so react-pdf can fetch from the same origin
-  // when running client-side. SSR fallback returns the relative path.
-  const origin = typeof window !== 'undefined' ? window.location.origin : '';
-  const u = (path: string) => `${origin}${path}`;
+  // Browser rendering needs absolute URLs. Server rendering needs real file
+  // paths because /fonts/... otherwise resolves from the filesystem root.
+  const u = (path: string) => {
+    if (typeof window !== 'undefined') return `${window.location.origin}${path}`;
+    return `${process.cwd().replace(/\\/g, '/')}/public${path}`;
+  };
 
   Font.register({
-    family: 'DM Sans',
+    family: INVOICE_FONT_FAMILY,
     fonts: [
       { src: u('/fonts/dm-sans-400.ttf'), fontWeight: 400 },
       { src: u('/fonts/dm-sans-500.ttf'), fontWeight: 500 },

@@ -1,9 +1,10 @@
 /**
  * Server-side orchestration for client-facing email communications.
  *
- * Supports five communication types:
+ * Supports six communication types:
  *   - portal_welcome     (manual)
  *   - project_summary    (manual)
+ *   - invoice            (manual)
  *   - budget_threshold   (automated, percentage alert_mode)
  *   - dollar_interval    (automated, dollar_interval alert_mode)
  *   - budget_extended    (automated on budget change)
@@ -39,10 +40,27 @@ import {
   budgetExtendedDefaults,
   type BudgetExtendedSlots,
 } from './templates/client/budget-extended';
+import {
+  buildInvoiceEmail,
+  invoiceEmailDefaults,
+  type InvoiceEmailSlots,
+} from './templates/client/invoice';
 import { getSiteUrl } from './templates/shared';
 import { getLatestBudgetHistoryId, type BudgetType } from '@/lib/project-budget-history';
-import type { ClientCommType, ProjectInvoice } from '@/lib/types';
-import { paidHourlyLineItemTotal, invoicedTotalsByItemType, unpaidHoursByEntry } from '@/lib/invoice-utils';
+import type {
+  BusinessSettings,
+  ClientCommType,
+  Contact,
+  InvoiceTimeEntryAllocation,
+  Project,
+  ProjectInvoice,
+  TeamMember,
+  TimeEntry,
+} from '@/lib/types';
+import { buildInvoiceData } from '@/lib/invoice-pdf/buildInvoiceData';
+import { InvoicePdfIntegrityError } from '@/lib/invoice-pdf/resolveInvoicePdfBilling';
+import { DEFAULT_INVOICE_PDF_OPTIONS } from '@/lib/invoice-pdf/types';
+import { ensureLineItems, paidHourlyLineItemTotal, invoicedTotalsByItemType, unpaidHoursByEntry } from '@/lib/invoice-utils';
 import { resolveProjectHourlyRate } from '@/lib/supabase/queries';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -71,6 +89,13 @@ export interface RenderedCommunication {
   text: string;
   defaults: Record<string, string>;
   metadata: Record<string, any>;
+  attachments?: RenderedAttachment[];
+}
+
+export interface RenderedAttachment {
+  filename: string;
+  contentType: string;
+  previewUrl: string;
 }
 
 export interface RenderError {
@@ -85,6 +110,7 @@ export interface RenderContext {
   newBudget?: number;
   oldBudgetType?: 'hours' | 'amount';
   newBudgetType?: 'hours' | 'amount';
+  invoiceId?: string;
 }
 
 // ─── Recipient helpers ───────────────────────────────────────────────────────
@@ -266,6 +292,279 @@ function computeUnpaidHours(
   return [...unpaidByEntry.values()].reduce((sum, hours) => sum + hours, 0);
 }
 
+interface EmailAttachment {
+  filename: string;
+  content: Buffer;
+  contentType: string;
+}
+
+function parseLineItems(value: unknown): ProjectInvoice['line_items'] {
+  return Array.isArray(value)
+    ? value.map((item, index) => {
+        const raw = item as Partial<ProjectInvoice['line_items'][number]>;
+        return {
+          id: String(raw.id || `line:${index}`),
+          position: Number(raw.position) || index,
+          item_type: raw.item_type === 'fixed' || raw.item_type === 'recurring' || raw.item_type === 'reimbursement'
+            ? raw.item_type
+            : 'hourly',
+          amount: Number(raw.amount) || 0,
+          description: typeof raw.description === 'string' ? raw.description : '',
+          service_start_date: typeof raw.service_start_date === 'string' ? raw.service_start_date : null,
+          service_end_date: typeof raw.service_end_date === 'string' ? raw.service_end_date : null,
+          recurrence_frequency: raw.recurrence_frequency === 'weekly'
+            || raw.recurrence_frequency === 'monthly'
+            || raw.recurrence_frequency === 'quarterly'
+            || raw.recurrence_frequency === 'annual'
+            ? raw.recurrence_frequency
+            : null,
+        };
+      })
+    : [];
+}
+
+function parseAllocations(value: unknown): InvoiceTimeEntryAllocation[] {
+  if (!Array.isArray(value)) return [];
+  return value.map(row => {
+    const allocation = row as Partial<InvoiceTimeEntryAllocation>;
+    return {
+      id: allocation.id,
+      invoice_id: allocation.invoice_id,
+      line_item_id: String(allocation.line_item_id || ''),
+      time_entry_id: String(allocation.time_entry_id || ''),
+      start_offset_hours: Number(allocation.start_offset_hours) || 0,
+      allocated_hours: Number(allocation.allocated_hours) || 0,
+      allocated_amount: Number(allocation.allocated_amount) || 0,
+      created_at: allocation.created_at,
+    };
+  });
+}
+
+type UnknownRow = Record<string, unknown>;
+
+function hydrateInvoiceRow(row: UnknownRow): ProjectInvoice {
+  const invoice = {
+    ...(row as unknown as ProjectInvoice),
+    amount: Number(row.amount) || 0,
+    line_items: parseLineItems(row.line_items),
+    time_allocations: parseAllocations(row.invoice_time_entry_allocations),
+  } as ProjectInvoice;
+  return {
+    ...invoice,
+    line_items: ensureLineItems(invoice),
+  };
+}
+
+function hydrateProjectRow(row: UnknownRow): Project {
+  const now = Date.now();
+  const rates = Array.isArray(row.project_hourly_rates)
+    ? row.project_hourly_rates as Array<{ hourly_rate: number | string; effective_at: string }>
+    : [];
+  const activeRate = rates
+    .filter(rate => new Date(rate.effective_at).getTime() <= now)
+    .sort((a, b) => b.effective_at.localeCompare(a.effective_at))[0];
+  const memberIds = Array.isArray(row.project_members)
+    ? row.project_members
+        .map((membership: { member_id?: string }) => membership.member_id)
+        .filter((id: unknown): id is string => typeof id === 'string')
+    : [];
+
+  return {
+    ...(row as unknown as Project),
+    hourly_rate: activeRate ? Number(activeRate.hourly_rate) : (row.hourly_rate == null ? null : Number(row.hourly_rate)),
+    budget_value: row.budget_value == null ? null : Number(row.budget_value),
+    tax_rate: row.tax_rate == null ? null : Number(row.tax_rate),
+    member_ids: memberIds,
+    project_members: undefined,
+    project_hourly_rates: undefined,
+  } as unknown as Project;
+}
+
+async function getInvoiceWithAllocations(
+  projectId: string,
+  invoiceId: string | undefined,
+): Promise<ProjectInvoice | RenderError> {
+  if (!invoiceId) return { error: 'invoiceId required for invoice email' };
+  const supabase = getServiceClient();
+  const { data, error } = await supabase
+    .from('project_invoices')
+    .select('*, invoice_time_entry_allocations(*)')
+    .eq('id', invoiceId)
+    .eq('project_id', projectId)
+    .maybeSingle();
+  if (error) return { error: error.message };
+  if (!data) return { error: 'Invoice not found' };
+  return hydrateInvoiceRow(data as unknown as UnknownRow);
+}
+
+async function getProjectForInvoicePdf(projectId: string): Promise<Project | RenderError> {
+  const supabase = getServiceClient();
+  const { data, error } = await supabase
+    .from('projects')
+    .select(`
+      *,
+      project_members ( member_id ),
+      project_hourly_rates ( hourly_rate, effective_at )
+    `)
+    .eq('id', projectId)
+    .maybeSingle();
+  if (error) return { error: error.message };
+  if (!data) return { error: 'Project not found' };
+  return hydrateProjectRow(data as unknown as UnknownRow);
+}
+
+async function getPrimaryContactForInvoicePdf(projectId: string): Promise<Contact | undefined> {
+  const supabase = getServiceClient();
+  const { data } = await supabase
+    .from('project_contacts')
+    .select('contact:contacts(*)')
+    .eq('project_id', projectId)
+    .eq('is_primary_client', true)
+    .limit(1)
+    .maybeSingle();
+  const contact = data?.contact;
+  return contact ? contact as unknown as Contact : undefined;
+}
+
+async function getBusinessSettingsForInvoicePdf(): Promise<BusinessSettings | null> {
+  const supabase = getServiceClient();
+  const { data } = await supabase
+    .from('business_settings')
+    .select('*')
+    .limit(1)
+    .maybeSingle();
+  return (data || null) as BusinessSettings | null;
+}
+
+async function getProjectInvoicesForPdf(projectId: string): Promise<ProjectInvoice[]> {
+  const supabase = getServiceClient();
+  const { data } = await supabase
+    .from('project_invoices')
+    .select('*, invoice_time_entry_allocations(*)')
+    .eq('project_id', projectId)
+    .order('date', { ascending: false });
+  return (data || []).map(row => hydrateInvoiceRow(row as unknown as UnknownRow));
+}
+
+async function getProjectTimeEntriesForPdf(projectId: string): Promise<TimeEntry[]> {
+  const supabase = getServiceClient();
+  const { data } = await supabase
+    .from('project_time_entries')
+    .select('*')
+    .eq('project_id', projectId)
+    .order('start_time', { ascending: false });
+  return (data || []) as TimeEntry[];
+}
+
+async function getTeamForInvoicePdf(): Promise<Pick<TeamMember, 'id' | 'name'>[]> {
+  const supabase = getServiceClient();
+  const { data } = await supabase
+    .from('team_members')
+    .select('id, name')
+    .order('created_at', { ascending: true });
+  return (data || []) as Pick<TeamMember, 'id' | 'name'>[];
+}
+
+async function getSenderName(memberId: string | null | undefined): Promise<string> {
+  if (!memberId) return '';
+  const supabase = getServiceClient();
+  const { data } = await supabase
+    .from('team_members')
+    .select('name')
+    .eq('id', memberId)
+    .maybeSingle();
+  return typeof data?.name === 'string' ? data.name : '';
+}
+
+function invoicePdfFilename(invoiceNumber: string): string {
+  const safe = invoiceNumber
+    .trim()
+    .replace(/[^a-zA-Z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return `${safe || 'invoice'}.pdf`;
+}
+
+async function streamToBuffer(stream: NodeJS.ReadableStream): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream as AsyncIterable<Buffer | Uint8Array | string>) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
+}
+
+export async function buildInvoicePdfAttachment(
+  projectId: string,
+  invoiceId: string,
+  triggeredBy?: string | null,
+): Promise<EmailAttachment | RenderError> {
+  const [
+    project,
+    invoice,
+    primaryContact,
+    businessSettings,
+    timeEntries,
+    projectInvoices,
+    team,
+    portal,
+    senderName,
+  ] = await Promise.all([
+    getProjectForInvoicePdf(projectId),
+    getInvoiceWithAllocations(projectId, invoiceId),
+    getPrimaryContactForInvoicePdf(projectId),
+    getBusinessSettingsForInvoicePdf(),
+    getProjectTimeEntriesForPdf(projectId),
+    getProjectInvoicesForPdf(projectId),
+    getTeamForInvoicePdf(),
+    getPortalInfo(projectId),
+    getSenderName(triggeredBy),
+  ]);
+
+  if ('error' in project) return project;
+  if ('error' in invoice) return invoice;
+
+  try {
+    const [{ renderToStream }, React, { InvoiceDocument }] = await Promise.all([
+      import('@react-pdf/renderer'),
+      import('react'),
+      import('@/lib/invoice-pdf/InvoiceDocument'),
+    ]);
+    const portalInvoiceUrl = portal
+      ? `${portalUrl(portal.token)}?invoice=${encodeURIComponent(invoice.invoice_number)}`
+      : null;
+    const data = buildInvoiceData({
+      invoice,
+      project,
+      primaryContact,
+      businessSettings,
+      senderName,
+      options: {
+        ...DEFAULT_INVOICE_PDF_OPTIONS,
+        ...(project.invoice_pdf_options ?? {}),
+      },
+      logoUrl: `${getSiteUrl()}/logos/logo.png`,
+      portalUrl: portalInvoiceUrl,
+      timeEntries,
+      projectInvoices,
+      team,
+    });
+    const document = React.createElement(InvoiceDocument, { data }) as unknown as Parameters<typeof renderToStream>[0];
+    const stream = await renderToStream(document);
+    return {
+      filename: invoicePdfFilename(invoice.invoice_number),
+      content: await streamToBuffer(stream),
+      contentType: 'application/pdf',
+    };
+  } catch (error) {
+    const message = error instanceof InvoicePdfIntegrityError
+      ? error.message
+      : process.env.NODE_ENV === 'production'
+        ? 'Failed to render invoice PDF attachment'
+        : `Failed to render invoice PDF attachment: ${error instanceof Error ? error.message : String(error)}`;
+    console.error('Invoice PDF attachment render failed', error);
+    return { error: message };
+  }
+}
+
 interface BudgetUsage {
   totalHours: number;
   totalAccrued: number;
@@ -325,7 +624,9 @@ export async function renderCommunication(
   if (!project) return { error: 'Project not found' };
 
   const portal = await getPortalInfo(projectId);
-  if (!portal) return { error: 'Portal is not enabled for this project' };
+  if (!portal && type !== 'invoice') {
+    return { error: 'Portal is not enabled for this project' };
+  }
 
   const client = await getPrimaryClient(projectId);
   if (!client) return { error: 'No primary client contact with an email address' };
@@ -349,12 +650,13 @@ export async function renderCommunication(
   const common = {
     projectName: project.name,
     clientName: client.name,
-    portalUrl: portalUrl(portal.token),
-    accentColor: portal.accentColor,
-    logoUrl: portal.logoUrl || undefined,
+    portalUrl: portal ? portalUrl(portal.token) : '',
+    accentColor: portal?.accentColor,
+    logoUrl: portal?.logoUrl || undefined,
   };
 
   if (type === 'portal_welcome') {
+    if (!portal) return { error: 'Portal is not enabled for this project' };
     const defaults = portalWelcomeDefaults({
       projectName: project.name,
       portalWelcomeMessage: portal.welcomeMessage,
@@ -460,6 +762,61 @@ export async function renderCommunication(
       text,
       defaults: defaults as unknown as Record<string, string>,
       metadata: {},
+    };
+  }
+
+  if (type === 'invoice') {
+    const invoice = await getInvoiceWithAllocations(projectId, context.invoiceId);
+    if ('error' in invoice) return invoice;
+    const invoicePortalUrl = portal
+      ? `${portalUrl(portal.token)}?invoice=${encodeURIComponent(invoice.invoice_number)}`
+      : null;
+    const defaults = invoiceEmailDefaults({
+      projectName: project.name,
+      invoiceNumber: invoice.invoice_number,
+      amount: invoice.amount,
+      dueDate: invoice.due_date,
+      paidDate: invoice.paid_date,
+      status: invoice.status,
+    });
+    const slots: InvoiceEmailSlots = { ...defaults, ...(overrides as Partial<InvoiceEmailSlots>) };
+    const attachmentFilename = invoicePdfFilename(invoice.invoice_number);
+    const { subject, html, text } = buildInvoiceEmail({
+      ...common,
+      portalUrl: invoicePortalUrl,
+      invoiceNumber: invoice.invoice_number,
+      invoiceAmount: invoice.amount,
+      issueDate: invoice.date,
+      dueDate: invoice.due_date,
+      paidDate: invoice.paid_date,
+      status: invoice.status,
+      slots,
+    });
+
+    return {
+      to: recipients.to,
+      cc: recipients.cc,
+      bcc: recipients.bcc,
+      contactId: client.contactId,
+      subject,
+      html,
+      text,
+      defaults: defaults as unknown as Record<string, string>,
+      metadata: {
+        invoiceId: invoice.id,
+        invoiceNumber: invoice.invoice_number,
+        invoiceAmount: invoice.amount,
+        invoiceStatus: invoice.status,
+        issueDate: invoice.date,
+        dueDate: invoice.due_date,
+        paidDate: invoice.paid_date,
+        attachmentFilename,
+      },
+      attachments: [{
+        filename: attachmentFilename,
+        contentType: 'application/pdf',
+        previewUrl: `/api/projects/${projectId}/invoices/${invoice.id}/pdf`,
+      }],
     };
   }
 
@@ -673,6 +1030,7 @@ async function notifyApprovers(
   const labels: Record<ClientCommType, string> = {
     portal_welcome: 'Portal welcome',
     project_summary: 'Project summary',
+    invoice: 'Invoice email',
     budget_threshold: 'Budget threshold alert',
     dollar_interval: 'Dollar interval alert',
     budget_extended: 'Budget update',
@@ -783,6 +1141,23 @@ export async function sendCommunication(
   }
 
   const commId = inserted.id;
+  const invoiceId = typeof rendered.metadata.invoiceId === 'string'
+    ? rendered.metadata.invoiceId
+    : undefined;
+  let attachments: EmailAttachment[] | undefined;
+  if (type === 'invoice') {
+    if (!invoiceId) {
+      await markCommunicationFailed(commId, 'Invoice metadata is missing invoiceId');
+      return { success: false, error: 'Invoice metadata is missing invoiceId' };
+    }
+    const attachment = await buildInvoicePdfAttachment(projectId, invoiceId, opts.triggeredBy ?? null);
+    if ('error' in attachment) {
+      await markCommunicationFailed(commId, attachment.error);
+      return { success: false, error: attachment.error };
+    }
+    attachments = [attachment];
+  }
+
   const sendRes = await sendTransactional({
     to: rendered.to,
     cc: rendered.cc.length ? rendered.cc : undefined,
@@ -790,6 +1165,7 @@ export async function sendCommunication(
     subject: rendered.subject,
     html: rendered.html,
     text: rendered.text,
+    attachments,
   });
 
   if (!sendRes.success) {
@@ -908,6 +1284,7 @@ export async function approveCommunication(
       newBudget: finalMetadata.newBudget,
       oldBudgetType: finalMetadata.oldBudgetType,
       newBudgetType: finalMetadata.newBudgetType,
+      invoiceId: typeof finalMetadata.invoiceId === 'string' ? finalMetadata.invoiceId : undefined,
     };
     const rendered = await renderCommunication(
       row.project_id,
@@ -920,6 +1297,7 @@ export async function approveCommunication(
     subject = rendered.subject;
     html = rendered.html;
     text = rendered.text;
+    finalMetadata = { ...finalMetadata, ...rendered.metadata };
   }
 
   // Final guard: refuse to send if the stored row lost its rendered body
@@ -940,6 +1318,7 @@ export async function approveCommunication(
       rendered_html: html,
       rendered_text: text,
       slot_overrides: finalOverrides,
+      metadata: finalMetadata,
       recipients: finalRecipients,
       triggered_by: triggeredBy,
       sent_at: new Date().toISOString(),
@@ -954,6 +1333,41 @@ export async function approveCommunication(
   if (claimError) return { success: false, error: claimError.message };
   if (!claimed) return { success: false, error: 'Communication is not pending' };
 
+  const invoiceId = row.notification_type === 'invoice' && typeof finalMetadata.invoiceId === 'string'
+    ? finalMetadata.invoiceId
+    : undefined;
+  let attachments: EmailAttachment[] | undefined;
+  if (row.notification_type === 'invoice') {
+    if (!invoiceId) {
+      await supabase
+        .from('client_communications')
+        .update({
+          status: 'pending',
+          sent_at: null,
+          triggered_by: null,
+          metadata: { ...finalMetadata, send_error: 'Invoice metadata is missing invoiceId' },
+        })
+        .eq('id', commId)
+        .eq('status', 'sent');
+      return { success: false, error: 'Invoice metadata is missing invoiceId' };
+    }
+    const attachment = await buildInvoicePdfAttachment(row.project_id, invoiceId, triggeredBy);
+    if ('error' in attachment) {
+      await supabase
+        .from('client_communications')
+        .update({
+          status: 'pending',
+          sent_at: null,
+          triggered_by: null,
+          metadata: { ...finalMetadata, send_error: attachment.error },
+        })
+        .eq('id', commId)
+        .eq('status', 'sent');
+      return { success: false, error: attachment.error };
+    }
+    attachments = [attachment];
+  }
+
   const sendRes = await sendTransactional({
     to: finalRecipients.to,
     cc: finalRecipients.cc.length ? finalRecipients.cc : undefined,
@@ -961,6 +1375,7 @@ export async function approveCommunication(
     subject,
     html,
     text: text || undefined,
+    attachments,
   });
   if (!sendRes.success) {
     // Release the claim so the approval can be retried

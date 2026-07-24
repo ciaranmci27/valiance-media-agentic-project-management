@@ -1,9 +1,12 @@
 import { z } from 'zod';
 import { withApi } from '@/lib/api/middleware';
 import { success } from '@/lib/api/response';
-import { badRequest, notFound } from '@/lib/api/errors';
+import { badRequest, forbidden, notFound } from '@/lib/api/errors';
 import { logAudit } from '@/lib/api/audit';
+import { apiKeyAllows } from '@/lib/api/access';
 import { approveCommunication, dismissCommunication } from '@/lib/email/client-notifications';
+
+export const runtime = 'nodejs';
 
 const patchSchema = z.object({
   action: z.enum(['approve', 'dismiss']),
@@ -15,7 +18,7 @@ const patchSchema = z.object({
   }).optional(),
 });
 
-export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemberId }) => {
+export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemberId, access, scopes }) => {
   const input = body as z.infer<typeof patchSchema>;
   const { data: before, error: fetchError } = await supabase
     .from('client_communications')
@@ -25,6 +28,13 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
     .maybeSingle();
   if (fetchError) throw fetchError;
   if (!before) throw notFound('Communication');
+  if (
+    input.action === 'approve'
+    && before.notification_type === 'invoice'
+    && !apiKeyAllows(access, scopes, 'invoices.manage')
+  ) {
+    throw forbidden('Invoice management permission required');
+  }
 
   const result = input.action === 'approve'
     ? await approveCommunication(params.communicationId, teamMemberId, input.slot_overrides, input.recipients)

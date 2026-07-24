@@ -10,12 +10,16 @@ import {
 import { CLIENT_COMM_TYPES, type ClientCommType } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
 
 const renderContextSchema = z.object({
   thresholdPct: z.number().optional(),
   milestone: z.number().optional(),
   oldBudget: z.number().optional(),
   newBudget: z.number().optional(),
+  oldBudgetType: z.enum(['hours', 'amount']).optional(),
+  newBudgetType: z.enum(['hours', 'amount']).optional(),
+  invoiceId: z.string().uuid().optional(),
 }).optional();
 
 const recipientsSchema = z.object({
@@ -88,6 +92,15 @@ export async function POST(
   const context: RenderContext = body.context || {};
   const recipients = body.recipients;
 
+  if (type === 'invoice') {
+    const canReadInvoices = accessAllows(auth.data.access, 'invoices.read')
+      || accessAllows(auth.data.access, 'invoices.manage');
+    const canSendInvoices = accessAllows(auth.data.access, 'invoices.manage');
+    if (!canReadInvoices || (body.action === 'send' && !canSendInvoices)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+  }
+
   if (body.action === 'preview') {
     const result = await previewCommunication(projectId, type, overrides, context, recipients);
     if ('error' in result) {
@@ -102,6 +115,7 @@ export async function POST(
       text: result.text,
       defaults: result.defaults,
       metadata: result.metadata,
+      attachments: result.attachments || [],
     });
   }
 

@@ -22,6 +22,7 @@ import { EmployeeEarningsDashboard } from '@/components/finances/EmployeeEarning
 import { useAuth } from '@/lib/auth-context';
 import { hasPermission } from '@/lib/access-control';
 import type { EmployeeEarningsData } from '@/lib/types';
+import { toLocalDateKey } from '@/lib/date-utils';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -66,7 +67,7 @@ function toDateKey(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-/** "12 AM" / "9 AM" / "12 PM" / "11 PM" — 12-hour clock label for an hour 0..23. */
+/** "12 AM" / "9 AM" / "12 PM" / "11 PM" - 12-hour clock label for an hour 0..23. */
 function fmtHourLabel(hour: number): string {
   const period = hour < 12 ? 'AM' : 'PM';
   const h12 = hour % 12 === 0 ? 12 : hour % 12;
@@ -178,6 +179,81 @@ function daysBetween(startKey: string, endKey: string): number {
   const s = new Date(sy, sm - 1, sd);
   const e = new Date(ey, em - 1, ed);
   return Math.round((e.getTime() - s.getTime()) / 86400000) + 1;
+}
+
+function zonedHourStartMs(dateKey: string, hour: number, timezone?: string): number {
+  const [y, m, d] = dateKey.split('-').map(Number);
+  if (!timezone) return new Date(y, m - 1, d, hour).getTime();
+
+  const targetAsUtc = Date.UTC(y, m - 1, d, hour);
+  let candidate = targetAsUtc;
+  try {
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    });
+
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const parts = formatter.formatToParts(new Date(candidate));
+      const get = (type: Intl.DateTimeFormatPartTypes) => {
+        const value = parts.find(part => part.type === type)?.value ?? '0';
+        return type === 'hour' && value === '24' ? 0 : Number(value);
+      };
+      const displayedAsUtc = Date.UTC(
+        get('year'),
+        get('month') - 1,
+        get('day'),
+        get('hour'),
+        get('minute'),
+        get('second'),
+      );
+      const delta = displayedAsUtc - targetAsUtc;
+      if (delta === 0) return candidate;
+      candidate -= delta;
+    }
+    return candidate;
+  } catch {
+    return new Date(y, m - 1, d, hour).getTime();
+  }
+}
+
+function localDayStartMs(dateKey: string, timezone?: string): number {
+  return zonedHourStartMs(dateKey, 0, timezone);
+}
+
+function localNextDayStartMs(dateKey: string, timezone?: string): number {
+  const [y, m, d] = dateKey.split('-').map(Number);
+  const nextDayKey = toDateKey(new Date(y, m - 1, d + 1));
+  return zonedHourStartMs(nextDayKey, 0, timezone);
+}
+
+function clamp01(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  if (value <= 0) return 0;
+  if (value >= 1) return 1;
+  return value;
+}
+
+function dayVestingRatio(dateKey: string, nowMs: number, timezone?: string): number {
+  const start = localDayStartMs(dateKey, timezone);
+  const end = localNextDayStartMs(dateKey, timezone);
+  if (end <= start) return nowMs >= end ? 1 : 0;
+  return clamp01((nowMs - start) / (end - start));
+}
+
+function hourVestingRatio(dateKey: string, hour: number, nowMs: number, timezone?: string): number {
+  const start = zonedHourStartMs(dateKey, hour, timezone);
+  const end = hour === 23
+    ? localNextDayStartMs(dateKey, timezone)
+    : zonedHourStartMs(dateKey, hour + 1, timezone);
+  if (end <= start) return nowMs >= end ? 1 : 0;
+  return clamp01((nowMs - start) / (end - start));
 }
 
 /** Format a date range for display: "Apr 1 - Apr 13, 2026" */
@@ -311,19 +387,30 @@ function bucketTooltipLabel(startKey: string, endKey: string, gran: Granularity)
 // ---------------------------------------------------------------------------
 
 /**
- * Small badge that signals the displayed numbers are ticking live. Renders
- * nothing when no timers are running. role="status" makes screen readers
- * announce when the count flips; motion-safe gates the ping for users with
- * prefers-reduced-motion.
+ * Small badge that signals the displayed numbers are ticking live.
  */
-function LiveTickIndicator({ count }: { count: number }) {
-  if (count <= 0) return null;
-  const label = `${count} ${count === 1 ? 'timer' : 'timers'} running`;
+function LiveTickIndicator({
+  timerCount,
+  fixedIncomeLive,
+  recurringIncomeLive,
+}: {
+  timerCount: number;
+  fixedIncomeLive: boolean;
+  recurringIncomeLive: boolean;
+}) {
+  if (timerCount <= 0 && !fixedIncomeLive && !recurringIncomeLive) return null;
+  const liveSources = [
+    ...(timerCount > 0 ? [`${timerCount} Hourly ${timerCount === 1 ? 'Timer' : 'Timers'}`] : []),
+    ...(fixedIncomeLive ? ['Fixed Invoices'] : []),
+    ...(recurringIncomeLive ? ['Recurring Invoices'] : []),
+  ];
+  const tooltip = `LIVE: ${liveSources.join(', ')}`;
+
   return (
-    <Tooltip content={`${label} — numbers update every second`} className="ml-1">
+    <Tooltip content={tooltip} className="ml-1">
       <span
         role="status"
-        aria-label={`${label}. Numbers update live.`}
+        aria-label={tooltip}
         className="inline-flex items-center gap-1.5 cursor-help"
       >
         <span className="relative inline-flex h-2 w-2" aria-hidden="true">
@@ -342,38 +429,32 @@ function LiveTickIndicator({ count }: { count: number }) {
 
 export default function FinancesPage() {
   const { projects, projectInvoices, timeEntries, team, employeeEarnings } = useApp();
-  const { access } = useAuth();
+  const { access, teamMemberId } = useAuth();
   const canReadCompanyFinance = hasPermission(access, 'finance.company.read');
   const canReadOwnEarnings = hasPermission(access, 'earnings.own.read');
+  const currentMember = team.find(member => member.id === teamMemberId);
+  const preferredTimezone = currentMember?.timezone && currentMember.timezone !== 'UTC'
+    ? currentMember.timezone
+    : undefined;
 
   // ── Live-tick clock for active timers ───────────────────────
-  // While any entry is running, bump `now` once a second so the chart, totals,
-  // and per-project rows tick up live. The 1Hz interval only mounts when
-  // something is actually running, so idle pages don't churn renders.
+  // Active timers and today's service revenue both depend on wall-clock time.
+  // The 1Hz interval only mounts when something visible is changing.
   const [now, setNow] = useState(() => Date.now());
   const runningCount = useMemo(() => timeEntries.filter(isRunning).length, [timeEntries]);
-  const hasRunningEntry = runningCount > 0;
-  useEffect(() => {
-    if (!hasRunningEntry) return;
-    const id = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(id);
-  }, [hasRunningEntry]);
 
   // Calendar day of `now`. Stable string so memos depending on it only rerun
   // when the day actually changes (not every second).
-  const nowDayKey = toDateKey(new Date(now));
+  const nowDayKey = toLocalDateKey(new Date(now).toISOString(), preferredTimezone);
 
-  // Roll the range and "today" label over at local midnight even when no
+  // Roll the range and "today" label over at the preferred-zone midnight even when no
   // timer is running. One-shot timeout that re-arms each day; without this,
   // a page left open across midnight would keep showing yesterday's range.
   useEffect(() => {
-    const tomorrow = new Date();
-    tomorrow.setHours(0, 0, 0, 0);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const ms = tomorrow.getTime() - Date.now() + 250; // small buffer past midnight
+    const ms = localNextDayStartMs(nowDayKey, preferredTimezone) - Date.now() + 250;
     const id = window.setTimeout(() => setNow(Date.now()), ms);
     return () => clearTimeout(id);
-  }, [nowDayKey]);
+  }, [nowDayKey, preferredTimezone]);
 
   // ── Date range state ────────────────────────────────────────
   const [preset, setPreset] = useState<RangePreset>('30d');
@@ -389,6 +470,33 @@ export default function FinancesPage() {
   const [selectedProjectIds, setSelectedProjectIds] = useState<Set<string>>(() => new Set());
   const [projectFilterOpen, setProjectFilterOpen] = useState(false);
   const projectFilterDropdownRef = useRef<HTMLDivElement>(null);
+
+  const liveServiceRevenue = useMemo(() => {
+    const sources = { fixed: false, recurring: false };
+
+    for (const inv of projectInvoices) {
+      if (inv.status === 'cancelled') continue;
+      if (selectedProjectIds.size > 0 && !selectedProjectIds.has(inv.project_id)) continue;
+
+      for (const li of ensureLineItems(inv)) {
+        if (li.item_type !== 'fixed' && li.item_type !== 'recurring') continue;
+        if ((spreadLineItem(li, inv.date).get(nowDayKey) ?? 0) <= 0) continue;
+
+        sources[li.item_type] = true;
+        if (sources.fixed && sources.recurring) return sources;
+      }
+    }
+
+    return sources;
+  }, [projectInvoices, selectedProjectIds, nowDayKey]);
+
+  const hasLiveServiceRevenue = liveServiceRevenue.fixed || liveServiceRevenue.recurring;
+  const shouldLiveTick = runningCount > 0 || hasLiveServiceRevenue;
+  useEffect(() => {
+    if (!shouldLiveTick) return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [shouldLiveTick]);
 
   useEffect(() => {
     if (!rangeOpen) return;
@@ -453,11 +561,11 @@ export default function FinancesPage() {
     for (const te of timeEntries) {
       if (!te.end_time) continue;
       if (!includes(te.project_id)) continue;
-      const k = toDateKey(new Date(te.end_time));
+      const k = toLocalDateKey(te.end_time, preferredTimezone);
       if (!earliest || k < earliest) earliest = k;
     }
     return earliest;
-  }, [projectInvoices, timeEntries, selectedProjectIds]);
+  }, [projectInvoices, timeEntries, selectedProjectIds, preferredTimezone]);
 
   const range = useMemo(
     // Passing nowDayKey makes the range re-resolve at local midnight, sliding
@@ -491,7 +599,7 @@ export default function FinancesPage() {
     const paymentsInRange = fInvoices.filter(
       inv => inv.status === 'paid' && inv.paid_date && inv.paid_date >= startKey && inv.paid_date <= endKey,
     );
-    // Overdue is a current-state snapshot, not a period stat — count all overdue invoices
+    // Overdue is a current-state snapshot, not a period stat - count all overdue invoices
     const totalOverdue = fInvoices
       .filter(inv => inv.status === 'overdue')
       .reduce((s, i) => s + i.amount, 0);
@@ -567,7 +675,7 @@ export default function FinancesPage() {
     // ── Daily chart ─────────────────────────────────────────
     // Derive from `now` (already a dep) so the "Today" axis label rolls over
     // at midnight on the same tick the range slides forward.
-    const todayKey = toDateKey(new Date(now));
+    const todayKey = nowDayKey;
 
     // Pre-index: payments received per day (uses paid_date, range-scoped)
     // Note: this uses paid_date independently of the invoice date filter,
@@ -593,9 +701,11 @@ export default function FinancesPage() {
         const spread = spreadLineItem(li, inv.date);
         for (const [dk, dollars] of spread) {
           if (dk < startKey || dk > endKey) continue;
+          const vestedDollars = dollars * dayVestingRatio(dk, now, preferredTimezone);
+          if (vestedDollars <= 0) continue;
           if (!bucket.has(dk)) bucket.set(dk, new Map());
           const pmap = bucket.get(dk)!;
-          pmap.set(inv.project_id, (pmap.get(inv.project_id) ?? 0) + dollars);
+          pmap.set(inv.project_id, (pmap.get(inv.project_id) ?? 0) + vestedDollars);
         }
       }
     }
@@ -734,7 +844,7 @@ export default function FinancesPage() {
 
     // ── Per-project outstanding (all-time, current snapshot) ─
     // Outstanding is a current-state stat (what's still owed right now), so it's
-    // computed from all-time invoices and time entries — NOT date-filtered.
+    // computed from all-time invoices and time entries - NOT date-filtered.
     // Same formula as the project details InvoicesPanel:
     //   hourly:     max(0, max(rate * hours, hourlyInvoiced) + nonHourlyOwed - paid)
     //   non-hourly: max(0, invoiced - paid)
@@ -771,7 +881,7 @@ export default function FinancesPage() {
     const totalOutstanding = Array.from(outstandingByProject.values()).reduce((s, v) => s + v, 0);
 
     // Collection rate (lifetime snapshot): % of total billable that's been received.
-    // Independent of date selector — pairs with Outstanding which is also all-time.
+    // Independent of date selector - pairs with Outstanding which is also all-time.
     const collectionDenom = totalReceivedAllTime + totalOutstanding;
     const collectionRate = collectionDenom > 0
       ? Math.round((totalReceivedAllTime / collectionDenom) * 100)
@@ -833,7 +943,7 @@ export default function FinancesPage() {
       // granularity without redoing the time-entry / invoice scans.
       workByDay, fixedByDayProject, recurringByDayProject, paymentsByDay, projectLookup,
     };
-  }, [projects, projectInvoices, timeEntries, team, rateByProject, range, now, selectedProjectIds]);
+  }, [projects, projectInvoices, timeEntries, team, rateByProject, range, now, nowDayKey, preferredTimezone, selectedProjectIds]);
 
   // ── Chart state & constants ────────────────────────────────
   const [showHourly, setShowHourly] = useState(true);
@@ -854,7 +964,7 @@ export default function FinancesPage() {
   const [drilldownDay, setDrilldownDay] = useState<string | null>(null);
   const [togglesLoaded, setTogglesLoaded] = useState(false);
 
-  // Exit drilldown when the user changes the range OR the project filter —
+  // Exit drilldown when the user changes the range OR the project filter -
   // the drilled level might no longer be relevant under the new scope.
   // Derived-from-props pattern: compare against the last filter snapshot
   // and reset during render rather than in an effect (effect form triggers
@@ -912,12 +1022,12 @@ export default function FinancesPage() {
   // ── Bucket drilldown bars (week/month → days) ──────────────
   // When the user clicks a week or month bar, we surface the days inside that
   // bucket as day-granularity bars. Reuses the per-day maps already built by
-  // the `data` useMemo so we don't re-scan time entries or invoices — just
+  // the `data` useMemo so we don't re-scan time entries or invoices - just
   // pluck out the days in the bucket window and shape them into DayBar[].
   const bucketDayBars = useMemo<DayBar[] | null>(() => {
     if (!drilldownBucket) return null;
     const { startKey, endKey } = drilldownBucket;
-    const todayKey = toDateKey(new Date(now));
+    const todayKey = nowDayKey;
     const numDays = daysBetween(startKey, endKey);
     const [sy, sm, sd] = startKey.split('-').map(Number);
     const startDate = new Date(sy, sm - 1, sd);
@@ -996,7 +1106,7 @@ export default function FinancesPage() {
       });
     }
     return bars;
-  }, [drilldownBucket, data, now]);
+  }, [drilldownBucket, data, nowDayKey]);
 
   // ── Hourly drilldown bars ──────────────────────────────────
   // When the user clicks a daily candle we surface a 24-bar view of that day,
@@ -1058,9 +1168,8 @@ export default function FinancesPage() {
       }
     }
 
-    // Fixed and recurring line items: take the day's amortized slice (same
-    // spreadLineItem the daily chart uses), then divide by 24 for an even
-    // distribution across the day.
+    // Fixed and recurring line items vest across the service day. Past hours
+    // count fully, the current hour counts partially, and future hours are zero.
     for (const inv of projectInvoices) {
       if (inv.status === 'cancelled') continue;
       if (!includeProject(inv.project_id)) continue;
@@ -1071,9 +1180,11 @@ export default function FinancesPage() {
         const perHourDollars = dollarsThatDay / 24;
         const isRecurring = li.item_type === 'recurring';
         for (let h = 0; h < 24; h++) {
-          if (isRecurring) buckets[h].recurring += perHourDollars;
-          else buckets[h].fixed += perHourDollars;
-          bumpProject(buckets[h], inv.project_id, isRecurring ? { recurring: perHourDollars } : { fixed: perHourDollars });
+          const vestedDollars = perHourDollars * hourVestingRatio(drilldownDay, h, now, preferredTimezone);
+          if (vestedDollars <= 0) continue;
+          if (isRecurring) buckets[h].recurring += vestedDollars;
+          else buckets[h].fixed += vestedDollars;
+          bumpProject(buckets[h], inv.project_id, isRecurring ? { recurring: vestedDollars } : { fixed: vestedDollars });
         }
       }
     }
@@ -1124,7 +1235,7 @@ export default function FinancesPage() {
         projectWork,
       };
     });
-  }, [drilldownDay, timeEntries, team, rateByProject, projectInvoices, projects, now, selectedProjectIds]);
+  }, [drilldownDay, timeEntries, team, rateByProject, projectInvoices, projects, now, preferredTimezone, selectedProjectIds]);
 
   // What the chart actually renders, in priority order:
   //   hour drilldown → bucket drilldown → main range.
@@ -1193,7 +1304,11 @@ export default function FinancesPage() {
             <div className="flex items-center gap-2">
               <DollarSign size={18} className="text-zinc-500" />
               <h2 className="font-semibold text-zinc-900">Overview</h2>
-              <LiveTickIndicator count={runningCount} />
+              <LiveTickIndicator
+                timerCount={runningCount}
+                fixedIncomeLive={liveServiceRevenue.fixed}
+                recurringIncomeLive={liveServiceRevenue.recurring}
+              />
             </div>
 
             <div className="flex items-center gap-2.5">
@@ -1280,7 +1395,7 @@ export default function FinancesPage() {
               )}
             </div>
 
-            {/* Project filter dropdown — same compact pattern as the date
+            {/* Project filter dropdown - same compact pattern as the date
                 range dropdown. Empty selection = all projects (no filter). */}
             {(() => {
               // Show every non-archived project, sorted alphabetically for
@@ -1455,7 +1570,11 @@ export default function FinancesPage() {
                       ? `Daily Earnings · ${fmtRangeDisplay(drilldownBucket!.startKey, drilldownBucket!.endKey)}`
                       : data.granularity === 'month' ? 'Monthly Earnings' : data.granularity === 'week' ? 'Weekly Earnings' : 'Daily Earnings'}
                 </h2>
-                <LiveTickIndicator count={runningCount} />
+                <LiveTickIndicator
+                  timerCount={runningCount}
+                  fixedIncomeLive={liveServiceRevenue.fixed}
+                  recurringIncomeLive={liveServiceRevenue.recurring}
+                />
                 {isDrilledDown && (
                   <button
                     type="button"
@@ -1644,13 +1763,13 @@ export default function FinancesPage() {
                                       row instead of widening the tooltip. The body uses a
                                       flex-col layout with a flex-shrink-0 date header, a
                                       scrollable middle (when row count overflows max-h), and
-                                      a flex-shrink-0 grand-total footer — so the user's
+                                      a flex-shrink-0 grand-total footer - so the user's
                                       anchors (which day, what's the day's total) stay visible
                                       no matter how many projects are on the bar. */}
                                   <div
                                     className="bg-zinc-900 text-white text-[10px] leading-relaxed px-2.5 py-1.5 rounded-md whitespace-nowrap shadow-lg max-w-[300px] max-h-[60vh] flex flex-col pointer-events-auto"
                                     /* Stop clicks on the tooltip body from bubbling up to the
-                                       bar's onClick — otherwise tapping inside the tooltip
+                                       bar's onClick - otherwise tapping inside the tooltip
                                        (e.g. trying to scroll on mobile) would drill the bar
                                        or toggle its sticky state and hide the tooltip. */
                                     onClick={(e) => e.stopPropagation()}
@@ -1658,7 +1777,7 @@ export default function FinancesPage() {
                                     <p className="font-semibold text-zinc-200 mb-1 flex-shrink-0 truncate">{day.tooltipDate}</p>
                                     {day.projectWork.length > 0 && (() => {
                                       // Group by earning category (Hourly / Fixed / Recurring)
-                                      // so each $ amount on a row maps to exactly one category —
+                                      // so each $ amount on a row maps to exactly one category -
                                       // no more "{hours}h $bundled-total" ambiguity. Single-
                                       // category days skip the category header to keep things
                                       // light; multi-category days surface the headers so the
@@ -1740,7 +1859,7 @@ export default function FinancesPage() {
 
                                       return (
                                         <div className="flex flex-col min-h-0 flex-1">
-                                          {/* Scrollable middle — only this region scrolls when
+                                          {/* Scrollable middle - only this region scrolls when
                                               the project list overflows the tooltip's max-h. */}
                                           <div className="overflow-y-auto flex-1 min-h-0">
                                             {sections.map((section, idx) => (
@@ -1760,7 +1879,7 @@ export default function FinancesPage() {
                                             ))}
                                           </div>
 
-                                          {/* Pinned footer — flex-shrink-0 keeps it visible
+                                          {/* Pinned footer - flex-shrink-0 keeps it visible
                                               even when the body above is scrolling. */}
                                           {showGrandTotal && (
                                             <div className="mt-1.5 pt-1.5 border-t border-white/10 flex items-center justify-between gap-3 text-zinc-100 flex-shrink-0">
@@ -1934,7 +2053,11 @@ export default function FinancesPage() {
               <div className="flex items-center gap-2">
                 <FolderKanban size={18} className="text-zinc-500" />
                 <h2 className="font-semibold text-zinc-900">By Project</h2>
-                <LiveTickIndicator count={runningCount} />
+                <LiveTickIndicator
+                  timerCount={runningCount}
+                  fixedIncomeLive={liveServiceRevenue.fixed}
+                  recurringIncomeLive={liveServiceRevenue.recurring}
+                />
               </div>
               <span className="text-xs text-zinc-400 font-medium">{PRESET_OPTIONS.find(o => o.value === preset)?.label ?? 'Custom range'}</span>
             </div>

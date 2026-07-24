@@ -36,6 +36,7 @@ const MANUAL_ACTIONS: { type: ClientCommType; label: string; description: string
 const TYPE_LABELS: Record<ClientCommType, string> = {
   portal_welcome: 'Portal Welcome',
   project_summary: 'Project Summary',
+  invoice: 'Invoice',
   budget_threshold: 'Budget Threshold',
   dollar_interval: 'Dollar Interval',
   budget_extended: 'Budget Updated',

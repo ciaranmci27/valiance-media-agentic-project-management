@@ -5,6 +5,7 @@ import { accessAllows, accessAllowsProject, requireSessionAccess } from '@/lib/a
 import { approveCommunication, dismissCommunication } from '@/lib/email/client-notifications';
 
 export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
 
 const patchSchema = z.object({
   action: z.enum(['approve', 'dismiss']),
@@ -42,11 +43,18 @@ export async function PATCH(
   const service = getServiceClient();
   const { data: row } = await service
     .from('client_communications')
-    .select('project_id')
+    .select('project_id, notification_type')
     .eq('id', commId)
     .maybeSingle();
   if (!row || row.project_id !== projectId) {
     return NextResponse.json({ error: 'Communication not found' }, { status: 404 });
+  }
+  if (
+    body.action === 'approve'
+    && row.notification_type === 'invoice'
+    && !accessAllows(auth.data.access, 'invoices.manage')
+  ) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
   const result = body.action === 'approve'

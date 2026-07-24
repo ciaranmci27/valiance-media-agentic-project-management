@@ -1,11 +1,14 @@
 import { z } from 'zod';
 import { withApi } from '@/lib/api/middleware';
 import { paginated, success } from '@/lib/api/response';
-import { badRequest } from '@/lib/api/errors';
+import { badRequest, forbidden } from '@/lib/api/errors';
 import { parsePagination } from '@/lib/api/pagination';
 import { logAudit } from '@/lib/api/audit';
+import { apiKeyAllows } from '@/lib/api/access';
 import { previewCommunication, sendCommunication, type RenderContext } from '@/lib/email/client-notifications';
 import { CLIENT_COMM_TYPES, type ClientCommType } from '@/lib/types';
+
+export const runtime = 'nodejs';
 
 const postSchema = z.object({
   action: z.enum(['preview', 'send']),
@@ -16,6 +19,9 @@ const postSchema = z.object({
     milestone: z.number().optional(),
     oldBudget: z.number().optional(),
     newBudget: z.number().optional(),
+    oldBudgetType: z.enum(['hours', 'amount']).optional(),
+    newBudgetType: z.enum(['hours', 'amount']).optional(),
+    invoiceId: z.string().uuid().optional(),
   }).optional(),
   recipients: z.object({
     to: z.array(z.string().email()).optional(),
@@ -40,11 +46,20 @@ export const GET = withApi(async ({ supabase, params, searchParams }) => {
   return paginated(data || [], { page, limit, total: count || 0 });
 }, { permission: 'communications.read' });
 
-export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMemberId }) => {
+export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMemberId, access, scopes }) => {
   const input = body as z.infer<typeof postSchema>;
   const type = input.type as ClientCommType;
   const overrides = input.slot_overrides || {};
   const context: RenderContext = input.context || {};
+
+  if (type === 'invoice') {
+    const canReadInvoices = apiKeyAllows(access, scopes, 'invoices.read')
+      || apiKeyAllows(access, scopes, 'invoices.manage');
+    const canSendInvoices = apiKeyAllows(access, scopes, 'invoices.manage');
+    if (!canReadInvoices || (input.action === 'send' && !canSendInvoices)) {
+      throw forbidden('Invoice permission required');
+    }
+  }
 
   if (input.action === 'preview') {
     const preview = await previewCommunication(params.id, type, overrides, context, input.recipients);
