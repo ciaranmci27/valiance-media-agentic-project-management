@@ -133,7 +133,7 @@ export function HourlyRateSchedule({
   };
 
   return (
-    <div className="mt-4 rounded-xl border border-zinc-200 bg-zinc-50/70 p-4">
+    <div className="mt-4 rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
         <DateInput
           label="Effective date"
@@ -158,14 +158,14 @@ export function HourlyRateSchedule({
         </Button>
       </div>
 
-      <div className="mt-4 divide-y divide-zinc-200 rounded-lg border border-zinc-200 bg-white">
+      <div className="mt-4 divide-y divide-white/[0.08] rounded-lg border border-white/[0.08] bg-surface-raised">
         {rates.length > 0 ? rates.map(item => {
           const isFuture = new Date(item.effective_at).getTime() > renderedAt;
           return (
             <div key={item.id} className="flex items-center justify-between gap-3 px-3 py-2.5">
               <div>
-                <p className="text-sm font-semibold text-zinc-900">${Number(item.hourly_rate).toFixed(2)}/hr</p>
-                <p className="text-xs text-zinc-500">
+                <p className="text-sm font-semibold text-white">${Number(item.hourly_rate).toFixed(2)}/hr</p>
+                <p className="text-xs text-zinc-400">
                   {isFuture ? 'Starts' : 'Effective'} {displayDate(item.effective_at, timezone)}
                 </p>
               </div>
@@ -173,7 +173,7 @@ export function HourlyRateSchedule({
                 <button
                   type="button"
                   onClick={() => void deleteRate(item.id)}
-                  className="rounded-md p-1.5 text-zinc-400 transition-colors hover:bg-red-50 hover:text-red-600"
+                  className="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-red-500/15 hover:text-red-400"
                   aria-label={`Remove rate effective ${displayDate(item.effective_at, timezone)}`}
                 >
                   <Trash2 size={14} />
@@ -182,7 +182,7 @@ export function HourlyRateSchedule({
             </div>
           );
         }) : (
-          <p className="px-3 py-3 text-xs text-zinc-500">
+          <p className="px-3 py-3 text-xs text-zinc-400">
             The current ${fallbackRate.toFixed(2)}/hr rate will be used until a schedule is added.
           </p>
         )}

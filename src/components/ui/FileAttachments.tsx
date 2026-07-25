@@ -289,18 +289,18 @@ export function FileAttachments({ entityType, entityId }: FileAttachmentsProps) 
 
   return (
     <>
-      <div className="bg-white rounded-xl border border-zinc-200 flex flex-col max-h-[600px]">
-        <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-200 flex-shrink-0">
+      <div className="glass-card rounded-xl flex flex-col max-h-[600px]">
+        <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.08] flex-shrink-0">
           <div className="flex items-center gap-2">
-            <Paperclip size={18} className="text-zinc-500" />
-            <h2 className="font-semibold text-zinc-900">
+            <Paperclip size={18} className="text-zinc-400" />
+            <h2 className="font-semibold text-white">
               Files ({files.length})
             </h2>
           </div>
           {canUpload && <div className="flex items-center gap-2">
             <button
               onClick={() => { setNoteEditMode(undefined); setShowNewNote(true); }}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-brand-600 bg-brand-50 hover:bg-brand-100 rounded-lg transition-colors"
+              className="liquid-glass inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors"
             >
               <FileText size={14} />
               Note
@@ -313,7 +313,7 @@ export function FileAttachments({ entityType, entityId }: FileAttachmentsProps) 
                 onChange={handleFileUpload}
                 disabled={uploading}
               />
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition-colors cursor-pointer">
+              <span className="liquid-primary inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white rounded-lg transition-colors cursor-pointer">
                 <Upload size={14} />
                 <span className="hidden min-[400px]:inline">{uploading ? 'Uploading...' : 'Upload'}</span>
               </span>
@@ -331,10 +331,10 @@ export function FileAttachments({ entityType, entityId }: FileAttachmentsProps) 
               return (
                 <div
                   key={file.id}
-                  className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-zinc-50 hover:bg-zinc-100 transition-colors group"
+                  className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-white/[0.03] hover:bg-white/[0.06] transition-colors group"
                 >
-                  <div className="w-8 h-8 rounded-lg bg-white border border-zinc-200 flex items-center justify-center flex-shrink-0">
-                    <FileIcon size={14} className="text-zinc-400" />
+                  <div className="w-8 h-8 rounded-lg bg-surface-raised border border-white/[0.08] flex items-center justify-center flex-shrink-0">
+                    <FileIcon size={14} className="text-zinc-500" />
                   </div>
                   <div className="flex-1 min-w-0">
                     {isEditing ? (
@@ -363,14 +363,14 @@ export function FileAttachments({ entityType, entityId }: FileAttachmentsProps) 
                           }
                           setEditingFileId(null);
                         }}
-                        className="text-sm text-zinc-700 bg-white border border-brand-300 rounded px-1.5 py-0.5 outline-none focus:ring-2 focus:ring-brand-100 min-w-0 w-full"
+                        className="text-sm text-zinc-300 bg-surface-raised border border-brand-500/30 rounded px-1.5 py-0.5 outline-none focus:ring-2 focus:ring-brand-500/30 min-w-0 w-full"
                       />
                     ) : (
-                      <p className="text-sm text-zinc-700 truncate">
+                      <p className="text-sm text-zinc-300 truncate">
                         {file.name}
                       </p>
                     )}
-                    <p className="text-xs text-zinc-400">{formatFileSize(file.file_size)} &middot; {new Date(file.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p>
+                    <p className="text-xs text-zinc-500">{formatFileSize(file.file_size)} &middot; {new Date(file.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p>
                   </div>
                   {!isEditing && isProject && canManageFiles && (
                     <Tooltip content={isExternal ? 'Shared on portal (click to remove)' : 'Share to portal'}>
@@ -379,7 +379,7 @@ export function FileAttachments({ entityType, entityId }: FileAttachmentsProps) 
                         className={`p-1.5 rounded-md transition-all ${
                           isExternal
                             ? 'text-white bg-brand-500 hover:bg-brand-600'
-                            : 'text-zinc-300 hover:text-brand-500 hover:bg-brand-50 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100'
+                            : 'text-zinc-600 hover:text-brand-500 hover:bg-brand-500/15 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100'
                         }`}
                       >
                         <Globe size={14} />
@@ -390,7 +390,7 @@ export function FileAttachments({ entityType, entityId }: FileAttachmentsProps) 
                     <button
                       ref={el => { triggerRefs.current[file.id] = el; }}
                       onClick={() => setOpenMenuId(isMenuOpen ? null : file.id)}
-                      className="p-1.5 text-zinc-300 hover:text-zinc-600 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 data-[open]:opacity-100 transition-all rounded-md hover:bg-zinc-200"
+                      className="p-1.5 text-zinc-600 hover:text-zinc-300 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 data-[open]:opacity-100 transition-all rounded-md hover:bg-white/[0.08]"
                       data-open={isMenuOpen || undefined}
                     >
                       <MoreHorizontal size={16} />
@@ -402,11 +402,11 @@ export function FileAttachments({ entityType, entityId }: FileAttachmentsProps) 
           </div>
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
-            <div className="w-10 h-10 rounded-full bg-zinc-100 flex items-center justify-center mb-3">
-              <Paperclip size={18} className="text-zinc-400" />
+            <div className="w-10 h-10 rounded-full bg-white/[0.06] flex items-center justify-center mb-3">
+              <Paperclip size={18} className="text-zinc-500" />
             </div>
-            <p className="text-sm font-medium text-zinc-500">No files attached yet</p>
-            <p className="text-xs text-zinc-400 mt-1">{canUpload ? 'Upload files to attach them to this project' : 'No files are available for this project'}</p>
+            <p className="text-sm font-medium text-zinc-400">No files attached yet</p>
+            <p className="text-xs text-zinc-500 mt-1">{canUpload ? 'Upload files to attach them to this project' : 'No files are available for this project'}</p>
           </div>
         )}
       </div>
@@ -415,7 +415,7 @@ export function FileAttachments({ entityType, entityId }: FileAttachmentsProps) 
       {openMenuId && currentMenuFile && typeof document !== 'undefined' && createPortal(
         <div
           ref={dropdownRef}
-          className="fixed z-[9999] w-48 bg-white border border-zinc-200 rounded-lg shadow-lg py-1"
+          className="fixed z-[9999] w-48 bg-surface-raised border border-white/[0.08] rounded-lg shadow-lg py-1"
           style={{
             top: menuPos.top,
             left: menuPos.left,
@@ -424,50 +424,50 @@ export function FileAttachments({ entityType, entityId }: FileAttachmentsProps) 
         >
           <button
             onClick={() => { setPreviewFile(currentMenuFile); setOpenMenuId(null); }}
-            className="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-50 transition-colors"
+            className="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-zinc-300 hover:bg-white/[0.03] transition-colors"
           >
-            <Eye size={14} className="text-zinc-400" />
+            <Eye size={14} className="text-zinc-500" />
             Preview
           </button>
           <button
             onClick={() => handleDownload(currentMenuFile.file_url, currentMenuFile.name)}
-            className="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-50 transition-colors"
+            className="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-zinc-300 hover:bg-white/[0.03] transition-colors"
           >
-            <Download size={14} className="text-zinc-400" />
+            <Download size={14} className="text-zinc-500" />
             Download
           </button>
           {canManageFiles && <button
             onClick={() => { setEditingFileId(currentMenuFile.id); setEditingFileName(currentMenuFile.name); setOpenMenuId(null); }}
-            className="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-50 transition-colors"
+            className="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-zinc-300 hover:bg-white/[0.03] transition-colors"
           >
-            <Pencil size={14} className="text-zinc-400" />
+            <Pencil size={14} className="text-zinc-500" />
             Rename
           </button>}
           {isProject && canManageFiles && (
             <>
-              <div className="border-t border-zinc-100 my-1" />
+              <div className="border-t border-white/[0.06] my-1" />
               <button
                 onClick={() => { handleToggleVisibility(currentMenuFile.id, currentMenuFile.visibility); setOpenMenuId(null); }}
-                className="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-50 transition-colors"
+                className="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-zinc-300 hover:bg-white/[0.03] transition-colors"
               >
                 {currentMenuFile.visibility === 'external' ? (
                   <>
-                    <ShieldOff size={14} className="text-zinc-400" />
+                    <ShieldOff size={14} className="text-zinc-500" />
                     Remove from Portal
                   </>
                 ) : (
                   <>
-                    <Share2 size={14} className="text-zinc-400" />
+                    <Share2 size={14} className="text-zinc-500" />
                     Share to Portal
                   </>
                 )}
               </button>
             </>
           )}
-          {canDeleteFile(currentMenuFile) && <><div className="border-t border-zinc-100 my-1" />
+          {canDeleteFile(currentMenuFile) && <><div className="border-t border-white/[0.06] my-1" />
           <button
             onClick={() => handleDeleteFile(currentMenuFile.id)}
-            className="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors"
+            className="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-red-400 hover:bg-red-500/15 transition-colors"
           >
             <Trash2 size={14} />
             Delete

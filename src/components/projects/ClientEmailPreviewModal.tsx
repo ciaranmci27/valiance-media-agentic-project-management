@@ -473,7 +473,7 @@ export default function ClientEmailPreviewModal(props: ClientEmailPreviewModalPr
       size="full"
     >
       {error && (
-        <div className="mb-3 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-sm text-rose-800 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300">
+        <div className="mb-3 rounded-lg border border-rose-500/30 bg-rose-500/15 px-3 py-2 text-sm text-rose-300 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300">
           {error}
         </div>
       )}
@@ -489,7 +489,7 @@ export default function ClientEmailPreviewModal(props: ClientEmailPreviewModalPr
             email is immutable, so there's nothing to edit. */}
         {mode !== 'readonly' && (
         <div className="flex flex-col gap-3">
-          <div className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2.5 space-y-2">
+          <div className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2.5 space-y-2">
             <RecipientRow
               label="To"
               value={to}
@@ -526,7 +526,7 @@ export default function ClientEmailPreviewModal(props: ClientEmailPreviewModalPr
                   <button
                     type="button"
                     onClick={() => setShowCc(true)}
-                    className="text-zinc-500 hover:text-brand-600 transition-colors"
+                    className="text-zinc-400 hover:text-brand-300 transition-colors"
                     disabled={submitting}
                   >
                     + Add Cc
@@ -536,7 +536,7 @@ export default function ClientEmailPreviewModal(props: ClientEmailPreviewModalPr
                   <button
                     type="button"
                     onClick={() => setShowBcc(true)}
-                    className="text-zinc-500 hover:text-brand-600 transition-colors"
+                    className="text-zinc-400 hover:text-brand-300 transition-colors"
                     disabled={submitting}
                   >
                     + Add Bcc
@@ -566,32 +566,32 @@ export default function ClientEmailPreviewModal(props: ClientEmailPreviewModalPr
         )}
 
         {/* Right: live preview */}
-        <div className="flex min-h-[520px] flex-col rounded-lg border border-zinc-200 bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-950">
+        <div className="flex min-h-[520px] flex-col rounded-lg border border-white/[0.08] bg-white/[0.06] dark:border-zinc-700 dark:bg-zinc-950">
           {mode === 'readonly' && readonlyComm && (
-            <div className="border-b border-zinc-200 bg-white px-3 py-2 text-xs text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400 space-y-1">
+            <div className="border-b border-white/[0.08] bg-surface-raised px-3 py-2 text-xs text-zinc-300 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-500 space-y-1">
               <div className="flex flex-wrap gap-x-3 gap-y-1">
-                <span className="text-zinc-400">To</span>
-                <span className="text-zinc-700 dark:text-zinc-200 break-all">
+                <span className="text-zinc-500">To</span>
+                <span className="text-zinc-300 dark:text-zinc-700 break-all">
                   {(readonlyComm.recipients?.to || []).join(', ') || 'unknown'}
                 </span>
               </div>
               {(readonlyComm.recipients?.cc?.length ?? 0) > 0 && (
                 <div className="flex flex-wrap gap-x-3 gap-y-1">
-                  <span className="text-zinc-400">Cc</span>
-                  <span className="text-zinc-700 dark:text-zinc-200 break-all">
+                  <span className="text-zinc-500">Cc</span>
+                  <span className="text-zinc-300 dark:text-zinc-700 break-all">
                     {(readonlyComm.recipients!.cc as string[]).join(', ')}
                   </span>
                 </div>
               )}
               <div className="flex flex-wrap gap-x-3 gap-y-1">
-                <span className="text-zinc-400">Subject</span>
-                <span className="text-zinc-700 dark:text-zinc-200">
+                <span className="text-zinc-500">Subject</span>
+                <span className="text-zinc-300 dark:text-zinc-700">
                   {readonlyComm.subject || '(no subject)'}
                 </span>
               </div>
             </div>
           )}
-          <div className="flex items-center justify-between border-b border-zinc-200 bg-white px-3 py-2 text-xs text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400">
+          <div className="flex items-center justify-between border-b border-white/[0.08] bg-surface-raised px-3 py-2 text-xs text-zinc-300 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-500">
             <span>Preview</span>
             {loadingPreview && (
               <span className="flex items-center gap-1">
@@ -605,7 +605,7 @@ export default function ClientEmailPreviewModal(props: ClientEmailPreviewModalPr
               <iframe
                 ref={iframeRef}
                 title="Email preview"
-                className="h-full min-h-[480px] w-full rounded-md border border-zinc-200 bg-white dark:border-zinc-700"
+                className="h-full min-h-[480px] w-full rounded-md border border-white/[0.08] bg-surface-raised dark:border-zinc-700"
                 // allow-same-origin lets us write the new HTML into the same
                 // document instead of navigating, which avoids the white flash
                 // and preserves scroll. allow-scripts is intentionally omitted
@@ -613,7 +613,7 @@ export default function ClientEmailPreviewModal(props: ClientEmailPreviewModalPr
                 sandbox="allow-same-origin"
               />
             ) : (
-              <div className="flex h-full min-h-[480px] items-center justify-center text-sm text-zinc-500">
+              <div className="flex h-full min-h-[480px] items-center justify-center text-sm text-zinc-400">
                 {loadingPreview ? 'Loading preview...' : error ? 'Preview unavailable' : ''}
               </div>
             )}
@@ -622,7 +622,7 @@ export default function ClientEmailPreviewModal(props: ClientEmailPreviewModalPr
       </div>
 
       {/* Footer actions */}
-      <div className="mt-5 flex items-center justify-end gap-2 border-t border-zinc-200 pt-4 dark:border-zinc-700">
+      <div className="mt-5 flex items-center justify-end gap-2 border-t border-white/[0.08] pt-4 dark:border-zinc-700">
         {mode === 'readonly' ? (
           <Button variant="secondary" onClick={onClose}>
             Close
@@ -666,16 +666,16 @@ export default function ClientEmailPreviewModal(props: ClientEmailPreviewModalPr
 function AttachmentPreviewList({ attachments }: { attachments: PreviewAttachment[] }) {
   if (attachments.length === 0) {
     return (
-      <div className="flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
-        <Paperclip size={13} className="text-zinc-400" aria-hidden="true" />
+      <div className="flex items-center gap-2 rounded-lg border border-white/[0.08] bg-surface-raised px-3 py-2 text-xs text-zinc-300 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-600">
+        <Paperclip size={13} className="text-zinc-500" aria-hidden="true" />
         <span>Invoice PDF attaches automatically when this email sends.</span>
       </div>
     );
   }
 
   return (
-    <div className="rounded-lg border border-zinc-200 bg-white px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900">
-      <div className="mb-1 flex items-center gap-1.5 text-[11px] font-medium uppercase text-zinc-400">
+    <div className="rounded-lg border border-white/[0.08] bg-surface-raised px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900">
+      <div className="mb-1 flex items-center gap-1.5 text-[11px] font-medium uppercase text-zinc-500">
         <Paperclip size={12} aria-hidden="true" />
         <span>Attachments</span>
       </div>
@@ -686,14 +686,14 @@ function AttachmentPreviewList({ attachments }: { attachments: PreviewAttachment
             href={attachment.previewUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex min-w-0 items-center gap-2 rounded-md border border-zinc-200 bg-zinc-50 px-2.5 py-2 text-xs text-zinc-700 transition-colors hover:border-brand-200 hover:bg-brand-50 hover:text-brand-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-200"
+            className="flex min-w-0 items-center gap-2 rounded-md border border-white/[0.08] bg-white/[0.03] px-2.5 py-2 text-xs text-zinc-300 transition-colors hover:border-brand-500/30 hover:bg-brand-500/15 hover:text-brand-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-700"
           >
-            <FileText size={14} className="shrink-0 text-zinc-400" aria-hidden="true" />
+            <FileText size={14} className="shrink-0 text-zinc-500" aria-hidden="true" />
             <span className="min-w-0 flex-1 truncate">{attachment.filename}</span>
-            <span className="shrink-0 rounded bg-white px-1.5 py-0.5 text-[10px] font-medium text-zinc-500 dark:bg-zinc-800 dark:text-zinc-300">
+            <span className="shrink-0 rounded bg-surface-raised px-1.5 py-0.5 text-[10px] font-medium text-zinc-400 dark:bg-zinc-800 dark:text-zinc-600">
               PDF
             </span>
-            <ExternalLink size={12} className="shrink-0 text-zinc-400" aria-hidden="true" />
+            <ExternalLink size={12} className="shrink-0 text-zinc-500" aria-hidden="true" />
           </a>
         ))}
       </div>
@@ -795,12 +795,12 @@ function RecipientRow({ label, value, onChange, contactOptions, excludeEmails, d
 
   return (
     <div className="flex items-start gap-2">
-      <span className="mt-1.5 w-7 flex-shrink-0 text-[11px] font-medium text-zinc-500 uppercase tracking-wide">{label}</span>
-      <div className="flex-1 min-w-0 min-h-[30px] rounded-md border border-zinc-200 bg-white px-1.5 py-1 flex flex-wrap items-center gap-1 focus-within:border-brand-500 focus-within:ring-2 focus-within:ring-brand-100 transition-colors">
+      <span className="mt-1.5 w-7 flex-shrink-0 text-[11px] font-medium text-zinc-400 uppercase tracking-wide">{label}</span>
+      <div className="flex-1 min-w-0 min-h-[30px] rounded-md border border-white/[0.08] bg-surface-raised px-1.5 py-1 flex flex-wrap items-center gap-1 focus-within:border-brand-500 focus-within:ring-2 focus-within:ring-brand-500/30 transition-colors">
         {value.map(email => {
           const name = lookup.get(email.toLowerCase());
           return (
-            <span key={email} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-brand-50 border border-brand-200 text-brand-700 text-[11px] font-medium max-w-full">
+            <span key={email} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-brand-500/15 border border-brand-500/30 text-brand-300 text-[11px] font-medium max-w-full">
               <span className="truncate">{name ? `${name} <${email}>` : email}</span>
               <button
                 type="button"
@@ -824,10 +824,10 @@ function RecipientRow({ label, value, onChange, contactOptions, excludeEmails, d
             onKeyDown={handleKey}
             placeholder={value.length === 0 ? 'Add recipient...' : ''}
             disabled={disabled}
-            className="w-full text-xs px-1 py-0.5 bg-transparent outline-none placeholder:text-zinc-400"
+            className="w-full text-xs px-1 py-0.5 bg-transparent outline-none placeholder:text-zinc-500"
           />
           {showDropdown && available.length > 0 && (
-            <div className="absolute left-0 right-0 top-full mt-1 z-20 bg-white border border-zinc-200 rounded-md shadow-lg max-h-48 overflow-auto">
+            <div className="absolute left-0 right-0 top-full mt-1 z-20 bg-surface-raised border border-white/[0.08] rounded-md shadow-lg max-h-48 overflow-auto">
               {available.map((c, i) => (
                 <button
                   key={c.email}
@@ -835,11 +835,11 @@ function RecipientRow({ label, value, onChange, contactOptions, excludeEmails, d
                   onMouseDown={e => { e.preventDefault(); addEmail(c.email); }}
                   onMouseEnter={() => setHighlighted(i)}
                   className={`w-full text-left px-2.5 py-1.5 text-xs flex items-center justify-between gap-2 transition-colors ${
-                    i === highlighted ? 'bg-brand-50' : 'hover:bg-zinc-50'
+                    i === highlighted ? 'bg-brand-500/15' : 'hover:bg-white/[0.03]'
                   }`}
                 >
-                  <span className="font-medium text-zinc-800 truncate">{c.name}</span>
-                  <span className="text-zinc-500 truncate">{c.email}</span>
+                  <span className="font-medium text-zinc-100 truncate">{c.name}</span>
+                  <span className="text-zinc-400 truncate">{c.email}</span>
                 </button>
               ))}
             </div>
@@ -850,7 +850,7 @@ function RecipientRow({ label, value, onChange, contactOptions, excludeEmails, d
         <button
           type="button"
           onClick={onRemove}
-          className="h-[30px] flex items-center text-zinc-400 hover:text-red-500 transition-colors flex-shrink-0"
+          className="h-[30px] flex items-center text-zinc-500 hover:text-red-500 transition-colors flex-shrink-0"
           aria-label={`Remove ${label} row`}
           disabled={disabled}
         >
@@ -876,14 +876,14 @@ function SlotEditor({ field, value, defaultValue, onChange, onReset, disabled }:
   const dirty = defaultValue !== undefined && value !== defaultValue;
   const labelRow = (
     <div className="mb-1 flex items-center justify-between">
-      <label className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
+      <label className="text-xs font-medium text-zinc-300 dark:text-zinc-600">
         {field.label}
       </label>
       {dirty && (
         <button
           type="button"
           onClick={onReset}
-          className="flex items-center gap-1 text-[11px] text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
+          className="flex items-center gap-1 text-[11px] text-zinc-400 hover:text-zinc-300 dark:text-zinc-500 dark:hover:text-zinc-700"
           disabled={disabled}
         >
           <RotateCcw size={10} />

@@ -61,7 +61,7 @@ export function TaskRow({ task, onView, onEdit, onDelete }: TaskRowProps) {
   // Mobile card view
   return (
     <div
-      className="lg:hidden p-3 lg:p-0 border-b border-zinc-100 hover:bg-zinc-50 transition-colors cursor-pointer"
+      className="lg:hidden p-3 lg:p-0 border-b border-white/[0.06] hover:bg-white/[0.03] transition-colors cursor-pointer"
       onClick={() => onView?.(task)}
     >
       <div className="flex items-start gap-3">
@@ -78,17 +78,17 @@ export function TaskRow({ task, onView, onEdit, onDelete }: TaskRowProps) {
         {/* Main content */}
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-2">
-            <h3 className="font-medium text-zinc-900 text-sm leading-tight">{task.title}</h3>
+            <h3 className="font-medium text-white text-sm leading-tight">{task.title}</h3>
             {(canEdit || canDelete) && <button
               onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }}
-              className="p-1 rounded text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 flex-shrink-0"
+              className="p-1 rounded text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.06] flex-shrink-0"
             >
               <MoreVertical size={16} />
             </button>}
           </div>
 
           {task.description && (
-            <p className="text-xs text-zinc-500 mt-1 line-clamp-1">{task.description}</p>
+            <p className="text-xs text-zinc-400 mt-1 line-clamp-1">{task.description}</p>
           )}
 
           {/* Tags */}
@@ -97,7 +97,7 @@ export function TaskRow({ task, onView, onEdit, onDelete }: TaskRowProps) {
               {task.tags.slice(0, 3).map((tag) => (
                 <span
                   key={tag}
-                  className="px-1.5 py-0.5 text-[10px] bg-zinc-100 text-zinc-600 rounded"
+                  className="px-1.5 py-0.5 text-[10px] bg-white/[0.06] text-zinc-300 rounded"
                 >
                   {tag}
                 </span>
@@ -113,34 +113,34 @@ export function TaskRow({ task, onView, onEdit, onDelete }: TaskRowProps) {
               <TaskTypeBadge taskType={task.task_type} />
             )}
             {isAgentsEnabled && canManageAgents && !task.ai_managed && getProject(task.project_id)?.autonomous_enabled && (
-              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium bg-amber-50 text-amber-700 border border-amber-200 rounded-full">
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium bg-amber-500/15 text-amber-300 border border-amber-500/30 rounded-full">
                 <User size={10} />
                 Manual
               </span>
             )}
 
             {dueInfo && (
-              <span className={`text-xs ${dueInfo.isOverdue ? 'text-red-600 font-medium' : 'text-zinc-500'}`}>
+              <span className={`text-xs ${dueInfo.isOverdue ? 'text-red-400 font-medium' : 'text-zinc-400'}`}>
                 {dueInfo.text}
               </span>
             )}
 
             {task.subtasks.length > 0 && (
-              <span className="text-xs text-zinc-500 flex items-center gap-1">
+              <span className="text-xs text-zinc-400 flex items-center gap-1">
                 <CheckSquare size={12} />
                 {completedSubtasks}/{task.subtasks.length}
               </span>
             )}
 
             {task.comments.length > 0 && (
-              <span className="text-xs text-zinc-500 flex items-center gap-1">
+              <span className="text-xs text-zinc-400 flex items-center gap-1">
                 <MessageSquare size={12} />
                 {task.comments.length}
               </span>
             )}
 
             <Tooltip content={`Updated ${new Date(task.updated_at).toLocaleString()}`}>
-              <span className="text-xs text-zinc-400 flex items-center gap-1">
+              <span className="text-xs text-zinc-500 flex items-center gap-1">
                 <Clock size={12} />
                 {timeAgo(task.updated_at)}
               </span>
@@ -160,17 +160,17 @@ export function TaskRow({ task, onView, onEdit, onDelete }: TaskRowProps) {
       {showMenu && (canEdit || canDelete) && (
         <>
           <div className="fixed inset-0 z-10 cursor-default" onClick={(e) => { e.stopPropagation(); setShowMenu(false); }} />
-          <div className="absolute right-4 bg-white rounded-lg shadow-xl border border-zinc-200 py-1 z-20 min-w-[120px] cursor-pointer">
+          <div className="absolute right-4 bg-surface-raised rounded-lg shadow-xl border border-white/[0.08] py-1 z-20 min-w-[120px] cursor-pointer">
             {canEdit && <button
               onClick={(e) => { e.stopPropagation(); onEdit?.(task); setShowMenu(false); }}
-              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-100"
+              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-300 hover:bg-white/[0.06]"
             >
               <Edit size={14} />
               Edit
             </button>}
             {canDelete && <button
               onClick={(e) => { e.stopPropagation(); onDelete?.(task.id); setShowMenu(false); }}
-              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50"
+              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-400 hover:bg-red-500/15"
             >
               <Trash2 size={14} />
               Delete
@@ -210,7 +210,7 @@ export function TaskRowDesktop({ task, onView, onEdit, onDelete, selected, onTog
 
   return (
     <div
-      className="hidden lg:flex items-center gap-4 px-4 py-3 bg-white border-b border-zinc-100 hover:bg-zinc-50 transition-colors group cursor-pointer"
+      className="hidden lg:flex items-center gap-4 px-4 py-3 bg-surface-raised border-b border-white/[0.06] hover:bg-white/[0.03] transition-colors group cursor-pointer"
       onClick={() => onView?.(task)}
     >
       {/* Selection checkbox */}
@@ -221,7 +221,7 @@ export function TaskRowDesktop({ task, onView, onEdit, onDelete, selected, onTog
             checked={selected || false}
             onChange={(e) => { e.stopPropagation(); onToggleSelect(task.id); }}
             onClick={(e) => e.stopPropagation()}
-            className="w-4 h-4 rounded border-zinc-300 text-brand-600 outline-none focus:ring-brand-500 cursor-pointer"
+            className="w-4 h-4 rounded border-white/[0.12] text-brand-300 outline-none focus:ring-brand-500 cursor-pointer"
           />
         </div>
       )}
@@ -238,9 +238,9 @@ export function TaskRowDesktop({ task, onView, onEdit, onDelete, selected, onTog
 
       {/* Title */}
       <div className="flex-1 min-w-0">
-        <h3 className="font-medium text-zinc-900 truncate">{task.title}</h3>
+        <h3 className="font-medium text-white truncate">{task.title}</h3>
         {task.description && (
-          <p className="text-sm text-zinc-500 truncate">{task.description}</p>
+          <p className="text-sm text-zinc-400 truncate">{task.description}</p>
         )}
       </div>
 
@@ -249,7 +249,7 @@ export function TaskRowDesktop({ task, onView, onEdit, onDelete, selected, onTog
         {task.tags.slice(0, 2).map((tag) => (
           <span 
             key={tag} 
-            className="px-1.5 py-0.5 text-[10px] bg-zinc-100 text-zinc-600 rounded"
+            className="px-1.5 py-0.5 text-[10px] bg-white/[0.06] text-zinc-300 rounded"
           >
             {tag}
           </span>
@@ -264,7 +264,7 @@ export function TaskRowDesktop({ task, onView, onEdit, onDelete, selected, onTog
         )}
         {isAgentsEnabled && canManageAgents && !task.ai_managed && getProject(task.project_id)?.autonomous_enabled && (
           <Tooltip content="Manual task (not AI managed)">
-            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium bg-amber-50 text-amber-700 border border-amber-200 rounded-full">
+            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium bg-amber-500/15 text-amber-300 border border-amber-500/30 rounded-full">
               <User size={10} />
             </span>
           </Tooltip>
@@ -274,7 +274,7 @@ export function TaskRowDesktop({ task, onView, onEdit, onDelete, selected, onTog
       {/* Due Date */}
       <div className="w-24">
         {dueInfo && (
-          <div className={`flex items-center gap-1 text-xs ${dueInfo.isOverdue ? 'text-red-600 font-medium' : 'text-zinc-500'}`}>
+          <div className={`flex items-center gap-1 text-xs ${dueInfo.isOverdue ? 'text-red-400 font-medium' : 'text-zinc-400'}`}>
             <Calendar size={12} />
             <span>{dueInfo.text}</span>
           </div>
@@ -284,7 +284,7 @@ export function TaskRowDesktop({ task, onView, onEdit, onDelete, selected, onTog
       {/* Subtasks */}
       <div className="w-20 text-center">
         {task.subtasks.length > 0 && (
-          <div className="flex items-center justify-center gap-1 text-xs text-zinc-500">
+          <div className="flex items-center justify-center gap-1 text-xs text-zinc-400">
             <CheckSquare size={12} />
             <span>{completedSubtasks}/{task.subtasks.length}</span>
           </div>
@@ -294,7 +294,7 @@ export function TaskRowDesktop({ task, onView, onEdit, onDelete, selected, onTog
       {/* Comments */}
       <div className="w-16 text-center">
         {task.comments.length > 0 && (
-          <div className="flex items-center justify-center gap-1 text-xs text-zinc-500">
+          <div className="flex items-center justify-center gap-1 text-xs text-zinc-400">
             <MessageSquare size={12} />
             <span>{task.comments.length}</span>
           </div>
@@ -304,7 +304,7 @@ export function TaskRowDesktop({ task, onView, onEdit, onDelete, selected, onTog
       {/* Updated */}
       <div className="w-20 text-center">
         <Tooltip content={`Updated ${new Date(task.updated_at).toLocaleString()}`}>
-          <span className="text-xs text-zinc-400">
+          <span className="text-xs text-zinc-500">
             {timeAgo(task.updated_at)}
           </span>
         </Tooltip>
@@ -321,7 +321,7 @@ export function TaskRowDesktop({ task, onView, onEdit, onDelete, selected, onTog
       {(canEdit || canDelete) && <div className="relative">
         <button
           onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }}
-          className="p-1.5 rounded text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 transition-all"
+          className="p-1.5 rounded text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.06] sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 transition-all"
         >
           <MoreVertical size={16} />
         </button>
@@ -329,17 +329,17 @@ export function TaskRowDesktop({ task, onView, onEdit, onDelete, selected, onTog
         {showMenu && (
           <>
             <div className="fixed inset-0 cursor-default" onClick={(e) => { e.stopPropagation(); setShowMenu(false); }} />
-            <div className="absolute right-0 top-8 bg-white rounded-lg shadow-xl border border-zinc-200 py-1 z-10 min-w-[120px] cursor-pointer">
+            <div className="absolute right-0 top-8 bg-surface-raised rounded-lg shadow-xl border border-white/[0.08] py-1 z-10 min-w-[120px] cursor-pointer">
               {canEdit && <button
                 onClick={(e) => { e.stopPropagation(); onEdit?.(task); setShowMenu(false); }}
-                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-100"
+                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-300 hover:bg-white/[0.06]"
               >
                 <Edit size={14} />
                 Edit
               </button>}
               {canDelete && <button
                 onClick={(e) => { e.stopPropagation(); onDelete?.(task.id); setShowMenu(false); }}
-                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50"
+                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-400 hover:bg-red-500/15"
               >
                 <Trash2 size={14} />
                 Delete

@@ -46,8 +46,6 @@ export function LeadForm({ isOpen, onClose, lead, onConvertRequested }: LeadForm
   const [company, setCompany] = useState('');
   const [source, setSource] = useState('');
   const [status, setStatus] = useState('');
-  const [value, setValue] = useState('');
-  const [equity, setEquity] = useState('');
   const [notes, setNotes] = useState('');
   const [memberIds, setMemberIds] = useState<string[]>([]);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -61,8 +59,6 @@ export function LeadForm({ isOpen, onClose, lead, onConvertRequested }: LeadForm
       setCompany(lead.company);
       setSource(lead.source);
       setStatus(lead.status);
-      setValue(lead.value != null ? String(lead.value) : '');
-      setEquity(lead.equity != null ? String(lead.equity) : '');
       setNotes(lead.notes);
       setMemberIds(lead.member_ids || []);
     } else {
@@ -72,8 +68,6 @@ export function LeadForm({ isOpen, onClose, lead, onConvertRequested }: LeadForm
       setCompany('');
       setSource('');
       setStatus('');
-      setValue('');
-      setEquity('');
       setNotes('');
       setMemberIds([]);
     }
@@ -89,14 +83,6 @@ export function LeadForm({ isOpen, onClose, lead, onConvertRequested }: LeadForm
     }
     if (phone.trim() && !/^[+\d\s\-().]{7,20}$/.test(phone.trim())) {
       errs.phone = 'Invalid phone number';
-    }
-    if (value && isNaN(parseFloat(value))) {
-      errs.value = 'Invalid amount';
-    }
-    if (equity && isNaN(parseFloat(equity))) {
-      errs.equity = 'Invalid percentage';
-    } else if (equity && (parseFloat(equity) < 0 || parseFloat(equity) > 100)) {
-      errs.equity = 'Must be 0-100';
     }
     setErrors(errs);
     return Object.keys(errs).length === 0;
@@ -116,8 +102,6 @@ export function LeadForm({ isOpen, onClose, lead, onConvertRequested }: LeadForm
         company: company.trim(),
         source: source as Lead['source'],
         status: lead.status,
-        value: value ? parseFloat(value) : null,
-        equity: equity ? parseFloat(equity) : null,
         notes,
         assigned_to: memberIds.length > 0 ? memberIds[0] : null,
         member_ids: memberIds,
@@ -137,8 +121,6 @@ export function LeadForm({ isOpen, onClose, lead, onConvertRequested }: LeadForm
       company: company.trim(),
       source: source as Lead['source'],
       status: status as Lead['status'],
-      value: value ? parseFloat(value) : null,
-      equity: equity ? parseFloat(equity) : null,
       notes,
       assigned_to: memberIds.length > 0 ? memberIds[0] : null,
       member_ids: memberIds,
@@ -217,30 +199,6 @@ export function LeadForm({ isOpen, onClose, lead, onConvertRequested }: LeadForm
           />
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
-          <Input
-            label="Value ($)"
-            type="number"
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-            placeholder="0"
-            min="0"
-            step="0.01"
-            error={errors.value}
-          />
-          <Input
-            label="Equity (%)"
-            type="number"
-            value={equity}
-            onChange={(e) => setEquity(e.target.value)}
-            placeholder="0"
-            min="0"
-            max="100"
-            step="0.01"
-            error={errors.equity}
-          />
-        </div>
-
         <MultiSelect
           label="Team Members"
           options={team.map(m => ({ value: m.id, label: m.name }))}
@@ -252,7 +210,7 @@ export function LeadForm({ isOpen, onClose, lead, onConvertRequested }: LeadForm
         />
 
         <div className="space-y-1.5">
-          <label className="block text-sm font-medium text-zinc-700">Notes</label>
+          <label className="block text-sm font-medium text-zinc-300">Notes</label>
           <RichTextEditor
             value={notes}
             onChange={setNotes}

@@ -547,32 +547,24 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
      RENDER
   ================================================================ */
   return (
-    <div className="bg-white rounded-xl border border-zinc-200 flex flex-col max-h-[600px]">
+    <div className="glass-card rounded-xl flex flex-col max-h-[600px]">
       {/* ── Header ── */}
-      <div className="flex items-center justify-between gap-2 px-5 py-3 border-b border-zinc-200 flex-shrink-0">
+      <div className="flex items-center justify-between gap-2 px-5 py-3 border-b border-white/[0.08] flex-shrink-0">
         <div className="flex items-center gap-2 min-w-0">
-          <Clock size={18} className="text-zinc-500 flex-shrink-0" />
-          <h2 className="font-semibold text-zinc-900 truncate">Time Tracking</h2>
+          <Clock size={18} className="text-zinc-400 flex-shrink-0" />
+          <h2 className="font-semibold text-white truncate">Time Tracking</h2>
         </div>
-        <div className="flex items-center gap-0.5 bg-zinc-100 rounded-lg p-0.5">
+        <div className="seg-track seg-sm">
           <button
             onClick={() => { if (mode !== 'timer') toggleMode(); }}
-            className={`text-xs font-medium px-2.5 py-1 rounded-md transition-all duration-150 flex items-center gap-1.5 ${
-              mode === 'timer'
-                ? 'bg-white text-zinc-900 shadow-sm'
-                : 'text-zinc-500 hover:text-zinc-700'
-            }`}
+            className={`seg-item flex items-center gap-1.5 ${mode === 'timer' ? 'is-active' : ''}`}
           >
             <Timer size={12} />
             Timer
           </button>
           <button
             onClick={() => { if (mode !== 'manual') toggleMode(); }}
-            className={`text-xs font-medium px-2.5 py-1 rounded-md transition-all duration-150 flex items-center gap-1.5 ${
-              mode === 'manual'
-                ? 'bg-white text-zinc-900 shadow-sm'
-                : 'text-zinc-500 hover:text-zinc-700'
-            }`}
+            className={`seg-item flex items-center gap-1.5 ${mode === 'manual' ? 'is-active' : ''}`}
           >
             <Clock size={12} />
             Manual
@@ -587,20 +579,20 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
         {completedEntries.length > 0 && (
           <div className="px-5 pt-4 pb-2 flex items-end gap-6">
             <div>
-              <p className="text-xs text-zinc-500 font-medium mb-0.5">Total Hours</p>
-              <p className="text-2xl font-bold tabular-nums leading-none" style={{ color: projectColor }}>
+              <p className="text-xs text-zinc-400 font-medium mb-0.5">Total Hours</p>
+              <p className="text-2xl font-bold tabular-nums leading-none text-white">
                 {totalHours.toFixed(1)}
               </p>
             </div>
             <div>
-              <p className="text-xs text-zinc-500 font-medium mb-0.5">This Week</p>
-              <p className="text-2xl font-bold tabular-nums leading-none text-zinc-900">
+              <p className="text-xs text-zinc-400 font-medium mb-0.5">This Week</p>
+              <p className="text-2xl font-bold tabular-nums leading-none text-white">
                 {thisWeekHours.toFixed(1)}
               </p>
             </div>
             {uniqueMembers.length > 0 && (
               <div>
-                <p className="text-xs text-zinc-500 font-medium mb-1.5">Contributors</p>
+                <p className="text-xs text-zinc-400 font-medium mb-1.5">Contributors</p>
                 <AvatarGroup
                   users={uniqueMembers.map(m => ({ id: m.id, name: m.name, avatar: m.avatar }))}
                   max={3}
@@ -621,7 +613,7 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                 className="rounded-xl border p-4 space-y-3"
                 style={{
                   borderColor: runningTimerIsPaused ? '#E4E4E7' : projectColor + '30',
-                  backgroundColor: runningTimerIsPaused ? '#FAFAFA' : projectColor + '06',
+                  backgroundColor: runningTimerIsPaused ? 'rgba(255,255,255,0.04)' : projectColor + '06',
                 }}
               >
                 {/* Top row: avatar, info, elapsed badge */}
@@ -629,15 +621,15 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                   <div className="flex-shrink-0 relative">
                     <Avatar name={getMember(runningTimer.member_id)?.name || '?'} src={getMember(runningTimer.member_id)?.avatar} size="md" />
                     <span
-                      className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ring-2 ring-white ${runningTimerIsPaused ? '' : 'animate-pulse'}`}
+                      className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ring-2 ring-surface ${runningTimerIsPaused ? '' : 'animate-pulse'}`}
                       style={{ backgroundColor: runningTimerIsPaused ? '#A1A1AA' : projectColor }}
                     />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-zinc-800 truncate">
+                    <p className="text-sm font-medium text-zinc-100 truncate">
                       {getMember(runningTimer.member_id)?.name}
                       {runningTimerIsPaused && (
-                        <span className="ml-1.5 text-xs font-normal text-zinc-400">· Paused</span>
+                        <span className="ml-1.5 text-xs font-normal text-zinc-500">· Paused</span>
                       )}
                     </p>
                     {adjustingStart ? (
@@ -652,20 +644,20 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                         <button
                           type="button"
                           onClick={handleAdjustStart}
-                          className="p-1 text-emerald-600 hover:bg-emerald-50 rounded transition-colors flex-shrink-0"
+                          className="p-1 text-emerald-400 hover:bg-emerald-500/15 rounded transition-colors flex-shrink-0"
                         >
                           <Check size={13} />
                         </button>
                         <button
                           type="button"
                           onClick={() => { setAdjustingStart(false); setAdjustStartTime(''); }}
-                          className="p-1 text-zinc-400 hover:bg-zinc-100 rounded transition-colors flex-shrink-0"
+                          className="p-1 text-zinc-500 hover:bg-white/[0.06] rounded transition-colors flex-shrink-0"
                         >
                           <X size={13} />
                         </button>
                       </div>
                     ) : (
-                      <p className="text-xs text-zinc-400 flex items-center gap-1 mt-0.5">
+                      <p className="text-xs text-zinc-500 flex items-center gap-1 mt-0.5">
                         Started {formatTime(runningTimer.start_time, tz)}
                         <button
                           type="button"
@@ -673,7 +665,7 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                             setAdjustingStart(true);
                             setAdjustStartTime(toLocalTimeString(runningTimer.start_time, tz));
                           }}
-                          className="text-zinc-300 hover:text-zinc-500 transition-colors flex-shrink-0"
+                          className="text-zinc-600 hover:text-zinc-400 transition-colors flex-shrink-0"
                         >
                           <Pencil size={11} />
                         </button>
@@ -715,7 +707,7 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                     ) : (
                       <button
                         onClick={handlePauseTimer}
-                        className="flex-1 sm:flex-none px-3 py-2 rounded-lg font-medium text-sm transition-all flex items-center justify-center gap-1.5 flex-shrink-0 bg-zinc-100 text-zinc-700 hover:bg-zinc-200 active:scale-[0.97]"
+                        className="flex-1 sm:flex-none px-3 py-2 rounded-lg font-medium text-sm transition-all flex items-center justify-center gap-1.5 flex-shrink-0 bg-white/[0.06] text-zinc-300 hover:bg-white/[0.08] active:scale-[0.97]"
                       >
                         <Pause size={12} />
                         Pause
@@ -732,7 +724,7 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                 </div>
               </div>
             ) : (
-              <div className="rounded-xl bg-zinc-50/80 border border-zinc-100 p-4 space-y-3">
+              <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-4 space-y-3">
                 <div className={`grid grid-cols-1 gap-2 ${canManageAllTime ? 'sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]' : 'sm:grid-cols-[minmax(0,1fr)_auto]'}`}>
                   {canManageAllTime && (
                     <div className="min-w-0">
@@ -772,7 +764,7 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
            ═══════════════════════════════════════════════════════ */}
         {teammateTimers.length > 0 && (
           <div className="mx-4 mt-1 mb-2 space-y-1.5">
-            <p className="text-[10px] uppercase tracking-wide font-medium text-zinc-400 px-1">
+            <p className="text-[10px] uppercase tracking-wide font-medium text-zinc-500 px-1">
               Also tracking
             </p>
             {teammateTimers.map(entry => {
@@ -782,24 +774,24 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
               return (
                 <div
                   key={entry.id}
-                  className="rounded-lg border border-zinc-100 bg-white px-3 py-2 flex items-center gap-2.5"
+                  className="rounded-lg border border-white/[0.06] bg-surface-raised px-3 py-2 flex items-center gap-2.5"
                 >
                   <div className="flex-shrink-0 relative">
                     <Avatar name={member?.name || '?'} src={member?.avatar} size="sm" />
                     <span
-                      className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full ring-2 ring-white ${paused ? '' : 'animate-pulse'}`}
+                      className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full ring-2 ring-surface ${paused ? '' : 'animate-pulse'}`}
                       style={{ backgroundColor: paused ? '#A1A1AA' : projectColor }}
                     />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-xs font-medium text-zinc-700 truncate">
+                    <p className="text-xs font-medium text-zinc-300 truncate">
                       {member?.name || 'Unknown'}
                       {paused && (
-                        <span className="ml-1 text-[10px] font-normal text-zinc-400">· Paused</span>
+                        <span className="ml-1 text-[10px] font-normal text-zinc-500">· Paused</span>
                       )}
                     </p>
-                    <p className="text-[11px] text-zinc-400 truncate">
-                      {entry.description || <span className="italic text-zinc-300">No description</span>}
+                    <p className="text-[11px] text-zinc-500 truncate">
+                      {entry.description || <span className="italic text-zinc-600">No description</span>}
                     </p>
                   </div>
                   <span
@@ -818,7 +810,7 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
              MANUAL ENTRY MODE
            ═══════════════════════════════════════════════════════ */}
         {mode === 'manual' && (
-          <form onSubmit={handleManualAdd} className="mx-4 mt-3 mb-2 rounded-xl bg-zinc-50/80 border border-zinc-100 p-4 space-y-3">
+          <form onSubmit={handleManualAdd} className="mx-4 mt-3 mb-2 rounded-xl bg-white/[0.03] border border-white/[0.06] p-4 space-y-3">
             {/* Date and, for time managers only, the team member */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
               <div className={canManageAllTime ? 'md:col-span-2' : 'md:col-span-4'}>
@@ -841,26 +833,18 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
             </div>
 
             {/* Time mode tabs + fields */}
-            <div className="flex items-center gap-3 mb-3">
+            <div className="seg-track seg-sm mb-3">
               <button
                 type="button"
                 onClick={() => setManualEntryMode('range')}
-                className={`text-xs font-medium pb-0.5 border-b transition-colors ${
-                  manualEntryMode === 'range'
-                    ? 'text-brand-600 border-brand-500'
-                    : 'text-zinc-400 border-transparent hover:text-zinc-600'
-                }`}
+                className={`seg-item ${manualEntryMode === 'range' ? 'is-active' : ''}`}
               >
                 Time Range
               </button>
               <button
                 type="button"
                 onClick={() => setManualEntryMode('duration')}
-                className={`text-xs font-medium pb-0.5 border-b transition-colors ${
-                  manualEntryMode === 'duration'
-                    ? 'text-brand-600 border-brand-500'
-                    : 'text-zinc-400 border-transparent hover:text-zinc-600'
-                }`}
+                className={`seg-item ${manualEntryMode === 'duration' ? 'is-active' : ''}`}
               >
                 Duration
               </button>
@@ -942,10 +926,10 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
           <div className="p-5 pt-3 space-y-4">
             {dateGroups.map(([date, dateEntries]) => (
               <div key={date}>
-                <p className="text-xs uppercase tracking-wide font-medium text-zinc-400 mb-2">
+                <p className="text-xs uppercase tracking-wide font-medium text-zinc-500 mb-2">
                   {formatDateHeader(date)}
                 </p>
-                <div className="divide-y divide-zinc-100">
+                <div className="divide-y divide-white/[0.06]">
                   {dateEntries.map(entry => {
                     const member = getMember(entry.member_id);
                     const canModifyEntry = canManageAllTime
@@ -956,7 +940,7 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
 
                     if (isEditing && editState) {
                       return (
-                        <div key={entry.id} className="py-3 space-y-2 rounded-lg bg-zinc-50 -mx-1 px-3 border border-zinc-100">
+                        <div key={entry.id} className="py-3 space-y-2 rounded-lg bg-white/[0.03] -mx-1 px-3 border border-white/[0.06]">
                           {/* Date + time range. On mobile: date full width, then start/end
                               inputs share a row (no "to" label since they're adjacent).
                               On sm+: everything on one row via sm:contents trick. */}
@@ -971,7 +955,7 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                                 onChange={v => setEditState({ ...editState, startTime: v })}
                                 placeholder="Start"
                               />
-                              <span className="hidden sm:inline text-xs text-zinc-300 font-medium select-none">to</span>
+                              <span className="hidden sm:inline text-xs text-zinc-600 font-medium select-none">to</span>
                               <TimeInput
                                 value={editState.endTime}
                                 onChange={v => setEditState({ ...editState, endTime: v })}
@@ -1004,14 +988,14 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                               <button
                                 aria-label="Save time entry changes"
                                 onClick={saveEdit}
-                                className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-md transition-colors"
+                                className="p-1.5 text-emerald-400 hover:bg-emerald-500/15 rounded-md transition-colors"
                               >
                                 <Check size={14} />
                               </button>
                               <button
                                 aria-label="Cancel time entry changes"
                                 onClick={cancelEdit}
-                                className="p-1.5 text-zinc-400 hover:bg-zinc-100 rounded-md transition-colors"
+                                className="p-1.5 text-zinc-500 hover:bg-white/[0.06] rounded-md transition-colors"
                               >
                                 <X size={14} />
                               </button>
@@ -1027,10 +1011,10 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                           <Avatar name={member?.name || '?'} src={member?.avatar} size="sm" />
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm text-zinc-700 truncate">
-                            {entry.description || <span className="text-zinc-400 italic">No description</span>}
+                          <p className="text-sm text-zinc-300 truncate">
+                            {entry.description || <span className="text-zinc-500 italic">No description</span>}
                           </p>
-                          <div className="flex items-center gap-1.5 text-xs text-zinc-400">
+                          <div className="flex items-center gap-1.5 text-xs text-zinc-500">
                             <span className="truncate">
                               {member?.name} &middot; {formatTime(entry.start_time, tz)} – {entry.end_time ? formatTime(entry.end_time, tz) : '...'}
                             </span>
@@ -1041,7 +1025,7 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                               {formatHM(hours)}
                             </span>
                             {canSeeClientBilling && isHourly ? (
-                              <span className="flex-shrink-0 tabular-nums text-zinc-400">
+                              <span className="flex-shrink-0 tabular-nums text-zinc-500">
                                 ${formatRate(entry.hourly_rate ?? hourlyRate)}/hr
                               </span>
                             ) : null}
@@ -1052,7 +1036,7 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                                 ? { color: 'text-emerald-500', label: 'Paid' }
                                 : breakdown.status === 'partial'
                                 ? { color: 'text-amber-500', label: 'Partially paid' }
-                                : { color: 'text-zinc-300', label: 'Unpaid' };
+                                : { color: 'text-zinc-600', label: 'Unpaid' };
                               const amountParts = [
                                 breakdown.paidAmount > 0 ? `$${formatRate(breakdown.paidAmount)} paid` : null,
                                 breakdown.unpaidAmount > 0 ? `$${formatRate(breakdown.unpaidAmount)} unpaid` : null,
@@ -1062,7 +1046,7 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                                 <Tooltip content={(
                                   <div className="space-y-0.5">
                                     <p>{cfg.label}</p>
-                                    <p className="font-normal text-zinc-500 tabular-nums">
+                                    <p className="font-normal text-zinc-400 tabular-nums">
                                       {amountLabel}
                                     </p>
                                   </div>
@@ -1075,14 +1059,14 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                                 </Tooltip>
                               );
                             })()}
-                            {entry.work_type === 'internal' && <span className="flex-shrink-0 rounded bg-sky-50 px-1.5 py-0.5 text-[10px] font-medium text-sky-700">Internal</span>}
-                            {entry.approval_status && entry.approval_status !== 'approved' && <span className={`flex-shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${entry.approval_status === 'rejected' ? 'bg-red-50 text-red-700' : 'bg-amber-50 text-amber-700'}`}>{entry.approval_status === 'pending' ? 'Awaiting approval' : entry.approval_status}</span>}
+                            {entry.work_type === 'internal' && <span className="flex-shrink-0 rounded bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-medium text-sky-300">Internal</span>}
+                            {entry.approval_status && entry.approval_status !== 'approved' && <span className={`flex-shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${entry.approval_status === 'rejected' ? 'bg-red-500/15 text-red-300' : 'bg-amber-500/15 text-amber-300'}`}>{entry.approval_status === 'pending' ? 'Awaiting approval' : entry.approval_status}</span>}
                             {canModifyEntry ? (
                               <div className="flex items-center gap-0.5 sm:opacity-0 sm:group-hover/entry:opacity-100 sm:group-has-[.seg-zone:hover]/entry:!opacity-0 transition-opacity flex-shrink-0">
                                 <Tooltip content="Edit">
                                   <button
                                     onClick={() => startEdit(entry)}
-                                    className="p-1 text-zinc-300 hover:text-brand-600 transition-colors"
+                                    className="p-1 text-zinc-600 hover:text-brand-300 transition-colors"
                                   >
                                     <Pencil size={12} />
                                   </button>
@@ -1090,7 +1074,7 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                                 <Tooltip content="Delete">
                                   <button
                                     onClick={() => setDeleteTarget(entry.id)}
-                                    className="p-1 text-zinc-300 hover:text-red-500 transition-colors"
+                                    className="p-1 text-zinc-600 hover:text-red-500 transition-colors"
                                   >
                                     <Trash2 size={12} />
                                   </button>
@@ -1099,7 +1083,7 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                             ) : null}
                           </div>
                           {hasMultipleSegments && (
-                            <ul className="seg-zone mt-2 mb-1 rounded-lg bg-zinc-50/70 border border-zinc-100 px-2.5 py-1.5 space-y-1">
+                            <ul className="seg-zone mt-2 mb-1 rounded-lg bg-white/[0.03] border border-white/[0.06] px-2.5 py-1.5 space-y-1">
                               {entry.segments.map((seg, i) => {
                                 const isEditingThisSegment =
                                   editingSegment?.entryId === entry.id && editingSegment.index === i;
@@ -1119,8 +1103,8 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                                     key={`gap-${i}`}
                                     className="flex items-center gap-1.5 pl-[3px] select-none"
                                   >
-                                    <span className="w-px h-2.5 bg-zinc-200 ml-[2px]" />
-                                    <span className="text-[10px] italic text-zinc-400">
+                                    <span className="w-px h-2.5 bg-white/[0.08] ml-[2px]" />
+                                    <span className="text-[10px] italic text-zinc-500">
                                       Paused for {formatGap(gapMs)}
                                     </span>
                                   </li>
@@ -1140,7 +1124,7 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                                             onChange={v => setEditingSegment({ ...editingSegment, startTime: v })}
                                           />
                                         </div>
-                                        <span className="text-[10px] text-zinc-300 select-none">–</span>
+                                        <span className="text-[10px] text-zinc-600 select-none">–</span>
                                         <div className="w-[88px]">
                                           <TimeInput
                                             size="sm"
@@ -1150,13 +1134,13 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                                         </div>
                                         <button
                                           onClick={saveEditSegment}
-                                          className="p-1 text-emerald-600 hover:bg-emerald-50 rounded transition-colors flex-shrink-0"
+                                          className="p-1 text-emerald-400 hover:bg-emerald-500/15 rounded transition-colors flex-shrink-0"
                                         >
                                           <Check size={12} />
                                         </button>
                                         <button
                                           onClick={cancelEditSegment}
-                                          className="p-1 text-zinc-400 hover:bg-zinc-100 rounded transition-colors flex-shrink-0"
+                                          className="p-1 text-zinc-500 hover:bg-white/[0.06] rounded transition-colors flex-shrink-0"
                                         >
                                           <X size={12} />
                                         </button>
@@ -1172,11 +1156,11 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                                         className="w-1.5 h-1.5 rounded-full flex-shrink-0"
                                         style={{ backgroundColor: projectColor }}
                                       />
-                                      <span className="text-[11px] font-medium text-zinc-600 tabular-nums">
+                                      <span className="text-[11px] font-medium text-zinc-300 tabular-nums">
                                         {formatTime(seg.start, tz)} – {seg.end ? formatTime(seg.end, tz) : '...'}
                                       </span>
                                       {seg.end && (
-                                        <span className="text-[10px] text-zinc-400 tabular-nums">
+                                        <span className="text-[10px] text-zinc-500 tabular-nums">
                                           {formatHM(segDurationHours)}
                                         </span>
                                       )}
@@ -1185,7 +1169,7 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                                           <Tooltip content="Edit segment">
                                             <button
                                               onClick={() => startEditSegment(entry, i)}
-                                              className="p-1 text-zinc-400 hover:text-brand-600 hover:bg-white rounded transition-colors"
+                                              className="p-1 text-zinc-500 hover:text-brand-300 hover:bg-surface-raised rounded transition-colors"
                                             >
                                               <Pencil size={11} />
                                             </button>
@@ -1193,7 +1177,7 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                                           <Tooltip content="Delete segment">
                                             <button
                                               onClick={() => setDeleteSegmentTarget({ entryId: entry.id, index: i })}
-                                              className="p-1 text-zinc-400 hover:text-red-500 hover:bg-white rounded transition-colors"
+                                              className="p-1 text-zinc-500 hover:text-red-500 hover:bg-surface-raised rounded transition-colors"
                                             >
                                               <Trash2 size={11} />
                                             </button>
@@ -1217,11 +1201,11 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
           </div>
         ) : !runningTimer && teammateTimers.length === 0 ? (
           <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
-            <div className="w-10 h-10 rounded-full bg-zinc-100 flex items-center justify-center mb-3">
-              <Clock size={18} className="text-zinc-400" />
+            <div className="w-10 h-10 rounded-full bg-white/[0.06] flex items-center justify-center mb-3">
+              <Clock size={18} className="text-zinc-500" />
             </div>
-            <p className="text-sm font-medium text-zinc-500">No hours logged yet</p>
-            <p className="text-xs text-zinc-400 mt-1">
+            <p className="text-sm font-medium text-zinc-400">No hours logged yet</p>
+            <p className="text-xs text-zinc-500 mt-1">
               {mode === 'timer' ? 'Start a timer to begin tracking' : 'Use the form above to log your first entry'}
             </p>
           </div>

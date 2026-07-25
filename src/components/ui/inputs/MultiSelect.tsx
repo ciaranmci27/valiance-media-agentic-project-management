@@ -345,7 +345,7 @@ export const MultiSelect = forwardRef<HTMLButtonElement, MultiSelectProps>(
             aria-multiselectable="true"
             aria-labelledby={label ? `${inputId}-label` : undefined}
             onKeyDown={handleDropdownKeyDown}
-            className="fixed z-[9999] bg-input-bg border border-input-border rounded-input shadow-lg overflow-hidden"
+            className="fixed z-[9999] bg-surface-overlay border border-white/10 rounded-input shadow-[0_16px_48px_-12px_rgba(0,0,0,0.7)] overflow-hidden"
             style={{
               top: dropdownPos.top,
               left: dropdownPos.left,

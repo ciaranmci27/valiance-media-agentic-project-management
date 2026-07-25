@@ -113,16 +113,16 @@ export function SuggestionsTab({ filters }: { filters: SuggestionsFilters }) {
   };
 
   const priorityColors: Record<string, string> = {
-    low: 'bg-zinc-100 text-zinc-600',
-    medium: 'bg-blue-100 text-blue-700',
-    high: 'bg-orange-100 text-orange-700',
-    urgent: 'bg-red-100 text-red-700',
+    low: 'bg-white/[0.06] text-zinc-300',
+    medium: 'bg-blue-500/15 text-blue-300',
+    high: 'bg-orange-500/15 text-orange-300',
+    urgent: 'bg-red-500/15 text-red-300',
   };
 
   const effortColors: Record<string, string> = {
-    small: 'bg-emerald-100 text-emerald-700',
-    medium: 'bg-amber-100 text-amber-700',
-    large: 'bg-rose-100 text-rose-700',
+    small: 'bg-emerald-500/15 text-emerald-300',
+    medium: 'bg-amber-500/15 text-amber-300',
+    large: 'bg-rose-500/15 text-rose-300',
   };
 
   const getProjectName = (id: string) => projects.find(p => p.id === id)?.name || 'Unknown';
@@ -134,8 +134,8 @@ export function SuggestionsTab({ filters }: { filters: SuggestionsFilters }) {
     <div className="space-y-4">
       {/* Bulk actions */}
       {selectedIds.size > 0 && (
-        <div className="flex items-center gap-3 bg-brand-50 border border-brand-200 rounded-lg px-4 py-3">
-          <span className="text-sm font-medium text-brand-700">{selectedIds.size} selected</span>
+        <div className="flex items-center gap-3 bg-brand-500/15 border border-brand-500/30 rounded-lg px-4 py-3">
+          <span className="text-sm font-medium text-brand-300">{selectedIds.size} selected</span>
           <Button size="sm" onClick={handleBulkApprove}>
             <Check size={14} className="mr-1" />
             Approve All
@@ -146,7 +146,7 @@ export function SuggestionsTab({ filters }: { filters: SuggestionsFilters }) {
           </Button>
           <button
             onClick={() => setSelectedIds(new Set())}
-            className="ml-auto text-sm text-brand-600 hover:text-brand-800"
+            className="ml-auto text-sm text-brand-300 hover:text-brand-800"
           >
             Clear
           </button>
@@ -181,9 +181,9 @@ export function SuggestionsTab({ filters }: { filters: SuggestionsFilters }) {
               type="checkbox"
               checked={selectedIds.size === filtered.length && filtered.length > 0}
               onChange={selectAll}
-              className="w-4 h-4 rounded border-zinc-300 text-brand-600 focus:ring-brand-500"
+              className="w-4 h-4 rounded border-white/[0.12] text-brand-300 focus:ring-brand-500"
             />
-            <span className="text-xs text-zinc-500">Select all</span>
+            <span className="text-xs text-zinc-400">Select all</span>
           </div>
         )}
 
@@ -191,7 +191,7 @@ export function SuggestionsTab({ filters }: { filters: SuggestionsFilters }) {
         {filtered.map((suggestion) => (
           <div
             key={suggestion.id}
-            className="bg-white rounded-xl border border-zinc-200 p-5 hover:shadow-md transition-shadow"
+            className="glass-card rounded-xl p-5 hover:shadow-md transition-shadow"
           >
             <div className="flex items-start gap-3">
               {(statusFilter === '' || statusFilter === 'pending') && suggestion.status === 'pending' && (
@@ -199,13 +199,13 @@ export function SuggestionsTab({ filters }: { filters: SuggestionsFilters }) {
                   type="checkbox"
                   checked={selectedIds.has(suggestion.id)}
                   onChange={() => toggleSelect(suggestion.id)}
-                  className="mt-1 w-4 h-4 rounded border-zinc-300 text-brand-600 focus:ring-brand-500"
+                  className="mt-1 w-4 h-4 rounded border-white/[0.12] text-brand-300 focus:ring-brand-500"
                 />
               )}
 
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1 flex-wrap">
-                  <h3 className="font-semibold text-zinc-900">{suggestion.title}</h3>
+                  <h3 className="font-semibold text-white">{suggestion.title}</h3>
                   <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${priorityColors[suggestion.priority]}`}>
                     {suggestion.priority}
                   </span>
@@ -215,13 +215,13 @@ export function SuggestionsTab({ filters }: { filters: SuggestionsFilters }) {
                     </span>
                   )}
                   {suggestion.task_type && (
-                    <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-violet-100 text-violet-700">
+                    <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-white/[0.06] text-zinc-300">
                       {suggestion.task_type}
                     </span>
                   )}
                 </div>
 
-                <div className="flex items-center gap-2 text-xs text-zinc-500 mb-3">
+                <div className="flex items-center gap-2 text-xs text-zinc-400 mb-3">
                   <span>{getProjectName(suggestion.project_id)}</span>
                   <span>&middot;</span>
                   <span>{getGoalTitle(suggestion.goal_id)}</span>
@@ -235,26 +235,26 @@ export function SuggestionsTab({ filters }: { filters: SuggestionsFilters }) {
                 </div>
 
                 {/* Reasoning — most prominent */}
-                <div className="bg-zinc-50 rounded-lg p-3 mb-3 border border-zinc-100">
-                  <p className="text-sm text-zinc-600 font-medium mb-1">Reasoning</p>
-                  <p className="text-sm text-zinc-800">{suggestion.reasoning}</p>
+                <div className="bg-white/[0.03] rounded-lg p-3 mb-3 border border-white/[0.06]">
+                  <p className="text-sm text-zinc-300 font-medium mb-1">Reasoning</p>
+                  <p className="text-sm text-zinc-100">{suggestion.reasoning}</p>
                 </div>
 
-                <p className="text-sm text-zinc-600 line-clamp-2">{suggestion.description}</p>
+                <p className="text-sm text-zinc-300 line-clamp-2">{suggestion.description}</p>
 
                 {/* Info request display */}
                 {suggestion.info_request && (
-                  <div className="mt-3 bg-amber-50 rounded-lg p-3 border border-amber-200">
-                    <p className="text-sm font-medium text-amber-800">Info Requested:</p>
-                    <p className="text-sm text-amber-700">{suggestion.info_request}</p>
+                  <div className="mt-3 bg-amber-500/15 rounded-lg p-3 border border-amber-500/30">
+                    <p className="text-sm font-medium text-amber-300">Info Requested:</p>
+                    <p className="text-sm text-amber-300">{suggestion.info_request}</p>
                   </div>
                 )}
 
                 {/* Rejection reason display */}
                 {suggestion.rejection_reason && (
-                  <div className="mt-3 bg-red-50 rounded-lg p-3 border border-red-200">
-                    <p className="text-sm font-medium text-red-800">Rejection Reason:</p>
-                    <p className="text-sm text-red-700">{suggestion.rejection_reason}</p>
+                  <div className="mt-3 bg-red-500/15 rounded-lg p-3 border border-red-500/30">
+                    <p className="text-sm font-medium text-red-300">Rejection Reason:</p>
+                    <p className="text-sm text-red-300">{suggestion.rejection_reason}</p>
                   </div>
                 )}
 
@@ -297,7 +297,7 @@ export function SuggestionsTab({ filters }: { filters: SuggestionsFilters }) {
                   <Tooltip content="Approve">
                     <button
                       onClick={() => setApproveModalId(suggestion.id)}
-                      className="p-2 rounded-lg text-emerald-600 hover:bg-emerald-50 transition-colors"
+                      className="p-2 rounded-lg text-emerald-400 hover:bg-emerald-500/15 transition-colors"
                     >
                       <Check size={18} />
                     </button>
@@ -305,7 +305,7 @@ export function SuggestionsTab({ filters }: { filters: SuggestionsFilters }) {
                   <Tooltip content="Edit">
                     <button
                       onClick={() => setEditModalId(suggestion.id)}
-                      className="p-2 rounded-lg text-blue-600 hover:bg-blue-50 transition-colors"
+                      className="p-2 rounded-lg text-blue-400 hover:bg-blue-500/15 transition-colors"
                     >
                       <Pencil size={18} />
                     </button>
@@ -314,7 +314,7 @@ export function SuggestionsTab({ filters }: { filters: SuggestionsFilters }) {
                     <Tooltip content="Request Info">
                       <button
                         onClick={() => { setInfoInputId(suggestion.id); setInfoText(''); }}
-                        className="p-2 rounded-lg text-amber-600 hover:bg-amber-50 transition-colors"
+                        className="p-2 rounded-lg text-amber-400 hover:bg-amber-500/15 transition-colors"
                       >
                         <HelpCircle size={18} />
                       </button>
@@ -323,7 +323,7 @@ export function SuggestionsTab({ filters }: { filters: SuggestionsFilters }) {
                   <Tooltip content="Reject">
                     <button
                       onClick={() => { setRejectInputId(suggestion.id); setRejectReason(''); }}
-                      className="p-2 rounded-lg text-red-600 hover:bg-red-50 transition-colors"
+                      className="p-2 rounded-lg text-red-400 hover:bg-red-500/15 transition-colors"
                     >
                       <X size={18} />
                     </button>
@@ -338,14 +338,14 @@ export function SuggestionsTab({ filters }: { filters: SuggestionsFilters }) {
 
       {/* Empty state */}
       {filtered.length === 0 && (
-        <div className="bg-white rounded-xl border border-zinc-200 flex flex-col items-center justify-center p-8 text-center">
-          <div className="w-10 h-10 rounded-full bg-zinc-100 flex items-center justify-center mb-3">
-            <Lightbulb size={18} className="text-zinc-400" />
+        <div className="glass-card rounded-xl flex flex-col items-center justify-center p-8 text-center">
+          <div className="w-10 h-10 rounded-full bg-white/[0.06] flex items-center justify-center mb-3">
+            <Lightbulb size={18} className="text-zinc-500" />
           </div>
-          <p className="text-sm font-medium text-zinc-500">
+          <p className="text-sm font-medium text-zinc-400">
             {statusFilter ? `No ${statusFilter.replace('_', ' ')} suggestions` : 'No suggestions'}
           </p>
-          <p className="text-xs text-zinc-400 mt-1">
+          <p className="text-xs text-zinc-500 mt-1">
             {!statusFilter
               ? 'Suggestions from AI agents will appear here for your review'
               : `No suggestions with "${statusFilter.replace('_', ' ')}" status`}

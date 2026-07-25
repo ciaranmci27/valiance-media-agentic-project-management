@@ -63,14 +63,14 @@ export function NewNoteModal({ isOpen, onClose, onSave, editMode }: NewNoteModal
             placeholder="File name"
             className="flex-1"
           />
-          <div className="flex rounded-lg border border-zinc-200 overflow-hidden flex-shrink-0">
+          <div className="flex rounded-lg border border-white/[0.08] overflow-hidden flex-shrink-0">
             <button
               type="button"
               onClick={() => setExtension('.md')}
               className={`px-3 py-2 text-xs font-medium transition-colors ${
                 extension === '.md'
                   ? 'bg-brand-600 text-white'
-                  : 'bg-white text-zinc-600 hover:bg-zinc-50'
+                  : 'bg-surface-raised text-zinc-300 hover:bg-white/[0.03]'
               }`}
             >
               .md
@@ -78,10 +78,10 @@ export function NewNoteModal({ isOpen, onClose, onSave, editMode }: NewNoteModal
             <button
               type="button"
               onClick={() => setExtension('.txt')}
-              className={`px-3 py-2 text-xs font-medium transition-colors border-l border-zinc-200 ${
+              className={`px-3 py-2 text-xs font-medium transition-colors border-l border-white/[0.08] ${
                 extension === '.txt'
                   ? 'bg-brand-600 text-white'
-                  : 'bg-white text-zinc-600 hover:bg-zinc-50'
+                  : 'bg-surface-raised text-zinc-300 hover:bg-white/[0.03]'
               }`}
             >
               .txt
@@ -103,7 +103,7 @@ export function NewNoteModal({ isOpen, onClose, onSave, editMode }: NewNoteModal
         <div className="flex items-center justify-end gap-2 pt-2">
           <button
             onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-zinc-600 bg-zinc-100 hover:bg-zinc-200 rounded-lg transition-colors"
+            className="px-4 py-2 text-sm font-medium text-zinc-300 bg-white/[0.06] hover:bg-white/[0.08] rounded-lg transition-colors"
           >
             Cancel
           </button>

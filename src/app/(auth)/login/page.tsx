@@ -54,16 +54,16 @@ export default function LoginPage() {
         <div className="flex flex-col items-center mb-4">
           <Logo className="h-12 w-auto" />
           {siteConfig.showNameUnderLogo && (
-            <span className="text-zinc-900 font-semibold text-[7px] tracking-[0.2em] uppercase">{siteConfig.name}</span>
+            <span className="text-white font-semibold text-[7px] tracking-[0.2em] uppercase">{siteConfig.name}</span>
           )}
         </div>
-        <h1 className="text-2xl font-bold text-zinc-900">Welcome back</h1>
-        <p className="text-sm text-zinc-500 mt-1">Sign in to {siteConfig.name}</p>
+        <h1 className="text-2xl font-bold text-white">Welcome back</h1>
+        <p className="text-sm text-zinc-400 mt-1">Sign in to {siteConfig.name}</p>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">
         {error && (
-          <div className="p-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg">
+          <div className="p-3 text-sm text-red-300 bg-red-500/15 border border-red-500/30 rounded-lg">
             {error}
           </div>
         )}
@@ -96,7 +96,7 @@ export default function LoginPage() {
         </button>
       </form>
 
-      <p className="text-center text-sm text-zinc-500 mt-4">
+      <p className="text-center text-sm text-zinc-400 mt-4">
         Contact your administrator for access.
       </p>
     </div>

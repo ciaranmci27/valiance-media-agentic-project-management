@@ -28,11 +28,11 @@ type PayrollData = {
 const EMPTY: PayrollData = { entries: [], rates: [], adjustments: [], payouts: [], allocations: [] };
 const money = (value: number) => value.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 const ROLE_BADGE_CLASSES: Record<TeamMember['role'], string> = {
-  owner: 'bg-amber-100 text-amber-800',
-  admin: 'bg-brand-100 text-brand-700',
-  member: 'bg-zinc-100 text-zinc-700',
-  guest: 'bg-amber-100 text-amber-700',
-  agent: 'bg-purple-100 text-purple-700',
+  owner: 'bg-amber-500/15 text-amber-300',
+  admin: 'bg-brand-500/15 text-brand-300',
+  member: 'bg-white/[0.06] text-zinc-300',
+  guest: 'bg-amber-500/15 text-amber-300',
+  agent: 'bg-purple-500/15 text-purple-300',
 };
 
 type EarningsFilter = 'all' | 'pending' | 'approved' | 'unpaid';
@@ -368,20 +368,20 @@ export function PayrollPanel({ team, projects }: { team: TeamMember[]; projects:
   if (!hasPayableIdentity || (!loading && visibleMembers.length === 0)) return null;
 
   return (
-    <section className="rounded-xl border border-zinc-200 bg-white">
-      <div className="px-5 py-4 flex flex-wrap items-center justify-between gap-3 border-b border-zinc-100">
+    <section className="rounded-xl border border-white/[0.08] bg-surface-raised">
+      <div className="px-5 py-4 flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.06]">
         <div>
-          <div className="flex items-center gap-2"><WalletCards size={18} className="text-brand-600" /><h2 className="font-semibold text-zinc-900">{canManage ? 'Team compensation' : 'My earnings'}</h2></div>
-          <p className="text-xs text-zinc-500 mt-1">Approved work, adjustments, and recorded payments in one ledger.</p>
+          <div className="flex items-center gap-2"><WalletCards size={18} className="text-brand-300" /><h2 className="font-semibold text-white">{canManage ? 'Team compensation' : 'My earnings'}</h2></div>
+          <p className="text-xs text-zinc-400 mt-1">Approved work, adjustments, and recorded payments in one ledger.</p>
         </div>
       </div>
 
-      {loading ? <div className="p-6 text-sm text-zinc-500">Loading compensation ledger...</div> : (
+      {loading ? <div className="p-6 text-sm text-zinc-400">Loading compensation ledger...</div> : (
         <>
           {canApprove && pending.length > 0 && (
-            <div className="p-5 border-b border-zinc-100 bg-amber-50/40">
+            <div className="p-5 border-b border-white/[0.06] bg-amber-500/15">
               <div className="flex items-center justify-between gap-3 mb-3">
-                <div className="flex items-center gap-2"><Clock3 size={16} className="text-amber-600" /><span className="text-sm font-semibold text-zinc-900">{pending.length} submitted {pending.length === 1 ? 'entry' : 'entries'} awaiting review</span></div>
+                <div className="flex items-center gap-2"><Clock3 size={16} className="text-amber-400" /><span className="text-sm font-semibold text-white">{pending.length} submitted {pending.length === 1 ? 'entry' : 'entries'} awaiting review</span></div>
                 <div className="flex gap-2"><Button size="sm" variant="secondary" disabled={selected.size === 0 || submitting} onClick={() => setShowReject(true)}>Reject selected</Button><Button size="sm" disabled={selected.size === 0 || submitting} onClick={approveSelected}>Approve selected</Button></div>
               </div>
               <div className="space-y-1 max-h-56 overflow-y-auto">
@@ -399,15 +399,15 @@ export function PayrollPanel({ team, projects }: { team: TeamMember[]; projects:
                       else next.delete(entry.id);
                       return next;
                     })}
-                    className="w-full items-center rounded-lg border border-zinc-200 bg-white px-3 py-2"
-                    label={<span className="flex w-full min-w-0 items-center gap-3 font-normal"><span className="min-w-0 flex-1"><span className="text-sm font-medium text-zinc-800">{member?.name || 'Team member'}</span><span className="block truncate text-xs text-zinc-500">{entry.description || 'No description'} / {new Date(entry.start_time).toLocaleDateString()}</span></span><span className="text-sm tabular-nums text-zinc-700">{hours.toFixed(2)}h</span>{missingRate ? <span className="text-xs font-semibold text-red-600">Rate required</span> : <span className="text-sm font-medium tabular-nums text-zinc-900">{money(hours * Number(entry.compensation_rate || 0))}</span>}</span>}
+                    className="w-full items-center rounded-lg border border-white/[0.08] bg-surface-raised px-3 py-2"
+                    label={<span className="flex w-full min-w-0 items-center gap-3 font-normal"><span className="min-w-0 flex-1"><span className="text-sm font-medium text-zinc-100">{member?.name || 'Team member'}</span><span className="block truncate text-xs text-zinc-400">{entry.description || 'No description'} / {new Date(entry.start_time).toLocaleDateString()}</span></span><span className="text-sm tabular-nums text-zinc-300">{hours.toFixed(2)}h</span>{missingRate ? <span className="text-xs font-semibold text-red-400">Rate required</span> : <span className="text-sm font-medium tabular-nums text-white">{money(hours * Number(entry.compensation_rate || 0))}</span>}</span>}
                   />;
                 })}
               </div>
             </div>
           )}
 
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-zinc-100">
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-white/[0.06]">
             {(canManage ? visibleMembers : visibleMembers.slice(0, 1)).map((member) => {
               const balance = balances.get(member.id) || { earned: 0, paid: 0, owed: 0 };
               const missingApprovedRates = data.entries.filter((entry) => entry.member_id === member.id
@@ -418,7 +418,7 @@ export function PayrollPanel({ team, projects }: { team: TeamMember[]; projects:
                   <div className="flex min-w-0 items-center gap-2.5">
                     <Avatar name={member.name} src={member.avatar} size="sm" />
                     <div className="flex min-w-0 items-center gap-1.5">
-                      <p className="truncate text-sm font-semibold text-zinc-900">{member.name}</p>
+                      <p className="truncate text-sm font-semibold text-white">{member.name}</p>
                       <span className={`flex-shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium capitalize ${ROLE_BADGE_CLASSES[member.role]}`}>{member.role}</span>
                     </div>
                   </div>
@@ -431,18 +431,18 @@ export function PayrollPanel({ team, projects }: { team: TeamMember[]; projects:
                           aria-label={`Compensation actions for ${member.name}`}
                           aria-expanded={menuMemberId === member.id}
                           onClick={() => setMenuMemberId((current) => current === member.id ? null : member.id)}
-                          className="rounded-md p-1 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-600"
+                          className="rounded-md p-1 text-zinc-500 transition-colors hover:bg-white/[0.06] hover:text-zinc-300"
                         >
                           <MoreVertical size={16} />
                         </button>
                         {menuMemberId === member.id && (
                           <>
                             <button type="button" aria-label="Close compensation menu" className="fixed inset-0 z-10 cursor-default" onClick={() => setMenuMemberId(null)} />
-                            <div className="absolute right-0 top-8 z-20 min-w-[190px] rounded-lg border border-zinc-200 bg-white py-1 shadow-xl">
-                              <button type="button" onClick={() => openEarnings(member.id)} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-zinc-700 transition-colors hover:bg-zinc-50"><ListChecks size={14} />View earnings</button>
-                              {canManagePayouts && balance.owed > 0.005 && <button type="button" onClick={() => openPayout(member.id)} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-zinc-700 transition-colors hover:bg-zinc-50"><Landmark size={14} />Record payment</button>}
-                              {canManageCompensation && <button type="button" onClick={() => openAdjustment(member.id)} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-zinc-700 transition-colors hover:bg-zinc-50"><Plus size={14} />Add adjustment</button>}
-                              {canManageCompensation && <button type="button" onClick={() => openRate(member.id)} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-zinc-700 transition-colors hover:bg-zinc-50"><DollarSign size={14} />Schedule rate</button>}
+                            <div className="absolute right-0 top-8 z-20 min-w-[190px] rounded-lg border border-white/[0.08] bg-surface-raised py-1 shadow-xl">
+                              <button type="button" onClick={() => openEarnings(member.id)} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-zinc-300 transition-colors hover:bg-white/[0.03]"><ListChecks size={14} />View earnings</button>
+                              {canManagePayouts && balance.owed > 0.005 && <button type="button" onClick={() => openPayout(member.id)} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-zinc-300 transition-colors hover:bg-white/[0.03]"><Landmark size={14} />Record payment</button>}
+                              {canManageCompensation && <button type="button" onClick={() => openAdjustment(member.id)} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-zinc-300 transition-colors hover:bg-white/[0.03]"><Plus size={14} />Add adjustment</button>}
+                              {canManageCompensation && <button type="button" onClick={() => openRate(member.id)} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-zinc-300 transition-colors hover:bg-white/[0.03]"><DollarSign size={14} />Schedule rate</button>}
                             </div>
                           </>
                         )}
@@ -451,15 +451,15 @@ export function PayrollPanel({ team, projects }: { team: TeamMember[]; projects:
                   </div>
                 </div>
                 <div className="mt-4 grid grid-cols-3 gap-2">
-                  <div><p className="text-[10px] uppercase text-zinc-400">Earned</p><p className="text-sm font-semibold">{money(balance.earned)}</p></div>
-                  <div><p className="text-[10px] uppercase text-zinc-400">Paid</p><p className="text-sm font-semibold text-emerald-700">{money(balance.paid)}</p></div>
-                  <div><p className="text-[10px] uppercase text-zinc-400">Owed</p><p className="text-sm font-semibold text-amber-700">{money(balance.owed)}</p></div>
+                  <div><p className="text-[10px] uppercase text-zinc-500">Earned</p><p className="text-sm font-semibold">{money(balance.earned)}</p></div>
+                  <div><p className="text-[10px] uppercase text-zinc-500">Paid</p><p className="text-sm font-semibold text-emerald-300">{money(balance.paid)}</p></div>
+                  <div><p className="text-[10px] uppercase text-zinc-500">Owed</p><p className="text-sm font-semibold text-amber-300">{money(balance.owed)}</p></div>
                 </div>
-                {missingApprovedRates > 0 && <p className="mt-3 text-xs font-medium text-red-600">{missingApprovedRates} approved {missingApprovedRates === 1 ? 'entry needs' : 'entries need'} a compensation rate</p>}
+                {missingApprovedRates > 0 && <p className="mt-3 text-xs font-medium text-red-400">{missingApprovedRates} approved {missingApprovedRates === 1 ? 'entry needs' : 'entries need'} a compensation rate</p>}
               </div>;
             })}
           </div>
-          {!canManage && ownBalance && data.payouts.length > 0 && <div className="px-5 py-3 border-t border-zinc-100 text-xs text-zinc-500">Latest payment: {money(Number(data.payouts[0].amount))} on {new Date(`${data.payouts[0].payment_date}T00:00:00`).toLocaleDateString()}</div>}
+          {!canManage && ownBalance && data.payouts.length > 0 && <div className="px-5 py-3 border-t border-white/[0.06] text-xs text-zinc-400">Latest payment: {money(Number(data.payouts[0].amount))} on {new Date(`${data.payouts[0].payment_date}T00:00:00`).toLocaleDateString()}</div>}
         </>
       )}
 
@@ -472,7 +472,7 @@ export function PayrollPanel({ team, projects }: { team: TeamMember[]; projects:
             <LedgerStat label="Unpaid" value={money(earningsSummary.unpaid)} tone="pending" />
           </div>
 
-          <div className="flex flex-wrap gap-1 rounded-lg border border-zinc-200 bg-zinc-50 p-1">
+          <div className="seg-track flex-wrap">
             {([
               ['all', 'All'],
               ['pending', 'Pending'],
@@ -483,7 +483,7 @@ export function PayrollPanel({ team, projects }: { team: TeamMember[]; projects:
                 key={value}
                 type="button"
                 onClick={() => setEarningsFilter(value)}
-                className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${earningsFilter === value ? 'bg-white text-zinc-900 shadow-sm' : 'text-zinc-500 hover:text-zinc-700'}`}
+                className={`seg-item ${earningsFilter === value ? 'is-active' : ''}`}
               >
                 {label}
               </button>
@@ -491,37 +491,37 @@ export function PayrollPanel({ team, projects }: { team: TeamMember[]; projects:
           </div>
 
           {filteredEarningsRows.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-zinc-200 px-6 py-10 text-center text-sm text-zinc-500">No {earningsFilter === 'all' ? '' : `${earningsFilter} `}earnings found.</div>
+            <div className="rounded-lg border border-dashed border-white/[0.08] px-6 py-10 text-center text-sm text-zinc-400">No {earningsFilter === 'all' ? '' : `${earningsFilter} `}earnings found.</div>
           ) : (
-            <div className="overflow-hidden rounded-lg border border-zinc-200">
-              <div className="hidden grid-cols-[minmax(0,1fr)_110px_90px_110px] gap-4 border-b border-zinc-100 bg-zinc-50 px-4 py-2 text-[10px] font-medium uppercase tracking-wider text-zinc-400 md:grid">
+            <div className="overflow-hidden rounded-lg border border-white/[0.08]">
+              <div className="hidden grid-cols-[minmax(0,1fr)_110px_90px_110px] gap-4 border-b border-white/[0.06] bg-white/[0.03] px-4 py-2 text-[10px] font-medium uppercase tracking-wider text-zinc-500 md:grid">
                 <span>Earning</span><span className="text-right">Time</span><span className="text-right">Status</span><span className="text-right">Amount</span>
               </div>
-              <div className="max-h-[48vh] divide-y divide-zinc-100 overflow-y-auto">
+              <div className="max-h-[48vh] divide-y divide-white/[0.06] overflow-y-auto">
                 {filteredEarningsRows.map((row) => {
                   const unpaid = row.status === 'approved' && Math.abs(row.remaining) > 0.005;
                   const statusLabel = row.status === 'pending' ? 'Pending' : row.amount < 0 ? 'Adjustment' : unpaid ? 'Unpaid' : row.amount > 0 ? 'Paid' : 'Approved';
                   const statusClass = row.status === 'pending'
-                    ? 'bg-amber-50 text-amber-700'
+                    ? 'bg-amber-500/15 text-amber-300'
                     : unpaid
-                      ? 'bg-orange-50 text-orange-700'
-                      : 'bg-emerald-50 text-emerald-700';
+                      ? 'bg-orange-500/15 text-orange-300'
+                      : 'bg-emerald-500/15 text-emerald-300';
                   return (
                     <div key={`${row.kind}-${row.id}`} className="grid gap-3 px-4 py-3 md:grid-cols-[minmax(0,1fr)_110px_90px_110px] md:items-center md:gap-4">
                       <div className="min-w-0">
                         <div className="flex items-center gap-2">
-                          <p className="truncate text-sm font-medium text-zinc-900">{row.description}</p>
-                          {row.kind === 'adjustment' && <span className="rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-500">Adjustment</span>}
+                          <p className="truncate text-sm font-medium text-white">{row.description}</p>
+                          {row.kind === 'adjustment' && <span className="rounded-full bg-white/[0.06] px-1.5 py-0.5 text-[10px] font-medium text-zinc-400">Adjustment</span>}
                         </div>
-                        <p className="mt-0.5 truncate text-xs text-zinc-500">{row.projectName} · {new Date(row.date).toLocaleDateString()}</p>
+                        <p className="mt-0.5 truncate text-xs text-zinc-400">{row.projectName} · {new Date(row.date).toLocaleDateString()}</p>
                       </div>
-                      <div className="text-left text-xs tabular-nums text-zinc-500 md:text-right">
-                        {row.hours !== undefined ? <><span className="font-medium text-zinc-700">{row.hours.toFixed(2)}h</span><span className="block">{money(row.rate || 0)}/hr</span></> : 'One-time'}
+                      <div className="text-left text-xs tabular-nums text-zinc-400 md:text-right">
+                        {row.hours !== undefined ? <><span className="font-medium text-zinc-300">{row.hours.toFixed(2)}h</span><span className="block">{money(row.rate || 0)}/hr</span></> : 'One-time'}
                       </div>
                       <div className="md:text-right"><span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${statusClass}`}>{statusLabel}</span></div>
                       <div className="text-left md:text-right">
-                        <p className={`text-sm font-semibold tabular-nums ${row.amount < 0 ? 'text-red-600' : 'text-zinc-900'}`}>{money(row.amount)}</p>
-                        {unpaid && <p className="text-[10px] font-medium text-orange-600">{money(row.remaining)} remaining</p>}
+                        <p className={`text-sm font-semibold tabular-nums ${row.amount < 0 ? 'text-red-400' : 'text-white'}`}>{money(row.amount)}</p>
+                        {unpaid && <p className="text-[10px] font-medium text-orange-400">{money(row.remaining)} remaining</p>}
                       </div>
                     </div>
                   );
@@ -534,7 +534,7 @@ export function PayrollPanel({ team, projects }: { team: TeamMember[]; projects:
 
       <Modal isOpen={Boolean(payMemberId)} onClose={() => setPayMemberId(null)} title="Record team payment" size="sm">
         <div className="space-y-4">
-          <p className="text-sm text-zinc-600">This payment will be allocated against approved earnings in FIFO order.</p>
+          <p className="text-sm text-zinc-300">This payment will be allocated against approved earnings in FIFO order.</p>
           <NumberInput label="Amount" min={0.01} step={0.01} prefix="$" value={payAmount === '' ? '' : Number(payAmount)} onChange={(value) => setPayAmount(value === '' ? '' : String(value))} />
           <TextInput label="Payment method" value={paymentMethod} onChange={setPaymentMethod} placeholder="ACH, check, cash..." />
           <TextInput label="Reference" value={paymentReference} onChange={setPaymentReference} placeholder="Optional transaction reference" />
@@ -544,7 +544,7 @@ export function PayrollPanel({ team, projects }: { team: TeamMember[]; projects:
 
       <Modal isOpen={showReject} onClose={() => setShowReject(false)} title="Reject selected time" size="sm">
         <div className="space-y-4">
-          <p className="text-sm text-zinc-600">The team member can correct a rejected entry. Saving the correction will submit it for review again.</p>
+          <p className="text-sm text-zinc-300">The team member can correct a rejected entry. Saving the correction will submit it for review again.</p>
           <Textarea label="Reason" value={rejectionReason} onChange={setRejectionReason} placeholder="Explain what needs to be corrected" rows={3} />
           <div className="flex justify-end gap-2"><Button variant="ghost" onClick={() => setShowReject(false)}>Cancel</Button><Button variant="danger" onClick={rejectSelected} disabled={submitting}>Reject time</Button></div>
         </div>
@@ -570,6 +570,6 @@ export function PayrollPanel({ team, projects }: { team: TeamMember[]; projects:
 }
 
 function LedgerStat({ label, value, tone }: { label: string; value: string; tone?: 'approved' | 'pending' }) {
-  const color = tone === 'approved' ? 'text-emerald-700' : tone === 'pending' ? 'text-amber-700' : 'text-zinc-900';
-  return <div className="rounded-lg border border-zinc-200 bg-zinc-50/60 px-3 py-2.5"><p className="text-[10px] font-medium uppercase tracking-wider text-zinc-400">{label}</p><p className={`mt-0.5 text-sm font-semibold tabular-nums ${color}`}>{value}</p></div>;
+  const color = tone === 'approved' ? 'text-emerald-300' : tone === 'pending' ? 'text-amber-300' : 'text-white';
+  return <div className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2.5"><p className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">{label}</p><p className={`mt-0.5 text-sm font-semibold tabular-nums ${color}`}>{value}</p></div>;
 }

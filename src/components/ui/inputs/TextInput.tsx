@@ -93,8 +93,11 @@ export const TextInput = forwardRef<HTMLInputElement, TextInputProps>(
       onKeyDown?.(e);
     };
 
+    // Padding is 1px lighter than the button equivalent so that, once the input's
+    // 1px border is added, the total height matches the borderless Button
+    // (sm 28px / default 36px / lg 44px). Keeps inputs and adjacent buttons aligned.
     const sizeClasses =
-      size === 'sm' ? 'py-1.5 text-xs' : size === 'lg' ? 'py-2.5 text-base' : 'py-2 text-sm';
+      size === 'sm' ? 'py-[5px] text-xs' : size === 'lg' ? 'py-[9px] text-base' : 'py-[7px] text-sm';
 
     const iconSizeClasses =
       size === 'sm' ? 'h-3.5 w-3.5' : size === 'lg' ? 'h-5 w-5' : 'h-4 w-4';

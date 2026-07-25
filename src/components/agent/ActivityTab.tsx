@@ -20,14 +20,14 @@ const activityIcons: Record<string, any> = {
 };
 
 const activityColors: Record<string, string> = {
-  suggestion_created: 'bg-brand-100 text-brand-600',
-  task_started: 'bg-blue-100 text-blue-600',
-  task_completed: 'bg-emerald-100 text-emerald-600',
-  task_failed: 'bg-red-100 text-red-600',
-  research_completed: 'bg-purple-100 text-purple-600',
-  comment_added: 'bg-amber-100 text-amber-600',
-  status_changed: 'bg-zinc-100 text-zinc-600',
-  custom: 'bg-cyan-100 text-cyan-600',
+  suggestion_created: 'bg-brand-500/15 text-brand-300',
+  task_started: 'bg-blue-500/15 text-blue-400',
+  task_completed: 'bg-emerald-500/15 text-emerald-400',
+  task_failed: 'bg-red-500/15 text-red-400',
+  research_completed: 'bg-purple-500/15 text-purple-400',
+  comment_added: 'bg-amber-500/15 text-amber-400',
+  status_changed: 'bg-white/[0.06] text-zinc-300',
+  custom: 'bg-cyan-500/15 text-cyan-400',
 };
 
 export interface ActivityFilters {
@@ -78,13 +78,13 @@ export function ActivityTab({ filters }: { filters: ActivityFilters }) {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
         {filtered.map((entry) => {
           const Icon = activityIcons[entry.activity_type] || Zap;
-          const colorClass = activityColors[entry.activity_type] || 'bg-zinc-100 text-zinc-600';
+          const colorClass = activityColors[entry.activity_type] || 'bg-white/[0.06] text-zinc-300';
           const projectName = getProjectName(entry.project_id);
 
           return (
             <div
               key={entry.id}
-              className="bg-white rounded-xl border border-zinc-200 p-4 hover:shadow-sm transition-shadow"
+              className="glass-card rounded-xl p-4 hover:shadow-sm transition-shadow"
             >
               <div className="flex items-start gap-3">
                 <div className={`p-2 rounded-lg ${colorClass} flex-shrink-0`}>
@@ -94,17 +94,17 @@ export function ActivityTab({ filters }: { filters: ActivityFilters }) {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1">
                     <Avatar name={getAgentName(entry.agent_id)} src={getAgentAvatar(entry.agent_id) || undefined} size="xs" />
-                    <span className="text-sm font-medium text-zinc-700">{getAgentName(entry.agent_id)}</span>
-                    <span className="text-xs text-zinc-400">{formatTimestamp(entry.created_at)}</span>
+                    <span className="text-sm font-medium text-zinc-300">{getAgentName(entry.agent_id)}</span>
+                    <span className="text-xs text-zinc-500">{formatTimestamp(entry.created_at)}</span>
                   </div>
 
-                  <h4 className="text-sm font-semibold text-zinc-900">{entry.title}</h4>
+                  <h4 className="text-sm font-semibold text-white">{entry.title}</h4>
                   {entry.description && (
-                    <p className="text-sm text-zinc-600 mt-0.5">{entry.description}</p>
+                    <p className="text-sm text-zinc-300 mt-0.5">{entry.description}</p>
                   )}
 
                   {projectName && (
-                    <span className="inline-block mt-2 text-xs text-zinc-500 bg-zinc-50 px-2 py-0.5 rounded">
+                    <span className="inline-block mt-2 text-xs text-zinc-400 bg-white/[0.03] px-2 py-0.5 rounded">
                       {projectName}
                     </span>
                   )}
@@ -117,12 +117,12 @@ export function ActivityTab({ filters }: { filters: ActivityFilters }) {
 
       {/* Empty state */}
       {filtered.length === 0 && (
-        <div className="bg-white rounded-xl border border-zinc-200 flex flex-col items-center justify-center p-8 text-center">
-          <div className="w-10 h-10 rounded-full bg-zinc-100 flex items-center justify-center mb-3">
-            <Activity size={18} className="text-zinc-400" />
+        <div className="glass-card rounded-xl flex flex-col items-center justify-center p-8 text-center">
+          <div className="w-10 h-10 rounded-full bg-white/[0.06] flex items-center justify-center mb-3">
+            <Activity size={18} className="text-zinc-500" />
           </div>
-          <p className="text-sm font-medium text-zinc-500">No agent activity yet</p>
-          <p className="text-xs text-zinc-400 mt-1">Activity from AI agents will appear here</p>
+          <p className="text-sm font-medium text-zinc-400">No agent activity yet</p>
+          <p className="text-xs text-zinc-500 mt-1">Activity from AI agents will appear here</p>
         </div>
       )}
     </div>

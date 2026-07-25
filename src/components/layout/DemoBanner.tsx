@@ -11,14 +11,14 @@ export function DemoBanner() {
   if (!isDemoMode || dismissed) return null;
 
   return (
-    <div className="bg-amber-50 border-b border-amber-200 px-4 py-2 flex items-center justify-between text-sm text-amber-800">
+    <div className="bg-amber-500/15 border-b border-amber-500/30 px-4 py-2 flex items-center justify-between text-sm text-amber-300">
       <span>
         <strong>Demo Mode</strong> — You are viewing sample data. Changes will not be saved.
       </span>
       {!isEnvForcedDemo && (
         <button
           onClick={() => setDismissed(true)}
-          className="p-1 rounded hover:bg-amber-100 transition-colors"
+          className="p-1 rounded hover:bg-amber-500/15 transition-colors"
         >
           <X size={14} />
         </button>

@@ -113,13 +113,13 @@ export default function LeadDetailPage() {
 
   if (!lead) {
     return (
-      <div className="animate-fadeIn min-h-screen bg-zinc-50 flex items-center justify-center">
+      <div className="animate-fadeIn min-h-screen flex items-center justify-center">
         <div className="text-center">
-          <Target className="mx-auto mb-3 text-zinc-400" size={40} />
-          <h3 className="font-medium text-zinc-700 mb-1">Lead not found</h3>
+          <Target className="mx-auto mb-3 text-zinc-500" size={40} />
+          <h3 className="font-medium text-zinc-300 mb-1">Lead not found</h3>
           <button
             onClick={() => router.push('/leads')}
-            className="text-sm text-brand-600 hover:text-brand-700"
+            className="text-sm text-brand-300 hover:text-brand-300"
           >
             Back to leads
           </button>
@@ -172,7 +172,7 @@ export default function LeadDetailPage() {
   const isOverdue = (scheduledAt: string) => new Date(scheduledAt) < new Date();
 
   return (
-    <div className="animate-fadeIn min-h-screen bg-zinc-50">
+    <div className="animate-fadeIn min-h-screen">
       <Header
         title="Lead Details"
         actions={canManageLeads ? (
@@ -191,92 +191,80 @@ export default function LeadDetailPage() {
 
       <div className="p-4 lg:p-6 space-y-6">
         {/* Lead Info Card */}
-        <div className="bg-white rounded-xl border border-zinc-200 p-5 lg:p-6">
+        <div className="glass-card rounded-xl p-5 lg:p-6">
           <div className="flex flex-col lg:flex-row lg:items-center lg:gap-5 mb-4">
-            <h2 className="flex items-center gap-2 text-lg font-semibold text-zinc-900">
-              <User size={18} className="text-zinc-400" />
+            <h2 className="flex items-center gap-2 text-lg font-semibold text-white">
+              <User size={18} className="text-zinc-500" />
               {lead.name}
             </h2>
             {lead.company && (
-              <span className="flex items-center gap-1.5 text-sm text-zinc-500">
-                <Building2 size={14} className="text-zinc-400" />
+              <span className="flex items-center gap-1.5 text-sm text-zinc-400">
+                <Building2 size={14} className="text-zinc-500" />
                 {lead.company}
               </span>
             )}
             <div className="flex items-center gap-4 text-sm mt-1 lg:mt-0">
               {lead.email ? (
-                <a href={`mailto:${lead.email}`} className="flex items-center gap-1.5 text-zinc-600 hover:text-brand-600 transition-colors">
-                  <Mail size={14} className="text-zinc-400" />
+                <a href={`mailto:${lead.email}`} className="flex items-center gap-1.5 text-zinc-300 hover:text-brand-300 transition-colors">
+                  <Mail size={14} className="text-zinc-500" />
                   <span>{lead.email}</span>
                 </a>
               ) : (
-                <span className="flex items-center gap-1.5 text-zinc-300 italic">
+                <span className="flex items-center gap-1.5 text-zinc-600 italic">
                   <Mail size={14} />
                   <span>No email</span>
                 </span>
               )}
               {lead.phone ? (
-                <a href={`tel:${lead.phone}`} className="flex items-center gap-1.5 text-zinc-600 hover:text-brand-600 transition-colors">
-                  <Phone size={14} className="text-zinc-400" />
+                <a href={`tel:${lead.phone}`} className="flex items-center gap-1.5 text-zinc-300 hover:text-brand-300 transition-colors">
+                  <Phone size={14} className="text-zinc-500" />
                   <span>{formatPhone(lead.phone)}</span>
                 </a>
               ) : (
-                <span className="flex items-center gap-1.5 text-zinc-300 italic">
+                <span className="flex items-center gap-1.5 text-zinc-600 italic">
                   <Phone size={14} />
                   <span>No phone</span>
                 </span>
               )}
             </div>
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-[1fr_1fr_1fr_1fr_3fr] gap-4 mb-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-[1fr_1fr_3fr] gap-4 mb-4">
             <div>
-              <p className="text-xs text-zinc-500 mb-1">Status</p>
+              <p className="text-xs text-zinc-400 mb-1">Status</p>
               <Badge variant={statusCfg.variant}>{statusCfg.label}</Badge>
             </div>
             <div>
-              <p className="text-xs text-zinc-500 mb-1">Source</p>
+              <p className="text-xs text-zinc-400 mb-1">Source</p>
               <Badge variant={sourceCfg.variant}>{sourceCfg.label}</Badge>
             </div>
-            <div>
-              <p className="text-xs text-zinc-500 mb-1">Value</p>
-              <p className="text-sm font-semibold text-zinc-900">
-                {lead.value != null ? formatCurrency(lead.value) : <span className="text-zinc-400 font-normal">--</span>}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs text-zinc-500 mb-1">Equity</p>
-              <p className="text-sm font-semibold text-zinc-900">
-                {lead.equity != null ? `${lead.equity}%` : <span className="text-zinc-400 font-normal">--</span>}
-              </p>
-            </div>
-            <div className="col-span-2 sm:col-span-4 lg:col-span-1">
-              <p className="text-xs text-zinc-500 mb-1">Team Members</p>
+            <div className="col-span-2 sm:col-span-1">
+              <p className="text-xs text-zinc-400 mb-1">Team Members</p>
               {members.length > 0 ? (
                 <div className="flex items-center gap-1.5 flex-wrap">
                   {members.map(m => (
-                    <div key={m.id} className="flex items-center gap-1.5 bg-zinc-50 rounded-full px-2 py-0.5">
+                    <div key={m.id} className="flex items-center gap-1.5 bg-white/[0.03] rounded-full px-2 py-0.5">
                       <Avatar name={m.name} src={m.avatar || undefined} size="xs" />
-                      <span className="text-sm text-zinc-700">{m.name}</span>
+                      <span className="text-sm text-zinc-300">{m.name}</span>
                     </div>
                   ))}
                 </div>
               ) : (
-                <span className="text-sm text-zinc-400">No members assigned</span>
+                <span className="text-sm text-zinc-500">No members assigned</span>
               )}
             </div>
           </div>
 
           {/* Editable Notes */}
-          <div className="mt-4 pt-4 border-t border-zinc-100">
+          <div className="mt-4 pt-4 border-t border-white/[0.06]">
             <div className="flex items-center justify-between mb-1">
-              <div className="flex items-center gap-2 text-zinc-500 text-sm">
+              <div className="flex items-center gap-2 text-zinc-400 text-sm">
                 <StickyNote size={14} />
                 <span>Notes</span>
               </div>
               {canManageLeads && !isEditingNotes && (
                 <button
                   onClick={() => { setNotesValue(lead.notes || ''); setIsEditingNotes(true); }}
-                  className="text-xs text-brand-600 hover:text-brand-700 transition-colors"
+                  className="text-xs text-brand-300 hover:text-brand-300 transition-colors"
                 >
                   {lead.notes ? 'Edit' : 'Add notes'}
                 </button>
@@ -293,7 +281,7 @@ export default function LeadDetailPage() {
                 <div className="flex justify-end gap-2">
                   <button
                     onClick={() => setIsEditingNotes(false)}
-                    className="px-3 py-1.5 text-xs text-zinc-600 hover:bg-zinc-100 rounded-lg transition-colors"
+                    className="px-3 py-1.5 text-xs text-zinc-300 hover:bg-white/[0.06] rounded-lg transition-colors"
                   >
                     Cancel
                   </button>
@@ -312,11 +300,11 @@ export default function LeadDetailPage() {
             ) : (
               lead.notes ? (
                 <div
-                  className="text-sm text-zinc-700 prose prose-sm prose-zinc max-w-none"
+                  className="text-sm text-zinc-300 prose prose-sm prose-zinc max-w-none"
                   dangerouslySetInnerHTML={{ __html: lead.notes }}
                 />
               ) : (
-                <p className="text-sm text-zinc-400 italic">No notes yet</p>
+                <p className="text-sm text-zinc-500 italic">No notes yet</p>
               )
             )}
           </div>
@@ -327,10 +315,10 @@ export default function LeadDetailPage() {
 
         {/* Upcoming Follow-ups */}
         {upcomingFollowUps.length > 0 && (
-          <div className="bg-amber-50 rounded-xl border border-amber-200 p-5 lg:p-6">
+          <div className="bg-amber-500/15 rounded-xl border border-amber-500/30 p-5 lg:p-6">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
-                <CalendarClock size={18} className="text-amber-600" />
+                <CalendarClock size={18} className="text-amber-400" />
                 <h2 className="font-semibold text-amber-900">
                   Upcoming Follow-ups ({upcomingFollowUps.length})
                 </h2>
@@ -350,16 +338,16 @@ export default function LeadDetailPage() {
                   <div
                     key={fu.id}
                     className={`flex items-center justify-between p-3 rounded-lg ${
-                      overdue ? 'bg-red-50 border border-red-200' : 'bg-white border border-amber-100'
+                      overdue ? 'bg-red-500/15 border border-red-500/30' : 'bg-surface-raised border border-amber-500/30'
                     }`}
                   >
                     <div className="flex items-center gap-3 min-w-0">
                       <CalendarClock size={16} className={overdue ? 'text-red-500' : 'text-amber-500'} />
                       <div className="min-w-0">
-                        <p className={`text-sm font-medium truncate ${overdue ? 'text-red-800' : 'text-zinc-900'}`}>
+                        <p className={`text-sm font-medium truncate ${overdue ? 'text-red-300' : 'text-white'}`}>
                           {fu.title}
                         </p>
-                        <p className={`text-xs ${overdue ? 'text-red-600' : 'text-zinc-500'}`}>
+                        <p className={`text-xs ${overdue ? 'text-red-400' : 'text-zinc-400'}`}>
                           {fu.scheduled_at ? formatDate(fu.scheduled_at) : ''}
                           {overdue && ' (Overdue)'}
                         </p>
@@ -367,7 +355,7 @@ export default function LeadDetailPage() {
                     </div>
                     {canManageLeads && <button
                       onClick={() => handleMarkFollowUpComplete(fu)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-amber-700 hover:bg-amber-100 rounded-lg transition-colors flex-shrink-0"
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-amber-300 hover:bg-amber-500/15 rounded-lg transition-colors flex-shrink-0"
                     >
                       <Check size={14} />
                       Mark Complete
@@ -382,11 +370,11 @@ export default function LeadDetailPage() {
         {/* Interactions + Proposals row */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
           {/* Interactions Timeline */}
-          <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden flex flex-col max-h-[600px]">
-            <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-200 flex-shrink-0">
+          <div className="glass-card rounded-xl overflow-hidden flex flex-col max-h-[600px]">
+            <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.08] flex-shrink-0">
               <div className="flex items-center gap-2">
-                <StickyNote size={18} className="text-zinc-500" />
-                <h2 className="font-semibold text-zinc-900">
+                <StickyNote size={18} className="text-zinc-400" />
+                <h2 className="font-semibold text-white">
                   Interactions ({interactions.length})
                 </h2>
               </div>
@@ -408,30 +396,30 @@ export default function LeadDetailPage() {
                   return (
                     <div
                       key={interaction.id}
-                      className={`flex items-start gap-3 px-3 py-2.5 rounded-lg bg-zinc-50 hover:bg-zinc-100 transition-colors group ${isCompletedFollowUp ? 'opacity-60' : ''}`}
+                      className={`flex items-start gap-3 px-3 py-2.5 rounded-lg bg-white/[0.03] hover:bg-white/[0.06] transition-colors group ${isCompletedFollowUp ? 'opacity-60' : ''}`}
                     >
                       <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${
-                        isCompletedFollowUp ? 'bg-emerald-100 text-emerald-600' :
-                        interaction.type === 'call' ? 'bg-blue-100 text-blue-600' :
-                        interaction.type === 'email' ? 'bg-brand-100 text-brand-600' :
-                        interaction.type === 'meeting' ? 'bg-violet-100 text-violet-600' :
-                        interaction.type === 'follow_up' ? 'bg-amber-100 text-amber-600' :
-                        'bg-zinc-100 text-zinc-600'
+                        isCompletedFollowUp ? 'bg-emerald-500/15 text-emerald-400' :
+                        interaction.type === 'call' ? 'bg-blue-500/15 text-blue-400' :
+                        interaction.type === 'email' ? 'bg-brand-500/15 text-brand-300' :
+                        interaction.type === 'meeting' ? 'bg-violet-500/15 text-violet-400' :
+                        interaction.type === 'follow_up' ? 'bg-amber-500/15 text-amber-400' :
+                        'bg-white/[0.06] text-zinc-300'
                       }`}>
                         {isCompletedFollowUp ? <Check size={16} /> : INTERACTION_ICONS[interaction.type]}
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <p className="text-sm font-medium text-zinc-900 truncate">{interaction.title}</p>
+                          <p className="text-sm font-medium text-white truncate">{interaction.title}</p>
                           <Badge variant={interaction.type === 'follow_up' ? 'warning' : 'default'}>
                             {interaction.type === 'follow_up' ? 'Follow-up' : interaction.type.charAt(0).toUpperCase() + interaction.type.slice(1)}
                           </Badge>
                           {isCompletedFollowUp && <Badge variant="success">Completed</Badge>}
                         </div>
                         {interaction.description && (
-                          <p className="text-sm text-zinc-600 mt-1 line-clamp-2">{interaction.description}</p>
+                          <p className="text-sm text-zinc-300 mt-1 line-clamp-2">{interaction.description}</p>
                         )}
-                        <div className="flex items-center gap-3 mt-1.5 text-xs text-zinc-400">
+                        <div className="flex items-center gap-3 mt-1.5 text-xs text-zinc-500">
                           <span>{formatRelativeDate(interaction.occurred_at)}</span>
                           {author && <span>by {author.name}</span>}
                         </div>
@@ -439,13 +427,13 @@ export default function LeadDetailPage() {
                       {canManageLeads && <div className="flex items-center gap-1 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-opacity flex-shrink-0">
                         <button
                           onClick={() => handleEditInteraction(interaction)}
-                          className="p-1.5 text-zinc-300 hover:text-brand-500 transition-all"
+                          className="p-1.5 text-zinc-600 hover:text-brand-500 transition-all"
                         >
                           <Edit size={14} />
                         </button>
                         <button
                           onClick={() => setDeletingInteractionId(interaction.id)}
-                          className="p-1.5 text-zinc-300 hover:text-red-500 transition-all"
+                          className="p-1.5 text-zinc-600 hover:text-red-500 transition-all"
                         >
                           <Trash2 size={14} />
                         </button>
@@ -456,21 +444,21 @@ export default function LeadDetailPage() {
               </div>
             ) : (
               <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
-                <div className="w-10 h-10 rounded-full bg-zinc-100 flex items-center justify-center mb-3">
-                  <StickyNote size={18} className="text-zinc-400" />
+                <div className="w-10 h-10 rounded-full bg-white/[0.06] flex items-center justify-center mb-3">
+                  <StickyNote size={18} className="text-zinc-500" />
                 </div>
-                <p className="text-sm font-medium text-zinc-500">No interactions yet</p>
-                <p className="text-xs text-zinc-400 mt-1">Record calls, emails, and meetings</p>
+                <p className="text-sm font-medium text-zinc-400">No interactions yet</p>
+                <p className="text-xs text-zinc-500 mt-1">Record calls, emails, and meetings</p>
               </div>
             )}
           </div>
 
           {/* Proposals */}
-          <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden flex flex-col max-h-[600px]">
-            <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-200 flex-shrink-0">
+          <div className="glass-card rounded-xl overflow-hidden flex flex-col max-h-[600px]">
+            <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.08] flex-shrink-0">
               <div className="flex items-center gap-2">
-                <DollarSign size={18} className="text-zinc-500" />
-                <h2 className="font-semibold text-zinc-900">
+                <DollarSign size={18} className="text-zinc-400" />
+                <h2 className="font-semibold text-white">
                   Proposals ({proposals.length})
                 </h2>
               </div>
@@ -488,20 +476,20 @@ export default function LeadDetailPage() {
                 {proposals.map((proposal) => {
                   const pStatus = PROPOSAL_STATUS_CONFIG[proposal.status] || PROPOSAL_STATUS_CONFIG.draft;
                   return (
-                    <div key={proposal.id} className="flex items-start gap-3 px-3 py-2.5 rounded-lg bg-zinc-50 hover:bg-zinc-100 transition-colors group">
-                      <div className="w-8 h-8 rounded-lg bg-white border border-zinc-200 flex items-center justify-center flex-shrink-0">
-                        <DollarSign size={14} className="text-zinc-400" />
+                    <div key={proposal.id} className="flex items-start gap-3 px-3 py-2.5 rounded-lg bg-white/[0.03] hover:bg-white/[0.06] transition-colors group">
+                      <div className="w-8 h-8 rounded-lg bg-surface-raised border border-white/[0.08] flex items-center justify-center flex-shrink-0">
+                        <DollarSign size={14} className="text-zinc-500" />
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <p className="text-sm font-medium text-zinc-900 truncate">{proposal.title}</p>
+                          <p className="text-sm font-medium text-white truncate">{proposal.title}</p>
                           <Badge variant={pStatus.variant}>{pStatus.label}</Badge>
                         </div>
                         {proposal.description && (
-                          <p className="text-xs text-zinc-500 mt-1 line-clamp-2">{proposal.description}</p>
+                          <p className="text-xs text-zinc-400 mt-1 line-clamp-2">{proposal.description}</p>
                         )}
                         {proposal.estimated_value != null && (
-                          <p className="text-xs text-zinc-400 mt-1">
+                          <p className="text-xs text-zinc-500 mt-1">
                             {formatCurrency(proposal.estimated_value)}
                           </p>
                         )}
@@ -509,13 +497,13 @@ export default function LeadDetailPage() {
                       {canManageLeads && <div className="flex items-center gap-1 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-opacity flex-shrink-0">
                         <button
                           onClick={() => handleEditProposal(proposal)}
-                          className="p-1.5 text-zinc-300 hover:text-brand-500 transition-all"
+                          className="p-1.5 text-zinc-600 hover:text-brand-500 transition-all"
                         >
                           <Edit size={14} />
                         </button>
                         <button
                           onClick={() => setDeletingProposalId(proposal.id)}
-                          className="p-1.5 text-zinc-300 hover:text-red-500 transition-all"
+                          className="p-1.5 text-zinc-600 hover:text-red-500 transition-all"
                         >
                           <Trash2 size={14} />
                         </button>
@@ -526,11 +514,11 @@ export default function LeadDetailPage() {
               </div>
             ) : (
               <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
-                <div className="w-10 h-10 rounded-full bg-zinc-100 flex items-center justify-center mb-3">
-                  <DollarSign size={18} className="text-zinc-400" />
+                <div className="w-10 h-10 rounded-full bg-white/[0.06] flex items-center justify-center mb-3">
+                  <DollarSign size={18} className="text-zinc-500" />
                 </div>
-                <p className="text-sm font-medium text-zinc-500">No proposals yet</p>
-                <p className="text-xs text-zinc-400 mt-1">Create proposals for this lead</p>
+                <p className="text-sm font-medium text-zinc-400">No proposals yet</p>
+                <p className="text-xs text-zinc-500 mt-1">Create proposals for this lead</p>
               </div>
             )}
           </div>

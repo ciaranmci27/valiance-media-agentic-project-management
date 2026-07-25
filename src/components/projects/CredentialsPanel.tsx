@@ -31,17 +31,17 @@ interface CredentialsPanelProps {
 type CategoryStyle = { label: string; icon: typeof KeyRound; bg: string; text: string; iconColor: string };
 
 const CATEGORY_CONFIG: Record<CredentialCategory, CategoryStyle> = {
-  login:       { label: 'Login',       icon: KeyRound,   bg: 'bg-violet-50',  text: 'text-violet-700',  iconColor: 'text-violet-500' },
-  api_key:     { label: 'API Key',     icon: Code,       bg: 'bg-blue-50',    text: 'text-blue-700',    iconColor: 'text-blue-500' },
-  ssh_key:     { label: 'SSH Key',     icon: Terminal,   bg: 'bg-emerald-50', text: 'text-emerald-700', iconColor: 'text-emerald-500' },
-  database:    { label: 'Database',    icon: Database,   bg: 'bg-amber-50',   text: 'text-amber-700',   iconColor: 'text-amber-500' },
-  credit_card: { label: 'Credit Card', icon: CreditCard, bg: 'bg-rose-50',    text: 'text-rose-700',    iconColor: 'text-rose-500' },
-  ach:         { label: 'ACH / Bank',  icon: Landmark,   bg: 'bg-teal-50',    text: 'text-teal-700',    iconColor: 'text-teal-500' },
+  login:       { label: 'Login',       icon: KeyRound,   bg: 'bg-white/[0.06]', text: 'text-zinc-300', iconColor: 'text-zinc-400' },
+  api_key:     { label: 'API Key',     icon: Code,       bg: 'bg-white/[0.06]', text: 'text-zinc-300', iconColor: 'text-zinc-400' },
+  ssh_key:     { label: 'SSH Key',     icon: Terminal,   bg: 'bg-white/[0.06]', text: 'text-zinc-300', iconColor: 'text-zinc-400' },
+  database:    { label: 'Database',    icon: Database,   bg: 'bg-white/[0.06]', text: 'text-zinc-300', iconColor: 'text-zinc-400' },
+  credit_card: { label: 'Credit Card', icon: CreditCard, bg: 'bg-white/[0.06]', text: 'text-zinc-300', iconColor: 'text-zinc-400' },
+  ach:         { label: 'ACH / Bank',  icon: Landmark,   bg: 'bg-white/[0.06]', text: 'text-zinc-300', iconColor: 'text-zinc-400' },
 };
 
 // Rows created before the category consolidation migration may still carry a
 // legacy category (hosting, cms, ftp, dns, email, other)
-const LEGACY_CATEGORY_STYLE: CategoryStyle = { label: 'Other', icon: Hash, bg: 'bg-zinc-100', text: 'text-zinc-600', iconColor: 'text-zinc-400' };
+const LEGACY_CATEGORY_STYLE: CategoryStyle = { label: 'Other', icon: Hash, bg: 'bg-white/[0.06]', text: 'text-zinc-300', iconColor: 'text-zinc-500' };
 
 function categoryConfig(category: string): CategoryStyle {
   return CATEGORY_CONFIG[category as CredentialCategory]
@@ -82,11 +82,11 @@ function RevealedField({ label, value, isSensitive }: { label: string; value: st
 
   return (
     <div className="flex items-center gap-2 py-1 min-w-0">
-      <span className="text-xs font-medium text-zinc-400 w-20 flex-shrink-0">{label}</span>
+      <span className="text-xs font-medium text-zinc-500 w-20 flex-shrink-0">{label}</span>
       <Tooltip content={`Click to copy ${label.toLowerCase()}`}>
         <span
           onClick={handleCopyValue}
-          className={`flex-1 text-sm font-mono break-all cursor-pointer transition-colors ${isMasked ? 'tracking-widest text-zinc-400 hover:text-zinc-600' : 'text-zinc-700 hover:text-brand-600 active:text-brand-700'} ${copied ? '!text-brand-500' : ''}`}
+          className={`flex-1 text-sm font-mono break-all cursor-pointer transition-colors ${isMasked ? 'tracking-widest text-zinc-500 hover:text-zinc-300' : 'text-zinc-300 hover:text-brand-300 active:text-brand-300'} ${copied ? '!text-brand-500' : ''}`}
         >
           {isMasked ? '••••••••' : value}
         </span>
@@ -96,7 +96,7 @@ function RevealedField({ label, value, isSensitive }: { label: string; value: st
           <Tooltip content={visible ? 'Hide' : 'Show'}>
             <button
               onClick={() => setVisible(v => !v)}
-              className="p-1 text-zinc-400 hover:text-brand-600 transition-colors"
+              className="p-1 text-zinc-500 hover:text-brand-300 transition-colors"
             >
               {visible ? <EyeOff size={13} /> : <Eye size={13} />}
             </button>
@@ -105,7 +105,7 @@ function RevealedField({ label, value, isSensitive }: { label: string; value: st
         <Tooltip content={`Copy ${label.toLowerCase()}`}>
           <button
             onClick={handleCopyValue}
-            className="p-1 text-zinc-400 hover:text-brand-600 transition-colors"
+            className="p-1 text-zinc-500 hover:text-brand-300 transition-colors"
           >
             {copied ? <Check size={13} className="text-brand-500" /> : <Copy size={13} />}
           </button>
@@ -360,13 +360,13 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
   // ── Loading state ───────────────────────────
   if (encryptionStatus === 'loading') {
     return (
-      <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
+      <div className="glass-card rounded-xl overflow-hidden">
         <div className="px-5 py-4 flex items-center gap-2">
-          <ShieldCheck size={18} className="text-zinc-500" />
-          <h2 className="font-semibold text-zinc-900">Credentials</h2>
+          <ShieldCheck size={18} className="text-zinc-400" />
+          <h2 className="font-semibold text-white">Credentials</h2>
         </div>
         <div className="flex items-center justify-center py-12">
-          <Loader2 size={20} className="animate-spin text-zinc-300" />
+          <Loader2 size={20} className="animate-spin text-zinc-600" />
         </div>
       </div>
     );
@@ -376,22 +376,22 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
   if (encryptionStatus === 'not_configured') {
     if (!canManageCredentials) {
       return (
-        <div className="bg-white rounded-xl border border-zinc-200 p-5">
-          <div className="flex items-center gap-2"><Lock size={18} className="text-zinc-500" /><h2 className="font-semibold text-zinc-900">Credentials unavailable</h2></div>
-          <p className="mt-2 text-sm text-zinc-500">Credential encryption has not been configured by an authorized manager.</p>
+        <div className="glass-card rounded-xl p-5">
+          <div className="flex items-center gap-2"><Lock size={18} className="text-zinc-400" /><h2 className="font-semibold text-white">Credentials unavailable</h2></div>
+          <p className="mt-2 text-sm text-zinc-400">Credential encryption has not been configured by an authorized manager.</p>
         </div>
       );
     }
     return (
-      <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
-        <div className="px-5 py-4 border-b border-zinc-100 flex items-center gap-2">
-          <Lock size={18} className="text-zinc-500" />
-          <h2 className="font-semibold text-zinc-900">Set Up Credential Encryption</h2>
+      <div className="glass-card rounded-xl overflow-hidden">
+        <div className="px-5 py-4 border-b border-white/[0.06] flex items-center gap-2">
+          <Lock size={18} className="text-zinc-400" />
+          <h2 className="font-semibold text-white">Set Up Credential Encryption</h2>
         </div>
 
         <div className="p-5 space-y-4">
-          <div className="text-sm text-zinc-600 leading-relaxed">
-            Generate an encryption key and add it to your <code className="px-1.5 py-0.5 bg-zinc-100 rounded text-xs font-mono text-zinc-700">.env.local</code> file.
+          <div className="text-sm text-zinc-300 leading-relaxed">
+            Generate an encryption key and add it to your <code className="px-1.5 py-0.5 bg-white/[0.06] rounded text-xs font-mono text-zinc-300">.env.local</code> file.
             This key encrypts all stored credentials with AES-256-GCM. Keep it safe — if lost, stored credentials cannot be recovered.
           </div>
 
@@ -408,14 +408,14 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
             <div className="space-y-3">
               {/* Key display */}
               <div className="relative">
-                <div className="flex items-center gap-2 px-3 py-2.5 bg-zinc-50 border border-zinc-200 rounded-lg">
-                  <code className="flex-1 text-xs font-mono text-zinc-700 break-all select-all leading-relaxed">
+                <div className="flex items-center gap-2 px-3 py-2.5 bg-white/[0.03] border border-white/[0.08] rounded-lg">
+                  <code className="flex-1 text-xs font-mono text-zinc-300 break-all select-all leading-relaxed">
                     PROJECT_CREDENTIALS_ENCRYPTION_KEY={generatedKey}
                   </code>
                   <Tooltip content="Copy">
                     <button
                       onClick={handleCopyKey}
-                      className="flex-shrink-0 p-1.5 text-zinc-400 hover:text-brand-600 transition-colors"
+                      className="flex-shrink-0 p-1.5 text-zinc-500 hover:text-brand-300 transition-colors"
                     >
                       {keyCopied ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
                     </button>
@@ -424,11 +424,11 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
               </div>
 
               {/* Instructions */}
-              <div className="text-xs text-zinc-500 space-y-1.5">
-                <p className="font-medium text-zinc-600">Next steps:</p>
+              <div className="text-xs text-zinc-400 space-y-1.5">
+                <p className="font-medium text-zinc-300">Next steps:</p>
                 <ol className="list-decimal list-inside space-y-1 pl-1">
                   <li>Copy the line above</li>
-                  <li>Paste it into your <code className="px-1 py-0.5 bg-zinc-100 rounded font-mono">.env.local</code> file</li>
+                  <li>Paste it into your <code className="px-1 py-0.5 bg-white/[0.06] rounded font-mono">.env.local</code> file</li>
                   <li>Restart your dev server</li>
                   <li>Click &quot;Verify Setup&quot; below</li>
                 </ol>
@@ -504,7 +504,7 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
   const renderForm = (mode: 'add' | 'edit') => {
     const defs = fieldsForCategory(category);
     return (
-      <div className={mode === 'add' ? 'border border-brand-200 bg-brand-50/30 rounded-xl p-4 space-y-3' : 'space-y-3'}>
+      <div className={mode === 'add' ? 'border border-brand-500/30 bg-brand-500/15 rounded-xl p-4 space-y-3' : 'space-y-3'}>
         {/* Type selector; each type has its own set of fields. Edit renders
             inside a narrow card, so drop to two columns there. */}
         <div className={`grid gap-1.5 ${mode === 'add' ? 'grid-cols-3' : 'grid-cols-2'}`}>
@@ -520,11 +520,11 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
                 aria-pressed={selected}
                 className={`flex items-center gap-1.5 px-2.5 py-2 rounded-lg border text-xs font-medium transition-all ${
                   selected
-                    ? 'border-brand-400 bg-white text-zinc-900 shadow-sm ring-1 ring-brand-200'
-                    : 'border-zinc-200 bg-white/60 text-zinc-500 hover:border-zinc-300 hover:text-zinc-700'
+                    ? 'border-brand-400 bg-surface-raised text-white shadow-sm ring-1 ring-brand-500/30'
+                    : 'border-white/[0.08] bg-white/60 text-zinc-400 hover:border-white/[0.12] hover:text-zinc-300'
                 }`}
               >
-                <TypeIcon size={13} className={selected ? cfg.iconColor : 'text-zinc-400'} />
+                <TypeIcon size={13} className={selected ? cfg.iconColor : 'text-zinc-500'} />
                 <span className="truncate">{cfg.label}</span>
               </button>
             );
@@ -559,7 +559,7 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
         <div className="flex items-center gap-2 justify-end">
           <button
             onClick={handleCancel}
-            className="px-3 py-1.5 text-sm text-zinc-500 hover:text-zinc-700 transition-colors"
+            className="px-3 py-1.5 text-sm text-zinc-400 hover:text-zinc-300 transition-colors"
           >
             Cancel
           </button>
@@ -577,15 +577,15 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
   };
 
   return (
-    <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden flex flex-col max-h-[600px]">
+    <div className="glass-card rounded-xl overflow-hidden flex flex-col max-h-[600px]">
       {/* Header */}
-      <div className="px-5 py-4 flex items-center justify-between flex-shrink-0 border-b border-zinc-100">
+      <div className="px-5 py-4 flex items-center justify-between flex-shrink-0 border-b border-white/[0.06]">
         <div className="flex items-center gap-2">
-          <ShieldCheck size={18} className="text-zinc-500" />
-          <h2 className="font-semibold text-zinc-900">
+          <ShieldCheck size={18} className="text-zinc-400" />
+          <h2 className="font-semibold text-white">
             Credentials
             {credentials.length > 0 && (
-              <span className="ml-1.5 text-xs font-medium text-zinc-400">({credentials.length})</span>
+              <span className="ml-1.5 text-xs font-medium text-zinc-500">({credentials.length})</span>
             )}
           </h2>
         </div>
@@ -626,7 +626,7 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
                 return (
                   <div
                     key={cred.id}
-                    className="relative rounded-xl border border-brand-200 bg-white overflow-hidden"
+                    className="relative rounded-xl border border-brand-500/30 bg-surface-raised overflow-hidden"
                   >
                     <div className="p-4">
                       {/* Card header — matches normal cards */}
@@ -635,13 +635,13 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
                           <CategoryIcon size={16} className={config.iconColor} />
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className="text-xs font-medium text-zinc-400">Editing</p>
-                          <p className="text-sm font-semibold text-zinc-900 truncate">{cred.label}</p>
+                          <p className="text-xs font-medium text-zinc-500">Editing</p>
+                          <p className="text-sm font-semibold text-white truncate">{cred.label}</p>
                         </div>
                       </div>
                       {editLoading ? (
                         <div className="flex items-center justify-center py-10">
-                          <Loader2 size={18} className="animate-spin text-zinc-300" />
+                          <Loader2 size={18} className="animate-spin text-zinc-600" />
                         </div>
                       ) : (
                         renderForm('edit')
@@ -654,7 +654,7 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
               return (
                 <div
                   key={cred.id}
-                  className="group relative rounded-xl border border-zinc-200 bg-white hover:border-zinc-300 hover:shadow-sm transition-all overflow-hidden cursor-pointer min-w-0"
+                  className="group relative rounded-xl border border-white/[0.08] bg-surface-raised hover:border-white/[0.12] hover:shadow-sm transition-all overflow-hidden cursor-pointer min-w-0"
                   onClick={() => handleReveal(cred.id)}
                 >
                   <div className="p-4 min-w-0">
@@ -668,29 +668,29 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
                         )}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-zinc-900 truncate">{cred.label}</p>
+                        <p className="text-sm font-semibold text-white truncate">{cred.label}</p>
                         <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
                           <span className={`inline-flex items-center px-1.5 py-0.5 text-[10px] font-semibold rounded ${config.bg} ${config.text}`}>
                             {config.label}
                           </span>
                           {cred.submitted_by_client && (
-                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold rounded bg-teal-50 text-teal-700">
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold rounded bg-teal-500/15 text-teal-300">
                               <UserIcon size={9} />
                               {cred.submitted_by_name || 'Client'}
                             </span>
                           )}
-                          <span className="text-[10px] text-zinc-400">{timeAgo(cred.created_at)}</span>
+                          <span className="text-[10px] text-zinc-500">{timeAgo(cred.created_at)}</span>
                         </div>
                       </div>
                       <div className="flex items-center gap-0.5 flex-shrink-0 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
                         {canManageCredentials && <Tooltip content="Share with team">
-                          <button onClick={() => openSharing(cred)} className="p-1.5 text-zinc-400 hover:text-brand-600 transition-colors rounded-md hover:bg-zinc-50"><Users size={14} /></button>
+                          <button onClick={() => openSharing(cred)} className="p-1.5 text-zinc-500 hover:text-brand-300 transition-colors rounded-md hover:bg-white/[0.03]"><Users size={14} /></button>
                         </Tooltip>}
                         {canManageCredentials && <>
                         <Tooltip content="Edit">
                           <button
                             onClick={() => handleStartEdit(cred)}
-                            className="p-1.5 text-zinc-400 hover:text-brand-600 transition-colors rounded-md hover:bg-zinc-50"
+                            className="p-1.5 text-zinc-500 hover:text-brand-300 transition-colors rounded-md hover:bg-white/[0.03]"
                           >
                             <Pencil size={14} />
                           </button>
@@ -698,7 +698,7 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
                         <Tooltip content="Delete">
                           <button
                             onClick={() => setDeleteTarget(cred.id)}
-                            className="p-1.5 text-zinc-400 hover:text-red-500 transition-colors rounded-md hover:bg-zinc-50"
+                            className="p-1.5 text-zinc-500 hover:text-red-500 transition-colors rounded-md hover:bg-white/[0.03]"
                           >
                             <Trash2 size={14} />
                           </button>
@@ -716,7 +716,7 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
                       const extraKeys = Object.keys(payload).filter(k => k !== 'notes' && !defKeys.has(k) && payload[k]);
                       const hasAnyValue = Object.values(payload).some(Boolean);
                       return (
-                        <div className="mb-3 px-3 py-2.5 bg-zinc-50 border border-zinc-100 rounded-lg space-y-0.5 overflow-hidden" onClick={e => e.stopPropagation()}>
+                        <div className="mb-3 px-3 py-2.5 bg-white/[0.03] border border-white/[0.06] rounded-lg space-y-0.5 overflow-hidden" onClick={e => e.stopPropagation()}>
                           {defs.map(def => (
                             <RevealedField
                               key={def.key}
@@ -735,7 +735,7 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
                           ))}
                           <RevealedField label="Notes" value={payload.notes ?? ''} />
                           {!hasAnyValue && (
-                            <p className="text-xs text-zinc-400 italic">No fields stored</p>
+                            <p className="text-xs text-zinc-500 italic">No fields stored</p>
                           )}
                         </div>
                       );
@@ -748,11 +748,11 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
           </div>
         ) : !isAdding ? (
           <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
-            <div className="w-10 h-10 rounded-full bg-zinc-100 flex items-center justify-center mb-3">
-              <ShieldCheck size={18} className="text-zinc-400" />
+            <div className="w-10 h-10 rounded-full bg-white/[0.06] flex items-center justify-center mb-3">
+              <ShieldCheck size={18} className="text-zinc-500" />
             </div>
-            <p className="text-sm font-medium text-zinc-500">No credentials stored yet</p>
-            <p className="text-xs text-zinc-400 mt-1">Add client logins, API keys, and other credentials</p>
+            <p className="text-sm font-medium text-zinc-400">No credentials stored yet</p>
+            <p className="text-xs text-zinc-500 mt-1">Add client logins, API keys, and other credentials</p>
           </div>
         ) : null}
       </div>
@@ -768,8 +768,8 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
       />
       <Modal isOpen={Boolean(shareTarget)} onClose={() => setShareTarget(null)} title="Share credential" size="sm">
         <div className="space-y-4">
-          <p className="text-sm text-zinc-600">Choose assigned project members who can reveal <span className="font-medium text-zinc-900">{shareTarget?.label}</span>.</p>
-          <div className="rounded-lg border border-zinc-200 divide-y divide-zinc-100 max-h-64 overflow-y-auto">
+          <p className="text-sm text-zinc-300">Choose assigned project members who can reveal <span className="font-medium text-white">{shareTarget?.label}</span>.</p>
+          <div className="rounded-lg border border-white/[0.08] divide-y divide-white/[0.06] max-h-64 overflow-y-auto">
             {shareableMembers.map((member) => (
               <Checkbox
                 key={member.id}
@@ -780,11 +780,11 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
                   else next.delete(member.id);
                   return next;
                 })}
-                label={<span className="flex w-full items-center justify-between gap-3"><span className="text-zinc-800">{member.name}</span><span className="text-xs font-normal capitalize text-zinc-400">{member.role}</span></span>}
+                label={<span className="flex w-full items-center justify-between gap-3"><span className="text-zinc-100">{member.name}</span><span className="text-xs font-normal capitalize text-zinc-500">{member.role}</span></span>}
                 className="w-full px-3 py-2.5"
               />
             ))}
-            {shareableMembers.length === 0 && <p className="px-3 py-4 text-sm text-zinc-500">Assign another team member to this project before sharing credentials.</p>}
+            {shareableMembers.length === 0 && <p className="px-3 py-4 text-sm text-zinc-400">Assign another team member to this project before sharing credentials.</p>}
           </div>
           <div className="flex justify-end gap-2"><Button variant="ghost" onClick={() => setShareTarget(null)}>Cancel</Button><Button onClick={saveSharing} disabled={sharing}>{sharing ? 'Saving...' : 'Save access'}</Button></div>
         </div>

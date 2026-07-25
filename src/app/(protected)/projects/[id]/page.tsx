@@ -104,10 +104,10 @@ export default function ProjectDetailPage() {
 
   if (!project) {
     return (
-      <div className="animate-fadeIn min-h-screen bg-zinc-50">
+      <div className="animate-fadeIn min-h-screen">
         <Header title="Project Not Found" />
         <div className="p-6 text-center">
-          <p className="text-zinc-500 mb-4">This project doesn&apos;t exist</p>
+          <p className="text-zinc-400 mb-4">This project doesn&apos;t exist</p>
           <Link href="/projects">
             <Button variant="secondary">Back to Projects</Button>
           </Link>
@@ -253,7 +253,7 @@ export default function ProjectDetailPage() {
   ];
 
   return (
-    <div className="animate-fadeIn min-h-screen bg-zinc-50">
+    <div className="animate-fadeIn min-h-screen">
       {/* Header */}
       <Header
         title={project.name}
@@ -267,7 +267,7 @@ export default function ProjectDetailPage() {
             )}
             <StatusBadge status={project.status} />
             {project.description && (
-              <span className="hidden md:inline text-zinc-500">
+              <span className="hidden md:inline text-zinc-400">
                 {project.description}
               </span>
             )}
@@ -286,34 +286,34 @@ export default function ProjectDetailPage() {
 
       {/* Overview Card */}
       <div className="px-4 lg:px-6 pt-4 lg:pt-6">
-        <div className="bg-white rounded-xl border border-zinc-200 p-5 lg:p-6">
+        <div className="glass-card rounded-xl p-5 lg:p-6">
           {/* Info Grid */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-0">
             {/* Start Date */}
             <div className="flex items-center gap-2.5 lg:pr-5">
-              <div className="p-1.5 bg-zinc-100 rounded-md">
-                <CalendarDays size={14} className="text-zinc-500" />
+              <div className="p-1.5 bg-white/[0.06] rounded-md">
+                <CalendarDays size={14} className="text-zinc-400" />
               </div>
               <div className="min-w-0 flex-1">
-                <p className="text-xs text-zinc-500 font-medium">Start Date</p>
+                <p className="text-xs text-zinc-400 font-medium">Start Date</p>
                 <DateInput
                   value={project.start_date || ''}
                   onChange={(v) => updateProject(projectId, { start_date: v || null })}
                   placeholder="Not set"
                   size="sm"
                   clearable
-                  inputClassName="!w-fit !justify-start !gap-1 !border-transparent !bg-transparent !shadow-none hover:!bg-zinc-100 focus:!ring-0 focus:!border-transparent !px-1.5 !-mx-1.5 !py-0.5 !rounded-md"
+                  inputClassName="!w-fit !justify-start !gap-1 !border-transparent !bg-transparent !shadow-none hover:!bg-white/[0.06] focus:!ring-0 focus:!border-transparent !px-1.5 !-mx-1.5 !py-0.5 !rounded-md"
                 />
               </div>
             </div>
 
             {/* Due Date */}
-            <div className="flex items-center gap-2.5 lg:border-l lg:border-zinc-200 lg:pl-5 lg:pr-5">
-              <div className="p-1.5 bg-zinc-100 rounded-md">
-                <Clock size={14} className="text-zinc-500" />
+            <div className="flex items-center gap-2.5 lg:border-l lg:border-white/[0.08] lg:pl-5 lg:pr-5">
+              <div className="p-1.5 bg-white/[0.06] rounded-md">
+                <Clock size={14} className="text-zinc-400" />
               </div>
               <div className="min-w-0 flex-1">
-                <p className="text-xs text-zinc-500 font-medium">Due Date</p>
+                <p className="text-xs text-zinc-400 font-medium">Due Date</p>
                 <DateInput
                   value={project.due_date || ''}
                   onChange={(v) => updateProject(projectId, { due_date: v || null })}
@@ -321,18 +321,18 @@ export default function ProjectDetailPage() {
                   size="sm"
                   minDate={project.start_date || undefined}
                   clearable
-                  inputClassName="!w-fit !justify-start !gap-1 !border-transparent !bg-transparent !shadow-none hover:!bg-zinc-100 focus:!ring-0 focus:!border-transparent !px-1.5 !-mx-1.5 !py-0.5 !rounded-md"
+                  inputClassName="!w-fit !justify-start !gap-1 !border-transparent !bg-transparent !shadow-none hover:!bg-white/[0.06] focus:!ring-0 focus:!border-transparent !px-1.5 !-mx-1.5 !py-0.5 !rounded-md"
                 />
               </div>
             </div>
 
             {/* Team */}
-            <div className="flex items-center gap-2.5 lg:border-l lg:border-zinc-200 lg:pl-5 lg:pr-5">
-              <div className="p-1.5 bg-zinc-100 rounded-md">
-                <Users size={14} className="text-zinc-500" />
+            <div className="flex items-center gap-2.5 lg:border-l lg:border-white/[0.08] lg:pl-5 lg:pr-5">
+              <div className="p-1.5 bg-white/[0.06] rounded-md">
+                <Users size={14} className="text-zinc-400" />
               </div>
               <div>
-                <p className="text-xs text-zinc-500 font-medium">Team</p>
+                <p className="text-xs text-zinc-400 font-medium">Team</p>
                 {projectMembers.length > 0 ? (
                   <button onClick={() => setIsEditProjectOpen(true)} className="group">
                     <AvatarGroup
@@ -344,7 +344,7 @@ export default function ProjectDetailPage() {
                 ) : (
                   <button
                     onClick={() => setIsEditProjectOpen(true)}
-                    className="text-sm text-zinc-400 hover:text-brand-600 transition-colors"
+                    className="text-sm text-zinc-500 hover:text-brand-300 transition-colors"
                   >
                     Add members...
                   </button>
@@ -353,22 +353,22 @@ export default function ProjectDetailPage() {
             </div>
 
             {/* Contacts */}
-            <div className="flex items-center gap-2.5 lg:border-l lg:border-zinc-200 lg:pl-5">
-              <div className="p-1.5 bg-zinc-100 rounded-md">
-                <UserCircle size={14} className="text-zinc-500" />
+            <div className="flex items-center gap-2.5 lg:border-l lg:border-white/[0.08] lg:pl-5">
+              <div className="p-1.5 bg-white/[0.06] rounded-md">
+                <UserCircle size={14} className="text-zinc-400" />
               </div>
               <div>
-                <p className="text-xs text-zinc-500 font-medium">Contacts</p>
+                <p className="text-xs text-zinc-400 font-medium">Contacts</p>
                 {projectContactsList.length > 0 ? (
                   <button onClick={() => setIsContactsPanelOpen(true)} className="group">
                     <div className="flex items-center -space-x-1.5">
                       {projectContactsList.slice(0, 4).map((pc) => (
                         <Tooltip key={pc.id} content={`${pc.contact?.name || 'Contact'} (${pc.role})`}>
-                          <Avatar name={pc.contact?.name || '?'} src={pc.contact?.avatar_url || undefined} size="sm" className="ring-2 ring-white" />
+                          <Avatar name={pc.contact?.name || '?'} src={pc.contact?.avatar_url || undefined} size="sm" className="ring-2 ring-surface" />
                         </Tooltip>
                       ))}
                       {projectContactsList.length > 4 && (
-                        <div className="w-6 h-6 rounded-full flex items-center justify-center bg-zinc-200 text-zinc-600 text-[10px] font-medium ring-2 ring-white">
+                        <div className="w-6 h-6 rounded-full flex items-center justify-center bg-white/[0.08] text-zinc-300 text-[10px] font-medium ring-2 ring-surface">
                           +{projectContactsList.length - 4}
                         </div>
                       )}
@@ -377,7 +377,7 @@ export default function ProjectDetailPage() {
                 ) : (
                   <button
                     onClick={() => setIsContactsPanelOpen(true)}
-                    className="text-sm text-zinc-400 hover:text-brand-600 transition-colors"
+                    className="text-sm text-zinc-500 hover:text-brand-300 transition-colors"
                   >
                     Add contacts...
                   </button>
@@ -394,12 +394,12 @@ export default function ProjectDetailPage() {
         {/* Tasks Section Header */}
         <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
           <div className="flex items-center gap-3">
-            <h2 className="text-base font-semibold text-zinc-900">
+            <h2 className="text-base font-semibold text-white">
               Tasks ({allProjectTasks.length})
             </h2>
             {allProjectTasks.length > 0 && (
               <div className="hidden lg:flex items-center gap-2">
-                <div className="w-20 h-1.5 bg-zinc-100 rounded-full overflow-hidden">
+                <div className="w-20 h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
                   <div
                     className="h-full rounded-full transition-all duration-500"
                     style={{
@@ -408,13 +408,13 @@ export default function ProjectDetailPage() {
                     }}
                   />
                 </div>
-                <span className="text-xs text-zinc-400">{progressPercent}%</span>
+                <span className="text-xs text-zinc-500">{progressPercent}%</span>
               </div>
             )}
             {projectTasks.length > 0 && viewMode === 'list' && (
               <button
                 onClick={selectAllTasks}
-                className="text-xs text-brand-600 hover:text-brand-700 transition-colors"
+                className="text-xs text-brand-300 hover:text-brand-300 transition-colors"
               >
                 {selectedTaskIds.size === projectTasks.length ? 'Deselect all' : 'Select all'}
               </button>
@@ -426,7 +426,7 @@ export default function ProjectDetailPage() {
               <div className="relative">
                 <button
                   onClick={() => setShowBulkMenu(!showBulkMenu)}
-                  className="flex items-center gap-2 px-3 py-1.5 text-sm bg-brand-50 text-brand-700 border border-brand-200 rounded-lg hover:bg-brand-100 transition-colors"
+                  className="flex items-center gap-2 px-3 py-1.5 text-sm bg-brand-500/15 text-brand-300 border border-brand-500/30 rounded-lg hover:bg-brand-500/15 transition-colors"
                 >
                   {selectedTaskIds.size} selected
                   <ChevronRight size={14} className="rotate-90" />
@@ -434,22 +434,22 @@ export default function ProjectDetailPage() {
                 {showBulkMenu && (
                   <>
                     <div className="fixed inset-0 z-10 cursor-default" onClick={(e) => { e.stopPropagation(); setShowBulkMenu(false); }} />
-                    <div className="absolute right-0 top-10 bg-white rounded-lg shadow-xl border border-zinc-200 py-1 z-20 min-w-[200px] cursor-pointer">
-                      <p className="px-3 py-1.5 text-xs font-medium text-zinc-500 uppercase">Set Status</p>
+                    <div className="absolute right-0 top-10 bg-surface-raised rounded-lg shadow-xl border border-white/[0.08] py-1 z-20 min-w-[200px] cursor-pointer">
+                      <p className="px-3 py-1.5 text-xs font-medium text-zinc-400 uppercase">Set Status</p>
                       {(['todo', 'in_progress', 'in_review', 'done'] as const).map(s => (
-                        <button key={s} onClick={() => bulkUpdateStatus(s)} className="w-full text-left px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-50">
+                        <button key={s} onClick={() => bulkUpdateStatus(s)} className="w-full text-left px-3 py-1.5 text-sm text-zinc-300 hover:bg-white/[0.03]">
                           {s.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
                         </button>
                       ))}
-                      <div className="border-t border-zinc-100 my-1" />
-                      <p className="px-3 py-1.5 text-xs font-medium text-zinc-500 uppercase">Set Priority</p>
+                      <div className="border-t border-white/[0.06] my-1" />
+                      <p className="px-3 py-1.5 text-xs font-medium text-zinc-400 uppercase">Set Priority</p>
                       {(['low', 'medium', 'high', 'urgent'] as const).map(p => (
-                        <button key={p} onClick={() => bulkUpdatePriority(p)} className="w-full text-left px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-50">
+                        <button key={p} onClick={() => bulkUpdatePriority(p)} className="w-full text-left px-3 py-1.5 text-sm text-zinc-300 hover:bg-white/[0.03]">
                           {p.charAt(0).toUpperCase() + p.slice(1)}
                         </button>
                       ))}
-                      <div className="border-t border-zinc-100 my-1" />
-                      <button onClick={bulkDelete} className="w-full text-left px-3 py-1.5 text-sm text-red-600 hover:bg-red-50">
+                      <div className="border-t border-white/[0.06] my-1" />
+                      <button onClick={bulkDelete} className="w-full text-left px-3 py-1.5 text-sm text-red-400 hover:bg-red-500/15">
                         Delete selected
                       </button>
                     </div>
@@ -460,16 +460,12 @@ export default function ProjectDetailPage() {
 
             {/* View Mode Toggle */}
             {allProjectTasks.length > 0 && (
-              <div className="flex items-center bg-zinc-100 rounded-lg p-1 overflow-x-auto">
+              <div className="seg-track overflow-x-auto">
                 {viewModes.map((mode) => (
                   <button
                     key={mode.id}
                     onClick={() => setViewMode(mode.id)}
-                    className={`flex items-center gap-1.5 px-2 lg:px-3 py-1.5 rounded-md text-sm font-medium transition-all whitespace-nowrap ${
-                      viewMode === mode.id
-                        ? 'bg-white text-zinc-900 shadow-sm'
-                        : 'text-zinc-500 hover:text-zinc-700'
-                    }`}
+                    className={`seg-item flex items-center gap-1.5 whitespace-nowrap ${viewMode === mode.id ? 'is-active' : ''}`}
                   >
                     <mode.icon size={16} />
                     <span className="hidden sm:inline">{mode.label}</span>
@@ -490,12 +486,12 @@ export default function ProjectDetailPage() {
 
         {/* Task Views */}
         {projectTasks.length === 0 ? (
-          <div className="bg-white rounded-xl border border-zinc-200 flex flex-col items-center justify-center p-8 text-center">
-            <div className="w-10 h-10 rounded-full bg-zinc-100 flex items-center justify-center mb-3">
-              <LayoutGrid size={18} className="text-zinc-400" />
+          <div className="glass-card rounded-xl flex flex-col items-center justify-center p-8 text-center">
+            <div className="w-10 h-10 rounded-full bg-white/[0.06] flex items-center justify-center mb-3">
+              <LayoutGrid size={18} className="text-zinc-500" />
             </div>
-            <p className="text-sm font-medium text-zinc-500">No tasks yet</p>
-            <p className="text-xs text-zinc-400 mt-1">Create your first task to get started</p>
+            <p className="text-sm font-medium text-zinc-400">No tasks yet</p>
+            <p className="text-xs text-zinc-500 mt-1">Create your first task to get started</p>
           </div>
         ) : (
           <>

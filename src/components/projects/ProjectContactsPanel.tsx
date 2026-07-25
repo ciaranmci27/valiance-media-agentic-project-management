@@ -133,7 +133,7 @@ export function ProjectContactsPanel({ isOpen, onClose, projectId }: ProjectCont
         <div className="space-y-3">
           {/* Existing contacts list */}
           {projectContactsList.length > 0 ? (
-            <div className="divide-y divide-zinc-100 border border-zinc-200 rounded-lg">
+            <div className="divide-y divide-white/[0.06] border border-white/[0.08] rounded-lg">
               {projectContactsList.map((pc) => {
                 const contact = pc.contact;
                 if (!contact) return null;
@@ -150,19 +150,19 @@ export function ProjectContactsPanel({ isOpen, onClose, projectId }: ProjectCont
                         <div className="flex items-center gap-2">
                           <Link
                             href={`/contacts/${contact.id}`}
-                            className="font-medium text-zinc-900 text-sm hover:text-brand-600 transition-colors truncate inline-flex items-center gap-1"
+                            className="font-medium text-white text-sm hover:text-brand-300 transition-colors truncate inline-flex items-center gap-1"
                           >
                             {contact.name}
                             <ExternalLink size={11} className="flex-shrink-0 opacity-50" />
                           </Link>
                           {pc.is_primary_client && (
-                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700 flex-shrink-0">
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-xs font-medium bg-amber-500/15 text-amber-300 flex-shrink-0">
                               <Star size={10} />
                               Primary
                             </span>
                           )}
                         </div>
-                        <div className="flex items-center gap-2 text-xs text-zinc-500">
+                        <div className="flex items-center gap-2 text-xs text-zinc-400">
                           {contact.email && <span className="truncate">{contact.email}</span>}
                           {contact.email && contact.company && <span>·</span>}
                           {contact.company && <span className="truncate">{contact.company}</span>}
@@ -174,13 +174,13 @@ export function ProjectContactsPanel({ isOpen, onClose, projectId }: ProjectCont
                           <Badge variant="default">{displayRole}</Badge>
                           {canManageContacts && <button
                             onClick={() => handleStartEdit(pc)}
-                            className="p-1 rounded text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 transition-all"
+                            className="p-1 rounded text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.06] transition-all"
                           >
                             <Edit size={14} />
                           </button>}
                           {canManageContacts && <button
                             onClick={() => handleRemove(pc.id)}
-                            className="p-1 rounded text-zinc-400 hover:text-red-600 hover:bg-red-50 transition-all"
+                            className="p-1 rounded text-zinc-500 hover:text-red-400 hover:bg-red-500/15 transition-all"
                           >
                             <Trash2 size={14} />
                           </button>}
@@ -189,7 +189,7 @@ export function ProjectContactsPanel({ isOpen, onClose, projectId }: ProjectCont
                     </div>
 
                     {isEditing && (
-                      <div className="mt-3 pt-3 border-t border-zinc-100 flex flex-wrap items-center gap-2">
+                      <div className="mt-3 pt-3 border-t border-white/[0.06] flex flex-wrap items-center gap-2">
                         <Select
                           value={editRole}
                           onChange={(value) => setEditRole(value)}
@@ -213,9 +213,9 @@ export function ProjectContactsPanel({ isOpen, onClose, projectId }: ProjectCont
                               onClick={() => setEditIsPrimary(!editIsPrimary)}
                               className={`relative inline-flex w-8 h-[18px] rounded-full transition-colors flex-shrink-0 ${editIsPrimary ? 'bg-amber-500' : 'bg-zinc-300'}`}
                             >
-                              <span className={`absolute top-[2px] left-[2px] w-[14px] h-[14px] rounded-full bg-white shadow-sm transition-transform ${editIsPrimary ? 'translate-x-[14px]' : 'translate-x-0'}`} />
+                              <span className={`absolute top-[2px] left-[2px] w-[14px] h-[14px] rounded-full bg-surface-raised shadow-sm transition-transform ${editIsPrimary ? 'translate-x-[14px]' : 'translate-x-0'}`} />
                             </button>
-                            <span className={`text-xs whitespace-nowrap ${editIsPrimary ? 'text-amber-700' : 'text-zinc-600'}`}>Primary</span>
+                            <span className={`text-xs whitespace-nowrap ${editIsPrimary ? 'text-amber-300' : 'text-zinc-300'}`}>Primary</span>
                           </label>
                         )}
                         <div className="flex items-center gap-1 ml-auto">
@@ -234,22 +234,22 @@ export function ProjectContactsPanel({ isOpen, onClose, projectId }: ProjectCont
             </div>
           ) : !showAddForm ? (
             <div className="flex flex-col items-center justify-center p-8 text-center">
-              <div className="w-10 h-10 rounded-full bg-zinc-100 flex items-center justify-center mb-3">
-                <UserCircle size={18} className="text-zinc-400" />
+              <div className="w-10 h-10 rounded-full bg-white/[0.06] flex items-center justify-center mb-3">
+                <UserCircle size={18} className="text-zinc-500" />
               </div>
-              <p className="text-sm font-medium text-zinc-500">No contacts linked yet</p>
-              <p className="text-xs text-zinc-400 mt-1">{canManageContacts ? 'Add contacts to this project' : 'No contacts are linked to this project'}</p>
+              <p className="text-sm font-medium text-zinc-400">No contacts linked yet</p>
+              <p className="text-xs text-zinc-500 mt-1">{canManageContacts ? 'Add contacts to this project' : 'No contacts are linked to this project'}</p>
             </div>
           ) : null}
 
           {/* Inline add contact form */}
           {canManageContacts && showAddForm ? (
-            <div className="border border-zinc-200 rounded-lg p-4 bg-zinc-50 space-y-3">
+            <div className="border border-white/[0.08] rounded-lg p-4 bg-white/[0.03] space-y-3">
               <div className="flex items-center justify-between">
-                <h4 className="text-sm font-medium text-zinc-900">Add Contact</h4>
+                <h4 className="text-sm font-medium text-white">Add Contact</h4>
                 <button
                   onClick={resetAddForm}
-                  className="p-1 rounded text-zinc-400 hover:text-zinc-600 hover:bg-zinc-200 transition-all"
+                  className="p-1 rounded text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.08] transition-all"
                 >
                   <X size={16} />
                 </button>
@@ -265,9 +265,9 @@ export function ProjectContactsPanel({ isOpen, onClose, projectId }: ProjectCont
               />
 
               {/* Contact list */}
-              <div className="max-h-36 overflow-y-auto border border-zinc-200 rounded-lg bg-white">
+              <div className="max-h-36 overflow-y-auto border border-white/[0.08] rounded-lg bg-surface-raised">
                 {availableContacts.length === 0 ? (
-                  <div className="p-3 text-sm text-zinc-500 text-center">
+                  <div className="p-3 text-sm text-zinc-400 text-center">
                     {addSearch ? 'No contacts match your search' : 'All contacts are already linked'}
                   </div>
                 ) : (
@@ -278,8 +278,8 @@ export function ProjectContactsPanel({ isOpen, onClose, projectId }: ProjectCont
                       onClick={() => setAddContactId(c.id)}
                       className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left transition-colors ${
                         addContactId === c.id
-                          ? 'bg-brand-50 text-brand-700'
-                          : 'text-zinc-700 hover:bg-zinc-50'
+                          ? 'bg-brand-500/15 text-brand-300'
+                          : 'text-zinc-300 hover:bg-white/[0.03]'
                       }`}
                     >
                       <div
@@ -290,7 +290,7 @@ export function ProjectContactsPanel({ isOpen, onClose, projectId }: ProjectCont
                       </div>
                       <div className="min-w-0 flex-1">
                         <span className="font-medium truncate block">{c.name}</span>
-                        {c.company && <span className="text-xs text-zinc-500">{c.company}</span>}
+                        {c.company && <span className="text-xs text-zinc-400">{c.company}</span>}
                       </div>
                     </button>
                   ))
@@ -300,7 +300,7 @@ export function ProjectContactsPanel({ isOpen, onClose, projectId }: ProjectCont
               <button
                 type="button"
                 onClick={() => setShowNewContactForm(true)}
-                className="text-sm text-brand-600 hover:text-brand-700 font-medium"
+                className="text-sm text-brand-300 hover:text-brand-300 font-medium"
               >
                 + Create new contact
               </button>
@@ -335,9 +335,9 @@ export function ProjectContactsPanel({ isOpen, onClose, projectId }: ProjectCont
                       onClick={() => setAddIsPrimary(!addIsPrimary)}
                       className={`relative inline-flex w-9 h-5 rounded-full transition-colors flex-shrink-0 ${addIsPrimary ? 'bg-amber-500' : 'bg-zinc-300'}`}
                     >
-                      <span className={`absolute top-[2px] left-[2px] w-4 h-4 rounded-full bg-white shadow-sm transition-transform ${addIsPrimary ? 'translate-x-4' : 'translate-x-0'}`} />
+                      <span className={`absolute top-[2px] left-[2px] w-4 h-4 rounded-full bg-surface-raised shadow-sm transition-transform ${addIsPrimary ? 'translate-x-4' : 'translate-x-0'}`} />
                     </button>
-                    <span className={`text-sm whitespace-nowrap ${addIsPrimary ? 'text-amber-700' : 'text-zinc-600'}`}>Primary</span>
+                    <span className={`text-sm whitespace-nowrap ${addIsPrimary ? 'text-amber-300' : 'text-zinc-300'}`}>Primary</span>
                   </label>
                 )}
               </div>

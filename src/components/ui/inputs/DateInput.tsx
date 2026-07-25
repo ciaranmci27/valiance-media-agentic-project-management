@@ -428,7 +428,7 @@ export const DateInput = forwardRef<HTMLButtonElement, DateInputProps>(
               ref={dropdownRef}
               role="dialog"
               aria-label="Date picker"
-              className={`fixed z-[9999] bg-input-bg border border-input-border rounded-input shadow-lg ${calPad}`}
+              className={`fixed z-[9999] bg-surface-overlay border border-white/10 rounded-input shadow-[0_16px_48px_-12px_rgba(0,0,0,0.7)] ${calPad}`}
               style={{
                 top: dropdownPos.top,
                 left: dropdownPos.left,

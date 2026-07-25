@@ -94,10 +94,10 @@ export function AgentProjectsTab() {
   };
 
   const statusColors: Record<string, string> = {
-    active: 'bg-emerald-100 text-emerald-700',
-    achieved: 'bg-blue-100 text-blue-700',
-    paused: 'bg-amber-100 text-amber-700',
-    abandoned: 'bg-zinc-100 text-zinc-500',
+    active: 'bg-emerald-500/15 text-emerald-300',
+    achieved: 'bg-blue-500/15 text-blue-300',
+    paused: 'bg-amber-500/15 text-amber-300',
+    abandoned: 'bg-white/[0.06] text-zinc-400',
   };
 
   // Show all active (non-archived) projects, sorted: autonomous first, then alphabetically
@@ -120,17 +120,17 @@ export function AgentProjectsTab() {
         return (
           <div
             key={project.id}
-            className="bg-white rounded-xl border border-zinc-200 p-4 lg:p-5"
+            className="glass-card rounded-xl p-4 lg:p-5"
           >
             {/* Project header */}
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2 min-w-0 flex-1">
                 {project.color && <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: project.color }} />}
-                <h3 className="font-semibold text-zinc-900 truncate">{project.name}</h3>
+                <h3 className="font-semibold text-white truncate">{project.name}</h3>
               </div>
 
               <div className="flex items-center gap-2 flex-shrink-0">
-                <Bot size={14} className={project.autonomous_enabled ? 'text-brand-600' : 'text-zinc-400'} />
+                <Bot size={14} className={project.autonomous_enabled ? 'text-brand-300' : 'text-zinc-500'} />
                 <Tooltip content={project.autonomous_enabled ? 'Disable autonomous agents' : 'Enable autonomous agents'}>
                   <button
                     type="button"
@@ -140,7 +140,7 @@ export function AgentProjectsTab() {
                     }`}
                   >
                     <span
-                      className={`absolute top-0.5 left-0.5 w-[18px] h-[18px] bg-white rounded-full shadow transition-transform ${
+                      className={`absolute top-0.5 left-0.5 w-[18px] h-[18px] bg-surface-raised rounded-full shadow transition-transform ${
                         project.autonomous_enabled ? 'translate-x-[18px]' : 'translate-x-0'
                       }`}
                     />
@@ -150,13 +150,13 @@ export function AgentProjectsTab() {
             </div>
 
             {project.description && (
-              <p className="text-sm text-zinc-500 mb-4 line-clamp-1">{project.description}</p>
+              <p className="text-sm text-zinc-400 mb-4 line-clamp-1">{project.description}</p>
             )}
 
             {/* Goals */}
             <div className="space-y-2">
               {goals.length > 0 && (
-                <p className="text-xs font-medium text-zinc-500 uppercase tracking-wider">Goals</p>
+                <p className="text-xs font-medium text-zinc-400 uppercase tracking-wider">Goals</p>
               )}
 
               {goals.map((goal) => {
@@ -167,21 +167,21 @@ export function AgentProjectsTab() {
                 return (
                   <div
                     key={goal.id}
-                    className="bg-zinc-50 rounded-lg border border-zinc-100 p-3"
+                    className="bg-white/[0.03] rounded-lg border border-white/[0.06] p-3"
                   >
                     <div className="flex items-start justify-between">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <h4 className="font-medium text-sm text-zinc-900">{goal.title}</h4>
+                          <h4 className="font-medium text-sm text-white">{goal.title}</h4>
                           <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${statusColors[goal.status]}`}>
                             {goal.status}
                           </span>
                         </div>
                         {goal.description && (
-                          <p className="text-xs text-zinc-500 mt-1 line-clamp-1">{goal.description}</p>
+                          <p className="text-xs text-zinc-400 mt-1 line-clamp-1">{goal.description}</p>
                         )}
                         {goal.target_date && (
-                          <p className="text-[10px] text-zinc-400 mt-1">Target: {goal.target_date}</p>
+                          <p className="text-[10px] text-zinc-500 mt-1">Target: {goal.target_date}</p>
                         )}
                       </div>
 
@@ -189,7 +189,7 @@ export function AgentProjectsTab() {
                         <Tooltip content="Edit">
                           <button
                             onClick={() => handleOpenEdit(goal)}
-                            className="p-1 rounded text-zinc-400 hover:text-zinc-600 hover:bg-zinc-200 transition-colors"
+                            className="p-1 rounded text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.08] transition-colors"
                           >
                             <Edit size={13} />
                           </button>
@@ -197,7 +197,7 @@ export function AgentProjectsTab() {
                         <Tooltip content="Archive">
                           <button
                             onClick={() => handleArchive(goal.id)}
-                            className="p-1 rounded text-zinc-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+                            className="p-1 rounded text-zinc-500 hover:text-red-500 hover:bg-red-500/15 transition-colors"
                           >
                             <Archive size={13} />
                           </button>
@@ -207,22 +207,22 @@ export function AgentProjectsTab() {
 
                     <div className="flex items-center gap-2 mt-2 flex-wrap">
                       {pendingSuggestions > 0 && (
-                        <span className="text-[10px] font-medium bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded-full">
+                        <span className="text-[10px] font-medium bg-amber-500/15 text-amber-300 px-1.5 py-0.5 rounded-full">
                           {pendingSuggestions} pending
                         </span>
                       )}
                       {inProgressTasks > 0 && (
-                        <span className="text-[10px] font-medium bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded-full">
+                        <span className="text-[10px] font-medium bg-blue-500/15 text-blue-300 px-1.5 py-0.5 rounded-full">
                           {inProgressTasks} in progress
                         </span>
                       )}
                       {completedTasks > 0 && (
-                        <span className="text-[10px] font-medium bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded-full">
+                        <span className="text-[10px] font-medium bg-emerald-500/15 text-emerald-300 px-1.5 py-0.5 rounded-full">
                           {completedTasks} done
                         </span>
                       )}
                       {pendingSuggestions === 0 && inProgressTasks === 0 && completedTasks === 0 && (
-                        <span className="text-[10px] text-zinc-400">No suggestions or tasks yet</span>
+                        <span className="text-[10px] text-zinc-500">No suggestions or tasks yet</span>
                       )}
                     </div>
                   </div>
@@ -230,14 +230,14 @@ export function AgentProjectsTab() {
               })}
 
               {goals.length === 0 && (
-                <p className="text-sm text-zinc-400 py-2">
+                <p className="text-sm text-zinc-500 py-2">
                   No goals yet — add one to start receiving agent suggestions
                 </p>
               )}
 
               <button
                 onClick={() => handleOpenCreate(project.id)}
-                className="flex items-center gap-1.5 text-sm text-brand-600 hover:text-brand-700 font-medium mt-1 transition-colors"
+                className="flex items-center gap-1.5 text-sm text-brand-300 hover:text-brand-300 font-medium mt-1 transition-colors"
               >
                 <Plus size={14} />
                 Add Goal
@@ -245,7 +245,7 @@ export function AgentProjectsTab() {
             </div>
 
             {/* Project-level stats */}
-            <div className="flex items-center gap-3 mt-4 pt-3 border-t border-zinc-100 text-xs text-zinc-500">
+            <div className="flex items-center gap-3 mt-4 pt-3 border-t border-white/[0.06] text-xs text-zinc-400">
               {projectSuggestions.length > 0 && (
                 <span>{projectSuggestions.length} pending suggestion{projectSuggestions.length !== 1 ? 's' : ''}</span>
               )}
@@ -261,12 +261,12 @@ export function AgentProjectsTab() {
       })}
 
       {activeProjects.length === 0 && (
-        <div className="bg-white rounded-xl border border-zinc-200 flex flex-col items-center justify-center p-8 text-center lg:col-span-2">
-          <div className="w-10 h-10 rounded-full bg-zinc-100 flex items-center justify-center mb-3">
-            <FolderKanban size={18} className="text-zinc-400" />
+        <div className="glass-card rounded-xl flex flex-col items-center justify-center p-8 text-center lg:col-span-2">
+          <div className="w-10 h-10 rounded-full bg-white/[0.06] flex items-center justify-center mb-3">
+            <FolderKanban size={18} className="text-zinc-500" />
           </div>
-          <p className="text-sm font-medium text-zinc-500">No projects</p>
-          <p className="text-xs text-zinc-400 mt-1">Create projects and add goals to start using agent workflows</p>
+          <p className="text-sm font-medium text-zinc-400">No projects</p>
+          <p className="text-xs text-zinc-500 mt-1">Create projects and add goals to start using agent workflows</p>
         </div>
       )}
 

@@ -24,12 +24,12 @@ export function AgentSettingsCard({ project, onUpdate }: AgentSettingsCardProps)
   }, [project.id]);
 
   return (
-    <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden flex flex-col">
+    <div className="glass-card rounded-xl overflow-hidden flex flex-col">
       {/* Header */}
-      <div className="px-5 py-4 flex items-center justify-between flex-shrink-0 border-b border-zinc-100">
+      <div className="px-5 py-4 flex items-center justify-between flex-shrink-0 border-b border-white/[0.06]">
         <div className="flex items-center gap-2">
-          <Settings size={18} className="text-zinc-500" />
-          <h2 className="font-semibold text-zinc-900">Configuration</h2>
+          <Settings size={18} className="text-zinc-400" />
+          <h2 className="font-semibold text-white">Configuration</h2>
         </div>
         <Tooltip content={project.autonomous_enabled ? 'Pause agents' : 'Resume agents'}>
           <button
@@ -42,7 +42,7 @@ export function AgentSettingsCard({ project, onUpdate }: AgentSettingsCardProps)
                 toast('success', 'Autonomous agents enabled');
               }
             }}
-            className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 transition-colors"
+            className="p-1.5 rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.06] transition-colors"
           >
             {project.autonomous_enabled ? <Pause size={16} /> : <Play size={16} />}
           </button>
@@ -61,7 +61,7 @@ export function AgentSettingsCard({ project, onUpdate }: AgentSettingsCardProps)
               { value: 'playground', label: 'Playground: Commits to main directly' },
             ]}
           />
-          <p className="text-[11px] text-zinc-400 leading-relaxed">
+          <p className="text-[11px] text-zinc-500 leading-relaxed">
             {project.deployment_policy === 'playground'
               ? 'AI agents can commit directly to main and trigger deployments.'
               : 'AI agents create feature branches and open pull requests for review.'}
@@ -97,8 +97,8 @@ export function AgentSettingsCard({ project, onUpdate }: AgentSettingsCardProps)
         />
 
         {/* Status */}
-        <div className="flex items-center justify-between pt-4 border-t border-zinc-100">
-          <p className="text-xs text-zinc-400">
+        <div className="flex items-center justify-between pt-4 border-t border-white/[0.06]">
+          <p className="text-xs text-zinc-500">
             {project.autonomous_enabled
               ? 'Agents are actively generating suggestions for this project.'
               : 'Autonomous agents are paused. Click the play button above to resume.'}

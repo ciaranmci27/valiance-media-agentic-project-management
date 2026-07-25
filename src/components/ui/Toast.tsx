@@ -58,10 +58,10 @@ export function ToastContainer() {
   };
 
   const bgColors = {
-    success: 'bg-emerald-50 border-emerald-200',
-    error: 'bg-red-50 border-red-200',
-    info: 'bg-blue-50 border-blue-200',
-    warning: 'bg-amber-50 border-amber-200',
+    success: 'bg-surface-raised border-emerald-500/30',
+    error: 'bg-surface-raised border-red-500/30',
+    info: 'bg-surface-raised border-blue-500/30',
+    warning: 'bg-surface-raised border-amber-500/30',
   };
 
   return (
@@ -69,13 +69,13 @@ export function ToastContainer() {
       {visible.map((t) => (
         <div
           key={t.id}
-          className={`flex items-center gap-3 px-4 py-3 rounded-lg border shadow-lg animate-slideIn ${bgColors[t.type]}`}
+          className={`flex items-center gap-3 px-4 py-3 rounded-lg border shadow-[0_16px_48px_-12px_rgba(0,0,0,0.7)] animate-slideIn ${bgColors[t.type]}`}
         >
           {icons[t.type]}
-          <span className="text-sm font-medium text-zinc-700">{t.message}</span>
+          <span className="text-sm font-medium text-zinc-100">{t.message}</span>
           <button
             onClick={() => dismiss(t.id)}
-            className="ml-2 text-zinc-400 hover:text-zinc-600"
+            className="ml-2 text-zinc-400 hover:text-zinc-200"
           >
             <X size={16} />
           </button>

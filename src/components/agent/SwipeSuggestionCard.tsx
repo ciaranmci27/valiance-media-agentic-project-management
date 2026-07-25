@@ -87,7 +87,7 @@ export function SwipeSuggestionCard({
       <div
         ref={cardRef}
         className={`rounded-xl border p-4 text-center ${
-          undoAction === 'approve' ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-200'
+          undoAction === 'approve' ? 'bg-emerald-500/15 border-emerald-500/30' : 'bg-red-500/15 border-red-500/30'
         }`}
       >
         <p className="text-sm font-medium mb-2">
@@ -95,7 +95,7 @@ export function SwipeSuggestionCard({
         </p>
         <button
           onClick={handleUndo}
-          className="text-sm font-medium text-brand-600 underline"
+          className="text-sm font-medium text-brand-300 underline"
         >
           Undo
         </button>
@@ -112,7 +112,7 @@ export function SwipeSuggestionCard({
   return (
     <div
       ref={cardRef}
-      className="relative overflow-hidden rounded-xl border border-zinc-200"
+      className="relative overflow-hidden rounded-xl border border-white/[0.08]"
       style={{ background: bgReveal }}
     >
       {/* Swipe indicators */}
@@ -128,14 +128,14 @@ export function SwipeSuggestionCard({
       )}
 
       <div
-        className="bg-white p-4 transition-transform"
+        className="bg-surface-raised p-4 transition-transform"
         style={{ transform: `translateX(${offsetX}px)` }}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
       >
         <div className="flex items-center gap-2 mb-2 flex-wrap">
-          <h3 className="font-semibold text-zinc-900 text-sm">{suggestion.title}</h3>
+          <h3 className="font-semibold text-white text-sm">{suggestion.title}</h3>
           <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${priorityColor}`}>
             {suggestion.priority}
           </span>
@@ -146,28 +146,28 @@ export function SwipeSuggestionCard({
           )}
         </div>
 
-        <div className="flex items-center gap-2 text-xs text-zinc-500 mb-2">
+        <div className="flex items-center gap-2 text-xs text-zinc-400 mb-2">
           <span>{projectName}</span>
           <span>&middot;</span>
           <span>{goalTitle}</span>
         </div>
 
-        <div className="bg-zinc-50 rounded-lg p-2.5 mb-2 border border-zinc-100">
-          <p className="text-xs text-zinc-500 font-medium mb-0.5">Reasoning</p>
-          <p className="text-sm text-zinc-800">{suggestion.reasoning}</p>
+        <div className="bg-white/[0.03] rounded-lg p-2.5 mb-2 border border-white/[0.06]">
+          <p className="text-xs text-zinc-400 font-medium mb-0.5">Reasoning</p>
+          <p className="text-sm text-zinc-100">{suggestion.reasoning}</p>
         </div>
 
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5">
             <Avatar name={agentName} src={agentAvatar || undefined} size="xs" />
-            <span className="text-xs text-zinc-500">{agentName}</span>
+            <span className="text-xs text-zinc-400">{agentName}</span>
           </div>
 
           <div className="flex items-center gap-2">
             {(suggestion.status === 'pending' || suggestion.status === 'needs_info') && onEdit && (
               <button
                 onClick={onEdit}
-                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 transition-colors"
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-blue-400 bg-blue-500/15 hover:bg-blue-500/15 transition-colors"
               >
                 <Pencil size={12} />
                 Edit
@@ -176,7 +176,7 @@ export function SwipeSuggestionCard({
             {suggestion.status === 'pending' && (
               <button
                 onClick={onRequestInfo}
-                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-amber-600 bg-amber-50 hover:bg-amber-100 transition-colors"
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-amber-400 bg-amber-500/15 hover:bg-amber-500/15 transition-colors"
               >
                 <HelpCircle size={12} />
                 Request Info

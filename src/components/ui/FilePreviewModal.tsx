@@ -112,19 +112,19 @@ function parseCsvToRows(text: string): string[][] {
 }
 
 function SpreadsheetTable({ rows }: { rows: string[][] }) {
-  if (rows.length === 0) return <p className="text-sm text-zinc-500 p-4">Empty spreadsheet</p>;
+  if (rows.length === 0) return <p className="text-sm text-zinc-400 p-4">Empty spreadsheet</p>;
   const header = rows[0];
   const body = rows.slice(1);
 
   return (
-    <div className="max-h-[70vh] overflow-auto rounded-lg border border-zinc-200">
+    <div className="max-h-[70vh] overflow-auto rounded-lg border border-white/[0.08]">
       <table className="w-full text-sm border-collapse">
         <thead className="sticky top-0">
           <tr>
             {header.map((cell, i) => (
               <th
                 key={i}
-                className="px-3 py-2 text-left font-semibold text-zinc-700 bg-zinc-100 border-b border-r border-zinc-200 last:border-r-0 whitespace-nowrap"
+                className="px-3 py-2 text-left font-semibold text-zinc-300 bg-white/[0.06] border-b border-r border-white/[0.08] last:border-r-0 whitespace-nowrap"
               >
                 {cell}
               </th>
@@ -133,11 +133,11 @@ function SpreadsheetTable({ rows }: { rows: string[][] }) {
         </thead>
         <tbody>
           {body.map((row, ri) => (
-            <tr key={ri} className={ri % 2 === 0 ? 'bg-white' : 'bg-zinc-50/60'}>
+            <tr key={ri} className={ri % 2 === 0 ? 'bg-surface-raised' : 'bg-white/[0.03]'}>
               {row.map((cell, ci) => (
                 <td
                   key={ci}
-                  className="px-3 py-1.5 text-zinc-600 border-b border-r border-zinc-100 last:border-r-0 whitespace-nowrap"
+                  className="px-3 py-1.5 text-zinc-300 border-b border-r border-white/[0.06] last:border-r-0 whitespace-nowrap"
                 >
                   {cell}
                 </td>
@@ -258,7 +258,7 @@ export function FilePreviewModal({ isOpen, onClose, file, onEdit }: FilePreviewM
     }
 
     if (isPdf) {
-      return <iframe src={file.file_url} className="w-full h-[70vh] rounded-lg border border-zinc-200" title={file.name} />;
+      return <iframe src={file.file_url} className="w-full h-[70vh] rounded-lg border border-white/[0.08]" title={file.name} />;
     }
 
     if (isHtml && content !== null) {
@@ -266,7 +266,7 @@ export function FilePreviewModal({ isOpen, onClose, file, onEdit }: FilePreviewM
         <iframe
           srcDoc={content}
           sandbox="allow-scripts"
-          className="w-full h-[70vh] rounded-lg border border-zinc-200"
+          className="w-full h-[70vh] rounded-lg border border-white/[0.08]"
           title={file.name}
         />
       );
@@ -276,7 +276,7 @@ export function FilePreviewModal({ isOpen, onClose, file, onEdit }: FilePreviewM
       const html = DOMPurify.sanitize(marked.parse(content, { async: false }) as string);
       const styledHtml = MARKDOWN_STYLES + html;
       return (
-        <div className="max-h-[70vh] overflow-auto rounded-lg border border-zinc-200 bg-white">
+        <div className="max-h-[70vh] overflow-auto rounded-lg border border-white/[0.08] bg-surface-raised">
           <div
             className="md-preview px-6 py-5"
             dangerouslySetInnerHTML={{ __html: styledHtml }}
@@ -291,7 +291,7 @@ export function FilePreviewModal({ isOpen, onClose, file, onEdit }: FilePreviewM
 
     if (isPlainText && content !== null) {
       return (
-        <pre className="text-sm font-mono whitespace-pre-wrap break-words max-h-[70vh] overflow-auto p-4 bg-zinc-50 rounded-lg border border-zinc-200 text-zinc-700">
+        <pre className="text-sm font-mono whitespace-pre-wrap break-words max-h-[70vh] overflow-auto p-4 bg-white/[0.03] rounded-lg border border-white/[0.08] text-zinc-300">
           {content}
         </pre>
       );
@@ -320,11 +320,11 @@ export function FilePreviewModal({ isOpen, onClose, file, onEdit }: FilePreviewM
     // Unsupported type
     return (
       <div className="text-center py-12">
-        <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-zinc-100 flex items-center justify-center">
-          <Download size={24} className="text-zinc-400" />
+        <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-white/[0.06] flex items-center justify-center">
+          <Download size={24} className="text-zinc-500" />
         </div>
-        <p className="text-sm font-medium text-zinc-700 mb-1">Preview not available</p>
-        <p className="text-xs text-zinc-400 mb-4">This file type cannot be previewed in the browser.</p>
+        <p className="text-sm font-medium text-zinc-300 mb-1">Preview not available</p>
+        <p className="text-xs text-zinc-500 mb-4">This file type cannot be previewed in the browser.</p>
         <button
           onClick={handleDownload}
           className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition-colors"
@@ -341,11 +341,11 @@ export function FilePreviewModal({ isOpen, onClose, file, onEdit }: FilePreviewM
       {renderContent()}
 
       {/* Footer actions */}
-      <div className="flex items-center justify-end gap-2 mt-4 pt-4 border-t border-zinc-200">
+      <div className="flex items-center justify-end gap-2 mt-4 pt-4 border-t border-white/[0.08]">
         {canEdit && (
           <button
             onClick={() => onEdit!(file)}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-brand-600 bg-brand-50 hover:bg-brand-100 rounded-lg transition-colors"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-brand-300 bg-brand-500/15 hover:bg-brand-500/15 rounded-lg transition-colors"
           >
             <Pencil size={14} />
             Edit
@@ -354,7 +354,7 @@ export function FilePreviewModal({ isOpen, onClose, file, onEdit }: FilePreviewM
         {file.file_url !== '#' && (
           <button
             onClick={handleDownload}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-zinc-700 bg-zinc-100 hover:bg-zinc-200 rounded-lg transition-colors"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-zinc-300 bg-white/[0.06] hover:bg-white/[0.08] rounded-lg transition-colors"
           >
             <Download size={14} />
             Download

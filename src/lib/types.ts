@@ -93,8 +93,6 @@ export interface Lead {
   company: string;
   source: 'referral' | 'website' | 'social' | 'cold_outreach' | 'event' | 'network' | 'other';
   status: 'new' | 'contacted' | 'qualified' | 'proposal' | 'won' | 'lost';
-  value: number | null;
-  equity: number | null;
   notes: string;
   assigned_to: string | null;
   member_ids: string[];
@@ -294,6 +292,8 @@ export interface TeamMember {
   notification_prefs?: NotificationPreferences;
   email_notifications_enabled?: boolean;
   email_notification_prefs?: NotificationPreferences;
+  /** Explicit light/dark choice. null/undefined = follow the OS preference. */
+  theme_preference?: 'light' | 'dark' | null;
 }
 
 export interface FilterState {

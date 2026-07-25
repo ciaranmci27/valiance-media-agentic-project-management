@@ -165,11 +165,11 @@ export function EmployeeEarningsDashboard({ projects, data }: { projects: Projec
 
   return (
     <div className="space-y-4 lg:space-y-6">
-      <section className="rounded-xl border border-zinc-200 bg-white">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-100 px-5 py-4">
+      <section className="rounded-xl border border-white/[0.08] bg-surface-raised">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.06] px-5 py-4">
           <div className="flex items-center gap-2">
-            <CalendarRange size={18} className="text-zinc-500" />
-            <h2 className="font-semibold text-zinc-900">Overview</h2>
+            <CalendarRange size={18} className="text-zinc-400" />
+            <h2 className="font-semibold text-white">Overview</h2>
           </div>
           <div className="w-40"><Select size="sm" ariaLabel="Earnings date range" value={preset} onChange={value => setPreset(value as RangePreset)} options={RANGE_OPTIONS} /></div>
         </div>
@@ -182,10 +182,10 @@ export function EmployeeEarningsDashboard({ projects, data }: { projects: Projec
         </div>
       </section>
 
-      <section className="rounded-xl border border-zinc-200 bg-white">
-        <div className="flex items-center justify-between border-b border-zinc-100 px-5 py-4">
-          <div className="flex items-center gap-2"><TrendingUp size={18} className="text-zinc-500" /><h2 className="font-semibold text-zinc-900">Daily Earnings</h2></div>
-          <span className="text-xs font-medium text-zinc-400">{RANGE_OPTIONS.find(option => option.value === preset)?.label}</span>
+      <section className="rounded-xl border border-white/[0.08] bg-surface-raised">
+        <div className="flex items-center justify-between border-b border-white/[0.06] px-5 py-4">
+          <div className="flex items-center gap-2"><TrendingUp size={18} className="text-zinc-400" /><h2 className="font-semibold text-white">Daily Earnings</h2></div>
+          <span className="text-xs font-medium text-zinc-500">{RANGE_OPTIONS.find(option => option.value === preset)?.label}</span>
         </div>
         <div className="px-5 pb-4 pt-5">
           {!showApproved && !showPending ? (
@@ -195,10 +195,10 @@ export function EmployeeEarningsDashboard({ projects, data }: { projects: Projec
           ) : (
             <div className="flex h-72 gap-2">
               <div className="flex w-12 flex-col justify-between py-0.5 text-right">
-                {[...axisTicks].reverse().map(tick => <span key={tick} className="text-[10px] font-medium text-zinc-400">{formatAxis(tick)}</span>)}
+                {[...axisTicks].reverse().map(tick => <span key={tick} className="text-[10px] font-medium text-zinc-500">{formatAxis(tick)}</span>)}
               </div>
               <div className="relative flex-1">
-                {axisTicks.map(tick => <div key={tick} className={`absolute inset-x-0 border-t ${tick === 0 && axisMin < 0 ? 'border-zinc-300' : 'border-zinc-100'}`} style={{ top: `${(axisMax - tick) / axisRange * 100}%` }} />)}
+                {axisTicks.map(tick => <div key={tick} className={`absolute inset-x-0 border-t ${tick === 0 && axisMin < 0 ? 'border-white/[0.12]' : 'border-white/[0.06]'}`} style={{ top: `${(axisMax - tick) / axisRange * 100}%` }} />)}
                 <div className="relative z-[1] flex h-full items-stretch gap-[3px]">
                   {dashboard.bars.map((bar, index) => {
                     const approved = showApproved ? bar.approved : 0;
@@ -224,7 +224,7 @@ export function EmployeeEarningsDashboard({ projects, data }: { projects: Projec
                             {pending > 0.005 && <p>Pending <span className="ml-2 font-semibold">{formatMoney(pending)}</span></p>}
                           </div>
                         )}
-                        {showLabel && <span className="absolute top-[calc(100%+8px)] left-1/2 w-16 -translate-x-1/2 truncate text-center text-[10px] font-medium text-zinc-400">{bar.label}</span>}
+                        {showLabel && <span className="absolute top-[calc(100%+8px)] left-1/2 w-16 -translate-x-1/2 truncate text-center text-[10px] font-medium text-zinc-500">{bar.label}</span>}
                       </div>
                     );
                   })}
@@ -232,26 +232,26 @@ export function EmployeeEarningsDashboard({ projects, data }: { projects: Projec
               </div>
             </div>
           )}
-          <div className="mt-8 flex flex-wrap items-center gap-3 border-t border-zinc-100 pt-3">
-            <LegendButton label="Approved" active={showApproved} color="bg-emerald-500" activeClass="bg-emerald-50" onClick={() => setShowApproved(value => !value)} />
-            <LegendButton label="Pending" active={showPending} color="bg-amber-300" activeClass="bg-amber-50" onClick={() => setShowPending(value => !value)} />
+          <div className="mt-8 flex flex-wrap items-center gap-3 border-t border-white/[0.06] pt-3">
+            <LegendButton label="Approved" active={showApproved} color="bg-emerald-500" activeClass="bg-emerald-500/15" onClick={() => setShowApproved(value => !value)} />
+            <LegendButton label="Pending" active={showPending} color="bg-amber-300" activeClass="bg-amber-500/15" onClick={() => setShowPending(value => !value)} />
           </div>
         </div>
       </section>
 
       {dashboard.byProject.length > 0 && (
-        <section className="overflow-hidden rounded-xl border border-zinc-200 bg-white">
-          <div className="flex items-center gap-2 border-b border-zinc-100 px-5 py-4"><FolderKanban size={18} className="text-zinc-500" /><h2 className="font-semibold text-zinc-900">By Project</h2></div>
-          <div className="grid grid-cols-[1fr_auto_auto_auto] gap-5 border-b border-zinc-100 px-5 py-2 text-[10px] font-medium uppercase tracking-wider text-zinc-400">
+        <section className="overflow-hidden rounded-xl border border-white/[0.08] bg-surface-raised">
+          <div className="flex items-center gap-2 border-b border-white/[0.06] px-5 py-4"><FolderKanban size={18} className="text-zinc-400" /><h2 className="font-semibold text-white">By Project</h2></div>
+          <div className="grid grid-cols-[1fr_auto_auto_auto] gap-5 border-b border-white/[0.06] px-5 py-2 text-[10px] font-medium uppercase tracking-wider text-zinc-500">
             <span>Project</span><span className="w-24 text-right">Approved</span><span className="w-24 text-right">Pending</span><span className="w-20 text-right">Hours</span>
           </div>
-          <div className="divide-y divide-zinc-100">
+          <div className="divide-y divide-white/[0.06]">
             {dashboard.byProject.map(project => (
               <div key={project.projectId} className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-5 px-5 py-3.5">
-                <div className="flex min-w-0 items-center gap-2.5"><span className="h-2.5 w-2.5 flex-shrink-0 rounded-full" style={{ backgroundColor: project.color }} /><span className="truncate text-sm font-medium text-zinc-900">{project.name}</span></div>
-                <span className="w-24 text-right text-sm font-semibold text-emerald-600">{formatMoney(project.approved)}</span>
-                <span className="w-24 text-right text-sm font-semibold text-amber-600">{formatMoney(project.pending)}</span>
-                <span className="w-20 text-right text-sm font-medium text-violet-600">{project.hours.toFixed(1)}h</span>
+                <div className="flex min-w-0 items-center gap-2.5"><span className="h-2.5 w-2.5 flex-shrink-0 rounded-full" style={{ backgroundColor: project.color }} /><span className="truncate text-sm font-medium text-white">{project.name}</span></div>
+                <span className="w-24 text-right text-sm font-semibold text-emerald-400">{formatMoney(project.approved)}</span>
+                <span className="w-24 text-right text-sm font-semibold text-amber-400">{formatMoney(project.pending)}</span>
+                <span className="w-20 text-right text-sm font-medium text-violet-400">{project.hours.toFixed(1)}h</span>
               </div>
             ))}
           </div>
@@ -262,14 +262,14 @@ export function EmployeeEarningsDashboard({ projects, data }: { projects: Projec
 }
 
 function Stat({ label, value, tone }: { label: string; value: string; tone?: 'approved' | 'pending' }) {
-  const color = tone === 'approved' ? 'text-emerald-600' : tone === 'pending' ? 'text-amber-600' : 'text-zinc-900';
-  return <div><p className="mb-0.5 text-[10px] font-medium uppercase tracking-wider text-zinc-400">{label}</p><p className={`text-sm font-semibold ${color}`}>{value}</p></div>;
+  const color = tone === 'approved' ? 'text-emerald-400' : tone === 'pending' ? 'text-amber-400' : 'text-white';
+  return <div><p className="mb-0.5 text-[10px] font-medium uppercase tracking-wider text-zinc-500">{label}</p><p className={`text-sm font-semibold ${color}`}>{value}</p></div>;
 }
 
 function ChartEmpty({ title, detail }: { title: string; detail: string }) {
-  return <div className="flex h-72 flex-col items-center justify-center text-center"><span className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-zinc-100"><TrendingUp size={18} className="text-zinc-400" /></span><p className="text-sm font-medium text-zinc-500">{title}</p><p className="mt-1 text-xs text-zinc-400">{detail}</p></div>;
+  return <div className="flex h-72 flex-col items-center justify-center text-center"><span className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-white/[0.06]"><TrendingUp size={18} className="text-zinc-500" /></span><p className="text-sm font-medium text-zinc-400">{title}</p><p className="mt-1 text-xs text-zinc-500">{detail}</p></div>;
 }
 
 function LegendButton({ label, active, color, activeClass, onClick }: { label: string; active: boolean; color: string; activeClass: string; onClick: () => void }) {
-  return <button type="button" onClick={onClick} aria-pressed={active} className={`flex items-center gap-1.5 rounded-md px-2 py-1 transition-colors ${active ? activeClass : 'opacity-40 hover:opacity-70'}`}><span className={`h-2.5 w-2.5 rounded-sm ${active ? color : 'bg-zinc-300'}`} /><span className="text-[11px] font-medium text-zinc-600">{label}</span></button>;
+  return <button type="button" onClick={onClick} aria-pressed={active} className={`flex items-center gap-1.5 rounded-md px-2 py-1 transition-colors ${active ? activeClass : 'opacity-40 hover:opacity-70'}`}><span className={`h-2.5 w-2.5 rounded-sm ${active ? color : 'bg-zinc-300'}`} /><span className="text-[11px] font-medium text-zinc-300">{label}</span></button>;
 }

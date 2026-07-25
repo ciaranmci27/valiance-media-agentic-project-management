@@ -125,11 +125,11 @@ export function LeadContactsSection({ leadId, readOnly = false }: LeadContactsSe
 
   return (
     <>
-      <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden flex flex-col max-h-[600px]">
-        <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-200 flex-shrink-0">
+      <div className="glass-card rounded-xl overflow-hidden flex flex-col max-h-[600px]">
+        <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.08] flex-shrink-0">
           <div className="flex items-center gap-2">
-            <Users size={18} className="text-zinc-500" />
-            <h2 className="font-semibold text-zinc-900">
+            <Users size={18} className="text-zinc-400" />
+            <h2 className="font-semibold text-white">
               Contacts ({leadContactsList.length})
             </h2>
           </div>
@@ -156,7 +156,7 @@ export function LeadContactsSection({ leadId, readOnly = false }: LeadContactsSe
                 const displayRole = lc.role === 'Other' && lc.custom_role ? lc.custom_role : lc.role;
 
                 return (
-                  <div key={lc.id} className="px-3 py-2.5 rounded-lg bg-zinc-50 hover:bg-zinc-100 transition-colors group">
+                  <div key={lc.id} className="px-3 py-2.5 rounded-lg bg-white/[0.03] hover:bg-white/[0.06] transition-colors group">
                     <div className="flex items-center gap-3">
                       <Avatar name={contact.name} src={contact.avatar_url || undefined} size="md" />
 
@@ -164,19 +164,19 @@ export function LeadContactsSection({ leadId, readOnly = false }: LeadContactsSe
                         <div className="flex items-center gap-2">
                           <Link
                             href={`/contacts/${contact.id}`}
-                            className="font-medium text-zinc-900 text-sm hover:text-brand-600 transition-colors truncate inline-flex items-center gap-1"
+                            className="font-medium text-white text-sm hover:text-brand-300 transition-colors truncate inline-flex items-center gap-1"
                           >
                             {contact.name}
                             <ExternalLink size={11} className="flex-shrink-0 opacity-50" />
                           </Link>
                           {lc.is_primary_client && (
-                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700 flex-shrink-0">
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-xs font-medium bg-amber-500/15 text-amber-300 flex-shrink-0">
                               <Star size={10} />
                               Primary
                             </span>
                           )}
                         </div>
-                        <div className="flex items-center gap-2 text-xs text-zinc-500">
+                        <div className="flex items-center gap-2 text-xs text-zinc-400">
                           {contact.email && <span className="truncate">{contact.email}</span>}
                           {contact.email && contact.company && <span>&middot;</span>}
                           {contact.company && <span className="truncate">{contact.company}</span>}
@@ -188,13 +188,13 @@ export function LeadContactsSection({ leadId, readOnly = false }: LeadContactsSe
                           <Badge variant="default">{displayRole}</Badge>
                           {!readOnly && <button
                             onClick={() => handleStartEdit(lc)}
-                            className="p-1.5 text-zinc-300 hover:text-brand-500 transition-all sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
+                            className="p-1.5 text-zinc-600 hover:text-brand-500 transition-all sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
                           >
                             <Edit size={14} />
                           </button>}
                           {!readOnly && <button
                             onClick={() => handleRemove(lc.id)}
-                            className="p-1.5 text-zinc-300 hover:text-red-500 transition-all sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
+                            className="p-1.5 text-zinc-600 hover:text-red-500 transition-all sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
                           >
                             <Trash2 size={14} />
                           </button>}
@@ -203,7 +203,7 @@ export function LeadContactsSection({ leadId, readOnly = false }: LeadContactsSe
                     </div>
 
                     {isEditing && (
-                      <div className="mt-3 pt-3 border-t border-zinc-100 flex flex-wrap items-center gap-2">
+                      <div className="mt-3 pt-3 border-t border-white/[0.06] flex flex-wrap items-center gap-2">
                         <Select
                           value={editRole}
                           onChange={(value) => setEditRole(value)}
@@ -227,9 +227,9 @@ export function LeadContactsSection({ leadId, readOnly = false }: LeadContactsSe
                               onClick={() => setEditIsPrimary(!editIsPrimary)}
                               className={`relative inline-flex w-8 h-[18px] rounded-full transition-colors flex-shrink-0 ${editIsPrimary ? 'bg-amber-500' : 'bg-zinc-300'}`}
                             >
-                              <span className={`absolute top-[2px] left-[2px] w-[14px] h-[14px] rounded-full bg-white shadow-sm transition-transform ${editIsPrimary ? 'translate-x-[14px]' : 'translate-x-0'}`} />
+                              <span className={`absolute top-[2px] left-[2px] w-[14px] h-[14px] rounded-full bg-surface-raised shadow-sm transition-transform ${editIsPrimary ? 'translate-x-[14px]' : 'translate-x-0'}`} />
                             </button>
-                            <span className={`text-xs whitespace-nowrap ${editIsPrimary ? 'text-amber-700' : 'text-zinc-600'}`}>Primary</span>
+                            <span className={`text-xs whitespace-nowrap ${editIsPrimary ? 'text-amber-300' : 'text-zinc-300'}`}>Primary</span>
                           </label>
                         )}
                         <div className="flex items-center gap-1 ml-auto">
@@ -248,22 +248,22 @@ export function LeadContactsSection({ leadId, readOnly = false }: LeadContactsSe
             </div>
           ) : !showAddForm ? (
             <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
-              <div className="w-10 h-10 rounded-full bg-zinc-100 flex items-center justify-center mb-3">
-                <Users size={18} className="text-zinc-400" />
+              <div className="w-10 h-10 rounded-full bg-white/[0.06] flex items-center justify-center mb-3">
+                <Users size={18} className="text-zinc-500" />
               </div>
-              <p className="text-sm font-medium text-zinc-500">No contacts linked yet</p>
-              <p className="text-xs text-zinc-400 mt-1">Add contacts to this lead</p>
+              <p className="text-sm font-medium text-zinc-400">No contacts linked yet</p>
+              <p className="text-xs text-zinc-500 mt-1">Add contacts to this lead</p>
             </div>
           ) : null}
 
           {/* Inline add contact form */}
           {showAddForm && (
-            <div className="p-4 space-y-3 border-t border-zinc-100">
+            <div className="p-4 space-y-3 border-t border-white/[0.06]">
               <div className="flex items-center justify-between">
-                <h4 className="text-sm font-medium text-zinc-900">Add Contact</h4>
+                <h4 className="text-sm font-medium text-white">Add Contact</h4>
                 <button
                   onClick={resetAddForm}
-                  className="p-1 rounded text-zinc-400 hover:text-zinc-600 hover:bg-zinc-200 transition-all"
+                  className="p-1 rounded text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.08] transition-all"
                 >
                   <X size={16} />
                 </button>
@@ -279,9 +279,9 @@ export function LeadContactsSection({ leadId, readOnly = false }: LeadContactsSe
               />
 
               {/* Contact list */}
-              <div className="max-h-36 overflow-y-auto border border-zinc-200 rounded-lg bg-white">
+              <div className="max-h-36 overflow-y-auto border border-white/[0.08] rounded-lg bg-surface-raised">
                 {availableContacts.length === 0 ? (
-                  <div className="p-3 text-sm text-zinc-500 text-center">
+                  <div className="p-3 text-sm text-zinc-400 text-center">
                     {addSearch ? 'No contacts match your search' : 'All contacts are already linked'}
                   </div>
                 ) : (
@@ -292,8 +292,8 @@ export function LeadContactsSection({ leadId, readOnly = false }: LeadContactsSe
                       onClick={() => setAddContactId(c.id)}
                       className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left transition-colors ${
                         addContactId === c.id
-                          ? 'bg-brand-50 text-brand-700'
-                          : 'text-zinc-700 hover:bg-zinc-50'
+                          ? 'bg-brand-500/15 text-brand-300'
+                          : 'text-zinc-300 hover:bg-white/[0.03]'
                       }`}
                     >
                       <div
@@ -304,7 +304,7 @@ export function LeadContactsSection({ leadId, readOnly = false }: LeadContactsSe
                       </div>
                       <div className="min-w-0 flex-1">
                         <span className="font-medium truncate block">{c.name}</span>
-                        {c.company && <span className="text-xs text-zinc-500">{c.company}</span>}
+                        {c.company && <span className="text-xs text-zinc-400">{c.company}</span>}
                       </div>
                     </button>
                   ))
@@ -314,7 +314,7 @@ export function LeadContactsSection({ leadId, readOnly = false }: LeadContactsSe
               <button
                 type="button"
                 onClick={() => setShowNewContactForm(true)}
-                className="text-sm text-brand-600 hover:text-brand-700 font-medium"
+                className="text-sm text-brand-300 hover:text-brand-300 font-medium"
               >
                 + Create new contact
               </button>
@@ -349,9 +349,9 @@ export function LeadContactsSection({ leadId, readOnly = false }: LeadContactsSe
                       onClick={() => setAddIsPrimary(!addIsPrimary)}
                       className={`relative inline-flex w-9 h-5 rounded-full transition-colors flex-shrink-0 ${addIsPrimary ? 'bg-amber-500' : 'bg-zinc-300'}`}
                     >
-                      <span className={`absolute top-[2px] left-[2px] w-4 h-4 rounded-full bg-white shadow-sm transition-transform ${addIsPrimary ? 'translate-x-4' : 'translate-x-0'}`} />
+                      <span className={`absolute top-[2px] left-[2px] w-4 h-4 rounded-full bg-surface-raised shadow-sm transition-transform ${addIsPrimary ? 'translate-x-4' : 'translate-x-0'}`} />
                     </button>
-                    <span className={`text-sm whitespace-nowrap ${addIsPrimary ? 'text-amber-700' : 'text-zinc-600'}`}>Primary</span>
+                    <span className={`text-sm whitespace-nowrap ${addIsPrimary ? 'text-amber-300' : 'text-zinc-300'}`}>Primary</span>
                   </label>
                 )}
               </div>

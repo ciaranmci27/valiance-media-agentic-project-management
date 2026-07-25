@@ -129,21 +129,21 @@ export function Select({
         disabled={disabled}
         onClick={() => setIsOpen(!isOpen)}
         onKeyDown={handleKeyDown}
-        className={`w-full ${sizeClasses} bg-white border rounded-lg outline-none transition-all duration-150 flex items-center justify-between gap-2 text-left ${
+        className={`w-full ${sizeClasses} bg-input-bg border rounded-lg outline-none transition-all duration-150 flex items-center justify-between gap-2 text-left ${
           error
-            ? 'border-red-400 focus:border-red-500 focus:ring-2 focus:ring-red-100'
+            ? 'border-input-border-error focus:ring-2 focus:ring-input-ring-error'
             : isOpen
-              ? 'border-brand-500 ring-2 ring-brand-100'
-              : 'border-zinc-200 hover:border-zinc-300 focus:border-brand-500 focus:ring-2 focus:ring-brand-100'
-        } ${disabled ? 'opacity-50 cursor-not-allowed bg-zinc-50' : 'cursor-pointer'}`}
+              ? 'border-input-border-focus ring-2 ring-input-ring'
+              : 'border-input-border hover:border-input-border-hover focus:border-input-border-focus focus:ring-2 focus:ring-input-ring'
+        } ${disabled ? 'opacity-50 cursor-not-allowed bg-input-bg-disabled' : 'cursor-pointer'}`}
       >
-        <span className={`truncate flex items-center gap-2 ${selectedOption ? 'text-zinc-900' : 'text-zinc-400'}`}>
+        <span className={`truncate flex items-center gap-2 ${selectedOption ? 'text-input-text' : 'text-input-text-placeholder'}`}>
           {selectedOption?.icon}
           {displayLabel}
         </span>
         <ChevronDown
           size={size === 'sm' ? 14 : 16}
-          className={`flex-shrink-0 text-zinc-400 transition-transform duration-150 ${isOpen ? 'rotate-180' : ''}`}
+          className={`flex-shrink-0 text-input-text-placeholder transition-transform duration-150 ${isOpen ? 'rotate-180' : ''}`}
         />
       </button>
       {error && <p className="text-xs text-red-500">{error}</p>}
@@ -152,7 +152,7 @@ export function Select({
         createPortal(
           <div
             ref={dropdownRef}
-            className="fixed z-[9999] bg-white border border-zinc-200 rounded-lg shadow-lg py-1 overflow-auto"
+            className="fixed z-[9999] bg-surface-overlay border border-white/10 rounded-lg shadow-[0_16px_48px_-12px_rgba(0,0,0,0.7)] py-1 overflow-auto"
             style={{
               top: dropdownPos.top,
               left: dropdownPos.left,
@@ -170,14 +170,14 @@ export function Select({
                   onClick={() => handleSelect(option.value)}
                   className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left transition-colors ${
                     isSelected
-                      ? 'bg-brand-50 text-brand-700'
-                      : 'text-zinc-700 hover:bg-zinc-50'
+                      ? 'bg-brand-500/15 text-brand-300'
+                      : 'text-zinc-300 hover:bg-white/[0.06]'
                   }`}
                 >
                   {option.icon && <span className="flex-shrink-0">{option.icon}</span>}
                   <span className="flex-1 whitespace-nowrap">{option.label}</span>
                   {isSelected && (
-                    <Check size={14} className="flex-shrink-0 text-brand-600" />
+                    <Check size={14} className="flex-shrink-0 text-brand-300" />
                   )}
                 </button>
               );

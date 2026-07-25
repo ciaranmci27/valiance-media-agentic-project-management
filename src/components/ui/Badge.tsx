@@ -10,13 +10,15 @@ interface BadgeProps {
 }
 
 export function Badge({ children, variant = 'default', color, className = '' }: BadgeProps) {
+  // Subtle tinted pills — low-saturation fills so color reads as a quiet signal,
+  // not decoration. Most non-status badges should use `default` (neutral glass).
   const variantClasses = {
-    default: 'bg-zinc-100 text-zinc-600',
-    success: 'bg-emerald-100 text-emerald-700',
-    warning: 'bg-amber-100 text-amber-700',
-    danger: 'bg-red-100 text-red-700',
-    info: 'bg-brand-100 text-brand-700',
-    purple: 'bg-violet-100 text-violet-700',
+    default: 'bg-white/[0.05] text-zinc-300',
+    success: 'bg-emerald-500/[0.12] text-emerald-300/90',
+    warning: 'bg-amber-500/[0.12] text-amber-300/90',
+    danger: 'bg-red-500/[0.12] text-red-300/90',
+    info: 'bg-brand-500/[0.12] text-brand-300/90',
+    purple: 'bg-violet-500/[0.12] text-violet-300/90',
   };
 
   return (
@@ -31,9 +33,10 @@ export function Badge({ children, variant = 'default', color, className = '' }: 
 
 // Priority badge
 export function PriorityBadge({ priority }: { priority: string }) {
+  // Only high/urgent carry color — low/medium stay neutral to cut visual noise.
   const config = {
     low: { variant: 'default' as const, label: 'Low' },
-    medium: { variant: 'info' as const, label: 'Medium' },
+    medium: { variant: 'default' as const, label: 'Medium' },
     high: { variant: 'warning' as const, label: 'High' },
     urgent: { variant: 'danger' as const, label: 'Urgent' },
   };
@@ -45,13 +48,14 @@ export function PriorityBadge({ priority }: { priority: string }) {
 
 // Status badge
 export function StatusBadge({ status }: { status: string }) {
+  // Reserve color for the states that matter at a glance; the rest go neutral.
   const config = {
     todo: { variant: 'default' as const, label: 'To Do' },
     in_progress: { variant: 'info' as const, label: 'In Progress' },
-    in_review: { variant: 'warning' as const, label: 'In Review' },
+    in_review: { variant: 'default' as const, label: 'In Review' },
     done: { variant: 'success' as const, label: 'Done' },
     active: { variant: 'success' as const, label: 'Active' },
-    completed: { variant: 'purple' as const, label: 'Completed' },
+    completed: { variant: 'default' as const, label: 'Completed' },
     archived: { variant: 'default' as const, label: 'Archived' },
   };
   
@@ -68,13 +72,13 @@ export function ProjectStatusBadge({ status }: { status: string }) {
 // Task type badge
 export function TaskTypeBadge({ taskType }: { taskType: string }) {
   const label = taskType.charAt(0).toUpperCase() + taskType.slice(1);
-  return <Badge variant="purple">{label}</Badge>;
+  return <Badge variant="default">{label}</Badge>;
 }
 
 // Tag badge
 export function TagBadge({ tag }: { tag: string }) {
   return (
-    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-zinc-100 text-zinc-600">
+    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-white/[0.06] text-zinc-300">
       #{tag}
     </span>
   );

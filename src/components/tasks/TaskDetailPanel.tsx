@@ -134,15 +134,15 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
       />
 
       {/* Panel */}
-      <div className="relative w-full sm:w-[480px] bg-white shadow-2xl flex flex-col animate-slideIn overflow-hidden">
+      <div className="relative w-full sm:w-[480px] bg-surface-raised shadow-2xl flex flex-col animate-slideIn overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-200 flex-shrink-0">
-          <h2 className="text-lg font-semibold text-zinc-900 truncate pr-3">{task.title}</h2>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-white/[0.08] flex-shrink-0">
+          <h2 className="text-lg font-semibold text-white truncate pr-3">{task.title}</h2>
           <div className="flex items-center gap-1.5 flex-shrink-0">
             {canEdit && <Tooltip content="Edit task">
               <button
                 onClick={() => onEdit(task)}
-                className="p-1.5 rounded-lg text-zinc-500 hover:text-brand-600 hover:bg-brand-50 transition-colors"
+                className="p-1.5 rounded-lg text-zinc-400 hover:text-brand-300 hover:bg-brand-500/15 transition-colors"
               >
                 <Edit size={16} />
               </button>
@@ -150,14 +150,14 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
             {canDelete && <Tooltip content="Delete task">
               <button
                 onClick={handleDelete}
-                className="p-1.5 rounded-lg text-zinc-500 hover:text-red-600 hover:bg-red-50 transition-colors"
+                className="p-1.5 rounded-lg text-zinc-400 hover:text-red-400 hover:bg-red-500/15 transition-colors"
               >
                 <Trash2 size={16} />
               </button>
             </Tooltip>}
             <button
               onClick={onClose}
-              className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 transition-colors"
+              className="p-1.5 rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.06] transition-colors"
             >
               <X size={18} />
             </button>
@@ -173,14 +173,14 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
               <div className="relative">
                 <button
                   onClick={() => canEdit && setShowStatusMenu(!showStatusMenu)}
-                  className={canEdit ? 'hover:ring-2 hover:ring-brand-200 rounded-full transition-all' : 'cursor-default'}
+                  className={canEdit ? 'hover:ring-2 hover:ring-brand-500/30 rounded-full transition-all' : 'cursor-default'}
                 >
                   <StatusBadge status={task.status} />
                 </button>
                 {canEdit && showStatusMenu && (
                   <>
                     <div className="fixed inset-0 z-10 cursor-default" onClick={() => setShowStatusMenu(false)} />
-                    <div className="absolute left-0 top-8 bg-white rounded-lg shadow-xl border border-zinc-200 py-1 z-20 min-w-[160px] cursor-pointer">
+                    <div className="absolute left-0 top-8 bg-surface-raised rounded-lg shadow-xl border border-white/[0.08] py-1 z-20 min-w-[160px] cursor-pointer">
                       {STATUS_OPTIONS.map((opt) => (
                         <button
                           key={opt.value}
@@ -188,8 +188,8 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
                             updateTask(task.id, { status: opt.value });
                             setShowStatusMenu(false);
                           }}
-                          className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-zinc-50 transition-colors ${
-                            task.status === opt.value ? 'bg-zinc-50 font-medium' : 'text-zinc-700'
+                          className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-white/[0.03] transition-colors ${
+                            task.status === opt.value ? 'bg-white/[0.03] font-medium' : 'text-zinc-300'
                           }`}
                         >
                           <div className={`w-2 h-2 rounded-full ${opt.color}`} />
@@ -205,14 +205,14 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
               <div className="relative">
                 <button
                   onClick={() => canEdit && setShowPriorityMenu(!showPriorityMenu)}
-                  className={canEdit ? 'hover:ring-2 hover:ring-brand-200 rounded-full transition-all' : 'cursor-default'}
+                  className={canEdit ? 'hover:ring-2 hover:ring-brand-500/30 rounded-full transition-all' : 'cursor-default'}
                 >
                   <PriorityBadge priority={task.priority} />
                 </button>
                 {canEdit && showPriorityMenu && (
                   <>
                     <div className="fixed inset-0 z-10 cursor-default" onClick={() => setShowPriorityMenu(false)} />
-                    <div className="absolute left-0 top-8 bg-white rounded-lg shadow-xl border border-zinc-200 py-1 z-20 min-w-[140px] cursor-pointer">
+                    <div className="absolute left-0 top-8 bg-surface-raised rounded-lg shadow-xl border border-white/[0.08] py-1 z-20 min-w-[140px] cursor-pointer">
                       {PRIORITY_OPTIONS.map((opt) => (
                         <button
                           key={opt.value}
@@ -220,8 +220,8 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
                             updateTask(task.id, { priority: opt.value });
                             setShowPriorityMenu(false);
                           }}
-                          className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-zinc-50 transition-colors ${
-                            task.priority === opt.value ? 'bg-zinc-50 font-medium' : 'text-zinc-700'
+                          className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-white/[0.03] transition-colors ${
+                            task.priority === opt.value ? 'bg-white/[0.03] font-medium' : 'text-zinc-300'
                           }`}
                         >
                           <div className={`w-2 h-2 rounded-full ${opt.color}`} />
@@ -235,8 +235,8 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
               {dueInfo && (
                 <div className={`flex items-center gap-1.5 text-xs px-2 py-0.5 rounded-full ${
                   dueInfo.isOverdue
-                    ? 'bg-red-100 text-red-700 font-medium'
-                    : 'bg-zinc-100 text-zinc-600'
+                    ? 'bg-red-500/15 text-red-300 font-medium'
+                    : 'bg-white/[0.06] text-zinc-300'
                 }`}>
                   <Calendar size={12} />
                   <span>{dueInfo.text}</span>
@@ -249,15 +249,15 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
               {/* Assignees */}
               {assignees.length > 0 && (
                 <div className="flex items-center gap-3">
-                  <div className="flex items-center gap-1.5 text-xs text-zinc-500 w-20 flex-shrink-0">
+                  <div className="flex items-center gap-1.5 text-xs text-zinc-400 w-20 flex-shrink-0">
                     <Users size={14} />
                     <span>Assignees</span>
                   </div>
                   <div className="flex items-center gap-2 flex-wrap">
                     {assignees.map((member) => (
-                      <div key={member.id} className="flex items-center gap-1.5 px-2 py-1 bg-zinc-100 rounded-full">
+                      <div key={member.id} className="flex items-center gap-1.5 px-2 py-1 bg-white/[0.06] rounded-full">
                         <Avatar name={member.name} src={member.avatar || undefined} size="xs" />
-                        <span className="text-xs text-zinc-700">{member.name}</span>
+                        <span className="text-xs text-zinc-300">{member.name}</span>
                       </div>
                     ))}
                   </div>
@@ -267,7 +267,7 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
               {/* Tags */}
               {task.tags.length > 0 && (
                 <div className="flex items-center gap-3">
-                  <div className="flex items-center gap-1.5 text-xs text-zinc-500 w-20 flex-shrink-0">
+                  <div className="flex items-center gap-1.5 text-xs text-zinc-400 w-20 flex-shrink-0">
                     <Tag size={14} />
                     <span>Tags</span>
                   </div>
@@ -275,7 +275,7 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
                     {task.tags.map((tag) => (
                       <span
                         key={tag}
-                        className="px-2 py-0.5 text-xs bg-zinc-100 text-zinc-600 rounded-full"
+                        className="px-2 py-0.5 text-xs bg-white/[0.06] text-zinc-300 rounded-full"
                       >
                         {tag}
                       </span>
@@ -286,22 +286,22 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
 
               {/* Created */}
               <div className="flex items-center gap-3">
-                <div className="flex items-center gap-1.5 text-xs text-zinc-500 w-20 flex-shrink-0">
+                <div className="flex items-center gap-1.5 text-xs text-zinc-400 w-20 flex-shrink-0">
                   <Clock size={14} />
                   <span>Created</span>
                 </div>
-                <span className="text-xs text-zinc-600">{createdDate}</span>
+                <span className="text-xs text-zinc-300">{createdDate}</span>
               </div>
             </div>
 
             {/* AI Managed Toggle */}
             {showAiToggle && (
-              <div className="flex items-center justify-between py-2 px-3 bg-zinc-50 rounded-lg">
+              <div className="flex items-center justify-between py-2 px-3 bg-white/[0.03] rounded-lg">
                 <div className="flex items-center gap-2">
-                  <Bot size={14} className="text-zinc-500" />
+                  <Bot size={14} className="text-zinc-400" />
                   <div>
-                    <p className="text-sm font-medium text-zinc-700">AI Managed</p>
-                    <p className="text-xs text-zinc-400">Let Ashley automate this task</p>
+                    <p className="text-sm font-medium text-zinc-300">AI Managed</p>
+                    <p className="text-xs text-zinc-500">Let Ashley automate this task</p>
                   </div>
                 </div>
                 <button
@@ -311,7 +311,7 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
                   }`}
                 >
                   <span
-                    className={`absolute top-0.5 left-0.5 w-[18px] h-[18px] bg-white rounded-full shadow transition-transform ${
+                    className={`absolute top-0.5 left-0.5 w-[18px] h-[18px] bg-surface-raised rounded-full shadow transition-transform ${
                       task.ai_managed ? 'translate-x-[18px]' : 'translate-x-0'
                     }`}
                   />
@@ -322,19 +322,19 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
             {/* Description */}
             {task.description && (
               <div className="space-y-2">
-                <h3 className="text-sm font-medium text-zinc-700">Description</h3>
-                <p className="text-sm text-zinc-600 whitespace-pre-wrap leading-relaxed">{task.description}</p>
+                <h3 className="text-sm font-medium text-zinc-300">Description</h3>
+                <p className="text-sm text-zinc-300 whitespace-pre-wrap leading-relaxed">{task.description}</p>
               </div>
             )}
 
             {/* Subtasks Section */}
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <h3 className="text-sm font-medium text-zinc-700 flex items-center gap-2">
+                <h3 className="text-sm font-medium text-zinc-300 flex items-center gap-2">
                   <CheckSquare size={14} />
                   Subtasks
                   {task.subtasks.length > 0 && (
-                    <span className="text-xs text-zinc-500 font-normal">
+                    <span className="text-xs text-zinc-400 font-normal">
                       ({completedSubtasks}/{task.subtasks.length})
                     </span>
                   )}
@@ -343,7 +343,7 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
 
               {/* Progress bar */}
               {task.subtasks.length > 0 && (
-                <div className="h-1.5 bg-zinc-100 rounded-full overflow-hidden">
+                <div className="h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
                   <div
                     className="h-full bg-emerald-500 rounded-full transition-all duration-300"
                     style={{ width: `${(completedSubtasks / task.subtasks.length) * 100}%` }}
@@ -391,7 +391,7 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
                         });
                       }
                     }}
-                    className={`flex items-center gap-2 p-2 rounded-lg hover:bg-zinc-50 group cursor-grab active:cursor-grabbing ${
+                    className={`flex items-center gap-2 p-2 rounded-lg hover:bg-white/[0.03] group cursor-grab active:cursor-grabbing ${
                       draggedSubtaskId === subtask.id ? 'opacity-50' : ''
                     }`}
                   >
@@ -400,7 +400,7 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
                       className={`flex-shrink-0 w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
                         subtask.completed
                           ? 'bg-emerald-500 border-emerald-500'
-                          : 'border-zinc-300 hover:border-emerald-400'
+                          : 'border-white/[0.12] hover:border-emerald-400'
                       }`}
                     >
                       {subtask.completed && <CheckSquare size={12} className="text-white" />}
@@ -432,7 +432,7 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
                     ) : (
                       <Tooltip content="Double-click to edit" delay={500}>
                         <span
-                          className={`flex-1 text-sm cursor-pointer ${subtask.completed ? 'text-zinc-400 line-through' : 'text-zinc-700'}`}
+                          className={`flex-1 text-sm cursor-pointer ${subtask.completed ? 'text-zinc-500 line-through' : 'text-zinc-300'}`}
                           onDoubleClick={() => {
                             setEditingSubtaskId(subtask.id);
                             setEditingSubtaskTitle(subtask.title);
@@ -448,17 +448,17 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
                           setEditingSubtaskId(subtask.id);
                           setEditingSubtaskTitle(subtask.title);
                         }}
-                        className="p-1 text-zinc-400 hover:text-brand-500"
+                        className="p-1 text-zinc-500 hover:text-brand-500"
                       >
                         <Edit size={12} />
                       </button>
                       <button
                         onClick={() => setDeleteSubtaskTarget(subtask.id)}
-                        className="p-1 text-zinc-400 hover:text-red-500"
+                        className="p-1 text-zinc-500 hover:text-red-500"
                       >
                         <X size={14} />
                       </button>
-                      <GripVertical size={14} className="text-zinc-300 flex-shrink-0 cursor-grab active:cursor-grabbing" />
+                      <GripVertical size={14} className="text-zinc-600 flex-shrink-0 cursor-grab active:cursor-grabbing" />
                     </div>
                   </div>
                 ))}
@@ -475,7 +475,7 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
                 />
                 <button
                   type="submit"
-                  className="p-1 rounded text-zinc-400 hover:text-brand-600 hover:bg-brand-50 transition-colors flex-shrink-0"
+                  className="p-1 rounded text-zinc-500 hover:text-brand-300 hover:bg-brand-500/15 transition-colors flex-shrink-0"
                 >
                   <Plus size={16} />
                 </button>
@@ -484,11 +484,11 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
 
             {/* Comments Section */}
             <div className="space-y-3">
-              <h3 className="text-sm font-medium text-zinc-700 flex items-center gap-2">
+              <h3 className="text-sm font-medium text-zinc-300 flex items-center gap-2">
                 <MessageSquare size={14} />
                 Comments
                 {task.comments.length > 0 && (
-                  <span className="text-xs text-zinc-500 font-normal">
+                  <span className="text-xs text-zinc-400 font-normal">
                     ({task.comments.length})
                   </span>
                 )}
@@ -505,8 +505,8 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2">
-                            <p className="text-sm font-medium text-zinc-900">{author?.name || 'Unknown'}</p>
-                            <p className="text-xs text-zinc-400">
+                            <p className="text-sm font-medium text-white">{author?.name || 'Unknown'}</p>
+                            <p className="text-xs text-zinc-500">
                               {new Date(comment.created_at).toLocaleDateString('en-US', {
                                 month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
                               })}
@@ -519,14 +519,14 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
                                   setEditingCommentId(comment.id);
                                   setEditingCommentText(comment.text);
                                 }}
-                                className="p-1 text-zinc-400 hover:text-brand-500"
+                                className="p-1 text-zinc-500 hover:text-brand-500"
                               >
                                 <Edit size={12} />
                               </button>
                             )}
                             <button
                               onClick={() => setDeleteCommentTarget(comment.id)}
-                              className="p-1 text-zinc-400 hover:text-red-500"
+                              className="p-1 text-zinc-500 hover:text-red-500"
                             >
                               <X size={14} />
                             </button>
@@ -560,14 +560,14 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
                               <button
                                 type="button"
                                 onClick={() => setEditingCommentId(null)}
-                                className="px-2.5 py-1 text-xs text-zinc-600 hover:bg-zinc-100 rounded-md transition-colors"
+                                className="px-2.5 py-1 text-xs text-zinc-300 hover:bg-white/[0.06] rounded-md transition-colors"
                               >
                                 Cancel
                               </button>
                             </div>
                           </form>
                         ) : (
-                          <p className="text-sm text-zinc-600 mt-0.5">{comment.text}</p>
+                          <p className="text-sm text-zinc-300 mt-0.5">{comment.text}</p>
                         )}
                       </div>
                     </div>
@@ -575,11 +575,11 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
                 })}
                 {task.comments.length === 0 && (
                   <div className="flex flex-col items-center justify-center p-8 text-center">
-                    <div className="w-10 h-10 rounded-full bg-zinc-100 flex items-center justify-center mb-3">
-                      <MessageSquare size={18} className="text-zinc-400" />
+                    <div className="w-10 h-10 rounded-full bg-white/[0.06] flex items-center justify-center mb-3">
+                      <MessageSquare size={18} className="text-zinc-500" />
                     </div>
-                    <p className="text-sm font-medium text-zinc-500">No comments yet</p>
-                    <p className="text-xs text-zinc-400 mt-1">Add a comment below</p>
+                    <p className="text-sm font-medium text-zinc-400">No comments yet</p>
+                    <p className="text-xs text-zinc-500 mt-1">Add a comment below</p>
                   </div>
                 )}
               </div>
@@ -595,7 +595,7 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
                 />
                 <button
                   type="submit"
-                  className="p-1 rounded text-zinc-400 hover:text-brand-600 hover:bg-brand-50 transition-colors flex-shrink-0"
+                  className="p-1 rounded text-zinc-500 hover:text-brand-300 hover:bg-brand-500/15 transition-colors flex-shrink-0"
                 >
                   <MessageSquare size={16} />
                 </button>

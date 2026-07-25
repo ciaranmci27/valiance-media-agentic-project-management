@@ -161,14 +161,14 @@ export const PinInput = forwardRef<PinInputRef, PinInputProps>(
             onPaste={(e) => handlePaste(e, i)}
             className={`${boxSize} text-center font-semibold border rounded-lg outline-none transition-all ${
               error
-                ? 'border-red-300 bg-red-50/50 focus:border-red-400 focus:ring-2 focus:ring-red-100'
+                ? 'border-red-500/30 bg-red-500/15 focus:border-red-400 focus:ring-2 focus:ring-red-500/30'
                 : accentColor
                   ? char
-                    ? 'bg-white'
-                    : 'bg-zinc-50 border-zinc-200 hover:border-zinc-300 focus:bg-white'
+                    ? 'bg-surface-raised'
+                    : 'bg-white/[0.03] border-white/[0.08] hover:border-white/[0.12] focus:bg-surface-raised'
                   : char
-                    ? 'bg-white border-brand-300 focus:border-brand-500 focus:ring-2 focus:ring-brand-100'
-                    : 'bg-zinc-50 border-zinc-200 hover:border-zinc-300 focus:border-brand-500 focus:ring-2 focus:ring-brand-100 focus:bg-white'
+                    ? 'bg-surface-raised border-brand-500/30 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30'
+                    : 'bg-white/[0.03] border-white/[0.08] hover:border-white/[0.12] focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30 focus:bg-surface-raised'
             } ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
             style={!error && accentColor ? {
               borderColor: char ? accentColor + '80' : undefined,

@@ -48,13 +48,13 @@ export function ApproveModal({ suggestion, onClose, onApprove, onApproveManual }
     <Modal isOpen onClose={onClose} title="Approve Suggestion" size="md">
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
-          <label className="block text-sm font-medium text-zinc-700 mb-1">Title</label>
-          <p className="px-3 py-2 text-sm text-zinc-900 bg-zinc-50 border border-zinc-200 rounded-lg">{suggestion.title}</p>
+          <label className="block text-sm font-medium text-zinc-300 mb-1">Title</label>
+          <p className="px-3 py-2 text-sm text-white bg-white/[0.03] border border-white/[0.08] rounded-lg">{suggestion.title}</p>
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-zinc-700 mb-1">Description</label>
-          <p className="px-3 py-2 text-sm text-zinc-600 bg-zinc-50 border border-zinc-200 rounded-lg max-h-24 overflow-y-auto">{suggestion.description}</p>
+          <label className="block text-sm font-medium text-zinc-300 mb-1">Description</label>
+          <p className="px-3 py-2 text-sm text-zinc-300 bg-white/[0.03] border border-white/[0.08] rounded-lg max-h-24 overflow-y-auto">{suggestion.description}</p>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -109,11 +109,11 @@ export function ApproveModal({ suggestion, onClose, onApprove, onApproveManual }
                 aiManaged ? 'bg-brand-600' : 'bg-zinc-300'
               }`}
             >
-              <span className={`inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform ${
+              <span className={`inline-block h-3.5 w-3.5 rounded-full bg-surface-raised transition-transform ${
                 aiManaged ? 'translate-x-[18px]' : 'translate-x-[3px]'
               }`} />
             </button>
-            <span className="text-sm text-zinc-700">
+            <span className="text-sm text-zinc-300">
               {aiManaged ? 'AI managed' : 'Manual task'}
             </span>
           </label>

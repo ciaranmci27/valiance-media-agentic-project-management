@@ -270,18 +270,18 @@ export function SmtpSection() {
 
   if (loading) {
     return (
-      <section className="bg-white rounded-xl border border-zinc-200 p-4 lg:p-6">
+      <section className="glass-card rounded-xl p-4 lg:p-6">
         <div className="flex items-center gap-3">
-          <div className="p-2 bg-cyan-50 rounded-lg">
-            <Mail className="text-cyan-600" size={20} />
+          <div className="p-2 bg-cyan-500/15 rounded-lg">
+            <Mail className="text-cyan-400" size={20} />
           </div>
           <div>
-            <h2 className="font-semibold text-zinc-900">SMTP Email</h2>
-            <p className="text-sm text-zinc-500">Loading...</p>
+            <h2 className="font-semibold text-white">SMTP Email</h2>
+            <p className="text-sm text-zinc-400">Loading...</p>
           </div>
         </div>
         <div className="flex justify-center py-8">
-          <Loader2 className="animate-spin text-zinc-400" size={24} />
+          <Loader2 className="animate-spin text-zinc-500" size={24} />
         </div>
       </section>
     );
@@ -291,14 +291,14 @@ export function SmtpSection() {
 
   if (!encryptionConfigured) {
     return (
-      <section className="bg-white rounded-xl border border-zinc-200 p-4 lg:p-6">
+      <section className="glass-card rounded-xl p-4 lg:p-6">
         <div className="flex items-center gap-3 mb-6">
-          <div className="p-2 bg-cyan-50 rounded-lg">
-            <Mail className="text-cyan-600" size={20} />
+          <div className="p-2 bg-cyan-500/15 rounded-lg">
+            <Mail className="text-cyan-400" size={20} />
           </div>
           <div>
-            <h2 className="font-semibold text-zinc-900">Set Up SMTP Encryption</h2>
-            <p className="text-sm text-zinc-500">An encryption key is required to securely store SMTP passwords</p>
+            <h2 className="font-semibold text-white">Set Up SMTP Encryption</h2>
+            <p className="text-sm text-zinc-400">An encryption key is required to securely store SMTP passwords</p>
           </div>
         </div>
 
@@ -309,21 +309,21 @@ export function SmtpSection() {
         ) : (
           <div className="space-y-4">
             <div>
-              <p className="text-sm font-medium text-zinc-700 mb-2">Add this to your <code className="px-1.5 py-0.5 bg-zinc-100 rounded text-xs">.env.local</code> file:</p>
+              <p className="text-sm font-medium text-zinc-300 mb-2">Add this to your <code className="px-1.5 py-0.5 bg-white/[0.06] rounded text-xs">.env.local</code> file:</p>
               <div className="flex items-center gap-2">
-                <code className="flex-1 px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-lg text-sm font-mono text-zinc-800 break-all select-all">
+                <code className="flex-1 px-3 py-2 bg-white/[0.03] border border-white/[0.08] rounded-lg text-sm font-mono text-zinc-100 break-all select-all">
                   SMTP_ENCRYPTION_KEY={generatedKey}
                 </code>
                 <button
                   onClick={handleCopyKey}
-                  className="p-2 text-zinc-500 hover:text-zinc-700 hover:bg-zinc-100 rounded-lg transition-colors flex-shrink-0"
+                  className="p-2 text-zinc-400 hover:text-zinc-300 hover:bg-white/[0.06] rounded-lg transition-colors flex-shrink-0"
                 >
                   {keyCopied ? <Check size={16} /> : <Copy size={16} />}
                 </button>
               </div>
             </div>
 
-            <p className="text-xs text-zinc-500">
+            <p className="text-xs text-zinc-400">
               After adding the key, restart your dev server, then click &ldquo;Verify Setup&rdquo; to confirm.
             </p>
 
@@ -340,15 +340,15 @@ export function SmtpSection() {
 
   return (
     <>
-      <section className="bg-white rounded-xl border border-zinc-200 p-4 lg:p-6">
+      <section className="glass-card rounded-xl p-4 lg:p-6">
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-cyan-50 rounded-lg">
-              <Mail className="text-cyan-600" size={20} />
+            <div className="p-2 bg-cyan-500/15 rounded-lg">
+              <Mail className="text-cyan-400" size={20} />
             </div>
             <div>
-              <h2 className="font-semibold text-zinc-900">SMTP Email</h2>
-              <p className="text-sm text-zinc-500 hidden sm:block">Manage outgoing email accounts</p>
+              <h2 className="font-semibold text-white">SMTP Email</h2>
+              <p className="text-sm text-zinc-400 hidden sm:block">Manage outgoing email accounts</p>
             </div>
           </div>
           {!showForm && (
@@ -368,8 +368,8 @@ export function SmtpSection() {
 
         {/* Add / Edit form */}
         {showForm && (
-          <div className="mb-6 p-4 bg-zinc-50 border border-zinc-200 rounded-lg space-y-4">
-            <h4 className="text-sm font-medium text-zinc-900">
+          <div className="mb-6 p-4 bg-white/[0.03] border border-white/[0.08] rounded-lg space-y-4">
+            <h4 className="text-sm font-medium text-white">
               {editingId ? 'Edit Account' : 'New SMTP Account'}
             </h4>
 
@@ -481,20 +481,20 @@ export function SmtpSection() {
                   onClick={() => setForm(f => ({ ...f, is_default: !f.is_default }))}
                   disabled={accounts.length === 0 && !editingId}
                   className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                    (accounts.length === 0 && !editingId) || form.is_default ? 'bg-brand-500' : 'bg-zinc-200'
+                    (accounts.length === 0 && !editingId) || form.is_default ? 'bg-brand-500' : 'bg-white/[0.08]'
                   }`}
                 >
                   <span
-                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    className={`inline-block h-4 w-4 transform rounded-full bg-surface-raised transition-transform ${
                       (accounts.length === 0 && !editingId) || form.is_default ? 'translate-x-6' : 'translate-x-1'
                     }`}
                   />
                 </button>
-                <span className="text-sm text-zinc-700">Primary account</span>
+                <span className="text-sm text-zinc-300">Primary account</span>
               </div>
             </div>
 
-            <div className="flex gap-2 mt-5 pt-4 border-t border-zinc-200">
+            <div className="flex gap-2 mt-5 pt-4 border-t border-white/[0.08]">
               <Button onClick={handleSave} disabled={formSaving}>
                 {formSaving ? 'Saving...' : editingId ? 'Update Account' : 'Create Account'}
               </Button>
@@ -507,7 +507,7 @@ export function SmtpSection() {
 
         {/* Account list */}
         {accounts.length > 0 ? (
-          <div className="border border-zinc-200 rounded-lg divide-y divide-zinc-100">
+          <div className="border border-white/[0.08] rounded-lg divide-y divide-white/[0.06]">
             {accounts.map(account => {
               const status = statuses[account.id];
               return (
@@ -522,7 +522,7 @@ export function SmtpSection() {
                       }>
                         <div className="flex-shrink-0 mt-1">
                           {status?.online === null ? (
-                            <Loader2 className="animate-spin text-zinc-400" size={14} />
+                            <Loader2 className="animate-spin text-zinc-500" size={14} />
                           ) : (
                             <div className={`w-2.5 h-2.5 rounded-full ${
                               status?.online ? 'bg-emerald-500' : 'bg-red-400'
@@ -534,15 +534,15 @@ export function SmtpSection() {
                       {/* Info */}
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          <p className="text-sm font-medium text-zinc-900 truncate">{account.label}</p>
+                          <p className="text-sm font-medium text-white truncate">{account.label}</p>
                           {account.is_default && (
-                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-brand-50 text-brand-600 flex-shrink-0">
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-brand-500/15 text-brand-300 flex-shrink-0">
                               Default
                             </span>
                           )}
                         </div>
-                        <p className="text-xs text-zinc-500 truncate mt-0.5">{account.from_email}</p>
-                        <p className="text-xs text-zinc-400 font-mono truncate mt-0.5">{account.host}:{account.port} ({account.secure ? 'SSL' : 'STARTTLS'})</p>
+                        <p className="text-xs text-zinc-400 truncate mt-0.5">{account.from_email}</p>
+                        <p className="text-xs text-zinc-500 font-mono truncate mt-0.5">{account.host}:{account.port} ({account.secure ? 'SSL' : 'STARTTLS'})</p>
                       </div>
 
                       {/* Actions */}
@@ -550,7 +550,7 @@ export function SmtpSection() {
                         <Tooltip content="Refresh status">
                           <button
                             onClick={() => verifyAccount(account.id)}
-                            className="p-1.5 text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 rounded-lg transition-colors"
+                            className="p-1.5 text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.06] rounded-lg transition-colors"
                           >
                             <RefreshCw size={14} />
                           </button>
@@ -561,7 +561,7 @@ export function SmtpSection() {
                               setTestingId(testingId === account.id ? null : account.id);
                               setTestTo('');
                             }}
-                            className="p-1.5 text-zinc-400 hover:text-brand-600 hover:bg-brand-50 rounded-lg transition-colors"
+                            className="p-1.5 text-zinc-500 hover:text-brand-300 hover:bg-brand-500/15 rounded-lg transition-colors"
                           >
                             <Send size={14} />
                           </button>
@@ -569,7 +569,7 @@ export function SmtpSection() {
                         <Tooltip content="Edit account">
                           <button
                             onClick={() => handleEdit(account)}
-                            className="p-1.5 text-zinc-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                            className="p-1.5 text-zinc-500 hover:text-blue-400 hover:bg-blue-500/15 rounded-lg transition-colors"
                           >
                             <Pencil size={14} />
                           </button>
@@ -577,7 +577,7 @@ export function SmtpSection() {
                         <Tooltip content="Delete account">
                           <button
                             onClick={() => setDeleteTarget(account)}
-                            className="p-1.5 text-zinc-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                            className="p-1.5 text-zinc-500 hover:text-red-400 hover:bg-red-500/15 rounded-lg transition-colors"
                           >
                             <Trash2 size={14} />
                           </button>
@@ -611,7 +611,7 @@ export function SmtpSection() {
             })}
           </div>
         ) : !showForm ? (
-          <div className="text-center py-6 text-zinc-500">
+          <div className="text-center py-6 text-zinc-400">
             <Mail className="mx-auto mb-2" size={24} />
             <p className="text-sm">No SMTP accounts yet</p>
             <p className="text-xs mt-1">Add an account to enable outgoing email</p>

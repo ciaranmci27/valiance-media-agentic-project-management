@@ -641,8 +641,6 @@ export async function insertLead(
       company: lead.company,
       source: lead.source,
       status: lead.status,
-      value: lead.value,
-      equity: lead.equity,
       notes: lead.notes,
       assigned_to: lead.assigned_to || null,
       contact_id: contactId,

@@ -87,9 +87,9 @@ export function ActivityTimeline() {
   const totalCount = agentActivity.length;
 
   return (
-    <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden lg:flex lg:flex-col lg:h-full lg:min-h-0">
-      <div className="p-4 border-b border-zinc-100 lg:flex-shrink-0">
-        <h2 className="font-semibold text-zinc-900">Recent Activity</h2>
+    <div className="glass-card rounded-xl overflow-hidden lg:flex lg:flex-col lg:h-full lg:min-h-0">
+      <div className="p-4 border-b border-white/[0.06] lg:flex-shrink-0">
+        <h2 className="font-semibold text-white">Recent Activity</h2>
       </div>
 
       <div className="lg:flex-1 lg:min-h-0 overflow-y-auto board-column-scroll max-h-[400px] lg:max-h-none">
@@ -98,7 +98,7 @@ export function ActivityTimeline() {
             {grouped.map((group) => (
               <div key={group.label} className="mb-4 last:mb-0">
                 {/* Day label */}
-                <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider mb-2">{group.label}</p>
+                <p className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider mb-2">{group.label}</p>
 
                 {/* Entries */}
                 <div className="space-y-0.5">
@@ -116,18 +116,18 @@ export function ActivityTimeline() {
 
                         {/* Content */}
                         <div className="flex-1 min-w-0">
-                          <p className="text-xs text-zinc-700 leading-relaxed">
+                          <p className="text-xs text-zinc-300 leading-relaxed">
                             <span className="font-medium">{getAgentName(entry.agent_id)}</span>
                             {' '}
-                            <span className="text-zinc-500">{entry.title}</span>
+                            <span className="text-zinc-400">{entry.title}</span>
                           </p>
                           {projectName && (
-                            <p className="text-[10px] text-zinc-400 mt-0.5">{projectName}</p>
+                            <p className="text-[10px] text-zinc-500 mt-0.5">{projectName}</p>
                           )}
                         </div>
 
                         {/* Time */}
-                        <span className="text-[10px] text-zinc-300 flex-shrink-0 mt-0.5">
+                        <span className="text-[10px] text-zinc-600 flex-shrink-0 mt-0.5">
                           {formatTime(entry.created_at)}
                         </span>
                       </div>
@@ -141,7 +141,7 @@ export function ActivityTimeline() {
             {!showAll && totalCount > MAX_VISIBLE && (
               <button
                 onClick={() => setShowAll(true)}
-                className="w-full flex items-center justify-center gap-1 py-2 text-xs text-brand-600 hover:text-brand-700 transition-colors"
+                className="w-full flex items-center justify-center gap-1 py-2 text-xs text-brand-300 hover:text-brand-300 transition-colors"
               >
                 View all ({totalCount})
                 <ChevronDown size={12} />
@@ -150,8 +150,8 @@ export function ActivityTimeline() {
           </div>
         ) : (
           <div className="py-8 text-center">
-            <Activity className="mx-auto mb-2 text-zinc-300" size={24} />
-            <p className="text-sm text-zinc-400">No activity yet</p>
+            <Activity className="mx-auto mb-2 text-zinc-600" size={24} />
+            <p className="text-sm text-zinc-500">No activity yet</p>
           </div>
         )}
       </div>

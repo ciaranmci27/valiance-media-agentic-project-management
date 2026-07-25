@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { accessAllows, requireSessionAccess } from '@/lib/api/access';
 import { TEAM_ROLES } from '@/lib/access-control';
 
-const PROFILE_FIELDS = ['name', 'avatar', 'timezone', 'notification_prefs', 'email_notification_prefs'] as const;
+const PROFILE_FIELDS = ['name', 'avatar', 'timezone', 'notification_prefs', 'email_notifications_enabled', 'email_notification_prefs', 'theme_preference'] as const;
 const MANAGEMENT_FIELDS = [...PROFILE_FIELDS, 'status'] as const;
 
 export async function PATCH(
@@ -44,6 +44,12 @@ export async function PATCH(
   }
   if ('status' in updates && !['active', 'suspended'].includes(String(updates.status))) {
     return NextResponse.json({ error: 'Invalid member status' }, { status: 422 });
+  }
+  if ('theme_preference' in updates && updates.theme_preference !== null && !['light', 'dark'].includes(String(updates.theme_preference))) {
+    return NextResponse.json({ error: 'Invalid theme preference' }, { status: 422 });
+  }
+  if ('email_notifications_enabled' in updates && typeof updates.email_notifications_enabled !== 'boolean') {
+    return NextResponse.json({ error: 'Invalid email notifications value' }, { status: 422 });
   }
   if (Object.keys(updates).length === 0) return NextResponse.json({ error: 'No permitted changes' }, { status: 400 });
   if (updates.status === 'suspended') {

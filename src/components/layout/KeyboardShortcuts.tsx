@@ -106,12 +106,12 @@ export function KeyboardShortcuts() {
             key={shortcut.description}
             className="flex items-center justify-between py-2 px-1"
           >
-            <span className="text-sm text-zinc-700">{shortcut.description}</span>
+            <span className="text-sm text-zinc-300">{shortcut.description}</span>
             <div className="flex items-center gap-1">
               {shortcut.keys.map((key, i) => (
                 <span key={i}>
-                  {i > 0 && <span className="text-xs text-zinc-400 mx-0.5">then</span>}
-                  <kbd className="inline-flex items-center justify-center min-w-[24px] h-6 px-1.5 text-xs font-mono font-medium text-zinc-600 bg-zinc-100 border border-zinc-200 rounded">
+                  {i > 0 && <span className="text-xs text-zinc-500 mx-0.5">then</span>}
+                  <kbd className="inline-flex items-center justify-center min-w-[24px] h-6 px-1.5 text-xs font-mono font-medium text-zinc-300 bg-white/[0.06] border border-white/[0.08] rounded">
                     {key}
                   </kbd>
                 </span>

@@ -76,17 +76,17 @@ export function AvatarGroup({ users, max = 4, size = 'sm' }: AvatarGroupProps) {
   return (
     <div className="flex -space-x-2">
       {visible.map((user) => (
-        <Avatar 
-          key={user.id} 
-          name={user.name} 
-          src={user.avatar} 
+        <Avatar
+          key={user.id}
+          name={user.name}
+          src={user.avatar}
           size={size}
-          className="ring-2 ring-white"
+          className="ring-2 ring-surface"
         />
       ))}
       {remaining > 0 && (
-        <div 
-          className={`${sizeClasses[size]} rounded-full flex items-center justify-center font-medium bg-zinc-200 text-zinc-600 ring-2 ring-white`}
+        <div
+          className={`${sizeClasses[size]} rounded-full flex items-center justify-center font-medium bg-white/10 text-zinc-300 ring-2 ring-surface`}
         >
           +{remaining}
         </div>

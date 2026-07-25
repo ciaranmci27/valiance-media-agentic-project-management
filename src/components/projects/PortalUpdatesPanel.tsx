@@ -27,10 +27,10 @@ interface PendingFile {
 }
 
 const TYPE_CONFIG: Record<PortalUpdateType, { label: string; bg: string; text: string; dot: string }> = {
-  milestone: { label: 'Milestone', bg: 'bg-emerald-50', text: 'text-emerald-700', dot: 'bg-emerald-500' },
-  deliverable: { label: 'Deliverable', bg: 'bg-blue-50', text: 'text-blue-700', dot: 'bg-blue-500' },
-  note: { label: 'Note', bg: 'bg-amber-50', text: 'text-amber-700', dot: 'bg-amber-500' },
-  general: { label: 'General', bg: 'bg-zinc-100', text: 'text-zinc-600', dot: 'bg-zinc-400' },
+  milestone: { label: 'Milestone', bg: 'bg-emerald-500/15', text: 'text-emerald-300', dot: 'bg-emerald-500' },
+  deliverable: { label: 'Deliverable', bg: 'bg-blue-500/15', text: 'text-blue-300', dot: 'bg-blue-500' },
+  note: { label: 'Note', bg: 'bg-amber-500/15', text: 'text-amber-300', dot: 'bg-amber-500' },
+  general: { label: 'General', bg: 'bg-white/[0.06]', text: 'text-zinc-300', dot: 'bg-zinc-400' },
 };
 
 function formatFileSize(bytes: number): string {
@@ -85,16 +85,16 @@ function AttachmentChips({ attachments, onRemove }: { attachments: PortalUpdateA
           {images.map(a => (
             <div key={a.id} className="relative group/att">
               {a.file_url !== '#' ? (
-                <img src={a.file_url} alt={a.name} className="h-16 w-auto rounded-md border border-zinc-200 object-cover" />
+                <img src={a.file_url} alt={a.name} className="h-16 w-auto rounded-md border border-white/[0.08] object-cover" />
               ) : (
-                <div className="h-16 w-20 rounded-md border border-zinc-200 bg-zinc-100 flex items-center justify-center">
-                  <Image size={16} className="text-zinc-400" />
+                <div className="h-16 w-20 rounded-md border border-white/[0.08] bg-white/[0.06] flex items-center justify-center">
+                  <Image size={16} className="text-zinc-500" />
                 </div>
               )}
               {onRemove ? (
                 <button
                   onClick={() => onRemove(a.id)}
-                  className="absolute -top-1.5 -right-1.5 p-0.5 bg-white border border-zinc-200 rounded-full text-zinc-400 hover:text-red-500 shadow-sm sm:opacity-0 sm:group-hover/att:opacity-100 sm:focus-within:opacity-100 transition-opacity"
+                  className="absolute -top-1.5 -right-1.5 p-0.5 bg-surface-raised border border-white/[0.08] rounded-full text-zinc-500 hover:text-red-500 shadow-sm sm:opacity-0 sm:group-hover/att:opacity-100 sm:focus-within:opacity-100 transition-opacity"
                 >
                   <X size={10} />
                 </button>
@@ -103,7 +103,7 @@ function AttachmentChips({ attachments, onRemove }: { attachments: PortalUpdateA
                   <Tooltip content="Preview">
                     <button
                       onClick={() => window.open(a.file_url, '_blank', 'noopener,noreferrer')}
-                      className="p-1 bg-white/90 rounded text-zinc-700 hover:bg-white transition-colors"
+                      className="p-1 bg-white/90 rounded text-zinc-300 hover:bg-surface-raised transition-colors"
                     >
                       <Eye size={11} />
                     </button>
@@ -111,7 +111,7 @@ function AttachmentChips({ attachments, onRemove }: { attachments: PortalUpdateA
                   <Tooltip content="Download">
                     <button
                       onClick={() => downloadFile(a.file_url, a.name)}
-                      className="p-1 bg-white/90 rounded text-zinc-700 hover:bg-white transition-colors"
+                      className="p-1 bg-white/90 rounded text-zinc-300 hover:bg-surface-raised transition-colors"
                     >
                       <Download size={11} />
                     </button>
@@ -128,14 +128,14 @@ function AttachmentChips({ attachments, onRemove }: { attachments: PortalUpdateA
             const isHtml = a.mime_type === 'text/html';
             const Icon = getAttachmentIcon(a.mime_type);
             return (
-              <span key={a.id} className="inline-flex items-center gap-1.5 px-2 py-1 text-xs bg-zinc-100 text-zinc-600 rounded-md group/att">
-                <Icon size={12} className="text-zinc-400" />
+              <span key={a.id} className="inline-flex items-center gap-1.5 px-2 py-1 text-xs bg-white/[0.06] text-zinc-300 rounded-md group/att">
+                <Icon size={12} className="text-zinc-500" />
                 <span className="max-w-[120px] truncate">{a.name}</span>
-                <span className="text-zinc-400">{formatFileSize(a.file_size)}</span>
+                <span className="text-zinc-500">{formatFileSize(a.file_size)}</span>
                 {onRemove ? (
                   <button
                     onClick={() => onRemove(a.id)}
-                    className="p-0.5 text-zinc-400 hover:text-red-500 transition-colors"
+                    className="p-0.5 text-zinc-500 hover:text-red-500 transition-colors"
                   >
                     <X size={10} />
                   </button>
@@ -145,7 +145,7 @@ function AttachmentChips({ attachments, onRemove }: { attachments: PortalUpdateA
                       <Tooltip content="Preview">
                         <button
                           onClick={() => window.open(a.file_url, '_blank', 'noopener,noreferrer')}
-                          className="p-0.5 text-zinc-400 hover:text-brand-600 transition-colors"
+                          className="p-0.5 text-zinc-500 hover:text-brand-300 transition-colors"
                         >
                           <Eye size={11} />
                         </button>
@@ -155,7 +155,7 @@ function AttachmentChips({ attachments, onRemove }: { attachments: PortalUpdateA
                       <Tooltip content="Download">
                         <button
                           onClick={() => downloadFile(a.file_url, a.name)}
-                          className="p-0.5 text-zinc-400 hover:text-brand-600 transition-colors"
+                          className="p-0.5 text-zinc-500 hover:text-brand-300 transition-colors"
                         >
                           <Download size={11} />
                         </button>
@@ -181,13 +181,13 @@ function PendingFileChips({ files, onRemove }: { files: PendingFile[]; onRemove:
         const isImage = f.mime_type.startsWith('image/');
         const Icon = getAttachmentIcon(f.mime_type);
         return (
-          <span key={f.id} className="inline-flex items-center gap-1.5 px-2 py-1 text-xs bg-zinc-100 text-zinc-600 rounded-md">
-            {isImage ? <Image size={12} className="text-violet-400" /> : <Icon size={12} className="text-zinc-400" />}
+          <span key={f.id} className="inline-flex items-center gap-1.5 px-2 py-1 text-xs bg-white/[0.06] text-zinc-300 rounded-md">
+            {isImage ? <Image size={12} className="text-violet-400" /> : <Icon size={12} className="text-zinc-500" />}
             <span className="max-w-[120px] truncate">{f.name}</span>
-            <span className="text-zinc-400">{formatFileSize(f.file_size)}</span>
+            <span className="text-zinc-500">{formatFileSize(f.file_size)}</span>
             <button
               onClick={() => onRemove(f.id)}
-              className="p-0.5 text-zinc-400 hover:text-red-500 transition-colors"
+              className="p-0.5 text-zinc-500 hover:text-red-500 transition-colors"
             >
               <X size={10} />
             </button>
@@ -377,7 +377,7 @@ export function PortalUpdatesPanel({ projectId }: PortalUpdatesPanelProps) {
       <button
         type="button"
         onClick={() => inputRef.current?.click()}
-        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-zinc-500 hover:text-zinc-700 bg-zinc-100 hover:bg-zinc-200 rounded-lg transition-colors"
+        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-zinc-400 hover:text-zinc-300 bg-white/[0.06] hover:bg-white/[0.08] rounded-lg transition-colors"
       >
         <Paperclip size={12} />
         Attach
@@ -386,15 +386,15 @@ export function PortalUpdatesPanel({ projectId }: PortalUpdatesPanelProps) {
   );
 
   return (
-    <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden flex flex-col max-h-[600px]">
+    <div className="glass-card rounded-xl overflow-hidden flex flex-col max-h-[600px]">
       {/* Header */}
-      <div className={`px-5 py-4 flex items-center justify-between flex-shrink-0 ${isPortalEnabled ? 'border-b border-zinc-100' : ''}`}>
+      <div className={`px-5 py-4 flex items-center justify-between flex-shrink-0 ${isPortalEnabled ? 'border-b border-white/[0.06]' : ''}`}>
         <div className="flex items-center gap-2">
-          <MessageSquarePlus size={18} className="text-zinc-500" />
-          <h2 className="font-semibold text-zinc-900">
+          <MessageSquarePlus size={18} className="text-zinc-400" />
+          <h2 className="font-semibold text-white">
             Portal Updates
             {updates.length > 0 && (
-              <span className="ml-1.5 text-xs font-medium text-zinc-400">({updates.length})</span>
+              <span className="ml-1.5 text-xs font-medium text-zinc-500">({updates.length})</span>
             )}
           </h2>
         </div>
@@ -413,7 +413,7 @@ export function PortalUpdatesPanel({ projectId }: PortalUpdatesPanelProps) {
       <div className="flex-1 flex flex-col overflow-y-auto">
           {/* Add form */}
           {isAdding && !editingId && (
-            <div className="mx-5 mt-5 border border-brand-200 bg-brand-50/30 rounded-lg p-4 space-y-3">
+            <div className="mx-5 mt-5 border border-brand-500/30 bg-brand-500/15 rounded-lg p-4 space-y-3">
               <div className="flex gap-2">
                 <TextInput
                   autoFocus
@@ -450,7 +450,7 @@ export function PortalUpdatesPanel({ projectId }: PortalUpdatesPanelProps) {
                 <div className="flex items-center gap-2">
                   <button
                     onClick={handleCancelEdit}
-                    className="px-3 py-1.5 text-sm text-zinc-500 hover:text-zinc-700 transition-colors"
+                    className="px-3 py-1.5 text-sm text-zinc-400 hover:text-zinc-300 transition-colors"
                   >
                     Cancel
                   </button>
@@ -480,7 +480,7 @@ export function PortalUpdatesPanel({ projectId }: PortalUpdatesPanelProps) {
                   const visibleExisting = attachments.filter(a => !removedAttachmentIds.includes(a.id));
 
                   return (
-                    <div key={update.id} className="border border-brand-200 bg-brand-50/30 rounded-lg p-4 space-y-3">
+                    <div key={update.id} className="border border-brand-500/30 bg-brand-500/15 rounded-lg p-4 space-y-3">
                       <div className="flex gap-2">
                         <TextInput
                           autoFocus
@@ -517,7 +517,7 @@ export function PortalUpdatesPanel({ projectId }: PortalUpdatesPanelProps) {
                         <div className="flex items-center gap-2">
                           <button
                             onClick={handleCancelEdit}
-                            className="px-3 py-1.5 text-sm text-zinc-500 hover:text-zinc-700 transition-colors"
+                            className="px-3 py-1.5 text-sm text-zinc-400 hover:text-zinc-300 transition-colors"
                           >
                             Cancel
                           </button>
@@ -538,22 +538,22 @@ export function PortalUpdatesPanel({ projectId }: PortalUpdatesPanelProps) {
                 return (
                   <div
                     key={update.id}
-                    className="flex items-start gap-3 px-4 py-3.5 bg-zinc-50 rounded-lg group"
+                    className="flex items-start gap-3 px-4 py-3.5 bg-white/[0.03] rounded-lg group"
                   >
                     <div className={`w-2.5 h-2.5 rounded-full mt-1.5 flex-shrink-0 ${config.dot}`} />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-                        <p className="text-sm font-semibold text-zinc-900">{update.title}</p>
+                        <p className="text-sm font-semibold text-white">{update.title}</p>
                         <span className={`inline-flex items-center px-1.5 py-0.5 text-[10px] font-semibold rounded ${config.bg} ${config.text}`}>
                           {config.label}
                         </span>
                       </div>
                       {update.content && (
-                        <p className="text-sm text-zinc-500 leading-relaxed line-clamp-2">{update.content}</p>
+                        <p className="text-sm text-zinc-400 leading-relaxed line-clamp-2">{update.content}</p>
                       )}
                       {/* Read-only attachments */}
                       <AttachmentChips attachments={attachments} />
-                      <p className="text-xs text-zinc-400 mt-1">
+                      <p className="text-xs text-zinc-500 mt-1">
                         {author?.name || 'Team'} &middot; {timeAgo(update.created_at)}
                       </p>
                     </div>
@@ -561,7 +561,7 @@ export function PortalUpdatesPanel({ projectId }: PortalUpdatesPanelProps) {
                       <Tooltip content="Edit">
                         <button
                           onClick={() => handleStartEdit(update)}
-                          className="p-1.5 text-zinc-400 hover:text-brand-600 transition-colors"
+                          className="p-1.5 text-zinc-500 hover:text-brand-300 transition-colors"
                         >
                           <Pencil size={14} />
                         </button>
@@ -569,7 +569,7 @@ export function PortalUpdatesPanel({ projectId }: PortalUpdatesPanelProps) {
                       <Tooltip content="Delete">
                         <button
                           onClick={() => setDeleteTarget(update.id)}
-                          className="p-1.5 text-zinc-400 hover:text-red-500 transition-colors"
+                          className="p-1.5 text-zinc-500 hover:text-red-500 transition-colors"
                         >
                           <Trash2 size={14} />
                         </button>
@@ -581,11 +581,11 @@ export function PortalUpdatesPanel({ projectId }: PortalUpdatesPanelProps) {
             </div>
           ) : !isAdding ? (
             <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
-              <div className="w-10 h-10 rounded-full bg-zinc-100 flex items-center justify-center mb-3">
-                <MessageSquarePlus size={18} className="text-zinc-400" />
+              <div className="w-10 h-10 rounded-full bg-white/[0.06] flex items-center justify-center mb-3">
+                <MessageSquarePlus size={18} className="text-zinc-500" />
               </div>
-              <p className="text-sm font-medium text-zinc-500">No updates yet</p>
-              <p className="text-xs text-zinc-400 mt-1">Post one to keep your client informed</p>
+              <p className="text-sm font-medium text-zinc-400">No updates yet</p>
+              <p className="text-xs text-zinc-500 mt-1">Post one to keep your client informed</p>
             </div>
           ) : null}
       </div>

@@ -67,14 +67,14 @@ export function BusinessInfoSection() {
   };
 
   return (
-    <section className="bg-white rounded-xl border border-zinc-200 p-4 lg:p-6">
+    <section className="glass-card rounded-xl p-4 lg:p-6">
       <div className="flex items-center gap-3 mb-6">
-        <div className="p-2 bg-brand-50 rounded-lg">
-          <Building2 className="text-brand-600" size={20} />
+        <div className="p-2 bg-brand-500/15 rounded-lg">
+          <Building2 className="text-brand-300" size={20} />
         </div>
         <div>
-          <h2 className="font-semibold text-zinc-900">Business Info</h2>
-          <p className="text-sm text-zinc-500">Used as the &quot;From&quot; block on invoice PDFs</p>
+          <h2 className="font-semibold text-white">Business Info</h2>
+          <p className="text-sm text-zinc-400">Used as the &quot;From&quot; block on invoice PDFs</p>
         </div>
       </div>
 

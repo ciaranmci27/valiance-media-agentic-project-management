@@ -33,8 +33,8 @@ function ToolbarButton({
         onClick={onClick}
         className={`p-1.5 rounded transition-colors ${
           active
-            ? 'bg-brand-100 text-brand-700'
-            : 'text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700'
+            ? 'bg-brand-500/15 text-brand-300'
+            : 'text-zinc-400 hover:bg-white/[0.06] hover:text-zinc-300'
         }`}
       >
         {children}
@@ -66,7 +66,7 @@ export function RichTextEditor({
     },
     editorProps: {
       attributes: {
-        class: 'outline-none min-h-[60px] px-3 py-2 text-sm text-zinc-900',
+        class: 'outline-none min-h-[60px] px-3 py-2 text-sm text-white',
         'data-placeholder': placeholder,
       },
     },
@@ -84,9 +84,9 @@ export function RichTextEditor({
   const minHeight = rows * 24;
 
   return (
-    <div className="border border-zinc-200 rounded-lg focus-within:border-brand-500 focus-within:ring-2 focus-within:ring-brand-100 transition-all bg-white">
+    <div className="border border-white/[0.08] rounded-lg focus-within:border-brand-500 focus-within:ring-2 focus-within:ring-brand-500/30 transition-all bg-surface-raised">
       {/* Toolbar */}
-      <div className="flex items-center gap-0.5 px-2 py-1 border-b border-zinc-100">
+      <div className="flex items-center gap-0.5 px-2 py-1 border-b border-white/[0.06]">
         <ToolbarButton
           active={editor.isActive('bold')}
           onClick={() => editor.chain().focus().toggleBold().run()}
@@ -109,7 +109,7 @@ export function RichTextEditor({
           <Strikethrough size={14} />
         </ToolbarButton>
 
-        <div className="w-px h-4 bg-zinc-200 mx-1" />
+        <div className="w-px h-4 bg-white/[0.08] mx-1" />
 
         <ToolbarButton
           active={editor.isActive('bulletList')}

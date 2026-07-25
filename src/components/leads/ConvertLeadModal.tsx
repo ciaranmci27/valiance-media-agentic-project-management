@@ -63,24 +63,24 @@ export function ConvertLeadModal({ isOpen, onClose, lead }: ConvertLeadModalProp
       size="lg"
     >
       <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="bg-zinc-50 rounded-lg p-4 border border-zinc-200">
-          <h3 className="text-sm font-medium text-zinc-700 mb-2">Lead Info</h3>
+        <div className="bg-white/[0.03] rounded-lg p-4 border border-white/[0.08]">
+          <h3 className="text-sm font-medium text-zinc-300 mb-2">Lead Info</h3>
           <div className="grid grid-cols-2 gap-2 text-sm">
             <div>
-              <span className="text-zinc-500">Name:</span>{' '}
-              <span className="text-zinc-900">{lead.name}</span>
+              <span className="text-zinc-400">Name:</span>{' '}
+              <span className="text-white">{lead.name}</span>
             </div>
             <div>
-              <span className="text-zinc-500">Company:</span>{' '}
-              <span className="text-zinc-900">{lead.company || '—'}</span>
+              <span className="text-zinc-400">Company:</span>{' '}
+              <span className="text-white">{lead.company || '—'}</span>
             </div>
             <div>
-              <span className="text-zinc-500">Email:</span>{' '}
-              <span className="text-zinc-900">{lead.email || '—'}</span>
+              <span className="text-zinc-400">Email:</span>{' '}
+              <span className="text-white">{lead.email || '—'}</span>
             </div>
             <div>
-              <span className="text-zinc-500">Phone:</span>{' '}
-              <span className="text-zinc-900">{lead.phone ? formatPhone(lead.phone) : '—'}</span>
+              <span className="text-zinc-400">Phone:</span>{' '}
+              <span className="text-white">{lead.phone ? formatPhone(lead.phone) : '—'}</span>
             </div>
           </div>
         </div>
@@ -94,7 +94,7 @@ export function ConvertLeadModal({ isOpen, onClose, lead }: ConvertLeadModalProp
         />
 
         <div className="space-y-1.5">
-          <label className="block text-sm font-medium text-zinc-700">Project Color</label>
+          <label className="block text-sm font-medium text-zinc-300">Project Color</label>
           <div className="flex gap-2">
             {PROJECT_COLORS.map((c) => (
               <button

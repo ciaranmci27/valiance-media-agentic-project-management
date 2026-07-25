@@ -109,16 +109,16 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
   };
 
   const priorityColors: Record<string, string> = {
-    low: 'bg-zinc-100 text-zinc-600',
-    medium: 'bg-blue-100 text-blue-700',
-    high: 'bg-orange-100 text-orange-700',
-    urgent: 'bg-red-100 text-red-700',
+    low: 'bg-white/[0.06] text-zinc-300',
+    medium: 'bg-blue-500/15 text-blue-300',
+    high: 'bg-orange-500/15 text-orange-300',
+    urgent: 'bg-red-500/15 text-red-300',
   };
 
   const effortColors: Record<string, string> = {
-    small: 'bg-emerald-100 text-emerald-700',
-    medium: 'bg-amber-100 text-amber-700',
-    large: 'bg-rose-100 text-rose-700',
+    small: 'bg-emerald-500/15 text-emerald-300',
+    medium: 'bg-amber-500/15 text-amber-300',
+    large: 'bg-rose-500/15 text-rose-300',
   };
 
   const getGoalTitle = (id: string) => projectGoals.find(g => g.id === id)?.title || 'Unknown';
@@ -191,22 +191,18 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
 
   return (
     <>
-    <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden lg:flex lg:flex-col lg:h-full">
+    <div className="glass-card rounded-xl overflow-hidden lg:flex lg:flex-col lg:h-full">
       {/* Section header + filter tabs */}
-      <div className="p-4 border-b border-zinc-100 flex-shrink-0">
+      <div className="p-4 border-b border-white/[0.06] flex-shrink-0">
         {/* Mobile: title + Pending/All toggle */}
         <div className="flex items-center justify-between lg:hidden">
-          <h2 className="font-semibold text-zinc-900">Review Queue</h2>
-          <div className="flex gap-1">
+          <h2 className="font-semibold text-white">Review Queue</h2>
+          <div className="seg-track">
             {[{ key: 'pending' as StatusFilter, label: 'Pending' }, { key: '' as StatusFilter, label: 'All' }].map((tab) => (
               <button
                 key={tab.key}
                 onClick={() => { setStatusFilter(tab.key); setSelectedIds(new Set()); }}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                  statusFilter === tab.key
-                    ? 'bg-zinc-900 text-white'
-                    : 'text-zinc-500 hover:text-zinc-700 hover:bg-zinc-100'
-                }`}
+                className={`seg-item ${statusFilter === tab.key ? 'is-active' : ''}`}
               >
                 {tab.label}
               </button>
@@ -217,26 +213,22 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
         {/* Desktop: title + full filter tabs */}
         <div className="hidden lg:block">
           <div className="flex items-center justify-between mb-3">
-            <h2 className="font-semibold text-zinc-900">Review Queue</h2>
+            <h2 className="font-semibold text-white">Review Queue</h2>
           </div>
 
-          <div className="flex gap-1">
+          <div className="seg-track">
             {statusTabs.map((tab) => (
               <button
                 key={tab.key}
                 onClick={() => { setStatusFilter(tab.key); setSelectedIds(new Set()); }}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-all ${
-                  statusFilter === tab.key
-                    ? 'bg-zinc-900 text-white'
-                    : 'text-zinc-500 hover:text-zinc-700 hover:bg-zinc-100'
-                }`}
+                className={`seg-item flex items-center gap-1.5 whitespace-nowrap ${statusFilter === tab.key ? 'is-active' : ''}`}
               >
                 {tab.label}
                 {tab.count > 0 && (
                   <span className={`min-w-[18px] h-[18px] flex items-center justify-center rounded-full text-[10px] font-semibold px-1 ${
                     statusFilter === tab.key
                       ? 'bg-white/20 text-white'
-                      : 'bg-zinc-200 text-zinc-600'
+                      : 'bg-white/[0.08] text-zinc-300'
                   }`}>
                     {tab.count}
                   </span>
@@ -252,7 +244,7 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
         {groupedByProject.map((group) => (
           <div key={group.projectId}>
             {/* Project group header (accordion toggle + select all) */}
-            <div className="w-full px-3 lg:px-4 py-2 bg-zinc-50 border-b border-zinc-100 flex items-center gap-2 sticky top-0 z-[1] hover:bg-zinc-100 transition-colors">
+            <div className="w-full px-3 lg:px-4 py-2 bg-white/[0.03] border-b border-white/[0.06] flex items-center gap-2 sticky top-0 z-[1] hover:bg-white/[0.06] transition-colors">
               {/* Select all checkbox for pending suggestions in this project */}
               {statusFilter === 'pending' && (() => {
                 const pendingIds = group.suggestions.filter(s => s.status === 'pending').map(s => s.id);
@@ -277,7 +269,7 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
                       });
                     }}
                     onClick={(e) => e.stopPropagation()}
-                    className="w-3.5 h-3.5 rounded border-zinc-300 text-brand-600 focus:ring-brand-500 flex-shrink-0 cursor-pointer"
+                    className="w-3.5 h-3.5 rounded border-white/[0.12] text-brand-300 focus:ring-brand-500 flex-shrink-0 cursor-pointer"
                   />
                 );
               })()}
@@ -287,7 +279,7 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
               >
                 <ChevronRight
                   size={12}
-                  className={`text-zinc-400 transition-transform flex-shrink-0 ${
+                  className={`text-zinc-500 transition-transform flex-shrink-0 ${
                     !collapsedProjects.has(group.projectId) ? 'rotate-90' : ''
                   }`}
                 />
@@ -297,14 +289,14 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
                     style={{ backgroundColor: group.projectColor }}
                   />
                 )}
-                <span className="text-xs font-semibold text-zinc-600">{group.projectName}</span>
-                <span className="text-[10px] text-zinc-400">{group.suggestions.length}</span>
+                <span className="text-xs font-semibold text-zinc-300">{group.projectName}</span>
+                <span className="text-[10px] text-zinc-500">{group.suggestions.length}</span>
               </button>
             </div>
 
             {/* Suggestions under this project */}
             {!collapsedProjects.has(group.projectId) && (
-            <div className="divide-y divide-zinc-100">
+            <div className="divide-y divide-white/[0.06]">
               {group.suggestions.map((suggestion) => {
                 const isExpanded = expandedId === suggestion.id;
 
@@ -312,8 +304,8 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
                   <div key={suggestion.id} className="group">
                     {/* Collapsed row */}
                     <div
-                      className={`p-3 lg:p-4 cursor-pointer hover:bg-zinc-50 transition-colors ${
-                        isExpanded ? 'bg-zinc-50' : ''
+                      className={`p-3 lg:p-4 cursor-pointer hover:bg-white/[0.03] transition-colors ${
+                        isExpanded ? 'bg-white/[0.03]' : ''
                       }`}
                       onClick={() => setExpandedId(isExpanded ? null : suggestion.id)}
                     >
@@ -325,7 +317,7 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
                             checked={selectedIds.has(suggestion.id)}
                             onChange={(e) => { e.stopPropagation(); toggleSelect(suggestion.id); }}
                             onClick={(e) => e.stopPropagation()}
-                            className="mt-1 w-4 h-4 rounded border-zinc-300 text-brand-600 focus:ring-brand-500 flex-shrink-0"
+                            className="mt-1 w-4 h-4 rounded border-white/[0.12] text-brand-300 focus:ring-brand-500 flex-shrink-0"
                           />
                         )}
 
@@ -335,30 +327,30 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
                         {/* Content */}
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
-                            <h3 className="text-sm font-semibold text-zinc-900">{suggestion.title}</h3>
+                            <h3 className="text-sm font-semibold text-white">{suggestion.title}</h3>
                             <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase ${priorityColors[suggestion.priority]}`}>
                               {suggestion.priority}
                             </span>
                             {suggestion.status === 'needs_info' && (
-                              <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase bg-amber-100 text-amber-700">
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase bg-amber-500/15 text-amber-300">
                                 Needs Info
                               </span>
                             )}
                             {suggestion.status === 'approved' && (
-                              <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase bg-emerald-100 text-emerald-700">
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase bg-emerald-500/15 text-emerald-300">
                                 Approved
                               </span>
                             )}
                             {suggestion.status === 'rejected' && (
-                              <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase bg-red-100 text-red-700">
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase bg-red-500/15 text-red-300">
                                 Rejected
                               </span>
                             )}
                           </div>
                           <div className="flex items-center gap-1.5 mt-1">
-                            <p className="text-xs text-zinc-400 truncate"><span className="text-zinc-500">Goal:</span> {getGoalTitle(suggestion.goal_id)}</p>
-                            <span className="text-xs text-zinc-300 flex-shrink-0">&middot;</span>
-                            <span className="text-xs text-zinc-400 flex-shrink-0">{formatTime(suggestion.created_at)}</span>
+                            <p className="text-xs text-zinc-500 truncate"><span className="text-zinc-400">Goal:</span> {getGoalTitle(suggestion.goal_id)}</p>
+                            <span className="text-xs text-zinc-600 flex-shrink-0">&middot;</span>
+                            <span className="text-xs text-zinc-500 flex-shrink-0">{formatTime(suggestion.created_at)}</span>
                           </div>
                         </div>
 
@@ -370,7 +362,7 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
                               <Tooltip content="Approve">
                                 <button
                                   onClick={(e) => { e.stopPropagation(); onApprove(suggestion.id); }}
-                                  className="p-1.5 rounded-lg text-emerald-600 hover:bg-emerald-50 transition-colors"
+                                  className="p-1.5 rounded-lg text-emerald-400 hover:bg-emerald-500/15 transition-colors"
                                 >
                                   <Check size={16} />
                                 </button>
@@ -379,7 +371,7 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
                                 <Tooltip content="Edit">
                                   <button
                                     onClick={(e) => { e.stopPropagation(); onEdit(suggestion.id); }}
-                                    className="p-1.5 rounded-lg text-zinc-500 hover:bg-zinc-100 transition-colors"
+                                    className="p-1.5 rounded-lg text-zinc-400 hover:bg-white/[0.06] transition-colors"
                                   >
                                     <Pencil size={16} />
                                   </button>
@@ -389,7 +381,7 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
                                 <Tooltip content="Request Info">
                                   <button
                                     onClick={(e) => { e.stopPropagation(); setInfoInputId(suggestion.id); setInfoText(''); }}
-                                    className="p-1.5 rounded-lg text-amber-600 hover:bg-amber-50 transition-colors"
+                                    className="p-1.5 rounded-lg text-amber-400 hover:bg-amber-500/15 transition-colors"
                                   >
                                     <HelpCircle size={16} />
                                   </button>
@@ -398,7 +390,7 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
                               <Tooltip content="Reject">
                                 <button
                                   onClick={(e) => { e.stopPropagation(); setRejectInputId(suggestion.id); setRejectReason(''); }}
-                                  className="p-1.5 rounded-lg text-red-500 hover:bg-red-50 transition-colors"
+                                  className="p-1.5 rounded-lg text-red-500 hover:bg-red-500/15 transition-colors"
                                 >
                                   <X size={16} />
                                 </button>
@@ -406,7 +398,7 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
                             </div>
                           )}
 
-                          <ChevronDown size={14} className={`text-zinc-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                          <ChevronDown size={14} className={`text-zinc-500 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
                         </div>
                       </div>
 
@@ -414,19 +406,19 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
 
                     {/* Expanded content */}
                     {isExpanded && (
-                      <div className="px-3 lg:px-4 pb-3 lg:pb-4 bg-zinc-50 animate-slideDown">
+                      <div className="px-3 lg:px-4 pb-3 lg:pb-4 bg-white/[0.03] animate-slideDown">
                         <div className="ml-5 lg:ml-5 space-y-3">
                           {/* Reasoning */}
-                          <div className="bg-white rounded-lg p-3 border border-zinc-200">
-                            <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-1.5">Agent Reasoning</p>
-                            <p className="text-sm text-zinc-800 leading-relaxed">{suggestion.reasoning}</p>
+                          <div className="bg-surface-raised rounded-lg p-3 border border-white/[0.08]">
+                            <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-1.5">Agent Reasoning</p>
+                            <p className="text-sm text-zinc-100 leading-relaxed">{suggestion.reasoning}</p>
                           </div>
 
                           {/* Description */}
                           {suggestion.description && (
                             <div>
-                              <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-1">Description</p>
-                              <p className="text-sm text-zinc-600 leading-relaxed">{suggestion.description}</p>
+                              <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-1">Description</p>
+                              <p className="text-sm text-zinc-300 leading-relaxed">{suggestion.description}</p>
                             </div>
                           )}
 
@@ -438,11 +430,11 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
                               </span>
                             )}
                             {suggestion.task_type && (
-                              <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-violet-100 text-violet-700">
+                              <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-white/[0.06] text-zinc-300">
                                 {suggestion.task_type}
                               </span>
                             )}
-                            <div className="flex items-center gap-1.5 text-xs text-zinc-500">
+                            <div className="flex items-center gap-1.5 text-xs text-zinc-400">
                               <Avatar name={getAgentName(suggestion.proposed_by)} src={getAgentAvatar(suggestion.proposed_by) || undefined} size="xs" />
                               <span>{getAgentName(suggestion.proposed_by)}</span>
                             </div>
@@ -450,17 +442,17 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
 
                           {/* Info request display */}
                           {suggestion.info_request && (
-                            <div className="bg-amber-50 rounded-lg p-3 border border-amber-200">
-                              <p className="text-xs font-semibold text-amber-800 mb-1">Info Requested</p>
-                              <p className="text-sm text-amber-700">{suggestion.info_request}</p>
+                            <div className="bg-amber-500/15 rounded-lg p-3 border border-amber-500/30">
+                              <p className="text-xs font-semibold text-amber-300 mb-1">Info Requested</p>
+                              <p className="text-sm text-amber-300">{suggestion.info_request}</p>
                             </div>
                           )}
 
                           {/* Rejection reason display */}
                           {suggestion.rejection_reason && (
-                            <div className="bg-red-50 rounded-lg p-3 border border-red-200">
-                              <p className="text-xs font-semibold text-red-800 mb-1">Rejection Reason</p>
-                              <p className="text-sm text-red-700">{suggestion.rejection_reason}</p>
+                            <div className="bg-red-500/15 rounded-lg p-3 border border-red-500/30">
+                              <p className="text-xs font-semibold text-red-300 mb-1">Rejection Reason</p>
+                              <p className="text-sm text-red-300">{suggestion.rejection_reason}</p>
                             </div>
                           )}
 
@@ -473,7 +465,7 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
                                   const project = projects.find(p => p.id === suggestion.project_id);
                                   if (project) router.push(`/projects/${project.id}?task=${suggestion.converted_task_id}`);
                                 }}
-                                className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-brand-700 bg-brand-50 hover:bg-brand-100 transition-colors"
+                                className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-brand-300 bg-brand-500/15 hover:bg-brand-500/15 transition-colors"
                               >
                                 <ExternalLink size={14} />
                                 View Task
@@ -486,7 +478,7 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
                             <div className="flex gap-2">
                               <button
                                 onClick={(e) => { e.stopPropagation(); handleReopen(suggestion.id); }}
-                                className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-zinc-700 bg-zinc-100 hover:bg-zinc-200 transition-colors"
+                                className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-zinc-300 bg-white/[0.06] hover:bg-white/[0.08] transition-colors"
                               >
                                 <RotateCcw size={14} />
                                 Reopen
@@ -499,7 +491,7 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
                             <div className="lg:hidden grid grid-cols-2 gap-2">
                               <button
                                 onClick={(e) => { e.stopPropagation(); onApprove(suggestion.id); }}
-                                className="flex items-center justify-center gap-1.5 py-2 rounded-lg text-sm font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 transition-colors"
+                                className="flex items-center justify-center gap-1.5 py-2 rounded-lg text-sm font-medium text-emerald-300 bg-emerald-500/15 hover:bg-emerald-500/15 transition-colors"
                               >
                                 <Check size={14} />
                                 Approve
@@ -507,7 +499,7 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
                               {onEdit && (
                                 <button
                                   onClick={(e) => { e.stopPropagation(); onEdit(suggestion.id); }}
-                                  className="flex items-center justify-center gap-1.5 py-2 rounded-lg text-sm font-medium text-zinc-700 bg-zinc-100 hover:bg-zinc-200 transition-colors"
+                                  className="flex items-center justify-center gap-1.5 py-2 rounded-lg text-sm font-medium text-zinc-300 bg-white/[0.06] hover:bg-white/[0.08] transition-colors"
                                 >
                                   <Pencil size={14} />
                                   Edit
@@ -516,7 +508,7 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
                               {suggestion.status === 'pending' && (
                                 <button
                                   onClick={(e) => { e.stopPropagation(); setInfoInputId(suggestion.id); setInfoText(''); }}
-                                  className="flex items-center justify-center gap-1.5 py-2 rounded-lg text-sm font-medium text-amber-700 bg-amber-50 hover:bg-amber-100 transition-colors"
+                                  className="flex items-center justify-center gap-1.5 py-2 rounded-lg text-sm font-medium text-amber-300 bg-amber-500/15 hover:bg-amber-500/15 transition-colors"
                                 >
                                   <HelpCircle size={14} />
                                   Info
@@ -524,7 +516,7 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
                               )}
                               <button
                                 onClick={(e) => { e.stopPropagation(); setRejectInputId(suggestion.id); setRejectReason(''); }}
-                                className="flex items-center justify-center gap-1.5 py-2 rounded-lg text-sm font-medium text-red-600 bg-red-50 hover:bg-red-100 transition-colors"
+                                className="flex items-center justify-center gap-1.5 py-2 rounded-lg text-sm font-medium text-red-400 bg-red-500/15 hover:bg-red-500/15 transition-colors"
                               >
                                 <X size={14} />
                                 Reject
@@ -546,13 +538,13 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
         {/* Empty state */}
         {filtered.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full px-4">
-            <div className="w-10 h-10 rounded-full bg-zinc-100 flex items-center justify-center mb-3">
-              <Lightbulb size={18} className="text-zinc-400" />
+            <div className="w-10 h-10 rounded-full bg-white/[0.06] flex items-center justify-center mb-3">
+              <Lightbulb size={18} className="text-zinc-500" />
             </div>
-            <p className="text-sm font-medium text-zinc-500">
+            <p className="text-sm font-medium text-zinc-400">
               {statusFilter ? `No ${statusFilter.replace('_', ' ')} suggestions` : 'No suggestions yet'}
             </p>
-            <p className="text-xs text-zinc-400 mt-1">
+            <p className="text-xs text-zinc-500 mt-1">
               Suggestions from AI agents will appear here
             </p>
           </div>
@@ -561,18 +553,18 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
 
       {/* Floating bulk action bar */}
       {selectedIds.size > 0 && (
-        <div className="flex-shrink-0 border-t border-zinc-200 bg-zinc-50 px-4 py-2.5 flex items-center justify-between animate-fadeIn">
-          <span className="text-xs font-medium text-zinc-600">{selectedIds.size} selected</span>
+        <div className="flex-shrink-0 border-t border-white/[0.08] bg-white/[0.03] px-4 py-2.5 flex items-center justify-between animate-fadeIn">
+          <span className="text-xs font-medium text-zinc-300">{selectedIds.size} selected</span>
           <div className="flex items-center gap-2">
             <button
               onClick={() => setShowBulkModal(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-zinc-700 bg-white border border-zinc-200 hover:bg-zinc-50 transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-zinc-300 bg-surface-raised border border-white/[0.08] hover:bg-white/[0.03] transition-colors"
             >
               Manage
             </button>
             <button
               onClick={() => setSelectedIds(new Set())}
-              className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-600 hover:bg-zinc-200 transition-colors"
+              className="p-1.5 rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.08] transition-colors"
             >
               <X size={14} />
             </button>
@@ -586,8 +578,8 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
       {rejectTarget && (
         <div className="space-y-4">
           <div>
-            <p className="text-sm font-medium text-zinc-900 mb-1">{rejectTarget.title}</p>
-            <p className="text-xs text-zinc-500"><span className="font-medium">Goal:</span> {getGoalTitle(rejectTarget.goal_id)}</p>
+            <p className="text-sm font-medium text-white mb-1">{rejectTarget.title}</p>
+            <p className="text-xs text-zinc-400"><span className="font-medium">Goal:</span> {getGoalTitle(rejectTarget.goal_id)}</p>
           </div>
           <Textarea
             label="Reason (optional)"
@@ -611,8 +603,8 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
       {infoTarget && (
         <div className="space-y-4">
           <div>
-            <p className="text-sm font-medium text-zinc-900 mb-1">{infoTarget.title}</p>
-            <p className="text-xs text-zinc-500"><span className="font-medium">Goal:</span> {getGoalTitle(infoTarget.goal_id)}</p>
+            <p className="text-sm font-medium text-white mb-1">{infoTarget.title}</p>
+            <p className="text-xs text-zinc-400"><span className="font-medium">Goal:</span> {getGoalTitle(infoTarget.goal_id)}</p>
           </div>
           <Textarea
             label="What info do you need?"
@@ -635,7 +627,7 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
     <Modal isOpen={showBulkModal} onClose={() => { setShowBulkModal(false); }} title={`Manage ${selectedIds.size} Suggestion${selectedIds.size !== 1 ? 's' : ''}`} size="md">
       <div className="space-y-4">
         {/* List selected suggestions */}
-        <div className="max-h-48 overflow-y-auto border border-zinc-200 rounded-lg divide-y divide-zinc-100">
+        <div className="max-h-48 overflow-y-auto border border-white/[0.08] rounded-lg divide-y divide-white/[0.06]">
           {[...selectedIds].map(id => {
             const s = activeSuggestions.find(sug => sug.id === id);
             if (!s) return null;
@@ -644,8 +636,8 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
               <div key={id} className="px-3 py-2 flex items-center gap-2">
                 <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${priorityDots[s.priority] || 'bg-zinc-400'}`} />
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm text-zinc-900 truncate">{s.title}</p>
-                  <p className="text-xs text-zinc-400 truncate">{project?.name}</p>
+                  <p className="text-sm text-white truncate">{s.title}</p>
+                  <p className="text-xs text-zinc-500 truncate">{project?.name}</p>
                 </div>
                 <button
                   onClick={() => {
@@ -654,7 +646,7 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
                     if (next.size === 0) { setShowBulkModal(false); setSelectedIds(new Set()); }
                     else setSelectedIds(next);
                   }}
-                  className="p-0.5 text-zinc-400 hover:text-zinc-600 flex-shrink-0"
+                  className="p-0.5 text-zinc-500 hover:text-zinc-300 flex-shrink-0"
                 >
                   <X size={12} />
                 </button>
@@ -670,7 +662,7 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
               handleBulkApprove();
               setShowBulkModal(false);
             }}
-            className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-sm font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 transition-colors"
+            className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-sm font-medium text-emerald-300 bg-emerald-500/15 hover:bg-emerald-500/15 transition-colors"
           >
             <Check size={14} />
             Approve All
@@ -683,7 +675,7 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
               const rejected = await bulkRejectSuggestions(ids);
               if (rejected > 0) toast('success', `Rejected ${rejected} suggestion(s)`);
             }}
-            className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-sm font-medium text-red-600 bg-red-50 hover:bg-red-100 transition-colors"
+            className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-sm font-medium text-red-400 bg-red-500/15 hover:bg-red-500/15 transition-colors"
           >
             <X size={14} />
             Reject All

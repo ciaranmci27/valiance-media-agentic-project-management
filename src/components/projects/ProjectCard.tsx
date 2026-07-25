@@ -41,11 +41,11 @@ export function ProjectCard({ project, onEdit, onDelete }: ProjectCardProps) {
   return (
     <Link
       href={`/projects/${project.id}`}
-      className="flex flex-col bg-white rounded-xl border border-zinc-200 p-4 lg:p-5 hover:shadow-lg hover:border-zinc-300 transition-all duration-200 group cursor-pointer h-full"
+      className="flex flex-col glass-card-interactive rounded-xl p-4 lg:p-5 group cursor-pointer h-full"
     >
       <div className="flex items-start justify-between mb-3 lg:mb-4">
         <div className="min-w-0 flex-1">
-          <span className="font-semibold text-zinc-900 group-hover:text-brand-600 transition-colors inline-flex items-center gap-1.5 lg:gap-2 truncate text-sm lg:text-base">
+          <span className="font-semibold text-white group-hover:text-brand-300 transition-colors inline-flex items-center gap-1.5 lg:gap-2 truncate text-sm lg:text-base">
             {project.name}
             {project.color && (
               <span
@@ -58,13 +58,13 @@ export function ProjectCard({ project, onEdit, onDelete }: ProjectCardProps) {
             <StatusBadge status={project.status} />
             {isAgentsEnabled && canManageAgents && project.autonomous_enabled && (
               <Tooltip content="Autonomous agents enabled">
-                <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-violet-100 text-violet-700">
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-white/[0.06] text-zinc-300">
                   <Bot size={12} />
                 </span>
               </Tooltip>
             )}
             {primaryClient?.contact && (
-              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-violet-100 text-violet-700">
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-white/[0.06] text-zinc-300">
                 {primaryClient.contact.name}
               </span>
             )}
@@ -74,7 +74,7 @@ export function ProjectCard({ project, onEdit, onDelete }: ProjectCardProps) {
         {(onEdit || onDelete) && <div className="relative flex-shrink-0">
           <button
             onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowMenu(!showMenu); }}
-            className="lg:opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 transition-all"
+            className="lg:opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.06] transition-all"
           >
             <MoreVertical size={16} />
           </button>
@@ -82,17 +82,17 @@ export function ProjectCard({ project, onEdit, onDelete }: ProjectCardProps) {
           {showMenu && (
             <>
               <div className="fixed inset-0 z-10 cursor-default" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowMenu(false); }} />
-              <div className="absolute right-0 top-10 bg-white rounded-lg shadow-xl border border-zinc-200 py-1 z-20 min-w-[140px] cursor-pointer">
+              <div className="absolute right-0 top-10 bg-surface-raised rounded-lg shadow-xl border border-white/[0.08] py-1 z-20 min-w-[140px] cursor-pointer">
                 <button
                   onClick={(e) => { e.preventDefault(); e.stopPropagation(); onEdit?.(project); setShowMenu(false); }}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-100"
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-300 hover:bg-white/[0.06]"
                 >
                   <Edit size={14} />
                   Edit
                 </button>
                 <button
                   onClick={(e) => { e.preventDefault(); e.stopPropagation(); onDelete?.(project.id); setShowMenu(false); }}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50"
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-400 hover:bg-red-500/15"
                 >
                   <Trash2 size={14} />
                   Delete
@@ -103,13 +103,13 @@ export function ProjectCard({ project, onEdit, onDelete }: ProjectCardProps) {
         </div>}
       </div>
 
-      <p className="text-xs lg:text-sm text-zinc-500 mb-3 lg:mb-4 line-clamp-2">
-        {project.description || <span className="text-zinc-300 italic">No description</span>}
+      <p className="text-xs lg:text-sm text-zinc-400 mb-3 lg:mb-4 line-clamp-2">
+        {project.description || <span className="text-zinc-600 italic">No description</span>}
       </p>
 
       {/* Footer */}
-      <div className="mt-auto flex items-center justify-between pt-3 border-t border-zinc-100">
-        <div className="flex items-center gap-3 lg:gap-4 text-xs text-zinc-500">
+      <div className="mt-auto flex items-center justify-between pt-3 border-t border-white/[0.06]">
+        <div className="flex items-center gap-3 lg:gap-4 text-xs text-zinc-400">
           {project.due_date && (
             <div className="flex items-center gap-1">
               <Calendar size={14} />

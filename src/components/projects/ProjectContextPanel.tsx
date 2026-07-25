@@ -32,48 +32,48 @@ const CATEGORY_CONFIG: Record<ProjectContextCategory, {
     label: 'Business Context',
     description: 'Goals, audience, value proposition',
     icon: Briefcase,
-    bg: 'bg-blue-50',
-    text: 'text-blue-700',
+    bg: 'bg-blue-500/15',
+    text: 'text-blue-300',
     iconColor: 'text-blue-500',
   },
   existing_work: {
     label: 'What Exists',
     description: 'Current state, completed work',
     icon: Layers,
-    bg: 'bg-emerald-50',
-    text: 'text-emerald-700',
+    bg: 'bg-emerald-500/15',
+    text: 'text-emerald-300',
     iconColor: 'text-emerald-500',
   },
   technical_decision: {
     label: 'Technical Decisions',
     description: 'Architecture, tools, patterns chosen',
     icon: GitBranch,
-    bg: 'bg-violet-50',
-    text: 'text-violet-700',
+    bg: 'bg-violet-500/15',
+    text: 'text-violet-300',
     iconColor: 'text-violet-500',
   },
   constraint: {
     label: 'Constraints',
     description: 'Limits, requirements, non-negotiables',
     icon: AlertTriangle,
-    bg: 'bg-amber-50',
-    text: 'text-amber-700',
+    bg: 'bg-amber-500/15',
+    text: 'text-amber-300',
     iconColor: 'text-amber-500',
   },
   lesson_learned: {
     label: 'Lessons Learned',
     description: 'Past mistakes, insights, best practices',
     icon: Lightbulb,
-    bg: 'bg-rose-50',
-    text: 'text-rose-700',
+    bg: 'bg-rose-500/15',
+    text: 'text-rose-300',
     iconColor: 'text-rose-500',
   },
 };
 
 const SOURCE_COLORS: Record<string, string> = {
-  human: 'bg-blue-50 text-blue-700',
-  agent: 'bg-purple-50 text-purple-700',
-  scan: 'bg-zinc-100 text-zinc-600',
+  human: 'bg-blue-500/15 text-blue-300',
+  agent: 'bg-purple-500/15 text-purple-300',
+  scan: 'bg-white/[0.06] text-zinc-300',
 };
 
 function timeAgo(iso: string): string {
@@ -221,12 +221,12 @@ export function ProjectContextPanel({ projectId }: ProjectContextPanelProps) {
     return (
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {[...Array(4)].map((_, i) => (
-          <div key={i} className="rounded-xl border border-zinc-200 p-4 animate-pulse">
+          <div key={i} className="rounded-xl border border-white/[0.08] p-4 animate-pulse">
             <div className="flex items-center gap-3 mb-3">
-              <div className="w-9 h-9 rounded-lg bg-zinc-100" />
+              <div className="w-9 h-9 rounded-lg bg-white/[0.06]" />
               <div className="flex-1">
-                <div className="h-4 w-24 bg-zinc-100 rounded" />
-                <div className="h-3 w-40 bg-zinc-50 rounded mt-1" />
+                <div className="h-4 w-24 bg-white/[0.06] rounded" />
+                <div className="h-3 w-40 bg-white/[0.03] rounded mt-1" />
               </div>
             </div>
           </div>
@@ -247,7 +247,7 @@ export function ProjectContextPanel({ projectId }: ProjectContextPanelProps) {
           return (
             <div
               key={cat}
-              className="rounded-xl border border-zinc-200 bg-white hover:border-zinc-300 transition-all overflow-hidden flex flex-col max-h-[400px]"
+              className="rounded-xl border border-white/[0.08] bg-surface-raised hover:border-white/[0.12] transition-all overflow-hidden flex flex-col max-h-[400px]"
             >
               {/* Category header */}
               <div className="px-4 py-3 flex items-center gap-3 flex-shrink-0">
@@ -260,24 +260,24 @@ export function ProjectContextPanel({ projectId }: ProjectContextPanelProps) {
                   className="flex-1 min-w-0 text-left"
                 >
                   <div className="flex items-center gap-1.5">
-                    <p className="text-sm font-semibold text-zinc-900">{config.label}</p>
+                    <p className="text-sm font-semibold text-white">{config.label}</p>
                     {catEntries.length > 0 && (
                       <span className={`inline-flex items-center px-1.5 py-0.5 text-[10px] font-semibold rounded ${config.bg} ${config.text}`}>
                         {catEntries.length}
                       </span>
                     )}
                     {isExpanded
-                      ? <ChevronDown size={14} className="text-zinc-400" />
-                      : <ChevronRight size={14} className="text-zinc-400" />
+                      ? <ChevronDown size={14} className="text-zinc-500" />
+                      : <ChevronRight size={14} className="text-zinc-500" />
                     }
                   </div>
-                  <p className="text-[11px] text-zinc-400 mt-0.5">{config.description}</p>
+                  <p className="text-[11px] text-zinc-500 mt-0.5">{config.description}</p>
                 </button>
 
                 <Tooltip content="Add entry">
                   <button
                     onClick={() => startAdding(cat)}
-                    className="p-1.5 text-zinc-400 hover:text-brand-600 transition-colors rounded-md hover:bg-zinc-50 flex-shrink-0"
+                    className="p-1.5 text-zinc-500 hover:text-brand-300 transition-colors rounded-md hover:bg-white/[0.03] flex-shrink-0"
                   >
                     <Plus size={14} />
                   </button>
@@ -289,7 +289,7 @@ export function ProjectContextPanel({ projectId }: ProjectContextPanelProps) {
                 <div className="px-4 pb-4 space-y-2 overflow-y-auto overflow-x-hidden">
                   {/* Add form */}
                   {addingCategory === cat && (
-                    <div className="border border-brand-200 bg-brand-50/30 rounded-lg p-3 space-y-2">
+                    <div className="border border-brand-500/30 bg-brand-500/15 rounded-lg p-3 space-y-2">
                       <Textarea
                         value={addContent}
                         onChange={setAddContent}
@@ -301,7 +301,7 @@ export function ProjectContextPanel({ projectId }: ProjectContextPanelProps) {
                       <div className="flex items-center gap-2 justify-end">
                         <button
                           onClick={() => setAddingCategory(null)}
-                          className="px-3 py-1.5 text-xs text-zinc-500 hover:text-zinc-700 transition-colors"
+                          className="px-3 py-1.5 text-xs text-zinc-400 hover:text-zinc-300 transition-colors"
                         >
                           Cancel
                         </button>
@@ -318,13 +318,13 @@ export function ProjectContextPanel({ projectId }: ProjectContextPanelProps) {
 
                   {/* Entries */}
                   {catEntries.length === 0 && addingCategory !== cat && (
-                    <p className="text-xs text-zinc-400 py-2">No entries yet</p>
+                    <p className="text-xs text-zinc-500 py-2">No entries yet</p>
                   )}
 
                   {catEntries.map(entry => (
                     <div key={entry.id} className="group">
                       {editingId === entry.id ? (
-                        <div className="border border-brand-200 bg-brand-50/30 rounded-lg p-3 space-y-2">
+                        <div className="border border-brand-500/30 bg-brand-500/15 rounded-lg p-3 space-y-2">
                           <Textarea
                             value={editContent}
                             onChange={setEditContent}
@@ -333,33 +333,33 @@ export function ProjectContextPanel({ projectId }: ProjectContextPanelProps) {
                             autoFocus
                           />
                           <div className="flex justify-end gap-1">
-                            <button onClick={() => setEditingId(null)} className="p-1.5 text-zinc-400 hover:text-zinc-600 transition-colors">
+                            <button onClick={() => setEditingId(null)} className="p-1.5 text-zinc-500 hover:text-zinc-300 transition-colors">
                               <X size={14} />
                             </button>
-                            <button onClick={() => handleEdit(entry.id)} className="p-1.5 text-emerald-600 hover:text-emerald-700 transition-colors">
+                            <button onClick={() => handleEdit(entry.id)} className="p-1.5 text-emerald-400 hover:text-emerald-300 transition-colors">
                               <Check size={14} />
                             </button>
                           </div>
                         </div>
                       ) : (
-                        <div className="flex items-start gap-2 p-2.5 rounded-lg hover:bg-zinc-50 transition-colors">
+                        <div className="flex items-start gap-2 p-2.5 rounded-lg hover:bg-white/[0.03] transition-colors">
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm text-zinc-800 leading-relaxed break-words">{entry.content}</p>
+                            <p className="text-sm text-zinc-100 leading-relaxed break-words">{entry.content}</p>
                             <div className="flex items-center gap-2 mt-1.5">
                               <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${SOURCE_COLORS[entry.source]}`}>
                                 {entry.source}
                               </span>
-                              <span className="text-[10px] text-zinc-400">{timeAgo(entry.updated_at)}</span>
+                              <span className="text-[10px] text-zinc-500">{timeAgo(entry.updated_at)}</span>
                             </div>
                           </div>
                           <div className="flex items-center gap-0.5 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-opacity flex-shrink-0">
                             <Tooltip content="Edit">
-                              <button onClick={() => startEdit(entry)} className="p-1.5 text-zinc-400 hover:text-brand-600 transition-colors rounded-md">
+                              <button onClick={() => startEdit(entry)} className="p-1.5 text-zinc-500 hover:text-brand-300 transition-colors rounded-md">
                                 <Pencil size={12} />
                               </button>
                             </Tooltip>
                             <Tooltip content="Remove">
-                              <button onClick={() => setDeleteTarget(entry.id)} className="p-1.5 text-zinc-400 hover:text-red-500 transition-colors rounded-md">
+                              <button onClick={() => setDeleteTarget(entry.id)} className="p-1.5 text-zinc-500 hover:text-red-500 transition-colors rounded-md">
                                 <Trash2 size={12} />
                               </button>
                             </Tooltip>

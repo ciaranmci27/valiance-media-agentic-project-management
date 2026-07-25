@@ -126,7 +126,7 @@ export default function MyTasksPage() {
   ];
 
   return (
-    <div className="animate-fadeIn min-h-screen bg-zinc-50">
+    <div className="animate-fadeIn min-h-screen">
       <Header
         title="My Tasks"
         subtitle={`${activeCount} active task${activeCount !== 1 ? 's' : ''} assigned to you`}
@@ -135,24 +135,20 @@ export default function MyTasksPage() {
       <div className="p-4 lg:p-6 space-y-4">
         {/* Filter Tabs and Sort */}
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center bg-white border border-zinc-200 rounded-lg p-1">
+          <div className="seg-track">
             {tabs.map((tab) => (
               <button
                 key={tab.id}
                 onClick={() => setFilterTab(tab.id)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all ${
-                  filterTab === tab.id
-                    ? 'bg-zinc-900 text-white shadow-sm'
-                    : 'text-zinc-500 hover:text-zinc-700'
-                }`}
+                className={`seg-item flex items-center gap-1.5 ${filterTab === tab.id ? 'is-active' : ''}`}
               >
                 {tab.label}
-                <span className={`text-xs px-1.5 py-0.5 rounded-full ${
+                <span className={`text-[11px] px-1.5 py-0.5 rounded-full leading-none ${
                   filterTab === tab.id
-                    ? 'bg-white/20'
+                    ? 'bg-white/20 text-white'
                     : tab.id === 'overdue' && tab.count > 0
-                    ? 'bg-red-100 text-red-700'
-                    : 'bg-zinc-100 text-zinc-500'
+                    ? 'bg-red-500/15 text-red-300'
+                    : 'bg-white/[0.06] text-zinc-400'
                 }`}>
                   {tab.count}
                 </span>
@@ -161,7 +157,7 @@ export default function MyTasksPage() {
           </div>
 
           <div className="flex items-center gap-2">
-            <span className="text-xs text-zinc-500">Sort by:</span>
+            <span className="text-xs text-zinc-400">Sort by:</span>
             <div className="w-32">
               <Select
                 value={sortField}
@@ -175,14 +171,14 @@ export default function MyTasksPage() {
 
         {/* Task List */}
         {filteredTasks.length === 0 ? (
-          <div className="text-center py-16 bg-white rounded-xl border border-zinc-200">
-            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-zinc-100 flex items-center justify-center">
-              <CheckSquare className="text-zinc-400" size={32} />
+          <div className="text-center py-16 glass-card rounded-xl">
+            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-white/[0.06] flex items-center justify-center">
+              <CheckSquare className="text-zinc-500" size={32} />
             </div>
-            <h3 className="text-lg font-semibold text-zinc-900 mb-2">
+            <h3 className="text-lg font-semibold text-white mb-2">
               {filterTab === 'overdue' ? 'No overdue tasks' : filterTab === 'active' ? 'All caught up!' : 'No tasks assigned to you'}
             </h3>
-            <p className="text-zinc-500">
+            <p className="text-zinc-400">
               {filterTab === 'overdue'
                 ? "You're on track with all your deadlines."
                 : filterTab === 'active'
@@ -191,7 +187,7 @@ export default function MyTasksPage() {
             </p>
           </div>
         ) : (
-          <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden divide-y divide-zinc-100">
+          <div className="glass-card rounded-xl overflow-hidden divide-y divide-white/[0.05]">
             {filteredTasks.map((task) => {
               const project = projects.find(p => p.id === task.project_id);
               const dueInfo = formatDueDate(task.due_date);
@@ -201,7 +197,7 @@ export default function MyTasksPage() {
                 <div
                   key={task.id}
                   onClick={() => setViewingTaskId(task.id)}
-                  className="flex items-center gap-3 p-3 lg:p-4 hover:bg-zinc-50 transition-colors cursor-pointer group"
+                  className="flex items-center gap-3 px-4 py-3.5 hover:bg-white/[0.03] transition-colors cursor-pointer group"
                 >
                   {/* Status dot */}
                   <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
@@ -214,11 +210,11 @@ export default function MyTasksPage() {
                   {/* Task info */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <p className="font-medium text-zinc-900 text-sm lg:text-base truncate">{task.title}</p>
+                      <p className="font-medium text-white text-sm lg:text-base truncate">{task.title}</p>
                     </div>
                     <div className="flex items-center gap-2 mt-0.5">
                       {project && (
-                        <span className="flex items-center gap-1 text-xs text-zinc-500">
+                        <span className="flex items-center gap-1 text-xs text-zinc-400">
                           {project.color && (
                             <span
                               className="w-2 h-2 rounded-full inline-block"
@@ -229,13 +225,13 @@ export default function MyTasksPage() {
                         </span>
                       )}
                       {task.subtasks.length > 0 && (
-                        <span className="text-xs text-zinc-400 flex items-center gap-1">
+                        <span className="text-xs text-zinc-500 flex items-center gap-1">
                           <CheckSquare size={11} />
                           {completedSubtasks}/{task.subtasks.length}
                         </span>
                       )}
                       {task.comments.length > 0 && (
-                        <span className="text-xs text-zinc-400 flex items-center gap-1">
+                        <span className="text-xs text-zinc-500 flex items-center gap-1">
                           <MessageSquare size={11} />
                           {task.comments.length}
                         </span>
@@ -248,8 +244,8 @@ export default function MyTasksPage() {
                     {dueInfo && (
                       <span className={`text-xs px-2 py-0.5 rounded-full flex items-center gap-1 ${
                         dueInfo.isOverdue
-                          ? 'bg-red-100 text-red-700 font-medium'
-                          : 'bg-zinc-100 text-zinc-600'
+                          ? 'bg-red-500/15 text-red-300 font-medium'
+                          : 'bg-white/[0.06] text-zinc-300'
                       }`}>
                         <Calendar size={11} />
                         {dueInfo.text}

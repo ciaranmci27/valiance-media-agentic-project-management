@@ -8,7 +8,7 @@ export async function GET() {
   const { access, memberId, service } = auth.data;
   const { data: member, error } = await service
     .from('team_members')
-    .select('id, auth_user_id, name, email, avatar, role, status, timezone')
+    .select('id, auth_user_id, name, email, avatar, role, status, timezone, theme_preference')
     .eq('id', memberId)
     .single();
 

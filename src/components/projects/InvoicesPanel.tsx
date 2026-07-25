@@ -40,11 +40,11 @@ interface InvoicesPanelProps {
 }
 
 const statusColors: Record<string, string> = {
-  draft: 'bg-zinc-100 text-zinc-600',
-  sent: 'bg-blue-50 text-blue-700',
-  paid: 'bg-emerald-50 text-emerald-700',
-  overdue: 'bg-red-50 text-red-700',
-  cancelled: 'bg-zinc-100 text-zinc-400',
+  draft: 'bg-white/[0.06] text-zinc-300',
+  sent: 'bg-blue-500/15 text-blue-300',
+  paid: 'bg-emerald-500/15 text-emerald-300',
+  overdue: 'bg-red-500/15 text-red-300',
+  cancelled: 'bg-white/[0.06] text-zinc-500',
 };
 
 function formatCurrency(value: number): string {
@@ -856,17 +856,17 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
         : null;
 
       return (
-        <div key={li.id} className="rounded-md border border-brand-200 bg-brand-50/30 p-3 space-y-3">
+        <div key={li.id} className="rounded-md border border-brand-500/30 bg-brand-500/15 p-3 space-y-3">
           <div className="flex items-start gap-3">
-            <div className="mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md border border-brand-200 bg-white text-brand-600">
+            <div className="mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md border border-brand-500/30 bg-surface-raised text-brand-300">
               <ListChecks size={14} aria-hidden="true" />
             </div>
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-                <p className="text-xs font-semibold text-zinc-900">Tracked time</p>
-                <p className="text-sm font-semibold tabular-nums text-zinc-900">${formatCurrency(li.amount)}</p>
+                <p className="text-xs font-semibold text-white">Tracked time</p>
+                <p className="text-sm font-semibold tabular-nums text-white">${formatCurrency(li.amount)}</p>
               </div>
-              <p className="mt-0.5 text-[11px] text-zinc-500">
+              <p className="mt-0.5 text-[11px] text-zinc-400">
                 {formatHours(linkedHours)} hrs · {linkedAllocations.length} {linkedAllocations.length === 1 ? 'session' : 'sessions'}
                 {linkedPeriod ? ` · ${linkedPeriod}` : ''}
               </p>
@@ -874,7 +874,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
             <button
               type="button"
               onClick={() => removeLineItem(li.id)}
-              className="rounded-md p-1.5 text-zinc-400 transition-colors hover:bg-white hover:text-red-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+              className="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-surface-raised hover:text-red-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
               aria-label="Remove tracked time"
             >
               <X size={14} aria-hidden="true" />
@@ -893,7 +893,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
             <button
               type="button"
               onClick={() => reviewTrackedLineItem(li)}
-              className="inline-flex h-[30px] items-center justify-center gap-1.5 rounded-md border border-brand-200 bg-white px-3 text-xs font-medium text-brand-700 transition-colors hover:border-brand-300 hover:bg-brand-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+              className="inline-flex h-[30px] items-center justify-center gap-1.5 rounded-md border border-brand-500/30 bg-surface-raised px-3 text-xs font-medium text-brand-300 transition-colors hover:border-brand-500/30 hover:bg-brand-500/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
             >
               <Eye size={12} aria-hidden="true" />
               Review time
@@ -904,7 +904,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
     }
 
     return (
-      <div key={li.id} className="rounded-md border border-zinc-200 bg-white p-2.5 space-y-2">
+      <div key={li.id} className="rounded-md border border-white/[0.08] bg-surface-raised p-2.5 space-y-2">
         <div className="flex flex-wrap items-start gap-2">
           <div className="w-28 flex-shrink-0">
             <Select
@@ -935,7 +935,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
             type="button"
             onClick={() => removeLineItem(li.id)}
             disabled={!canDelete && formLineItems.length === 1}
-            className="ml-auto sm:ml-0 p-1.5 text-zinc-400 hover:text-red-500 transition-colors rounded-md hover:bg-zinc-50 disabled:opacity-30 disabled:cursor-not-allowed"
+            className="ml-auto sm:ml-0 p-1.5 text-zinc-500 hover:text-red-500 transition-colors rounded-md hover:bg-white/[0.03] disabled:opacity-30 disabled:cursor-not-allowed"
             aria-label="Remove line item"
           >
             <X size={14} />
@@ -1019,7 +1019,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
         <div className="flex items-baseline justify-between">
           <span className="text-xs font-medium text-input-text-label">Line Items</span>
           <span className="text-xs font-medium text-input-text-label">
-            Total <span className="text-zinc-900">${formatCurrency(formTotal)}</span>
+            Total <span className="text-white">${formatCurrency(formTotal)}</span>
           </span>
         </div>
         <div className="space-y-2">
@@ -1029,7 +1029,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
           <button
             type="button"
             onClick={addLineItem}
-            className="inline-flex items-center gap-1 text-xs font-medium text-brand-600 hover:text-brand-700 transition-colors"
+            className="inline-flex items-center gap-1 text-xs font-medium text-brand-300 hover:text-brand-300 transition-colors"
           >
             <Plus size={12} strokeWidth={2.5} />
             Add line
@@ -1039,7 +1039,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
               type="button"
               onClick={openUnpaidPicker}
               title={allUnpaidHoursDraft.description}
-              className="inline-flex items-center gap-1 text-xs font-medium text-brand-600 hover:text-brand-700 transition-colors"
+              className="inline-flex items-center gap-1 text-xs font-medium text-brand-300 hover:text-brand-300 transition-colors"
             >
               <Clock size={12} strokeWidth={2.5} />
               Add tracked time (${formatCurrency(allUnpaidHoursDraft.amount)})
@@ -1048,35 +1048,31 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
         </div>
 
         {allUnpaidHoursDraft && unpaidPickerOpen && (
-          <div className="mt-2 overflow-hidden rounded-lg border border-brand-200 bg-white shadow-sm">
-            <div className="border-b border-brand-100 bg-brand-50/60 px-4 py-3">
+          <div className="mt-2 overflow-hidden rounded-lg border border-brand-500/30 bg-surface-raised shadow-sm">
+            <div className="border-b border-brand-500/30 bg-brand-500/15 px-4 py-3">
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div>
-                  <p className="text-sm font-semibold text-zinc-900">Add tracked time</p>
-                  <p className="mt-0.5 text-[11px] text-zinc-500">FIFO automatically selects the oldest outstanding time.</p>
+                  <p className="text-sm font-semibold text-white">Add tracked time</p>
+                  <p className="mt-0.5 text-[11px] text-zinc-400">FIFO automatically selects the oldest outstanding time.</p>
                 </div>
-                <p className="text-[11px] text-zinc-500">
-                  Available <span className="font-semibold tabular-nums text-zinc-900">${formatCurrency(unpaidHoursDraft?.amount ?? 0)}</span>
-                  <span className="text-zinc-400"> · {formatHours(unpaidHoursDraft?.hours ?? 0)} hrs</span>
+                <p className="text-[11px] text-zinc-400">
+                  Available <span className="font-semibold tabular-nums text-white">${formatCurrency(unpaidHoursDraft?.amount ?? 0)}</span>
+                  <span className="text-zinc-500"> · {formatHours(unpaidHoursDraft?.hours ?? 0)} hrs</span>
                 </p>
               </div>
             </div>
 
             <div className="space-y-3 p-4">
               <div className="flex items-center justify-between gap-3">
-                <span className="text-xs font-medium text-zinc-700">Time period</span>
-                <div className="inline-flex rounded-md border border-zinc-200 bg-zinc-50 p-0.5" role="group" aria-label="Tracked time period">
+                <span className="text-xs font-medium text-zinc-300">Time period</span>
+                <div className="seg-track seg-sm" role="group" aria-label="Tracked time period">
                   {(['all', 'custom'] as const).map(mode => (
                     <button
                       key={mode}
                       type="button"
                       onClick={() => setPickerPeriodMode(mode)}
                       aria-pressed={unpaidPeriodMode === mode}
-                      className={`rounded px-2.5 py-1 text-[11px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${
-                        unpaidPeriodMode === mode
-                          ? 'bg-white text-zinc-900 shadow-sm'
-                          : 'text-zinc-500 hover:text-zinc-800'
-                      }`}
+                      className={`seg-item ${unpaidPeriodMode === mode ? 'is-active' : ''}`}
                     >
                       {mode === 'all' ? 'All outstanding' : 'Custom dates'}
                     </button>
@@ -1108,29 +1104,25 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
               )}
 
               {!customPeriodIsValid && (
-                <p className="text-[11px] text-red-600" role="alert">Choose a valid start and end date.</p>
+                <p className="text-[11px] text-red-400" role="alert">Choose a valid start and end date.</p>
               )}
 
               {customPeriodIsValid && !unpaidHoursDraft && (
-                <p className="rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 text-[11px] text-zinc-600" role="status">
+                <p className="rounded-md border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-[11px] text-zinc-300" role="status">
                   No outstanding sessions start inside this period.
                 </p>
               )}
 
               <div className="flex items-center justify-between gap-3">
-                <span className="text-xs font-medium text-zinc-700">Invoice by</span>
-                <div className="inline-flex rounded-md border border-zinc-200 bg-zinc-50 p-0.5" role="group" aria-label="Invoice tracked time by">
+                <span className="text-xs font-medium text-zinc-300">Invoice by</span>
+                <div className="seg-track seg-sm" role="group" aria-label="Invoice tracked time by">
                   {(['amount', 'hours'] as const).map(mode => (
                     <button
                       key={mode}
                       type="button"
                       onClick={() => setPickerMode(mode)}
                       aria-pressed={unpaidPickerMode === mode}
-                      className={`rounded px-2.5 py-1 text-[11px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${
-                        unpaidPickerMode === mode
-                          ? 'bg-white text-zinc-900 shadow-sm'
-                          : 'text-zinc-500 hover:text-zinc-800'
-                      }`}
+                      className={`seg-item ${unpaidPickerMode === mode ? 'is-active' : ''}`}
                     >
                       {mode === 'amount' ? 'Amount' : 'Hours'}
                     </button>
@@ -1165,41 +1157,41 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
               </div>
 
               {pickerExceedsAvailable && (
-                <p className="text-[11px] text-red-600" role="alert">
+                <p className="text-[11px] text-red-400" role="alert">
                   {unpaidPickerMode === 'amount' ? 'Amount' : 'Hours'} exceeds the available tracked-time balance.
                 </p>
               )}
 
               {baseSelectedUnpaidDraft && (
-                <div className="rounded-md border border-zinc-200 bg-zinc-50/70" aria-live="polite">
+                <div className="rounded-md border border-white/[0.08] bg-white/[0.03]" aria-live="polite">
                   <div className="flex flex-wrap items-start justify-between gap-3 px-3 py-2.5">
                     <div className="min-w-0">
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-zinc-500">Calculated selection</p>
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-zinc-400">Calculated selection</p>
                       {selectedUnpaidDraft ? (
                         <>
-                          <p className="mt-1 text-xs font-medium text-zinc-900">
+                          <p className="mt-1 text-xs font-medium text-white">
                             {formatHours(selectedUnpaidDraft.hours)} hrs · {selectedUnpaidDraft.allocations.length} {selectedUnpaidDraft.allocations.length === 1 ? 'session' : 'sessions'}
                           </p>
-                          <p className="mt-0.5 text-[11px] text-zinc-500">
+                          <p className="mt-0.5 text-[11px] text-zinc-400">
                             {fmtTrackedDate(selectedUnpaidDraft.startDate)} – {fmtTrackedDate(selectedUnpaidDraft.endDate)}
                           </p>
                         </>
                       ) : (
-                        <p className="mt-1 text-xs font-medium text-zinc-900">No sessions selected</p>
+                        <p className="mt-1 text-xs font-medium text-white">No sessions selected</p>
                       )}
                     </div>
-                    <p className="text-sm font-semibold tabular-nums text-zinc-900">${formatCurrency(selectedUnpaidDraft?.amount ?? 0)}</p>
+                    <p className="text-sm font-semibold tabular-nums text-white">${formatCurrency(selectedUnpaidDraft?.amount ?? 0)}</p>
                   </div>
 
                   {excludedTimeEntryIds.size > 0 && (
-                    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-zinc-200 px-3 py-2 text-[11px] text-zinc-600">
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-white/[0.08] px-3 py-2 text-[11px] text-zinc-300">
                       <p>
                         {excludedTimeEntryIds.size} {excludedTimeEntryIds.size === 1 ? 'session' : 'sessions'} excluded. The total was reduced without adding replacement time.
                       </p>
                       <button
                         type="button"
                         onClick={() => setExcludedTimeEntryIds(new Set())}
-                        className="font-medium text-brand-700 transition-colors hover:text-brand-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+                        className="font-medium text-brand-300 transition-colors hover:text-brand-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
                       >
                         Reset to FIFO
                       </button>
@@ -1207,13 +1199,13 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
                   )}
 
                   {lastSessionIsPartial && lastSelectedAllocation && lastSelectedEntry && (
-                    <div className="border-t border-zinc-200 px-3 py-2 text-[11px] text-zinc-600">
-                      This invoice includes <span className="font-medium text-zinc-900">{formatHours(lastSelectedAllocation.allocated_hours)} hrs</span> from the final {formatHours(lastSelectedEntry.hours)}-hr session.
+                    <div className="border-t border-white/[0.08] px-3 py-2 text-[11px] text-zinc-300">
+                      This invoice includes <span className="font-medium text-white">{formatHours(lastSelectedAllocation.allocated_hours)} hrs</span> from the final {formatHours(lastSelectedEntry.hours)}-hr session.
                     </div>
                   )}
 
                   {conflictingInvoiceNumbers.length > 0 && (
-                    <div className="flex gap-2 border-t border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
+                    <div className="flex gap-2 border-t border-amber-500/30 bg-amber-500/15 px-3 py-2 text-[11px] text-amber-300">
                       <AlertTriangle size={13} className="mt-0.5 flex-shrink-0" aria-hidden="true" />
                       <p>
                         Some selected sessions are already attached to {conflictingInvoiceNumbers.join(', ')}. Review before adding them again.
@@ -1226,7 +1218,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
                       type="button"
                       onClick={() => setUnpaidReviewOpen(open => !open)}
                       aria-expanded={unpaidReviewOpen}
-                      className="flex w-full items-center justify-between border-t border-zinc-200 px-3 py-2 text-left text-[11px] font-medium text-brand-700 transition-colors hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-500"
+                      className="flex w-full items-center justify-between border-t border-white/[0.08] px-3 py-2 text-left text-[11px] font-medium text-brand-300 transition-colors hover:bg-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-500"
                     >
                       <span>Review included time</span>
                       <ChevronDown size={13} className={`transition-transform ${unpaidReviewOpen ? 'rotate-180' : ''}`} aria-hidden="true" />
@@ -1234,22 +1226,22 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
                   )}
 
                   {unpaidReviewOpen && selectedUnpaidDraft && (
-                    <div className="max-h-64 overflow-y-auto border-t border-zinc-200 bg-white overscroll-contain">
+                    <div className="max-h-64 overflow-y-auto border-t border-white/[0.08] bg-surface-raised overscroll-contain">
                       {selectedUnpaidDraft.allocations.map((allocation, index) => {
                         const entry = timeEntryById.get(allocation.time_entry_id);
                         return (
                           <div
                             key={`${allocation.time_entry_id}:${index}`}
-                            className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto] items-start gap-3 border-b border-zinc-100 px-3 py-2.5 last:border-b-0"
+                            className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto] items-start gap-3 border-b border-white/[0.06] px-3 py-2.5 last:border-b-0"
                           >
                             <div className="min-w-0">
-                              <p className="text-[11px] font-medium text-zinc-800">{entry ? fmtTrackedDate(entry.start_time) : 'Tracked session'}</p>
-                              <p className="mt-0.5 truncate text-[11px] text-zinc-500" title={entry?.description || undefined}>
+                              <p className="text-[11px] font-medium text-zinc-100">{entry ? fmtTrackedDate(entry.start_time) : 'Tracked session'}</p>
+                              <p className="mt-0.5 truncate text-[11px] text-zinc-400" title={entry?.description || undefined}>
                                 {entry?.description || 'No description'}
                               </p>
                             </div>
-                            <p className="whitespace-nowrap text-[11px] tabular-nums text-zinc-600">{formatHours(allocation.allocated_hours)} hrs</p>
-                            <p className="whitespace-nowrap text-[11px] font-medium tabular-nums text-zinc-900">${formatCurrency(allocation.allocated_amount)}</p>
+                            <p className="whitespace-nowrap text-[11px] tabular-nums text-zinc-300">{formatHours(allocation.allocated_hours)} hrs</p>
+                            <p className="whitespace-nowrap text-[11px] font-medium tabular-nums text-white">${formatCurrency(allocation.allocated_amount)}</p>
                             <button
                               type="button"
                               onClick={() => setExcludedTimeEntryIds(previous => {
@@ -1259,7 +1251,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
                               })}
                               aria-label={`Remove ${entry?.description || 'tracked session'} from invoice`}
                               title="Remove from invoice"
-                              className="-m-1 rounded p-1 text-zinc-400 transition-colors hover:bg-red-50 hover:text-red-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500"
+                              className="-m-1 rounded p-1 text-zinc-500 transition-colors hover:bg-red-500/15 hover:text-red-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500"
                             >
                               <X size={13} aria-hidden="true" />
                             </button>
@@ -1275,7 +1267,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
                 <button
                   type="button"
                   onClick={closeUnpaidPicker}
-                  className="rounded-md px-2.5 py-1.5 text-xs text-zinc-500 transition-colors hover:bg-zinc-50 hover:text-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+                  className="rounded-md px-2.5 py-1.5 text-xs text-zinc-400 transition-colors hover:bg-white/[0.03] hover:text-zinc-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
                 >
                   Cancel
                 </button>
@@ -1319,23 +1311,23 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
           }}
         />
         {formFile ? (
-          <div className="flex items-center gap-2 px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-lg">
-            <File size={14} className="text-zinc-400 flex-shrink-0" />
-            <span className="text-sm text-zinc-700 truncate flex-1">{formFile.name}</span>
+          <div className="flex items-center gap-2 px-3 py-2 bg-white/[0.03] border border-white/[0.08] rounded-lg">
+            <File size={14} className="text-zinc-500 flex-shrink-0" />
+            <span className="text-sm text-zinc-300 truncate flex-1">{formFile.name}</span>
             <button
               onClick={() => setFormFile(null)}
-              className="p-0.5 text-zinc-400 hover:text-red-500 transition-colors"
+              className="p-0.5 text-zinc-500 hover:text-red-500 transition-colors"
             >
               <X size={14} />
             </button>
           </div>
         ) : existingFileUrl ? (
-          <div className="flex items-center gap-2 px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-lg">
-            <File size={14} className="text-zinc-400 flex-shrink-0" />
-            <span className="text-sm text-zinc-700 truncate flex-1">{existingFileName || 'Attached file'}</span>
+          <div className="flex items-center gap-2 px-3 py-2 bg-white/[0.03] border border-white/[0.08] rounded-lg">
+            <File size={14} className="text-zinc-500 flex-shrink-0" />
+            <span className="text-sm text-zinc-300 truncate flex-1">{existingFileName || 'Attached file'}</span>
             <button
               onClick={() => { setExistingFileUrl(null); setExistingFileName(null); }}
-              className="p-0.5 text-zinc-400 hover:text-red-500 transition-colors"
+              className="p-0.5 text-zinc-500 hover:text-red-500 transition-colors"
             >
               <X size={14} />
             </button>
@@ -1343,7 +1335,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
         ) : (
           <button
             onClick={() => fileInputRef.current?.click()}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm text-zinc-500 hover:text-zinc-700 border border-dashed border-zinc-300 hover:border-zinc-400 rounded-lg transition-colors"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm text-zinc-400 hover:text-zinc-300 border border-dashed border-white/[0.12] hover:border-zinc-400 rounded-lg transition-colors"
           >
             <Upload size={14} />
             Attach file
@@ -1354,7 +1346,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
       <div className="flex items-center gap-2 justify-end">
         <button
           onClick={handleCancel}
-          className="px-3 py-1.5 text-sm text-zinc-500 hover:text-zinc-700 transition-colors"
+          className="px-3 py-1.5 text-sm text-zinc-400 hover:text-zinc-300 transition-colors"
         >
           Cancel
         </button>
@@ -1372,15 +1364,15 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
 
   return (
     <>
-      <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden flex flex-col max-h-[600px]">
+      <div className="glass-card rounded-xl overflow-hidden flex flex-col max-h-[600px]">
       {/* Header */}
-      <div className="px-5 py-4 flex items-center justify-between flex-shrink-0 border-b border-zinc-100">
+      <div className="px-5 py-4 flex items-center justify-between flex-shrink-0 border-b border-white/[0.06]">
         <div className="flex items-center gap-2">
-          <Receipt size={18} className="text-zinc-500" />
-          <h2 className="font-semibold text-zinc-900">
+          <Receipt size={18} className="text-zinc-400" />
+          <h2 className="font-semibold text-white">
             Invoices
             {invoices.length > 0 && (
-              <span className="ml-1.5 text-xs font-medium text-zinc-400">({invoices.length})</span>
+              <span className="ml-1.5 text-xs font-medium text-zinc-500">({invoices.length})</span>
             )}
           </h2>
         </div>
@@ -1397,24 +1389,24 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
 
       <div className="flex-1 flex flex-col overflow-y-auto">
         {/* Balance Summary */}
-        <div className="px-5 py-3 border-b border-zinc-100 bg-zinc-50/50 flex-shrink-0 overflow-x-auto">
+        <div className="px-5 py-3 border-b border-white/[0.06] bg-white/[0.03] flex-shrink-0 overflow-x-auto">
           <div className="flex gap-4 min-w-max">
             {/* Budget (read-only, configured in project settings) */}
             {hasBudget && (
               <div className="shrink-0 min-w-[5.5rem]">
-                <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-400 mb-0.5">Budget</p>
+                <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">Budget</p>
                 <div className="flex items-center gap-1.5">
-                  <p className="text-sm font-semibold text-zinc-900">
+                  <p className="text-sm font-semibold text-white">
                     {budgetType === 'hours' ? `${formatCurrency(budgetValue)} hrs` : `$${formatCurrency(budgetValue)}`}
                   </p>
                   {budgetValue > 0 && (
                     <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${
-                      budgetPct >= 100 ? 'bg-red-50 text-red-700'
-                        : budgetPct >= 90 ? 'bg-red-50 text-red-600'
-                        : budgetPct >= 75 ? 'bg-orange-50 text-orange-600'
-                        : budgetPct >= 50 ? 'bg-amber-50 text-amber-600'
-                        : budgetPct >= 25 ? 'bg-emerald-50 text-emerald-600'
-                        : 'bg-emerald-50 text-emerald-500'
+                      budgetPct >= 100 ? 'bg-red-500/15 text-red-300'
+                        : budgetPct >= 90 ? 'bg-red-500/15 text-red-400'
+                        : budgetPct >= 75 ? 'bg-orange-500/15 text-orange-400'
+                        : budgetPct >= 50 ? 'bg-amber-500/15 text-amber-400'
+                        : budgetPct >= 25 ? 'bg-emerald-500/15 text-emerald-400'
+                        : 'bg-emerald-500/15 text-emerald-500'
                     }`}>
                       {Math.round(budgetPct)}%
                     </span>
@@ -1424,35 +1416,35 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
             )}
             {isHourly && (
               <div className="shrink-0 min-w-[5.5rem]">
-                <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-400 mb-0.5">Billable</p>
-                <p className="text-sm font-semibold text-zinc-900">${formatCurrency(billableTotal)}</p>
+                <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">Billable</p>
+                <p className="text-sm font-semibold text-white">${formatCurrency(billableTotal)}</p>
               </div>
             )}
             <div className="shrink-0 min-w-[5.5rem]">
-              <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-400 mb-0.5">Invoiced</p>
-              <p className="text-sm font-semibold text-zinc-900">${formatCurrency(totalInvoiced)}</p>
+              <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">Invoiced</p>
+              <p className="text-sm font-semibold text-white">${formatCurrency(totalInvoiced)}</p>
             </div>
             <div className="shrink-0 min-w-[5.5rem]">
-              <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-400 mb-0.5">Paid</p>
-              <p className="text-sm font-semibold text-emerald-600">${formatCurrency(totalPaid)}</p>
+              <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">Paid</p>
+              <p className="text-sm font-semibold text-emerald-400">${formatCurrency(totalPaid)}</p>
             </div>
             <div className="shrink-0 min-w-[5.5rem]">
-              <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-400 mb-0.5">Outstanding</p>
-              <p className={`text-sm font-semibold ${outstanding > 0 ? 'text-amber-600' : 'text-zinc-400'}`}>${formatCurrency(outstanding)}</p>
+              <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">Outstanding</p>
+              <p className={`text-sm font-semibold ${outstanding > 0 ? 'text-amber-400' : 'text-zinc-500'}`}>${formatCurrency(outstanding)}</p>
             </div>
             {isHourly && (
               <>
                 <div className="shrink-0 min-w-[5.5rem]">
-                  <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-400 mb-0.5">Total Hours</p>
-                  <p className="text-sm font-semibold text-zinc-900">{Math.round(totalHours)}</p>
+                  <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">Total Hours</p>
+                  <p className="text-sm font-semibold text-white">{Math.round(totalHours)}</p>
                 </div>
                 <div className="shrink-0 min-w-[5.5rem]">
-                  <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-400 mb-0.5">Hourly Rate</p>
+                  <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">Hourly Rate</p>
                   <div className="flex items-center gap-1.5">
-                    <p className="text-sm font-semibold text-zinc-900">${Math.round(hourlyRate)}</p>
+                    <p className="text-sm font-semibold text-white">${Math.round(hourlyRate)}</p>
                     <button
                       onClick={() => setEditingRate(open => !open)}
-                      className="p-0.5 text-zinc-400 hover:text-brand-600 transition-colors"
+                      className="p-0.5 text-zinc-500 hover:text-brand-300 transition-colors"
                       aria-label="Manage hourly rate schedule"
                     >
                       <Clock size={12} />
@@ -1487,7 +1479,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
               return (
                 <div
                   key={invoice.id}
-                  className="group rounded-lg border border-zinc-200 hover:border-zinc-300 transition-colors"
+                  className="group rounded-lg border border-white/[0.08] hover:border-white/[0.12] transition-colors"
                 >
                   <div
                     className={`p-3 ${hasDetails ? 'cursor-pointer' : ''} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 rounded-lg`}
@@ -1515,7 +1507,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
                           <span className={`pointer-events-none absolute inset-0 z-10 flex items-center justify-center px-2 py-0.5 text-xs font-medium rounded-full ${statusColors[invoice.status]}`}>
                             {invoice.status.charAt(0).toUpperCase() + invoice.status.slice(1)}
                           </span>
-                          <div className="[&_button]:!bg-transparent [&_button]:!border-transparent [&_button]:!shadow-none [&_button]:!ring-0 [&_button]:!text-transparent [&_button]:!px-2 [&_button]:!py-0.5 [&_button]:!text-xs [&_svg]:!text-transparent">
+                          <div className="[&_button]:!bg-transparent [&_button]:!border-transparent [&_button]:!shadow-none [&_button]:!ring-0 [&_button]:!text-transparent [&_button]:!px-2 [&_button]:!py-0.5 [&_button]:!text-xs [&_svg]:!text-transparent [&_span]:!text-transparent">
                             <Select
                               size="sm"
                               value={invoice.status}
@@ -1524,33 +1516,33 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
                             />
                           </div>
                         </div>
-                        <span className="text-sm font-semibold text-zinc-900">{invoice.invoice_number}</span>
+                        <span className="text-sm font-semibold text-white">{invoice.invoice_number}</span>
                         {hasMultipleLines ? (
-                          <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium rounded bg-zinc-100 text-zinc-500">
+                          <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium rounded bg-white/[0.06] text-zinc-400">
                             {items.length} items
                           </span>
                         ) : singleItemType && singleItemType !== 'hourly' && (
-                          <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium rounded bg-zinc-100 text-zinc-500 capitalize">
+                          <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium rounded bg-white/[0.06] text-zinc-400 capitalize">
                             {singleItemType}
                           </span>
                         )}
                       </div>
-                      <span className="text-sm font-semibold text-zinc-900">
+                      <span className="text-sm font-semibold text-white">
                         ${formatCurrency(invoice.amount)}
                       </span>
                     </div>
                     <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3 text-xs text-zinc-500 min-w-0 flex-wrap">
+                      <div className="flex items-center gap-3 text-xs text-zinc-400 min-w-0 flex-wrap">
                         <span>Issued: {fmtDate(invoice.date)}</span>
                         {invoice.due_date && invoice.due_date !== invoice.date && <span>Due: {fmtDate(invoice.due_date)}</span>}
-                        {invoice.paid_date && <span className="text-emerald-600">Paid: {fmtDate(invoice.paid_date)}</span>}
+                        {invoice.paid_date && <span className="text-emerald-400">Paid: {fmtDate(invoice.paid_date)}</span>}
                       </div>
                       <div className="flex items-center gap-0.5 flex-shrink-0">
                         <div className="flex items-center gap-0.5 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-opacity">
                           <button
                             onClick={e => { e.stopPropagation(); setPreviewInvoiceId(invoice.id); }}
                             aria-label="Preview invoice PDF"
-                            className="p-1.5 text-zinc-400 hover:text-brand-600 transition-colors rounded-md hover:bg-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
+                            className="p-1.5 text-zinc-500 hover:text-brand-300 transition-colors rounded-md hover:bg-white/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
                           >
                             <Eye size={13} />
                           </button>
@@ -1558,7 +1550,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
                             <button
                               onClick={e => { e.stopPropagation(); openInvoiceEmailPreview(invoice.id); }}
                               aria-label="Email invoice"
-                              className="p-1.5 text-zinc-400 hover:text-brand-600 transition-colors rounded-md hover:bg-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
+                              className="p-1.5 text-zinc-500 hover:text-brand-300 transition-colors rounded-md hover:bg-white/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
                             >
                               <Send size={13} />
                             </button>
@@ -1566,21 +1558,21 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
                           <button
                             onClick={e => { e.stopPropagation(); startEditing(invoice); }}
                             aria-label="Edit invoice"
-                            className="p-1.5 text-zinc-400 hover:text-brand-600 transition-colors rounded-md hover:bg-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
+                            className="p-1.5 text-zinc-500 hover:text-brand-300 transition-colors rounded-md hover:bg-white/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
                           >
                             <Edit2 size={13} />
                           </button>
                           <button
                             onClick={e => { e.stopPropagation(); startDuplicating(invoice); }}
                             aria-label="Duplicate invoice"
-                            className="p-1.5 text-zinc-400 hover:text-brand-600 transition-colors rounded-md hover:bg-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
+                            className="p-1.5 text-zinc-500 hover:text-brand-300 transition-colors rounded-md hover:bg-white/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
                           >
                             <Copy size={13} />
                           </button>
                           <button
                             onClick={e => { e.stopPropagation(); setDeleteTarget(invoice.id); }}
                             aria-label="Delete invoice"
-                            className="p-1.5 text-zinc-400 hover:text-red-500 transition-colors rounded-md hover:bg-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300"
+                            className="p-1.5 text-zinc-500 hover:text-red-500 transition-colors rounded-md hover:bg-white/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300"
                           >
                             <Trash2 size={13} />
                           </button>
@@ -1589,7 +1581,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
                           <ChevronDown
                             size={14}
                             aria-hidden="true"
-                            className={`hidden sm:block text-zinc-400 transition-transform duration-150 ${isExpanded ? 'rotate-180' : ''}`}
+                            className={`hidden sm:block text-zinc-500 transition-transform duration-150 ${isExpanded ? 'rotate-180' : ''}`}
                           />
                         )}
                       </div>
@@ -1597,36 +1589,36 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
                   </div>
 
                   {isExpanded && hasDetails && (
-                    <div className="px-3 pb-3 pt-0 space-y-3 border-t border-zinc-100 bg-zinc-50/40 rounded-b-lg">
+                    <div className="px-3 pb-3 pt-0 space-y-3 border-t border-white/[0.06] bg-white/[0.03] rounded-b-lg">
                       {items.length > 0 && (
                         <div className="pt-3">
-                          <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-400 mb-1.5">
+                          <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-1.5">
                             {hasMultipleLines ? 'Line items' : 'Line item'}
                           </p>
                           <div className="space-y-1.5">
                             {items.map(li => {
                               const period = fmtServicePeriod(li.service_start_date, li.service_end_date);
                               return (
-                                <div key={li.id} className="flex items-start justify-between gap-3 text-xs bg-white border border-zinc-100 rounded-md px-2.5 py-2">
+                                <div key={li.id} className="flex items-start justify-between gap-3 text-xs bg-surface-raised border border-white/[0.06] rounded-md px-2.5 py-2">
                                   <div className="flex-1 min-w-0 space-y-1">
                                     <div className="flex items-center gap-1.5 flex-wrap">
-                                      <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium rounded bg-zinc-100 text-zinc-600 capitalize">
+                                      <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium rounded bg-white/[0.06] text-zinc-300 capitalize">
                                         {lineItemTypeLabel(li.item_type)}
                                       </span>
                                       {li.item_type === 'recurring' && li.recurrence_frequency && (
-                                        <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium rounded bg-amber-50 text-amber-700 capitalize">
+                                        <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium rounded bg-amber-500/15 text-amber-300 capitalize">
                                           {li.recurrence_frequency}
                                         </span>
                                       )}
                                       {period && (
-                                        <span className="text-[10px] text-zinc-500">{period}</span>
+                                        <span className="text-[10px] text-zinc-400">{period}</span>
                                       )}
                                     </div>
                                     {li.description && (
-                                      <p className="text-xs text-zinc-700 break-words">{li.description}</p>
+                                      <p className="text-xs text-zinc-300 break-words">{li.description}</p>
                                     )}
                                   </div>
-                                  <span className="text-xs font-semibold text-zinc-900 flex-shrink-0 pt-0.5">
+                                  <span className="text-xs font-semibold text-white flex-shrink-0 pt-0.5">
                                     ${formatCurrency(li.amount)}
                                   </span>
                                 </div>
@@ -1640,16 +1632,16 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
                         <div className="flex items-start justify-between gap-4">
                           {invoice.description ? (
                             <div className="min-w-0 flex-1">
-                              <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-400 mb-1">Notes</p>
-                              <p className="text-xs text-zinc-700 whitespace-pre-wrap break-words">{invoice.description}</p>
+                              <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-1">Notes</p>
+                              <p className="text-xs text-zinc-300 whitespace-pre-wrap break-words">{invoice.description}</p>
                             </div>
                           ) : (
                             <div aria-hidden="true" />
                           )}
                           {hasMultipleLines && (
                             <div className="flex-shrink-0 text-right">
-                              <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-400 mb-1">Total</p>
-                              <p className="text-sm font-semibold text-zinc-900">${formatCurrency(invoice.amount)}</p>
+                              <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-1">Total</p>
+                              <p className="text-sm font-semibold text-white">${formatCurrency(invoice.amount)}</p>
                             </div>
                           )}
                         </div>
@@ -1657,12 +1649,12 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
 
                       {invoice.file_url && (
                         <div>
-                          <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-400 mb-1">Attachment</p>
+                          <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-1">Attachment</p>
                           <a
                             href={invoice.file_url}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1.5 text-xs text-brand-600 hover:text-brand-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 rounded"
+                            className="inline-flex items-center gap-1.5 text-xs text-brand-300 hover:text-brand-300 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 rounded"
                           >
                             <FileDown size={12} />
                             {invoice.file_name || 'Download'}
@@ -1677,11 +1669,11 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
           </div>
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
-            <div className="w-10 h-10 rounded-full bg-zinc-100 flex items-center justify-center mb-3">
-              <Receipt size={18} className="text-zinc-400" />
+            <div className="w-10 h-10 rounded-full bg-white/[0.06] flex items-center justify-center mb-3">
+              <Receipt size={18} className="text-zinc-500" />
             </div>
-            <p className="text-sm font-medium text-zinc-500">No invoices yet</p>
-            <p className="text-xs text-zinc-400 mt-1">Create invoices to track billing for this project</p>
+            <p className="text-sm font-medium text-zinc-400">No invoices yet</p>
+            <p className="text-xs text-zinc-500 mt-1">Create invoices to track billing for this project</p>
           </div>
         )}
       </div>

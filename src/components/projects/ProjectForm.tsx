@@ -300,7 +300,7 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
         />
 
         {canManageContacts && <div className="space-y-1.5" ref={contactDropdownRef}>
-          <label className="block text-sm font-medium text-zinc-700">
+          <label className="block text-sm font-medium text-zinc-300">
             Primary Client {!project && <span className="text-red-500">*</span>}
           </label>
           <div className="relative">
@@ -310,43 +310,43 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
                 setContactDropdownOpen(!contactDropdownOpen);
                 setContactSearch('');
               }}
-              className={`w-full px-3 py-2 text-sm text-left bg-white border rounded-lg outline-none transition-all ${
+              className={`w-full px-3 py-2 text-sm text-left bg-surface-raised border rounded-lg outline-none transition-all ${
                 clientError && !selectedContactId
-                  ? 'border-red-400 focus:border-red-500 focus:ring-2 focus:ring-red-100'
-                  : 'border-zinc-200 focus:border-brand-500 focus:ring-2 focus:ring-brand-100'
+                  ? 'border-red-400 focus:border-red-500 focus:ring-2 focus:ring-red-500/30'
+                  : 'border-white/[0.08] focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30'
               }`}
             >
               {selectedContact ? (
                 <span className="flex items-center gap-2">
-                  <span className="w-5 h-5 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center text-[10px] font-semibold shrink-0">
+                  <span className="w-5 h-5 rounded-full bg-brand-500/15 text-brand-300 flex items-center justify-center text-[10px] font-semibold shrink-0">
                     {selectedContact.name.charAt(0).toUpperCase()}
                   </span>
                   <span className="truncate">{selectedContact.name}</span>
                   {selectedContact.company && (
-                    <span className="text-zinc-400 truncate">- {selectedContact.company}</span>
+                    <span className="text-zinc-500 truncate">- {selectedContact.company}</span>
                   )}
                 </span>
               ) : (
-                <span className="text-zinc-400">Select primary client...</span>
+                <span className="text-zinc-500">Select primary client...</span>
               )}
             </button>
             {contactDropdownOpen && (
-              <div className="absolute z-50 mt-1 w-full bg-white border border-zinc-200 rounded-lg shadow-lg flex flex-col max-h-60">
+              <div className="absolute z-50 mt-1 w-full bg-surface-raised border border-white/[0.08] rounded-lg shadow-lg flex flex-col max-h-60">
                 {contactSearchVisible && (
-                  <div className="p-2 border-b border-zinc-100 shrink-0">
+                  <div className="p-2 border-b border-white/[0.06] shrink-0">
                     <input
                       type="text"
                       value={contactSearch}
                       onChange={(e) => setContactSearch(e.target.value)}
                       placeholder="Search contacts..."
-                      className="w-full px-2 py-1.5 text-sm bg-zinc-50 border border-zinc-200 rounded-md outline-none focus:border-brand-500"
+                      className="w-full px-2 py-1.5 text-sm bg-white/[0.03] border border-white/[0.08] rounded-md outline-none focus:border-brand-500"
                       autoFocus
                     />
                   </div>
                 )}
                 <div className="overflow-y-auto min-h-0 flex-1">
                   {filteredContacts.length === 0 ? (
-                    <div className="px-3 py-2 text-sm text-zinc-400">No contacts found</div>
+                    <div className="px-3 py-2 text-sm text-zinc-500">No contacts found</div>
                   ) : (
                     filteredContacts.map((c) => (
                       <button
@@ -357,31 +357,31 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
                           setContactDropdownOpen(false);
                           setClientError(false);
                         }}
-                        className={`w-full px-3 py-2 text-sm text-left hover:bg-brand-50 flex items-center gap-2 transition-colors ${
-                          c.id === selectedContactId ? 'bg-brand-50 text-brand-700' : 'text-zinc-700'
+                        className={`w-full px-3 py-2 text-sm text-left hover:bg-brand-500/15 flex items-center gap-2 transition-colors ${
+                          c.id === selectedContactId ? 'bg-brand-500/15 text-brand-300' : 'text-zinc-300'
                         }`}
                       >
-                        <span className="w-5 h-5 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center text-[10px] font-semibold shrink-0">
+                        <span className="w-5 h-5 rounded-full bg-brand-500/15 text-brand-300 flex items-center justify-center text-[10px] font-semibold shrink-0">
                           {c.name.charAt(0).toUpperCase()}
                         </span>
                         <span className="truncate">{c.name}</span>
                         {c.company && (
-                          <span className="text-zinc-400 text-xs truncate">- {c.company}</span>
+                          <span className="text-zinc-500 text-xs truncate">- {c.company}</span>
                         )}
                       </button>
                     ))
                   )}
                 </div>
-                <div className="shrink-0 border-t border-zinc-100">
+                <div className="shrink-0 border-t border-white/[0.06]">
                   <button
                     type="button"
                     onClick={() => {
                       setContactSearchVisible(!contactSearchVisible);
                       if (contactSearchVisible) setContactSearch('');
                     }}
-                    className="w-full px-3 py-2 text-sm text-left text-brand-600 hover:bg-brand-50 flex items-center gap-2 transition-colors font-medium"
+                    className="w-full px-3 py-2 text-sm text-left text-brand-300 hover:bg-brand-500/15 flex items-center gap-2 transition-colors font-medium"
                   >
-                    <span className="w-4 h-4 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center shrink-0">
+                    <span className="w-4 h-4 rounded-full bg-brand-500/15 text-brand-300 flex items-center justify-center shrink-0">
                       <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                       </svg>
@@ -395,9 +395,9 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
                       setContactDropdownOpen(false);
                       setShowNewContactForm(true);
                     }}
-                    className="w-full px-3 py-2 text-sm text-left text-brand-600 hover:bg-brand-50 flex items-center gap-2 transition-colors font-medium"
+                    className="w-full px-3 py-2 text-sm text-left text-brand-300 hover:bg-brand-500/15 flex items-center gap-2 transition-colors font-medium"
                   >
-                    <span className="w-4 h-4 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center text-xs shrink-0">+</span>
+                    <span className="w-4 h-4 rounded-full bg-brand-500/15 text-brand-300 flex items-center justify-center text-xs shrink-0">+</span>
                     Create new contact
                   </button>
                 </div>
@@ -437,8 +437,8 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
 
         <div className="flex items-center justify-between py-1">
           <div>
-            <label className="block text-sm font-medium text-zinc-700">Time Tracking</label>
-            <p className="text-xs text-zinc-400">Enable time tracking for this project</p>
+            <label className="block text-sm font-medium text-zinc-300">Time Tracking</label>
+            <p className="text-xs text-zinc-500">Enable time tracking for this project</p>
           </div>
           <button
             type="button"
@@ -448,7 +448,7 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
             }`}
           >
             <span
-              className={`absolute top-0.5 left-0.5 w-[18px] h-[18px] bg-white rounded-full shadow transition-transform ${
+              className={`absolute top-0.5 left-0.5 w-[18px] h-[18px] bg-surface-raised rounded-full shadow transition-transform ${
                 hourlyTracking ? 'translate-x-[18px]' : 'translate-x-0'
               }`}
             />
@@ -456,22 +456,22 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
         </div>
         {hourlyTracking && canManageBilling && (
           <div>
-            <label className="block text-sm font-medium text-zinc-700 mb-1.5">Client billing treatment</label>
+            <label className="block text-sm font-medium text-zinc-300 mb-1.5">Client billing treatment</label>
             <Select value={clientTimeBilling} onChange={(value) => setClientTimeBilling(value as 'hourly' | 'included')} options={[{ value: 'hourly', label: 'Bill tracked time to client' }, { value: 'included', label: 'Time is included in project price' }]} />
-            <p className="text-xs text-zinc-400 mt-1">Employee compensation is calculated either way. Included time never enters the client invoice queue.</p>
+            <p className="text-xs text-zinc-500 mt-1">Employee compensation is calculated either way. Included time never enters the client invoice queue.</p>
           </div>
         )}
 
         {/* Budget */}
         {canManageBilling && <><div className="space-y-2">
-          <label className="block text-sm font-medium text-zinc-700">Budget <span className="font-normal text-zinc-400">(optional)</span></label>
+          <label className="block text-sm font-medium text-zinc-300">Budget <span className="font-normal text-zinc-500">(optional)</span></label>
           <div className="flex gap-2">
-            <div className="flex rounded-lg border border-zinc-200 overflow-hidden">
+            <div className="flex rounded-lg border border-white/[0.08] overflow-hidden">
               <button
                 type="button"
                 onClick={() => setBudgetType(budgetType === 'amount' ? '' : 'amount')}
                 className={`px-3 py-1.5 text-sm font-medium transition-colors ${
-                  budgetType === 'amount' ? 'bg-brand-600 text-white' : 'bg-white text-zinc-500 hover:bg-zinc-50'
+                  budgetType === 'amount' ? 'bg-brand-600 text-white' : 'bg-surface-raised text-zinc-400 hover:bg-white/[0.03]'
                 }`}
               >
                 Amount
@@ -479,8 +479,8 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
               <button
                 type="button"
                 onClick={() => setBudgetType(budgetType === 'hours' ? '' : 'hours')}
-                className={`px-3 py-1.5 text-sm font-medium transition-colors border-l border-zinc-200 ${
-                  budgetType === 'hours' ? 'bg-brand-600 text-white' : 'bg-white text-zinc-500 hover:bg-zinc-50'
+                className={`px-3 py-1.5 text-sm font-medium transition-colors border-l border-white/[0.08] ${
+                  budgetType === 'hours' ? 'bg-brand-600 text-white' : 'bg-surface-raised text-zinc-400 hover:bg-white/[0.03]'
                 }`}
               >
                 Hours
@@ -489,7 +489,7 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
             {budgetType && (
               <div className="relative flex-1">
                 {budgetType === 'amount' && (
-                  <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-zinc-500 z-10">
+                  <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-zinc-400 z-10">
                     $
                   </span>
                 )}
@@ -505,7 +505,7 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
             )}
           </div>
           {budgetType && (
-            <p className="text-xs text-zinc-400">
+            <p className="text-xs text-zinc-500">
               {budgetType === 'amount' ? 'Total dollar budget for this project' : 'Total hours allocated for this project'}
             </p>
           )}
@@ -515,7 +515,7 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
               <button
                 type="button"
                 onClick={handleToggleBudgetHistory}
-                className="inline-flex items-center gap-1 text-xs text-zinc-500 hover:text-zinc-700 transition-colors"
+                className="inline-flex items-center gap-1 text-xs text-zinc-400 hover:text-zinc-300 transition-colors"
                 aria-expanded={showBudgetHistory}
               >
                 <History size={12} />
@@ -526,8 +526,8 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
                 />
               </button>
               {showBudgetHistory && (
-                <div className="mt-2 rounded-md border border-zinc-200 bg-zinc-50 overflow-hidden">
-                  <ul className="divide-y divide-zinc-200">
+                <div className="mt-2 rounded-md border border-white/[0.08] bg-white/[0.03] overflow-hidden">
+                  <ul className="divide-y divide-white/[0.08]">
                     {budgetHistory.map((entry) => {
                       const changer = entry.changed_by
                         ? team.find(m => m.id === entry.changed_by)?.name ?? 'Unknown'
@@ -535,19 +535,19 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
                       return (
                         <li key={entry.id} className="px-3 py-2 flex items-center justify-between gap-3 text-xs">
                           <div className="flex items-center gap-2 min-w-0">
-                            <span className="text-zinc-500 whitespace-nowrap">{formatHistoryDate(entry.created_at)}</span>
-                            <span className="text-zinc-700 truncate">
-                              <span className="text-zinc-400">{formatBudgetSnapshot(entry.old_type, entry.old_value)}</span>
-                              <span className="mx-1.5 text-zinc-400">→</span>
+                            <span className="text-zinc-400 whitespace-nowrap">{formatHistoryDate(entry.created_at)}</span>
+                            <span className="text-zinc-300 truncate">
+                              <span className="text-zinc-500">{formatBudgetSnapshot(entry.old_type, entry.old_value)}</span>
+                              <span className="mx-1.5 text-zinc-500">→</span>
                               <span className="font-medium">{formatBudgetSnapshot(entry.new_type, entry.new_value)}</span>
                             </span>
                           </div>
-                          <span className="text-zinc-400 whitespace-nowrap">by {changer}</span>
+                          <span className="text-zinc-500 whitespace-nowrap">by {changer}</span>
                         </li>
                       );
                     })}
                   </ul>
-                  <div className="px-3 py-1.5 text-[10px] text-zinc-400 border-t border-zinc-200 bg-white">
+                  <div className="px-3 py-1.5 text-[10px] text-zinc-500 border-t border-white/[0.08] bg-surface-raised">
                     {budgetHistory.length} change{budgetHistory.length === 1 ? '' : 's'} total
                   </div>
                 </div>
@@ -557,10 +557,10 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
         </div>
 
         {/* Billing — used on the invoice PDF for this project */}
-        <div className="space-y-3 rounded-lg border border-zinc-200 bg-zinc-50/40 p-3">
+        <div className="space-y-3 rounded-lg border border-white/[0.08] bg-white/[0.03] p-3">
           <div>
-            <label className="block text-sm font-medium text-zinc-700">Billing <span className="font-normal text-zinc-400">(optional)</span></label>
-            <p className="text-xs text-zinc-400">Shown on invoice PDFs. Falls back to the primary client&apos;s contact info when blank.</p>
+            <label className="block text-sm font-medium text-zinc-300">Billing <span className="font-normal text-zinc-500">(optional)</span></label>
+            <p className="text-xs text-zinc-500">Shown on invoice PDFs. Falls back to the primary client&apos;s contact info when blank.</p>
           </div>
           <Textarea
             label="Bill To Address"
@@ -593,7 +593,7 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
         </div></>}
 
         <div className="space-y-1.5">
-          <label className="block text-sm font-medium text-zinc-700">Color <span className="font-normal text-zinc-400">(optional)</span></label>
+          <label className="block text-sm font-medium text-zinc-300">Color <span className="font-normal text-zinc-500">(optional)</span></label>
           <div className="flex gap-2">
             {PROJECT_COLORS.map((c) => (
               <button

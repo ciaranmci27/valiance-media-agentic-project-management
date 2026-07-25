@@ -7,9 +7,11 @@ import { createClient } from '@/lib/supabase/client';
 import { Header } from '@/components/layout/Header';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { Toggle } from '@/components/ui/Toggle';
 import { AvatarUpload } from '@/components/ui/AvatarUpload';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import { User, Lock, FlaskConical, Key, Copy, Check, Plus, Ban, BookOpen, Bell, Globe, Mail } from 'lucide-react';
+import { User, Lock, FlaskConical, Key, Copy, Check, Plus, Ban, BookOpen, Bell, Globe, Mail, Sun, Moon, Monitor } from 'lucide-react';
+import { applyTheme, applySystemTheme } from '@/lib/theme';
 import { toast } from '@/components/ui/Toast';
 import { useDemo } from '@/lib/demo-context';
 import { SmtpSection } from '@/components/settings/SmtpSection';
@@ -130,6 +132,7 @@ export default function SettingsPage() {
 
   // Timezone state
   const [timezone, setTimezone] = useState('UTC');
+  const [themeChoice, setThemeChoice] = useState<'system' | 'light' | 'dark'>('system');
   const [tzSearch, setTzSearch] = useState('');
   const [tzDropdownOpen, setTzDropdownOpen] = useState(false);
 
@@ -217,6 +220,7 @@ export default function SettingsPage() {
     if (currentMember?.timezone) {
       setTimezone(currentMember.timezone);
     }
+    setThemeChoice(currentMember?.theme_preference ?? 'system');
   }, [currentMember?.id]);
 
   // Check if any SMTP accounts are configured. Uses the status endpoint
@@ -239,6 +243,17 @@ export default function SettingsPage() {
     setNotifPrefs(newPrefs);
     updateTeamMember(teamMemberId, { notification_prefs: newPrefs });
     toast('success', isCurrentlyEnabled ? 'Notification disabled' : 'Notification enabled');
+  };
+
+  const handleThemeChange = (choice: 'system' | 'light' | 'dark') => {
+    setThemeChoice(choice);
+    if (choice === 'system') {
+      applySystemTheme();
+      if (teamMemberId) updateTeamMember(teamMemberId, { theme_preference: null });
+    } else {
+      applyTheme(choice);
+      if (teamMemberId) updateTeamMember(teamMemberId, { theme_preference: choice });
+    }
   };
 
   const handleToggleEmailEnabled = () => {
@@ -458,19 +473,19 @@ export default function SettingsPage() {
   const revokedKeys = apiKeys.filter(k => k.revoked_at);
 
   return (
-    <div className="animate-fadeIn min-h-screen bg-zinc-50">
+    <div className="animate-fadeIn min-h-screen">
       <Header title="Settings" />
 
       <div className="p-4 lg:p-6 space-y-6 max-w-3xl mx-auto">
         {/* Profile Section */}
-        <section className="bg-white rounded-xl border border-zinc-200 p-4 lg:p-6">
+        <section className="glass-card rounded-xl p-4 lg:p-6">
           <div className="flex items-center gap-3 mb-6">
-            <div className="p-2 bg-brand-50 rounded-lg">
-              <User className="text-brand-600" size={20} />
+            <div className="p-2 bg-brand-500/15 rounded-lg">
+              <User className="text-brand-300" size={20} />
             </div>
             <div>
-              <h2 className="font-semibold text-zinc-900">Profile</h2>
-              <p className="text-sm text-zinc-500">Manage your account settings</p>
+              <h2 className="font-semibold text-white">Profile</h2>
+              <p className="text-sm text-zinc-400">Manage your account settings</p>
             </div>
           </div>
 
@@ -484,8 +499,8 @@ export default function SettingsPage() {
               onRemove={currentAvatarSrc ? handleRemoveAvatar : undefined}
             />
             <div className="min-w-0 flex-1">
-              <p className="font-medium text-zinc-900 truncate">{userName || 'Your Name'}</p>
-              <p className="text-sm text-zinc-500 truncate">{userEmail || 'your@email.com'}</p>
+              <p className="font-medium text-white truncate">{userName || 'Your Name'}</p>
+              <p className="text-sm text-zinc-400 truncate">{userEmail || 'your@email.com'}</p>
             </div>
           </div>
 
@@ -519,22 +534,22 @@ export default function SettingsPage() {
 
         {/* Timezone Section */}
         <section className={`rounded-xl border p-4 lg:p-6 ${
-          timezone === 'UTC' ? 'bg-amber-50/50 border-amber-300' : 'bg-white border-zinc-200'
+          timezone === 'UTC' ? 'bg-amber-500/15 border-amber-500/30' : 'bg-surface-raised border-white/[0.08]'
         }`}>
           <div className="flex items-center gap-3 mb-4">
-            <div className={`p-2 rounded-lg ${timezone === 'UTC' ? 'bg-amber-100' : 'bg-emerald-50'}`}>
-              <Globe className={timezone === 'UTC' ? 'text-amber-600' : 'text-emerald-600'} size={20} />
+            <div className={`p-2 rounded-lg ${timezone === 'UTC' ? 'bg-amber-500/15' : 'bg-emerald-500/15'}`}>
+              <Globe className={timezone === 'UTC' ? 'text-amber-400' : 'text-emerald-400'} size={20} />
             </div>
             <div className="flex-1">
-              <h2 className="font-semibold text-zinc-900">Timezone</h2>
-              <p className="text-sm text-zinc-500">All times in the app will be shown in this timezone</p>
+              <h2 className="font-semibold text-white">Timezone</h2>
+              <p className="text-sm text-zinc-400">All times in the app will be shown in this timezone</p>
             </div>
           </div>
 
           {timezone === 'UTC' && (
-            <div className="flex items-start gap-2.5 mb-4 px-3 py-2.5 bg-amber-100/70 border border-amber-200 rounded-lg">
-              <span className="text-amber-600 mt-0.5 flex-shrink-0">&#9888;</span>
-              <p className="text-sm text-amber-800">
+            <div className="flex items-start gap-2.5 mb-4 px-3 py-2.5 bg-amber-500/15 border border-amber-500/30 rounded-lg">
+              <span className="text-amber-400 mt-0.5 flex-shrink-0">&#9888;</span>
+              <p className="text-sm text-amber-300">
                 Your timezone is set to <span className="font-semibold">UTC</span>. Times may appear incorrect. Select your local timezone below so all dates and times display accurately.
               </p>
             </div>
@@ -544,47 +559,47 @@ export default function SettingsPage() {
             <button
               type="button"
               onClick={() => setTzDropdownOpen(!tzDropdownOpen)}
-              className={`w-full md:w-96 flex items-center justify-between px-3 py-2 text-sm border rounded-lg hover:border-zinc-300 transition-colors text-left ${
-                timezone === 'UTC' ? 'bg-white border-amber-300' : 'bg-white border-zinc-200'
+              className={`w-full md:w-96 flex items-center justify-between px-3 py-2 text-sm border rounded-lg hover:border-white/[0.12] transition-colors text-left ${
+                timezone === 'UTC' ? 'bg-surface-raised border-amber-500/30' : 'bg-surface-raised border-white/[0.08]'
               }`}
             >
-              <span className="text-zinc-900">{timezone.replace(/_/g, ' ')}</span>
-              <span className="text-zinc-400 text-xs font-mono">
+              <span className="text-white">{timezone.replace(/_/g, ' ')}</span>
+              <span className="text-zinc-500 text-xs font-mono">
                 {tzEntries.find(e => e.id === timezone)?.label || 'UTC+0'}
               </span>
             </button>
 
             {tzDropdownOpen && (
-              <div className="absolute z-50 mt-1 w-full md:w-96 bg-white border border-zinc-200 rounded-lg shadow-lg">
-                <div className="p-2 border-b border-zinc-100">
+              <div className="absolute z-50 mt-1 w-full md:w-96 bg-surface-raised border border-white/[0.08] rounded-lg shadow-lg">
+                <div className="p-2 border-b border-white/[0.06]">
                   <input
                     type="text"
                     value={tzSearch}
                     onChange={e => setTzSearch(e.target.value)}
                     placeholder="Search timezones or offset (e.g. UTC-7)..."
-                    className="w-full px-3 py-1.5 text-sm bg-zinc-50 border border-zinc-200 rounded-md outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-100"
+                    className="w-full px-3 py-1.5 text-sm bg-white/[0.03] border border-white/[0.08] rounded-md outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500/30"
                     autoFocus
                   />
                 </div>
                 <div className="max-h-72 overflow-y-auto">
                   {filteredTzEntries.length === 0 ? (
-                    <p className="px-3 py-2 text-sm text-zinc-400">No matching timezones</p>
+                    <p className="px-3 py-2 text-sm text-zinc-500">No matching timezones</p>
                   ) : (
                     filteredTzEntries.map(group => (
                       <div key={group.label}>
-                        <div className="sticky top-0 bg-zinc-50 px-3 py-1 text-[11px] font-semibold text-zinc-400 uppercase tracking-wide font-mono border-b border-zinc-100">
+                        <div className="sticky top-0 bg-white/[0.03] px-3 py-1 text-[11px] font-semibold text-zinc-500 uppercase tracking-wide font-mono border-b border-white/[0.06]">
                           {group.label}
                         </div>
                         {group.items.map(entry => (
                           <button
                             key={entry.id}
                             onClick={() => handleTimezoneChange(entry.id)}
-                            className={`w-full text-left px-3 py-1.5 text-sm hover:bg-zinc-50 transition-colors flex items-center justify-between ${
-                              entry.id === timezone ? 'text-brand-600 font-medium bg-brand-50/50' : 'text-zinc-700'
+                            className={`w-full text-left px-3 py-1.5 text-sm hover:bg-white/[0.03] transition-colors flex items-center justify-between ${
+                              entry.id === timezone ? 'text-brand-300 font-medium bg-brand-500/15' : 'text-zinc-300'
                             }`}
                           >
                             <span>{entry.id.replace(/_/g, ' ')}</span>
-                            {entry.id === timezone && <Check size={14} className="text-brand-600 flex-shrink-0" />}
+                            {entry.id === timezone && <Check size={14} className="text-brand-300 flex-shrink-0" />}
                           </button>
                         ))}
                       </div>
@@ -598,14 +613,14 @@ export default function SettingsPage() {
 
         {/* Change Password Section */}
         {!isDemoMode && (
-        <section className="bg-white rounded-xl border border-zinc-200 p-4 lg:p-6">
+        <section className="glass-card rounded-xl p-4 lg:p-6">
           <div className="flex items-center gap-3 mb-6">
-            <div className="p-2 bg-rose-50 rounded-lg">
-              <Lock className="text-rose-600" size={20} />
+            <div className="p-2 bg-rose-500/15 rounded-lg">
+              <Lock className="text-rose-400" size={20} />
             </div>
             <div>
-              <h2 className="font-semibold text-zinc-900">Change Password</h2>
-              <p className="text-sm text-zinc-500">Update your account password</p>
+              <h2 className="font-semibold text-white">Change Password</h2>
+              <p className="text-sm text-zinc-400">Update your account password</p>
             </div>
           </div>
 
@@ -634,49 +649,76 @@ export default function SettingsPage() {
         </section>
         )}
 
-        {/* Notification Preferences Section */}
-        <section className="bg-white rounded-xl border border-zinc-200 p-4 lg:p-6">
+        {/* Appearance Section */}
+        <section className="glass-card rounded-xl p-4 lg:p-6">
           <div className="flex items-center gap-3 mb-6">
-            <div className="p-2 bg-blue-50 rounded-lg">
-              <Bell className="text-blue-600" size={20} />
+            <div className="p-2 bg-brand-500/15 rounded-lg">
+              <Sun className="text-brand-300" size={20} />
             </div>
             <div>
-              <h2 className="font-semibold text-zinc-900">Notification Preferences</h2>
-              <p className="text-sm text-zinc-500">Choose which notifications you receive</p>
+              <h2 className="font-semibold text-white">Appearance</h2>
+              <p className="text-sm text-zinc-400">Choose how the app looks on this account. Syncs across your devices.</p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-medium text-zinc-200">Theme</p>
+              <p className="text-xs text-zinc-400 mt-0.5">System follows your device&apos;s light or dark setting.</p>
+            </div>
+            <div className="seg-track" role="radiogroup" aria-label="Theme">
+              {([
+                { id: 'system', label: 'System', icon: Monitor },
+                { id: 'light', label: 'Light', icon: Sun },
+                { id: 'dark', label: 'Dark', icon: Moon },
+              ] as const).map(opt => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={themeChoice === opt.id}
+                  onClick={() => handleThemeChange(opt.id)}
+                  className={`seg-item flex items-center gap-1.5 ${themeChoice === opt.id ? 'is-active' : ''}`}
+                >
+                  <opt.icon size={14} />
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* Notification Preferences Section */}
+        <section className="glass-card rounded-xl p-4 lg:p-6">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="p-2 bg-brand-500/15 rounded-lg">
+              <Bell className="text-brand-300" size={20} />
+            </div>
+            <div>
+              <h2 className="font-semibold text-white">Notification Preferences</h2>
+              <p className="text-sm text-zinc-400">Choose which notifications you receive</p>
             </div>
           </div>
 
           {/* Email master toggle */}
-          <div className={`flex items-center justify-between p-3 mb-6 rounded-lg border ${hasSmtp === false ? 'bg-zinc-50/50 border-zinc-100 opacity-60' : 'bg-zinc-50 border-zinc-200'}`}>
+          <div className={`flex items-center justify-between p-3 mb-6 rounded-lg border ${hasSmtp === false ? 'bg-white/[0.03] border-white/[0.06] opacity-60' : 'bg-white/[0.03] border-white/[0.08]'}`}>
             <div className="flex items-center gap-3">
-              <Mail className="text-zinc-500" size={18} />
+              <Mail className="text-zinc-400" size={18} />
               <div>
-                <p className="text-sm font-medium text-zinc-700">Email notifications</p>
-                <p className="text-xs text-zinc-500">
+                <p className="text-sm font-medium text-zinc-300">Email notifications</p>
+                <p className="text-xs text-zinc-400">
                   {hasSmtp === false
                     ? 'Configure an SMTP account below to enable email notifications.'
                     : 'Receive email alerts for important updates.'}
                 </p>
               </div>
             </div>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={emailEnabled}
+            <Toggle
+              checked={emailEnabled && hasSmtp !== false}
               disabled={hasSmtp === false}
-              onClick={handleToggleEmailEnabled}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0 ${
-                hasSmtp === false
-                  ? 'bg-zinc-100 cursor-not-allowed'
-                  : emailEnabled ? 'bg-teal-600' : 'bg-zinc-200'
-              }`}
-            >
-              <span
-                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                  emailEnabled && hasSmtp !== false ? 'translate-x-6' : 'translate-x-1'
-                }`}
-              />
-            </button>
+              onChange={handleToggleEmailEnabled}
+              aria-label="Email notifications"
+            />
           </div>
 
           <div className="space-y-6">
@@ -688,10 +730,10 @@ export default function SettingsPage() {
               <div key={group}>
                 {/* Group header with column labels */}
                 <div className="flex items-center justify-between mb-3">
-                  <p className="text-xs font-medium text-zinc-400 uppercase tracking-wide">{group}</p>
+                  <p className="text-xs font-medium text-zinc-500 uppercase tracking-wide">{group}</p>
                   <div className="flex items-center gap-3">
-                    <span className="text-[10px] font-medium text-zinc-400 uppercase tracking-wide w-11 text-center">In-App</span>
-                    <span className={`text-[10px] font-medium uppercase tracking-wide w-11 text-center ${emailEnabled && hasSmtp !== false ? 'text-zinc-400' : 'text-zinc-300'}`}>Email</span>
+                    <span className="text-[10px] font-medium text-zinc-500 uppercase tracking-wide w-11 text-center">In-App</span>
+                    <span className={`text-[10px] font-medium uppercase tracking-wide w-11 text-center ${emailEnabled && hasSmtp !== false ? 'text-zinc-500' : 'text-zinc-600'}`}>Email</span>
                   </div>
                 </div>
                 <div className="space-y-3">
@@ -701,49 +743,23 @@ export default function SettingsPage() {
                     return (
                       <div key={key} className="flex items-center justify-between">
                         <div className="min-w-0 flex-1 mr-4">
-                          <p className="text-sm text-zinc-700">{label}</p>
-                          <p className="text-xs text-zinc-500 mt-0.5">{desc}</p>
+                          <p className="text-sm text-zinc-300">{label}</p>
+                          <p className="text-xs text-zinc-400 mt-0.5">{desc}</p>
                         </div>
                         <div className="flex items-center gap-3 flex-shrink-0">
                           {/* In-App toggle */}
-                          <button
-                            type="button"
-                            role="switch"
-                            aria-checked={inAppEnabled}
+                          <Toggle
+                            checked={inAppEnabled}
+                            onChange={() => handleToggleNotif(key)}
                             aria-label={`${label} in-app notification`}
-                            onClick={() => handleToggleNotif(key)}
-                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                              inAppEnabled ? 'bg-blue-500' : 'bg-zinc-200'
-                            }`}
-                          >
-                            <span
-                              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                                inAppEnabled ? 'translate-x-6' : 'translate-x-1'
-                              }`}
-                            />
-                          </button>
+                          />
                           {/* Email toggle */}
-                          <button
-                            type="button"
-                            role="switch"
-                            aria-checked={emailCatEnabled}
-                            aria-label={`${label} email notification`}
+                          <Toggle
+                            checked={emailCatEnabled && emailEnabled}
                             disabled={!emailEnabled}
-                            onClick={() => handleToggleEmailNotif(key)}
-                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                              !emailEnabled
-                                ? 'bg-zinc-100 cursor-not-allowed'
-                                : emailCatEnabled
-                                  ? 'bg-teal-600'
-                                  : 'bg-zinc-200'
-                            }`}
-                          >
-                            <span
-                              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                                emailCatEnabled && emailEnabled ? 'translate-x-6' : 'translate-x-1'
-                              }`}
-                            />
-                          </button>
+                            onChange={() => handleToggleEmailNotif(key)}
+                            aria-label={`${label} email notification`}
+                          />
                         </div>
                       </div>
                     );
@@ -756,15 +772,15 @@ export default function SettingsPage() {
 
         {/* Every active member can create personal keys from their Owner-approved API scopes. */}
         {!isDemoMode && (
-          <section className="bg-white rounded-xl border border-zinc-200 p-4 lg:p-6">
+          <section className="glass-card rounded-xl p-4 lg:p-6">
             <div className="flex items-center justify-between mb-6">
               <div className="flex items-center gap-3">
-                <div className="p-2 bg-violet-50 rounded-lg">
-                  <Key className="text-violet-600" size={20} />
+                <div className="p-2 bg-violet-500/15 rounded-lg">
+                  <Key className="text-violet-400" size={20} />
                 </div>
                 <div>
-                  <h2 className="font-semibold text-zinc-900">API Keys</h2>
-                  <p className="text-sm text-zinc-500 hidden sm:block">Manage keys for external integrations</p>
+                  <h2 className="font-semibold text-white">API Keys</h2>
+                  <p className="text-sm text-zinc-400 hidden sm:block">Manage keys for external integrations</p>
                 </div>
               </div>
               <div className="flex items-center gap-2">
@@ -788,21 +804,21 @@ export default function SettingsPage() {
 
             {/* One-time key display */}
             {revealedKey && (
-              <div className="mb-6 p-4 bg-emerald-50 border border-emerald-200 rounded-lg space-y-3">
+              <div className="mb-6 p-4 bg-emerald-500/15 border border-emerald-500/30 rounded-lg space-y-3">
                 <div className="flex items-center gap-2">
-                  <Check size={16} className="text-emerald-600" />
-                  <p className="text-sm font-medium text-emerald-800">API key generated successfully</p>
+                  <Check size={16} className="text-emerald-400" />
+                  <p className="text-sm font-medium text-emerald-300">API key generated successfully</p>
                 </div>
-                <p className="text-xs text-emerald-700">
+                <p className="text-xs text-emerald-300">
                   Copy this key now. It will only be shown once and cannot be retrieved later.
                 </p>
                 <div className="flex items-center gap-2">
-                  <code className="flex-1 px-3 py-2 bg-white border border-emerald-200 rounded-lg text-sm font-mono text-zinc-800 break-all select-all">
+                  <code className="flex-1 px-3 py-2 bg-surface-raised border border-emerald-500/30 rounded-lg text-sm font-mono text-zinc-100 break-all select-all">
                     {revealedKey}
                   </code>
                   <button
                     onClick={handleCopyKey}
-                    className="p-2 text-emerald-600 hover:bg-emerald-100 rounded-lg transition-colors flex-shrink-0"
+                    className="p-2 text-emerald-400 hover:bg-emerald-500/15 rounded-lg transition-colors flex-shrink-0"
                   >
                     {copiedKey ? <Check size={16} /> : <Copy size={16} />}
                   </button>
@@ -815,8 +831,8 @@ export default function SettingsPage() {
 
             {/* Generate key form */}
             {showKeyForm && (
-              <div className="mb-6 p-4 bg-zinc-50 border border-zinc-200 rounded-lg space-y-3">
-                <h4 className="text-sm font-medium text-zinc-900">New API Key</h4>
+              <div className="mb-6 p-4 bg-white/[0.03] border border-white/[0.08] rounded-lg space-y-3">
+                <h4 className="text-sm font-medium text-white">New API Key</h4>
                 <Input
                   label="Name"
                   value={keyName}
@@ -824,20 +840,20 @@ export default function SettingsPage() {
                   placeholder='e.g. "Zapier Integration"'
                 />
                 <div>
-                  <label className="block text-sm font-medium text-zinc-700 mb-1.5">API scopes</label>
-                  <p className="text-xs text-zinc-500 mb-2">Choose only what this integration needs. Available scopes are controlled by the Owner.</p>
-                  <div className="max-h-52 overflow-y-auto rounded-lg border border-zinc-200 bg-white divide-y divide-zinc-100">
+                  <label className="block text-sm font-medium text-zinc-300 mb-1.5">API scopes</label>
+                  <p className="text-xs text-zinc-400 mb-2">Choose only what this integration needs. Available scopes are controlled by the Owner.</p>
+                  <div className="max-h-52 overflow-y-auto rounded-lg border border-white/[0.08] bg-surface-raised divide-y divide-white/[0.06]">
                     {(access?.api_permissions.includes('*') ? API_ENDPOINT_PERMISSIONS : (access?.api_permissions || []).filter((scope) => scope !== '*' && API_ENDPOINT_PERMISSION_SET.has(scope))).map((scope) => (
                       <Checkbox
                         key={scope}
                         size="sm"
                         checked={keyScopes.includes(scope)}
                         onChange={(checked) => setKeyScopes((current) => checked ? [...current, scope] : current.filter((item) => item !== scope))}
-                        label={<span className="font-mono text-xs font-normal text-zinc-700">{scope}</span>}
+                        label={<span className="font-mono text-xs font-normal text-zinc-300">{scope}</span>}
                         className="w-full px-3 py-2"
                       />
                     ))}
-                    {access?.api_permissions.length === 0 && <p className="px-3 py-3 text-xs text-zinc-500">No API scopes are enabled for your account.</p>}
+                    {access?.api_permissions.length === 0 && <p className="px-3 py-3 text-xs text-zinc-400">No API scopes are enabled for your account.</p>}
                   </div>
                 </div>
                 <div className="flex gap-2">
@@ -853,22 +869,22 @@ export default function SettingsPage() {
 
             {/* Keys table */}
             {activeKeys.length > 0 && (
-              <div className="border border-zinc-200 rounded-lg divide-y divide-zinc-100">
+              <div className="border border-white/[0.08] rounded-lg divide-y divide-white/[0.06]">
                 {activeKeys.map(key => (
                   <div key={key.id} className="px-4 py-3">
                     <div className="flex items-start gap-3">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          <p className="text-sm font-medium text-zinc-900 truncate">{key.name}</p>
-                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium flex-shrink-0 bg-brand-50 text-brand-600">{key.scopes?.length || 0} scopes</span>
+                          <p className="text-sm font-medium text-white truncate">{key.name}</p>
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium flex-shrink-0 bg-brand-500/15 text-brand-300">{key.scopes?.length || 0} scopes</span>
                         </div>
-                        <code className="text-xs text-zinc-500 font-mono mt-0.5 block">{key.key_prefix}...****</code>
+                        <code className="text-xs text-zinc-400 font-mono mt-0.5 block">{key.key_prefix}...****</code>
                         <div className="flex items-center gap-2 mt-0.5">
-                          <span className="text-xs text-zinc-400">Last used: {formatRelativeTime(key.last_used_at)}</span>
+                          <span className="text-xs text-zinc-500">Last used: {formatRelativeTime(key.last_used_at)}</span>
                           {key.team_member_id && (() => {
                             const linked = team.find(m => m.id === key.team_member_id);
                             return linked ? (
-                              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-violet-50 text-violet-600">
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-violet-500/15 text-violet-400">
                                 {linked.name}
                               </span>
                             ) : null;
@@ -878,7 +894,7 @@ export default function SettingsPage() {
                       <Tooltip content="Revoke key">
                         <button
                           onClick={() => setRevokeTarget(key)}
-                          className="p-1.5 text-zinc-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors flex-shrink-0"
+                          className="p-1.5 text-zinc-500 hover:text-red-400 hover:bg-red-500/15 rounded-lg transition-colors flex-shrink-0"
                         >
                           <Ban size={14} />
                         </button>
@@ -890,7 +906,7 @@ export default function SettingsPage() {
             )}
 
             {activeKeys.length === 0 && !showKeyForm && !revealedKey && (
-              <div className="text-center py-6 text-zinc-500">
+              <div className="text-center py-6 text-zinc-400">
                 <Key className="mx-auto mb-2" size={24} />
                 <p className="text-sm">No API keys yet</p>
                 <p className="text-xs mt-1">Generate a key to enable external integrations</p>
@@ -900,13 +916,13 @@ export default function SettingsPage() {
             {/* Revoked keys */}
             {revokedKeys.length > 0 && (
               <div className="mt-4">
-                <p className="text-xs font-medium text-zinc-400 uppercase tracking-wide mb-2">Revoked</p>
-                <div className="border border-zinc-100 rounded-lg divide-y divide-zinc-50">
+                <p className="text-xs font-medium text-zinc-500 uppercase tracking-wide mb-2">Revoked</p>
+                <div className="border border-white/[0.06] rounded-lg divide-y divide-white/[0.06]">
                   {revokedKeys.map(key => (
                     <div key={key.id} className="flex items-center gap-3 px-4 py-2.5 opacity-50">
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm text-zinc-500 line-through">{key.name}</p>
-                        <code className="text-xs text-zinc-400 font-mono">{key.key_prefix}...****</code>
+                        <p className="text-sm text-zinc-400 line-through">{key.name}</p>
+                        <code className="text-xs text-zinc-500 font-mono">{key.key_prefix}...****</code>
                       </div>
                       <span className="text-xs text-red-400">Revoked</span>
                     </div>
@@ -925,21 +941,21 @@ export default function SettingsPage() {
 
         {/* Demo Mode Section — admin only, hidden when env-forced */}
         {canManageSettings && !isEnvForcedDemo && (
-          <section className="bg-white rounded-xl border border-zinc-200 p-4 lg:p-6">
+          <section className="glass-card rounded-xl p-4 lg:p-6">
             <div className="flex items-center gap-3 mb-6">
-              <div className="p-2 bg-amber-50 rounded-lg">
-                <FlaskConical className="text-amber-600" size={20} />
+              <div className="p-2 bg-amber-500/15 rounded-lg">
+                <FlaskConical className="text-amber-400" size={20} />
               </div>
               <div>
-                <h2 className="font-semibold text-zinc-900">Demo Mode</h2>
-                <p className="text-sm text-zinc-500">View the app with sample data</p>
+                <h2 className="font-semibold text-white">Demo Mode</h2>
+                <p className="text-sm text-zinc-400">View the app with sample data</p>
               </div>
             </div>
 
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-zinc-700">Enable demo mode</p>
-                <p className="text-xs text-zinc-500 mt-0.5">Replaces live data with sample data. Changes won&apos;t be saved.</p>
+                <p className="text-sm text-zinc-300">Enable demo mode</p>
+                <p className="text-xs text-zinc-400 mt-0.5">Replaces live data with sample data. Changes won&apos;t be saved.</p>
               </div>
               <button
                 type="button"
@@ -947,11 +963,11 @@ export default function SettingsPage() {
                 aria-checked={isDemoMode}
                 onClick={toggleDemoMode}
                 className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                  isDemoMode ? 'bg-amber-500' : 'bg-zinc-200'
+                  isDemoMode ? 'bg-amber-500' : 'bg-white/[0.08]'
                 }`}
               >
                 <span
-                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                  className={`inline-block h-4 w-4 transform rounded-full bg-surface-raised transition-transform ${
                     isDemoMode ? 'translate-x-6' : 'translate-x-1'
                   }`}
                 />

@@ -50,21 +50,21 @@ export default function Modal({ isOpen, onClose, title, children, size = 'md' }:
       onClick={(e) => e.target === overlayRef.current && onClose()}
     >
       {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm animate-fadeIn" />
-      
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm animate-fadeIn" />
+
       {/* Modal */}
       <div className={`
-        relative w-full ${sizes[size]} max-h-[85vh] bg-white dark:bg-zinc-900 rounded-xl
-        shadow-2xl transform animate-scaleIn flex flex-col
+        relative w-full ${sizes[size]} max-h-[85vh] bg-surface-raised border border-white/10 rounded-xl
+        shadow-[0_16px_48px_-12px_rgba(0,0,0,0.7)] transform animate-scaleIn flex flex-col
       `}>
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-200 dark:border-zinc-700 flex-shrink-0">
-          <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-white/[0.08] flex-shrink-0">
+          <h2 className="text-lg font-semibold text-white">
             {title}
           </h2>
           <button
             onClick={onClose}
-            className="p-1 rounded-lg text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+            className="p-1 rounded-lg text-zinc-400 hover:text-white hover:bg-white/[0.06] transition-colors"
           >
             <X className="w-5 h-5" />
           </button>

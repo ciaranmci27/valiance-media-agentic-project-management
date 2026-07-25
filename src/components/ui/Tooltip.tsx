@@ -176,7 +176,7 @@ export function Tooltip({
       }`}
       style={{ top: coords.top, left: coords.left }}
     >
-      <div className="relative px-2.5 py-1.5 text-xs font-medium text-zinc-700 bg-white rounded-md shadow-lg border border-zinc-200 whitespace-nowrap">
+      <div className="relative px-2.5 py-1.5 text-xs font-medium text-zinc-100 bg-surface-overlay rounded-md shadow-[0_8px_24px_-8px_rgba(0,0,0,0.7)] border border-white/10 whitespace-nowrap">
         {content}
       </div>
     </div>

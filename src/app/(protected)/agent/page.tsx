@@ -27,18 +27,18 @@ export default function AgentPage() {
 
   if (!isAgentsEnabled || !canManageAgents) {
     return (
-      <div className="animate-fadeIn min-h-screen bg-zinc-50 flex items-center justify-center">
+      <div className="animate-fadeIn min-h-screen flex items-center justify-center">
         <div className="text-center">
-          <Bot className="mx-auto mb-3 text-zinc-400" size={40} />
-          <h3 className="font-medium text-zinc-700 mb-1">Not Available</h3>
-          <p className="text-sm text-zinc-500">Agentic workflows are not enabled or you lack permissions.</p>
+          <Bot className="mx-auto mb-3 text-zinc-500" size={40} />
+          <h3 className="font-medium text-zinc-300 mb-1">Not Available</h3>
+          <p className="text-sm text-zinc-400">Agentic workflows are not enabled or you lack permissions.</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="animate-fadeIn min-h-screen lg:h-screen bg-zinc-50 lg:flex lg:flex-col lg:overflow-hidden">
+    <div className="animate-fadeIn min-h-screen lg:h-screen bg-white/[0.03] lg:flex lg:flex-col lg:overflow-hidden">
       <div className="lg:flex-shrink-0">
         <Header
           title="Agent Dashboard"

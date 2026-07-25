@@ -192,7 +192,7 @@ export function AvatarCropModal({ file, onCrop, onCancel }: AvatarCropModalProps
           <button
             type="button"
             onClick={() => handleZoom(zoom - 0.25)}
-            className="p-1 rounded text-zinc-400 hover:text-zinc-600 transition-colors"
+            className="p-1 rounded text-zinc-500 hover:text-zinc-300 transition-colors"
           >
             <ZoomOut size={18} />
           </button>
@@ -208,13 +208,13 @@ export function AvatarCropModal({ file, onCrop, onCancel }: AvatarCropModalProps
           <button
             type="button"
             onClick={() => handleZoom(zoom + 0.25)}
-            className="p-1 rounded text-zinc-400 hover:text-zinc-600 transition-colors"
+            className="p-1 rounded text-zinc-500 hover:text-zinc-300 transition-colors"
           >
             <ZoomIn size={18} />
           </button>
         </div>
 
-        <p className="text-xs text-zinc-400 text-center">Drag to reposition. Scroll or use slider to zoom.</p>
+        <p className="text-xs text-zinc-500 text-center">Drag to reposition. Scroll or use slider to zoom.</p>
 
         {/* Actions */}
         <div className="flex justify-end gap-3">

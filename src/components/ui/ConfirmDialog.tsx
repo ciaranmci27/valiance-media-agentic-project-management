@@ -79,18 +79,18 @@ export function ConfirmDialog({
     >
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm animate-fadeIn" />
 
-      <div className="relative w-full max-w-sm bg-white rounded-xl shadow-2xl transform animate-scaleIn">
+      <div className="relative w-full max-w-sm bg-surface-raised border border-white/10 rounded-xl shadow-[0_16px_48px_-12px_rgba(0,0,0,0.7)] transform animate-scaleIn">
         <div className="p-6">
           <div className={`w-12 h-12 rounded-full flex items-center justify-center mb-4 ${
-            variant === 'danger' ? 'bg-red-50' : 'bg-amber-50'
+            variant === 'danger' ? 'bg-red-500/15' : 'bg-amber-500/15'
           }`}>
-            <AlertTriangle size={24} className={variant === 'danger' ? 'text-red-600' : 'text-amber-600'} />
+            <AlertTriangle size={24} className={variant === 'danger' ? 'text-red-400' : 'text-amber-400'} />
           </div>
 
-          <h3 className="text-lg font-semibold text-zinc-900 mb-2">
+          <h3 className="text-lg font-semibold text-white mb-2">
             {isStep2 ? doubleConfirmTitle : title}
           </h3>
-          <p className="text-sm text-zinc-500 leading-relaxed">
+          <p className="text-sm text-zinc-400 leading-relaxed">
             {isStep2 ? doubleConfirmMessage : message}
           </p>
         </div>

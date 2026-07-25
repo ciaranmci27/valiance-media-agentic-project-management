@@ -55,18 +55,18 @@ export function AutonomousProjects() {
 
   return (
     <>
-      <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden flex flex-col">
-        <div className="p-4 border-b border-zinc-100 flex items-center justify-between flex-shrink-0">
-          <h2 className="font-semibold text-zinc-900">Active Projects</h2>
+      <div className="glass-card rounded-xl overflow-hidden flex flex-col">
+        <div className="p-4 border-b border-white/[0.06] flex items-center justify-between flex-shrink-0">
+          <h2 className="font-semibold text-white">Active Projects</h2>
           <button
             onClick={() => setShowAddModal(true)}
-            className="p-1.5 rounded-lg text-zinc-400 hover:text-brand-600 hover:bg-brand-50 transition-colors"
+            className="p-1.5 rounded-lg text-zinc-500 hover:text-brand-300 hover:bg-brand-500/15 transition-colors"
           >
             <Plus size={16} />
           </button>
         </div>
 
-        <div className="divide-y divide-zinc-100 overflow-y-auto board-column-scroll max-h-[200px]">
+        <div className="divide-y divide-white/[0.06] overflow-y-auto board-column-scroll max-h-[200px]">
           {autonomousProjects.map((project) => {
             const goalCount = getGoalCount(project.id);
             const pendingCount = getPendingCount(project.id);
@@ -75,7 +75,7 @@ export function AutonomousProjects() {
               <div
                 key={project.id}
                 onClick={() => router.push(`/agent/projects/${project.id}`)}
-                className="p-3 lg:p-4 hover:bg-zinc-50 transition-colors group cursor-pointer"
+                className="p-3 lg:p-4 hover:bg-white/[0.03] transition-colors group cursor-pointer"
               >
                 <div className="flex items-center gap-3">
                   {project.color && (
@@ -86,26 +86,26 @@ export function AutonomousProjects() {
                   )}
 
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-zinc-900 truncate">
+                    <p className="text-sm font-medium text-white truncate">
                       {project.name}
                     </p>
                     <div className="flex items-center gap-2 mt-0.5">
-                      <span className="text-xs text-zinc-400">
+                      <span className="text-xs text-zinc-500">
                         {goalCount} goal{goalCount !== 1 ? 's' : ''}
                       </span>
                       {pendingCount > 0 && (
                         <>
-                          <span className="text-xs text-zinc-300">&middot;</span>
-                          <span className="text-xs text-amber-600 font-medium">
+                          <span className="text-xs text-zinc-600">&middot;</span>
+                          <span className="text-xs text-amber-400 font-medium">
                             {pendingCount} pending
                           </span>
                         </>
                       )}
-                      <span className="text-xs text-zinc-300">&middot;</span>
+                      <span className="text-xs text-zinc-600">&middot;</span>
                       <span className={`text-[10px] font-semibold uppercase ${
                         project.deployment_policy === 'playground'
-                          ? 'text-violet-600'
-                          : 'text-zinc-400'
+                          ? 'text-violet-400'
+                          : 'text-zinc-500'
                       }`}>
                         {project.deployment_policy === 'playground' ? 'Playground' : 'Production'}
                       </span>
@@ -116,7 +116,7 @@ export function AutonomousProjects() {
                     <Tooltip content="Agent settings">
                       <button
                         onClick={(e) => { e.stopPropagation(); router.push(`/agent/projects/${project.id}`); }}
-                        className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 transition-colors"
+                        className="p-1.5 rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.06] transition-colors"
                       >
                         <Settings size={14} />
                       </button>
@@ -124,7 +124,7 @@ export function AutonomousProjects() {
                     <Tooltip content={project.autonomous_enabled ? 'Pause agents' : 'Resume agents'}>
                       <button
                         onClick={(e) => { e.stopPropagation(); handleToggle(project.id, project.autonomous_enabled); }}
-                        className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 transition-colors"
+                        className="p-1.5 rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.06] transition-colors"
                       >
                         {project.autonomous_enabled ? <Pause size={14} /> : <Play size={14} />}
                       </button>
@@ -137,11 +137,11 @@ export function AutonomousProjects() {
 
           {autonomousProjects.length === 0 && (
             <div className="py-8 text-center">
-              <FolderKanban className="mx-auto mb-2 text-zinc-300" size={24} />
-              <p className="text-sm text-zinc-400">No autonomous projects</p>
+              <FolderKanban className="mx-auto mb-2 text-zinc-600" size={24} />
+              <p className="text-sm text-zinc-500">No autonomous projects</p>
               <button
                 onClick={() => setShowAddModal(true)}
-                className="text-sm text-brand-600 hover:text-brand-700 mt-1"
+                className="text-sm text-brand-300 hover:text-brand-300 mt-1"
               >
                 Add a project
               </button>
@@ -152,18 +152,18 @@ export function AutonomousProjects() {
 
       {/* Inactive Projects */}
       {availableProjects.length > 0 && (
-        <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden flex flex-col">
-          <div className="p-4 border-b border-zinc-100 flex-shrink-0">
-            <h2 className="font-semibold text-zinc-900">Inactive Projects</h2>
+        <div className="glass-card rounded-xl overflow-hidden flex flex-col">
+          <div className="p-4 border-b border-white/[0.06] flex-shrink-0">
+            <h2 className="font-semibold text-white">Inactive Projects</h2>
           </div>
-          <div className="divide-y divide-zinc-100 overflow-y-auto board-column-scroll max-h-[200px]">
+          <div className="divide-y divide-white/[0.06] overflow-y-auto board-column-scroll max-h-[200px]">
             {availableProjects.map((project) => {
               const goalCount = getGoalCount(project.id);
 
               return (
                 <div
                   key={project.id}
-                  className="p-3 lg:p-4 hover:bg-zinc-50 transition-colors group cursor-pointer"
+                  className="p-3 lg:p-4 hover:bg-white/[0.03] transition-colors group cursor-pointer"
                   onClick={() => router.push(`/agent/projects/${project.id}`)}
                 >
                   <div className="flex items-center gap-3">
@@ -174,13 +174,13 @@ export function AutonomousProjects() {
                       />
                     )}
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-zinc-900 truncate">{project.name}</p>
+                      <p className="text-sm font-medium text-white truncate">{project.name}</p>
                       <div className="flex items-center gap-2 mt-0.5">
-                        <span className="text-xs text-zinc-400">
+                        <span className="text-xs text-zinc-500">
                           {goalCount} goal{goalCount !== 1 ? 's' : ''}
                         </span>
-                        <span className="text-xs text-zinc-300">&middot;</span>
-                        <span className="text-[10px] font-semibold uppercase text-zinc-400">
+                        <span className="text-xs text-zinc-600">&middot;</span>
+                        <span className="text-[10px] font-semibold uppercase text-zinc-500">
                           Not enabled
                         </span>
                       </div>
@@ -190,7 +190,7 @@ export function AutonomousProjects() {
                       <Tooltip content="Agent settings">
                         <button
                           onClick={(e) => { e.stopPropagation(); router.push(`/agent/projects/${project.id}`); }}
-                          className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 transition-colors"
+                          className="p-1.5 rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.06] transition-colors"
                         >
                           <Settings size={14} />
                         </button>
@@ -198,7 +198,7 @@ export function AutonomousProjects() {
                       <Tooltip content="Enable agents">
                         <button
                           onClick={(e) => { e.stopPropagation(); handleEnable(project.id); }}
-                          className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 transition-colors"
+                          className="p-1.5 rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.06] transition-colors"
                         >
                           <Play size={14} />
                         </button>
@@ -215,17 +215,17 @@ export function AutonomousProjects() {
       {/* Add Project Modal */}
       <Modal isOpen={showAddModal} onClose={() => setShowAddModal(false)} title="Enable Autonomous Agents" size="sm">
         <div className="space-y-1">
-          <p className="text-sm text-zinc-500 mb-4">
+          <p className="text-sm text-zinc-400 mb-4">
             Select a project to enable autonomous AI agents. Agents will analyze goals and suggest tasks.
           </p>
 
           {availableProjects.length > 0 ? (
-            <div className="divide-y divide-zinc-100 border border-zinc-200 rounded-lg overflow-hidden">
+            <div className="divide-y divide-white/[0.06] border border-white/[0.08] rounded-lg overflow-hidden">
               {availableProjects.map((project) => (
                 <button
                   key={project.id}
                   onClick={() => handleEnable(project.id)}
-                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-zinc-50 transition-colors text-left"
+                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/[0.03] transition-colors text-left"
                 >
                   {project.color && (
                     <div
@@ -234,18 +234,18 @@ export function AutonomousProjects() {
                     />
                   )}
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-zinc-900 truncate">{project.name}</p>
+                    <p className="text-sm font-medium text-white truncate">{project.name}</p>
                     {project.description && (
-                      <p className="text-xs text-zinc-400 truncate">{project.description}</p>
+                      <p className="text-xs text-zinc-500 truncate">{project.description}</p>
                     )}
                   </div>
-                  <ChevronRight size={14} className="text-zinc-300" />
+                  <ChevronRight size={14} className="text-zinc-600" />
                 </button>
               ))}
             </div>
           ) : (
             <div className="text-center py-6">
-              <p className="text-sm text-zinc-400">All projects are already autonomous</p>
+              <p className="text-sm text-zinc-500">All projects are already autonomous</p>
             </div>
           )}
         </div>

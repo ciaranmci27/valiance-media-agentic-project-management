@@ -17,13 +17,13 @@ export function Button({
   className = '',
   ...props 
 }: ButtonProps) {
-  const baseClasses = 'inline-flex items-center justify-center font-medium rounded-lg transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed';
-  
+  const baseClasses = 'inline-flex items-center justify-center font-medium rounded-lg transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--color-surface)] disabled:opacity-50 disabled:cursor-not-allowed';
+
   const variantClasses = {
-    primary: 'bg-brand-600 text-white hover:bg-brand-700 focus:ring-brand-500 shadow-sm',
-    secondary: 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200 focus:ring-zinc-400',
-    ghost: 'text-zinc-600 hover:bg-zinc-100 focus:ring-zinc-400',
-    danger: 'bg-red-600 text-white hover:bg-red-700 focus:ring-red-500',
+    primary: 'liquid-primary focus-visible:ring-brand-500',
+    secondary: 'liquid-glass focus-visible:ring-white/25',
+    ghost: 'text-zinc-300 hover:bg-white/[0.06] hover:text-white focus-visible:ring-white/20',
+    danger: 'bg-red-600/90 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.25)] hover:bg-red-600 hover:shadow-[0_0_20px_-6px_rgba(239,68,68,0.55)] focus-visible:ring-red-500',
   };
 
   const sizeClasses = {

@@ -11,7 +11,9 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import Modal from '@/components/ui/Modal';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import { MoreVertical, Edit, Shield, User, UserMinus, Bot, UserPlus, Globe, Check, Crown, SlidersHorizontal, DollarSign, type LucideIcon } from 'lucide-react';
+import { Edit, Shield, User, UserMinus, Bot, UserPlus, Globe, Check, Crown, SlidersHorizontal, DollarSign, type LucideIcon } from 'lucide-react';
+import { DataTable, type Column } from '@/components/ui/DataTable';
+import { RowActionsMenu, type RowAction } from '@/components/ui/RowActionsMenu';
 import { TeamMember } from '@/lib/types';
 import { toast } from '@/components/ui/Toast';
 import { createClient } from '@/lib/supabase/client';
@@ -230,11 +232,11 @@ export default function TeamPage() {
   };
 
   const roleColors: Record<TeamMember['role'], string> = {
-    owner: 'bg-amber-100 text-amber-800',
-    admin: 'bg-brand-100 text-brand-700',
-    member: 'bg-zinc-100 text-zinc-700',
-    guest: 'bg-amber-100 text-amber-700',
-    agent: 'bg-purple-100 text-purple-700',
+    owner: 'bg-amber-500/15 text-amber-300',
+    admin: 'bg-brand-500/15 text-brand-300',
+    member: 'bg-white/[0.06] text-zinc-300',
+    guest: 'bg-amber-500/15 text-amber-300',
+    agent: 'bg-purple-500/15 text-purple-300',
   };
 
   const getTaskCount = (memberId: string) => {
@@ -256,83 +258,115 @@ export default function TeamPage() {
     : [...team])
     .sort((a, b) => roleRank[a.role] - roleRank[b.role] || a.name.localeCompare(b.name));
 
-  const MemberCard = ({ member }: { member: TeamMember }) => {
-    const [showMenu, setShowMenu] = useState(false);
-    const RoleIcon = roleIcons[member.role];
-    const taskCount = getTaskCount(member.id);
+  const buildActions = (member: TeamMember): RowAction[] => {
+    const actions: RowAction[] = [];
+    if (canManageTeam || member.id === currentTeamMemberId) {
+      actions.push({ label: 'Edit', icon: <Edit size={14} />, onClick: () => handleOpenForm(member) });
+    }
+    if (isOwner && member.role !== 'owner') {
+      actions.push({ label: 'Permissions', icon: <SlidersHorizontal size={14} />, onClick: () => { setAccessMemberId(member.id); setIsAccessOpen(true); } });
+    }
+    if (canManageCompensation && member.role !== 'owner') {
+      actions.push({ label: 'Compensation', icon: <DollarSign size={14} />, onClick: () => setCompensationMember(member) });
+    }
+    return actions;
+  };
 
+  const mobileCard = (m: TeamMember) => {
+    const RoleIcon = roleIcons[m.role];
+    const count = getTaskCount(m.id);
+    const actions = buildActions(m);
     return (
-      <div className="bg-white rounded-xl border border-zinc-200 p-4 lg:p-5 hover:shadow-md transition-shadow group">
-        <div className="flex items-start justify-between mb-3 lg:mb-4">
-          <div className="flex items-center gap-3">
-            <Avatar name={member.name} src={member.avatar || undefined} size="lg" />
+      <div className="glass-card rounded-xl p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <Avatar name={m.name} src={m.avatar || undefined} size="lg" />
             <div className="min-w-0">
-              <h3 className="font-semibold text-zinc-900 truncate text-sm lg:text-base">{member.name}</h3>
-              <p className="text-xs lg:text-sm text-zinc-500 truncate">{member.email}</p>
+              <h3 className="font-semibold text-white truncate">{m.name}</h3>
+              <p className="text-sm text-zinc-400 truncate">{m.email}</p>
             </div>
           </div>
-
-          {(canManageTeam || canManageCompensation || member.id === currentTeamMemberId) && (
-            <div className="relative">
-              <button
-                onClick={() => setShowMenu(!showMenu)}
-                className="lg:opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 transition-all"
-              >
-                <MoreVertical size={16} />
-              </button>
-
-              {showMenu && (
-                <>
-                  <div className="fixed inset-0 z-10 cursor-default" onClick={(e) => { e.stopPropagation(); setShowMenu(false); }} />
-                  <div className="absolute right-0 top-10 bg-white rounded-lg shadow-xl border border-zinc-200 py-1 z-20 min-w-[140px] cursor-pointer">
-                    {(canManageTeam || member.id === currentTeamMemberId) && <button
-                      onClick={() => { handleOpenForm(member); setShowMenu(false); }}
-                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-100"
-                    >
-                      <Edit size={14} />
-                      Edit
-                    </button>}
-                    {isOwner && member.role !== 'owner' && (
-                      <button
-                        onClick={() => { setAccessMemberId(member.id); setIsAccessOpen(true); setShowMenu(false); }}
-                        className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-100"
-                      >
-                        <SlidersHorizontal size={14} />
-                        Permissions
-                      </button>
-                    )}
-                    {canManageCompensation && member.role !== 'owner' && (
-                      <button
-                        onClick={() => { setCompensationMember(member); setShowMenu(false); }}
-                        className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-100"
-                      >
-                        <DollarSign size={14} />
-                        Compensation
-                      </button>
-                    )}
-                  </div>
-                </>
-              )}
-            </div>
-          )}
+          {actions.length > 0 && <RowActionsMenu actions={actions} label={`Actions for ${m.name}`} />}
         </div>
-
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${roleColors[member.role]}`}>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${roleColors[m.role]}`}>
             <RoleIcon size={12} />
-            {member.role.charAt(0).toUpperCase() + member.role.slice(1)}
+            {m.role.charAt(0).toUpperCase() + m.role.slice(1)}
           </span>
-          {member.status === 'suspended' && <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-50 text-red-700">Suspended</span>}
-          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-zinc-100 text-zinc-700">
-            {taskCount} task{taskCount !== 1 ? 's' : ''}
+          {m.status === 'suspended' && <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-500/15 text-red-300">Suspended</span>}
+          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-white/[0.06] text-zinc-300">
+            {count} task{count !== 1 ? 's' : ''}
           </span>
         </div>
       </div>
     );
   };
 
+  const columns: Column<TeamMember>[] = [
+    {
+      key: 'name',
+      header: 'Name',
+      sortValue: (m) => m.name.toLowerCase(),
+      render: (m) => (
+        <div className="flex items-center gap-3 min-w-0">
+          <Avatar name={m.name} src={m.avatar || undefined} size="md" />
+          <span className="font-semibold text-white truncate">{m.name}</span>
+        </div>
+      ),
+    },
+    {
+      key: 'email',
+      header: 'Email',
+      className: 'hidden sm:table-cell',
+      sortValue: (m) => m.email.toLowerCase(),
+      render: (m) => <span className="text-zinc-300 truncate block max-w-[240px]">{m.email}</span>,
+    },
+    {
+      key: 'role',
+      header: 'Role',
+      render: (m) => {
+        const RoleIcon = roleIcons[m.role];
+        return (
+          <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium whitespace-nowrap ${roleColors[m.role]}`}>
+            <RoleIcon size={12} />
+            {m.role.charAt(0).toUpperCase() + m.role.slice(1)}
+          </span>
+        );
+      },
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      className: 'hidden md:table-cell',
+      render: (m) => m.status === 'suspended'
+        ? <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-500/15 text-red-300">Suspended</span>
+        : <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-500/15 text-emerald-300">Active</span>,
+    },
+    {
+      key: 'tasks',
+      header: 'Tasks',
+      align: 'right',
+      sortValue: (m) => getTaskCount(m.id),
+      render: (m) => {
+        const count = getTaskCount(m.id);
+        return <span className="font-mono text-zinc-300 tabular-nums">{count}</span>;
+      },
+    },
+    {
+      key: 'actions',
+      header: <span className="sr-only">Actions</span>,
+      align: 'right',
+      width: 'w-12',
+      render: (m) => {
+        const actions = buildActions(m);
+        if (actions.length === 0) return null;
+        return <RowActionsMenu actions={actions} label={`Actions for ${m.name}`} />;
+      },
+    },
+  ];
+
   return (
-    <div className="animate-fadeIn min-h-screen bg-zinc-50">
+    <div className="animate-fadeIn min-h-screen">
       <Header
         title="Team"
         subtitle={<span className="hidden sm:inline">{team.length} team members</span>}
@@ -341,18 +375,20 @@ export default function TeamPage() {
       />
 
       <div className="p-4 lg:p-6 space-y-4">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {filtered.map((member) => (
-            <MemberCard key={member.id} member={member} />
-          ))}
-        </div>
-
-        {team.length === 0 && (
-          <div className="text-center py-12 bg-white rounded-xl border border-zinc-200">
-            <User className="mx-auto mb-3 text-zinc-400" size={40} />
-            <h3 className="font-medium text-zinc-700 mb-1">No team members yet</h3>
-            <p className="text-sm text-zinc-500">Team members are managed through Supabase</p>
+        {team.length === 0 ? (
+          <div className="text-center py-12 glass-card rounded-xl">
+            <User className="mx-auto mb-3 text-zinc-500" size={40} />
+            <h3 className="font-medium text-zinc-300 mb-1">No team members yet</h3>
+            <p className="text-sm text-zinc-400">Team members are managed through Supabase</p>
           </div>
+        ) : (
+          <DataTable
+            columns={columns}
+            data={filtered}
+            keyExtractor={(m) => m.id}
+            emptyState="No team members match your search"
+            mobileCard={mobileCard}
+          />
         )}
       </div>
 
@@ -429,7 +465,7 @@ export default function TeamPage() {
           )}
 
           <div>
-            <label className="block text-sm font-medium text-zinc-700 mb-1.5">Timezone</label>
+            <label className="block text-sm font-medium text-zinc-300 mb-1.5">Timezone</label>
             <div className="relative" ref={tzTriggerRef}>
               <button
                 type="button"
@@ -439,13 +475,13 @@ export default function TeamPage() {
                   if (!tzOpen) updateTimezoneDropdownPosition();
                   setTzOpen(!tzOpen);
                 }}
-                className="w-full flex items-center justify-between px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg hover:border-zinc-300 transition-colors text-left"
+                className="w-full flex items-center justify-between px-3 py-2 text-sm bg-surface-raised border border-white/[0.08] rounded-lg hover:border-white/[0.12] transition-colors text-left"
               >
-                <span className="flex items-center gap-2 text-zinc-900">
-                  <Globe size={14} className="text-zinc-400" />
+                <span className="flex items-center gap-2 text-white">
+                  <Globe size={14} className="text-zinc-500" />
                   {memberTz.replace(/_/g, ' ')}
                 </span>
-                <span className="text-zinc-400 text-xs font-mono">
+                <span className="text-zinc-500 text-xs font-mono">
                   {tzEntries.find(e => e.id === memberTz)?.label || 'UTC+0'}
                 </span>
               </button>
@@ -454,7 +490,7 @@ export default function TeamPage() {
                   ref={tzDropdownRef}
                   role="dialog"
                   aria-label="Choose timezone"
-                  className="fixed z-[9999] flex flex-col overflow-hidden bg-white border border-zinc-200 rounded-lg shadow-lg"
+                  className="fixed z-[9999] flex flex-col overflow-hidden bg-surface-raised border border-white/[0.08] rounded-lg shadow-lg"
                   style={{
                     top: tzDropdownPos.top,
                     left: tzDropdownPos.left,
@@ -463,22 +499,22 @@ export default function TeamPage() {
                     transform: tzDropdownPos.openAbove ? 'translateY(-100%)' : undefined,
                   }}
                 >
-                  <div className="p-2 border-b border-zinc-100">
+                  <div className="p-2 border-b border-white/[0.06]">
                     <Input
                       type="text"
                       value={tzSearch}
                       onChange={e => setTzSearch(e.target.value)}
                       placeholder="Search timezones..."
-                      className="bg-zinc-50 py-1.5 rounded-md"
+                      className="bg-white/[0.03] py-1.5 rounded-md"
                       autoFocus
                     />
                   </div>
                   <div className="min-h-0 flex-1 overflow-y-auto">
                     {filteredTz.length === 0 ? (
-                      <p className="px-3 py-2 text-sm text-zinc-400">No matching timezones</p>
+                      <p className="px-3 py-2 text-sm text-zinc-500">No matching timezones</p>
                     ) : filteredTz.map(group => (
                       <div key={group.label}>
-                        <div className="sticky top-0 bg-zinc-50 px-3 py-1 text-[11px] font-semibold text-zinc-400 uppercase tracking-wide font-mono border-b border-zinc-100">
+                        <div className="sticky top-0 bg-white/[0.03] px-3 py-1 text-[11px] font-semibold text-zinc-500 uppercase tracking-wide font-mono border-b border-white/[0.06]">
                           {group.label}
                         </div>
                         {group.items.map(entry => (
@@ -486,12 +522,12 @@ export default function TeamPage() {
                             key={entry.id}
                             type="button"
                             onClick={() => { setMemberTz(entry.id); setTzOpen(false); setTzSearch(''); }}
-                            className={`w-full text-left px-3 py-1.5 text-sm hover:bg-zinc-50 transition-colors flex items-center justify-between ${
-                              entry.id === memberTz ? 'text-brand-600 font-medium bg-brand-50/50' : 'text-zinc-700'
+                            className={`w-full text-left px-3 py-1.5 text-sm hover:bg-white/[0.03] transition-colors flex items-center justify-between ${
+                              entry.id === memberTz ? 'text-brand-300 font-medium bg-brand-500/15' : 'text-zinc-300'
                             }`}
                           >
                             <span>{entry.id.replace(/_/g, ' ')}</span>
-                            {entry.id === memberTz && <Check size={14} className="text-brand-600 flex-shrink-0" />}
+                            {entry.id === memberTz && <Check size={14} className="text-brand-300 flex-shrink-0" />}
                           </button>
                         ))}
                       </div>

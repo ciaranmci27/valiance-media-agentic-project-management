@@ -20,10 +20,10 @@ const PRIORITY_DOT: Record<string, string> = {
 };
 
 const STATUS_STYLE: Record<string, { bg: string; text: string; border: string }> = {
-  done: { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-l-emerald-500' },
-  in_progress: { bg: 'bg-brand-50', text: 'text-brand-700', border: 'border-l-brand-500' },
-  in_review: { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-l-amber-500' },
-  todo: { bg: 'bg-zinc-50', text: 'text-zinc-600', border: 'border-l-zinc-400' },
+  done: { bg: 'bg-emerald-500/15', text: 'text-emerald-300', border: 'border-l-emerald-500' },
+  in_progress: { bg: 'bg-brand-500/15', text: 'text-brand-300', border: 'border-l-brand-500' },
+  in_review: { bg: 'bg-amber-500/15', text: 'text-amber-300', border: 'border-l-amber-500' },
+  todo: { bg: 'bg-white/[0.03]', text: 'text-zinc-300', border: 'border-l-zinc-400' },
 };
 
 export function CalendarView({ tasks, onViewTask }: CalendarViewProps) {
@@ -130,7 +130,7 @@ export function CalendarView({ tasks, onViewTask }: CalendarViewProps) {
   // Empty cells for days before the 1st
   for (let i = 0; i < startingDay; i++) {
     days.push(
-      <div key={`empty-${i}`} className={`min-h-[5rem] lg:min-h-[7rem] ${isWeekend(i) ? 'bg-zinc-50/70' : 'bg-zinc-50/40'} border-b border-r border-zinc-100`} />,
+      <div key={`empty-${i}`} className={`min-h-[5rem] lg:min-h-[7rem] ${isWeekend(i) ? 'bg-white/[0.03]' : 'bg-white/[0.03]'} border-b border-r border-white/[0.06]`} />,
     );
   }
 
@@ -149,11 +149,11 @@ export function CalendarView({ tasks, onViewTask }: CalendarViewProps) {
     days.push(
       <div
         key={day}
-        className={`min-h-[5rem] lg:min-h-[7rem] p-1 lg:p-1.5 border-b border-r border-zinc-100 transition-colors relative ${
-          todayHighlight ? 'bg-brand-50/60' :
-          isWeekend(dayOfWeek) ? 'bg-zinc-50/50' :
-          past ? 'bg-zinc-50/30' :
-          'bg-white'
+        className={`min-h-[5rem] lg:min-h-[7rem] p-1 lg:p-1.5 border-b border-r border-white/[0.06] transition-colors relative ${
+          todayHighlight ? 'bg-brand-500/15' :
+          isWeekend(dayOfWeek) ? 'bg-white/[0.03]' :
+          past ? 'bg-white/[0.03]' :
+          'bg-surface-raised'
         }`}
       >
         {/* Day number */}
@@ -162,8 +162,8 @@ export function CalendarView({ tasks, onViewTask }: CalendarViewProps) {
             todayHighlight
               ? 'bg-brand-600 text-white'
               : past
-                ? 'text-zinc-400'
-                : 'text-zinc-700'
+                ? 'text-zinc-500'
+                : 'text-zinc-300'
           }`}>
             {day}
           </div>
@@ -171,17 +171,17 @@ export function CalendarView({ tasks, onViewTask }: CalendarViewProps) {
             <AlertCircle size={12} className="text-red-500 flex-shrink-0" />
           )}
           {dueToday && !overdue && (
-            <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 px-1 rounded">
+            <span className="text-[10px] font-semibold text-amber-400 bg-amber-500/15 px-1 rounded">
               Due today
             </span>
           )}
           {dueTomorrow && !overdue && !dueToday && dayTasks.length > 0 && (
-            <span className={`text-[10px] font-medium text-zinc-500`}>
+            <span className={`text-[10px] font-medium text-zinc-400`}>
               {dayTasks.length}
             </span>
           )}
           {dayTasks.length > 0 && !overdue && !dueToday && !dueTomorrow && (
-            <span className={`text-[10px] font-medium ${past ? 'text-zinc-400' : 'text-zinc-500'}`}>
+            <span className={`text-[10px] font-medium ${past ? 'text-zinc-500' : 'text-zinc-400'}`}>
               {dayTasks.length}
             </span>
           )}
@@ -201,9 +201,9 @@ export function CalendarView({ tasks, onViewTask }: CalendarViewProps) {
                   onClick={(e) => { e.stopPropagation(); onViewTask?.(task); }}
                   className={`flex items-center gap-1 text-[10px] lg:text-[11px] px-1.5 py-0.5 rounded border-l-2 truncate cursor-pointer hover:shadow-sm transition-shadow ${
                     taskOverdue
-                      ? 'bg-red-50 text-red-700 border-l-red-500'
+                      ? 'bg-red-500/15 text-red-300 border-l-red-500'
                       : taskDueToday
-                      ? 'bg-amber-50 text-amber-800 border-l-amber-500 font-medium'
+                      ? 'bg-amber-500/15 text-amber-300 border-l-amber-500 font-medium'
                       : `${style.bg} ${style.text} ${style.border}`
                   } ${isDone ? 'line-through opacity-60' : ''}`}
                 >
@@ -216,7 +216,7 @@ export function CalendarView({ tasks, onViewTask }: CalendarViewProps) {
           {!isExpanded && hiddenCount > 0 && (
             <button
               onClick={(e) => { e.stopPropagation(); setExpandedDay(day); }}
-              className="text-[10px] text-brand-600 hover:text-brand-700 font-medium pl-1 hover:underline"
+              className="text-[10px] text-brand-300 hover:text-brand-300 font-medium pl-1 hover:underline"
             >
               +{hiddenCount} more
             </button>
@@ -224,7 +224,7 @@ export function CalendarView({ tasks, onViewTask }: CalendarViewProps) {
           {isExpanded && hiddenCount > 0 && (
             <button
               onClick={(e) => { e.stopPropagation(); setExpandedDay(null); }}
-              className="text-[10px] text-zinc-500 hover:text-zinc-700 font-medium pl-1 hover:underline"
+              className="text-[10px] text-zinc-400 hover:text-zinc-300 font-medium pl-1 hover:underline"
             >
               show less
             </button>
@@ -240,21 +240,21 @@ export function CalendarView({ tasks, onViewTask }: CalendarViewProps) {
   for (let i = 0; i < remainingCells; i++) {
     const dayOfWeek = (totalCells + i) % 7;
     days.push(
-      <div key={`trail-${i}`} className={`min-h-[5rem] lg:min-h-[7rem] ${isWeekend(dayOfWeek) ? 'bg-zinc-50/70' : 'bg-zinc-50/40'} border-b border-r border-zinc-100`} />,
+      <div key={`trail-${i}`} className={`min-h-[5rem] lg:min-h-[7rem] ${isWeekend(dayOfWeek) ? 'bg-white/[0.03]' : 'bg-white/[0.03]'} border-b border-r border-white/[0.06]`} />,
     );
   }
 
   return (
     <div className="space-y-4">
-      <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
+      <div className="glass-card rounded-xl overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between p-3 lg:p-4 border-b border-zinc-200 bg-zinc-50">
+        <div className="flex items-center justify-between p-3 lg:p-4 border-b border-white/[0.08] bg-white/[0.03]">
           <div>
-            <h3 className="text-base lg:text-lg font-semibold text-zinc-900">{monthName}</h3>
-            <p className="text-xs text-zinc-500 mt-0.5">
+            <h3 className="text-base lg:text-lg font-semibold text-white">{monthName}</h3>
+            <p className="text-xs text-zinc-400 mt-0.5">
               {scheduledCount} task{scheduledCount !== 1 ? 's' : ''} scheduled
               {unscheduledTasks.length > 0 && (
-                <span className="text-zinc-400"> &middot; {unscheduledTasks.length} unscheduled</span>
+                <span className="text-zinc-500"> &middot; {unscheduledTasks.length} unscheduled</span>
               )}
             </p>
           </div>
@@ -262,20 +262,20 @@ export function CalendarView({ tasks, onViewTask }: CalendarViewProps) {
             {!isCurrentMonth && (
               <button
                 onClick={goToToday}
-                className="px-2 lg:px-3 py-1 text-xs lg:text-sm font-medium text-brand-600 hover:bg-brand-50 rounded-lg transition-colors"
+                className="px-2 lg:px-3 py-1 text-xs lg:text-sm font-medium text-brand-300 hover:bg-brand-500/15 rounded-lg transition-colors"
               >
                 Today
               </button>
             )}
             <button
               onClick={prevMonth}
-              className="p-2 rounded-lg text-zinc-500 hover:bg-zinc-100 transition-colors"
+              className="p-2 rounded-lg text-zinc-400 hover:bg-white/[0.06] transition-colors"
             >
               <ChevronLeft size={20} />
             </button>
             <button
               onClick={nextMonth}
-              className="p-2 rounded-lg text-zinc-500 hover:bg-zinc-100 transition-colors"
+              className="p-2 rounded-lg text-zinc-400 hover:bg-white/[0.06] transition-colors"
             >
               <ChevronRight size={20} />
             </button>
@@ -283,12 +283,12 @@ export function CalendarView({ tasks, onViewTask }: CalendarViewProps) {
         </div>
 
         {/* Day headers */}
-        <div className="grid grid-cols-7 border-b border-zinc-200">
+        <div className="grid grid-cols-7 border-b border-white/[0.08]">
           {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day, i) => (
             <div
               key={day}
-              className={`p-2 text-center text-xs font-medium bg-zinc-50 ${
-                isWeekend(i) ? 'text-zinc-400' : 'text-zinc-500'
+              className={`p-2 text-center text-xs font-medium bg-white/[0.03] ${
+                isWeekend(i) ? 'text-zinc-500' : 'text-zinc-400'
               }`}
             >
               <span className="hidden lg:inline">{day}</span>
@@ -303,20 +303,20 @@ export function CalendarView({ tasks, onViewTask }: CalendarViewProps) {
         </div>
 
         {/* Legend */}
-        <div className="flex items-center gap-4 px-3 lg:px-4 py-2 border-t border-zinc-100 bg-zinc-50/50 flex-wrap">
-          <div className="flex items-center gap-1.5 text-[10px] text-zinc-500">
+        <div className="flex items-center gap-4 px-3 lg:px-4 py-2 border-t border-white/[0.06] bg-white/[0.03] flex-wrap">
+          <div className="flex items-center gap-1.5 text-[10px] text-zinc-400">
             <span className="w-2 h-2 rounded-full bg-red-500" /> Urgent
           </div>
-          <div className="flex items-center gap-1.5 text-[10px] text-zinc-500">
+          <div className="flex items-center gap-1.5 text-[10px] text-zinc-400">
             <span className="w-2 h-2 rounded-full bg-orange-500" /> High
           </div>
-          <div className="flex items-center gap-1.5 text-[10px] text-zinc-500">
+          <div className="flex items-center gap-1.5 text-[10px] text-zinc-400">
             <span className="w-2 h-2 rounded-full bg-blue-500" /> Medium
           </div>
-          <div className="flex items-center gap-1.5 text-[10px] text-zinc-500">
+          <div className="flex items-center gap-1.5 text-[10px] text-zinc-400">
             <span className="w-2 h-2 rounded-full bg-zinc-400" /> Low
           </div>
-          <div className="hidden lg:flex items-center gap-3 text-[10px] text-zinc-500 ml-auto">
+          <div className="hidden lg:flex items-center gap-3 text-[10px] text-zinc-400 ml-auto">
             <span className="flex items-center gap-1.5">
               <span className="w-2 h-2 rounded-full bg-amber-500" /> Due today
             </span>
@@ -329,9 +329,9 @@ export function CalendarView({ tasks, onViewTask }: CalendarViewProps) {
 
       {/* Unscheduled tasks */}
       {unscheduledTasks.length > 0 && (
-        <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
-          <div className="px-3 lg:px-4 py-2.5 bg-zinc-50 border-b border-zinc-200">
-            <h4 className="text-sm font-semibold text-zinc-700">
+        <div className="glass-card rounded-xl overflow-hidden">
+          <div className="px-3 lg:px-4 py-2.5 bg-white/[0.03] border-b border-white/[0.08]">
+            <h4 className="text-sm font-semibold text-zinc-300">
               No Due Date ({unscheduledTasks.length})
             </h4>
           </div>

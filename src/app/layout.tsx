@@ -23,14 +23,21 @@ export const metadata: Metadata = {
   manifest: '/favicon/site.webmanifest',
 };
 
+// Runs before paint: applies the saved theme (or the OS preference on first visit)
+// to <html> so there's no flash of the wrong theme. Kept tiny and dependency-free.
+const themeInitScript = `(function(){try{var t=localStorage.getItem('theme');if(t!=='light'&&t!=='dark'){t=window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';}document.documentElement.setAttribute('data-theme',t);}catch(e){document.documentElement.setAttribute('data-theme','dark');}})();`;
+
 export default function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={dmSans.variable}>
-      <body className="antialiased bg-[#FAFAFA] font-sans">
+    <html lang="en" className={dmSans.variable} suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
+      </head>
+      <body className="antialiased bg-surface font-sans">
         <ThemeProvider>{children}</ThemeProvider>
       </body>
     </html>

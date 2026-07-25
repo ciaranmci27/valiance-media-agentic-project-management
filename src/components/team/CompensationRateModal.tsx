@@ -97,27 +97,27 @@ export function CompensationRateModal({
     <Modal isOpen={isOpen} onClose={onClose} title={member ? `${member.name} · Compensation` : 'Compensation'} size="lg">
       <div className="space-y-5">
         <div className="grid gap-3 sm:grid-cols-2">
-          <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4">
-            <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-zinc-500">
+          <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
+            <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-zinc-400">
               <DollarSign size={14} /> Current rate
             </div>
-            <p className="mt-2 text-2xl font-semibold tabular-nums text-zinc-900">
+            <p className="mt-2 text-2xl font-semibold tabular-nums text-white">
               {loading ? 'Loading...' : currentRate ? `${money(Number(currentRate.hourly_rate))}/hr` : 'Not set'}
             </p>
           </div>
-          <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4">
-            <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-zinc-500">
+          <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
+            <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-zinc-400">
               <CalendarClock size={14} /> Effective since
             </div>
-            <p className="mt-2 text-sm font-medium text-zinc-900">
+            <p className="mt-2 text-sm font-medium text-white">
               {currentRate ? new Date(currentRate.effective_at).toLocaleDateString() : 'No active rate'}
             </p>
           </div>
         </div>
 
-        <div className="rounded-xl border border-zinc-200 p-4">
-          <h3 className="text-sm font-semibold text-zinc-900">Schedule a new rate</h3>
-          <p className="mt-1 text-xs text-zinc-500">New time sessions use the rate effective when the session starts. Existing sessions do not change.</p>
+        <div className="rounded-xl border border-white/[0.08] p-4">
+          <h3 className="text-sm font-semibold text-white">Schedule a new rate</h3>
+          <p className="mt-1 text-xs text-zinc-400">New time sessions use the rate effective when the session starts. Existing sessions do not change.</p>
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             <NumberInput label="Hourly rate" min={0} step={0.01} prefix="$" suffix="/hr" value={amount === '' ? '' : Number(amount)} onChange={(value) => setAmount(value === '' ? '' : String(value))} />
             <DateInput label="Effective date" value={effectiveDate} onChange={setEffectiveDate} />
@@ -128,16 +128,16 @@ export function CompensationRateModal({
         </div>
 
         <div>
-          <h3 className="text-sm font-semibold text-zinc-900">Rate history</h3>
-          <div className="mt-2 overflow-hidden rounded-xl border border-zinc-200">
+          <h3 className="text-sm font-semibold text-white">Rate history</h3>
+          <div className="mt-2 overflow-hidden rounded-xl border border-white/[0.08]">
             {loading ? (
-              <p className="p-4 text-sm text-zinc-500">Loading rate history...</p>
+              <p className="p-4 text-sm text-zinc-400">Loading rate history...</p>
             ) : rates.length === 0 ? (
-              <p className="p-4 text-sm text-zinc-500">No compensation rates have been scheduled.</p>
+              <p className="p-4 text-sm text-zinc-400">No compensation rates have been scheduled.</p>
             ) : rates.map((rate) => (
-              <div key={rate.id} className="flex items-center justify-between border-b border-zinc-100 px-4 py-3 last:border-b-0">
-                <span className="text-sm text-zinc-600">{new Date(rate.effective_at).toLocaleDateString()}</span>
-                <span className="text-sm font-semibold tabular-nums text-zinc-900">{money(Number(rate.hourly_rate))}/hr</span>
+              <div key={rate.id} className="flex items-center justify-between border-b border-white/[0.06] px-4 py-3 last:border-b-0">
+                <span className="text-sm text-zinc-300">{new Date(rate.effective_at).toLocaleDateString()}</span>
+                <span className="text-sm font-semibold tabular-nums text-white">{money(Number(rate.hourly_rate))}/hr</span>
               </div>
             ))}
           </div>

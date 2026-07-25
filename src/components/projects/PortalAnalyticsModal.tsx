@@ -323,7 +323,7 @@ export function PortalAnalyticsModal({
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" style={{ animation: 'fadeIn 0.2s ease both' }} />
 
       <div
-        className="relative w-full max-w-6xl max-h-[88vh] bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden"
+        className="relative w-full max-w-6xl max-h-[88vh] bg-surface-raised rounded-2xl shadow-2xl flex flex-col overflow-hidden"
         style={{ animation: 'scaleIn 0.2s ease both' }}
       >
         {/* Header — title + close on one row always; filter toggles inline
@@ -351,7 +351,7 @@ export function PortalAnalyticsModal({
             </>
           );
           return (
-            <div className="px-6 py-4 border-b border-zinc-100 flex-shrink-0">
+            <div className="px-6 py-4 border-b border-white/[0.06] flex-shrink-0">
               <div className="flex items-center justify-between gap-4">
                 <div className="flex items-center gap-2.5 min-w-0">
                   <div
@@ -361,8 +361,8 @@ export function PortalAnalyticsModal({
                     <ActivityIcon size={16} />
                   </div>
                   <div className="min-w-0">
-                    <h2 className="text-base font-semibold text-zinc-900 leading-tight">Portal activity</h2>
-                    <p className="text-xs text-zinc-500">Last 30 days</p>
+                    <h2 className="text-base font-semibold text-white leading-tight">Portal activity</h2>
+                    <p className="text-xs text-zinc-400">Last 30 days</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-1.5 flex-shrink-0">
@@ -371,7 +371,7 @@ export function PortalAnalyticsModal({
                   </div>
                   <button
                     onClick={onClose}
-                    className="sm:ml-1 p-2 rounded-lg text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 transition-colors"
+                    className="sm:ml-1 p-2 rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.06] transition-colors"
                     aria-label="Close"
                   >
                     <X size={18} />
@@ -388,7 +388,7 @@ export function PortalAnalyticsModal({
 
         {/* Tabs — horizontally scrollable on narrow screens so the labels
             stay readable instead of crushing into each other. */}
-        <div className="flex border-b border-zinc-100 flex-shrink-0 px-6 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div className="flex border-b border-white/[0.06] flex-shrink-0 px-6 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {TABS.map((t) => {
             const active = tab === t.id;
             return (
@@ -396,7 +396,7 @@ export function PortalAnalyticsModal({
                 key={t.id}
                 onClick={() => setTab(t.id)}
                 className={`relative flex items-center gap-2 px-4 py-3 text-sm font-medium whitespace-nowrap flex-shrink-0 transition-colors rounded-t focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 ${
-                  active ? 'text-zinc-900' : 'text-zinc-500 hover:text-zinc-800'
+                  active ? 'text-white' : 'text-zinc-400 hover:text-zinc-100'
                 }`}
                 style={{ outlineColor: accent }}
               >
@@ -417,14 +417,14 @@ export function PortalAnalyticsModal({
         <div className="flex-1 overflow-y-auto px-6 py-5">
           {error && !loading ? (
             <div className="flex flex-col items-center justify-center py-20 gap-3">
-              <p className="text-sm text-zinc-500">{error}</p>
+              <p className="text-sm text-zinc-400">{error}</p>
               <Button variant="secondary" size="sm" onClick={load}>
                 Try again
               </Button>
             </div>
           ) : loading || !data ? (
             <div className="flex items-center justify-center py-20">
-              <Loader2 className="animate-spin text-zinc-300" size={28} />
+              <Loader2 className="animate-spin text-zinc-600" size={28} />
             </div>
           ) : (
             <>
@@ -487,7 +487,7 @@ function ActivityTab({
 
       {/* Sessions table */}
       <div>
-        <h3 className="text-sm font-semibold text-zinc-800 mb-3">Sessions</h3>
+        <h3 className="text-sm font-semibold text-zinc-100 mb-3">Sessions</h3>
         {data.sessions.length === 0 ? (
           filtersActive ? (
             <FilteredEmptyState
@@ -499,8 +499,8 @@ function ActivityTab({
             <EmptyState message="No portal activity in this window yet." />
           )
         ) : (
-          <div className="rounded-xl border border-zinc-100 overflow-hidden">
-            <div className="grid grid-cols-[1fr_1fr_auto_24px] sm:grid-cols-[1.4fr_1.2fr_1fr_0.8fr_0.8fr_24px] gap-3 px-4 py-2.5 text-[11px] uppercase tracking-wide text-zinc-400 font-semibold bg-zinc-50/50 border-b border-zinc-100">
+          <div className="rounded-xl border border-white/[0.06] overflow-hidden">
+            <div className="grid grid-cols-[1fr_1fr_auto_24px] sm:grid-cols-[1.4fr_1.2fr_1fr_0.8fr_0.8fr_24px] gap-3 px-4 py-2.5 text-[11px] uppercase tracking-wide text-zinc-500 font-semibold bg-white/[0.03] border-b border-white/[0.06]">
               <div>When</div>
               <div>Device</div>
               <div className="hidden sm:block">Location signal</div>
@@ -508,7 +508,7 @@ function ActivityTab({
               <div className="text-right">Engagement</div>
               <div />
             </div>
-            <div className="divide-y divide-zinc-100">
+            <div className="divide-y divide-white/[0.06]">
               {data.sessions.map((s) => {
                 const expanded = expandedSession === s.session_id;
                 const events = sessionEvents.get(s.session_id) ?? [];
@@ -519,33 +519,33 @@ function ActivityTab({
                   <div key={s.session_id}>
                     <button
                       onClick={() => onToggleSession(s.session_id)}
-                      className="w-full grid grid-cols-[1fr_1fr_auto_24px] sm:grid-cols-[1.4fr_1.2fr_1fr_0.8fr_0.8fr_24px] gap-3 px-4 py-3 items-center text-sm hover:bg-zinc-50 transition-colors text-left focus-visible:outline-none focus-visible:bg-zinc-50"
+                      className="w-full grid grid-cols-[1fr_1fr_auto_24px] sm:grid-cols-[1.4fr_1.2fr_1fr_0.8fr_0.8fr_24px] gap-3 px-4 py-3 items-center text-sm hover:bg-white/[0.03] transition-colors text-left focus-visible:outline-none focus-visible:bg-white/[0.03]"
                     >
                       <div className="flex flex-col min-w-0">
-                        <span className="text-zinc-800 font-medium truncate">{formatRelative(s.last_seen_at)}</span>
-                        <span className="text-[11px] text-zinc-400 truncate">{new Date(s.started_at).toLocaleString('en-US')}</span>
+                        <span className="text-zinc-100 font-medium truncate">{formatRelative(s.last_seen_at)}</span>
+                        <span className="text-[11px] text-zinc-500 truncate">{new Date(s.started_at).toLocaleString('en-US')}</span>
                       </div>
-                      <div className="flex items-center gap-2 text-zinc-600 min-w-0">
-                        <span className="text-zinc-400 flex-shrink-0"><DeviceIcon type={s.device_type} /></span>
+                      <div className="flex items-center gap-2 text-zinc-300 min-w-0">
+                        <span className="text-zinc-500 flex-shrink-0"><DeviceIcon type={s.device_type} /></span>
                         <span className="truncate">
                           {[s.browser, s.os].filter(Boolean).join(' / ') || s.user_agent || 'Unknown'}
                         </span>
                       </div>
-                      <div className="hidden sm:flex items-center gap-1.5 text-zinc-500 min-w-0">
-                        <Globe size={12} className="text-zinc-300 flex-shrink-0" />
+                      <div className="hidden sm:flex items-center gap-1.5 text-zinc-400 min-w-0">
+                        <Globe size={12} className="text-zinc-600 flex-shrink-0" />
                         <span className="truncate">
                           {s.timezone || s.language || '—'}
                         </span>
                       </div>
-                      <div className="hidden sm:block text-right text-zinc-600 tabular-nums">
-                        <Clock size={11} className="inline mr-0.5 -mt-0.5 text-zinc-300" />
+                      <div className="hidden sm:block text-right text-zinc-300 tabular-nums">
+                        <Clock size={11} className="inline mr-0.5 -mt-0.5 text-zinc-600" />
                         {formatDuration(s.duration_seconds)}
                       </div>
-                      <div className="flex items-center justify-end gap-2.5 text-zinc-500 text-xs tabular-nums">
+                      <div className="flex items-center justify-end gap-2.5 text-zinc-400 text-xs tabular-nums">
                         {filesTotal > 0 && (
                           <Tooltip content={`${filesTotal} file ${filesTotal === 1 ? 'interaction' : 'interactions'}`}>
                             <span className="inline-flex items-center gap-1">
-                              <FileText size={11} className="text-zinc-400" />
+                              <FileText size={11} className="text-zinc-500" />
                               {filesTotal}
                             </span>
                           </Tooltip>
@@ -553,21 +553,21 @@ function ActivityTab({
                         {invoicesTotal > 0 && (
                           <Tooltip content={`${invoicesTotal} invoice ${invoicesTotal === 1 ? 'interaction' : 'interactions'}`}>
                             <span className="inline-flex items-center gap-1">
-                              <Receipt size={11} className="text-zinc-400" />
+                              <Receipt size={11} className="text-zinc-500" />
                               {invoicesTotal}
                             </span>
                           </Tooltip>
                         )}
-                        {!hasEngagement && <span className="text-zinc-300">—</span>}
+                        {!hasEngagement && <span className="text-zinc-600">—</span>}
                       </div>
-                      <div className="text-zinc-300">
+                      <div className="text-zinc-600">
                         {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                       </div>
                     </button>
 
                     {expanded && (
-                      <div className="px-4 pb-4 pt-1 bg-zinc-50/40 border-t border-zinc-100">
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1.5 mb-4 text-[12px] text-zinc-600">
+                      <div className="px-4 pb-4 pt-1 bg-white/[0.03] border-t border-white/[0.06]">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1.5 mb-4 text-[12px] text-zinc-300">
                           <Detail label="IP" value={formatIpAddress(s.ip_address)} mono />
                           <Detail label="Fingerprint" value={s.ip_hash || '—'} mono />
                           <Detail label="Viewport" value={s.viewport_width && s.viewport_height ? `${s.viewport_width}×${s.viewport_height}` : '—'} />
@@ -579,15 +579,15 @@ function ActivityTab({
                           {s.referrer && <Detail label="Referrer" value={s.referrer} mono />}
                           <Detail label="User agent" value={s.user_agent || '—'} mono className="sm:col-span-2" />
                         </div>
-                        <h4 className="text-xs font-semibold text-zinc-500 mb-2 uppercase tracking-wide">Timeline</h4>
+                        <h4 className="text-xs font-semibold text-zinc-400 mb-2 uppercase tracking-wide">Timeline</h4>
                         {events.length === 0 ? (
-                          <p className="text-xs text-zinc-400">Loading…</p>
+                          <p className="text-xs text-zinc-500">Loading…</p>
                         ) : (
                           <ul className="space-y-1.5">
                             {collapseHeartbeats(events).map((row) =>
                               row.kind === 'event' ? (
                                 <li key={row.event.id} className="flex items-baseline gap-2 text-xs">
-                                  <span className="text-zinc-400 tabular-nums">
+                                  <span className="text-zinc-500 tabular-nums">
                                     {new Date(row.event.created_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit' })}
                                   </span>
                                   <span
@@ -602,14 +602,14 @@ function ActivityTab({
                                         : { backgroundColor: accent }
                                     }
                                   />
-                                  <span className="text-zinc-700">{eventLabel(row.event)}</span>
+                                  <span className="text-zinc-300">{eventLabel(row.event)}</span>
                                 </li>
                               ) : (
-                                <li key={row.key} className="flex items-baseline gap-2 text-xs italic text-zinc-400">
+                                <li key={row.key} className="flex items-baseline gap-2 text-xs italic text-zinc-500">
                                   <span className="tabular-nums">
                                     {new Date(row.startedAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
                                   </span>
-                                  <span className="w-1.5 h-1.5 rounded-full bg-zinc-200 flex-shrink-0 self-center" />
+                                  <span className="w-1.5 h-1.5 rounded-full bg-white/[0.08] flex-shrink-0 self-center" />
                                   <span>Active for {formatDuration(row.durationSeconds)}</span>
                                 </li>
                               ),
@@ -652,7 +652,7 @@ function EngagementTab({ data, accent }: { data: PortalAnalyticsResponse; accent
           key: f.file_id,
           label: f.name ?? `File ${f.file_id.slice(0, 8)}…`,
           right: (
-            <span className="flex items-center gap-3 text-xs text-zinc-500 tabular-nums">
+            <span className="flex items-center gap-3 text-xs text-zinc-400 tabular-nums">
               <span className="flex items-center gap-1"><Eye size={11} /> {f.previews}</span>
               <span className="flex items-center gap-1"><Download size={11} /> {f.downloads}</span>
             </span>
@@ -668,7 +668,7 @@ function EngagementTab({ data, accent }: { data: PortalAnalyticsResponse; accent
           key: i.invoice_id,
           label: i.invoice_number ?? `Invoice ${i.invoice_id.slice(0, 8)}…`,
           right: (
-            <span className="flex items-center gap-3 text-xs text-zinc-500 tabular-nums">
+            <span className="flex items-center gap-3 text-xs text-zinc-400 tabular-nums">
               <span className="flex items-center gap-1"><Eye size={11} /> {i.views}</span>
               <span className="flex items-center gap-1"><Download size={11} /> {i.pdf_downloads}</span>
             </span>
@@ -692,31 +692,31 @@ function SecurityTab({ data }: { data: PortalAnalyticsResponse }) {
         <Stat label="Sessions tracked" value={data.totals.total_sessions} />
       </div>
       <div>
-        <h3 className="text-sm font-semibold text-zinc-800 mb-3">Failed PIN attempts</h3>
+        <h3 className="text-sm font-semibold text-zinc-100 mb-3">Failed PIN attempts</h3>
         {data.pin_failures.length === 0 ? (
           <EmptyState message="No failed PIN attempts in this window. Looks clean." />
         ) : (
-          <div className="rounded-xl border border-zinc-100 overflow-hidden">
-            <div className="grid grid-cols-[1fr_1fr_1.5fr_1fr] gap-3 px-4 py-2.5 text-[11px] uppercase tracking-wide text-zinc-400 font-semibold bg-zinc-50/50 border-b border-zinc-100">
+          <div className="rounded-xl border border-white/[0.06] overflow-hidden">
+            <div className="grid grid-cols-[1fr_1fr_1.5fr_1fr] gap-3 px-4 py-2.5 text-[11px] uppercase tracking-wide text-zinc-500 font-semibold bg-white/[0.03] border-b border-white/[0.06]">
               <div>When</div>
               <div>IP</div>
               <div>User agent</div>
               <div>Fingerprint</div>
             </div>
-            <div className="divide-y divide-zinc-100">
+            <div className="divide-y divide-white/[0.06]">
               {data.pin_failures.map((p, i) => (
-                <div key={`${p.created_at}-${i}`} className="grid grid-cols-[1fr_1fr_1.5fr_1fr] gap-3 px-4 py-3 items-center text-xs text-zinc-600">
-                  <span className="text-zinc-700 font-medium">{formatRelative(p.created_at)}</span>
+                <div key={`${p.created_at}-${i}`} className="grid grid-cols-[1fr_1fr_1.5fr_1fr] gap-3 px-4 py-3 items-center text-xs text-zinc-300">
+                  <span className="text-zinc-300 font-medium">{formatRelative(p.created_at)}</span>
                   <span className="font-mono">{formatIpAddress(p.ip_address)}</span>
-                  <span className="truncate text-zinc-500">{p.user_agent || '—'}</span>
-                  <span className="font-mono text-zinc-400">{p.ip_hash || '—'}</span>
+                  <span className="truncate text-zinc-400">{p.user_agent || '—'}</span>
+                  <span className="font-mono text-zinc-500">{p.ip_hash || '—'}</span>
                 </div>
               ))}
             </div>
           </div>
         )}
       </div>
-      <p className="text-xs text-zinc-400 leading-relaxed">
+      <p className="text-xs text-zinc-500 leading-relaxed">
         A failed PIN attempt fires whenever a client submits an incorrect PIN.
         Multiple attempts from the same fingerprint are worth investigating.
       </p>
@@ -733,12 +733,12 @@ function Stat({ label, value, hint, accent }: {
   accent?: string;
 }) {
   return (
-    <div className="rounded-xl border border-zinc-100 px-4 py-3">
-      <div className="text-[11px] uppercase tracking-wide text-zinc-400 font-semibold">{label}</div>
-      <div className="mt-1 text-2xl font-semibold text-zinc-900 tabular-nums" style={accent ? { color: accent } : undefined}>
+    <div className="rounded-xl border border-white/[0.06] px-4 py-3">
+      <div className="text-[11px] uppercase tracking-wide text-zinc-500 font-semibold">{label}</div>
+      <div className="mt-1 text-2xl font-semibold text-white tabular-nums" style={accent ? { color: accent } : undefined}>
         {value}
       </div>
-      {hint && <div className="text-[10px] text-zinc-400 mt-0.5">{hint}</div>}
+      {hint && <div className="text-[10px] text-zinc-500 mt-0.5">{hint}</div>}
     </div>
   );
 }
@@ -752,18 +752,18 @@ function PanelList({ title, emptyText, items, accent }: {
   const max = Math.max(1, ...items.map(i => i.fillRatio));
   return (
     <div>
-      <h3 className="text-sm font-semibold text-zinc-800 mb-3">{title}</h3>
+      <h3 className="text-sm font-semibold text-zinc-100 mb-3">{title}</h3>
       {items.length === 0 ? (
         <EmptyState message={emptyText} />
       ) : (
-        <div className="rounded-xl border border-zinc-100 divide-y divide-zinc-100">
+        <div className="rounded-xl border border-white/[0.06] divide-y divide-white/[0.06]">
           {items.map((it) => (
             <div key={it.key} className="px-4 py-3">
               <div className="flex items-center justify-between gap-3 mb-2">
-                <span className="text-sm text-zinc-800 truncate">{it.label}</span>
-                <span className="flex-shrink-0">{typeof it.right === 'string' ? <span className="text-xs text-zinc-500 tabular-nums">{it.right}</span> : it.right}</span>
+                <span className="text-sm text-zinc-100 truncate">{it.label}</span>
+                <span className="flex-shrink-0">{typeof it.right === 'string' ? <span className="text-xs text-zinc-400 tabular-nums">{it.right}</span> : it.right}</span>
               </div>
-              <div className="h-1 rounded-full bg-zinc-100 overflow-hidden">
+              <div className="h-1 rounded-full bg-white/[0.06] overflow-hidden">
                 <div className="h-full rounded-full" style={{ width: `${(it.fillRatio / max) * 100}%`, backgroundColor: accent }} />
               </div>
             </div>
@@ -782,16 +782,16 @@ function Detail({ label, value, mono, className }: {
 }) {
   return (
     <div className={`flex items-baseline gap-2 ${className ?? ''}`}>
-      <span className="text-[11px] uppercase tracking-wide text-zinc-400 font-semibold w-24 flex-shrink-0">{label}</span>
-      <span className={`text-zinc-700 break-all ${mono ? 'font-mono text-[11px]' : ''}`}>{value}</span>
+      <span className="text-[11px] uppercase tracking-wide text-zinc-500 font-semibold w-24 flex-shrink-0">{label}</span>
+      <span className={`text-zinc-300 break-all ${mono ? 'font-mono text-[11px]' : ''}`}>{value}</span>
     </div>
   );
 }
 
 function EmptyState({ message }: { message: string }) {
   return (
-    <div className="rounded-xl border border-dashed border-zinc-200 px-6 py-8 text-center">
-      <p className="text-sm text-zinc-500">{message}</p>
+    <div className="rounded-xl border border-dashed border-white/[0.08] px-6 py-8 text-center">
+      <p className="text-sm text-zinc-400">{message}</p>
     </div>
   );
 }
@@ -811,14 +811,14 @@ function FilteredEmptyState({
   if (hideLocal) active.push('Hide local');
   if (hideTeam) active.push('Hide team');
   return (
-    <div className="rounded-xl border border-dashed border-zinc-200 px-6 py-8 text-center">
-      <p className="text-sm text-zinc-700 font-medium">All sessions in this window are hidden by your filters.</p>
-      <p className="text-xs text-zinc-500 mt-1">
+    <div className="rounded-xl border border-dashed border-white/[0.08] px-6 py-8 text-center">
+      <p className="text-sm text-zinc-300 font-medium">All sessions in this window are hidden by your filters.</p>
+      <p className="text-xs text-zinc-400 mt-1">
         Active: {active.join(' + ')}
       </p>
       <button
         onClick={onClearFilters}
-        className="mt-3 inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-lg bg-zinc-100 text-zinc-700 hover:bg-zinc-200 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-400"
+        className="mt-3 inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-lg bg-white/[0.06] text-zinc-300 hover:bg-white/[0.08] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-400"
       >
         Show everything
       </button>

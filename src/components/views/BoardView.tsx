@@ -156,7 +156,7 @@ export function BoardView({ tasks, onViewTask, onEditTask, onDeleteTask, onStatu
           return (
             <div
               key={column.id}
-              className="w-full lg:flex-1 lg:min-w-[260px] flex flex-col bg-zinc-100/60 rounded-xl p-2 lg:p-3"
+              className="w-full lg:flex-1 lg:min-w-[260px] flex flex-col bg-white/[0.06] rounded-xl p-2 lg:p-3"
               onDragOver={(e) => handleColumnDragOver(e, column.id)}
               onDragLeave={handleDragLeave}
               onDrop={(e) => handleDrop(e, column.id)}
@@ -164,8 +164,8 @@ export function BoardView({ tasks, onViewTask, onEditTask, onDeleteTask, onStatu
               {/* Column header */}
               <div className="flex items-center gap-2 mb-2 lg:mb-3 px-1 flex-shrink-0">
                 <div className={`w-2.5 h-2.5 rounded-full ${column.color}`} />
-                <h3 className="font-semibold text-zinc-800 text-lg">{column.title}</h3>
-                <span className="text-xs text-zinc-500 bg-zinc-100 px-1.5 py-0.5 rounded">
+                <h3 className="font-semibold text-zinc-100 text-lg">{column.title}</h3>
+                <span className="text-xs text-zinc-400 bg-white/[0.06] px-1.5 py-0.5 rounded">
                   {columnTasks.length}
                 </span>
               </div>
@@ -173,7 +173,7 @@ export function BoardView({ tasks, onViewTask, onEditTask, onDeleteTask, onStatu
               {/* Scrollable card area */}
               <div className={`flex-1 overflow-y-auto max-h-[50vh] lg:max-h-none lg:min-h-0 pr-1.5 rounded-lg transition-colors duration-150 board-column-scroll ${
                 isOverDifferentColumn
-                  ? 'bg-brand-50 ring-2 ring-brand-300 ring-dashed'
+                  ? 'bg-brand-500/15 ring-2 ring-brand-300 ring-dashed'
                   : ''
               }`}>
                 {columnTasks.map((task, idx) => {
@@ -224,7 +224,7 @@ export function BoardView({ tasks, onViewTask, onEditTask, onDeleteTask, onStatu
 
                 {/* Drop indicator when column is empty and being dragged over */}
                 {isDragging && isOverDifferentColumn && columnTasks.length === 0 && (
-                  <div className="h-20 border-2 border-dashed border-brand-300 rounded-lg flex items-center justify-center">
+                  <div className="h-20 border-2 border-dashed border-brand-500/30 rounded-lg flex items-center justify-center">
                     <span className="text-sm text-brand-400">Drop here</span>
                   </div>
                 )}
@@ -232,7 +232,7 @@ export function BoardView({ tasks, onViewTask, onEditTask, onDeleteTask, onStatu
                 {/* Empty column state */}
                 {columnTasks.length === 0 && !isDragging && (
                   <div className="py-8 text-center">
-                    <p className="text-sm text-zinc-400">No tasks</p>
+                    <p className="text-sm text-zinc-500">No tasks</p>
                   </div>
                 )}
 

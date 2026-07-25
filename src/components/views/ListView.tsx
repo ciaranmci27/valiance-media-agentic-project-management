@@ -72,29 +72,29 @@ export function ListView({ tasks, onViewTask, onEditTask, onDeleteTask, selected
 
   if (tasks.length === 0) {
     return (
-      <div className="bg-white rounded-xl border border-zinc-200 flex flex-col items-center justify-center p-8 text-center">
-        <div className="w-10 h-10 rounded-full bg-zinc-100 flex items-center justify-center mb-3">
-          <LayoutGrid size={18} className="text-zinc-400" />
+      <div className="glass-card rounded-xl flex flex-col items-center justify-center p-8 text-center">
+        <div className="w-10 h-10 rounded-full bg-white/[0.06] flex items-center justify-center mb-3">
+          <LayoutGrid size={18} className="text-zinc-500" />
         </div>
-        <p className="text-sm font-medium text-zinc-500">No tasks found</p>
-        <p className="text-xs text-zinc-400 mt-1">Try adjusting your filters</p>
+        <p className="text-sm font-medium text-zinc-400">No tasks found</p>
+        <p className="text-xs text-zinc-500 mt-1">Try adjusting your filters</p>
       </div>
     );
   }
 
   const SortIcon = ({ field }: { field: SortField }) => {
-    if (sortField !== field) return <ArrowUpDown size={12} className="text-zinc-300" />;
+    if (sortField !== field) return <ArrowUpDown size={12} className="text-zinc-600" />;
     return sortDir === 'asc'
-      ? <ArrowUp size={12} className="text-brand-600" />
-      : <ArrowDown size={12} className="text-brand-600" />;
+      ? <ArrowUp size={12} className="text-brand-300" />
+      : <ArrowDown size={12} className="text-brand-300" />;
   };
 
-  const headerClass = "flex items-center gap-1 cursor-pointer hover:text-zinc-700 select-none transition-colors";
+  const headerClass = "flex items-center gap-1 cursor-pointer hover:text-zinc-300 select-none transition-colors";
 
   return (
-    <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
+    <div className="glass-card rounded-xl overflow-hidden">
       {/* Header - hidden on mobile */}
-      <div className="hidden lg:flex items-center gap-4 px-4 py-3 bg-zinc-50 border-b border-zinc-200 text-xs font-medium text-zinc-500 uppercase tracking-wider">
+      <div className="hidden lg:flex items-center gap-4 px-4 py-3 bg-white/[0.03] border-b border-white/[0.08] text-xs font-medium text-zinc-400 uppercase tracking-wider">
         {onToggleSelect && <div className="w-5" />}
         <div
           className={`w-3 ${headerClass}`}
@@ -125,7 +125,7 @@ export function ListView({ tasks, onViewTask, onEditTask, onDeleteTask, selected
       </div>
 
       {/* Rows */}
-      <div className="divide-y divide-zinc-100">
+      <div className="divide-y divide-white/[0.06]">
         {sortedTasks.map((task) => (
           <div key={task.id}>
             <TaskRow

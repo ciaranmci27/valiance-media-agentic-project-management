@@ -272,11 +272,11 @@ function fmtRangeDisplay(startKey: string, endKey: string): string {
 }
 
 const STATUS_COLORS: Record<string, string> = {
-  draft: 'bg-zinc-100 text-zinc-600',
-  sent: 'bg-blue-50 text-blue-700',
-  paid: 'bg-emerald-50 text-emerald-700',
-  overdue: 'bg-red-50 text-red-700',
-  cancelled: 'bg-zinc-100 text-zinc-400',
+  draft: 'bg-white/[0.06] text-zinc-300',
+  sent: 'bg-blue-500/15 text-blue-300',
+  paid: 'bg-emerald-500/15 text-emerald-300',
+  overdue: 'bg-red-500/15 text-red-300',
+  cancelled: 'bg-white/[0.06] text-zinc-500',
 };
 
 // ---------------------------------------------------------------------------
@@ -417,7 +417,7 @@ function LiveTickIndicator({
           <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75 motion-safe:animate-ping" />
           <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
         </span>
-        <span className="text-xs font-semibold uppercase tracking-wide text-emerald-600">Live</span>
+        <span className="text-xs font-semibold uppercase tracking-wide text-emerald-400">Live</span>
       </span>
     </Tooltip>
   );
@@ -1290,20 +1290,20 @@ export default function FinancesPage() {
   }), [chartBars]);
 
   if (!canReadCompanyFinance) {
-    return <div className="animate-fadeIn min-h-screen bg-zinc-50"><Header title="My earnings" /><div className="p-4 lg:p-6">{canReadOwnEarnings ? <EmployeeEarningsDashboard projects={projects} data={employeeEarnings ?? EMPTY_EMPLOYEE_EARNINGS} /> : <div className="rounded-xl border border-zinc-200 bg-white p-8 text-center text-sm text-zinc-500">You do not have access to financial information.</div>}</div></div>;
+    return <div className="animate-fadeIn min-h-screen"><Header title="My earnings" /><div className="p-4 lg:p-6">{canReadOwnEarnings ? <EmployeeEarningsDashboard projects={projects} data={employeeEarnings ?? EMPTY_EMPLOYEE_EARNINGS} /> : <div className="rounded-xl border border-white/[0.08] bg-surface-raised p-8 text-center text-sm text-zinc-400">You do not have access to financial information.</div>}</div></div>;
   }
 
   return (
-    <div className="animate-fadeIn min-h-screen bg-zinc-50">
+    <div className="animate-fadeIn min-h-screen">
       <Header title="Finances" />
 
       <div className="p-4 lg:p-6 space-y-4 lg:space-y-6">
         {/* ── Overview + Date Filter ──────────────────────── */}
-        <div className="bg-white rounded-xl border border-zinc-200">
-          <div className="px-5 py-4 flex items-center justify-between gap-3 border-b border-zinc-100">
+        <div className="glass-card rounded-xl">
+          <div className="px-5 py-4 flex items-center justify-between gap-3 border-b border-white/[0.06]">
             <div className="flex items-center gap-2">
-              <DollarSign size={18} className="text-zinc-500" />
-              <h2 className="font-semibold text-zinc-900">Overview</h2>
+              <DollarSign size={18} className="text-zinc-400" />
+              <h2 className="font-semibold text-white">Overview</h2>
               <LiveTickIndicator
                 timerCount={runningCount}
                 fixedIncomeLive={liveServiceRevenue.fixed}
@@ -1312,7 +1312,7 @@ export default function FinancesPage() {
             </div>
 
             <div className="flex items-center gap-2.5">
-            <span className="hidden sm:inline text-xs text-zinc-400 font-medium">
+            <span className="hidden sm:inline text-xs text-zinc-500 font-medium">
               {fmtRangeDisplay(range.startKey, range.endKey)}
             </span>
 
@@ -1323,19 +1323,19 @@ export default function FinancesPage() {
                 onClick={() => setRangeOpen(o => !o)}
                 aria-expanded={rangeOpen}
                 aria-haspopup="menu"
-                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-zinc-50 hover:bg-zinc-100 border border-zinc-200 transition-colors"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.08] transition-colors"
               >
-                <CalendarRange size={13} className="text-zinc-500" />
-                <span className="text-xs font-medium text-zinc-700">
+                <CalendarRange size={13} className="text-zinc-400" />
+                <span className="text-xs font-medium text-zinc-300">
                   {PRESET_OPTIONS.find(o => o.value === preset)?.label ?? 'Custom'}
                 </span>
-                <ChevronDown size={13} className={`text-zinc-400 transition-transform duration-150 ${rangeOpen ? 'rotate-180' : ''}`} />
+                <ChevronDown size={13} className={`text-zinc-500 transition-transform duration-150 ${rangeOpen ? 'rotate-180' : ''}`} />
               </button>
 
               {rangeOpen && (
                 <div
                   role="menu"
-                  className="absolute right-0 top-full mt-1.5 z-30 w-64 bg-white border border-zinc-200 rounded-lg shadow-lg overflow-hidden"
+                  className="absolute right-0 top-full mt-1.5 z-30 w-64 bg-surface-raised border border-white/[0.08] rounded-lg shadow-lg overflow-hidden"
                 >
                   <div className="p-1">
                     {PRESET_OPTIONS.map((opt) => {
@@ -1352,8 +1352,8 @@ export default function FinancesPage() {
                           }}
                           className={`w-full text-left text-sm px-2.5 py-1.5 rounded-md transition-colors ${
                             active
-                              ? 'bg-brand-50 text-brand-700 font-medium'
-                              : 'text-zinc-700 hover:bg-zinc-50'
+                              ? 'bg-brand-500/15 text-brand-300 font-medium'
+                              : 'text-zinc-300 hover:bg-white/[0.03]'
                           }`}
                         >
                           {opt.label}
@@ -1369,7 +1369,7 @@ export default function FinancesPage() {
                     const endMin = customStart || earliestDateKey || undefined;
                     const endMax = todayKeyStr;
                     return (
-                      <div className="border-t border-zinc-100 bg-zinc-50/50 p-3 space-y-2">
+                      <div className="border-t border-white/[0.06] bg-white/[0.03] p-3 space-y-2">
                         <DateInput
                           label="Start date"
                           value={customStart}
@@ -1421,39 +1421,39 @@ export default function FinancesPage() {
                     onClick={() => setProjectFilterOpen(o => !o)}
                     aria-expanded={projectFilterOpen}
                     aria-haspopup="menu"
-                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-zinc-50 hover:bg-zinc-100 border border-zinc-200 transition-colors"
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.08] transition-colors"
                   >
-                    <FolderKanban size={13} className="text-zinc-500" />
-                    <span className="text-xs font-medium text-zinc-700 truncate max-w-[140px]">{buttonLabel}</span>
+                    <FolderKanban size={13} className="text-zinc-400" />
+                    <span className="text-xs font-medium text-zinc-300 truncate max-w-[140px]">{buttonLabel}</span>
                     {!allSelectedOrNone && (
                       <span className="inline-flex items-center justify-center min-w-[16px] h-[16px] px-1 text-[9px] font-semibold text-white bg-brand-600 rounded-full">
                         {selectedCount}
                       </span>
                     )}
-                    <ChevronDown size={13} className={`text-zinc-400 transition-transform duration-150 ${projectFilterOpen ? 'rotate-180' : ''}`} />
+                    <ChevronDown size={13} className={`text-zinc-500 transition-transform duration-150 ${projectFilterOpen ? 'rotate-180' : ''}`} />
                   </button>
 
                   {projectFilterOpen && (
                     <div
                       role="menu"
-                      className="absolute right-0 top-full mt-1.5 z-30 w-64 bg-white border border-zinc-200 rounded-lg shadow-lg overflow-hidden"
+                      className="absolute right-0 top-full mt-1.5 z-30 w-64 bg-surface-raised border border-white/[0.08] rounded-lg shadow-lg overflow-hidden"
                     >
-                      <div className="px-2.5 py-2 border-b border-zinc-100 flex items-center justify-between">
-                        <span className="text-[10px] uppercase tracking-wider font-semibold text-zinc-500">
+                      <div className="px-2.5 py-2 border-b border-white/[0.06] flex items-center justify-between">
+                        <span className="text-[10px] uppercase tracking-wider font-semibold text-zinc-400">
                           Projects
                         </span>
                         <button
                           type="button"
                           onClick={() => setSelectedProjectIds(new Set())}
                           disabled={allSelectedOrNone}
-                          className="text-[11px] font-medium text-zinc-500 hover:text-brand-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                          className="text-[11px] font-medium text-zinc-400 hover:text-brand-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                         >
                           Clear
                         </button>
                       </div>
                       <div className="max-h-[320px] overflow-y-auto py-1">
                         {filterableProjects.length === 0 ? (
-                          <p className="px-2.5 py-2 text-xs text-zinc-400">No active projects</p>
+                          <p className="px-2.5 py-2 text-xs text-zinc-500">No active projects</p>
                         ) : (
                           filterableProjects.map((p) => {
                             const checked = selectedProjectIds.has(p.id);
@@ -1471,13 +1471,13 @@ export default function FinancesPage() {
                                     return next;
                                   });
                                 }}
-                                className="w-full text-left text-sm px-2.5 py-1.5 hover:bg-zinc-50 transition-colors flex items-center gap-2"
+                                className="w-full text-left text-sm px-2.5 py-1.5 hover:bg-white/[0.03] transition-colors flex items-center gap-2"
                               >
                                 <span
                                   className={`flex items-center justify-center w-4 h-4 rounded border transition-colors flex-shrink-0 ${
                                     checked
                                       ? 'bg-brand-600 border-brand-600 text-white'
-                                      : 'border-zinc-300 bg-white'
+                                      : 'border-white/[0.12] bg-surface-raised'
                                   }`}
                                 >
                                   {checked && <Check size={11} strokeWidth={3} />}
@@ -1488,7 +1488,7 @@ export default function FinancesPage() {
                                     style={{ backgroundColor: p.color }}
                                   />
                                 )}
-                                <span className="text-zinc-700 truncate flex-1 min-w-0">{p.name}</span>
+                                <span className="text-zinc-300 truncate flex-1 min-w-0">{p.name}</span>
                               </button>
                             );
                           })
@@ -1505,36 +1505,36 @@ export default function FinancesPage() {
           <div className="px-5 py-3 overflow-x-auto">
             <div className="flex gap-6 lg:gap-8 min-w-max">
               <div className="shrink-0 min-w-[5.5rem]">
-                <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-400 mb-0.5">Earned</p>
-                <p className={`text-sm font-semibold ${data.totalEarned >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{fmtCurrency(data.totalEarned)}</p>
+                <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">Earned</p>
+                <p className={`text-sm font-semibold ${data.totalEarned >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{fmtCurrency(data.totalEarned)}</p>
               </div>
               <div className="shrink-0 min-w-[5.5rem]">
-                <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-400 mb-0.5">Outstanding</p>
+                <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">Outstanding</p>
                 <div className="flex items-center gap-1.5">
-                  <p className={`text-sm font-semibold ${data.totalOutstanding > 0 ? 'text-amber-600' : 'text-zinc-400'}`}>
+                  <p className={`text-sm font-semibold ${data.totalOutstanding > 0 ? 'text-amber-400' : 'text-zinc-500'}`}>
                     ${fmt(data.totalOutstanding)}
                   </p>
                   {data.totalOverdue > 0 && (
-                    <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-red-50 text-red-600">
+                    <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-red-500/15 text-red-400">
                       ${fmt(data.totalOverdue)} overdue
                     </span>
                   )}
                 </div>
               </div>
               <div className="shrink-0 min-w-[5.5rem]">
-                <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-400 mb-0.5">Invoiced</p>
-                <p className="text-sm font-semibold text-zinc-900">${fmt(data.totalInvoiced)}</p>
+                <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">Invoiced</p>
+                <p className="text-sm font-semibold text-white">${fmt(data.totalInvoiced)}</p>
               </div>
               <div className="shrink-0 min-w-[5.5rem]">
-                <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-400 mb-0.5">Received</p>
-                <p className="text-sm font-semibold text-emerald-600">${fmt(data.totalPaymentsReceived)}</p>
+                <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">Received</p>
+                <p className="text-sm font-semibold text-emerald-400">${fmt(data.totalPaymentsReceived)}</p>
               </div>
               <div className="shrink-0 min-w-[5.5rem]">
-                <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-400 mb-0.5">Collected</p>
+                <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">Collected</p>
                 <div className="flex items-center gap-1.5">
-                  <p className="text-sm font-semibold text-zinc-900">{data.collectionRate}%</p>
+                  <p className="text-sm font-semibold text-white">{data.collectionRate}%</p>
                   {data.collectionRate > 0 && (
-                    <div className="w-16 h-1.5 bg-zinc-100 rounded-full overflow-hidden">
+                    <div className="w-16 h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
                       <div
                         className="h-full rounded-full bg-emerald-400"
                         style={{ width: `${data.collectionRate}%` }}
@@ -1544,12 +1544,12 @@ export default function FinancesPage() {
                 </div>
               </div>
               <div className="shrink-0 min-w-[5.5rem]">
-                <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-400 mb-0.5">Total Hours</p>
-                <p className="text-sm font-semibold text-zinc-900">{data.totalHours.toFixed(1)}</p>
+                <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">Total Hours</p>
+                <p className="text-sm font-semibold text-white">{data.totalHours.toFixed(1)}</p>
               </div>
               <div className="shrink-0 min-w-[5.5rem]">
-                <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-400 mb-0.5">Invoices</p>
-                <p className="text-sm font-semibold text-zinc-900">{data.activeInvoicesCount}</p>
+                <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">Invoices</p>
+                <p className="text-sm font-semibold text-white">{data.activeInvoicesCount}</p>
               </div>
             </div>
           </div>
@@ -1559,11 +1559,11 @@ export default function FinancesPage() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6 items-stretch">
 
           {/* ── Daily Earnings Chart (2/3) ──────────────────── */}
-          <div className="lg:col-span-2 bg-white rounded-xl border border-zinc-200 overflow-hidden flex flex-col min-h-[500px]">
-            <div className="px-5 py-4 flex items-center justify-between border-b border-zinc-100 flex-shrink-0">
+          <div className="lg:col-span-2 glass-card rounded-xl overflow-hidden flex flex-col min-h-[500px]">
+            <div className="px-5 py-4 flex items-center justify-between border-b border-white/[0.06] flex-shrink-0">
               <div className="flex items-center gap-2 min-w-0">
-                <TrendingUp size={18} className="text-zinc-500 flex-shrink-0" />
-                <h2 className="font-semibold text-zinc-900 truncate">
+                <TrendingUp size={18} className="text-zinc-400 flex-shrink-0" />
+                <h2 className="font-semibold text-white truncate">
                   {isHourView
                     ? `Hourly Earnings · ${fmtDate(drilldownDay!, true)}`
                     : isBucketView
@@ -1583,7 +1583,7 @@ export default function FinancesPage() {
                       if (isHourView) setDrilldownDay(null);
                       else setDrilldownBucket(null);
                     }}
-                    className="inline-flex items-center gap-1 text-xs font-medium text-zinc-500 hover:text-zinc-700 transition-colors px-1.5 py-0.5 rounded hover:bg-zinc-50 flex-shrink-0"
+                    className="inline-flex items-center gap-1 text-xs font-medium text-zinc-400 hover:text-zinc-300 transition-colors px-1.5 py-0.5 rounded hover:bg-white/[0.03] flex-shrink-0"
                     aria-label="Back one level"
                   >
                     <ChevronDown size={14} className="rotate-90" />
@@ -1591,7 +1591,7 @@ export default function FinancesPage() {
                   </button>
                 )}
               </div>
-              <span className="text-xs text-zinc-400 font-medium hidden sm:inline">
+              <span className="text-xs text-zinc-500 font-medium hidden sm:inline">
                 {isHourView
                   ? 'Click bar to pin hour'
                   : isBucketView
@@ -1600,24 +1600,24 @@ export default function FinancesPage() {
               </span>
             </div>
 
-            <div className="px-5 pt-5 pb-4 flex-1 flex flex-col">
+            <div className="chart-vivid px-5 pt-5 pb-4 flex-1 flex flex-col">
               {(!showHourly && !showRecurring && !showFixed && !showTeam && !showPayments) ? (
                 /* Empty state when both series are toggled off */
                 <div className="flex-1 flex flex-col items-center justify-center text-center px-6">
-                  <div className="w-10 h-10 rounded-full bg-zinc-100 flex items-center justify-center mb-3">
-                    <TrendingUp size={18} className="text-zinc-400" />
+                  <div className="w-10 h-10 rounded-full bg-white/[0.06] flex items-center justify-center mb-3">
+                    <TrendingUp size={18} className="text-zinc-500" />
                   </div>
-                  <p className="text-sm font-medium text-zinc-500">No data series selected</p>
-                  <p className="text-xs text-zinc-400 mt-1">Toggle a legend below to view earnings data</p>
+                  <p className="text-sm font-medium text-zinc-400">No data series selected</p>
+                  <p className="text-xs text-zinc-500 mt-1">Toggle a legend below to view earnings data</p>
                 </div>
               ) : !hasAnyChartData ? (
                 /* Empty state when there's no data in the selected range */
                 <div className="flex-1 flex flex-col items-center justify-center text-center px-6">
-                  <div className="w-10 h-10 rounded-full bg-zinc-100 flex items-center justify-center mb-3">
-                    <TrendingUp size={18} className="text-zinc-400" />
+                  <div className="w-10 h-10 rounded-full bg-white/[0.06] flex items-center justify-center mb-3">
+                    <TrendingUp size={18} className="text-zinc-500" />
                   </div>
-                  <p className="text-sm font-medium text-zinc-500">No earnings in this range</p>
-                  <p className="text-xs text-zinc-400 mt-1">Try a different date range or log some billable time</p>
+                  <p className="text-sm font-medium text-zinc-400">No earnings in this range</p>
+                  <p className="text-xs text-zinc-500 mt-1">Try a different date range or log some billable time</p>
                 </div>
               ) : (
                 <>
@@ -1628,7 +1628,7 @@ export default function FinancesPage() {
                       {[...axisTicks].reverse().map((tick) => (
                         <span
                           key={tick}
-                          className="text-[10px] text-zinc-400 font-medium leading-none text-right"
+                          className="text-[10px] text-zinc-500 font-medium leading-none text-right"
                           style={{ minWidth: 36 }}
                         >
                           {fmtAxis(tick)}
@@ -1644,7 +1644,7 @@ export default function FinancesPage() {
                         return (
                           <div
                             key={`grid-${tick}`}
-                            className={`absolute left-0 right-0 border-t ${tick === 0 && axisMin < 0 ? 'border-zinc-300' : 'border-zinc-100'}`}
+                            className={`absolute left-0 right-0 border-t ${tick === 0 && axisMin < 0 ? 'border-white/[0.12]' : 'border-white/[0.06]'}`}
                             style={{ top: `${pct}%` }}
                           />
                         );
@@ -1726,7 +1726,7 @@ export default function FinancesPage() {
                                   )}
                                 </>
                               ) : (
-                                <div className="absolute inset-x-0 bg-zinc-100" style={{ bottom: `${zeroBottomPct}%`, height: 2 }} />
+                                <div className="absolute inset-x-0 bg-white/[0.06]" style={{ bottom: `${zeroBottomPct}%`, height: 2 }} />
                               )}
 
                               {/* Tooltip - anchored just above the bar, edge-aware */}
@@ -1849,9 +1849,9 @@ export default function FinancesPage() {
                                               ellipsize inside the tooltip's max-width. The hours
                                               and amount stay flex-shrink-0 so they're never the
                                               ones to lose width. */}
-                                          <span className="text-zinc-400 flex-1 min-w-0 truncate" title={row.projectName}>{row.projectName}</span>
+                                          <span className="text-zinc-500 flex-1 min-w-0 truncate" title={row.projectName}>{row.projectName}</span>
                                           {row.hours !== undefined && row.hours > 0 && (
-                                            <span className="text-zinc-200 flex-shrink-0">{row.hours.toFixed(1)}h</span>
+                                            <span className="text-zinc-300 flex-shrink-0">{row.hours.toFixed(1)}h</span>
                                           )}
                                           <span className={`font-semibold flex-shrink-0 ${row.amount < 0 ? 'text-rose-300' : ''}`}>{fmtCurrency(row.amount)}</span>
                                         </div>
@@ -1866,9 +1866,9 @@ export default function FinancesPage() {
                                               <div key={section.key} className={idx > 0 ? 'mt-1.5' : ''}>
                                                 {isMultiCategory && (
                                                   <div className="flex items-baseline gap-1">
-                                                    <span className="uppercase tracking-wider text-[9px] text-zinc-400 font-semibold">{section.label}</span>
+                                                    <span className="uppercase tracking-wider text-[9px] text-zinc-500 font-semibold">{section.label}</span>
                                                     {section.rows.length > 1 && (
-                                                      <span className="text-[9px] text-zinc-300">({fmtCurrency(section.totalAmount)})</span>
+                                                      <span className="text-[9px] text-zinc-600">({fmtCurrency(section.totalAmount)})</span>
                                                     )}
                                                   </div>
                                                 )}
@@ -1883,7 +1883,7 @@ export default function FinancesPage() {
                                               even when the body above is scrolling. */}
                                           {showGrandTotal && (
                                             <div className="mt-1.5 pt-1.5 border-t border-white/10 flex items-center justify-between gap-3 text-zinc-100 flex-shrink-0">
-                                              <span className="uppercase tracking-wider text-[9px] text-zinc-400">Total earned</span>
+                                              <span className="uppercase tracking-wider text-[9px] text-zinc-500">Total earned</span>
                                               <span className="font-semibold">{fmtCurrency(totalEarnedDay)}</span>
                                             </div>
                                           )}
@@ -1917,7 +1917,7 @@ export default function FinancesPage() {
                         : i === 0 || i === total - 1 || i % labelStep === 0;
                       return (
                         <div key={`lbl-${day.dateKey}`} className="flex-1 text-center">
-                          <span className="text-[9px] lg:text-[10px] text-zinc-400 font-medium truncate block">
+                          <span className="text-[9px] lg:text-[10px] text-zinc-500 font-medium truncate block">
                             {showLabel ? day.label : ''}
                           </span>
                         </div>
@@ -1929,57 +1929,57 @@ export default function FinancesPage() {
 
               {/* Legend (toggleable) - only show categories that have data */}
               {(categoryHasData.hourly || categoryHasData.recurring || categoryHasData.fixed || categoryHasData.team || categoryHasData.payments) && (
-                <div className="flex items-center gap-3 mt-3 pt-3 border-t border-zinc-100 flex-wrap">
+                <div className="flex items-center gap-3 mt-3 pt-3 border-t border-white/[0.06] flex-wrap">
                   {categoryHasData.hourly && (
                     <button
                       type="button"
                       onClick={() => setShowHourly(prev => !prev)}
-                      className={`flex items-center gap-1.5 px-2 py-1 rounded-md transition-colors ${showHourly ? 'bg-sky-50' : 'opacity-40 hover:opacity-70'}`}
+                      className={`flex items-center gap-1.5 px-2 py-1 rounded-md transition-colors ${showHourly ? 'bg-sky-500/15' : 'opacity-40 hover:opacity-70'}`}
                     >
                       <div className={`w-2.5 h-2.5 rounded-sm ${showHourly ? 'bg-sky-400' : 'bg-zinc-300'}`} />
-                      <span className="text-[11px] text-zinc-600 font-medium">Hourly</span>
+                      <span className="text-[11px] text-zinc-300 font-medium">Hourly</span>
                     </button>
                   )}
                   {categoryHasData.recurring && (
                     <button
                       type="button"
                       onClick={() => setShowRecurring(prev => !prev)}
-                      className={`flex items-center gap-1.5 px-2 py-1 rounded-md transition-colors ${showRecurring ? 'bg-amber-50' : 'opacity-40 hover:opacity-70'}`}
+                      className={`flex items-center gap-1.5 px-2 py-1 rounded-md transition-colors ${showRecurring ? 'bg-amber-500/15' : 'opacity-40 hover:opacity-70'}`}
                     >
                       <div className={`w-2.5 h-2.5 rounded-sm ${showRecurring ? 'bg-amber-400' : 'bg-zinc-300'}`} />
-                      <span className="text-[11px] text-zinc-600 font-medium">Recurring</span>
+                      <span className="text-[11px] text-zinc-300 font-medium">Recurring</span>
                     </button>
                   )}
                   {categoryHasData.fixed && (
                     <button
                       type="button"
                       onClick={() => setShowFixed(prev => !prev)}
-                      className={`flex items-center gap-1.5 px-2 py-1 rounded-md transition-colors ${showFixed ? 'bg-violet-50' : 'opacity-40 hover:opacity-70'}`}
+                      className={`flex items-center gap-1.5 px-2 py-1 rounded-md transition-colors ${showFixed ? 'bg-violet-500/15' : 'opacity-40 hover:opacity-70'}`}
                     >
                       <div className={`w-2.5 h-2.5 rounded-sm ${showFixed ? 'bg-violet-500' : 'bg-zinc-300'}`} />
-                      <span className="text-[11px] text-zinc-600 font-medium">Fixed</span>
+                      <span className="text-[11px] text-zinc-300 font-medium">Fixed</span>
                     </button>
                   )}
                   {categoryHasData.team && (
                     <button
                       type="button"
                       onClick={() => setShowTeam(prev => !prev)}
-                      className={`flex items-center gap-1.5 px-2 py-1 rounded-md transition-colors ${showTeam ? 'bg-teal-50' : 'opacity-40 hover:opacity-70'}`}
+                      className={`flex items-center gap-1.5 px-2 py-1 rounded-md transition-colors ${showTeam ? 'bg-teal-500/15' : 'opacity-40 hover:opacity-70'}`}
                     >
                       <div className={`flex w-2.5 h-2.5 overflow-hidden rounded-sm ${showTeam ? '' : 'bg-zinc-300'}`}>
                         {showTeam && <><span className="w-1/2 bg-teal-500" /><span className="w-1/2 bg-rose-400" /></>}
                       </div>
-                      <span className="text-[11px] text-zinc-600 font-medium">Team contribution</span>
+                      <span className="text-[11px] text-zinc-300 font-medium">Team contribution</span>
                     </button>
                   )}
                   {categoryHasData.payments && (
                     <button
                       type="button"
                       onClick={() => setShowPayments(prev => !prev)}
-                      className={`flex items-center gap-1.5 px-2 py-1 rounded-md transition-colors ${showPayments ? 'bg-emerald-50' : 'opacity-40 hover:opacity-70'}`}
+                      className={`flex items-center gap-1.5 px-2 py-1 rounded-md transition-colors ${showPayments ? 'bg-emerald-500/15' : 'opacity-40 hover:opacity-70'}`}
                     >
                       <div className={`w-2.5 h-2.5 rounded-sm ${showPayments ? 'bg-emerald-500' : 'bg-zinc-300'}`} />
-                      <span className="text-[11px] text-zinc-600 font-medium">Payments</span>
+                      <span className="text-[11px] text-zinc-300 font-medium">Payments</span>
                     </button>
                   )}
                 </div>
@@ -1988,22 +1988,22 @@ export default function FinancesPage() {
           </div>
 
           {/* ── Invoices (1/3) ──────────────────────── */}
-          <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden flex flex-col max-h-[500px]">
-            <div className="px-5 py-4 flex items-center justify-between border-b border-zinc-100 flex-shrink-0">
+          <div className="glass-card rounded-xl overflow-hidden flex flex-col max-h-[500px]">
+            <div className="px-5 py-4 flex items-center justify-between border-b border-white/[0.06] flex-shrink-0">
               <div className="flex items-center gap-2">
-                <Receipt size={18} className="text-zinc-500" />
-                <h2 className="font-semibold text-zinc-900">
+                <Receipt size={18} className="text-zinc-400" />
+                <h2 className="font-semibold text-white">
                   Invoices
                   {data.allInvoices.length > 0 && (
-                    <span className="ml-1.5 text-xs font-medium text-zinc-400">({data.allInvoices.length})</span>
+                    <span className="ml-1.5 text-xs font-medium text-zinc-500">({data.allInvoices.length})</span>
                   )}
                 </h2>
               </div>
-              <span className="text-xs text-zinc-400 font-medium">{PRESET_OPTIONS.find(o => o.value === preset)?.label ?? 'Custom range'}</span>
+              <span className="text-xs text-zinc-500 font-medium">{PRESET_OPTIONS.find(o => o.value === preset)?.label ?? 'Custom range'}</span>
             </div>
 
             {data.allInvoices.length > 0 ? (
-              <div className="divide-y divide-zinc-100 flex-1 overflow-y-auto">
+              <div className="divide-y divide-white/[0.06] flex-1 overflow-y-auto">
                 {data.allInvoices.map((inv) => {
                   const project = projects.find(p => p.id === inv.project_id);
                   const items = ensureLineItems(inv);
@@ -2013,23 +2013,23 @@ export default function FinancesPage() {
                     <Link
                       key={inv.id}
                       href={`/projects/${inv.project_id}`}
-                      className="flex items-center gap-3 px-4 py-3 hover:bg-zinc-50 transition-colors"
+                      className="flex items-center gap-3 px-4 py-3 hover:bg-white/[0.03] transition-colors"
                     >
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          <span className="text-sm font-medium text-zinc-900">{inv.invoice_number}</span>
+                          <span className="text-sm font-medium text-white">{inv.invoice_number}</span>
                           <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full capitalize ${STATUS_COLORS[inv.status] || ''}`}>
                             {inv.status}
                           </span>
-                          <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-zinc-100 text-zinc-600 capitalize">
+                          <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-white/[0.06] text-zinc-300 capitalize">
                             {isMulti ? `${items.length} items` : (singleItemType ?? inv.invoice_type)}
                           </span>
                         </div>
-                        <p className="text-xs text-zinc-500 mt-0.5 truncate">{project?.name || 'Unknown project'}</p>
+                        <p className="text-xs text-zinc-400 mt-0.5 truncate">{project?.name || 'Unknown project'}</p>
                       </div>
                       <div className="text-right flex-shrink-0">
-                        <p className="text-sm font-semibold text-zinc-900">${fmt(inv.amount)}</p>
-                        <p className="text-[11px] text-zinc-400">{fmtDate(inv.date)}</p>
+                        <p className="text-sm font-semibold text-white">${fmt(inv.amount)}</p>
+                        <p className="text-[11px] text-zinc-500">{fmtDate(inv.date)}</p>
                       </div>
                     </Link>
                   );
@@ -2037,36 +2037,36 @@ export default function FinancesPage() {
               </div>
             ) : (
               <div className="flex-1 flex flex-col items-center justify-center text-center px-6">
-                <div className="w-10 h-10 rounded-full bg-zinc-100 flex items-center justify-center mb-3">
-                  <Receipt size={18} className="text-zinc-400" />
+                <div className="w-10 h-10 rounded-full bg-white/[0.06] flex items-center justify-center mb-3">
+                  <Receipt size={18} className="text-zinc-500" />
                 </div>
-                <p className="text-sm font-medium text-zinc-500">No invoices in this range</p>
-                <p className="text-xs text-zinc-400 mt-1">Try a different date range or create an invoice</p>
+                <p className="text-sm font-medium text-zinc-400">No invoices in this range</p>
+                <p className="text-xs text-zinc-500 mt-1">Try a different date range or create an invoice</p>
               </div>
             )}
           </div>
         </div>
 
         {/* ── Project Breakdown ────────────────────────────── */}
-        <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden flex flex-col min-h-[260px]">
-            <div className="px-5 py-4 flex items-center justify-between border-b border-zinc-100 flex-shrink-0">
+        <div className="glass-card rounded-xl overflow-hidden flex flex-col min-h-[260px]">
+            <div className="px-5 py-4 flex items-center justify-between border-b border-white/[0.06] flex-shrink-0">
               <div className="flex items-center gap-2">
-                <FolderKanban size={18} className="text-zinc-500" />
-                <h2 className="font-semibold text-zinc-900">By Project</h2>
+                <FolderKanban size={18} className="text-zinc-400" />
+                <h2 className="font-semibold text-white">By Project</h2>
                 <LiveTickIndicator
                   timerCount={runningCount}
                   fixedIncomeLive={liveServiceRevenue.fixed}
                   recurringIncomeLive={liveServiceRevenue.recurring}
                 />
               </div>
-              <span className="text-xs text-zinc-400 font-medium">{PRESET_OPTIONS.find(o => o.value === preset)?.label ?? 'Custom range'}</span>
+              <span className="text-xs text-zinc-500 font-medium">{PRESET_OPTIONS.find(o => o.value === preset)?.label ?? 'Custom range'}</span>
             </div>
 
             {data.projectBreakdown.length > 0 ? (
               <>
             {/* Desktop table */}
             <div className="hidden md:block">
-              <div className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] gap-x-6 px-5 py-2.5 text-[10px] uppercase tracking-wider font-medium text-zinc-400 border-b border-zinc-100">
+              <div className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] gap-x-6 px-5 py-2.5 text-[10px] uppercase tracking-wider font-medium text-zinc-500 border-b border-white/[0.06]">
                 <span>Project</span>
                 <span className="text-right w-24">Earned</span>
                 <span className="text-right w-24">Received</span>
@@ -2075,41 +2075,41 @@ export default function FinancesPage() {
                 <span className="text-right w-20">Hours</span>
               </div>
 
-              <div className="divide-y divide-zinc-50">
+              <div className="divide-y divide-white/[0.06]">
                 {data.projectBreakdown.map((p) => {
                   const receivedPct = p.earned > 0 ? (p.received / p.earned) * 100 : 0;
                   return (
                     <Link
                       key={p.id}
                       href={`/projects/${p.id}`}
-                      className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] gap-x-6 px-5 py-3.5 items-center hover:bg-zinc-50 transition-colors"
+                      className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] gap-x-6 px-5 py-3.5 items-center hover:bg-white/[0.03] transition-colors"
                     >
                       <div className="flex items-center gap-2.5 min-w-0">
                         {p.color && (
                           <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: p.color }} />
                         )}
                         <div className="min-w-0">
-                          <span className="text-sm font-medium text-zinc-900 truncate block">{p.name}</span>
+                          <span className="text-sm font-medium text-white truncate block">{p.name}</span>
                           <div className="flex items-center gap-2 mt-0.5">
-                            <div className="w-16 h-1 bg-zinc-100 rounded-full overflow-hidden">
+                            <div className="w-16 h-1 bg-white/[0.06] rounded-full overflow-hidden">
                               <div
                                 className="h-full rounded-full bg-emerald-400"
                                 style={{ width: `${Math.min(receivedPct, 100)}%` }}
                               />
                             </div>
                             {p.isHourly && p.hourlyRate && (
-                              <span className="text-[11px] text-zinc-400">${p.hourlyRate}/hr</span>
+                              <span className="text-[11px] text-zinc-500">${p.hourlyRate}/hr</span>
                             )}
                           </div>
                         </div>
                       </div>
-                      <span className={`text-sm font-semibold text-right w-24 ${p.earned >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{fmtCurrency(p.earned)}</span>
-                      <span className="text-sm text-emerald-700 font-semibold text-right w-24">${fmt(p.received)}</span>
-                      <span className="text-sm text-zinc-700 font-medium text-right w-24">${fmt(p.invoiced)}</span>
-                      <span className={`text-sm font-medium text-right w-24 ${p.outstanding > 0 ? 'text-amber-600' : 'text-zinc-300'}`}>
+                      <span className={`text-sm font-semibold text-right w-24 ${p.earned >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{fmtCurrency(p.earned)}</span>
+                      <span className="text-sm text-emerald-300 font-semibold text-right w-24">${fmt(p.received)}</span>
+                      <span className="text-sm text-zinc-300 font-medium text-right w-24">${fmt(p.invoiced)}</span>
+                      <span className={`text-sm font-medium text-right w-24 ${p.outstanding > 0 ? 'text-amber-400' : 'text-zinc-600'}`}>
                         {p.outstanding > 0 ? `$${fmt(p.outstanding)}` : '-'}
                       </span>
-                      <span className={`text-sm text-right w-20 ${p.hours > 0 ? 'text-violet-600 font-medium' : 'text-zinc-300'}`}>
+                      <span className={`text-sm text-right w-20 ${p.hours > 0 ? 'text-violet-400 font-medium' : 'text-zinc-600'}`}>
                         {p.hours > 0 ? `${p.hours.toFixed(1)}h` : '-'}
                       </span>
                     </Link>
@@ -2118,48 +2118,48 @@ export default function FinancesPage() {
               </div>
 
               {/* Totals */}
-              <div className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] gap-x-6 px-5 py-3.5 border-t border-zinc-200 bg-zinc-50/50">
-                <span className="text-sm font-semibold text-zinc-700">Total</span>
-                <span className={`text-sm font-bold text-right w-24 ${data.totalEarned >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{fmtCurrency(data.totalEarned)}</span>
-                <span className="text-sm font-bold text-emerald-700 text-right w-24">${fmt(data.totalPaymentsReceived)}</span>
-                <span className="text-sm font-bold text-zinc-900 text-right w-24">${fmt(data.totalInvoiced)}</span>
-                <span className={`text-sm font-bold text-right w-24 ${data.totalOutstanding > 0 ? 'text-amber-600' : 'text-zinc-300'}`}>
+              <div className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] gap-x-6 px-5 py-3.5 border-t border-white/[0.08] bg-white/[0.03]">
+                <span className="text-sm font-semibold text-zinc-300">Total</span>
+                <span className={`text-sm font-bold text-right w-24 ${data.totalEarned >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{fmtCurrency(data.totalEarned)}</span>
+                <span className="text-sm font-bold text-emerald-300 text-right w-24">${fmt(data.totalPaymentsReceived)}</span>
+                <span className="text-sm font-bold text-white text-right w-24">${fmt(data.totalInvoiced)}</span>
+                <span className={`text-sm font-bold text-right w-24 ${data.totalOutstanding > 0 ? 'text-amber-400' : 'text-zinc-600'}`}>
                   {data.totalOutstanding > 0 ? `$${fmt(data.totalOutstanding)}` : '-'}
                 </span>
-                <span className="text-sm font-bold text-violet-600 text-right w-20">{data.totalHours.toFixed(1)}h</span>
+                <span className="text-sm font-bold text-violet-400 text-right w-20">{data.totalHours.toFixed(1)}h</span>
               </div>
             </div>
 
             {/* Mobile cards */}
-            <div className="md:hidden divide-y divide-zinc-100">
+            <div className="md:hidden divide-y divide-white/[0.06]">
               {data.projectBreakdown.map((p) => (
                 <Link
                   key={p.id}
                   href={`/projects/${p.id}`}
-                  className="block p-4 hover:bg-zinc-50 transition-colors"
+                  className="block p-4 hover:bg-white/[0.03] transition-colors"
                 >
                   <div className="flex items-center gap-2 mb-2">
                     {p.color && <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: p.color }} />}
-                    <span className="text-sm font-medium text-zinc-900 truncate">{p.name}</span>
+                    <span className="text-sm font-medium text-white truncate">{p.name}</span>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <p className="text-[10px] uppercase tracking-wider text-zinc-400 font-medium">Earned</p>
-                      <p className={`text-sm font-semibold ${p.earned >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{fmtCurrency(p.earned)}</p>
+                      <p className="text-[10px] uppercase tracking-wider text-zinc-500 font-medium">Earned</p>
+                      <p className={`text-sm font-semibold ${p.earned >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{fmtCurrency(p.earned)}</p>
                     </div>
                     <div>
-                      <p className="text-[10px] uppercase tracking-wider text-zinc-400 font-medium">Received</p>
-                      <p className="text-sm font-semibold text-emerald-700">${fmt(p.received)}</p>
+                      <p className="text-[10px] uppercase tracking-wider text-zinc-500 font-medium">Received</p>
+                      <p className="text-sm font-semibold text-emerald-300">${fmt(p.received)}</p>
                     </div>
                     <div>
-                      <p className="text-[10px] uppercase tracking-wider text-zinc-400 font-medium">Outstanding</p>
-                      <p className={`text-sm font-semibold ${p.outstanding > 0 ? 'text-amber-600' : 'text-zinc-300'}`}>
+                      <p className="text-[10px] uppercase tracking-wider text-zinc-500 font-medium">Outstanding</p>
+                      <p className={`text-sm font-semibold ${p.outstanding > 0 ? 'text-amber-400' : 'text-zinc-600'}`}>
                         {p.outstanding > 0 ? `$${fmt(p.outstanding)}` : '-'}
                       </p>
                     </div>
                     <div>
-                      <p className="text-[10px] uppercase tracking-wider text-zinc-400 font-medium">Hours</p>
-                      <p className={`text-sm font-semibold ${p.hours > 0 ? 'text-violet-600' : 'text-zinc-300'}`}>
+                      <p className="text-[10px] uppercase tracking-wider text-zinc-500 font-medium">Hours</p>
+                      <p className={`text-sm font-semibold ${p.hours > 0 ? 'text-violet-400' : 'text-zinc-600'}`}>
                         {p.hours > 0 ? `${p.hours.toFixed(1)}h` : '-'}
                       </p>
                     </div>
@@ -2170,11 +2170,11 @@ export default function FinancesPage() {
               </>
             ) : (
               <div className="flex-1 flex flex-col items-center justify-center text-center px-6 py-8">
-                <div className="w-10 h-10 rounded-full bg-zinc-100 flex items-center justify-center mb-3">
-                  <FolderKanban size={18} className="text-zinc-400" />
+                <div className="w-10 h-10 rounded-full bg-white/[0.06] flex items-center justify-center mb-3">
+                  <FolderKanban size={18} className="text-zinc-500" />
                 </div>
-                <p className="text-sm font-medium text-zinc-500">No project activity in this range</p>
-                <p className="text-xs text-zinc-400 mt-1">Projects with invoices or logged hours will appear here</p>
+                <p className="text-sm font-medium text-zinc-400">No project activity in this range</p>
+                <p className="text-xs text-zinc-500 mt-1">Projects with invoices or logged hours will appear here</p>
               </div>
             )}
           </div>

@@ -126,31 +126,31 @@ export function AnalyticsExclusionsSection() {
   };
 
   return (
-    <section className="bg-white rounded-xl border border-zinc-200 p-4 lg:p-6">
+    <section className="glass-card rounded-xl p-4 lg:p-6">
       <div className="flex items-center gap-3 mb-6">
-        <div className="p-2 bg-zinc-100 rounded-lg">
-          <ShieldOff className="text-zinc-600" size={20} />
+        <div className="p-2 bg-white/[0.06] rounded-lg">
+          <ShieldOff className="text-zinc-300" size={20} />
         </div>
         <div>
-          <h2 className="font-semibold text-zinc-900">Analytics Exclusions</h2>
-          <p className="text-sm text-zinc-500">
+          <h2 className="font-semibold text-white">Analytics Exclusions</h2>
+          <p className="text-sm text-zinc-400">
             Hide traffic from these IPs in portal analytics
           </p>
         </div>
       </div>
 
       {excludedIps.length > 0 && (
-        <div className="rounded-lg border border-zinc-200 divide-y divide-zinc-100 mb-4 overflow-hidden">
+        <div className="rounded-lg border border-white/[0.08] divide-y divide-white/[0.06] mb-4 overflow-hidden">
           {excludedIps.map((entry) => (
-            <div key={entry.ip} className="flex items-center justify-between gap-3 px-3 py-2 bg-white">
+            <div key={entry.ip} className="flex items-center justify-between gap-3 px-3 py-2 bg-surface-raised">
               <div className="min-w-0 flex-1">
-                <div className="text-sm font-mono text-zinc-800 truncate">{entry.ip}</div>
-                <div className="text-xs text-zinc-500 truncate">{entry.label}</div>
+                <div className="text-sm font-mono text-zinc-100 truncate">{entry.ip}</div>
+                <div className="text-xs text-zinc-400 truncate">{entry.label}</div>
               </div>
               <button
                 onClick={() => handleRemoveIp(entry.ip)}
                 disabled={isDemoMode}
-                className="p-1.5 rounded-md text-zinc-400 hover:text-rose-600 hover:bg-rose-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-500"
+                className="p-1.5 rounded-md text-zinc-500 hover:text-rose-400 hover:bg-rose-500/15 transition-colors disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-500"
                 aria-label={`Remove ${entry.ip}`}
               >
                 <Trash2 size={14} />

@@ -15,6 +15,7 @@ create table public.team_members (
   notification_prefs jsonb not null default '{}',
   email_notifications_enabled boolean not null default false,
   email_notification_prefs jsonb not null default '{}',
+  theme_preference text check (theme_preference in ('light', 'dark')),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -197,8 +198,6 @@ create table public.leads (
   company text not null default '',
   source text not null default 'other' check (source in ('referral', 'website', 'social', 'cold_outreach', 'event', 'network', 'other')),
   status text not null default 'new' check (status in ('new', 'contacted', 'qualified', 'proposal', 'won', 'lost')),
-  value numeric(12,2),
-  equity numeric(5,2),
   notes text not null default '',
   assigned_to uuid references public.team_members(id) on delete set null,
   contact_id uuid references public.contacts(id) on delete set null,

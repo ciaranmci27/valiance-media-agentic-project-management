@@ -25,31 +25,31 @@ const CATEGORY_CONFIG: Record<LeadFieldCategory, {
 }> = {
   'Business Identity': {
     icon: <Globe size={13} />,
-    iconBg: 'bg-zinc-100',
-    iconText: 'text-zinc-500',
+    iconBg: 'bg-white/[0.06]',
+    iconText: 'text-zinc-400',
     border: 'border-l-zinc-300',
-    tagBg: 'bg-zinc-100 text-zinc-700 border-zinc-200',
+    tagBg: 'bg-white/[0.06] text-zinc-300 border-white/[0.08]',
   },
   'Opportunity': {
     icon: <Briefcase size={13} />,
-    iconBg: 'bg-zinc-100',
-    iconText: 'text-zinc-500',
+    iconBg: 'bg-white/[0.06]',
+    iconText: 'text-zinc-400',
     border: 'border-l-zinc-300',
-    tagBg: 'bg-zinc-100 text-zinc-700 border-zinc-200',
+    tagBg: 'bg-white/[0.06] text-zinc-300 border-white/[0.08]',
   },
   'Assessment': {
     icon: <BarChart3 size={13} />,
-    iconBg: 'bg-zinc-100',
-    iconText: 'text-zinc-500',
+    iconBg: 'bg-white/[0.06]',
+    iconText: 'text-zinc-400',
     border: 'border-l-zinc-300',
-    tagBg: 'bg-zinc-100 text-zinc-700 border-zinc-200',
+    tagBg: 'bg-white/[0.06] text-zinc-300 border-white/[0.08]',
   },
   'Strategy': {
     icon: <Lightbulb size={13} />,
-    iconBg: 'bg-zinc-100',
-    iconText: 'text-zinc-500',
+    iconBg: 'bg-white/[0.06]',
+    iconText: 'text-zinc-400',
     border: 'border-l-zinc-300',
-    tagBg: 'bg-zinc-100 text-zinc-700 border-zinc-200',
+    tagBg: 'bg-white/[0.06] text-zinc-300 border-white/[0.08]',
   },
 };
 
@@ -87,7 +87,7 @@ export function LeadFieldsSection({ leadId, readOnly = false }: LeadFieldsSectio
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
-        <h2 className="font-semibold text-zinc-900">Lead Details</h2>
+        <h2 className="font-semibold text-white">Lead Details</h2>
         {!readOnly && <Button
           onClick={() => setIsAddOpen(true)}
           icon={<Plus size={16} />}
@@ -108,19 +108,19 @@ export function LeadFieldsSection({ leadId, readOnly = false }: LeadFieldsSectio
             return (
               <div
                 key={category}
-                className={`bg-white rounded-xl border border-zinc-200 border-l-4 ${config.border} overflow-hidden`}
+                className={`glass-card rounded-xl border-l-4 ${config.border} overflow-hidden`}
               >
                 {/* Category header */}
-                <div className="flex items-center gap-2.5 px-4 py-2.5 bg-zinc-50/60 border-b border-zinc-100">
+                <div className="flex items-center gap-2.5 px-4 py-2.5 bg-white/[0.03] border-b border-white/[0.06]">
                   <span className={`flex items-center justify-center w-6 h-6 rounded-md ${config.iconBg} ${config.iconText}`}>
                     {config.icon}
                   </span>
-                  <span className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wide">{category}</span>
+                  <span className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wide">{category}</span>
                 </div>
 
                 {/* Compact fields in 2-col grid */}
                 {compactDefs.length > 0 && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 divide-y sm:divide-y-0 divide-zinc-50">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 divide-y sm:divide-y-0 divide-white/[0.06]">
                     {compactDefs.map((def, i) => {
                       const field = fields.find(f => f.field_key === def.key);
                       if (!field) return null;
@@ -129,7 +129,7 @@ export function LeadFieldsSection({ leadId, readOnly = false }: LeadFieldsSectio
                       return (
                         <div
                           key={def.key}
-                          className={`${needsTopBorder ? 'sm:border-t sm:border-zinc-50' : ''} ${i % 2 === 0 ? 'sm:border-r sm:border-zinc-50' : ''}`}
+                          className={`${needsTopBorder ? 'sm:border-t sm:border-white/[0.06]' : ''} ${i % 2 === 0 ? 'sm:border-r sm:border-white/[0.06]' : ''}`}
                         >
                           <LeadFieldItem
                             definition={def}
@@ -155,7 +155,7 @@ export function LeadFieldsSection({ leadId, readOnly = false }: LeadFieldsSectio
 
                 {/* Textarea fields full-width below the grid */}
                 {textareaDefs.length > 0 && (
-                  <div className={`divide-y divide-zinc-50 ${compactDefs.length > 0 ? 'border-t border-zinc-100' : ''}`}>
+                  <div className={`divide-y divide-white/[0.06] ${compactDefs.length > 0 ? 'border-t border-white/[0.06]' : ''}`}>
                     {textareaDefs.map(def => {
                       const field = fields.find(f => f.field_key === def.key);
                       if (!field) return null;
@@ -186,12 +186,12 @@ export function LeadFieldsSection({ leadId, readOnly = false }: LeadFieldsSectio
           })}
         </div>
       ) : (
-        <div className="bg-white rounded-xl border border-zinc-200 flex flex-col items-center justify-center p-8 text-center">
-          <div className="w-10 h-10 rounded-full bg-zinc-100 flex items-center justify-center mb-3">
-            <Briefcase size={18} className="text-zinc-400" />
+        <div className="glass-card rounded-xl flex flex-col items-center justify-center p-8 text-center">
+          <div className="w-10 h-10 rounded-full bg-white/[0.06] flex items-center justify-center mb-3">
+            <Briefcase size={18} className="text-zinc-500" />
           </div>
-          <p className="text-sm font-medium text-zinc-500">No details added yet</p>
-          <p className="text-xs text-zinc-400 mt-1">Add fields to track lead information</p>
+          <p className="text-sm font-medium text-zinc-400">No details added yet</p>
+          <p className="text-xs text-zinc-500 mt-1">Add fields to track lead information</p>
         </div>
       )}
 
@@ -249,21 +249,21 @@ function LeadFieldItem({ definition, value, isEditing, onStartEdit, onStopEdit, 
   // Display mode
   if (!isEditing) {
     return (
-      <div className="flex items-start justify-between px-4 py-3 group hover:bg-zinc-50/50 transition-colors">
+      <div className="flex items-start justify-between px-4 py-3 group hover:bg-white/[0.03] transition-colors">
         <div className="min-w-0 flex-1">
-          <p className="text-[11px] font-medium uppercase tracking-wider mb-1.5 text-zinc-400">{definition.label}</p>
+          <p className="text-[11px] font-medium uppercase tracking-wider mb-1.5 text-zinc-500">{definition.label}</p>
           <FieldValueDisplay definition={definition} value={value} categoryConfig={categoryConfig} />
         </div>
         {!readOnly && <div className="flex items-center gap-1 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-opacity ml-2 flex-shrink-0">
           <button
             onClick={onStartEdit}
-            className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 transition-all"
+            className="p-1.5 rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.06] transition-all"
           >
             <Edit size={14} />
           </button>
           <button
             onClick={() => setShowDeleteConfirm(true)}
-            className="p-1.5 rounded-lg text-zinc-400 hover:text-red-600 hover:bg-red-50 transition-all"
+            className="p-1.5 rounded-lg text-zinc-500 hover:text-red-400 hover:bg-red-500/15 transition-all"
           >
             <Trash2 size={14} />
           </button>
@@ -283,8 +283,8 @@ function LeadFieldItem({ definition, value, isEditing, onStartEdit, onStopEdit, 
 
   // Edit mode
   return (
-    <div className="px-4 py-3 bg-brand-50/30">
-      <p className="text-[11px] font-medium uppercase tracking-wider mb-1.5 text-zinc-400">{definition.label}</p>
+    <div className="px-4 py-3 bg-brand-500/15">
+      <p className="text-[11px] font-medium uppercase tracking-wider mb-1.5 text-zinc-500">{definition.label}</p>
       {definition.type === 'text' || definition.type === 'url' ? (
         <div className="flex items-center gap-2">
           <TextInput
@@ -297,10 +297,10 @@ function LeadFieldItem({ definition, value, isEditing, onStartEdit, onStopEdit, 
             autoFocus
             className="flex-1"
           />
-          <button onClick={handleSave} className="p-1.5 rounded-lg text-emerald-600 hover:bg-emerald-50 transition-all">
+          <button onClick={handleSave} className="p-1.5 rounded-lg text-emerald-400 hover:bg-emerald-500/15 transition-all">
             <Check size={16} />
           </button>
-          <button onClick={onStopEdit} className="p-1.5 rounded-lg text-zinc-400 hover:bg-zinc-100 transition-all">
+          <button onClick={onStopEdit} className="p-1.5 rounded-lg text-zinc-500 hover:bg-white/[0.06] transition-all">
             <X size={16} />
           </button>
         </div>
@@ -315,7 +315,7 @@ function LeadFieldItem({ definition, value, isEditing, onStartEdit, onStopEdit, 
             autoFocus
           />
           <div className="flex justify-end gap-2">
-            <button onClick={onStopEdit} className="px-3 py-1.5 text-xs text-zinc-600 hover:bg-zinc-100 rounded-lg transition-colors">
+            <button onClick={onStopEdit} className="px-3 py-1.5 text-xs text-zinc-300 hover:bg-white/[0.06] rounded-lg transition-colors">
               Cancel
             </button>
             <button onClick={handleSave} className="px-3 py-1.5 text-xs text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition-colors">
@@ -358,7 +358,7 @@ function FieldValueDisplay({
   categoryConfig: (typeof CATEGORY_CONFIG)[LeadFieldCategory];
 }) {
   if (!value) {
-    return <p className="text-sm text-zinc-400 italic">Not set</p>;
+    return <p className="text-sm text-zinc-500 italic">Not set</p>;
   }
 
   switch (definition.type) {
@@ -368,7 +368,7 @@ function FieldValueDisplay({
           href={value.startsWith('http') ? value : `https://${value}`}
           target="_blank"
           rel="noopener noreferrer"
-          className="text-sm text-brand-600 hover:text-brand-700 flex items-center gap-1.5 transition-colors"
+          className="text-sm text-brand-300 hover:text-brand-300 flex items-center gap-1.5 transition-colors"
         >
           {value.replace(/^https?:\/\//, '')}
           <ExternalLink size={12} />
@@ -380,7 +380,7 @@ function FieldValueDisplay({
         const colors = PRIORITY_COLORS[value];
         return <Badge variant={colors?.variant || 'default'}>{value}</Badge>;
       }
-      return <p className="text-sm font-medium text-zinc-800">{value}</p>;
+      return <p className="text-sm font-medium text-zinc-100">{value}</p>;
 
     case 'multi_select': {
       let tags: string[] = [];
@@ -389,15 +389,15 @@ function FieldValueDisplay({
       } catch {
         tags = value ? [value] : [];
       }
-      if (tags.length === 0) return <p className="text-sm text-zinc-400 italic">Not set</p>;
+      if (tags.length === 0) return <p className="text-sm text-zinc-500 italic">Not set</p>;
 
       // Pros get a subtle green tint, Cons subtle red, everything else neutral
       const isPros = definition.key === 'pros';
       const isCons = definition.key === 'cons';
       const tagClass = isPros
-        ? 'bg-emerald-50/60 text-emerald-800 border border-emerald-100'
+        ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
         : isCons
-        ? 'bg-red-50/60 text-red-800 border border-red-100'
+        ? 'bg-red-500/15 text-red-300 border border-red-500/30'
         : `border ${categoryConfig.tagBg}`;
 
       return (
@@ -412,10 +412,10 @@ function FieldValueDisplay({
     }
 
     case 'textarea':
-      return <p className="text-sm text-zinc-700 whitespace-pre-wrap leading-relaxed">{value}</p>;
+      return <p className="text-sm text-zinc-300 whitespace-pre-wrap leading-relaxed">{value}</p>;
 
     default:
-      return <p className="text-sm text-zinc-800">{value}</p>;
+      return <p className="text-sm text-zinc-100">{value}</p>;
   }
 }
 
@@ -442,18 +442,18 @@ function SelectEditor({
         {options.map(opt => {
           const isSelected = value === opt;
           let colorClass = isSelected
-            ? 'bg-brand-100 text-brand-700 border-brand-300'
-            : 'bg-white text-zinc-700 border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50';
+            ? 'bg-brand-500/15 text-brand-300 border-brand-500/30'
+            : 'bg-surface-raised text-zinc-300 border-white/[0.08] hover:border-white/[0.12] hover:bg-white/[0.03]';
 
           // Priority gets special colors
           if (fieldKey === 'priority' && isSelected) {
             const pc = PRIORITY_COLORS[opt];
             if (pc) {
               colorClass = pc.variant === 'danger'
-                ? 'bg-red-100 text-red-700 border-red-300'
+                ? 'bg-red-500/15 text-red-300 border-red-500/30'
                 : pc.variant === 'warning'
-                ? 'bg-amber-100 text-amber-700 border-amber-300'
-                : 'bg-blue-100 text-blue-700 border-blue-300';
+                ? 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+                : 'bg-blue-500/15 text-blue-300 border-blue-500/30';
             }
           }
 
@@ -469,7 +469,7 @@ function SelectEditor({
         })}
       </div>
       <div className="flex justify-end">
-        <button onClick={onCancel} className="px-3 py-1.5 text-xs text-zinc-600 hover:bg-zinc-100 rounded-lg transition-colors">
+        <button onClick={onCancel} className="px-3 py-1.5 text-xs text-zinc-300 hover:bg-white/[0.06] rounded-lg transition-colors">
           Cancel
         </button>
       </div>
@@ -536,8 +536,8 @@ function MultiSelectEditor({
               onClick={() => toggle(opt)}
               className={`px-2.5 py-1 text-xs font-medium border rounded-full transition-all ${
                 isSelected
-                  ? 'bg-brand-100 text-brand-700 border-brand-300'
-                  : 'bg-white text-zinc-600 border-zinc-200 hover:border-zinc-300'
+                  ? 'bg-brand-500/15 text-brand-300 border-brand-500/30'
+                  : 'bg-surface-raised text-zinc-300 border-white/[0.08] hover:border-white/[0.12]'
               }`}
             >
               {isSelected && <Check size={10} className="inline mr-1" />}
@@ -553,7 +553,7 @@ function MultiSelectEditor({
           {selected.filter(s => !options.includes(s)).map(tag => (
             <span
               key={tag}
-              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium bg-violet-100 text-violet-700 border border-violet-300 rounded-full"
+              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium bg-white/[0.06] text-zinc-300 border border-white/[0.08] rounded-full"
             >
               {tag}
               <button onClick={() => setSelected(prev => prev.filter(s => s !== tag))} className="hover:text-violet-900">
@@ -577,7 +577,7 @@ function MultiSelectEditor({
           <button
             onClick={addCustom}
             disabled={!customInput.trim()}
-            className="px-2.5 py-1.5 text-xs font-medium text-brand-600 hover:bg-brand-50 rounded-lg transition-colors disabled:opacity-50"
+            className="px-2.5 py-1.5 text-xs font-medium text-brand-300 hover:bg-brand-500/15 rounded-lg transition-colors disabled:opacity-50"
           >
             Add
           </button>
@@ -585,7 +585,7 @@ function MultiSelectEditor({
       )}
 
       <div className="flex justify-end gap-2">
-        <button onClick={onCancel} className="px-3 py-1.5 text-xs text-zinc-600 hover:bg-zinc-100 rounded-lg transition-colors">
+        <button onClick={onCancel} className="px-3 py-1.5 text-xs text-zinc-300 hover:bg-white/[0.06] rounded-lg transition-colors">
           Cancel
         </button>
         <button
@@ -633,17 +633,17 @@ function AddFieldDropdown({
                   <span className={`flex items-center justify-center w-5 h-5 rounded ${config.iconBg} ${config.iconText}`}>
                     {config.icon}
                   </span>
-                  <span className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wide">{category}</span>
+                  <span className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wide">{category}</span>
                 </div>
                 <div className="space-y-0.5">
                   {definitions.map(def => (
                     <button
                       key={def.key}
                       onClick={() => onSelect(def)}
-                      className="w-full flex items-center justify-between px-3 py-2 text-sm text-zinc-700 hover:bg-brand-50 hover:text-brand-700 rounded-lg transition-colors"
+                      className="w-full flex items-center justify-between px-3 py-2 text-sm text-zinc-300 hover:bg-brand-500/15 hover:text-brand-300 rounded-lg transition-colors"
                     >
                       <span>{def.label}</span>
-                      <span className="text-xs text-zinc-400">
+                      <span className="text-xs text-zinc-500">
                         {def.type === 'multi_select' ? 'tags' : def.type}
                       </span>
                     </button>
@@ -654,7 +654,7 @@ function AddFieldDropdown({
           })}
         </div>
       ) : (
-        <div className="text-center py-6 text-zinc-500">
+        <div className="text-center py-6 text-zinc-400">
           <p className="text-sm">All fields have been added</p>
         </div>
       )}

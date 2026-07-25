@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
@@ -14,6 +14,7 @@ import {
   UserCircle,
   CheckSquare,
   Bot,
+  Bell,
   DollarSign,
 } from 'lucide-react';
 import { useApp } from '@/lib/store';
@@ -22,6 +23,8 @@ import { useDemo } from '@/lib/demo-context';
 import { Avatar } from '@/components/ui/Avatar';
 import { Logo } from '@/components/ui/Logo';
 import { Tooltip } from '@/components/ui/Tooltip';
+import { createClient } from '@/lib/supabase/client';
+import { demoNotifications } from '@/lib/demo-data';
 import { isRunning } from '@/lib/time-entry-utils';
 import { siteConfig } from '@/site-config';
 import { hasPermission } from '@/lib/access-control';
@@ -42,8 +45,9 @@ export function Sidebar() {
     }
     return ids;
   }, [timeEntries, teamMemberId]);
-  const { isEnvForcedDemo } = useDemo();
+  const { isEnvForcedDemo, isDemoMode } = useDemo();
   const [isOpen, setIsOpen] = useState(false);
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
 
   // Listen for the Header's hamburger button event
   useEffect(() => {
@@ -51,6 +55,31 @@ export function Sidebar() {
     window.addEventListener('open-sidebar', open);
     return () => window.removeEventListener('open-sidebar', open);
   }, []);
+
+  // Unread notification count, shown as an overlay badge on the Notifications tab.
+  const fetchUnreadNotifications = useCallback(async () => {
+    if (isDemoMode) {
+      setUnreadNotifications(demoNotifications.filter(n => !n.is_read).length);
+      return;
+    }
+    try {
+      const { count } = await createClient()
+        .from('team_member_notifications')
+        .select('*', { count: 'exact', head: true })
+        .eq('is_read', false);
+      if (count !== null) setUnreadNotifications(count);
+    } catch (error) {
+      console.error('Error fetching unread notifications:', error);
+    }
+  }, [isDemoMode]);
+
+  // Refresh on navigation and whenever the notifications page reports a change.
+  useEffect(() => { fetchUnreadNotifications(); }, [fetchUnreadNotifications, pathname]);
+  useEffect(() => {
+    const handler = () => fetchUnreadNotifications();
+    window.addEventListener('notifications-updated', handler);
+    return () => window.removeEventListener('notifications-updated', handler);
+  }, [fetchUnreadNotifications]);
 
   const currentMember = team.find(m => m.id === teamMemberId);
   const displayName = currentMember?.name || user?.user_metadata?.display_name || user?.email?.split('@')[0] || 'User';
@@ -61,19 +90,20 @@ export function Sidebar() {
   const pendingSuggestionCount = isAgentsEnabled && canManageAgents ? getPendingSuggestionCount() : 0;
 
   const navItems = [
-    { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', badge: 0 },
-    { href: '/my-tasks', icon: CheckSquare, label: 'My Tasks', badge: 0 },
+    { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', badge: 0, overlay: false },
+    { href: '/my-tasks', icon: CheckSquare, label: 'My Tasks', badge: 0, overlay: false },
     ...(hasPermission(access, 'projects.read') || hasPermission(access, 'projects.read_all')
-      ? [{ href: '/projects', icon: FolderKanban, label: 'Projects', badge: 0 }] : []),
+      ? [{ href: '/projects', icon: FolderKanban, label: 'Projects', badge: 0, overlay: false }] : []),
     ...(hasPermission(access, 'leads.read') || hasPermission(access, 'leads.read_all') || hasPermission(access, 'leads.manage')
-      ? [{ href: '/leads', icon: Target, label: 'Leads', badge: 0 }] : []),
+      ? [{ href: '/leads', icon: Target, label: 'Leads', badge: 0, overlay: false }] : []),
     ...(hasPermission(access, 'contacts.read') || hasPermission(access, 'contacts.read_all')
-      ? [{ href: '/contacts', icon: UserCircle, label: 'Contacts', badge: 0 }] : []),
+      ? [{ href: '/contacts', icon: UserCircle, label: 'Contacts', badge: 0, overlay: false }] : []),
     ...(hasPermission(access, 'team.read') || hasPermission(access, 'team.manage')
-      ? [{ href: '/team', icon: Users, label: 'Team', badge: 0 }] : []),
+      ? [{ href: '/team', icon: Users, label: 'Team', badge: 0, overlay: false }] : []),
     ...(hasPermission(access, 'finance.company.read') || hasPermission(access, 'earnings.own.read')
-      ? [{ href: '/finances', icon: DollarSign, label: 'Finances', badge: 0 }] : []),
-    ...(isAgentsEnabled && canManageAgents ? [{ href: '/agent', icon: Bot, label: 'Agent', badge: pendingSuggestionCount }] : []),
+      ? [{ href: '/finances', icon: DollarSign, label: 'Finances', badge: 0, overlay: false }] : []),
+    ...(isAgentsEnabled && canManageAgents ? [{ href: '/agent', icon: Bot, label: 'Agent', badge: pendingSuggestionCount, overlay: false }] : []),
+    { href: '/notifications', icon: Bell, label: 'Notifications', badge: unreadNotifications, overlay: true },
   ];
 
   const closeSidebar = () => setIsOpen(false);
@@ -88,14 +118,17 @@ export function Sidebar() {
         />
       )}
 
-      {/* Sidebar */}
-      <aside className={`
-        fixed top-0 left-0 h-full w-60 bg-[#0F0F12] flex flex-col z-50
+      {/* Sidebar — always dark chrome, even in light mode (data-theme="dark" re-asserts
+          the dark neutral tokens for this subtree). */}
+      <aside
+        data-theme="dark"
+        className={`
+        fixed top-0 left-0 h-full w-60 bg-sidebar border-r border-white/[0.06] flex flex-col z-50
         transform transition-transform duration-200 ease-out
         lg:translate-x-0 ${isOpen ? 'translate-x-0' : '-translate-x-full'}
       `}>
-        {/* Logo */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-white/5">
+        {/* Logo — pinned to h-16 so its bottom border aligns with the header's */}
+        <div className="flex items-center justify-between h-16 px-5 border-b border-white/[0.06]">
           <Link href="/dashboard" className="flex flex-col" onClick={closeSidebar}>
             <Logo className={`h-9 w-full${siteConfig.invertLogoInSidebar ? ' invert' : ''}`} />
             {siteConfig.showNameUnderLogo && (
@@ -121,13 +154,20 @@ export function Sidebar() {
                 onClick={closeSidebar}
                 className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-150 ${
                   isActive
-                    ? 'bg-brand-600 text-white'
+                    ? 'bg-brand-500/15 text-brand-300 glow-brand-soft'
                     : 'text-zinc-400 hover:bg-white/5 hover:text-zinc-200'
                 }`}
               >
-                <item.icon size={18} />
+                <span className="relative flex-shrink-0 leading-none">
+                  <item.icon size={18} />
+                  {item.overlay && item.badge > 0 && (
+                    <span className="absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-brand-500 px-1 text-[10px] font-semibold text-white ring-2 ring-sidebar">
+                      {item.badge > 9 ? '9+' : item.badge}
+                    </span>
+                  )}
+                </span>
                 <span className="text-sm font-medium flex-1">{item.label}</span>
-                {item.badge > 0 && (
+                {!item.overlay && item.badge > 0 && (
                   <span className="min-w-[20px] h-5 flex items-center justify-center rounded-full bg-brand-500 text-white text-xs font-medium px-1.5">
                     {item.badge}
                   </span>
@@ -231,13 +271,13 @@ export function Sidebar() {
               href="/settings"
               onClick={closeSidebar}
               className={`flex items-center gap-3 px-2 py-2 rounded-lg transition-colors ${
-                pathname === '/settings' ? 'bg-brand-600' : 'hover:bg-white/5'
+                pathname === '/settings' ? 'bg-brand-500/15 glow-brand-soft' : 'hover:bg-white/5'
               }`}
             >
               <Avatar name={displayName} src={currentMember?.avatar || undefined} size="sm" />
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-zinc-200 truncate">{displayName}</p>
-                <p className={`text-xs truncate capitalize ${pathname === '/settings' ? 'text-white/70' : 'text-zinc-500'}`}>{displayRole}</p>
+                <p className={`text-xs truncate capitalize ${pathname === '/settings' ? 'text-brand-300' : 'text-zinc-500'}`}>{displayRole}</p>
               </div>
             </Link>
           )}

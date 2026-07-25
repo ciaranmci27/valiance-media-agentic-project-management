@@ -1,70 +1,284 @@
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=DM+Mono:wght@400;500&display=swap');
 @import "tailwindcss";
 
+/*
+  ─────────────────────────────────────────────────────────────
+  VALIANCE — DARK GLASS DESIGN SYSTEM
+  A refined, near-black interface with subtle frosted-glass
+  surfaces and a quiet brand-teal glow reserved for interactive
+  and active states. All glow/tint colors derive from the brand
+  scale via color-mix(), so re-theming is a one-file change in
+  site-config.ts (ThemeProvider injects --color-brand-* at runtime).
+  ─────────────────────────────────────────────────────────────
+*/
+
 @theme {
   --font-sans: 'DM Sans', system-ui, sans-serif;
   --font-mono: 'DM Mono', monospace;
 
-  /* Brand color scale — defaults match site-config.ts; ThemeProvider overrides at runtime */
-  --color-brand-50:  #EEF2FF;
-  --color-brand-100: #E0E7FF;
-  --color-brand-200: #C7D2FE;
-  --color-brand-300: #A5B4FC;
-  --color-brand-400: #818CF8;
-  --color-brand-500: #6366F1;
-  --color-brand-600: #4F46E5;
-  --color-brand-700: #4338CA;
-  --color-accent:    #7C3AED;
+  /* Brand color scale — defaults match site-config.ts (teal); ThemeProvider overrides at runtime */
+  --color-brand-50:  #F0F5F5;
+  --color-brand-100: #D9E6E6;
+  --color-brand-200: #B3CCCC;
+  --color-brand-300: #8DB3B3;
+  --color-brand-400: #749E9E;
+  --color-brand-500: #5B8A8A;
+  --color-brand-600: #4A7171;
+  --color-brand-700: #3A5959;
+  --color-accent:    #8DB3B3;
 
-  /* Sidebar palette */
-  --color-sidebar: #0F0F12;
-  --color-sidebar-hover: #1A1A22;
-  --color-sidebar-active: #23232E;
-  --color-sidebar-border: #1E1E28;
+  /* Sidebar palette (dark chrome) */
+  --color-sidebar: #0B0C0F;
+  --color-sidebar-hover: #16171C;
+  --color-sidebar-active: #1D1F26;
+  --color-sidebar-border: rgba(255, 255, 255, 0.06);
 
-  /* Surfaces */
-  --color-surface: #FAFAFA;
-  --color-surface-raised: #FFFFFF;
-  --color-surface-overlay: #F4F4F5;
-  --color-surface-border: #E4E4E7;
+  /* Surfaces (near-black, slight cool undertone). These are the theme's base
+     palette — NOT brand-configurable. A future light mode redefines these tokens.
+     Every component references them via bg-surface / bg-surface-raised / etc. */
+  --color-surface: #08090C;          /* app base background (deeper, so glass pops) */
+  --color-surface-raised: #14151A;   /* solid raised panels, cards, modals */
+  --color-surface-overlay: #16171D;  /* dropdowns, menus, popovers, tooltips */
+  --color-surface-border: rgba(255, 255, 255, 0.08);
+
+  /* Warm accent (brand copper) — used only in the ambient back-light for balance */
+  --color-copper: #C5A68F;
+
+  /* On-surface "ink" — the RGB triplet behind every white-alpha tint/border/rim in
+     the design (glass fills, hairlines, seg control, scrollbars). Dark theme inks in
+     white; light theme flips it to near-black so all those alphas invert in one place.
+     Use as rgba(var(--ink), <alpha>). */
+  --ink: 255, 255, 255;
+  /* Text that always sits on a saturated brand/status fill (primary buttons, count
+     pills). Stays white in both themes — never remapped. */
+  --color-on-accent: #FFFFFF;
 
   /* Text */
-  --color-text-primary: #09090B;
-  --color-text-secondary: #52525B;
-  --color-text-muted: #A1A1AA;
+  --color-text-primary: #F4F4F5;
+  --color-text-secondary: #A1A1AA;
+  --color-text-muted: #71717A;
 
-  /* Input design tokens */
-  --color-input-bg: #FFFFFF;
-  --color-input-bg-hover: #FAFAFA;
-  --color-input-bg-active: #F4F4F5;
-  --color-input-bg-disabled: #F4F4F5;
-  --color-input-bg-inset: #D4D4D8;
+  /* Glass system — panels sit LIGHTER than the base so they read as floating
+     frosted surfaces, with a crisp bright top edge (the glass rim). */
+  --glass-bg: rgba(26, 28, 35, 0.55);
+  --glass-bg-strong: rgba(17, 19, 25, 0.66);
+  --glass-highlight: rgba(255, 255, 255, 0.09);
+  --glass-blur: 22px;
 
-  --color-input-border: #E4E4E7;
-  --color-input-border-hover: #D4D4D8;
+  /* Elevation + glow (glow is brand-derived). --shadow-* names become shadow-{name} utilities. */
+  --shadow-card: 0 4px 24px -6px rgba(0, 0, 0, 0.55);
+  --shadow-card-hover: 0 10px 40px -10px rgba(0, 0, 0, 0.65);
+  --shadow-overlay: 0 16px 48px -12px rgba(0, 0, 0, 0.7);
+  --shadow-glow: 0 0 24px -6px color-mix(in srgb, var(--color-brand-500) 50%, transparent);
+  --shadow-glow-strong: 0 0 32px -4px color-mix(in srgb, var(--color-brand-500) 65%, transparent);
+
+  /* Input design tokens (dark) */
+  --color-input-bg: rgba(255, 255, 255, 0.03);
+  --color-input-bg-hover: rgba(255, 255, 255, 0.05);
+  --color-input-bg-active: rgba(255, 255, 255, 0.06);
+  --color-input-bg-disabled: rgba(255, 255, 255, 0.02);
+  --color-input-bg-inset: rgba(0, 0, 0, 0.25);
+
+  --color-input-border: rgba(255, 255, 255, 0.10);
+  --color-input-border-hover: rgba(255, 255, 255, 0.18);
   --color-input-border-focus: var(--color-brand-500);
   --color-input-border-error: #F87171;
-  --color-input-border-divider: #F4F4F5;
+  --color-input-border-divider: rgba(255, 255, 255, 0.06);
 
-  --color-input-text: #09090B;
-  --color-input-text-label: #3F3F46;
-  --color-input-text-placeholder: #A1A1AA;
-  --color-input-text-subtle: #71717A;
-  --color-input-text-disabled: #D4D4D8;
+  --color-input-text: #F4F4F5;
+  --color-input-text-label: #D4D4D8;
+  --color-input-text-placeholder: #71717A;
+  --color-input-text-subtle: #A1A1AA;
+  --color-input-text-disabled: #52525B;
 
-  --color-input-accent: var(--color-brand-600);
+  --color-input-accent: var(--color-brand-500);
   --color-input-accent-fg: #FFFFFF;
-  --color-input-accent-subtle: var(--color-brand-50);
-  --color-input-accent-subtle-fg: var(--color-brand-700);
+  --color-input-accent-subtle: color-mix(in srgb, var(--color-brand-500) 14%, transparent);
+  --color-input-accent-subtle-fg: var(--color-brand-300);
 
-  --color-input-ring: var(--color-brand-100);
-  --color-input-ring-error: #FEE2E2;
+  --color-input-ring: color-mix(in srgb, var(--color-brand-500) 30%, transparent);
+  --color-input-ring-error: rgba(248, 113, 113, 0.25);
 
-  --color-input-error: #EF4444;
-  --color-input-warning: #F59E0B;
+  --color-input-error: #F87171;
+  --color-input-warning: #FBBF24;
 
   --radius-input: 0.5rem;
   --radius-input-sm: 0.375rem;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   THEME SCOPES
+   The @theme block above holds the dark defaults (so the app renders dark even
+   before JS). These two blocks make the theme switchable at runtime via
+   data-theme on <html>, and — crucially — re-declaring the DARK values under
+   [data-theme="dark"] lets a subtree opt back into dark inside a light page
+   (the sidebar carries data-theme="dark" so it stays dark chrome in both themes).
+
+   Only the theme-flipping tokens live here. Brand scale, fonts, radii, sidebar
+   chrome, and copper are theme-independent and stay in @theme.
+   ───────────────────────────────────────────────────────────── */
+[data-theme="dark"] {
+  color-scheme: dark;
+  --ink: 255, 255, 255;
+  --color-white: #FFFFFF;
+
+  /* Re-assert every neutral + semantic shade the light block remaps, so none of it
+     leaks into a nested dark subtree (the sidebar stays dark chrome in light mode). */
+  --color-zinc-100: #F4F4F5;
+  --color-zinc-200: #E4E4E7;
+  --color-zinc-300: #D4D4D8;
+  --color-zinc-400: #A1A1AA;
+  --color-zinc-600: #52525B;
+
+  --color-emerald-300: #6EE7B7; --color-emerald-400: #34D399; --color-emerald-500: #10B981;
+  --color-green-300: #86EFAC;   --color-green-400: #4ADE80;   --color-green-500: #22C55E;
+  --color-amber-300: #FCD34D;   --color-amber-400: #FBBF24;   --color-amber-500: #F59E0B;
+  --color-red-300: #FCA5A5;     --color-red-400: #F87171;     --color-red-500: #EF4444;
+  --color-rose-300: #FDA4AF;    --color-rose-400: #FB7185;    --color-rose-500: #F43F5E;
+  --color-orange-300: #FDBA74;  --color-orange-400: #FB923C;  --color-orange-500: #F97316;
+  --color-blue-300: #93C5FD;    --color-blue-400: #60A5FA;    --color-blue-500: #3B82F6;
+  --color-sky-300: #7DD3FC;     --color-sky-400: #38BDF8;     --color-sky-500: #0EA5E9;
+  --color-violet-300: #C4B5FD;  --color-violet-400: #A78BFA;  --color-violet-500: #8B5CF6;
+  --color-purple-300: #D8B4FE;  --color-purple-400: #C084FC;  --color-purple-500: #A855F7;
+  --color-teal-300: #5EEAD4;    --color-teal-400: #2DD4BF;    --color-teal-500: #14B8A6;
+
+  --color-surface: #08090C;
+  --color-surface-raised: #14151A;
+  --color-surface-overlay: #16171D;
+  --color-surface-border: rgba(255, 255, 255, 0.08);
+
+  --color-text-primary: #F4F4F5;
+  --color-text-secondary: #A1A1AA;
+  --color-text-muted: #71717A;
+
+  --glass-bg: rgba(26, 28, 35, 0.55);
+  --glass-bg-strong: rgba(17, 19, 25, 0.66);
+  --glass-highlight: rgba(255, 255, 255, 0.09);
+
+  --shadow-card: 0 4px 24px -6px rgba(0, 0, 0, 0.55);
+  --shadow-card-hover: 0 10px 40px -10px rgba(0, 0, 0, 0.65);
+  --shadow-overlay: 0 16px 48px -12px rgba(0, 0, 0, 0.7);
+
+  --color-input-bg: rgba(255, 255, 255, 0.03);
+  --color-input-bg-hover: rgba(255, 255, 255, 0.05);
+  --color-input-bg-active: rgba(255, 255, 255, 0.06);
+  --color-input-bg-disabled: rgba(255, 255, 255, 0.02);
+  --color-input-bg-inset: rgba(0, 0, 0, 0.25);
+  --color-input-border: rgba(255, 255, 255, 0.10);
+  --color-input-border-hover: rgba(255, 255, 255, 0.18);
+  --color-input-border-divider: rgba(255, 255, 255, 0.06);
+  --color-input-text: #F4F4F5;
+  --color-input-text-label: #D4D4D8;
+  --color-input-text-placeholder: #71717A;
+  --color-input-text-subtle: #A1A1AA;
+  --color-input-text-disabled: #52525B;
+}
+
+html[data-theme="light"] {
+  color-scheme: light;
+
+  /* Neutral ink → near-black. Flips every white-alpha tint/border/text utility
+     (text-white, bg-white/[…], border-white/[…], divide-white/[…]) at once. */
+  --ink: 24, 24, 27;
+  --color-white: #18181B;
+
+  /* Zinc text ramp — symmetric inversion around zinc-500 so the text hierarchy that
+     reads light-on-dark now reads dark-on-light (text-zinc-100 = strongest → darkest).
+     Small `bg-zinc-300/400` status/toggle dots flip along with it, which is correct. */
+  --color-zinc-100: #18181B;
+  --color-zinc-200: #27272A;
+  --color-zinc-300: #3F3F46;
+  --color-zinc-400: #52525B;
+  --color-zinc-600: #A1A1AA;
+
+  /* Semantic status colors: the light shades (300–500) used for badge/delta/label
+     TEXT are tuned for dark backgrounds and wash out on white, so remap them to the
+     readable -700 value. Small status dots that use the same shades just render a
+     touch deeper, which reads fine (often better) on a light ground. -600/-700 text
+     shades are already dark and untouched. Brand teal is handled separately. */
+  --color-emerald-300: #047857; --color-emerald-400: #047857; --color-emerald-500: #047857;
+  --color-green-300: #15803D;   --color-green-400: #15803D;   --color-green-500: #15803D;
+  --color-amber-300: #B45309;   --color-amber-400: #B45309;   --color-amber-500: #B45309;
+  --color-red-300: #B91C1C;     --color-red-400: #B91C1C;     --color-red-500: #B91C1C;
+  --color-rose-300: #BE123C;    --color-rose-400: #BE123C;    --color-rose-500: #BE123C;
+  --color-orange-300: #C2410C;  --color-orange-400: #C2410C;  --color-orange-500: #C2410C;
+  --color-blue-300: #1D4ED8;    --color-blue-400: #1D4ED8;    --color-blue-500: #1D4ED8;
+  --color-sky-300: #0369A1;     --color-sky-400: #0369A1;     --color-sky-500: #0369A1;
+  --color-violet-300: #6D28D9;  --color-violet-400: #6D28D9;  --color-violet-500: #6D28D9;
+  --color-purple-300: #7E22CE;  --color-purple-400: #7E22CE;  --color-purple-500: #7E22CE;
+  --color-teal-300: #0F766E;    --color-teal-400: #0F766E;    --color-teal-500: #0F766E;
+
+  /* Brand accent TEXT (links, active states, badges use text-brand-300) reads light
+     on light — point the light brand-text shades at the darker configured brand so
+     they stay legible. Brand fills/tints keep the true scale. The dark sidebar
+     re-asserts the real shades via ThemeProvider's [data-theme="dark"] injection. */
+  --color-brand-200: var(--color-brand-700);
+  --color-brand-300: var(--color-brand-700);
+  --color-brand-400: var(--color-brand-600);
+
+  /* Surfaces — soft off-white base, clean white panels. */
+  --color-surface: #F4F5F7;
+  --color-surface-raised: #FFFFFF;
+  --color-surface-overlay: #FFFFFF;
+  --color-surface-border: rgba(0, 0, 0, 0.10);
+
+  --color-text-primary: #18181B;
+  --color-text-secondary: #52525B;
+  --color-text-muted: #71717A;
+
+  /* Glass — frosted white over the light base. */
+  --glass-bg: rgba(255, 255, 255, 0.72);
+  --glass-bg-strong: rgba(255, 255, 255, 0.82);
+  --glass-highlight: rgba(255, 255, 255, 0.70);
+
+  /* Elevation — soft, light-appropriate shadows. */
+  --shadow-card: 0 1px 2px rgba(16, 24, 40, 0.04), 0 6px 20px -8px rgba(16, 24, 40, 0.12);
+  --shadow-card-hover: 0 10px 32px -10px rgba(16, 24, 40, 0.18);
+  --shadow-overlay: 0 16px 48px -12px rgba(16, 24, 40, 0.20);
+
+  /* Inputs. */
+  --color-input-bg: rgba(0, 0, 0, 0.02);
+  --color-input-bg-hover: rgba(0, 0, 0, 0.035);
+  --color-input-bg-active: rgba(0, 0, 0, 0.05);
+  --color-input-bg-disabled: rgba(0, 0, 0, 0.04);
+  --color-input-bg-inset: rgba(0, 0, 0, 0.04);
+  --color-input-border: rgba(0, 0, 0, 0.14);
+  --color-input-border-hover: rgba(0, 0, 0, 0.26);
+  --color-input-border-divider: rgba(0, 0, 0, 0.08);
+  --color-input-text: #18181B;
+  --color-input-text-label: #3F3F46;
+  --color-input-text-placeholder: #A1A1AA;
+  --color-input-text-subtle: #52525B;
+  --color-input-text-disabled: #A1A1AA;
+}
+
+/* Elements painted with a saturated brand/status fill keep white ink in BOTH themes.
+   Without this, the light-mode ink remap would darken `text-white` labels/pills to
+   near-black on a teal/red button. The `~=` word match targets only the solid fill
+   class token — never `hover:bg-*` variants or alpha tints like `bg-brand-500/15`. */
+[class~="bg-brand-500"], [class~="bg-brand-600"], [class~="bg-brand-700"],
+[class~="bg-red-500"], [class~="bg-red-600"], [class~="bg-red-600/90"],
+[class~="bg-emerald-500"], [class~="bg-emerald-600"], [class~="bg-amber-500"],
+[class~="bg-blue-600"],
+/* Intentionally-dark chrome that stays dark in light mode (tooltips, crop area). */
+[class~="bg-zinc-900"], [class~="bg-zinc-800"] {
+  --color-white: #FFFFFF;
+  --ink: 255, 255, 255;
+}
+
+/* Data-viz fills stay vivid + theme-independent so charts read identically in both
+   themes. The light-mode text remap darkens semantic shades for contrast; inside a
+   chart we re-assert the true bright values (bars/legend dots are fills, not text). */
+.chart-vivid {
+  --color-emerald-300: #6EE7B7; --color-emerald-400: #34D399; --color-emerald-500: #10B981;
+  --color-green-300: #86EFAC;   --color-green-400: #4ADE80;   --color-green-500: #22C55E;
+  --color-sky-300: #7DD3FC;     --color-sky-400: #38BDF8;     --color-sky-500: #0EA5E9;
+  --color-amber-300: #FCD34D;   --color-amber-400: #FBBF24;   --color-amber-500: #F59E0B;
+  --color-violet-300: #C4B5FD;  --color-violet-400: #A78BFA;  --color-violet-500: #8B5CF6;
+  --color-teal-300: #5EEAD4;    --color-teal-400: #2DD4BF;    --color-teal-500: #14B8A6;
+  --color-rose-300: #FDA4AF;    --color-rose-400: #FB7185;    --color-rose-500: #F43F5E;
+  --color-red-300: #FCA5A5;     --color-red-400: #F87171;     --color-red-500: #EF4444;
+  --color-blue-300: #93C5FD;    --color-blue-400: #60A5FA;    --color-blue-500: #3B82F6;
 }
 
 * {
@@ -75,31 +289,219 @@ html {
   font-family: 'DM Sans', system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-}
-
-html {
   scrollbar-gutter: stable;
 }
 
 body {
-  background-color: #FAFAFA;
-  color: #09090B;
+  background-color: var(--color-surface);
+  color: var(--color-text-primary);
   font-family: 'DM Sans', system-ui, sans-serif;
 }
+
+/* Ambient back-light — teal-forward with a copper whisper and a soft bottom glow.
+   Kept very restrained (only a whisper) in both themes. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  pointer-events: none;
+  background:
+    radial-gradient(58% 48% at 12% -6%, color-mix(in srgb, var(--color-brand-500) 11%, transparent), transparent 60%),
+    radial-gradient(46% 42% at 96% 4%, color-mix(in srgb, var(--color-copper) 6%, transparent), transparent 55%),
+    radial-gradient(70% 55% at 50% 116%, color-mix(in srgb, var(--color-brand-500) 7%, transparent), transparent 62%);
+}
+
+/* Fine grain overlay so the frost reads as premium glass, not flat plastic. */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0.035;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* ── Liquid glass surfaces ─────────────────────────────────
+   A top-down gloss (lighter at the top), a bright specular top rim, and an
+   inner bottom shadow together read as a real slab of glass with thickness. */
+.glass {
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur)) saturate(150%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(150%);
+  border: 1px solid var(--color-surface-border);
+}
+
+.glass-strong {
+  background: var(--glass-bg-strong);
+  backdrop-filter: blur(28px) saturate(160%);
+  -webkit-backdrop-filter: blur(28px) saturate(160%);
+  border: 1px solid var(--color-surface-border);
+}
+
+/* The signature card: a uniform frosted panel with a consistent thin bezel
+   (1px border on all sides) and a soft shadow for float. No top rim — the border
+   reads the same on every edge, matching the rest of the UI. */
+.glass-card {
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur)) saturate(150%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(150%);
+  border: 1px solid var(--color-surface-border);
+  box-shadow: var(--shadow-card);
+}
+
+/* Interactive card: a clean lift — border brightens uniformly, panel rises. */
+.glass-card-interactive {
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur)) saturate(150%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(150%);
+  border: 1px solid var(--color-surface-border);
+  box-shadow: var(--shadow-card);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s cubic-bezier(0.2, 1, 0.3, 1);
+}
+.glass-card-interactive:hover {
+  transform: translateY(-1px);
+  border-color: rgba(var(--ink), 0.16);
+  box-shadow: var(--shadow-card-hover);
+}
+
+/* Active-state emphasis: a clean inset brand ring, no outer bloom. */
+.glow-brand {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-brand-500) 34%, transparent);
+}
+.glow-brand-soft {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-brand-500) 28%, transparent);
+}
+
+/* ── Buttons ───────────────────────────────────────────────
+   Primary: a clean satin teal — solid brand fill + one subtle top highlight,
+   no gloss, no glow. The SAME treatment is applied to every inline `bg-brand`
+   button below, so component buttons and hand-rolled ones look identical. */
+.liquid-primary {
+  background-color: var(--color-brand-600);
+  color: #fff;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.30),   /* crisp rim light (the glass edge) */
+    inset 0 -1px 1px rgba(0, 0, 0, 0.22),        /* subtle bottom depth */
+    0 1px 2px rgba(0, 0, 0, 0.3);
+}
+.liquid-primary:hover {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.38),
+    inset 0 -1px 1px rgba(0, 0, 0, 0.22),
+    0 2px 8px -1px rgba(0, 0, 0, 0.4);
+}
+
+/* Unify every inline solid-teal button with the component's primary look. */
+button.bg-brand-600, a.bg-brand-600,
+button.bg-brand-500, a.bg-brand-500 {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.30),
+    inset 0 -1px 1px rgba(0, 0, 0, 0.22),
+    0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+/* Secondary: clean frosted dark-glass pill. */
+.liquid-glass {
+  background: rgba(var(--ink), 0.055);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  color: var(--color-text-primary);
+  box-shadow:
+    inset 0 1px 0 rgba(var(--ink), 0.12),
+    inset 0 0 0 1px rgba(var(--ink), 0.08);
+}
+.liquid-glass:hover {
+  background: rgba(var(--ink), 0.09);
+  box-shadow:
+    inset 0 1px 0 rgba(var(--ink), 0.16),
+    inset 0 0 0 1px rgba(var(--ink), 0.14);
+}
+
+/* ── Frost secondary/utility buttons ───────────────────────
+   Inline action buttons (Add Task, Manage Team, Note, Upload, toolbar buttons)
+   are styled with the neutral surface backgrounds but lack blur/rim, so they
+   read flat. This frosts ONLY <button>/<a> elements that use those backgrounds
+   as a BASE class (the leading space / start-of-string guards against matching
+   `hover:bg-white/...` on ghost buttons). Cards, rows, and chips are div/span/tr,
+   so they're never touched. Low specificity so explicit styles still win. */
+:is(button, a)[class*=" bg-white/[0.0"],
+:is(button, a)[class^="bg-white/[0.0"],
+:is(button, a)[class*=" bg-white/5"] {
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  box-shadow: inset 0 1px 0 rgba(var(--ink), 0.10), inset 0 0 0 1px rgba(var(--ink), 0.06);
+}
+:is(button, a)[class*=" bg-[#14151A]"],
+:is(button, a)[class^="bg-[#14151A]"] {
+  background-color: rgba(var(--ink), 0.05);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  box-shadow: inset 0 1px 0 rgba(var(--ink), 0.10), inset 0 0 0 1px rgba(var(--ink), 0.06);
+}
+
+/* ── iOS-style segmented control ───────────────────────────
+   Container: .seg-track ; each option: .seg-item (+ .is-active when selected). */
+/* Fixed-height glass control so it always matches the adjacent button:
+   default 36px (Button md), `.seg-sm` 32px, `.seg-lg` 44px. The track is a light
+   glass strip and the active option is a glass pill with the same rim highlight as
+   the glass buttons, so the whole control reads as one family with them. */
+.seg-track {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 36px;
+  padding: 3px;
+  border-radius: 11px;
+  background: rgba(var(--ink), 0.045);
+  box-shadow: inset 0 0 0 1px rgba(var(--ink), 0.06);
+}
+.seg-track.seg-sm { height: 32px; border-radius: 10px; }
+.seg-track.seg-lg { height: 44px; border-radius: 13px; }
+
+.seg-item {
+  height: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  padding: 0 13px;
+  border-radius: 8px;
+  background: transparent;
+  white-space: nowrap;
+  transition: color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+.seg-item:hover { color: var(--color-text-primary); }
+.seg-item.is-active {
+  color: var(--color-text-primary);
+  background: rgba(var(--ink), 0.09);
+  box-shadow: inset 0 1px 0 rgba(var(--ink), 0.16), 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+
+/* Hairline separators that read on dark */
+.divide-app > * + * { border-color: var(--color-surface-border); }
 
 /* ── Scrollbar ─────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 4px; height: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #D4D4D8; border-radius: 2px; }
-::-webkit-scrollbar-thumb:hover { background: #A1A1AA; }
+::-webkit-scrollbar-thumb { background: rgba(var(--ink), 0.12); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(var(--ink), 0.22); }
 
-.sidebar-scroll::-webkit-scrollbar-thumb { background: #2D2D3A; }
-.sidebar-scroll::-webkit-scrollbar-thumb:hover { background: #3D3D4E; }
+/* Sidebar stays dark chrome in both themes, so keep its scrollbar white-alpha. */
+.sidebar-scroll::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.10); }
+.sidebar-scroll::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.18); }
 
 .board-column-scroll::-webkit-scrollbar { width: 3px; }
 .board-column-scroll::-webkit-scrollbar-thumb { background: transparent; border-radius: 2px; }
-.board-column-scroll:hover::-webkit-scrollbar-thumb { background: #D4D4D8; }
-.board-column-scroll:hover::-webkit-scrollbar-thumb:hover { background: #A1A1AA; }
+.board-column-scroll:hover::-webkit-scrollbar-thumb { background: rgba(var(--ink), 0.12); }
+.board-column-scroll:hover::-webkit-scrollbar-thumb:hover { background: rgba(var(--ink), 0.22); }
 
 .scrollbar-none { -ms-overflow-style: none; scrollbar-width: none; }
 .scrollbar-none::-webkit-scrollbar { display: none; }
@@ -154,16 +556,24 @@ body {
 .stagger > *:nth-child(9)  { animation-delay: 360ms; }
 .stagger > *:nth-child(10) { animation-delay: 405ms; }
 
-/* Card lift on hover */
+/* Card lift on hover (dark depth) */
 .card-lift {
-  transition: box-shadow 0.15s ease, transform 0.15s ease;
+  transition: box-shadow 0.18s ease, transform 0.18s ease, border-color 0.18s ease;
 }
 .card-lift:hover {
-  box-shadow: 0 6px 24px -4px rgba(0,0,0,0.08), 0 2px 8px -2px rgba(0,0,0,0.04);
+  box-shadow: var(--shadow-card-hover),
+              0 0 24px -10px color-mix(in srgb, var(--color-brand-500) 45%, transparent);
   transform: translateY(-1px);
 }
 
-/* ── Portal-specific animations ───────────────────────── */
+/* Respect reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .animate-fadeIn, .animate-scaleIn, .animate-slideInLeft, .animate-slideInUp,
+  .animate-slideDown, .stagger > * { animation: none !important; }
+  .card-lift:hover, .glass-card-interactive:hover { transform: none; }
+}
+
+/* ── Portal-specific animations (external client portal keeps its own light theme) ── */
 @keyframes portalFadeUp {
   from { opacity: 0; transform: translateY(12px); }
   to   { opacity: 1; transform: translateY(0); }
@@ -179,10 +589,22 @@ body {
   from { transform: scaleX(0); }
 }
 
+/* Default border color. Tailwind v4 defaults bare `border` utilities to currentColor,
+   which renders as bright white on dark surfaces. Restore a subtle default so any
+   element using `border` without an explicit color reads as a hairline, not white.
+   Utilities like `border-white/10` still override this. */
+@layer base {
+  *,
+  ::before,
+  ::after {
+    border-color: var(--color-surface-border);
+  }
+}
+
 /* Focus ring — inside @layer base so Tailwind utilities (outline-none) can override it */
 @layer base {
   *:focus-visible {
-    outline: 2px solid var(--color-brand-500);
+    outline: 2px solid var(--color-brand-400);
     outline-offset: 2px;
   }
 }
@@ -198,7 +620,7 @@ body {
 }
 .ProseMirror p.is-editor-empty:first-child::before {
   content: attr(data-placeholder);
-  color: #A1A1AA;
+  color: var(--color-text-muted);
   pointer-events: none;
   float: left;
   height: 0;

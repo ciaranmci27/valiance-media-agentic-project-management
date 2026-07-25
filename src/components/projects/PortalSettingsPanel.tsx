@@ -207,23 +207,23 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
   };
 
   return (
-    <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden flex flex-col max-h-[600px]">
+    <div className="glass-card rounded-xl overflow-hidden flex flex-col max-h-[600px]">
       {/* Header with toggle */}
       <div
-        className={`px-5 py-4 flex items-center justify-between flex-shrink-0 ${isEnabled ? 'border-b border-zinc-100' : ''}`}
+        className={`px-5 py-4 flex items-center justify-between flex-shrink-0 ${isEnabled ? 'border-b border-white/[0.06]' : ''}`}
       >
         <div className="flex items-center gap-2">
-          <Globe size={18} className="text-zinc-500" />
-          <h2 className="font-semibold text-zinc-900">Client Portal</h2>
+          <Globe size={18} className="text-zinc-400" />
+          <h2 className="font-semibold text-white">Client Portal</h2>
         </div>
         <button
           onClick={handleToggleEnabled}
           className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0 ${
-            isEnabled ? 'bg-brand-600' : 'bg-zinc-200'
+            isEnabled ? 'bg-brand-600' : 'bg-white/[0.08]'
           }`}
         >
           <span
-            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform shadow-sm ${
+            className={`inline-block h-4 w-4 transform rounded-full bg-surface-raised transition-transform shadow-sm ${
               isEnabled ? 'translate-x-6' : 'translate-x-1'
             }`}
           />
@@ -236,7 +236,7 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
           <div className="flex flex-col sm:flex-row items-start gap-4">
             {/* Logo */}
             <div className="relative group flex-shrink-0">
-              <div className="w-[88px] h-[88px] rounded-xl overflow-hidden border border-zinc-200 bg-zinc-50 flex items-center justify-center">
+              <div className="w-[88px] h-[88px] rounded-xl overflow-hidden border border-white/[0.08] bg-white/[0.03] flex items-center justify-center">
                 {settings.logo_url ? (
                   <img src={settings.logo_url} alt="Logo" className="w-full h-full object-cover" />
                 ) : (
@@ -291,10 +291,10 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
               {/* Portal Link */}
               <div className="flex items-center gap-2">
                 {editingSlug ? (
-                  <div className="flex-1 flex items-center gap-2 px-3 py-2 bg-white border border-brand-300 ring-2 ring-brand-100 rounded-lg text-sm min-w-0">
-                    <Link2 size={14} className="text-zinc-400 flex-shrink-0" />
+                  <div className="flex-1 flex items-center gap-2 px-3 py-2 bg-surface-raised border border-brand-500/30 ring-2 ring-brand-500/30 rounded-lg text-sm min-w-0">
+                    <Link2 size={14} className="text-zinc-500 flex-shrink-0" />
                     <div className="flex-1 flex items-center min-w-0">
-                      <span className="text-zinc-400 flex-shrink-0">{origin}/portal/</span>
+                      <span className="text-zinc-500 flex-shrink-0">{origin}/portal/</span>
                       <input
                         ref={slugInputRef}
                         type="text"
@@ -304,15 +304,15 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
                           if (e.key === 'Enter') handleSlugSave();
                           if (e.key === 'Escape') { setLocalSlug(settings?.token || ''); setEditingSlug(false); }
                         }}
-                        className="flex-1 min-w-0 bg-transparent text-zinc-800 outline-none placeholder:text-zinc-300"
+                        className="flex-1 min-w-0 bg-transparent text-zinc-100 outline-none placeholder:text-zinc-600"
                         placeholder="project-slug"
                         autoFocus
                       />
                     </div>
                   </div>
                 ) : (
-                  <div className="flex-1 flex items-center gap-2 px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-lg text-sm text-zinc-600 min-w-0">
-                    <Link2 size={14} className="text-zinc-400 flex-shrink-0" />
+                  <div className="flex-1 flex items-center gap-2 px-3 py-2 bg-white/[0.03] border border-white/[0.08] rounded-lg text-sm text-zinc-300 min-w-0">
+                    <Link2 size={14} className="text-zinc-500 flex-shrink-0" />
                     <span className="truncate">{portalUrl}</span>
                   </div>
                 )}
@@ -326,7 +326,7 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
                         setEditingSlug(true);
                       }
                     }}
-                    className={`p-2 rounded-lg transition-colors ${editingSlug ? 'text-brand-600 hover:bg-brand-50' : 'text-zinc-500 hover:text-brand-600 hover:bg-brand-50'}`}
+                    className={`p-2 rounded-lg transition-colors ${editingSlug ? 'text-brand-300 hover:bg-brand-500/15' : 'text-zinc-400 hover:text-brand-300 hover:bg-brand-500/15'}`}
                   >
                     {editingSlug ? <Check size={16} /> : <Pencil size={16} />}
                   </button>
@@ -334,15 +334,15 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
                 <Tooltip content="Copy link">
                   <button
                     onClick={handleCopyLink}
-                    className="p-2 text-zinc-500 hover:text-brand-600 hover:bg-brand-50 rounded-lg transition-colors"
+                    className="p-2 text-zinc-400 hover:text-brand-300 hover:bg-brand-500/15 rounded-lg transition-colors"
                   >
-                    {copied ? <Check size={16} className="text-green-600" /> : <Copy size={16} />}
+                    {copied ? <Check size={16} className="text-green-400" /> : <Copy size={16} />}
                   </button>
                 </Tooltip>
                 <Tooltip content="View portal">
                   <button
                     onClick={() => portalUrl && window.open(portalUrl, '_blank', 'noopener,noreferrer')}
-                    className="p-2 text-zinc-500 hover:text-brand-600 hover:bg-brand-50 rounded-lg transition-colors"
+                    className="p-2 text-zinc-400 hover:text-brand-300 hover:bg-brand-500/15 rounded-lg transition-colors"
                   >
                     <Eye size={16} />
                   </button>
@@ -350,7 +350,7 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
                 <Tooltip content="View activity">
                   <button
                     onClick={() => setAnalyticsOpen(true)}
-                    className="p-2 text-zinc-500 hover:text-brand-600 hover:bg-brand-50 rounded-lg transition-colors"
+                    className="p-2 text-zinc-400 hover:text-brand-300 hover:bg-brand-500/15 rounded-lg transition-colors"
                   >
                     <Activity size={16} />
                   </button>
@@ -366,7 +366,7 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
                     setLocalAccentColor(e.target.value);
                     debouncedSettingChange('accent_color', e.target.value);
                   }}
-                  className="w-[38px] h-[38px] rounded-lg border border-zinc-200 cursor-pointer p-0.5 flex-shrink-0"
+                  className="w-[38px] h-[38px] rounded-lg border border-white/[0.08] cursor-pointer p-0.5 flex-shrink-0"
                 />
                 <div className="w-24">
                   <TextInput
@@ -378,7 +378,7 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
                     size="sm"
                   />
                 </div>
-                <div className="h-5 w-px bg-zinc-200 flex-shrink-0" />
+                <div className="h-5 w-px bg-white/[0.08] flex-shrink-0" />
                 {pinConfirmed ? (
                   <div className="flex items-center gap-2">
                     <PinInput
@@ -411,10 +411,10 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
                   <button
                     type="button"
                     onClick={() => setShowPinConfirm(true)}
-                    className="inline-flex items-center gap-1.5 px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg hover:border-zinc-300 transition-colors flex-shrink-0"
+                    className="inline-flex items-center gap-1.5 px-3 py-2 text-sm bg-surface-raised border border-white/[0.08] rounded-lg hover:border-white/[0.12] transition-colors flex-shrink-0"
                   >
-                    <Lock size={13} className="text-zinc-400" />
-                    <span className={localPin ? 'text-zinc-700 font-medium tracking-wider' : 'text-zinc-400'}>{localPin ? '••••' : 'Set PIN'}</span>
+                    <Lock size={13} className="text-zinc-500" />
+                    <span className={localPin ? 'text-zinc-300 font-medium tracking-wider' : 'text-zinc-500'}>{localPin ? '••••' : 'Set PIN'}</span>
                   </button>
                 )}
                 {localPin && !pinConfirmed && (
@@ -422,7 +422,7 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
                     <button
                       type="button"
                       onClick={() => setShowDeletePinConfirm(true)}
-                      className="p-1.5 text-zinc-300 hover:text-red-500 rounded-md transition-colors flex-shrink-0"
+                      className="p-1.5 text-zinc-600 hover:text-red-500 rounded-md transition-colors flex-shrink-0"
                     >
                       <Trash2 size={14} />
                     </button>
@@ -449,7 +449,7 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
 
           {/* Visibility Toggles (drag to reorder) */}
           <div className="space-y-2">
-            <label className="block text-xs font-medium text-zinc-500 uppercase tracking-wide">Visible Sections</label>
+            <label className="block text-xs font-medium text-zinc-400 uppercase tracking-wide">Visible Sections</label>
             <div className="flex flex-wrap gap-2">
               {sectionOrder
                 .filter(key => key !== 'show_hours' || project?.hourly_tracking)
@@ -462,15 +462,15 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
                       data-section-key={key}
                       className={`flex items-center rounded-lg border transition-all ${
                         isActive
-                          ? 'bg-brand-50 border-brand-200 text-brand-700'
-                          : 'bg-zinc-50 border-zinc-200 text-zinc-400'
-                      } ${isDragging ? 'shadow-md ring-2 ring-brand-200 z-10 opacity-70' : ''}`}
+                          ? 'bg-brand-500/15 border-brand-500/30 text-brand-300'
+                          : 'bg-white/[0.03] border-white/[0.08] text-zinc-500'
+                      } ${isDragging ? 'shadow-md ring-2 ring-brand-500/30 z-10 opacity-70' : ''}`}
                     >
                       <span
                         onPointerDown={(e) => handleSectionDragStart(key, e)}
                         className="pl-2 pr-0.5 py-1.5 cursor-grab active:cursor-grabbing touch-none select-none"
                       >
-                        <GripVertical size={12} className={isActive ? 'text-brand-300' : 'text-zinc-300'} />
+                        <GripVertical size={12} className={isActive ? 'text-brand-300' : 'text-zinc-600'} />
                       </span>
                       <button
                         onClick={() => handleSettingChange(key, !isActive)}

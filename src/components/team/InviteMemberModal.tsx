@@ -98,7 +98,7 @@ export default function InviteMemberModal({ isOpen, onClose, onSuccess, canAssig
     <Modal isOpen={isOpen} onClose={handleClose} title="Invite Team Member" size="md">
       <form onSubmit={handleSubmit} className="space-y-4">
         {errors.form && (
-          <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700">
+          <div className="p-3 rounded-lg bg-red-500/15 border border-red-500/30 text-sm text-red-300">
             {errors.form}
           </div>
         )}
@@ -124,7 +124,7 @@ export default function InviteMemberModal({ isOpen, onClose, onSuccess, canAssig
 
         <div>
           <div className="flex items-center justify-between mb-1">
-            <label className="text-sm font-medium text-zinc-700">Password</label>
+            <label className="text-sm font-medium text-zinc-300">Password</label>
             <button
               type="button"
               onClick={() => {
@@ -137,7 +137,7 @@ export default function InviteMemberModal({ isOpen, onClose, onSuccess, canAssig
                 setGeneratedPassword(true);
               }}
               disabled={loading}
-              className="text-xs text-brand-600 hover:text-brand-700 font-medium disabled:opacity-50"
+              className="text-xs text-brand-300 hover:text-brand-300 font-medium disabled:opacity-50"
             >
               Generate
             </button>
@@ -175,7 +175,7 @@ export default function InviteMemberModal({ isOpen, onClose, onSuccess, canAssig
         />
 
         {role === 'owner' && (
-          <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+          <div className="rounded-lg border border-amber-500/30 bg-amber-500/15 px-3 py-2 text-xs leading-5 text-amber-300">
             Owners have unrestricted access to billing, credentials, permissions, API scopes, and team management.
           </div>
         )}
