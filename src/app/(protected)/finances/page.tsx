@@ -665,13 +665,6 @@ export default function FinancesPage() {
       }
     }
 
-    // Collection rate: lifetime "money in hand" vs "money owed" snapshot.
-    // = all-time received / (all-time received + currently outstanding)
-    // Date-selector independent (matches Outstanding's all-time framing).
-    const totalReceivedAllTime = fInvoices
-      .filter(inv => inv.status === 'paid')
-      .reduce((s, i) => s + i.amount, 0);
-
     // ── Daily chart ─────────────────────────────────────────
     // Derive from `now` (already a dep) so the "Today" axis label rolls over
     // at midnight on the same tick the range slides forward.
@@ -880,13 +873,6 @@ export default function FinancesPage() {
     }
     const totalOutstanding = Array.from(outstandingByProject.values()).reduce((s, v) => s + v, 0);
 
-    // Collection rate (lifetime snapshot): % of total billable that's been received.
-    // Independent of date selector - pairs with Outstanding which is also all-time.
-    const collectionDenom = totalReceivedAllTime + totalOutstanding;
-    const collectionRate = collectionDenom > 0
-      ? Math.round((totalReceivedAllTime / collectionDenom) * 100)
-      : 0;
-
     // ── Per-project breakdown (range-scoped) ─────────────────
     // Per-project accrued total in range (from amortized spread).
     const accruedByProjectInRange = new Map<string, number>();
@@ -934,7 +920,7 @@ export default function FinancesPage() {
 
     return {
       totalInvoiced, totalEarned, totalPaymentsReceived, totalOutstanding, totalOverdue,
-      totalHours, collectionRate, activeInvoicesCount,
+      totalHours, activeInvoicesCount,
       dailyBars, maxBarTotal, granularity,
       projectBreakdown, allInvoices,
       // Exposed for bucket drilldown (week/month → days). Each map is keyed by
@@ -1300,7 +1286,7 @@ export default function FinancesPage() {
       <div className="p-4 lg:p-6 space-y-4 lg:space-y-6">
         {/* ── Overview + Date Filter ──────────────────────── */}
         <div className="glass-card rounded-xl">
-          <div className="px-5 py-4 flex items-center justify-between gap-3 border-b border-white/[0.06]">
+          <div className="px-5 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-white/[0.06]">
             <div className="flex items-center gap-2">
               <DollarSign size={18} className="text-zinc-400" />
               <h2 className="font-semibold text-white">Overview</h2>
@@ -1311,21 +1297,21 @@ export default function FinancesPage() {
               />
             </div>
 
-            <div className="flex items-center gap-2.5">
+            <div className="flex items-center gap-2.5 w-full sm:w-auto">
             <span className="hidden sm:inline text-xs text-zinc-500 font-medium">
               {fmtRangeDisplay(range.startKey, range.endKey)}
             </span>
 
             {/* Compact date range dropdown */}
-            <div ref={rangeDropdownRef} className="relative">
+            <div ref={rangeDropdownRef} className="relative flex-1 sm:flex-none">
               <button
                 type="button"
                 onClick={() => setRangeOpen(o => !o)}
                 aria-expanded={rangeOpen}
                 aria-haspopup="menu"
-                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.08] transition-colors"
+                className="w-full sm:w-auto flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-md bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.08] transition-colors"
               >
-                <CalendarRange size={13} className="text-zinc-400" />
+                <CalendarRange size={13} className="text-zinc-400 flex-shrink-0" />
                 <span className="text-xs font-medium text-zinc-300">
                   {PRESET_OPTIONS.find(o => o.value === preset)?.label ?? 'Custom'}
                 </span>
@@ -1335,7 +1321,7 @@ export default function FinancesPage() {
               {rangeOpen && (
                 <div
                   role="menu"
-                  className="absolute right-0 top-full mt-1.5 z-30 w-64 bg-surface-raised border border-white/[0.08] rounded-lg shadow-lg overflow-hidden"
+                  className="absolute left-0 sm:left-auto sm:right-0 top-full mt-1.5 z-30 w-64 max-w-[calc(100vw-2.5rem)] bg-surface-raised border border-white/[0.08] rounded-lg shadow-lg overflow-hidden"
                 >
                   <div className="p-1">
                     {PRESET_OPTIONS.map((opt) => {
@@ -1415,15 +1401,15 @@ export default function FinancesPage() {
                   : `${selectedCount} projects`;
 
               return (
-                <div ref={projectFilterDropdownRef} className="relative">
+                <div ref={projectFilterDropdownRef} className="relative flex-1 sm:flex-none">
                   <button
                     type="button"
                     onClick={() => setProjectFilterOpen(o => !o)}
                     aria-expanded={projectFilterOpen}
                     aria-haspopup="menu"
-                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.08] transition-colors"
+                    className="w-full sm:w-auto flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-md bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.08] transition-colors"
                   >
-                    <FolderKanban size={13} className="text-zinc-400" />
+                    <FolderKanban size={13} className="text-zinc-400 flex-shrink-0" />
                     <span className="text-xs font-medium text-zinc-300 truncate max-w-[140px]">{buttonLabel}</span>
                     {!allSelectedOrNone && (
                       <span className="inline-flex items-center justify-center min-w-[16px] h-[16px] px-1 text-[9px] font-semibold text-white bg-brand-600 rounded-full">
@@ -1502,15 +1488,17 @@ export default function FinancesPage() {
             </div>
           </div>
 
-          <div className="px-5 py-3 overflow-x-auto">
-            <div className="flex gap-6 lg:gap-8 min-w-max">
-              <div className="shrink-0 min-w-[5.5rem]">
+          <div className="px-5 py-3 sm:overflow-x-auto">
+            {/* Mobile: 3-col × 2-row grid (all 6 stats, no overflow, adapts to width).
+                sm+: single inline row that scrolls if needed. */}
+            <div className="grid grid-cols-3 gap-x-3 gap-y-4 sm:flex sm:gap-6 lg:gap-8 sm:min-w-max">
+              <div className="min-w-0 sm:shrink-0 sm:min-w-[5.5rem]">
                 <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">Earned</p>
                 <p className={`text-sm font-semibold ${data.totalEarned >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{fmtCurrency(data.totalEarned)}</p>
               </div>
-              <div className="shrink-0 min-w-[5.5rem]">
+              <div className="min-w-0 sm:shrink-0 sm:min-w-[5.5rem]">
                 <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">Outstanding</p>
-                <div className="flex items-center gap-1.5">
+                <div className="flex flex-wrap items-center gap-1.5">
                   <p className={`text-sm font-semibold ${data.totalOutstanding > 0 ? 'text-amber-400' : 'text-zinc-500'}`}>
                     ${fmt(data.totalOutstanding)}
                   </p>
@@ -1521,33 +1509,19 @@ export default function FinancesPage() {
                   )}
                 </div>
               </div>
-              <div className="shrink-0 min-w-[5.5rem]">
+              <div className="min-w-0 sm:shrink-0 sm:min-w-[5.5rem]">
                 <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">Invoiced</p>
                 <p className="text-sm font-semibold text-white">${fmt(data.totalInvoiced)}</p>
               </div>
-              <div className="shrink-0 min-w-[5.5rem]">
+              <div className="min-w-0 sm:shrink-0 sm:min-w-[5.5rem]">
                 <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">Received</p>
                 <p className="text-sm font-semibold text-emerald-400">${fmt(data.totalPaymentsReceived)}</p>
               </div>
-              <div className="shrink-0 min-w-[5.5rem]">
-                <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">Collected</p>
-                <div className="flex items-center gap-1.5">
-                  <p className="text-sm font-semibold text-white">{data.collectionRate}%</p>
-                  {data.collectionRate > 0 && (
-                    <div className="w-16 h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
-                      <div
-                        className="h-full rounded-full bg-emerald-400"
-                        style={{ width: `${data.collectionRate}%` }}
-                      />
-                    </div>
-                  )}
-                </div>
-              </div>
-              <div className="shrink-0 min-w-[5.5rem]">
+              <div className="min-w-0 sm:shrink-0 sm:min-w-[5.5rem]">
                 <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">Total Hours</p>
                 <p className="text-sm font-semibold text-white">{data.totalHours.toFixed(1)}</p>
               </div>
-              <div className="shrink-0 min-w-[5.5rem]">
+              <div className="min-w-0 sm:shrink-0 sm:min-w-[5.5rem]">
                 <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">Invoices</p>
                 <p className="text-sm font-semibold text-white">{data.activeInvoicesCount}</p>
               </div>

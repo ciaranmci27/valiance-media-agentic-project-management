@@ -156,7 +156,7 @@ export function BoardView({ tasks, onViewTask, onEditTask, onDeleteTask, onStatu
           return (
             <div
               key={column.id}
-              className="w-full lg:flex-1 lg:min-w-[260px] flex flex-col bg-white/[0.06] rounded-xl p-2 lg:p-3"
+              className="glass-card w-full lg:flex-1 lg:min-w-[260px] flex flex-col bg-white/[0.06] rounded-xl p-2 lg:p-3"
               onDragOver={(e) => handleColumnDragOver(e, column.id)}
               onDragLeave={handleDragLeave}
               onDrop={(e) => handleDrop(e, column.id)}
