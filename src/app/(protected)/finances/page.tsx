@@ -3,10 +3,12 @@
 import { useMemo, useState, useRef, useEffect } from 'react';
 import { useApp } from '@/lib/store';
 import { Header } from '@/components/layout/Header';
-import { getWorkedHours, getWorkedHoursByDay, getWorkedHoursByHour, isRunning } from '@/lib/time-entry-utils';
+import { getWorkedHoursByHour, isRunning } from '@/lib/time-entry-utils';
 import { DateInput } from '@/components/ui/inputs/DateInput';
 import { Tooltip } from '@/components/ui/Tooltip';
-import { ensureLineItems, invoicedTotalsByItemType, spreadLineItem, totalBillableAmount } from '@/lib/invoice-utils';
+import { ensureLineItems, spreadLineItem } from '@/lib/invoice-utils';
+import { computeFinanceData } from '@/lib/finance/summary';
+import { toDateKey, localNextDayStartMs, hourVestingRatio } from '@/lib/finance/vesting';
 import Link from 'next/link';
 import {
   DollarSign,
@@ -62,10 +64,6 @@ function fmtDate(dateStr: string, withWeekday = false): string {
   return `${weekday}, ${base}`;
 }
 
-/** YYYY-MM-DD from a Date in local time */
-function toDateKey(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
 
 /** "12 AM" / "9 AM" / "12 PM" / "11 PM" - 12-hour clock label for an hour 0..23. */
 function fmtHourLabel(hour: number): string {
@@ -181,80 +179,6 @@ function daysBetween(startKey: string, endKey: string): number {
   return Math.round((e.getTime() - s.getTime()) / 86400000) + 1;
 }
 
-function zonedHourStartMs(dateKey: string, hour: number, timezone?: string): number {
-  const [y, m, d] = dateKey.split('-').map(Number);
-  if (!timezone) return new Date(y, m - 1, d, hour).getTime();
-
-  const targetAsUtc = Date.UTC(y, m - 1, d, hour);
-  let candidate = targetAsUtc;
-  try {
-    const formatter = new Intl.DateTimeFormat('en-US', {
-      timeZone: timezone,
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: false,
-    });
-
-    for (let attempt = 0; attempt < 3; attempt++) {
-      const parts = formatter.formatToParts(new Date(candidate));
-      const get = (type: Intl.DateTimeFormatPartTypes) => {
-        const value = parts.find(part => part.type === type)?.value ?? '0';
-        return type === 'hour' && value === '24' ? 0 : Number(value);
-      };
-      const displayedAsUtc = Date.UTC(
-        get('year'),
-        get('month') - 1,
-        get('day'),
-        get('hour'),
-        get('minute'),
-        get('second'),
-      );
-      const delta = displayedAsUtc - targetAsUtc;
-      if (delta === 0) return candidate;
-      candidate -= delta;
-    }
-    return candidate;
-  } catch {
-    return new Date(y, m - 1, d, hour).getTime();
-  }
-}
-
-function localDayStartMs(dateKey: string, timezone?: string): number {
-  return zonedHourStartMs(dateKey, 0, timezone);
-}
-
-function localNextDayStartMs(dateKey: string, timezone?: string): number {
-  const [y, m, d] = dateKey.split('-').map(Number);
-  const nextDayKey = toDateKey(new Date(y, m - 1, d + 1));
-  return zonedHourStartMs(nextDayKey, 0, timezone);
-}
-
-function clamp01(value: number): number {
-  if (!Number.isFinite(value)) return 0;
-  if (value <= 0) return 0;
-  if (value >= 1) return 1;
-  return value;
-}
-
-function dayVestingRatio(dateKey: string, nowMs: number, timezone?: string): number {
-  const start = localDayStartMs(dateKey, timezone);
-  const end = localNextDayStartMs(dateKey, timezone);
-  if (end <= start) return nowMs >= end ? 1 : 0;
-  return clamp01((nowMs - start) / (end - start));
-}
-
-function hourVestingRatio(dateKey: string, hour: number, nowMs: number, timezone?: string): number {
-  const start = zonedHourStartMs(dateKey, hour, timezone);
-  const end = hour === 23
-    ? localNextDayStartMs(dateKey, timezone)
-    : zonedHourStartMs(dateKey, hour + 1, timezone);
-  if (end <= start) return nowMs >= end ? 1 : 0;
-  return clamp01((nowMs - start) / (end - start));
-}
 
 /** Format a date range for display: "Apr 1 - Apr 13, 2026" */
 function fmtRangeDisplay(startKey: string, endKey: string): string {
@@ -577,135 +501,17 @@ export default function FinancesPage() {
   const data = useMemo(() => {
     const { startKey, endKey } = range;
 
-    // ── Project filter ─────────────────────────────────────
-    // Empty selection = no filter (every project counts). When ids are
-    // selected, every downstream loop reads from these filtered arrays so
-    // chart bars, totals, project rows, and invoice lists all stay coherent.
-    const projectFilterActive = selectedProjectIds.size > 0;
-    const fProjects = projectFilterActive
-      ? projects.filter(p => selectedProjectIds.has(p.id))
-      : projects;
-    const fInvoices = projectFilterActive
-      ? projectInvoices.filter(i => selectedProjectIds.has(i.project_id))
-      : projectInvoices;
-    const fTimeEntries = projectFilterActive
-      ? timeEntries.filter(t => selectedProjectIds.has(t.project_id))
-      : timeEntries;
+    // All money rules come from the shared finance engine (single source of truth,
+    // shared with the Dashboard). Below, the page only turns the engine's per-day maps
+    // into chart bars + drilldown — no money logic lives here anymore.
+    const engine = computeFinanceData({
+      projects, invoices: projectInvoices, timeEntries, team, rateByProject,
+      now, timezone: preferredTimezone, range, selectedProjectIds,
+    });
+    const { workByDay, fixedByDayProject, recurringByDayProject, paymentsByDay, projectLookup, invoicesInRange } = engine;
 
-    // ── Range-aware invoice / payment filters ──────────────
-    const invoicesInRange = fInvoices.filter(inv => inv.date >= startKey && inv.date <= endKey);
-    const activeInvoices = invoicesInRange.filter(inv => inv.status !== 'cancelled');
-    // Cash actually received during the range (by paid_date), regardless of when the invoice was issued
-    const paymentsInRange = fInvoices.filter(
-      inv => inv.status === 'paid' && inv.paid_date && inv.paid_date >= startKey && inv.paid_date <= endKey,
-    );
-    // Overdue is a current-state snapshot, not a period stat - count all overdue invoices
-    const totalOverdue = fInvoices
-      .filter(inv => inv.status === 'overdue')
-      .reduce((s, i) => s + i.amount, 0);
-
-    const totalInvoiced = activeInvoices.reduce((s, i) => s + i.amount, 0);
-    const totalPaymentsReceived = paymentsInRange.reduce((s, i) => s + i.amount, 0);
-    const activeInvoicesCount = activeInvoices.length;
-
-    // ── Hours fragmented by calendar day ───────────────────
-    // Each entry is split per local calendar day so a session crossing midnight
-    // credits both days proportionally (e.g. 8pm to 1am = 4h on the start day,
-    // 1h on the next). The chart (workByDay), range totals (totalHours,
-    // hourlyEarnedInRange), and per-project rows are all derived from the same
-    // fragments in one pass so they stay coherent.
-    const workByDay = new Map<string, Map<string, { hours: number; value: number; teamContribution: number }>>();
-    const hoursByProjectInRange = new Map<string, number>();
-    const hourlyEarnedByProjectInRange = new Map<string, number>();
-    const teamContributionByProjectInRange = new Map<string, number>();
-    const payableMemberIds = new Set(
-      team.filter(member => member.role !== 'owner' && member.role !== 'agent').map(member => member.id),
-    );
-    let totalHours = 0;
-    let hourlyEarnedInRange = 0;
-    let teamContributionInRange = 0;
-
-    for (const te of fTimeEntries) {
-      // Stopped entries count permanently. Running entries tick against `now`.
-      // Paused entries keep the time their closed segments already accumulated
-      // (getWorkedHoursByDay sums closed segments either way), so revenue
-      // doesn't flicker out the moment someone hits pause mid-session.
-      const rate = te.hourly_rate ?? rateByProject.get(te.project_id) ?? 0;
-      for (const [dayKey, hours] of getWorkedHoursByDay(te, now)) {
-        if (dayKey < startKey || dayKey > endKey) continue;
-        const billableValue = te.work_type === 'internal' ? 0 : hours * rate;
-        const isEmployee = payableMemberIds.has(te.member_id);
-        const isApprovedEmployeeWork = isEmployee && te.approval_status === 'approved';
-        const value = isEmployee ? 0 : billableValue;
-        const teamContribution = isApprovedEmployeeWork
-          ? billableValue - (hours * Number(te.compensation_rate || 0))
-          : 0;
-        totalHours += hours;
-        hourlyEarnedInRange += value;
-        teamContributionInRange += teamContribution;
-        hoursByProjectInRange.set(te.project_id, (hoursByProjectInRange.get(te.project_id) ?? 0) + hours);
-        hourlyEarnedByProjectInRange.set(
-          te.project_id,
-          (hourlyEarnedByProjectInRange.get(te.project_id) ?? 0) + value,
-        );
-        teamContributionByProjectInRange.set(
-          te.project_id,
-          (teamContributionByProjectInRange.get(te.project_id) ?? 0) + teamContribution,
-        );
-        let dayMap = workByDay.get(dayKey);
-        if (!dayMap) {
-          dayMap = new Map();
-          workByDay.set(dayKey, dayMap);
-        }
-        const cur = dayMap.get(te.project_id) ?? { hours: 0, value: 0, teamContribution: 0 };
-        cur.hours += hours;
-        cur.value += value;
-        cur.teamContribution += teamContribution;
-        dayMap.set(te.project_id, cur);
-      }
-    }
-
-    // ── Daily chart ─────────────────────────────────────────
-    // Derive from `now` (already a dep) so the "Today" axis label rolls over
-    // at midnight on the same tick the range slides forward.
+    // "Today" axis label rolls over at local midnight (nowDayKey is timezone-aware).
     const todayKey = nowDayKey;
-
-    // Pre-index: payments received per day (uses paid_date, range-scoped)
-    // Note: this uses paid_date independently of the invoice date filter,
-    // so the chart reflects actual cash flow on each day.
-    const paymentsByDay = new Map<string, number>();
-    for (const inv of fInvoices) {
-      if (inv.status !== 'paid' || !inv.paid_date) continue;
-      if (inv.paid_date < startKey || inv.paid_date > endKey) continue;
-      paymentsByDay.set(inv.paid_date, (paymentsByDay.get(inv.paid_date) ?? 0) + inv.amount);
-    }
-
-    // Pre-index: amortized fixed and recurring line-item revenue per day, broken
-    // down by project. Each service revenue line item is spread across its
-    // period (or falls on the invoice date when no service window is set).
-    // Hourly and reimbursement line items are ignored here.
-    const fixedByDayProject = new Map<string, Map<string, number>>();
-    const recurringByDayProject = new Map<string, Map<string, number>>();
-    for (const inv of fInvoices) {
-      if (inv.status === 'cancelled') continue;
-      for (const li of ensureLineItems(inv)) {
-        if (li.item_type === 'hourly' || li.item_type === 'reimbursement') continue;
-        const bucket = li.item_type === 'recurring' ? recurringByDayProject : fixedByDayProject;
-        const spread = spreadLineItem(li, inv.date);
-        for (const [dk, dollars] of spread) {
-          if (dk < startKey || dk > endKey) continue;
-          const vestedDollars = dollars * dayVestingRatio(dk, now, preferredTimezone);
-          if (vestedDollars <= 0) continue;
-          if (!bucket.has(dk)) bucket.set(dk, new Map());
-          const pmap = bucket.get(dk)!;
-          pmap.set(inv.project_id, (pmap.get(inv.project_id) ?? 0) + vestedDollars);
-        }
-      }
-    }
-
-    // Lookup for project names/colors. Filtered set keeps tooltip rows tied
-    // to currently-visible projects only.
-    const projectLookup = new Map(fProjects.map(p => [p.id, p]));
 
     // Build bar array across the range. Pick a granularity (day/week/month)
     // based on span so very wide ranges don't produce hundreds of hairline bars.
@@ -831,98 +637,20 @@ export default function FinancesPage() {
       1,
     );
 
-    // Range-scoped totals derived from the daily bars (so Earned matches the chart)
-    const totalAccruedInRange = dailyBars.reduce((s, d) => s + d.fixedRevenue + d.recurringRevenue, 0);
-    const totalEarned = hourlyEarnedInRange + totalAccruedInRange + teamContributionInRange;
-
-    // ── Per-project outstanding (all-time, current snapshot) ─
-    // Outstanding is a current-state stat (what's still owed right now), so it's
-    // computed from all-time invoices and time entries - NOT date-filtered.
-    // Same formula as the project details InvoicesPanel:
-    //   hourly:     max(0, max(rate * hours, hourlyInvoiced) + nonHourlyOwed - paid)
-    //   non-hourly: max(0, invoiced - paid)
-    const outstandingByProject = new Map<string, number>();
-    for (const p of fProjects) {
-      if (p.status === 'archived') continue;
-      const pInvoicesAll = fInvoices.filter(inv => inv.project_id === p.id && inv.status !== 'cancelled');
-      const pPaidAll = fInvoices
-        .filter(inv => inv.project_id === p.id && inv.status === 'paid')
-        .reduce((s, i) => s + i.amount, 0);
-      // Stopped entries count permanently, running entries tick against `now`,
-      // paused entries keep their accumulated time (getWorkedHours sums closed
-      // segments). All three states contribute so Outstanding stays stable
-      // across pause/resume and clock-out transitions.
-      const projectEntries = fTimeEntries.filter(te => te.project_id === p.id);
-      const isHourly = !!p.hourly_tracking;
-      const rate = p.hourly_rate ?? 0;
-      // Aggregate line-item amounts by type across all active invoices.
-      const pInvoicedByType = invoicedTotalsByItemType(pInvoicesAll);
-      const pHourlyInvoiced = pInvoicedByType.hourly;
-      const pNonHourlyOwed = pInvoicedByType.fixed + pInvoicedByType.recurring + pInvoicedByType.reimbursement;
-      const pInvoicedTotal = pInvoicesAll.reduce((s, i) => s + i.amount, 0);
-      const pBillable = isHourly
-        ? Math.max(
-            totalBillableAmount(
-              projectEntries.map(te => ({ id: te.id, hours: getWorkedHours(te, now), hourly_rate: te.hourly_rate })),
-              rate,
-            ),
-            pHourlyInvoiced,
-          ) + pNonHourlyOwed
-        : pInvoicedTotal;
-      outstandingByProject.set(p.id, Math.max(0, pBillable - pPaidAll));
-    }
-    const totalOutstanding = Array.from(outstandingByProject.values()).reduce((s, v) => s + v, 0);
-
-    // ── Per-project breakdown (range-scoped) ─────────────────
-    // Per-project accrued total in range (from amortized spread).
-    const accruedByProjectInRange = new Map<string, number>();
-    for (const bucket of [fixedByDayProject, recurringByDayProject]) {
-      for (const [, pmap] of bucket) {
-        for (const [pid, dollars] of pmap) {
-          accruedByProjectInRange.set(pid, (accruedByProjectInRange.get(pid) ?? 0) + dollars);
-        }
-      }
-    }
-
-    const projectBreakdown = fProjects
-      .filter(p => p.status !== 'archived')
-      .map(p => {
-        const pInvoices = invoicesInRange.filter(inv => inv.project_id === p.id && inv.status !== 'cancelled');
-        const pPayments = paymentsInRange.filter(inv => inv.project_id === p.id);
-        // Hours and hourly-earned come from the per-day fragment pass so they
-        // match the chart (a session that crosses midnight is split by day).
-        const pHours = hoursByProjectInRange.get(p.id) ?? 0;
-        const pHourlyEarned = hourlyEarnedByProjectInRange.get(p.id) ?? 0;
-        const pTeamContribution = teamContributionByProjectInRange.get(p.id) ?? 0;
-        const pAccrued = accruedByProjectInRange.get(p.id) ?? 0;
-        const pEarned = pHourlyEarned + pAccrued + pTeamContribution;
-
-        return {
-          id: p.id,
-          name: p.name,
-          color: p.color,
-          hourlyRate: p.hourly_rate,
-          isHourly: !!p.hourly_tracking,
-          invoiced: pInvoices.reduce((s, i) => s + i.amount, 0),
-          earned: pEarned,
-          received: pPayments.reduce((s, i) => s + i.amount, 0),
-          // Outstanding column shows all-time outstanding (current snapshot)
-          outstanding: outstandingByProject.get(p.id) ?? 0,
-          hours: pHours,
-        };
-      })
-      .filter(p => p.invoiced > 0 || p.hours > 0 || p.outstanding > 0 || Math.abs(p.earned) > 0.005)
-      .sort((a, b) => b.earned - a.earned);
-
     // ── Invoices in range (sorted newest first) ─────────────
     const allInvoices = [...invoicesInRange]
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
     return {
-      totalInvoiced, totalEarned, totalPaymentsReceived, totalOutstanding, totalOverdue,
-      totalHours, activeInvoicesCount,
+      totalInvoiced: engine.invoiced,
+      totalEarned: engine.earned,
+      totalPaymentsReceived: engine.received,
+      totalOutstanding: engine.outstanding,
+      totalOverdue: engine.overdue,
+      totalHours: engine.hours,
+      activeInvoicesCount: engine.activeInvoicesCount,
       dailyBars, maxBarTotal, granularity,
-      projectBreakdown, allInvoices,
+      projectBreakdown: engine.projectBreakdown, allInvoices,
       // Exposed for bucket drilldown (week/month → days). Each map is keyed by
       // YYYY-MM-DD and contains the per-day data already used to build
       // dailyBars; the drilldown just re-aggregates those days at day
@@ -1411,11 +1139,6 @@ export default function FinancesPage() {
                   >
                     <FolderKanban size={13} className="text-zinc-400 flex-shrink-0" />
                     <span className="text-xs font-medium text-zinc-300 truncate max-w-[140px]">{buttonLabel}</span>
-                    {!allSelectedOrNone && (
-                      <span className="inline-flex items-center justify-center min-w-[16px] h-[16px] px-1 text-[9px] font-semibold text-white bg-brand-600 rounded-full">
-                        {selectedCount}
-                      </span>
-                    )}
                     <ChevronDown size={13} className={`text-zinc-500 transition-transform duration-150 ${projectFilterOpen ? 'rotate-180' : ''}`} />
                   </button>
 
@@ -1658,6 +1381,15 @@ export default function FinancesPage() {
                           const topIsHourly = !topIsPayment && !topIsTeam && visibleHourly > 0;
                           const topIsFixed = !topIsPayment && !topIsTeam && !topIsHourly && visibleFixed > 0;
 
+                          // Height of the actual coloured bar (sum of visible segments), as a
+                          // % of the column — used to size the glass sheen overlay so it covers
+                          // only the bar, never the empty plotting area above it.
+                          const barHeightPct = ((visiblePayment > 0 ? Math.max(paymentPct, 1.5) : 0)
+                            + (positiveTeam > 0 ? Math.max(teamPositivePct, 1.5) : 0)
+                            + (visibleHourly > 0 ? Math.max(hourlyPct, 1.5) : 0)
+                            + (visibleFixed > 0 ? Math.max(fixedPct, 1.5) : 0)
+                            + (visibleRecurring > 0 ? Math.max(recurringPct, 1.5) : 0)) / 100 * positiveAreaPct;
+
                           return (
                             <div
                               key={day.dateKey}
@@ -1693,6 +1425,12 @@ export default function FinancesPage() {
                                     {visibleFixed > 0 && <div className={`w-full bg-violet-500 transition-colors duration-150 group-hover:bg-violet-600 ${topIsFixed ? 'rounded-t' : ''}`} style={{ height: `${Math.max(fixedPct, 1.5)}%` }} />}
                                     {visibleRecurring > 0 && <div className={`w-full bg-amber-400 transition-colors duration-150 group-hover:bg-amber-500 ${!topIsPayment && !topIsTeam && !topIsHourly && !topIsFixed ? 'rounded-t' : ''}`} style={{ height: `${Math.max(recurringPct, 1.5)}%` }} />}
                                   </div>
+                                  {/* Glass sheen sized to the coloured bar only (never the empty area above). */}
+                                  <div
+                                    className="chart-bar pointer-events-none absolute inset-x-0 rounded-t overflow-hidden"
+                                    style={{ bottom: `${zeroBottomPct}%`, height: `${barHeightPct}%` }}
+                                    aria-hidden="true"
+                                  />
                                   {negativeTeam < 0 && (
                                     <div className="absolute inset-x-0" style={{ top: `${positiveAreaPct}%`, height: `${negativeAreaPct}%` }}>
                                       <div className="w-full rounded-b bg-rose-400 transition-colors duration-150 group-hover:bg-rose-500" style={{ height: `${Math.max(teamNegativePct, 2)}%` }} />
@@ -1741,7 +1479,7 @@ export default function FinancesPage() {
                                       anchors (which day, what's the day's total) stay visible
                                       no matter how many projects are on the bar. */}
                                   <div
-                                    className="bg-zinc-900 text-white text-[10px] leading-relaxed px-2.5 py-1.5 rounded-md whitespace-nowrap shadow-lg max-w-[300px] max-h-[60vh] flex flex-col pointer-events-auto"
+                                    className="bg-surface-overlay border border-white/[0.08] text-white text-[10px] leading-relaxed px-2.5 py-1.5 rounded-md whitespace-nowrap shadow-lg max-w-[300px] max-h-[60vh] flex flex-col pointer-events-auto"
                                     /* Stop clicks on the tooltip body from bubbling up to the
                                        bar's onClick - otherwise tapping inside the tooltip
                                        (e.g. trying to scroll on mobile) would drill the bar

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { Header } from '@/components/layout/Header';
@@ -9,9 +9,24 @@ import { PriorityBadge } from '@/components/ui/Badge';
 import { TaskForm } from '@/components/tasks/TaskForm';
 import Link from 'next/link';
 import Modal from '@/components/ui/Modal';
-import { FolderKanban, CheckCircle, Clock, AlertTriangle, Plus, ArrowRight, Users, Target, Activity } from 'lucide-react';
-import { parseDateOnly } from '@/lib/date-utils';
+import { FolderKanban, CheckCircle, Clock, AlertTriangle, Plus, ArrowRight, Users, Target, Activity, DollarSign, Wallet } from 'lucide-react';
+import { parseDateOnly, toLocalDateKey } from '@/lib/date-utils';
 import { hasPermission } from '@/lib/access-control';
+import { computeCompanyFinanceSummary, computeMemberEarningsSummary } from '@/lib/finance/summary';
+import { toDateKey } from '@/lib/finance/vesting';
+
+const fmtMoney = (n: number) =>
+  new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n);
+
+// Trend chip: percent change vs the prior 30-day window (▲ up is added by the card,
+// ▼ down is baked in). Falls back to a plain label when there's no prior baseline.
+function trendChip(current: number, prior: number, fallback: string): { text: string; up: boolean } {
+  if (prior <= 0) return { text: fallback, up: false };
+  const pct = Math.round(((current - prior) / prior) * 100);
+  if (pct > 0) return { text: `${pct}%`, up: true };
+  if (pct < 0) return { text: `▼ ${Math.abs(pct)}%`, up: false };
+  return { text: '0%', up: false };
+}
 
 function getTimeAgo(dateStr: string): string {
   const now = new Date();
@@ -47,13 +62,15 @@ function Sparkline({ data, className = 'text-brand-400' }: { data: number[]; cla
 }
 
 export default function DashboardPage() {
-  const { projects, tasks, contacts, leads, activities, getTeamMember } = useApp();
+  const { projects, tasks, contacts, leads, activities, getTeamMember, projectInvoices, timeEntries, team, employeeEarnings } = useApp();
   const { user, teamMemberId, access } = useAuth();
   const canManageProjects = hasPermission(access, 'projects.manage');
   const canCreateTasks = hasPermission(access, 'tasks.create');
   const canViewTeam = hasPermission(access, 'team.read') || hasPermission(access, 'team.manage');
   const canViewContacts = hasPermission(access, 'contacts.read') || hasPermission(access, 'contacts.read_all') || hasPermission(access, 'contacts.manage');
   const canViewLeads = hasPermission(access, 'leads.read') || hasPermission(access, 'leads.read_all') || hasPermission(access, 'leads.manage');
+  const canReadCompanyFinance = hasPermission(access, 'finance.company.read');
+  const canReadOwnEarnings = hasPermission(access, 'earnings.own.read');
   const [showProjectPicker, setShowProjectPicker] = useState(false);
   const [quickAddProjectId, setQuickAddProjectId] = useState<string | null>(null);
 
@@ -102,14 +119,58 @@ export default function DashboardPage() {
   const maxDay = Math.max(1, ...completedPerDay);
   const newLeadsThisWeek = leads.filter(l => l.created_at && new Date(l.created_at) >= weekAgo).length;
 
-  type Kpi = { label: string; value: number; icon: typeof Clock; context: string; up?: boolean; spark?: number[] };
-  const kpis: Kpi[] = [
-    { label: 'Active Projects', value: activeProjects.length, icon: FolderKanban, context: `${projects.length} total` },
-    { label: 'In Progress', value: inProgressTasks.length, icon: Clock, context: `${dueThisWeek.length} due this week` },
-    { label: 'Completed', value: doneTasks.length, icon: CheckCircle, context: completedThisWeek > 0 ? `${completedThisWeek} this week` : 'this week', up: completedThisWeek > 0, spark: completedPerDay },
-    ...(canViewLeads ? [{ label: 'Active Leads', value: activeLeads.length, icon: Target, context: newLeadsThisWeek > 0 ? `${newLeadsThisWeek} new this week` : `${leads.length} total`, up: newLeadsThisWeek > 0 } as Kpi] : []),
-    ...(canViewContacts && !canViewLeads ? [{ label: 'Contacts', value: contacts.length, icon: Users, context: `${contacts.length} total` } as Kpi] : []),
-  ];
+  type Kpi = { label: string; value: number; display?: string; icon: typeof Clock; context: string; up?: boolean; spark?: number[] };
+
+  // Permission-aware money cards. Company-finance users see workspace Earned/Outstanding;
+  // members with only own-earnings access see their own Earned/Owed. Figures come from the
+  // shared finance summary so they match the Finances page exactly. Last-30-days window.
+  const financeCards = useMemo<Kpi[]>(() => {
+    const tz = currentMember?.timezone && currentMember.timezone !== 'UTC' ? currentMember.timezone : undefined;
+    const nowMs = Date.now();
+    const endKey = toLocalDateKey(new Date(nowMs).toISOString(), tz);
+    const [ey, em, ed] = endKey.split('-').map(Number);
+    const range = { startKey: toDateKey(new Date(ey, em - 1, ed - 29)), endKey };
+    // The 30 days immediately before this window, for trend comparison.
+    const prevRange = { startKey: toDateKey(new Date(ey, em - 1, ed - 59)), endKey: toDateKey(new Date(ey, em - 1, ed - 30)) };
+
+    if (canReadCompanyFinance) {
+      const rateByProject = new Map(projects.map(p => [p.id, p.hourly_tracking && p.hourly_rate ? p.hourly_rate : 0]));
+      const base = { projects, invoices: projectInvoices, timeEntries, team, rateByProject, now: nowMs, timezone: tz };
+      const s = computeCompanyFinanceSummary({ ...base, range });
+      const prev = computeCompanyFinanceSummary({ ...base, range: prevRange });
+      const trend = trendChip(s.earned, prev.earned, `${Math.round(s.hours)}h logged`);
+      return [
+        { label: 'Earned (30d)', value: 0, display: fmtMoney(s.earned), icon: DollarSign, context: trend.text, up: trend.up },
+        { label: 'Outstanding', value: 0, display: fmtMoney(s.outstanding), icon: Wallet, context: s.overdue > 0 ? `${fmtMoney(s.overdue)} overdue` : 'to collect' },
+      ];
+    }
+    if (canReadOwnEarnings && employeeEarnings) {
+      const m = computeMemberEarningsSummary(employeeEarnings, range);
+      const mPrev = computeMemberEarningsSummary(employeeEarnings, prevRange);
+      const trend = trendChip(m.earned, mPrev.earned, 'last 30 days');
+      return [
+        { label: 'Earned (30d)', value: 0, display: fmtMoney(m.earned), icon: DollarSign, context: trend.text, up: trend.up },
+        { label: 'Owed to you', value: 0, display: fmtMoney(m.owed), icon: Wallet, context: m.owed > 0 ? 'unpaid' : 'all settled' },
+      ];
+    }
+    return [];
+  }, [canReadCompanyFinance, canReadOwnEarnings, employeeEarnings, projects, projectInvoices, timeEntries, team, currentMember?.timezone]);
+
+  const kpis: Kpi[] = financeCards.length
+    ? [
+        ...financeCards,
+        { label: 'Active Projects', value: activeProjects.length, icon: FolderKanban, context: `${projects.length} total` },
+        ...(canViewLeads
+          ? [{ label: 'Active Leads', value: activeLeads.length, icon: Target, context: newLeadsThisWeek > 0 ? `${newLeadsThisWeek} new this week` : `${leads.length} total`, up: newLeadsThisWeek > 0 } as Kpi]
+          : [{ label: 'In Progress', value: inProgressTasks.length, icon: Clock, context: `${dueThisWeek.length} due this week` } as Kpi]),
+      ]
+    : [
+        { label: 'Active Projects', value: activeProjects.length, icon: FolderKanban, context: `${projects.length} total` },
+        { label: 'In Progress', value: inProgressTasks.length, icon: Clock, context: `${dueThisWeek.length} due this week` },
+        { label: 'Completed', value: doneTasks.length, icon: CheckCircle, context: completedThisWeek > 0 ? `${completedThisWeek} this week` : 'this week', up: completedThisWeek > 0, spark: completedPerDay },
+        ...(canViewLeads ? [{ label: 'Active Leads', value: activeLeads.length, icon: Target, context: newLeadsThisWeek > 0 ? `${newLeadsThisWeek} new this week` : `${leads.length} total`, up: newLeadsThisWeek > 0 } as Kpi] : []),
+        ...(canViewContacts && !canViewLeads ? [{ label: 'Contacts', value: contacts.length, icon: Users, context: `${contacts.length} total` } as Kpi] : []),
+      ];
 
   const pipelineStages = [
     { status: 'new', label: 'New', color: '#3F6767' },
@@ -150,7 +211,7 @@ export default function DashboardPage() {
               <div className="flex items-start justify-between">
                 <div>
                   <p className="text-xs lg:text-sm text-zinc-500 font-medium">{kpi.label}</p>
-                  <p className="text-2xl lg:text-3xl font-bold tracking-tight text-white mt-0.5 leading-none">{kpi.value}</p>
+                  <p className="text-2xl lg:text-3xl font-bold tracking-tight text-white mt-0.5 leading-none">{kpi.display ?? kpi.value}</p>
                 </div>
                 <div className="w-8 h-8 lg:w-9 lg:h-9 rounded-lg grid place-items-center bg-white/[0.06] text-zinc-400 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)]">
                   <kpi.icon size={17} />
@@ -217,13 +278,12 @@ export default function DashboardPage() {
                 return (
                   <div key={i} className="flex-1 flex flex-col justify-end items-center h-full relative">
                     <div
-                      className="w-full max-w-[36px] rounded-t-md transition-all"
+                      className="chart-bar relative w-full max-w-[36px] rounded-t-md transition-all"
                       style={{
                         height: `${Math.max((v / maxDay) * 100, 3)}%`,
                         background: isToday
                           ? 'linear-gradient(180deg, #a7ccca, var(--color-brand-500))'
                           : 'linear-gradient(180deg, var(--color-brand-400), var(--color-brand-600))',
-                        boxShadow: '0 0 14px -4px color-mix(in srgb, var(--color-brand-500) 55%, transparent)',
                       }}
                       title={`${v} completed`}
                     />

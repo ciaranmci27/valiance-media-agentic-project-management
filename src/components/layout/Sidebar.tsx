@@ -123,7 +123,7 @@ export function Sidebar() {
       <aside
         data-theme="dark"
         className={`
-        fixed top-0 left-0 h-full w-60 bg-sidebar border-r border-white/[0.06] flex flex-col z-50
+        fixed top-0 left-0 h-full w-60 glass-sidebar flex flex-col z-50
         transform transition-transform duration-200 ease-out
         lg:translate-x-0 ${isOpen ? 'translate-x-0' : '-translate-x-full'}
       `}>

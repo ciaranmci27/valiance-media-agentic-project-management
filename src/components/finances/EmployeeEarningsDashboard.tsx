@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import { CalendarRange, FolderKanban, TrendingUp } from 'lucide-react';
 import { Select } from '@/components/ui/Select';
 import { getWorkedHoursByDay } from '@/lib/time-entry-utils';
+import { computeMemberEarningsSummary } from '@/lib/finance/summary';
 import type {
   EmployeeEarningsData,
   Project,
@@ -80,7 +81,6 @@ export function EmployeeEarningsDashboard({ projects, data }: { projects: Projec
     });
     const barByDate = new Map(bars.map(bar => [bar.dateKey, bar]));
     const projectRows = new Map<string, { approved: number; pending: number; hours: number }>();
-    let approved = 0;
     let pending = 0;
     let hours = 0;
 
@@ -95,7 +95,6 @@ export function EmployeeEarningsDashboard({ projects, data }: { projects: Projec
         projectRow.hours += workedHours;
         hours += workedHours;
         if (entry.approval_status === 'approved') {
-          approved += amount;
           projectRow.approved += amount;
           if (bar) bar.approved += amount;
         } else {
@@ -110,7 +109,6 @@ export function EmployeeEarningsDashboard({ projects, data }: { projects: Projec
     for (const adjustment of data.adjustments) {
       if (adjustment.voided_at || adjustment.effective_date < startKey || adjustment.effective_date > todayKey) continue;
       const amount = Number(adjustment.amount) * (adjustment.adjustment_type === 'deduction' ? -1 : 1);
-      approved += amount;
       const bar = barByDate.get(adjustment.effective_date);
       if (bar) bar.approved += amount;
       if (adjustment.project_id) {
@@ -123,14 +121,9 @@ export function EmployeeEarningsDashboard({ projects, data }: { projects: Projec
     const paid = data.payouts
       .filter(payout => !payout.voided_at && payout.payment_date >= startKey && payout.payment_date <= todayKey)
       .reduce((sum, payout) => sum + Number(payout.amount), 0);
-    const allApproved = data.entries
-      .filter(entry => entry.approval_status === 'approved')
-      .reduce((sum, entry) => sum + [...getWorkedHoursByDay(entry).values()].reduce((entrySum, value) => entrySum + value, 0) * Number(entry.compensation_rate || 0), 0)
-      + data.adjustments
-        .filter(item => !item.voided_at)
-        .reduce((sum, item) => sum + Number(item.amount) * (item.adjustment_type === 'deduction' ? -1 : 1), 0);
-    const allocated = data.allocations.reduce((sum, allocation) => sum + Number(allocation.allocated_amount), 0);
-    const owed = Math.max(0, allApproved - allocated);
+    // Headline approved-earned (in range) + all-time owed come from the shared finance
+    // summary so they match the Dashboard's "Earned"/"Owed" cards exactly.
+    const { earned: approved, owed } = computeMemberEarningsSummary(data, { startKey, endKey: todayKey });
 
     const projectLookup = new Map(projects.map(project => [project.id, project]));
     const byProject = Array.from(projectRows.entries())
@@ -218,7 +211,7 @@ export function EmployeeEarningsDashboard({ projects, data }: { projects: Projec
                         </div>
                         {approvedNegative < 0 && <div className="absolute inset-x-0" style={{ top: `${positiveArea}%`, height: `${negativeArea}%` }}><div className="w-full rounded-b bg-rose-400" style={{ height: `${Math.max(negativeHeight, 2)}%` }} /></div>}
                         {(Math.abs(approved) > 0.005 || pending > 0.005) && (
-                          <div className="pointer-events-none absolute bottom-[calc(100%+6px)] left-1/2 z-20 hidden -translate-x-1/2 whitespace-nowrap rounded-md bg-zinc-900 px-2.5 py-2 text-[10px] text-white shadow-lg group-hover:block">
+                          <div className="pointer-events-none absolute bottom-[calc(100%+6px)] left-1/2 z-20 hidden -translate-x-1/2 whitespace-nowrap rounded-md bg-surface-overlay border border-white/[0.08] px-2.5 py-2 text-[10px] text-white shadow-lg group-hover:block">
                             <p className="mb-1 font-semibold text-zinc-200">{bar.label}</p>
                             {Math.abs(approved) > 0.005 && <p>Approved <span className="ml-2 font-semibold">{formatMoney(approved)}</span></p>}
                             {pending > 0.005 && <p>Pending <span className="ml-2 font-semibold">{formatMoney(pending)}</span></p>}
