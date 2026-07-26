@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Tooltip } from '@/components/ui/Tooltip';
+import { Popover } from '@/components/ui/Popover';
 import { parseDateOnly, isDateOverdue } from '@/lib/date-utils';
 import { hasPermission } from '@/lib/access-control';
 
@@ -45,6 +46,8 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
   const [newComment, setNewComment] = useState('');
   const [showStatusMenu, setShowStatusMenu] = useState(false);
   const [showPriorityMenu, setShowPriorityMenu] = useState(false);
+  const statusMenuRef = useRef<HTMLDivElement>(null);
+  const priorityMenuRef = useRef<HTMLDivElement>(null);
   const [editingSubtaskId, setEditingSubtaskId] = useState<string | null>(null);
   const [editingSubtaskTitle, setEditingSubtaskTitle] = useState('');
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
@@ -170,66 +173,74 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
             {/* Status & Priority Row */}
             <div className="flex items-center gap-2 flex-wrap">
               {/* Clickable Status */}
-              <div className="relative">
+              <div ref={statusMenuRef} className="relative">
                 <button
                   onClick={() => canEdit && setShowStatusMenu(!showStatusMenu)}
                   className={canEdit ? 'hover:ring-2 hover:ring-brand-500/30 rounded-full transition-all' : 'cursor-default'}
                 >
                   <StatusBadge status={task.status} />
                 </button>
-                {canEdit && showStatusMenu && (
-                  <>
-                    <div className="fixed inset-0 z-10 cursor-default" onClick={() => setShowStatusMenu(false)} />
-                    <div className="absolute left-0 top-8 bg-surface-raised rounded-lg shadow-xl border border-white/[0.08] py-1 z-20 min-w-[160px] cursor-pointer">
-                      {STATUS_OPTIONS.map((opt) => (
-                        <button
-                          key={opt.value}
-                          onClick={() => {
-                            updateTask(task.id, { status: opt.value });
-                            setShowStatusMenu(false);
-                          }}
-                          className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-white/[0.03] transition-colors ${
-                            task.status === opt.value ? 'bg-white/[0.03] font-medium' : 'text-zinc-300'
-                          }`}
-                        >
-                          <div className={`w-2 h-2 rounded-full ${opt.color}`} />
-                          {opt.label}
-                        </button>
-                      ))}
-                    </div>
-                  </>
+                {canEdit && (
+                  <Popover
+                    anchorRef={statusMenuRef}
+                    open={showStatusMenu}
+                    onClose={() => setShowStatusMenu(false)}
+                    align="start"
+                    width={160}
+                    className="bg-surface-raised rounded-lg shadow-xl border border-white/[0.08] py-1"
+                  >
+                    {STATUS_OPTIONS.map((opt) => (
+                      <button
+                        key={opt.value}
+                        onClick={() => {
+                          updateTask(task.id, { status: opt.value });
+                          setShowStatusMenu(false);
+                        }}
+                        className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-white/[0.03] transition-colors ${
+                          task.status === opt.value ? 'bg-white/[0.03] font-medium' : 'text-zinc-300'
+                        }`}
+                      >
+                        <div className={`w-2 h-2 rounded-full ${opt.color}`} />
+                        {opt.label}
+                      </button>
+                    ))}
+                  </Popover>
                 )}
               </div>
 
               {/* Clickable Priority */}
-              <div className="relative">
+              <div ref={priorityMenuRef} className="relative">
                 <button
                   onClick={() => canEdit && setShowPriorityMenu(!showPriorityMenu)}
                   className={canEdit ? 'hover:ring-2 hover:ring-brand-500/30 rounded-full transition-all' : 'cursor-default'}
                 >
                   <PriorityBadge priority={task.priority} />
                 </button>
-                {canEdit && showPriorityMenu && (
-                  <>
-                    <div className="fixed inset-0 z-10 cursor-default" onClick={() => setShowPriorityMenu(false)} />
-                    <div className="absolute left-0 top-8 bg-surface-raised rounded-lg shadow-xl border border-white/[0.08] py-1 z-20 min-w-[140px] cursor-pointer">
-                      {PRIORITY_OPTIONS.map((opt) => (
-                        <button
-                          key={opt.value}
-                          onClick={() => {
-                            updateTask(task.id, { priority: opt.value });
-                            setShowPriorityMenu(false);
-                          }}
-                          className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-white/[0.03] transition-colors ${
-                            task.priority === opt.value ? 'bg-white/[0.03] font-medium' : 'text-zinc-300'
-                          }`}
-                        >
-                          <div className={`w-2 h-2 rounded-full ${opt.color}`} />
-                          {opt.label}
-                        </button>
-                      ))}
-                    </div>
-                  </>
+                {canEdit && (
+                  <Popover
+                    anchorRef={priorityMenuRef}
+                    open={showPriorityMenu}
+                    onClose={() => setShowPriorityMenu(false)}
+                    align="start"
+                    width={140}
+                    className="bg-surface-raised rounded-lg shadow-xl border border-white/[0.08] py-1"
+                  >
+                    {PRIORITY_OPTIONS.map((opt) => (
+                      <button
+                        key={opt.value}
+                        onClick={() => {
+                          updateTask(task.id, { priority: opt.value });
+                          setShowPriorityMenu(false);
+                        }}
+                        className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-white/[0.03] transition-colors ${
+                          task.priority === opt.value ? 'bg-white/[0.03] font-medium' : 'text-zinc-300'
+                        }`}
+                      >
+                        <div className={`w-2 h-2 rounded-full ${opt.color}`} />
+                        {opt.label}
+                      </button>
+                    ))}
+                  </Popover>
                 )}
               </div>
               {dueInfo && (

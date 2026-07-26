@@ -1,8 +1,10 @@
+import { after } from 'next/server';
 import { withApi } from '@/lib/api/middleware';
 import { success } from '@/lib/api/response';
 import { updateInvoiceSchema } from '@/lib/schemas';
 import { badRequest, notFound } from '@/lib/api/errors';
 import { logAudit } from '@/lib/api/audit';
+import { runDispatch } from '@/lib/webhooks/dispatch';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 function assertInvoiceTotal(amount: number, lineItems: Array<{ amount: number }>) {
@@ -66,6 +68,9 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
     afterSnapshot: result,
     statusCode: 200,
   });
+  // Best-effort immediate delivery of any webhook event the DB trigger just
+  // enqueued for this change.
+  after(() => runDispatch().catch(() => {}));
   return success(result);
 }, { schema: updateInvoiceSchema, permission: 'invoices.manage' });
 
@@ -88,5 +93,6 @@ export const DELETE = withApi(async ({ supabase, params, apiKeyId, teamMemberId 
     beforeSnapshot: before,
     statusCode: 200,
   });
+  after(() => runDispatch().catch(() => {}));
   return success({ deleted: true });
 }, { permission: 'invoices.manage' });

@@ -1,10 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { MoreVertical, Edit, Trash2, Mail, Phone } from 'lucide-react';
 import { Contact } from '@/lib/types';
 import { Avatar } from '@/components/ui/Avatar';
+import { Popover } from '@/components/ui/Popover';
 import { formatPhone } from '@/lib/format-phone';
 
 interface ContactCardProps {
@@ -16,6 +17,7 @@ interface ContactCardProps {
 export function ContactCard({ contact, onEdit, onDelete }: ContactCardProps) {
   const router = useRouter();
   const [showMenu, setShowMenu] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   return (
     <div
@@ -35,7 +37,7 @@ export function ContactCard({ contact, onEdit, onDelete }: ContactCardProps) {
           </div>
         </div>
 
-        {(onEdit || onDelete) && <div className="relative flex-shrink-0">
+        {(onEdit || onDelete) && <div ref={menuRef} className="relative flex-shrink-0">
           <button
             onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }}
             className="lg:opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.06] transition-all"
@@ -43,27 +45,29 @@ export function ContactCard({ contact, onEdit, onDelete }: ContactCardProps) {
             <MoreVertical size={16} />
           </button>
 
-          {showMenu && (
-            <>
-              <div className="fixed inset-0 z-10 cursor-default" onClick={(e) => { e.stopPropagation(); setShowMenu(false); }} />
-              <div className="absolute right-0 top-10 bg-surface-raised rounded-lg shadow-xl border border-white/[0.08] py-1 z-20 min-w-[140px] cursor-pointer">
-                <button
-                  onClick={(e) => { e.stopPropagation(); onEdit?.(contact); setShowMenu(false); }}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-300 hover:bg-white/[0.06]"
-                >
-                  <Edit size={14} />
-                  Edit
-                </button>
-                <button
-                  onClick={(e) => { e.stopPropagation(); onDelete?.(contact.id); setShowMenu(false); }}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-400 hover:bg-red-500/15"
-                >
-                  <Trash2 size={14} />
-                  Delete
-                </button>
-              </div>
-            </>
-          )}
+          <Popover
+            anchorRef={menuRef}
+            open={showMenu}
+            onClose={() => setShowMenu(false)}
+            align="end"
+            width={140}
+            className="bg-surface-raised rounded-lg shadow-xl border border-white/[0.08] py-1"
+          >
+            <button
+              onClick={(e) => { e.stopPropagation(); onEdit?.(contact); setShowMenu(false); }}
+              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-300 hover:bg-white/[0.06]"
+            >
+              <Edit size={14} />
+              Edit
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); onDelete?.(contact.id); setShowMenu(false); }}
+              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-400 hover:bg-red-500/15"
+            >
+              <Trash2 size={14} />
+              Delete
+            </button>
+          </Popover>
         </div>}
       </div>
 

@@ -6,6 +6,7 @@ import Modal from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { TextInput } from '@/components/ui/inputs/TextInput';
 import { Textarea } from '@/components/ui/inputs/Textarea';
+import { Popover } from '@/components/ui/Popover';
 import { toast } from '@/components/ui/Toast';
 import { useApp } from '@/lib/store';
 import type { ClientCommType, ClientCommunication } from '@/lib/types';
@@ -720,6 +721,7 @@ function RecipientRow({ label, value, onChange, contactOptions, excludeEmails, d
   const [input, setInput] = useState('');
   const [showDropdown, setShowDropdown] = useState(false);
   const [highlighted, setHighlighted] = useState(0);
+  const dropdownAnchorRef = useRef<HTMLDivElement>(null);
 
   const lookup = useMemo(() => {
     const m = new Map<string, string>();
@@ -814,7 +816,7 @@ function RecipientRow({ label, value, onChange, contactOptions, excludeEmails, d
             </span>
           );
         })}
-        <div className="relative flex-1 min-w-[120px]">
+        <div ref={dropdownAnchorRef} className="relative flex-1 min-w-[120px]">
           <input
             type="text"
             value={input}
@@ -826,8 +828,14 @@ function RecipientRow({ label, value, onChange, contactOptions, excludeEmails, d
             disabled={disabled}
             className="w-full text-xs px-1 py-0.5 bg-transparent outline-none placeholder:text-zinc-500"
           />
-          {showDropdown && available.length > 0 && (
-            <div className="absolute left-0 right-0 top-full mt-1 z-20 bg-surface-raised border border-white/[0.08] rounded-md shadow-lg max-h-48 overflow-auto">
+          <Popover
+            anchorRef={dropdownAnchorRef}
+            open={showDropdown && available.length > 0}
+            onClose={() => setShowDropdown(false)}
+            align="start"
+            matchAnchorWidth
+            className="bg-surface-raised border border-white/[0.08] rounded-md shadow-lg max-h-48"
+          >
               {available.map((c, i) => (
                 <button
                   key={c.email}
@@ -842,8 +850,7 @@ function RecipientRow({ label, value, onChange, contactOptions, excludeEmails, d
                   <span className="text-zinc-400 truncate">{c.email}</span>
                 </button>
               ))}
-            </div>
-          )}
+          </Popover>
         </div>
       </div>
       {onRemove && (

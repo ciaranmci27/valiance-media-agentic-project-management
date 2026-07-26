@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Popover } from '@/components/ui/Popover';
 import { CheckCircle2, Clock3, DollarSign, Landmark, ListChecks, MoreVertical, Plus, WalletCards } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import Modal from '@/components/ui/Modal';
@@ -74,6 +75,7 @@ export function PayrollPanel({ team, projects }: { team: TeamMember[]; projects:
   const [paymentMethod, setPaymentMethod] = useState('');
   const [paymentReference, setPaymentReference] = useState('');
   const [menuMemberId, setMenuMemberId] = useState<string | null>(null);
+  const compMenuRef = useRef<HTMLDivElement>(null);
   const [ledgerMemberId, setLedgerMemberId] = useState<string | null>(null);
   const [earningsFilter, setEarningsFilter] = useState<EarningsFilter>('all');
   // Single-flight lock for money actions. The ref blocks re-entry synchronously
@@ -425,7 +427,7 @@ export function PayrollPanel({ team, projects }: { team: TeamMember[]; projects:
                   <div className="flex items-center gap-1">
                     {balance.owed <= 0.005 && <CheckCircle2 size={18} className="text-emerald-500" />}
                     {canManage && (
-                      <div className="relative">
+                      <div ref={menuMemberId === member.id ? compMenuRef : null} className="relative">
                         <button
                           type="button"
                           aria-label={`Compensation actions for ${member.name}`}
@@ -435,17 +437,19 @@ export function PayrollPanel({ team, projects }: { team: TeamMember[]; projects:
                         >
                           <MoreVertical size={16} />
                         </button>
-                        {menuMemberId === member.id && (
-                          <>
-                            <button type="button" aria-label="Close compensation menu" className="fixed inset-0 z-10 cursor-default" onClick={() => setMenuMemberId(null)} />
-                            <div className="absolute right-0 top-8 z-20 min-w-[190px] rounded-lg border border-white/[0.08] bg-surface-raised py-1 shadow-xl">
-                              <button type="button" onClick={() => openEarnings(member.id)} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-zinc-300 transition-colors hover:bg-white/[0.03]"><ListChecks size={14} />View earnings</button>
-                              {canManagePayouts && balance.owed > 0.005 && <button type="button" onClick={() => openPayout(member.id)} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-zinc-300 transition-colors hover:bg-white/[0.03]"><Landmark size={14} />Record payment</button>}
-                              {canManageCompensation && <button type="button" onClick={() => openAdjustment(member.id)} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-zinc-300 transition-colors hover:bg-white/[0.03]"><Plus size={14} />Add adjustment</button>}
-                              {canManageCompensation && <button type="button" onClick={() => openRate(member.id)} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-zinc-300 transition-colors hover:bg-white/[0.03]"><DollarSign size={14} />Schedule rate</button>}
-                            </div>
-                          </>
-                        )}
+                        <Popover
+                          anchorRef={compMenuRef}
+                          open={menuMemberId === member.id}
+                          onClose={() => setMenuMemberId(null)}
+                          align="end"
+                          width={190}
+                          className="rounded-lg border border-white/[0.08] bg-surface-raised py-1 shadow-xl"
+                        >
+                          <button type="button" onClick={() => openEarnings(member.id)} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-zinc-300 transition-colors hover:bg-white/[0.03]"><ListChecks size={14} />View earnings</button>
+                          {canManagePayouts && balance.owed > 0.005 && <button type="button" onClick={() => openPayout(member.id)} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-zinc-300 transition-colors hover:bg-white/[0.03]"><Landmark size={14} />Record payment</button>}
+                          {canManageCompensation && <button type="button" onClick={() => openAdjustment(member.id)} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-zinc-300 transition-colors hover:bg-white/[0.03]"><Plus size={14} />Add adjustment</button>}
+                          {canManageCompensation && <button type="button" onClick={() => openRate(member.id)} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-zinc-300 transition-colors hover:bg-white/[0.03]"><DollarSign size={14} />Schedule rate</button>}
+                        </Popover>
                       </div>
                     )}
                   </div>

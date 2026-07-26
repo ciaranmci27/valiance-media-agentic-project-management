@@ -384,6 +384,65 @@ create table public.api_keys (
 );
 
 -- ============================================================
+-- 20b. WEBHOOKS (generic outbound webhook platform)
+-- ============================================================
+-- Transactional outbox: a trigger on project_invoices records an event
+-- and fans out one delivery per subscribed endpoint; a TypeScript
+-- dispatcher signs (HMAC) and delivers each once. Secret is stored
+-- retrievably because it is needed to sign at delivery time.
+create sequence if not exists public.webhook_event_seq;
+
+create table public.webhook_endpoints (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  url text not null,
+  secret text not null,
+  events text[] not null default '{}',
+  is_active boolean not null default true,
+  description text not null default '',
+  created_by uuid references public.team_members(id) on delete set null,
+  last_delivery_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table public.webhook_events (
+  id uuid primary key default gen_random_uuid(),
+  event_id text not null unique,
+  sequence bigint not null unique,
+  event_type text not null,
+  resource_type text not null default 'invoice',
+  resource_id uuid,
+  payload jsonb not null,
+  created_at timestamptz not null default now()
+);
+create index idx_webhook_events_resource
+  on public.webhook_events (resource_type, resource_id);
+
+create table public.webhook_deliveries (
+  id uuid primary key default gen_random_uuid(),
+  webhook_event_id uuid not null references public.webhook_events(id) on delete cascade,
+  endpoint_id uuid not null references public.webhook_endpoints(id) on delete cascade,
+  status text not null default 'pending'
+    check (status in ('pending', 'delivering', 'succeeded', 'failed')),
+  attempts int not null default 0,
+  last_attempt_at timestamptz,
+  last_status_code int,
+  last_error text,
+  last_response text,
+  delivered_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index idx_webhook_deliveries_pending
+  on public.webhook_deliveries (created_at)
+  where status = 'pending';
+create index idx_webhook_deliveries_endpoint
+  on public.webhook_deliveries (endpoint_id);
+create index idx_webhook_deliveries_event
+  on public.webhook_deliveries (webhook_event_id);
+
+-- ============================================================
 -- 20. NOTIFICATIONS
 -- ============================================================
 create table public.team_member_notifications (
@@ -1201,6 +1260,195 @@ create trigger set_project_invoices_updated_at
   before update on public.project_invoices
   for each row execute function public.handle_updated_at();
 
+create trigger set_webhook_endpoints_updated_at
+  before update on public.webhook_endpoints
+  for each row execute function public.handle_updated_at();
+
+create trigger set_webhook_deliveries_updated_at
+  before update on public.webhook_deliveries
+  for each row execute function public.handle_updated_at();
+
+-- Emits invoice.paid / invoice.updated / invoice.deleted events for
+-- paid-relevant invoices and fans out deliveries. See migration
+-- 20260725154128_create_webhooks.sql for the annotated version.
+create or replace function public.emit_invoice_webhook()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_op text := TG_OP;
+  v_row public.project_invoices;
+  v_was_paid boolean;
+  v_is_paid boolean;
+  v_event_type text;
+  v_project_name text;
+  v_totals jsonb;
+  v_public_id text;
+  v_seq bigint;
+  v_event_uuid uuid;
+  v_payload jsonb;
+begin
+  if v_op = 'DELETE' then
+    v_row := OLD;
+  else
+    v_row := NEW;
+  end if;
+
+  v_was_paid := (v_op <> 'INSERT' and OLD.status = 'paid');
+  v_is_paid  := (v_op <> 'DELETE' and NEW.status = 'paid');
+
+  if v_op = 'DELETE' then
+    if not v_was_paid then
+      return OLD;
+    end if;
+    v_event_type := 'invoice.deleted';
+  elsif v_op = 'INSERT' then
+    if not v_is_paid then
+      return NEW;
+    end if;
+    v_event_type := 'invoice.paid';
+  else
+    if not (v_is_paid or v_was_paid) then
+      return NEW;
+    end if;
+    if v_is_paid and not v_was_paid then
+      v_event_type := 'invoice.paid';
+    else
+      if v_is_paid and v_was_paid
+         and NEW.status is not distinct from OLD.status
+         and NEW.paid_date is not distinct from OLD.paid_date
+         and NEW.amount is not distinct from OLD.amount
+         and NEW.line_items is not distinct from OLD.line_items
+         and NEW.invoice_number is not distinct from OLD.invoice_number
+         and NEW.invoice_type is not distinct from OLD.invoice_type
+         and NEW.project_id is not distinct from OLD.project_id then
+        return NEW;
+      end if;
+      v_event_type := 'invoice.updated';
+    end if;
+  end if;
+
+  if not exists (
+    select 1 from public.webhook_endpoints e
+    where e.is_active and v_event_type = any(e.events)
+  ) then
+    return case when v_op = 'DELETE' then OLD else NEW end;
+  end if;
+
+  select name into v_project_name
+  from public.projects where id = v_row.project_id;
+
+  select coalesce(jsonb_object_agg(t.item_type, t.subtotal), '{}'::jsonb)
+    into v_totals
+  from (
+    select li->>'item_type' as item_type, sum((li->>'amount')::numeric) as subtotal
+    from jsonb_array_elements(
+           coalesce(nullif(v_row.line_items, 'null'::jsonb), '[]'::jsonb)
+         ) li
+    where li ? 'item_type'
+    group by li->>'item_type'
+  ) t;
+
+  if v_totals = '{}'::jsonb then
+    v_totals := jsonb_build_object(v_row.invoice_type, v_row.amount);
+  end if;
+
+  v_seq := nextval('public.webhook_event_seq');
+  v_public_id := 'evt_' || replace(gen_random_uuid()::text, '-', '');
+
+  v_payload := jsonb_build_object(
+    'id', v_public_id,
+    'type', v_event_type,
+    'sequence', v_seq,
+    'created_at', now(),
+    'data', jsonb_build_object(
+      'invoice', jsonb_build_object(
+        'id', v_row.id,
+        'invoice_number', v_row.invoice_number,
+        'project_id', v_row.project_id,
+        'status', v_row.status,
+        'paid', v_is_paid,
+        'invoice_type', v_row.invoice_type,
+        'amount', v_row.amount,
+        'date', v_row.date,
+        'due_date', v_row.due_date,
+        'paid_date', v_row.paid_date,
+        'description', v_row.description,
+        'updated_at', v_row.updated_at
+      ),
+      'project', jsonb_build_object(
+        'id', v_row.project_id,
+        'name', coalesce(v_project_name, '')
+      ),
+      'line_items', coalesce(nullif(v_row.line_items, 'null'::jsonb), '[]'::jsonb),
+      'totals_by_type', v_totals
+    )
+  );
+
+  insert into public.webhook_events (event_id, sequence, event_type, resource_type, resource_id, payload)
+  values (v_public_id, v_seq, v_event_type, 'invoice', v_row.id, v_payload)
+  returning id into v_event_uuid;
+
+  insert into public.webhook_deliveries (webhook_event_id, endpoint_id)
+  select v_event_uuid, e.id
+  from public.webhook_endpoints e
+  where e.is_active and v_event_type = any(e.events);
+
+  return case when v_op = 'DELETE' then OLD else NEW end;
+end;
+$$;
+
+create trigger emit_invoice_webhook
+  after insert or update or delete on public.project_invoices
+  for each row execute function public.emit_invoice_webhook();
+
+-- Atomic claim for the dispatcher (FOR UPDATE SKIP LOCKED). See migration
+-- 20260725154128_create_webhooks.sql.
+create or replace function public.claim_webhook_deliveries(p_limit int default 20)
+returns table (
+  delivery_id uuid,
+  attempts int,
+  endpoint_id uuid,
+  endpoint_url text,
+  endpoint_secret text,
+  event_public_id text,
+  event_type text,
+  payload jsonb
+)
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  return query
+  with claimed as (
+    select d2.id
+    from public.webhook_deliveries d2
+    join public.webhook_endpoints e2 on e2.id = d2.endpoint_id
+    where d2.status = 'pending'
+      and e2.is_active
+    order by d2.created_at
+    for update of d2 skip locked
+    limit p_limit
+  )
+  update public.webhook_deliveries d
+  set status = 'delivering',
+      attempts = d.attempts + 1,
+      last_attempt_at = now()
+  from claimed, public.webhook_events ev, public.webhook_endpoints e
+  where d.id = claimed.id
+    and ev.id = d.webhook_event_id
+    and e.id = d.endpoint_id
+  returning d.id, d.attempts,
+            e.id, e.url, e.secret,
+            ev.event_id, ev.event_type, ev.payload;
+end;
+$$;
+revoke all on function public.claim_webhook_deliveries(int) from public;
+grant execute on function public.claim_webhook_deliveries(int) to service_role;
+
 create trigger set_smtp_accounts_updated_at
   before update on public.smtp_accounts
   for each row execute function public.handle_updated_at();
@@ -1565,6 +1813,7 @@ VALUES
   ('admin','communications.read','app'), ('admin','communications.manage','app'),
   ('admin','credentials.reveal_shared','app'), ('admin','credentials.manage','app'),
   ('admin','invoices.read','app'), ('admin','invoices.manage','app'),
+  ('admin','webhooks.manage','app'),
   ('admin','billing.manage','app'), ('admin','finance.company.read','app'),
   ('admin','earnings.own.read','app'), ('admin','compensation.manage','app'),
   ('admin','payouts.manage','app'), ('admin','agents.manage','app'),
@@ -2442,6 +2691,9 @@ ALTER TABLE public.team_member_earning_adjustments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.team_member_payouts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.team_member_payout_allocations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.project_credential_members ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.webhook_endpoints ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.webhook_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.webhook_deliveries ENABLE ROW LEVEL SECURITY;
 
 DO $$
 DECLARE
@@ -2626,6 +2878,17 @@ CREATE POLICY api_keys_insert_own ON public.api_keys FOR INSERT TO authenticated
 CREATE POLICY api_keys_update_own ON public.api_keys FOR UPDATE TO authenticated
   USING (team_member_id = public.current_team_member_id()
     OR public.has_permission('api_keys.manage_all'));
+
+CREATE POLICY webhook_endpoints_manage ON public.webhook_endpoints FOR ALL TO authenticated
+  USING (public.has_permission('webhooks.manage'))
+  WITH CHECK (public.has_permission('webhooks.manage'));
+CREATE POLICY webhook_events_select ON public.webhook_events FOR SELECT TO authenticated
+  USING (public.has_permission('webhooks.manage'));
+CREATE POLICY webhook_deliveries_select ON public.webhook_deliveries FOR SELECT TO authenticated
+  USING (public.has_permission('webhooks.manage'));
+CREATE POLICY webhook_deliveries_requeue ON public.webhook_deliveries FOR UPDATE TO authenticated
+  USING (public.has_permission('webhooks.manage'))
+  WITH CHECK (public.has_permission('webhooks.manage'));
 
 CREATE POLICY time_entries_management_select ON public.project_time_entries FOR SELECT TO authenticated
   USING (public.has_permission('time.read_all') AND public.can_access_project(project_id));

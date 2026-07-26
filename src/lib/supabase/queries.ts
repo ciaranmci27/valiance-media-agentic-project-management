@@ -1,5 +1,5 @@
 import { SupabaseClient } from '@supabase/supabase-js';
-import type { Project, Task, TeamMember, Subtask, Comment, Activity, Contact, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, ApiKey, ProjectGoal, TaskSuggestion, AgentActivity, ApiAuditEntry, TimeEntry, ProjectCredential, ProjectCredentialListItem, ProjectInvoice, BusinessSettings, InvoiceTimeEntryAllocation } from '@/lib/types';
+import type { Project, Task, TeamMember, Subtask, Comment, Activity, Contact, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, ApiKey, ProjectGoal, TaskSuggestion, AgentActivity, ApiAuditEntry, TimeEntry, ProjectCredential, ProjectCredentialListItem, ProjectInvoice, BusinessSettings, InvoiceTimeEntryAllocation, WebhookEndpoint, WebhookDelivery } from '@/lib/types';
 import { notFound } from '@/lib/api/errors';
 import { siteConfig } from '@/site-config';
 import { generatePortalSlug } from '@/lib/portal-slug';
@@ -1410,6 +1410,81 @@ export async function revokeApiKey(supabase: SupabaseClient, id: string) {
 
   if (error) throw error;
   return data as ApiKey;
+}
+
+// ============================================================
+// WEBHOOK ENDPOINTS + DELIVERIES
+// ============================================================
+
+const WEBHOOK_ENDPOINT_COLUMNS =
+  'id, name, url, secret, events, is_active, description, created_by, last_delivery_at, created_at, updated_at';
+
+export async function fetchWebhookEndpoints(supabase: SupabaseClient) {
+  const { data, error } = await supabase
+    .from('webhook_endpoints')
+    .select(WEBHOOK_ENDPOINT_COLUMNS)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return (data || []) as WebhookEndpoint[];
+}
+
+export async function insertWebhookEndpoint(
+  supabase: SupabaseClient,
+  endpoint: { name: string; url: string; secret: string; events: string[]; description?: string; created_by: string | null },
+) {
+  const { data, error } = await supabase
+    .from('webhook_endpoints')
+    .insert({
+      name: endpoint.name,
+      url: endpoint.url,
+      secret: endpoint.secret,
+      events: endpoint.events,
+      description: endpoint.description || '',
+      created_by: endpoint.created_by,
+    })
+    .select(WEBHOOK_ENDPOINT_COLUMNS)
+    .single();
+  if (error) throw error;
+  return data as WebhookEndpoint;
+}
+
+export async function updateWebhookEndpoint(
+  supabase: SupabaseClient,
+  id: string,
+  patch: Partial<Pick<WebhookEndpoint, 'name' | 'url' | 'events' | 'is_active' | 'description'>>,
+) {
+  const { data, error } = await supabase
+    .from('webhook_endpoints')
+    .update(patch)
+    .eq('id', id)
+    .select(WEBHOOK_ENDPOINT_COLUMNS)
+    .single();
+  if (error) throw error;
+  return data as WebhookEndpoint;
+}
+
+export async function deleteWebhookEndpoint(supabase: SupabaseClient, id: string) {
+  const { error } = await supabase.from('webhook_endpoints').delete().eq('id', id);
+  if (error) throw error;
+}
+
+export async function fetchWebhookDeliveries(supabase: SupabaseClient, limit = 25) {
+  const { data, error } = await supabase
+    .from('webhook_deliveries')
+    .select('*, webhook_events(event_id, event_type, created_at)')
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return (data || []) as WebhookDelivery[];
+}
+
+/** Manual resend: mark a failed delivery pending again so the next dispatch re-sends it. */
+export async function requeueWebhookDelivery(supabase: SupabaseClient, id: string) {
+  const { error } = await supabase
+    .from('webhook_deliveries')
+    .update({ status: 'pending', last_error: null })
+    .eq('id', id);
+  if (error) throw error;
 }
 
 // ============================================================

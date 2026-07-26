@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
+import { Popover } from '@/components/ui/Popover';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useApp, defaultFilters } from '@/lib/store';
@@ -68,6 +69,7 @@ export default function ProjectDetailPage() {
   const [confirmDelete, setConfirmDelete] = useState<{ type: 'task' | 'project' | 'bulk'; id: string } | null>(null);
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
   const [showBulkMenu, setShowBulkMenu] = useState(false);
+  const bulkMenuRef = useRef<HTMLDivElement>(null);
 
   const project = getProject(projectId);
 
@@ -423,7 +425,7 @@ export default function ProjectDetailPage() {
           <div className="flex items-center gap-2">
             {/* Bulk Actions */}
             {selectedTaskIds.size > 0 && (
-              <div className="relative">
+              <div ref={bulkMenuRef} className="relative">
                 <button
                   onClick={() => setShowBulkMenu(!showBulkMenu)}
                   className="flex items-center gap-2 px-3 py-1.5 text-sm bg-brand-500/15 text-brand-300 border border-brand-500/30 rounded-lg hover:bg-brand-500/15 transition-colors"
@@ -431,30 +433,32 @@ export default function ProjectDetailPage() {
                   {selectedTaskIds.size} selected
                   <ChevronRight size={14} className="rotate-90" />
                 </button>
-                {showBulkMenu && (
-                  <>
-                    <div className="fixed inset-0 z-10 cursor-default" onClick={(e) => { e.stopPropagation(); setShowBulkMenu(false); }} />
-                    <div className="absolute right-0 top-10 bg-surface-raised rounded-lg shadow-xl border border-white/[0.08] py-1 z-20 min-w-[200px] cursor-pointer">
-                      <p className="px-3 py-1.5 text-xs font-medium text-zinc-400 uppercase">Set Status</p>
-                      {(['todo', 'in_progress', 'in_review', 'done'] as const).map(s => (
-                        <button key={s} onClick={() => bulkUpdateStatus(s)} className="w-full text-left px-3 py-1.5 text-sm text-zinc-300 hover:bg-white/[0.03]">
-                          {s.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
-                        </button>
-                      ))}
-                      <div className="border-t border-white/[0.06] my-1" />
-                      <p className="px-3 py-1.5 text-xs font-medium text-zinc-400 uppercase">Set Priority</p>
-                      {(['low', 'medium', 'high', 'urgent'] as const).map(p => (
-                        <button key={p} onClick={() => bulkUpdatePriority(p)} className="w-full text-left px-3 py-1.5 text-sm text-zinc-300 hover:bg-white/[0.03]">
-                          {p.charAt(0).toUpperCase() + p.slice(1)}
-                        </button>
-                      ))}
-                      <div className="border-t border-white/[0.06] my-1" />
-                      <button onClick={bulkDelete} className="w-full text-left px-3 py-1.5 text-sm text-red-400 hover:bg-red-500/15">
-                        Delete selected
-                      </button>
-                    </div>
-                  </>
-                )}
+                <Popover
+                  anchorRef={bulkMenuRef}
+                  open={showBulkMenu}
+                  onClose={() => setShowBulkMenu(false)}
+                  align="end"
+                  width={200}
+                  className="bg-surface-raised rounded-lg shadow-xl border border-white/[0.08] py-1"
+                >
+                  <p className="px-3 py-1.5 text-xs font-medium text-zinc-400 uppercase">Set Status</p>
+                  {(['todo', 'in_progress', 'in_review', 'done'] as const).map(s => (
+                    <button key={s} onClick={() => bulkUpdateStatus(s)} className="w-full text-left px-3 py-1.5 text-sm text-zinc-300 hover:bg-white/[0.03]">
+                      {s.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                    </button>
+                  ))}
+                  <div className="border-t border-white/[0.06] my-1" />
+                  <p className="px-3 py-1.5 text-xs font-medium text-zinc-400 uppercase">Set Priority</p>
+                  {(['low', 'medium', 'high', 'urgent'] as const).map(p => (
+                    <button key={p} onClick={() => bulkUpdatePriority(p)} className="w-full text-left px-3 py-1.5 text-sm text-zinc-300 hover:bg-white/[0.03]">
+                      {p.charAt(0).toUpperCase() + p.slice(1)}
+                    </button>
+                  ))}
+                  <div className="border-t border-white/[0.06] my-1" />
+                  <button onClick={bulkDelete} className="w-full text-left px-3 py-1.5 text-sm text-red-400 hover:bg-red-500/15">
+                    Delete selected
+                  </button>
+                </Popover>
               </div>
             )}
 

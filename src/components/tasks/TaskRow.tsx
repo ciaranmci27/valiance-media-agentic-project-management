@@ -6,7 +6,8 @@ import { useAuth } from '@/lib/auth-context';
 import { StatusBadge, PriorityBadge, TaskTypeBadge } from '@/components/ui/Badge';
 import { AvatarGroup } from '@/components/ui/Avatar';
 import { Calendar, CheckSquare, MessageSquare, MoreVertical, Edit, Trash2, Clock, User } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useRef } from 'react';
+import { Popover } from '@/components/ui/Popover';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { parseDateOnly, isDateOverdue } from '@/lib/date-utils';
 import { hasPermission } from '@/lib/access-control';
@@ -37,6 +38,7 @@ export function TaskRow({ task, onView, onEdit, onDelete }: TaskRowProps) {
   const { team, getProject } = useApp();
   const { teamMemberId, access } = useAuth();
   const [showMenu, setShowMenu] = useState(false);
+  const menuBtnRef = useRef<HTMLButtonElement>(null);
 
   const isAgentsEnabled = process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true';
   const canManageAgents = hasPermission(access, 'agents.manage');
@@ -80,6 +82,7 @@ export function TaskRow({ task, onView, onEdit, onDelete }: TaskRowProps) {
           <div className="flex items-start justify-between gap-2">
             <h3 className="font-medium text-white text-sm leading-tight">{task.title}</h3>
             {(canEdit || canDelete) && <button
+              ref={menuBtnRef}
               onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }}
               className="p-1 rounded text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.06] flex-shrink-0"
             >
@@ -157,26 +160,30 @@ export function TaskRow({ task, onView, onEdit, onDelete }: TaskRowProps) {
       </div>
 
       {/* Actions menu */}
-      {showMenu && (canEdit || canDelete) && (
-        <>
-          <div className="fixed inset-0 z-10 cursor-default" onClick={(e) => { e.stopPropagation(); setShowMenu(false); }} />
-          <div className="absolute right-4 bg-surface-raised rounded-lg shadow-xl border border-white/[0.08] py-1 z-20 min-w-[120px] cursor-pointer">
-            {canEdit && <button
-              onClick={(e) => { e.stopPropagation(); onEdit?.(task); setShowMenu(false); }}
-              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-300 hover:bg-white/[0.06]"
-            >
-              <Edit size={14} />
-              Edit
-            </button>}
-            {canDelete && <button
-              onClick={(e) => { e.stopPropagation(); onDelete?.(task.id); setShowMenu(false); }}
-              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-400 hover:bg-red-500/15"
-            >
-              <Trash2 size={14} />
-              Delete
-            </button>}
-          </div>
-        </>
+      {(canEdit || canDelete) && (
+        <Popover
+          anchorRef={menuBtnRef}
+          open={showMenu}
+          onClose={() => setShowMenu(false)}
+          align="end"
+          width={120}
+          className="bg-surface-raised rounded-lg shadow-xl border border-white/[0.08] py-1"
+        >
+          {canEdit && <button
+            onClick={(e) => { e.stopPropagation(); onEdit?.(task); setShowMenu(false); }}
+            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-300 hover:bg-white/[0.06]"
+          >
+            <Edit size={14} />
+            Edit
+          </button>}
+          {canDelete && <button
+            onClick={(e) => { e.stopPropagation(); onDelete?.(task.id); setShowMenu(false); }}
+            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-400 hover:bg-red-500/15"
+          >
+            <Trash2 size={14} />
+            Delete
+          </button>}
+        </Popover>
       )}
     </div>
   );
@@ -187,6 +194,7 @@ export function TaskRowDesktop({ task, onView, onEdit, onDelete, selected, onTog
   const { team, getProject } = useApp();
   const { teamMemberId, access } = useAuth();
   const [showMenu, setShowMenu] = useState(false);
+  const menuBtnRef = useRef<HTMLButtonElement>(null);
 
   const isAgentsEnabled = process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true';
   const canManageAgents = hasPermission(access, 'agents.manage');
@@ -320,33 +328,36 @@ export function TaskRowDesktop({ task, onView, onEdit, onDelete, selected, onTog
       {/* Actions */}
       {(canEdit || canDelete) && <div className="relative">
         <button
+          ref={menuBtnRef}
           onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }}
           className="p-1.5 rounded text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.06] sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 transition-all"
         >
           <MoreVertical size={16} />
         </button>
-        
-        {showMenu && (
-          <>
-            <div className="fixed inset-0 cursor-default" onClick={(e) => { e.stopPropagation(); setShowMenu(false); }} />
-            <div className="absolute right-0 top-8 bg-surface-raised rounded-lg shadow-xl border border-white/[0.08] py-1 z-10 min-w-[120px] cursor-pointer">
-              {canEdit && <button
-                onClick={(e) => { e.stopPropagation(); onEdit?.(task); setShowMenu(false); }}
-                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-300 hover:bg-white/[0.06]"
-              >
-                <Edit size={14} />
-                Edit
-              </button>}
-              {canDelete && <button
-                onClick={(e) => { e.stopPropagation(); onDelete?.(task.id); setShowMenu(false); }}
-                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-400 hover:bg-red-500/15"
-              >
-                <Trash2 size={14} />
-                Delete
-              </button>}
-            </div>
-          </>
-        )}
+
+        <Popover
+          anchorRef={menuBtnRef}
+          open={showMenu}
+          onClose={() => setShowMenu(false)}
+          align="end"
+          width={120}
+          className="bg-surface-raised rounded-lg shadow-xl border border-white/[0.08] py-1"
+        >
+          {canEdit && <button
+            onClick={(e) => { e.stopPropagation(); onEdit?.(task); setShowMenu(false); }}
+            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-300 hover:bg-white/[0.06]"
+          >
+            <Edit size={14} />
+            Edit
+          </button>}
+          {canDelete && <button
+            onClick={(e) => { e.stopPropagation(); onDelete?.(task.id); setShowMenu(false); }}
+            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-400 hover:bg-red-500/15"
+          >
+            <Trash2 size={14} />
+            Delete
+          </button>}
+        </Popover>
       </div>}
     </div>
   );

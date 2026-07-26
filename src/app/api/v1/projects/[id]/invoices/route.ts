@@ -1,9 +1,11 @@
+import { after } from 'next/server';
 import { withApi } from '@/lib/api/middleware';
 import { created, paginated } from '@/lib/api/response';
 import { createInvoiceSchema } from '@/lib/schemas';
 import { badRequest } from '@/lib/api/errors';
 import { parsePagination } from '@/lib/api/pagination';
 import { logAudit } from '@/lib/api/audit';
+import { runDispatch } from '@/lib/webhooks/dispatch';
 
 function assertInvoiceTotal(invoice: { amount: number; line_items: Array<{ amount: number }> }) {
   const lineTotal = invoice.line_items.reduce((sum, item) => sum + item.amount, 0);
@@ -59,5 +61,6 @@ export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMembe
     afterSnapshot: saved,
     statusCode: 201,
   });
+  after(() => runDispatch().catch(() => {}));
   return created({ ...saved, time_allocations });
 }, { schema: createInvoiceSchema, permission: 'invoices.manage' });

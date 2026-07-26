@@ -401,15 +401,17 @@ body::after {
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-brand-500) 28%, transparent);
 }
 
-/* Sidebar glass — an OPAQUE dark glass. Unlike .glass-card (translucent, meant to float
-   over content), the sidebar is fixed chrome sitting over the page, so a translucent
-   dark glass lets the light-mode page bleed through and wash out to grey. An opaque
-   dark gradient + top sheen + edge shadow keeps the same "floating glass" look in BOTH
-   themes. Pair with data-theme="dark" so its inner text/tokens stay light. */
+/* Sidebar glass — the SAME fill as .glass-card (var(--glass-bg)), but composited over a
+   solid var(--color-surface) base. The sidebar is fixed chrome over the page, so using
+   the translucent fill alone would let the light-mode page bleed through and wash it out
+   to grey. Painting the glass over an opaque surface reproduces the exact glass-card
+   colour while staying opaque. Both tokens resolve to their dark values because the
+   sidebar carries data-theme="dark", so it stays a matching dark glass in BOTH themes. */
 .glass-sidebar {
-  background: linear-gradient(180deg, #1A1C22 0%, #131419 100%);
-  border-right: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 10px 0 34px -22px rgba(0, 0, 0, 0.75);
+  background-color: var(--color-surface);
+  background-image: linear-gradient(var(--glass-bg), var(--glass-bg));
+  border-right: 1px solid var(--color-surface-border);
+  box-shadow: 10px 0 34px -22px rgba(0, 0, 0, 0.6);
 }
 
 /* ── Buttons ───────────────────────────────────────────────
@@ -661,4 +663,24 @@ button.bg-brand-500, a.bg-brand-500 {
   pointer-events: none;
   float: left;
   height: 0;
+}
+
+/* ── Horizontally-scrollable chart ───────────────────── */
+/* On mobile, keep a fixed ~30-bar-wide viewing window: the strip grows to
+   (barCount / 30) of the viewport so each bar stays the width it has at 30
+   bars, and longer ranges scroll horizontally. `--bar-count` is set inline.
+   Desktop is untouched (all bars fit; strip stays 100% wide). */
+@media (max-width: 639px) {
+  .chart-scroll-content {
+    min-width: max(100%, calc(100% / 30 * var(--bar-count, 30)));
+  }
+}
+
+/* Hide the scrollbar while keeping touch/trackpad scrolling. */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
 }

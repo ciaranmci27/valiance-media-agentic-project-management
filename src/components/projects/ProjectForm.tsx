@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { Popover } from '@/components/ui/Popover';
 import { ChevronDown, History } from 'lucide-react';
 import { Project, ProjectBudgetHistoryEntry } from '@/lib/types';
 import { useApp } from '@/lib/store';
@@ -240,15 +241,7 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
   };
 
 
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (contactDropdownRef.current && !contactDropdownRef.current.contains(e.target as Node)) {
-        setContactDropdownOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+  // Outside-click for the client dropdown is handled by its Popover.
 
   const filteredContacts = contacts
     .filter(c => {
@@ -330,8 +323,15 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
                 <span className="text-zinc-500">Select primary client...</span>
               )}
             </button>
-            {contactDropdownOpen && (
-              <div className="absolute z-50 mt-1 w-full bg-surface-raised border border-white/[0.08] rounded-lg shadow-lg flex flex-col max-h-60">
+            <Popover
+              anchorRef={contactDropdownRef}
+              open={contactDropdownOpen}
+              onClose={() => setContactDropdownOpen(false)}
+              align="start"
+              matchAnchorWidth
+              className="bg-surface-raised border border-white/[0.08] rounded-lg shadow-lg"
+            >
+              <div className="flex flex-col max-h-60">
                 {contactSearchVisible && (
                   <div className="p-2 border-b border-white/[0.06] shrink-0">
                     <input
@@ -402,7 +402,7 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
                   </button>
                 </div>
               </div>
-            )}
+            </Popover>
           </div>
           {clientError && !selectedContactId && (
             <p className="text-xs text-red-500">Please select a primary client for this project</p>

@@ -15,6 +15,8 @@ import { applyTheme, applySystemTheme } from '@/lib/theme';
 import { toast } from '@/components/ui/Toast';
 import { useDemo } from '@/lib/demo-context';
 import { SmtpSection } from '@/components/settings/SmtpSection';
+import { WebhooksPanel } from '@/components/settings/WebhooksPanel';
+import { Popover } from '@/components/ui/Popover';
 import { BusinessInfoSection } from '@/components/settings/BusinessInfoSection';
 import { AnalyticsExclusionsSection } from '@/components/settings/AnalyticsExclusionsSection';
 import { Tooltip } from '@/components/ui/Tooltip';
@@ -102,6 +104,7 @@ export default function SettingsPage() {
   const canManageSettings = hasPermission(access, 'settings.manage');
   const canManageSmtp = hasPermission(access, 'smtp.manage');
   const canManageAgents = hasPermission(access, 'agents.manage');
+  const canManageWebhooks = hasPermission(access, 'webhooks.manage');
 
   const [userName, setUserName] = useState('');
   const [userEmail, setUserEmail] = useState('');
@@ -287,19 +290,8 @@ export default function SettingsPage() {
     toast('success', `Timezone set to ${tz}`);
   };
 
-  // Close timezone dropdown when clicking outside
+  // Anchor for the portaled timezone dropdown (Popover handles outside-click).
   const tzRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!tzDropdownOpen) return;
-    const handleClick = (e: MouseEvent) => {
-      if (tzRef.current && !tzRef.current.contains(e.target as Node)) {
-        setTzDropdownOpen(false);
-        setTzSearch('');
-      }
-    };
-    document.addEventListener('mousedown', handleClick);
-    return () => document.removeEventListener('mousedown', handleClick);
-  }, [tzDropdownOpen]);
 
   const handleAvatarCropped = async (blob: Blob) => {
     if (!teamMemberId) return;
@@ -569,8 +561,14 @@ export default function SettingsPage() {
               </span>
             </button>
 
-            {tzDropdownOpen && (
-              <div className="absolute z-50 mt-1 w-full md:w-96 bg-surface-raised border border-white/[0.08] rounded-lg shadow-lg">
+            <Popover
+              anchorRef={tzRef}
+              open={tzDropdownOpen}
+              onClose={() => { setTzDropdownOpen(false); setTzSearch(''); }}
+              align="start"
+              matchAnchorWidth
+              className="bg-surface-raised border border-white/[0.08] rounded-lg shadow-lg"
+            >
                 <div className="p-2 border-b border-white/[0.06]">
                   <input
                     type="text"
@@ -606,8 +604,7 @@ export default function SettingsPage() {
                     ))
                   )}
                 </div>
-              </div>
-            )}
+            </Popover>
           </div>
         </section>
 
@@ -932,6 +929,9 @@ export default function SettingsPage() {
             )}
           </section>
         )}
+
+        {/* Webhooks — for members allowed to manage outbound integrations */}
+        {canManageWebhooks && !isDemoMode && <WebhooksPanel teamMemberId={teamMemberId} />}
 
         {/* SMTP Email Section — admin only, hidden in demo mode */}
         {canManageSmtp && !isDemoMode && <SmtpSection />}

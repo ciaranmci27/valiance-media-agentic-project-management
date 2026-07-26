@@ -100,6 +100,13 @@ import { siteConfig } from '@/site-config';
 import { findStalePausedEntries, startOfDayInTz } from '@/lib/time-entry-utils';
 import { hasPermission } from '@/lib/access-control';
 
+// Best-effort nudge so the webhook dispatcher runs right after an invoice
+// change, delivering the event immediately. The DB trigger already enqueued
+// (or not); this only flushes. Silently no-ops without permission.
+function kickWebhookDispatch(): void {
+  fetch('/api/internal/webhooks/dispatch', { method: 'POST' }).catch(() => {});
+}
+
 interface AppContextType {
   // Data
   projects: Project[];
@@ -2857,6 +2864,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setProjectInvoices(prev => prev.map(i => i.id === optimisticId ? created : i));
       const project = projects.find(p => p.id === invoice.project_id);
       notify(allMemberIds(), `Invoice added to "${project?.name || 'project'}"`, `${actorName()} created invoice ${invoice.invoice_number}.`, `/projects/${invoice.project_id}`, 'project', invoice.project_id, 'portal_settings');
+      // A paid invoice may have enqueued a webhook event; nudge the dispatcher.
+      if (created.status === 'paid') kickWebhookDispatch();
       return created;
     } catch (error) {
       console.error('Failed to create invoice:', error);
@@ -2880,6 +2889,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setProjectInvoices(invoices => invoices.map(i => i.id === id ? updated : i));
       const project = projects.find(p => p.id === existing.project_id);
       notify(allMemberIds(), `Invoice updated on "${project?.name || 'project'}"`, `${actorName()} updated invoice ${existing.invoice_number}.`, `/projects/${existing.project_id}`, 'project', existing.project_id, 'portal_settings');
+      // Paid transitions and edits to a paid invoice enqueue webhook events.
+      if (updates.status !== undefined || existing.status === 'paid') kickWebhookDispatch();
       return true;
     } catch (error) {
       console.error('Failed to update invoice:', error);
@@ -2907,6 +2918,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (existing) {
         const project = projects.find(p => p.id === existing.project_id);
         notify(allMemberIds(), `Invoice deleted from "${project?.name || 'project'}"`, `${actorName()} removed invoice ${existing.invoice_number}.`, `/projects/${existing.project_id}`, 'project', existing.project_id, 'portal_settings');
+        // Deleting a paid invoice enqueues an invoice.deleted webhook event.
+        if (existing.status === 'paid') kickWebhookDispatch();
       }
     } catch {
       setProjectInvoices(prev);

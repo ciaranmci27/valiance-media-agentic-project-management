@@ -732,6 +732,48 @@ export interface RolePermission {
   updated_at: string;
 }
 
+// ============================================================
+// WEBHOOKS (generic outbound platform)
+// ============================================================
+
+export const WEBHOOK_EVENT_TYPES = ['invoice.paid', 'invoice.updated', 'invoice.deleted'] as const;
+export type WebhookEventType = typeof WEBHOOK_EVENT_TYPES[number];
+
+export const WEBHOOK_DELIVERY_STATUSES = ['pending', 'delivering', 'succeeded', 'failed'] as const;
+export type WebhookDeliveryStatus = typeof WEBHOOK_DELIVERY_STATUSES[number];
+
+export interface WebhookEndpoint {
+  id: string;
+  name: string;
+  url: string;
+  /** Signing secret (whsec_...). Stored retrievably: needed to configure the receiver. */
+  secret: string;
+  events: string[];
+  is_active: boolean;
+  description: string;
+  created_by: string | null;
+  last_delivery_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WebhookDelivery {
+  id: string;
+  webhook_event_id: string;
+  endpoint_id: string;
+  status: WebhookDeliveryStatus;
+  attempts: number;
+  last_attempt_at: string | null;
+  last_status_code: number | null;
+  last_error: string | null;
+  last_response: string | null;
+  delivered_at: string | null;
+  created_at: string;
+  updated_at: string;
+  /** Joined from webhook_events for display. */
+  webhook_events?: { event_id: string; event_type: string; created_at: string } | null;
+}
+
 export interface TeamMemberPermission {
   member_id: string;
   permission_key: string;

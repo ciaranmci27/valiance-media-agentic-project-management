@@ -6,8 +6,9 @@ import { useAuth } from '@/lib/auth-context';
 import { StatusBadge, PriorityBadge, TaskTypeBadge } from '@/components/ui/Badge';
 import { AvatarGroup } from '@/components/ui/Avatar';
 import { Calendar, MessageSquare, CheckSquare, MoreVertical, Edit, Trash2, Clock, User } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { Tooltip } from '@/components/ui/Tooltip';
+import { Popover } from '@/components/ui/Popover';
 import { parseDateOnly, isDateOverdue } from '@/lib/date-utils';
 import { hasPermission } from '@/lib/access-control';
 
@@ -35,6 +36,7 @@ export function TaskCard({ task, onView, onEdit, onDelete }: TaskCardProps) {
   const { team, getProject } = useApp();
   const { teamMemberId, access } = useAuth();
   const [showMenu, setShowMenu] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   const isAgentsEnabled = process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true';
   const canManageAgents = hasPermission(access, 'agents.manage');
@@ -77,35 +79,37 @@ export function TaskCard({ task, onView, onEdit, onDelete }: TaskCardProps) {
           )}
         </div>
         
-        {(canEdit || canDelete) && <div className="relative">
+        {(canEdit || canDelete) && <div ref={menuRef} className="relative">
           <button
             onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }}
             className="lg:opacity-0 group-hover:opacity-100 p-1 rounded text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.06] transition-all"
           >
             <MoreVertical size={16} />
           </button>
-          
-          {showMenu && (
-            <>
-              <div className="fixed inset-0 z-10 cursor-default" onClick={(e) => { e.stopPropagation(); setShowMenu(false); }} />
-              <div className="absolute right-0 top-8 bg-surface-raised rounded-lg shadow-xl border border-white/[0.08] py-1 z-20 min-w-[120px] cursor-pointer">
-                {canEdit && <button
-                  onClick={(e) => { e.stopPropagation(); onEdit?.(task); setShowMenu(false); }}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-300 hover:bg-white/[0.06]"
-                >
-                  <Edit size={14} />
-                  Edit
-                </button>}
-                {canDelete && <button
-                  onClick={(e) => { e.stopPropagation(); onDelete?.(task.id); setShowMenu(false); }}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-400 hover:bg-red-500/15"
-                >
-                  <Trash2 size={14} />
-                  Delete
-                </button>}
-              </div>
-            </>
-          )}
+
+          <Popover
+            anchorRef={menuRef}
+            open={showMenu}
+            onClose={() => setShowMenu(false)}
+            align="end"
+            width={120}
+            className="bg-surface-raised rounded-lg shadow-xl border border-white/[0.08] py-1"
+          >
+            {canEdit && <button
+              onClick={(e) => { e.stopPropagation(); onEdit?.(task); setShowMenu(false); }}
+              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-300 hover:bg-white/[0.06]"
+            >
+              <Edit size={14} />
+              Edit
+            </button>}
+            {canDelete && <button
+              onClick={(e) => { e.stopPropagation(); onDelete?.(task.id); setShowMenu(false); }}
+              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-400 hover:bg-red-500/15"
+            >
+              <Trash2 size={14} />
+              Delete
+            </button>}
+          </Popover>
         </div>}
       </div>
 

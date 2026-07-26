@@ -6,6 +6,7 @@ import { Header } from '@/components/layout/Header';
 import { getWorkedHoursByHour, isRunning } from '@/lib/time-entry-utils';
 import { DateInput } from '@/components/ui/inputs/DateInput';
 import { Tooltip } from '@/components/ui/Tooltip';
+import { Popover } from '@/components/ui/Popover';
 import { ensureLineItems, spreadLineItem } from '@/lib/invoice-utils';
 import { computeFinanceData } from '@/lib/finance/summary';
 import { toDateKey, localNextDayStartMs, hourVestingRatio } from '@/lib/finance/vesting';
@@ -395,6 +396,11 @@ export default function FinancesPage() {
   const [projectFilterOpen, setProjectFilterOpen] = useState(false);
   const projectFilterDropdownRef = useRef<HTMLDivElement>(null);
 
+  // Chart bars scroll horizontally on mobile (fixed ~30-bar window); the day
+  // labels row mirrors that scroll so labels stay aligned to their bars.
+  const chartBarsScrollRef = useRef<HTMLDivElement>(null);
+  const chartLabelsScrollRef = useRef<HTMLDivElement>(null);
+
   const liveServiceRevenue = useMemo(() => {
     const sources = { fixed: false, recurring: false };
 
@@ -422,46 +428,8 @@ export default function FinancesPage() {
     return () => clearInterval(id);
   }, [shouldLiveTick]);
 
-  useEffect(() => {
-    if (!rangeOpen) return;
-    const handler = (e: MouseEvent) => {
-      const target = e.target as Node;
-      if (rangeDropdownRef.current && !rangeDropdownRef.current.contains(target)) {
-        // Don't close if clicking inside a DateInput portal (rendered to body)
-        const inPortal = (target as HTMLElement).closest?.('[role="dialog"][aria-label="Date picker"]');
-        if (!inPortal) setRangeOpen(false);
-      }
-    };
-    const escHandler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setRangeOpen(false);
-    };
-    document.addEventListener('mousedown', handler);
-    document.addEventListener('keydown', escHandler);
-    return () => {
-      document.removeEventListener('mousedown', handler);
-      document.removeEventListener('keydown', escHandler);
-    };
-  }, [rangeOpen]);
-
-  // Same outside-click + Escape handling for the project filter dropdown.
-  useEffect(() => {
-    if (!projectFilterOpen) return;
-    const handler = (e: MouseEvent) => {
-      const target = e.target as Node;
-      if (projectFilterDropdownRef.current && !projectFilterDropdownRef.current.contains(target)) {
-        setProjectFilterOpen(false);
-      }
-    };
-    const escHandler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setProjectFilterOpen(false);
-    };
-    document.addEventListener('mousedown', handler);
-    document.addEventListener('keydown', escHandler);
-    return () => {
-      document.removeEventListener('mousedown', handler);
-      document.removeEventListener('keydown', escHandler);
-    };
-  }, [projectFilterOpen]);
+  // Outside-click + Escape for the range/project dropdowns is handled by the
+  // portaled Popover component that renders each menu (see below).
 
   // Build a lookup: project_id -> hourly_rate (0 if not hourly)
   const rateByProject = useMemo(() => {
@@ -1046,11 +1014,14 @@ export default function FinancesPage() {
                 <ChevronDown size={13} className={`text-zinc-500 transition-transform duration-150 ${rangeOpen ? 'rotate-180' : ''}`} />
               </button>
 
-              {rangeOpen && (
-                <div
-                  role="menu"
-                  className="absolute left-0 sm:left-auto sm:right-0 top-full mt-1.5 z-30 w-64 max-w-[calc(100vw-2.5rem)] bg-surface-raised border border-white/[0.08] rounded-lg shadow-lg overflow-hidden"
-                >
+              <Popover
+                anchorRef={rangeDropdownRef}
+                open={rangeOpen}
+                onClose={() => setRangeOpen(false)}
+                align="end"
+                ignoreOutsideSelector='[role="dialog"][aria-label="Date picker"]'
+                className="bg-surface-raised border border-white/[0.08] rounded-lg shadow-lg overflow-hidden"
+              >
                   <div className="p-1">
                     {PRESET_OPTIONS.map((opt) => {
                       const active = preset === opt.value;
@@ -1105,8 +1076,7 @@ export default function FinancesPage() {
                       </div>
                     );
                   })()}
-                </div>
-              )}
+              </Popover>
             </div>
 
             {/* Project filter dropdown - same compact pattern as the date
@@ -1142,11 +1112,13 @@ export default function FinancesPage() {
                     <ChevronDown size={13} className={`text-zinc-500 transition-transform duration-150 ${projectFilterOpen ? 'rotate-180' : ''}`} />
                   </button>
 
-                  {projectFilterOpen && (
-                    <div
-                      role="menu"
-                      className="absolute right-0 top-full mt-1.5 z-30 w-64 bg-surface-raised border border-white/[0.08] rounded-lg shadow-lg overflow-hidden"
-                    >
+                  <Popover
+                    anchorRef={projectFilterDropdownRef}
+                    open={projectFilterOpen}
+                    onClose={() => setProjectFilterOpen(false)}
+                    align="end"
+                    className="bg-surface-raised border border-white/[0.08] rounded-lg shadow-lg overflow-hidden"
+                  >
                       <div className="px-2.5 py-2 border-b border-white/[0.06] flex items-center justify-between">
                         <span className="text-[10px] uppercase tracking-wider font-semibold text-zinc-400">
                           Projects
@@ -1203,8 +1175,7 @@ export default function FinancesPage() {
                           })
                         )}
                       </div>
-                    </div>
-                  )}
+                  </Popover>
                 </div>
               );
             })()}
@@ -1334,7 +1305,7 @@ export default function FinancesPage() {
                     </div>
 
                     {/* Bars + grid */}
-                    <div className="flex-1 relative" onClick={() => setSelectedBar(null)}>
+                    <div className="flex-1 relative min-w-0">
                       {/* Horizontal grid lines */}
                       {axisTicks.map((tick) => {
                         const pct = axisRange > 0 ? ((axisMax - tick) / axisRange) * 100 : 0;
@@ -1347,8 +1318,22 @@ export default function FinancesPage() {
                         );
                       })}
 
-                      {/* Bars */}
-                      <div className="flex items-end gap-[3px] relative z-[1] h-full">
+                      {/* Bars — fixed ~30-bar window on mobile; longer ranges
+                          scroll horizontally and the labels mirror the scroll.
+                          The viewport is absolute inset-0 so its height is
+                          robustly the plot height (no % height chain). */}
+                      <div
+                        ref={chartBarsScrollRef}
+                        onScroll={(e) => {
+                          if (chartLabelsScrollRef.current) chartLabelsScrollRef.current.scrollLeft = e.currentTarget.scrollLeft;
+                        }}
+                        onClick={() => setSelectedBar(null)}
+                        className="absolute inset-0 overflow-x-auto sm:overflow-visible no-scrollbar"
+                      >
+                      <div
+                        className="chart-scroll-content flex items-end gap-[3px] relative z-[1] h-full"
+                        style={{ '--bar-count': chartBars.length } as React.CSSProperties}
+                      >
                         {chartBars.map((day, barIdx) => {
                           const visibleHourly = showHourly ? day.hourlyValue : 0;
                           const visibleRecurring = showRecurring ? day.recurringRevenue : 0;
@@ -1613,11 +1598,17 @@ export default function FinancesPage() {
                           );
                         })}
                       </div>
+                      </div>
                     </div>
                   </div>
 
-                  {/* Day labels - offset to align with bars (account for Y-axis width) */}
-                  <div className="flex gap-[3px] mt-2" style={{ marginLeft: 44 }}>
+                  {/* Day labels - aligned to bars; mirror the bars' horizontal scroll on mobile. */}
+                  <div className="mt-2" style={{ marginLeft: 44 }}>
+                    <div ref={chartLabelsScrollRef} className="overflow-x-hidden sm:overflow-visible no-scrollbar">
+                      <div
+                        className="chart-scroll-content flex gap-[3px]"
+                        style={{ '--bar-count': chartBars.length } as React.CSSProperties}
+                      >
                     {chartBars.map((day, i) => {
                       const total = chartBars.length;
                       // Hourly view has a known cadence: every 6 hours (12 AM,
@@ -1635,6 +1626,8 @@ export default function FinancesPage() {
                         </div>
                       );
                     })}
+                      </div>
+                    </div>
                   </div>
                 </>
               )}
