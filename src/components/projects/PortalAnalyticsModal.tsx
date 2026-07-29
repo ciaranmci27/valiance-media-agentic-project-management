@@ -169,15 +169,15 @@ function FilterToggle({
           disabled ? 'cursor-not-allowed opacity-50' : ''
         }`}
         style={{
-          borderColor: active ? accent : '#E4E4E7',
+          borderColor: active ? accent : 'var(--color-input-border)',
           backgroundColor: active ? `${accent}14` : 'transparent',
-          color: active ? accent : '#52525B',
+          color: active ? accent : 'var(--color-input-text-subtle)',
           outlineColor: accent,
         }}
       >
         <span
           className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-          style={{ backgroundColor: active ? accent : '#D4D4D8' }}
+          style={{ backgroundColor: active ? accent : 'var(--color-input-text-placeholder)' }}
         />
         {label}
       </button>

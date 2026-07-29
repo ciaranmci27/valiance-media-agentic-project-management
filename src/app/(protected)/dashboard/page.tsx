@@ -105,15 +105,16 @@ export default function DashboardPage() {
 
   const activeLeads = leads.filter(l => l.status !== 'won' && l.status !== 'lost');
 
-  // Real 7-day activity: tasks completed per day (using updated_at of done tasks as
-  // the completion timestamp). Powers the Activity chart and the Completed sparkline.
+  // Real 7-day activity: tasks completed per day, using completed_at (stamped by
+  // a DB trigger when a task enters 'done'; updated_at fallback for legacy/demo
+  // rows). Powers the Activity chart and the Completed sparkline.
   const dayBuckets = Array.from({ length: 7 }, (_, i) => {
     const start = new Date(weekAgo.getTime() + i * 24 * 60 * 60 * 1000);
     const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
     return { label: start.toLocaleDateString('en-US', { weekday: 'short' }), start, end };
   });
   const completedPerDay = dayBuckets.map(b =>
-    doneTasks.filter(t => { const u = new Date(t.updated_at); return u >= b.start && u < b.end; }).length
+    doneTasks.filter(t => { const u = new Date(t.completed_at ?? t.updated_at); return u >= b.start && u < b.end; }).length
   );
   const completedThisWeek = completedPerDay.reduce((a, b) => a + b, 0);
   const maxDay = Math.max(1, ...completedPerDay);

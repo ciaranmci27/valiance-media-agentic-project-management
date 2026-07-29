@@ -765,16 +765,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const updateTask = async (id: string, updates: Partial<Task>) => {
     const prev = tasks;
     const existingTask = tasks.find(t => t.id === id);
-    setTasks(t => t.map(task =>
-      task.id === id ? { ...task, ...updates, updated_at: new Date().toISOString() } : task
-    ));
+    // Reorder-only updates are cosmetic; keep updated_at meaningful
+    const reorderOnly = Object.keys(updates).every(k => k === 'sort_order');
+    // Mirror the DB trigger: stamp completed_at when a task enters 'done',
+    // clear it when it leaves
+    setTasks(t => t.map(task => {
+      if (task.id !== id) return task;
+      const now = new Date().toISOString();
+      const next = { ...task, ...updates, updated_at: reorderOnly ? task.updated_at : now };
+      if (updates.status) {
+        if (updates.status === 'done' && task.status !== 'done') next.completed_at = now;
+        else if (updates.status !== 'done') next.completed_at = null;
+      }
+      return next;
+    }));
     if (skipSupabase) return;
 
     try {
       await patchTask(supabase, id, updates, updates.assignee_ids);
-
-      // Reorder-only updates are cosmetic; don't notify the whole team
-      const reorderOnly = Object.keys(updates).every(k => k === 'sort_order');
 
       if (existingTask && !reorderOnly) {
         const project = projects.find(p => p.id === existingTask.project_id);

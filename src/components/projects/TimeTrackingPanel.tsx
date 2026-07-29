@@ -612,8 +612,8 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
               <div
                 className="rounded-xl border p-4 space-y-3"
                 style={{
-                  borderColor: runningTimerIsPaused ? '#E4E4E7' : projectColor + '30',
-                  backgroundColor: runningTimerIsPaused ? 'rgba(255,255,255,0.04)' : projectColor + '06',
+                  borderColor: runningTimerIsPaused ? 'var(--color-surface-border)' : projectColor + '30',
+                  backgroundColor: runningTimerIsPaused ? 'rgba(var(--ink), 0.04)' : projectColor + '06',
                 }}
               >
                 {/* Top row: avatar, info, elapsed badge */}
@@ -622,7 +622,7 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                     <Avatar name={getMember(runningTimer.member_id)?.name || '?'} src={getMember(runningTimer.member_id)?.avatar} size="md" />
                     <span
                       className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ring-2 ring-surface ${runningTimerIsPaused ? '' : 'animate-pulse'}`}
-                      style={{ backgroundColor: runningTimerIsPaused ? '#A1A1AA' : projectColor }}
+                      style={{ backgroundColor: runningTimerIsPaused ? 'var(--color-zinc-400)' : projectColor }}
                     />
                   </div>
                   <div className="flex-1 min-w-0">
@@ -674,7 +674,7 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                   </div>
                   <span
                     className="text-lg font-bold tabular-nums tracking-tight flex-shrink-0"
-                    style={{ color: runningTimerIsPaused ? '#A1A1AA' : projectColor }}
+                    style={{ color: runningTimerIsPaused ? 'var(--color-zinc-400)' : projectColor }}
                   >
                     {formatElapsed(Math.floor(getWorkedMs(runningTimer) / 1000))}
                   </span>
@@ -780,7 +780,7 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                     <Avatar name={member?.name || '?'} src={member?.avatar} size="sm" />
                     <span
                       className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full ring-2 ring-surface ${paused ? '' : 'animate-pulse'}`}
-                      style={{ backgroundColor: paused ? '#A1A1AA' : projectColor }}
+                      style={{ backgroundColor: paused ? 'var(--color-zinc-400)' : projectColor }}
                     />
                   </div>
                   <div className="flex-1 min-w-0">
@@ -796,7 +796,7 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                   </div>
                   <span
                     className="text-xs font-semibold tabular-nums tracking-tight flex-shrink-0"
-                    style={{ color: paused ? '#A1A1AA' : projectColor }}
+                    style={{ color: paused ? 'var(--color-zinc-400)' : projectColor }}
                   >
                     {formatElapsed(elapsedSec)}
                   </span>

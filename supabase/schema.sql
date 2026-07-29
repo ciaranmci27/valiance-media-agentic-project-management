@@ -136,6 +136,7 @@ create table public.tasks (
   tags text[] not null default '{}',
   sort_order int not null default 0,
   created_by uuid references public.team_members(id) on delete set null,
+  completed_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -933,9 +934,45 @@ create trigger set_projects_updated_at
   before update on public.projects
   for each row execute function public.handle_updated_at();
 
-create trigger set_tasks_updated_at
+-- Tasks get a dedicated handler: it maintains completed_at on status
+-- transitions and skips the updated_at bump for reorder-only writes
+-- (sort_order changes are cosmetic and must not look like activity).
+create or replace function public.handle_task_before_update()
+returns trigger as $$
+begin
+  if new.status = 'done' and old.status is distinct from 'done' then
+    new.completed_at = now();
+  elsif new.status is distinct from 'done' then
+    new.completed_at = null;
+  end if;
+
+  if (to_jsonb(new) - 'sort_order' - 'updated_at') is distinct from (to_jsonb(old) - 'sort_order' - 'updated_at') then
+    new.updated_at = now();
+  else
+    new.updated_at = old.updated_at;
+  end if;
+
+  return new;
+end;
+$$ language plpgsql;
+
+create or replace function public.handle_task_before_insert()
+returns trigger as $$
+begin
+  if new.status = 'done' and new.completed_at is null then
+    new.completed_at = now();
+  end if;
+  return new;
+end;
+$$ language plpgsql;
+
+create trigger tasks_before_update
   before update on public.tasks
-  for each row execute function public.handle_updated_at();
+  for each row execute function public.handle_task_before_update();
+
+create trigger tasks_before_insert
+  before insert on public.tasks
+  for each row execute function public.handle_task_before_insert();
 
 create trigger set_task_subtasks_updated_at
   before update on public.task_subtasks

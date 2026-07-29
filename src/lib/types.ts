@@ -218,6 +218,7 @@ export interface Task {
   created_by?: string | null;
   project_goal_id?: string | null;
   source_task_suggestion_id?: string | null;
+  completed_at?: string | null;
   created_at: string;
   updated_at: string;
 }

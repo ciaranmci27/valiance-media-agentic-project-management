@@ -169,3 +169,23 @@ Each template gets a `defaultSlots` export and accepts an optional `overrides?: 
 - Dollar intervals only supported when project is hourly with a rate.
 - Rendered HTML stored as snapshot in log for audit/forever retention.
 - Templates: editable slots (structured copy), never raw HTML.
+
+---
+
+# Bugfix: Dashboard activity inflated by board reorders (2026-07-29)
+
+## Root cause
+- Dashboard used `updated_at` of done tasks as the completion timestamp.
+- Dropping a task into a board column resequences `sort_order` for every sibling that shifted; the generic `set_tasks_updated_at` trigger bumped `updated_at` on all of them.
+- Result: completing 1 task counted every done task as "completed today" (28 instead of 1) and every done task showed "1 minute ago".
+
+## Fix (all complete)
+- [x] Migration `20260729144648_task_completed_at.sql`: add `tasks.completed_at`, backfill done tasks from `updated_at`, replace the tasks `updated_at` trigger with `handle_task_before_update` (stamps/clears `completed_at` on status transitions, skips the `updated_at` bump for sort_order-only writes) + `handle_task_before_insert`.
+- [x] `schema.sql` updated in place (column + trigger functions).
+- [x] `types.ts`: `Task.completed_at?: string | null`.
+- [x] `store.tsx` `updateTask`: optimistic `completed_at` mirror + no local `updated_at` bump on reorder-only updates.
+- [x] Dashboard `completedPerDay` uses `completed_at ?? updated_at` (fallback covers demo data).
+- [x] Type check passes.
+
+## Review
+Verified all other `status === 'done'` usages are plain counts (no time inference). Activities feed is DB-loaded only, unaffected by reorders. API v1 task routes write through the same DB triggers, so they inherit the fix.
