@@ -3791,3 +3791,42 @@ REVOKE ALL ON FUNCTION public.consume_api_rate_limit(uuid, integer, integer) FRO
 GRANT EXECUTE ON FUNCTION public.consume_api_rate_limit(uuid, integer, integer) TO service_role;
 
 COMMIT;
+
+-- ─────────────────────────────────────────────────────────────
+-- Realtime publication (20260730134850_realtime_publication.sql)
+-- Workspace tables published for postgres_changes so the app store can
+-- live-sync. Events respect RLS and column-level grants per subscriber.
+-- ─────────────────────────────────────────────────────────────
+do $$
+declare
+  t text;
+begin
+  if not exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
+    create publication supabase_realtime;
+  end if;
+
+  foreach t in array array[
+    'tasks', 'task_subtasks', 'task_assignees', 'task_acceptance_criteria',
+    'task_dependencies', 'task_comments',
+    'projects', 'project_members',
+    'team_members',
+    'contacts', 'project_contacts',
+    'leads', 'lead_members', 'lead_interactions', 'lead_proposals',
+    'lead_fields', 'lead_contacts',
+    'activities', 'agent_activities',
+    'portal_settings', 'portal_updates', 'portal_update_attachments',
+    'entity_files',
+    'project_time_entries', 'time_entry_tasks',
+    'project_credentials',
+    'project_invoices', 'invoice_time_entry_allocations',
+    'task_suggestions', 'project_goals',
+    'team_member_notifications', 'client_communications'
+  ] loop
+    if not exists (
+      select 1 from pg_publication_tables
+      where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = t
+    ) then
+      execute format('alter publication supabase_realtime add table public.%I', t);
+    end if;
+  end loop;
+end $$;

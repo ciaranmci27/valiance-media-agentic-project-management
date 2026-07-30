@@ -1,8 +1,10 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import Link from 'next/link';
 import { useApp } from '@/lib/store';
 import { Activity, ChevronDown } from 'lucide-react';
+import { Tooltip } from '@/components/ui/Tooltip';
 
 const activityDots: Record<string, string> = {
   suggestion_created: 'bg-brand-500',
@@ -33,6 +35,17 @@ export function ActivityTimeline() {
     if (!id) return null;
     return projects.find(p => p.id === id)?.name || null;
   };
+
+  const formatFullTimestamp = (ts: string) =>
+    new Date(ts).toLocaleString('en-US', {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      second: '2-digit',
+    });
 
   const formatTime = (ts: string) => {
     const date = new Date(ts);
@@ -105,12 +118,21 @@ export function ActivityTimeline() {
                   {group.entries.map((entry) => {
                     const dotColor = activityDots[entry.activity_type] || 'bg-zinc-400';
                     const projectName = getProjectName(entry.project_id);
+                    // Navigate to the most specific place the entry references:
+                    // its task (deep link opens the detail panel), its lead or
+                    // contact page, or its project.
+                    const href = entry.reference_type === 'lead' && entry.reference_id
+                      ? `/leads/${entry.reference_id}`
+                      : entry.reference_type === 'contact' && entry.reference_id
+                        ? `/contacts/${entry.reference_id}`
+                        : entry.project_id
+                          ? entry.reference_type === 'task' && entry.reference_id
+                            ? `/projects/${entry.project_id}?task=${entry.reference_id}`
+                            : `/projects/${entry.project_id}`
+                          : null;
 
-                    return (
-                      <div
-                        key={entry.id}
-                        className="flex items-start gap-2.5 py-1.5 group/entry"
-                      >
+                    const inner = (
+                      <>
                         {/* Timeline dot */}
                         <div className={`w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 ${dotColor}`} />
 
@@ -121,15 +143,36 @@ export function ActivityTimeline() {
                             {' '}
                             <span className="text-zinc-400">{entry.title}</span>
                           </p>
-                          {projectName && (
-                            <p className="text-[10px] text-zinc-500 mt-0.5">{projectName}</p>
+                          {(projectName || entry.description) && (
+                            <p className="text-[10px] text-zinc-500 mt-0.5 truncate">
+                              {[projectName, entry.description].filter(Boolean).join(' · ')}
+                            </p>
                           )}
                         </div>
 
-                        {/* Time */}
-                        <span className="text-[10px] text-zinc-600 flex-shrink-0 mt-0.5">
-                          {formatTime(entry.created_at)}
-                        </span>
+                        {/* Time (hover for the exact timestamp) */}
+                        <Tooltip content={formatFullTimestamp(entry.created_at)}>
+                          <span className="text-[10px] text-zinc-600 flex-shrink-0 mt-0.5 cursor-default" tabIndex={0}>
+                            {formatTime(entry.created_at)}
+                          </span>
+                        </Tooltip>
+                      </>
+                    );
+
+                    return href ? (
+                      <Link
+                        key={entry.id}
+                        href={href}
+                        className="flex items-start gap-2.5 py-1.5 px-1 -mx-1 rounded-md group/entry hover:bg-white/[0.04] focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-500 transition-colors"
+                      >
+                        {inner}
+                      </Link>
+                    ) : (
+                      <div
+                        key={entry.id}
+                        className="flex items-start gap-2.5 py-1.5 group/entry"
+                      >
+                        {inner}
                       </div>
                     );
                   })}

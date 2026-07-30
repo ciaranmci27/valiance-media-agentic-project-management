@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react';
 import { Project, Task, TeamMember, FilterState, ViewMode, Subtask, AcceptanceCriterion, Comment, Contact, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, Activity, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, EntityFileType, ApiKey, NotificationCategory, ProjectGoal, TaskSuggestion, AgentActivity, TimeEntry, ProjectCredentialListItem, CredentialPayload, CredentialCategory, ProjectInvoice, InvoiceStatus, BusinessSettings, EmployeeEarningsData, DEFAULT_SECTION_ORDER } from './types';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/lib/auth-context';
@@ -109,6 +109,62 @@ import { hasPermission } from '@/lib/access-control';
 function kickWebhookDispatch(): void {
   fetch('/api/internal/webhooks/dispatch', { method: 'POST' }).catch(() => {});
 }
+
+// ── Realtime live-sync ──────────────────────────────────────────
+// Postgres change events are used purely as invalidation pings: each published
+// table maps to a store slice, and pending slices are refetched through the
+// same permission-aware paths the initial load uses. Payloads are never merged
+// directly, so RLS sanitization, joins, and computed fields stay correct by
+// construction (a raw row lacks assignee_ids, criteria, dependencies_met, and
+// API-stripped billing fields).
+type RealtimeSlice =
+  | 'tasks' | 'projects' | 'team' | 'contacts' | 'leads' | 'activities'
+  | 'agentActivity' | 'portal' | 'files' | 'timeEntries' | 'credentials'
+  | 'invoices' | 'suggestions' | 'goals' | 'notifications' | 'comms';
+
+const REALTIME_TABLE_SLICES: Record<string, RealtimeSlice> = {
+  tasks: 'tasks',
+  task_subtasks: 'tasks',
+  task_assignees: 'tasks',
+  task_acceptance_criteria: 'tasks',
+  task_dependencies: 'tasks',
+  task_comments: 'tasks',
+  projects: 'projects',
+  project_members: 'projects',
+  team_members: 'team',
+  contacts: 'contacts',
+  project_contacts: 'contacts',
+  leads: 'leads',
+  lead_members: 'leads',
+  lead_interactions: 'leads',
+  lead_proposals: 'leads',
+  lead_fields: 'leads',
+  lead_contacts: 'leads',
+  activities: 'activities',
+  agent_activities: 'agentActivity',
+  portal_settings: 'portal',
+  portal_updates: 'portal',
+  portal_update_attachments: 'portal',
+  entity_files: 'files',
+  project_time_entries: 'timeEntries',
+  time_entry_tasks: 'timeEntries',
+  project_credentials: 'credentials',
+  project_invoices: 'invoices',
+  invoice_time_entry_allocations: 'invoices',
+  task_suggestions: 'suggestions',
+  project_goals: 'goals',
+  team_member_notifications: 'notifications',
+  client_communications: 'comms',
+};
+
+const ALL_REALTIME_SLICES = [...new Set(Object.values(REALTIME_TABLE_SLICES))];
+
+// Bursts (a task insert plus its assignees, criteria, and dependencies) land
+// as separate events; this window collapses them into one refetch per slice.
+const REALTIME_DEBOUNCE_MS = 400;
+// A tab hidden longer than this refetches everything on return, covering
+// events missed while the websocket was suspended (laptop sleep, mobile).
+const REALTIME_CATCHUP_AFTER_MS = 60_000;
 
 interface AppContextType {
   // Data
@@ -572,6 +628,191 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
 
     loadData();
+  }, [user, access, isDemoMode]);
+
+  // Refetch one slice using the same fetchers and permission gates as the
+  // initial load. Kept in a ref so the realtime effect always calls the
+  // freshest closure (access can change) without resubscribing the channel.
+  const refreshSlice = async (slice: RealtimeSlice): Promise<void> => {
+    if (!access) return;
+    const workspaceData = async <T,>(path: string): Promise<T> => {
+      const response = await fetch(path, { cache: 'no-store' });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || 'Workspace request failed');
+      return payload.data as T;
+    };
+    const agentsEnabled = process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true';
+    try {
+      switch (slice) {
+        case 'tasks':
+          if (hasPermission(access, 'tasks.read')) setTasks(await fetchTasks(supabase));
+          break;
+        case 'projects':
+          if (hasPermission(access, 'projects.read') || hasPermission(access, 'projects.read_all')) {
+            setProjects(await workspaceData<Project[]>('/api/workspace/projects'));
+          }
+          break;
+        case 'team':
+          setTeam(await workspaceData<TeamMember[]>('/api/workspace/team-directory'));
+          break;
+        case 'contacts':
+          if (hasPermission(access, 'contacts.read') || hasPermission(access, 'contacts.read_all') || hasPermission(access, 'contacts.manage')) {
+            const [contactRows, projectContactRows] = await Promise.all([
+              fetchContacts(supabase),
+              fetchAllProjectContacts(supabase),
+            ]);
+            setContacts(contactRows);
+            setProjectContacts(projectContactRows);
+          }
+          break;
+        case 'leads':
+          if (hasPermission(access, 'leads.read') || hasPermission(access, 'leads.read_all') || hasPermission(access, 'leads.manage')) {
+            const [leadRows, interactionRows, proposalRows, fieldRows, leadContactRows] = await Promise.all([
+              fetchLeads(supabase),
+              fetchLeadInteractions(supabase),
+              fetchLeadProposals(supabase),
+              fetchLeadFields(supabase),
+              fetchAllLeadContacts(supabase),
+            ]);
+            setLeads(leadRows);
+            setLeadInteractions(interactionRows);
+            setLeadProposals(proposalRows);
+            setLeadFields(fieldRows);
+            setLeadContacts(leadContactRows);
+          }
+          break;
+        case 'activities':
+          setActivities(await fetchActivities(supabase));
+          break;
+        case 'agentActivity':
+          if (agentsEnabled) setAgentActivityList(await fetchAgentActivity(supabase));
+          break;
+        case 'portal':
+          if (hasPermission(access, 'portal.read') || hasPermission(access, 'portal.manage')) {
+            const [settingsRows, updateRows, attachmentRows] = await Promise.all([
+              fetchAllPortalSettings(supabase),
+              fetchAllPortalUpdates(supabase),
+              fetchAllPortalUpdateAttachments(supabase),
+            ]);
+            setPortalSettings(settingsRows);
+            setPortalUpdates(updateRows);
+            setPortalUpdateAttachments(attachmentRows);
+          }
+          break;
+        case 'files':
+          if (hasPermission(access, 'files.read') || hasPermission(access, 'files.upload') || hasPermission(access, 'files.manage')) {
+            setEntityFiles(await fetchAllEntityFiles(supabase));
+          }
+          break;
+        case 'timeEntries':
+          if (hasPermission(access, 'time.manage_own') || hasPermission(access, 'time.read_all') || hasPermission(access, 'time.manage_all')) {
+            setTimeEntries(await workspaceData<TimeEntry[]>('/api/workspace/time-entries'));
+          }
+          break;
+        case 'credentials':
+          if (hasPermission(access, 'credentials.reveal_shared') || hasPermission(access, 'credentials.manage')) {
+            setProjectCredentials(await workspaceData<ProjectCredentialListItem[]>('/api/workspace/credentials'));
+          }
+          break;
+        case 'invoices':
+          if (hasPermission(access, 'invoices.read') || hasPermission(access, 'invoices.manage')) {
+            setProjectInvoices(await fetchAllProjectInvoices(supabase));
+          }
+          break;
+        case 'suggestions':
+          if (agentsEnabled) setTaskSuggestions(await fetchTaskSuggestions(supabase));
+          break;
+        case 'goals':
+          if (agentsEnabled) setProjectGoals(await fetchGoals(supabase));
+          break;
+        case 'notifications':
+          // The sidebar badge and notifications page own their fetches; this
+          // event is the same one they already dispatch after local changes.
+          window.dispatchEvent(new Event('notifications-updated'));
+          break;
+        case 'comms':
+          setCommsRefreshSignal(s => s + 1);
+          break;
+      }
+    } catch (err) {
+      console.error(`Live-sync refetch failed for ${slice}:`, err);
+    }
+  };
+  const refreshSliceRef = useRef(refreshSlice);
+  refreshSliceRef.current = refreshSlice;
+
+  // Live-sync subscription: one channel over the published tables. Change
+  // events queue their slice; a short debounce collapses bursts; the flush
+  // refetches each queued slice. Focus catch-up and reconnect catch-up
+  // refetch everything, since events during the gap are gone for good.
+  useEffect(() => {
+    if (isDemoMode || !user || !access) return;
+
+    const pending = new Set<RealtimeSlice>();
+    let timer: number | null = null;
+    let disposed = false;
+    let hadDrop = false;
+    let hiddenAt = 0;
+
+    const flush = () => {
+      timer = null;
+      const slices = [...pending];
+      pending.clear();
+      slices.forEach(slice => { void refreshSliceRef.current(slice); });
+    };
+
+    const queue = (slice: RealtimeSlice) => {
+      if (disposed) return;
+      pending.add(slice);
+      if (timer === null) timer = window.setTimeout(flush, REALTIME_DEBOUNCE_MS);
+    };
+
+    const queueAll = () => ALL_REALTIME_SLICES.forEach(queue);
+
+    // The topic must be unique per subscription instance: with a fixed name,
+    // React StrictMode's dev double-mount joins the same topic twice and the
+    // first unmount's leave tears down the survivor's server-side
+    // subscription, leaving a channel that looks subscribed but receives
+    // nothing.
+    const channel = supabase
+      .channel(`workspace-live-sync-${Math.random().toString(36).slice(2)}`)
+      .on('postgres_changes', { event: '*', schema: 'public' }, (payload) => {
+        const slice = REALTIME_TABLE_SLICES[payload.table];
+        if (slice) queue(slice);
+      })
+      .subscribe((status, err) => {
+        if (disposed) return;
+        if (status === 'SUBSCRIBED') {
+          // First subscribe needs no catch-up (initial load just ran); after
+          // a drop the socket auto-rejoins and we refetch what we missed.
+          if (hadDrop) {
+            hadDrop = false;
+            queueAll();
+          }
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+          hadDrop = true;
+          if (status !== 'CLOSED') {
+            console.warn(`[live-sync] realtime channel ${status}`, err?.message ?? '');
+          }
+        }
+      });
+
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        hiddenAt = Date.now();
+      } else if (hiddenAt && Date.now() - hiddenAt > REALTIME_CATCHUP_AFTER_MS) {
+        queueAll();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+
+    return () => {
+      disposed = true;
+      if (timer !== null) window.clearTimeout(timer);
+      document.removeEventListener('visibilitychange', onVisibility);
+      supabase.removeChannel(channel);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, access, isDemoMode]);
 
   // Project CRUD

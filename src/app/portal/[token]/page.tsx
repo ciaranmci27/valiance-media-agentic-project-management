@@ -1890,8 +1890,10 @@ function PortalPageInner() {
         file={previewFile}
       />
 
-      {/* Invoice preview — opened via ?invoice=INV-001 deep-link or invoice card click */}
+      {/* Invoice preview — opened via ?invoice=INV-001 deep-link or invoice card click.
+          The portal is always light, so the modal keeps its literal white chrome. */}
       <InvoicePreviewModalView
+        appearance="light"
         isOpen={!!activeInvoice}
         onClose={closeInvoice}
         pdfData={activePdfData}

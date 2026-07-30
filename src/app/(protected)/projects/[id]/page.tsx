@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { Popover } from '@/components/ui/Popover';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useApp, defaultFilters } from '@/lib/store';
 import { Header } from '@/components/layout/Header';
@@ -81,6 +81,23 @@ export default function ProjectDetailPage() {
     if (!viewingTaskId) return null;
     return allProjectTasks.find(t => t.id === viewingTaskId) || null;
   }, [viewingTaskId, allProjectTasks]);
+
+  // Deep link: /projects/:id?task=<taskId> opens that task's detail panel once
+  // tasks have hydrated (activity feed and notifications link here).
+  const searchParams = useSearchParams();
+  const deepLinkHandledRef = useRef(false);
+  useEffect(() => {
+    if (deepLinkHandledRef.current) return;
+    const taskParam = searchParams.get('task');
+    if (!taskParam) {
+      deepLinkHandledRef.current = true;
+      return;
+    }
+    if (allProjectTasks.some(t => t.id === taskParam)) {
+      setViewingTaskId(taskParam);
+      deepLinkHandledRef.current = true;
+    }
+  }, [searchParams, allProjectTasks]);
 
   // Filtered tasks for the views
   let projectTasks = [...allProjectTasks];

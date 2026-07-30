@@ -17,6 +17,80 @@ interface CustomizerProps {
   resetOptions: () => void;
 }
 
+/* Two chrome variants. 'themed' follows the app theme (dark glass chrome in
+   dark mode, flipped to white by the light remap). 'light' keeps the literal
+   white chrome for the always-light client portal, whose data-theme="dark"
+   pin would otherwise resolve theme tokens to their dark values. */
+export type ChromeAppearance = 'themed' | 'light';
+
+const CHROME: Record<ChromeAppearance, {
+  shell: string;
+  headerBorder: string;
+  title: string;
+  customizeActive: string;
+  customizeIdle: string;
+  closeBtn: string;
+  panel: string;
+  panelDivider: string;
+  panelHeading: string;
+  panelReset: string;
+  row: string;
+  rowLabel: string;
+  trackOff: string;
+  knob: string;
+  body: string;
+  footer: string;
+  errorCard: string;
+  errorTitle: string;
+  errorBody: string;
+  errorFoot: string;
+}> = {
+  themed: {
+    shell: 'bg-surface-overlay border border-white/[0.08] shadow-overlay',
+    headerBorder: 'border-white/[0.08]',
+    title: 'text-white',
+    customizeActive: 'bg-white/[0.08] text-white',
+    customizeIdle: 'text-zinc-400 hover:text-zinc-300 hover:bg-white/[0.06]',
+    closeBtn: 'text-zinc-400 hover:text-zinc-300 hover:bg-white/[0.06]',
+    panel: 'bg-surface-overlay border border-white/[0.08] shadow-overlay',
+    panelDivider: 'border-white/[0.06]',
+    panelHeading: 'text-zinc-200',
+    panelReset: 'text-zinc-400 hover:text-brand-300',
+    row: 'hover:bg-white/[0.03]',
+    rowLabel: 'text-zinc-200',
+    trackOff: 'bg-white/[0.08]',
+    knob: 'bg-surface-raised shadow-sm',
+    body: 'bg-surface',
+    footer: 'border-white/[0.06] text-zinc-500',
+    errorCard: 'border-red-500/30 bg-red-500/15',
+    errorTitle: 'text-red-300',
+    errorBody: 'text-red-300',
+    errorFoot: 'text-red-400',
+  },
+  light: {
+    shell: 'bg-white shadow-2xl',
+    headerBorder: 'border-zinc-200',
+    title: 'text-zinc-900',
+    customizeActive: 'bg-zinc-100 text-zinc-900',
+    customizeIdle: 'text-zinc-500 hover:text-zinc-700 hover:bg-zinc-100',
+    closeBtn: 'text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100',
+    panel: 'bg-white border border-zinc-200 shadow-xl',
+    panelDivider: 'border-zinc-100',
+    panelHeading: 'text-zinc-700',
+    panelReset: 'text-zinc-500 hover:text-brand-600',
+    row: 'hover:bg-zinc-50',
+    rowLabel: 'text-zinc-800',
+    trackOff: 'bg-zinc-200',
+    knob: 'bg-white',
+    body: 'bg-zinc-100',
+    footer: 'border-zinc-100 text-zinc-400',
+    errorCard: 'border-red-200 bg-red-50',
+    errorTitle: 'text-red-800',
+    errorBody: 'text-red-700',
+    errorFoot: 'text-red-600',
+  },
+};
+
 interface InvoicePreviewModalViewProps {
   isOpen: boolean;
   onClose: () => void;
@@ -35,6 +109,8 @@ interface InvoicePreviewModalViewProps {
   /** Fires when the user clicks Download PDF. Used by the portal page to
    *  emit an analytics event; admin usage leaves this unset. */
   onDownload?: () => void;
+  /** 'themed' (default) follows the app theme; the portal passes 'light'. */
+  appearance?: ChromeAppearance;
 }
 
 const TOGGLE_DEFINITIONS: { key: keyof InvoicePdfOptions; label: string; description: string }[] = [
@@ -64,7 +140,9 @@ export function InvoicePreviewModalView({
   invoiceDate,
   customizer,
   onDownload,
+  appearance = 'themed',
 }: InvoicePreviewModalViewProps) {
+  const chrome = CHROME[appearance];
   const overlayRef = useRef<HTMLDivElement>(null);
   const customizeButtonRef = useRef<HTMLDivElement>(null);
   const settingsPanelRef = useRef<HTMLDivElement>(null);
@@ -214,6 +292,10 @@ export function InvoicePreviewModalView({
   return (
     <div
       ref={overlayRef}
+      // The light variant pins data-theme="dark" to hold the standard palette,
+      // so its literal bg-white/zinc chrome survives the light theme's ink
+      // remap even if rendered outside the portal's pinned subtree.
+      {...(appearance === 'light' ? { 'data-theme': 'dark' } : {})}
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
       onClick={(e) => e.target === overlayRef.current && onClose()}
     >
@@ -228,14 +310,14 @@ export function InvoicePreviewModalView({
           max-w-6xl gives the PDF preview enough horizontal room to render
           letter-size pages at readable detail without forcing horizontal scroll. */}
       <div
-        className="relative w-full max-w-6xl h-[90vh] bg-white rounded-xl shadow-2xl animate-scaleIn flex flex-col overflow-hidden"
+        className={`relative w-full max-w-6xl h-[90vh] ${chrome.shell} rounded-xl animate-scaleIn flex flex-col overflow-hidden`}
         style={{ height: '90dvh' }}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-200 flex-shrink-0">
+        <div className={`flex items-center justify-between px-5 py-3 border-b ${chrome.headerBorder} flex-shrink-0`}>
           <div className="flex items-center gap-2 min-w-0">
             <FileText size={18} className="text-zinc-500 flex-shrink-0" />
-            <h2 className="font-semibold text-zinc-900 truncate">
+            <h2 className={`font-semibold ${chrome.title} truncate`}>
               Invoice Preview · {invoiceNumber}
             </h2>
           </div>
@@ -247,9 +329,7 @@ export function InvoicePreviewModalView({
                   aria-label="Preview settings"
                   aria-expanded={settingsOpen}
                   className={`relative inline-flex items-center gap-1.5 px-2.5 py-1.5 text-sm font-medium rounded-lg transition-colors ${
-                    settingsOpen
-                      ? 'bg-zinc-100 text-zinc-900'
-                      : 'text-zinc-500 hover:text-zinc-700 hover:bg-zinc-100'
+                    settingsOpen ? chrome.customizeActive : chrome.customizeIdle
                   }`}
                 >
                   <Settings size={14} />
@@ -275,7 +355,7 @@ export function InvoicePreviewModalView({
             <button
               onClick={onClose}
               aria-label="Close"
-              className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 transition-colors"
+              className={`p-1.5 rounded-lg ${chrome.closeBtn} transition-colors`}
             >
               <X size={18} />
             </button>
@@ -285,16 +365,16 @@ export function InvoicePreviewModalView({
         {customizer && settingsOpen && (
           <div
             ref={settingsPanelRef}
-            className="absolute right-5 top-[60px] z-20 w-80 max-w-[calc(100%-2.5rem)] bg-white border border-zinc-200 rounded-lg shadow-xl animate-slideDown"
+            className={`absolute right-5 top-[60px] z-20 w-80 max-w-[calc(100%-2.5rem)] ${chrome.panel} rounded-lg animate-slideDown`}
           >
-            <div className="px-3 py-2.5 border-b border-zinc-100 flex items-center justify-between">
+            <div className={`px-3 py-2.5 border-b ${chrome.panelDivider} flex items-center justify-between`}>
               <div>
-                <h3 className="text-xs font-semibold text-zinc-700">Show on PDF</h3>
+                <h3 className={`text-xs font-semibold ${chrome.panelHeading}`}>Show on PDF</h3>
                 <p className="text-[10px] text-zinc-400 mt-0.5">Applies to downloads and the client portal.</p>
               </div>
               <button
                 onClick={customizer.resetOptions}
-                className="inline-flex items-center gap-1 text-[11px] font-medium text-zinc-500 hover:text-brand-600 transition-colors"
+                className={`inline-flex items-center gap-1 text-[11px] font-medium ${chrome.panelReset} transition-colors`}
                 aria-label="Reset to defaults"
               >
                 <RotateCcw size={11} />
@@ -308,21 +388,21 @@ export function InvoicePreviewModalView({
                   <button
                     key={key}
                     onClick={() => customizer.toggleOption(key)}
-                    className="w-full px-3 py-2 flex items-start gap-3 hover:bg-zinc-50 transition-colors text-left"
+                    className={`w-full px-3 py-2 flex items-start gap-3 ${chrome.row} transition-colors text-left`}
                     role="switch"
                     aria-checked={enabled}
                   >
                     <div className="flex-1 min-w-0">
-                      <p className="text-xs font-medium text-zinc-800">{label}</p>
+                      <p className={`text-xs font-medium ${chrome.rowLabel}`}>{label}</p>
                       <p className="text-[10px] text-zinc-400 mt-0.5 leading-relaxed">{description}</p>
                     </div>
                     <span
                       className={`relative mt-0.5 inline-flex h-[18px] w-8 flex-shrink-0 items-center rounded-full transition-colors ${
-                        enabled ? 'bg-brand-600' : 'bg-zinc-200'
+                        enabled ? 'bg-brand-600' : chrome.trackOff
                       }`}
                     >
                       <span
-                        className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${
+                        className={`inline-block h-3 w-3 transform rounded-full ${chrome.knob} transition-transform ${
                           enabled ? 'translate-x-[18px]' : 'translate-x-0.5'
                         }`}
                       />
@@ -337,19 +417,19 @@ export function InvoicePreviewModalView({
         {/* Body. Canvas-based renderer (PdfPagesPreview) replaces the native
             iframe PDFViewer because mobile browsers can only show page 1 of
             iframe-embedded PDFs and provide no navigation controls. */}
-        <div className="flex-1 bg-zinc-100 min-h-0">
+        <div className={`flex-1 ${chrome.body} min-h-0`}>
           {integrityError ? (
             <div className="w-full h-full flex items-center justify-center p-8">
-              <div className="max-w-lg rounded-xl border border-red-200 bg-red-50 p-5 text-center">
-                <p className="text-sm font-semibold text-red-800">PDF generation blocked</p>
-                <p className="mt-2 text-sm leading-relaxed text-red-700">{integrityError}</p>
-                <p className="mt-3 text-xs text-red-600">
+              <div className={`max-w-lg rounded-xl border ${chrome.errorCard} p-5 text-center`}>
+                <p className={`text-sm font-semibold ${chrome.errorTitle}`}>PDF generation blocked</p>
+                <p className={`mt-2 text-sm leading-relaxed ${chrome.errorBody}`}>{integrityError}</p>
+                <p className={`mt-3 text-xs ${chrome.errorFoot}`}>
                   The invoice was not rendered or downloaded because its saved billing details did not reconcile.
                 </p>
               </div>
             </div>
           ) : previewLib ? (
-            <previewLib.PdfPagesPreview file={previewUrl} />
+            <previewLib.PdfPagesPreview file={previewUrl} appearance={appearance} />
           ) : (
             <div className="w-full h-full flex flex-col items-center justify-center text-zinc-400">
               <Loader2 size={28} className="animate-spin mb-3" />
@@ -358,7 +438,7 @@ export function InvoicePreviewModalView({
           )}
         </div>
 
-        <div className="px-5 py-2 border-t border-zinc-100 flex-shrink-0 text-[11px] text-zinc-400 text-center">
+        <div className={`px-5 py-2 border-t ${chrome.footer} flex-shrink-0 text-[11px] text-center`}>
           {integrityError
             ? 'Download disabled until the invoice billing data reconciles.'
             : 'This preview reflects the invoice\'s current data. Changes update on reopen.'}

@@ -111,6 +111,17 @@ export default function NotificationsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filter, isDemoMode]);
 
+  // Live refresh: the store's realtime sync dispatches this event whenever a
+  // notification row changes server-side (and this page dispatches it after
+  // its own writes). Refetch resets to the first page, which is fine for a
+  // "new notification arrived" signal.
+  useEffect(() => {
+    const handler = () => fetchNotifications(false, filter);
+    window.addEventListener('notifications-updated', handler);
+    return () => window.removeEventListener('notifications-updated', handler);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filter, isDemoMode]);
+
   const handleMarkAsRead = async (id: string) => {
     setNotifications(prev =>
       filter === 'unread'
@@ -118,21 +129,28 @@ export default function NotificationsPage() {
         : prev.map(n => (n.id === id ? { ...n, is_read: true } : n)),
     );
     setUnreadCount(prev => Math.max(0, prev - 1));
-    window.dispatchEvent(new Event('notifications-updated'));
-    if (isDemoMode) return;
+    if (isDemoMode) {
+      window.dispatchEvent(new Event('notifications-updated'));
+      return;
+    }
     try {
       await createClient().from('team_member_notifications').update({ is_read: true }).eq('id', id);
     } catch (error) {
       console.error('Error marking notification as read:', error);
     }
+    // Dispatched after the write commits so listeners refetch the new truth,
+    // not the pre-write state.
+    window.dispatchEvent(new Event('notifications-updated'));
   };
 
   const handleMarkAllAsRead = async () => {
     if (unreadCount === 0) return;
     setNotifications(prev => (filter === 'unread' ? [] : prev.map(n => ({ ...n, is_read: true }))));
     setUnreadCount(0);
-    window.dispatchEvent(new Event('notifications-updated'));
-    if (isDemoMode) return;
+    if (isDemoMode) {
+      window.dispatchEvent(new Event('notifications-updated'));
+      return;
+    }
     try {
       await createClient()
         .from('team_member_notifications')
@@ -141,6 +159,7 @@ export default function NotificationsPage() {
     } catch (error) {
       console.error('Error marking all as read:', error);
     }
+    window.dispatchEvent(new Event('notifications-updated'));
   };
 
   const handleNotificationClick = async (notification: Notification) => {

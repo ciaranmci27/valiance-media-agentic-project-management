@@ -521,7 +521,7 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
                 className={`flex items-center gap-1.5 px-2.5 py-2 rounded-lg border text-xs font-medium transition-all ${
                   selected
                     ? 'border-brand-400 bg-surface-raised text-white shadow-sm ring-1 ring-brand-500/30'
-                    : 'border-white/[0.08] bg-white/60 text-zinc-400 hover:border-white/[0.12] hover:text-zinc-300'
+                    : 'border-white/[0.08] bg-white/[0.04] text-zinc-400 hover:border-white/[0.12] hover:text-zinc-300'
                 }`}
               >
                 <TypeIcon size={13} className={selected ? cfg.iconColor : 'text-zinc-500'} />

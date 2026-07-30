@@ -25,7 +25,23 @@ function clampZoom(z: number): number {
 interface PdfPagesPreviewProps {
   /** Blob URL or data URL pointing at a PDF. Null while the PDF is being generated. */
   file: string | null;
+  /** Chrome variant, matching the hosting modal: 'themed' follows the app
+   *  theme; 'light' keeps literal light styling for the pinned portal. */
+  appearance?: 'themed' | 'light';
 }
+
+const ZOOM_CHROME = {
+  themed: {
+    toolbar: 'bg-surface-overlay/95 backdrop-blur-sm border border-white/[0.08]',
+    button: 'text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.06]',
+    label: 'text-zinc-300 hover:bg-white/[0.06]',
+  },
+  light: {
+    toolbar: 'bg-white/95 backdrop-blur-sm border border-zinc-200',
+    button: 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100',
+    label: 'text-zinc-700 hover:bg-zinc-100',
+  },
+} as const;
 
 /**
  * Scrollable canvas-based PDF preview. Renders every page stacked vertically
@@ -34,7 +50,8 @@ interface PdfPagesPreviewProps {
  * @react-pdf/renderer's <PDFViewer>, which delegates to the browser's native
  * viewer and is unreliable on iOS Safari and most Android browsers.
  */
-export function PdfPagesPreview({ file }: PdfPagesPreviewProps) {
+export function PdfPagesPreview({ file, appearance = 'themed' }: PdfPagesPreviewProps) {
+  const zoomChrome = ZOOM_CHROME[appearance];
   const containerRef = useRef<HTMLDivElement>(null);
   // Fallback for the brief window before the observer fires.
   const [pageWidth, setPageWidth] = useState<number>(800);
@@ -79,7 +96,9 @@ export function PdfPagesPreview({ file }: PdfPagesPreviewProps) {
     <div className="relative w-full h-full">
       {/* overflow-auto handles both axes: vertical for page stacking, horizontal
           for zoomed-in pages that exceed the container width. */}
-      <div ref={containerRef} className="w-full h-full overflow-auto bg-zinc-100 px-4 py-4">
+      {/* No own background: the hosting modal's body paints the surface so the
+          scroll area matches its chrome variant. */}
+      <div ref={containerRef} className="w-full h-full overflow-auto px-4 py-4">
         <Document
           file={file}
           onLoadSuccess={({ numPages: n }) => setLoaded({ file, numPages: n })}
@@ -119,7 +138,7 @@ export function PdfPagesPreview({ file }: PdfPagesPreviewProps) {
           so the controls don't appear during the initial spinner. */}
       {numPages > 0 && (
         <div
-          className="absolute bottom-3 right-3 z-10 flex items-center gap-0.5 bg-white/95 backdrop-blur-sm border border-zinc-200 rounded-lg shadow-lg p-1"
+          className={`absolute bottom-3 right-3 z-10 flex items-center gap-0.5 ${zoomChrome.toolbar} rounded-lg shadow-lg p-1`}
           role="toolbar"
           aria-label="Zoom"
         >
@@ -129,7 +148,7 @@ export function PdfPagesPreview({ file }: PdfPagesPreviewProps) {
             disabled={zoom <= ZOOM_MIN}
             aria-label="Zoom out"
             title="Zoom out"
-            className="p-1.5 rounded text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            className={`p-1.5 rounded ${zoomChrome.button} disabled:opacity-40 disabled:cursor-not-allowed transition-colors`}
           >
             <ZoomOut size={14} />
           </button>
@@ -138,7 +157,7 @@ export function PdfPagesPreview({ file }: PdfPagesPreviewProps) {
             onClick={() => setZoom(1)}
             aria-label={`Reset zoom to 100% (current ${Math.round(zoom * 100)}%)`}
             title="Reset to 100%"
-            className="px-2 py-1 text-[11px] font-medium text-zinc-700 tabular-nums hover:bg-zinc-100 rounded transition-colors min-w-[42px] text-center"
+            className={`px-2 py-1 text-[11px] font-medium ${zoomChrome.label} tabular-nums rounded transition-colors min-w-[42px] text-center`}
           >
             {Math.round(zoom * 100)}%
           </button>
@@ -148,7 +167,7 @@ export function PdfPagesPreview({ file }: PdfPagesPreviewProps) {
             disabled={zoom >= ZOOM_MAX}
             aria-label="Zoom in"
             title="Zoom in"
-            className="p-1.5 rounded text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            className={`p-1.5 rounded ${zoomChrome.button} disabled:opacity-40 disabled:cursor-not-allowed transition-colors`}
           >
             <ZoomIn size={14} />
           </button>
