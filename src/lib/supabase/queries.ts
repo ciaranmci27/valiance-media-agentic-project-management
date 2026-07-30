@@ -257,14 +257,27 @@ export async function patchTask(
     ...dbUpdates
   } = updates as any;
 
-  const { data, error } = await supabase
-    .from('tasks')
-    .update(dbUpdates)
-    .eq('id', id)
-    .select()
-    .single();
-
-  if (error) throw error;
+  // Assignment-only (or criteria-only) patches leave no column updates;
+  // Postgres rejects an empty UPDATE, so fetch the row instead.
+  let data: any;
+  if (Object.keys(dbUpdates).length > 0) {
+    const { data: updated, error } = await supabase
+      .from('tasks')
+      .update(dbUpdates)
+      .eq('id', id)
+      .select()
+      .single();
+    if (error) throw error;
+    data = updated;
+  } else {
+    const { data: current, error } = await supabase
+      .from('tasks')
+      .select()
+      .eq('id', id)
+      .single();
+    if (error) throw error;
+    data = current;
+  }
 
   if (assigneeIds !== undefined) {
     await supabase.from('task_assignees').delete().eq('task_id', id);
