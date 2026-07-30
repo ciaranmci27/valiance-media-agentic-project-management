@@ -240,12 +240,14 @@ export function sanitizeProjectForAccess<T extends Record<string, unknown>>(
     });
   }
   if (!accessAllows(access, 'agents.manage', channel)) {
+    // repo_path is deliberately NOT hidden here: it is routing metadata the
+    // dev agent needs to locate its workspace. Editing it still requires
+    // agents.manage (enforced in the PATCH handlers).
     Object.assign(sanitized, {
       autonomous_enabled: false,
       deployment_policy: 'production',
       max_concurrent_tasks: 0,
       suggestions_per_cycle: 0,
-      repo_path: null,
     });
   }
   return sanitized as T;
