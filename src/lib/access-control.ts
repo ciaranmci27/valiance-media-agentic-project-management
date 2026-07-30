@@ -14,6 +14,7 @@ export const PERMISSIONS = [
   'api_keys.manage_all',
   'webhooks.manage',
   'notifications.manage_own',
+  'notifications.send',
   'projects.read',
   'projects.read_all',
   'projects.manage',
@@ -61,7 +62,7 @@ export const PERMISSIONS = [
 export type PermissionKey = typeof PERMISSIONS[number];
 
 export const API_ENDPOINT_PERMISSIONS = [
-  'team.read', 'team.manage', 'audit.read', 'notifications.manage_own',
+  'team.read', 'team.manage', 'audit.read', 'notifications.manage_own', 'notifications.send',
   'projects.read', 'projects.read_all', 'projects.manage', 'project_members.manage',
   'tasks.read', 'tasks.create', 'tasks.manage_assigned', 'tasks.manage_all',
   'time.manage_own', 'time.read_all', 'time.manage_all', 'time.approve',
@@ -127,6 +128,7 @@ export const PERMISSION_GROUPS: Array<{
       { key: 'api_keys.manage_all', label: 'Manage all API keys', description: 'Inspect, disable, and revoke every member key.' },
       { key: 'webhooks.manage', label: 'Manage webhooks', description: 'Create, edit, and remove outbound webhook endpoints and view deliveries.' },
       { key: 'notifications.manage_own', label: 'Manage own notifications', description: 'Read and update only the member\'s own notifications through the API.' },
+      { key: 'notifications.send', label: 'Send notifications', description: 'Send in-app notifications to the Owner (agent questions and escalations).' },
     ],
   },
   {

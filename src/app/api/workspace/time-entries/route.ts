@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { accessAllows, accessAllowsProject, requireSessionAccess, sanitizeTimeEntryForAccess } from '@/lib/api/access';
-import { resolveProjectHourlyRate } from '@/lib/supabase/queries';
+import { fetchMemberBillingMultiplier, resolveProjectHourlyRate } from '@/lib/supabase/queries';
 
 type EntryPatch = {
   member_id?: string;
@@ -9,7 +9,42 @@ type EntryPatch = {
   segments?: Array<{ start: string; end: string | null }>;
   description?: string;
   work_type?: 'client' | 'internal';
+  task_ids?: string[];
 };
+
+// Every linked task must belong to the entry's project.
+async function validateTaskLinks(
+  service: { from: (table: string) => any },
+  taskIds: string[],
+  projectId: string,
+): Promise<string | null> {
+  const uniqueIds = [...new Set(taskIds)];
+  if (uniqueIds.length === 0) return null;
+  const { data: tasks } = await service.from('tasks').select('id, project_id').in('id', uniqueIds);
+  const found = new Map((tasks || []).map((t: { id: string; project_id: string }) => [t.id, t.project_id]));
+  for (const id of uniqueIds) {
+    if (found.get(id) !== projectId) return 'task_ids must reference existing tasks in this project';
+  }
+  return null;
+}
+
+// Replace the full linked-task list for an entry.
+async function replaceTaskLinks(
+  service: { from: (table: string) => any },
+  entryId: string,
+  taskIds: string[],
+): Promise<void> {
+  await service.from('time_entry_tasks').delete().eq('time_entry_id', entryId);
+  const uniqueIds = [...new Set(taskIds)];
+  if (uniqueIds.length > 0) {
+    await service.from('time_entry_tasks').insert(uniqueIds.map((taskId) => ({ time_entry_id: entryId, task_id: taskId })));
+  }
+}
+
+function withTaskIds<T extends Record<string, unknown>>(row: T): T & { task_ids: string[] } {
+  const { time_entry_tasks, ...entry } = row as any;
+  return { ...entry, task_ids: (time_entry_tasks || []).map((link: any) => link.task_id) };
+}
 
 function responseError(message: string, status = 400) {
   return NextResponse.json({ error: message }, { status });
@@ -60,7 +95,7 @@ export async function GET(request: Request) {
   const canReadAll = accessAllows(access, 'time.read_all', 'app') || canManageAll;
   if (!canReadAll && !accessAllows(access, 'time.manage_own', 'app')) return responseError('Forbidden', 403);
 
-  let query = service.from('project_time_entries').select('*').order('start_time', { ascending: false });
+  let query = service.from('project_time_entries').select('*, time_entry_tasks ( task_id )').order('start_time', { ascending: false });
   if (projectId) query = query.eq('project_id', projectId);
   if (!canReadAll) query = query.eq('member_id', memberId);
   if (!accessAllows(access, 'projects.read_all', 'app')) {
@@ -71,7 +106,7 @@ export async function GET(request: Request) {
   const { data, error } = await query;
   if (error) return responseError(error.message, 500);
   return NextResponse.json({
-    data: (data || []).map((entry) => sanitizeTimeEntryForAccess(entry, access)),
+    data: (data || []).map((entry) => sanitizeTimeEntryForAccess(withTaskIds(entry), access)),
   });
 }
 
@@ -111,6 +146,12 @@ export async function POST(request: Request) {
     body.start_time,
     Number(project.hourly_rate) || undefined,
   );
+  const billingMultiplier = await fetchMemberBillingMultiplier(service, targetMemberId);
+  const taskIds: string[] = Array.isArray(body.task_ids) ? body.task_ids : [];
+  if (taskIds.length > 0) {
+    const taskLinkError = await validateTaskLinks(service, taskIds, body.project_id);
+    if (taskLinkError) return responseError(taskLinkError, 422);
+  }
   const payload = {
     project_id: body.project_id,
     member_id: targetMemberId,
@@ -120,6 +161,7 @@ export async function POST(request: Request) {
     hourly_rate: hourlyRate,
     description: body.description || '',
     work_type: body.work_type || 'client',
+    billing_multiplier: billingMultiplier,
   };
   let result = await service.from('project_time_entries').insert(payload).select().single();
   if (result.error?.message.includes('work_type')) {
@@ -128,7 +170,10 @@ export async function POST(request: Request) {
     result = await service.from('project_time_entries').insert(legacyPayload).select().single();
   }
   if (result.error) return responseError(result.error.message, 500);
-  return NextResponse.json({ data: sanitizeTimeEntryForAccess(result.data, access) }, { status: 201 });
+  if (taskIds.length > 0) {
+    await replaceTaskLinks(service, result.data.id, taskIds);
+  }
+  return NextResponse.json({ data: sanitizeTimeEntryForAccess({ ...result.data, task_ids: [...new Set(taskIds)] }, access) }, { status: 201 });
 }
 
 export async function PATCH(request: Request) {
@@ -173,6 +218,11 @@ export async function PATCH(request: Request) {
   for (const key of ['start_time', 'end_time', 'segments', 'description', 'work_type'] as const) {
     if (key in body) Object.assign(patch, { [key]: body[key] });
   }
+  const taskIds: string[] | undefined = Array.isArray(body.task_ids) ? body.task_ids : undefined;
+  if (taskIds !== undefined && taskIds.length > 0) {
+    const taskLinkError = await validateTaskLinks(service, taskIds, existing.project_id);
+    if (taskLinkError) return responseError(taskLinkError, 422);
+  }
   if (canManageAll && body.member_id) {
     const { data: targetMember } = await service.from('team_members').select('id, status').eq('id', body.member_id).maybeSingle();
     if (!targetMember || targetMember.status !== 'active') return responseError('Active team member not found', 422);
@@ -183,14 +233,18 @@ export async function PATCH(request: Request) {
     patch.member_id = body.member_id;
   }
   if (body.start_time) patch.hourly_rate = await resolveProjectHourlyRate(service, existing.project_id, body.start_time);
-  let result = await service.from('project_time_entries').update(patch).eq('id', body.id).select().single();
+  let result = await service.from('project_time_entries').update(patch).eq('id', body.id).select('*, time_entry_tasks ( task_id )').single();
   if (result.error?.message.includes('work_type')) {
     const legacyPatch: typeof patch = { ...patch };
     delete legacyPatch.work_type;
-    result = await service.from('project_time_entries').update(legacyPatch).eq('id', body.id).select().single();
+    result = await service.from('project_time_entries').update(legacyPatch).eq('id', body.id).select('*, time_entry_tasks ( task_id )').single();
   }
   if (result.error) return responseError(result.error.message, 500);
-  return NextResponse.json({ data: sanitizeTimeEntryForAccess(result.data, access) });
+  if (taskIds !== undefined) {
+    await replaceTaskLinks(service, body.id, taskIds);
+    return NextResponse.json({ data: sanitizeTimeEntryForAccess({ ...withTaskIds(result.data), task_ids: [...new Set(taskIds)] }, access) });
+  }
+  return NextResponse.json({ data: sanitizeTimeEntryForAccess(withTaskIds(result.data), access) });
 }
 
 export async function DELETE(request: Request) {

@@ -10,6 +10,7 @@ import { Select } from '@/components/ui/Select';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { TextInput } from '@/components/ui/inputs/TextInput';
+import { MultiSelect } from '@/components/ui/inputs/MultiSelect';
 import { TimeInput } from '@/components/ui/inputs/TimeInput';
 import { DateInput } from '@/components/ui/inputs/DateInput';
 import { NumberInput } from '@/components/ui/inputs/NumberInput';
@@ -78,7 +79,7 @@ function getStorageKey(projectId: string) {
 export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTrackingPanelProps) {
   const projectColor = rawColor || '#A1A1AA';
   const {
-    getTimeEntriesByProject, team, getProject, getInvoicesByProject,
+    getTimeEntriesByProject, team, tasks, getProject, getInvoicesByProject,
     addTimeEntry, updateTimeEntry, deleteTimeEntry,
     startTimer, pauseTimer, resumeTimer, stopTimer, getRunningTimer,
   } = useApp();
@@ -187,6 +188,7 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
   const [timerMemberId, setTimerMemberId] = useState('');
   const [timerDescription, setTimerDescription] = useState('');
   const [timerWorkType, setTimerWorkType] = useState<'client' | 'internal'>('client');
+  const [timerTaskIds, setTimerTaskIds] = useState<string[]>([]);
   const [adjustingStart, setAdjustingStart] = useState(false);
   const [adjustStartTime, setAdjustStartTime] = useState('');
   const descDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -201,6 +203,7 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
   const [manualMemberId, setManualMemberId] = useState('');
   const [manualDescription, setManualDescription] = useState('');
   const [manualWorkType, setManualWorkType] = useState<'client' | 'internal'>('client');
+  const [manualTaskIds, setManualTaskIds] = useState<string[]>([]);
 
   useEffect(() => {
     if (!teamMemberId) return;
@@ -270,14 +273,22 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
   }, [completedEntries]);
 
   const getMember = (id: string) => team.find(m => m.id === id);
+  const getTaskTitle = (id: string | null | undefined) => (id ? tasks.find(t => t.id === id)?.title : undefined);
+  const projectTaskOptions = useMemo(
+    () => tasks
+      .filter(t => t.project_id === projectId && t.status !== 'done')
+      .map(t => ({ value: t.id, label: t.title })),
+    [tasks, projectId],
+  );
 
   // ── Handlers ──
 
   const handleStartTimer = () => {
     const memberId = timerMemberId || teamMemberId;
     if (!memberId) { toast('error', 'Please select a team member'); return; }
-    startTimer(projectId, memberId, timerDescription, undefined, timerWorkType);
+    startTimer(projectId, memberId, timerDescription, undefined, timerWorkType, timerTaskIds);
     setTimerDescription('');
+    setTimerTaskIds([]);
     toast('success', 'Timer started');
   };
 
@@ -372,9 +383,11 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
       hourly_rate: project?.hourly_rate ?? 0,
       description: manualDescription,
       work_type: manualWorkType,
+      task_ids: manualTaskIds,
     });
     toast('success', 'Time entry added');
     setManualDescription('');
+    setManualTaskIds([]);
     setManualStartTime('');
     setManualEndTime('');
     setManualDurationHours('');
@@ -754,6 +767,15 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                   onChange={setTimerDescription}
                   placeholder="What are you working on?"
                 />
+                {projectTaskOptions.length > 0 && (
+                  <MultiSelect
+                    options={projectTaskOptions}
+                    value={timerTaskIds}
+                    onChange={setTimerTaskIds}
+                    placeholder="Link tasks (optional)"
+                    searchable={projectTaskOptions.length > 4}
+                  />
+                )}
               </div>
             )}
           </div>
@@ -916,6 +938,15 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
               </button>
             </div>
             <Select value={manualWorkType} onChange={(value) => setManualWorkType(value as 'client' | 'internal')} options={[{ value: 'client', label: 'Client work' }, { value: 'internal', label: 'Internal work' }]} />
+            {projectTaskOptions.length > 0 && (
+              <MultiSelect
+                options={projectTaskOptions}
+                value={manualTaskIds}
+                onChange={setManualTaskIds}
+                placeholder="Link tasks (optional)"
+                searchable={projectTaskOptions.length > 4}
+              />
+            )}
           </form>
         )}
 
@@ -1014,6 +1045,46 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                           <p className="text-sm text-zinc-300 truncate">
                             {entry.description || <span className="text-zinc-500 italic">No description</span>}
                           </p>
+                          {(() => {
+                            const linkedTasks = (entry.task_ids || [])
+                              .map(linkedTaskId => ({ id: linkedTaskId, title: getTaskTitle(linkedTaskId) }))
+                              .filter((linked): linked is { id: string; title: string } => !!linked.title);
+                            if (linkedTasks.length === 0) return null;
+                            const visibleTasks = linkedTasks.slice(0, 3);
+                            const overflowTasks = linkedTasks.slice(3);
+                            return (
+                              <div className="mt-1 mb-0.5 flex flex-wrap items-center gap-1">
+                                {visibleTasks.map(linked => (
+                                  <span
+                                    key={linked.id}
+                                    className="inline-flex min-w-0 max-w-[220px] items-center gap-1 rounded-full border border-white/[0.06] bg-white/[0.04] px-2 py-0.5 text-[10px] font-medium text-zinc-400"
+                                  >
+                                    <span
+                                      className="h-1 w-1 flex-shrink-0 rounded-full"
+                                      style={{ backgroundColor: projectColor }}
+                                      aria-hidden="true"
+                                    />
+                                    <span className="truncate">{linked.title}</span>
+                                  </span>
+                                ))}
+                                {overflowTasks.length > 0 && (
+                                  <Tooltip
+                                    content={(
+                                      <div className="space-y-0.5">
+                                        {overflowTasks.map(linked => (
+                                          <p key={linked.id}>{linked.title}</p>
+                                        ))}
+                                      </div>
+                                    )}
+                                  >
+                                    <span className="inline-flex items-center rounded-full border border-white/[0.06] bg-white/[0.04] px-2 py-0.5 text-[10px] font-medium text-zinc-400">
+                                      +{overflowTasks.length} more
+                                    </span>
+                                  </Tooltip>
+                                )}
+                              </div>
+                            );
+                          })()}
                           <div className="flex items-center gap-1.5 text-xs text-zinc-500">
                             <span className="truncate">
                               {member?.name} &middot; {formatTime(entry.start_time, tz)} – {entry.end_time ? formatTime(entry.end_time, tz) : '...'}

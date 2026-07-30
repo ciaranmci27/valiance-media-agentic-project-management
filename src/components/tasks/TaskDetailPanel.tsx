@@ -1,15 +1,16 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Task } from '@/lib/types';
+import { AiReadiness, Task } from '@/lib/types';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { StatusBadge, PriorityBadge } from '@/components/ui/Badge';
 import { Avatar, AvatarGroup } from '@/components/ui/Avatar';
 import { TextInput } from '@/components/ui/inputs/TextInput';
 import { Textarea } from '@/components/ui/inputs/Textarea';
+import { Toggle } from '@/components/ui/Toggle';
 import {
-  X, Edit, Trash2, Calendar, CheckSquare, MessageSquare, Plus, Tag, Users, Clock, GripVertical, Bot,
+  X, Edit, Trash2, Calendar, CheckSquare, MessageSquare, Plus, Tag, Users, Clock, GripVertical, Bot, ListChecks, Lock,
 } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Tooltip } from '@/components/ui/Tooltip';
@@ -38,8 +39,14 @@ const PRIORITY_OPTIONS: { value: Task['priority']; label: string; color: string 
   { value: 'urgent', label: 'Urgent', color: 'bg-red-500' },
 ];
 
+const AI_READINESS_DISPLAY: Record<AiReadiness, { label: string; className: string }> = {
+  ai_ready: { label: 'AI Ready', className: 'bg-brand-500/15 text-brand-300' },
+  human_only: { label: 'Human Only', className: 'bg-white/[0.06] text-zinc-300' },
+  hybrid: { label: 'Hybrid', className: 'bg-amber-500/15 text-amber-400' },
+};
+
 export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailPanelProps) {
-  const { team, getTeamMember, getProject, updateTask, toggleSubtask, addSubtask, updateSubtask, reorderSubtasks, deleteSubtask, addComment, updateComment, deleteComment } = useApp();
+  const { team, tasks, getTeamMember, getProject, updateTask, toggleSubtask, addSubtask, updateSubtask, reorderSubtasks, deleteSubtask, addCriterion, toggleCriterion, updateCriterion, deleteCriterion, addComment, updateComment, deleteComment } = useApp();
   const { teamMemberId, access } = useAuth();
   const backdropRef = useRef<HTMLDivElement>(null);
   const [newSubtask, setNewSubtask] = useState('');
@@ -57,11 +64,16 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
   const [dragSubtaskOrder, setDragSubtaskOrder] = useState<string[] | null>(null);
   const [deleteSubtaskTarget, setDeleteSubtaskTarget] = useState<string | null>(null);
   const [deleteCommentTarget, setDeleteCommentTarget] = useState<string | null>(null);
+  const [newCriterion, setNewCriterion] = useState('');
+  const [editingCriterionId, setEditingCriterionId] = useState<string | null>(null);
+  const [editingCriterionText, setEditingCriterionText] = useState('');
+  const [deleteCriterionTarget, setDeleteCriterionTarget] = useState<string | null>(null);
 
   // Reset local state when task changes
   useEffect(() => {
     setNewSubtask('');
     setNewComment('');
+    setNewCriterion('');
   }, [task?.id]);
 
   // Escape key handler
@@ -88,9 +100,15 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
   const isAgentsEnabled = process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true';
   const project = getProject(task.project_id);
   const showAiToggle = isAgentsEnabled && hasPermission(access, 'agents.manage') && project?.autonomous_enabled;
+  const showAiReadiness = isAgentsEnabled && hasPermission(access, 'agents.manage');
 
   const assignees = team.filter(m => task.assignee_ids.includes(m.id));
   const completedSubtasks = task.subtasks.filter(s => s.completed).length;
+  const satisfiedCriteria = task.acceptance_criteria.filter(c => c.satisfied).length;
+  const blockers = (task.blocked_by_ids || [])
+    .map(id => tasks.find(t => t.id === id))
+    .filter((t): t is Task => !!t);
+  const openBlockers = blockers.filter(b => b.status !== 'done');
 
   const formatDate = (date: string | null) => {
     if (!date) return null;
@@ -112,6 +130,13 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
     if (!canEdit || !newSubtask.trim()) return;
     addSubtask(task.id, newSubtask.trim());
     setNewSubtask('');
+  };
+
+  const handleAddCriterion = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!canEdit || !newCriterion.trim()) return;
+    addCriterion(task.id, newCriterion.trim());
+    setNewCriterion('');
   };
 
   const handleAddComment = (e: React.FormEvent) => {
@@ -295,6 +320,23 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
                 </div>
               )}
 
+              {/* AI Readiness */}
+              {showAiReadiness && (
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-1.5 text-xs text-zinc-400 w-20 flex-shrink-0">
+                    <Bot size={14} />
+                    <span>AI Ready</span>
+                  </div>
+                  {task.ai_readiness ? (
+                    <span className={`px-2 py-0.5 text-xs rounded-full ${AI_READINESS_DISPLAY[task.ai_readiness].className}`}>
+                      {AI_READINESS_DISPLAY[task.ai_readiness].label}
+                    </span>
+                  ) : (
+                    <span className="text-xs text-zinc-500">Unclassified</span>
+                  )}
+                </div>
+              )}
+
               {/* Created */}
               <div className="flex items-center gap-3">
                 <div className="flex items-center gap-1.5 text-xs text-zinc-400 w-20 flex-shrink-0">
@@ -315,18 +357,11 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
                     <p className="text-xs text-zinc-500">Let Ashley automate this task</p>
                   </div>
                 </div>
-                <button
-                  onClick={() => updateTask(task.id, { ai_managed: !task.ai_managed })}
-                  className={`relative w-10 h-[22px] rounded-full transition-colors ${
-                    task.ai_managed ? 'bg-brand-600' : 'bg-zinc-300'
-                  }`}
-                >
-                  <span
-                    className={`absolute top-0.5 left-0.5 w-[18px] h-[18px] bg-surface-raised rounded-full shadow transition-transform ${
-                      task.ai_managed ? 'translate-x-[18px]' : 'translate-x-0'
-                    }`}
-                  />
-                </button>
+                <Toggle
+                  checked={task.ai_managed}
+                  onChange={() => updateTask(task.id, { ai_managed: !task.ai_managed })}
+                  aria-label="AI managed"
+                />
               </div>
             )}
 
@@ -337,6 +372,143 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
                 <p className="text-sm text-zinc-300 whitespace-pre-wrap leading-relaxed">{task.description}</p>
               </div>
             )}
+
+            {/* Blocked By Section */}
+            {blockers.length > 0 && (
+              <div className="space-y-2">
+                <h3 className="text-sm font-medium text-zinc-300 flex items-center gap-2">
+                  <Lock size={14} />
+                  Blocked By
+                </h3>
+                {openBlockers.length > 0 && (
+                  <p className="text-xs text-amber-400">
+                    Waiting on {openBlockers.length} {openBlockers.length === 1 ? 'task' : 'tasks'} to finish
+                  </p>
+                )}
+                <div className="space-y-1">
+                  {blockers.map(blocker => (
+                    <div key={blocker.id} className="flex items-center justify-between gap-2 p-2 rounded-lg bg-white/[0.03]">
+                      <span className={`text-sm truncate ${blocker.status === 'done' ? 'text-zinc-500 line-through' : 'text-zinc-300'}`}>
+                        {blocker.title}
+                      </span>
+                      <StatusBadge status={blocker.status} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Acceptance Criteria Section */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-medium text-zinc-300 flex items-center gap-2">
+                  <ListChecks size={14} />
+                  Acceptance Criteria
+                  {task.acceptance_criteria.length > 0 && (
+                    <span className="text-xs text-zinc-400 font-normal">
+                      ({satisfiedCriteria}/{task.acceptance_criteria.length})
+                    </span>
+                  )}
+                </h3>
+              </div>
+
+              <div className="space-y-1">
+                {task.acceptance_criteria.map((criterion) => (
+                  <div
+                    key={criterion.id}
+                    className="flex items-center gap-2 p-2 rounded-lg hover:bg-white/[0.03] group"
+                  >
+                    <button
+                      onClick={() => canEdit && toggleCriterion(task.id, criterion.id)}
+                      aria-label={criterion.satisfied ? 'Mark criterion unmet' : 'Mark criterion met'}
+                      className={`flex-shrink-0 w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
+                        criterion.satisfied
+                          ? 'bg-brand-500 border-brand-500'
+                          : 'border-white/[0.12] hover:border-brand-400'
+                      }`}
+                    >
+                      {criterion.satisfied && <CheckSquare size={12} className="text-white" />}
+                    </button>
+                    {editingCriterionId === criterion.id ? (
+                      <form
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          if (editingCriterionText.trim()) {
+                            updateCriterion(task.id, criterion.id, editingCriterionText.trim());
+                          }
+                          setEditingCriterionId(null);
+                        }}
+                        className="flex-1"
+                      >
+                        <TextInput
+                          value={editingCriterionText}
+                          onChange={setEditingCriterionText}
+                          onBlur={() => {
+                            if (editingCriterionText.trim()) {
+                              updateCriterion(task.id, criterion.id, editingCriterionText.trim());
+                            }
+                            setEditingCriterionId(null);
+                          }}
+                          autoFocus
+                          size="sm"
+                        />
+                      </form>
+                    ) : (
+                      <Tooltip content="Double-click to edit" delay={500}>
+                        <span
+                          className={`flex-1 text-sm cursor-pointer ${criterion.satisfied ? 'text-zinc-500' : 'text-zinc-300'}`}
+                          onDoubleClick={() => {
+                            setEditingCriterionId(criterion.id);
+                            setEditingCriterionText(criterion.criterion);
+                          }}
+                        >
+                          {criterion.criterion}
+                        </span>
+                      </Tooltip>
+                    )}
+                    <div className="flex items-center gap-0.5 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-all">
+                      <button
+                        onClick={() => {
+                          setEditingCriterionId(criterion.id);
+                          setEditingCriterionText(criterion.criterion);
+                        }}
+                        aria-label="Edit criterion"
+                        className="p-1 text-zinc-500 hover:text-brand-500"
+                      >
+                        <Edit size={12} />
+                      </button>
+                      <button
+                        onClick={() => setDeleteCriterionTarget(criterion.id)}
+                        aria-label="Delete criterion"
+                        className="p-1 text-zinc-500 hover:text-red-500"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Add criterion */}
+              {canEdit && (
+                <form onSubmit={handleAddCriterion} className="flex items-center gap-2 pl-[22px]">
+                  <TextInput
+                    value={newCriterion}
+                    onChange={setNewCriterion}
+                    placeholder="Add an acceptance criterion..."
+                    size="sm"
+                    className="flex-1"
+                  />
+                  <button
+                    type="submit"
+                    aria-label="Add acceptance criterion"
+                    className="p-1 rounded text-zinc-500 hover:text-brand-300 hover:bg-brand-500/15 transition-colors flex-shrink-0"
+                  >
+                    <Plus size={16} />
+                  </button>
+                </form>
+              )}
+            </div>
 
             {/* Subtasks Section */}
             <div className="space-y-3">
@@ -622,6 +794,16 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
         onConfirm={() => { if (deleteSubtaskTarget) deleteSubtask(task.id, deleteSubtaskTarget); }}
         title="Delete Subtask"
         message="Are you sure you want to delete this subtask?"
+        confirmLabel="Delete"
+        variant="danger"
+      />
+
+      <ConfirmDialog
+        isOpen={!!deleteCriterionTarget}
+        onClose={() => setDeleteCriterionTarget(null)}
+        onConfirm={() => { if (deleteCriterionTarget) deleteCriterion(task.id, deleteCriterionTarget); }}
+        title="Delete Acceptance Criterion"
+        message="Are you sure you want to delete this acceptance criterion?"
         confirmLabel="Delete"
         variant="danger"
       />

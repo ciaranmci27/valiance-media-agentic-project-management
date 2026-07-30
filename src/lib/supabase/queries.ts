@@ -1,5 +1,5 @@
 import { SupabaseClient } from '@supabase/supabase-js';
-import type { Project, Task, TeamMember, Subtask, Comment, Activity, Contact, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, ApiKey, ProjectGoal, TaskSuggestion, AgentActivity, ApiAuditEntry, TimeEntry, ProjectCredential, ProjectCredentialListItem, ProjectInvoice, BusinessSettings, InvoiceTimeEntryAllocation, WebhookEndpoint, WebhookDelivery } from '@/lib/types';
+import type { Project, Task, TeamMember, Subtask, AcceptanceCriterion, Comment, Activity, Contact, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, ApiKey, ProjectGoal, TaskSuggestion, AgentActivity, ApiAuditEntry, TimeEntry, ProjectCredential, ProjectCredentialListItem, ProjectInvoice, BusinessSettings, InvoiceTimeEntryAllocation, WebhookEndpoint, WebhookDelivery } from '@/lib/types';
 import { notFound } from '@/lib/api/errors';
 import { siteConfig } from '@/site-config';
 import { generatePortalSlug } from '@/lib/portal-slug';
@@ -149,7 +149,9 @@ export async function fetchTasks(supabase: SupabaseClient) {
       *,
       task_assignees ( member_id ),
       subtasks:task_subtasks ( id, task_id, title, completed, sort_order ),
-      comments:task_comments ( id, task_id, user_id, text, created_at )
+      comments:task_comments ( id, task_id, user_id, text, created_at ),
+      criteria:task_acceptance_criteria ( id, task_id, criterion, satisfied, sort_order ),
+      task_dependencies!task_dependencies_task_id_fkey ( blocked_by_task_id )
     `)
     .order('created_at', { ascending: false });
 
@@ -162,14 +164,20 @@ export async function fetchTasks(supabase: SupabaseClient) {
     comments: (t.comments || []).sort(
       (a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
     ),
+    acceptance_criteria: (t.criteria || []).sort((a: any, b: any) => a.sort_order - b.sort_order),
+    blocked_by_ids: (t.task_dependencies || []).map((d: any) => d.blocked_by_task_id),
+    criteria: undefined,
+    task_dependencies: undefined,
     task_assignees: undefined,
   })) as Task[];
 }
 
 export async function insertTask(
   supabase: SupabaseClient,
-  task: Omit<Task, 'id' | 'created_at' | 'updated_at' | 'assignee_ids' | 'subtasks' | 'comments'>,
-  assigneeIds: string[]
+  task: Omit<Task, 'id' | 'created_at' | 'updated_at' | 'assignee_ids' | 'subtasks' | 'comments' | 'acceptance_criteria' | 'blocked_by_ids'>,
+  assigneeIds: string[],
+  criteria: string[] = [],
+  blockedByIds: string[] = []
 ) {
   const insertPayload: Record<string, any> = {
     project_id: task.project_id,
@@ -185,6 +193,7 @@ export async function insertTask(
   if (task.source_task_suggestion_id) insertPayload.source_task_suggestion_id = task.source_task_suggestion_id;
   if (task.task_type) insertPayload.task_type = task.task_type;
   if (task.ai_managed !== undefined) insertPayload.ai_managed = task.ai_managed;
+  if (task.ai_readiness !== undefined) insertPayload.ai_readiness = task.ai_readiness;
 
   const { data, error } = await supabase
     .from('tasks')
@@ -201,16 +210,52 @@ export async function insertTask(
     if (junctionError) throw junctionError;
   }
 
-  return { ...data, assignee_ids: assigneeIds, subtasks: [], comments: [] } as Task;
+  let insertedCriteria: AcceptanceCriterion[] = [];
+  if (criteria.length > 0) {
+    const { data: criteriaRows, error: criteriaError } = await supabase
+      .from('task_acceptance_criteria')
+      .insert(criteria.map((criterion, index) => ({ task_id: data.id, criterion, sort_order: index })))
+      .select();
+    if (criteriaError) throw criteriaError;
+    insertedCriteria = (criteriaRows || []) as AcceptanceCriterion[];
+  }
+
+  if (blockedByIds.length > 0) {
+    const { error: dependencyError } = await supabase
+      .from('task_dependencies')
+      .insert(blockedByIds.map(blockedById => ({ task_id: data.id, blocked_by_task_id: blockedById })));
+    if (dependencyError) throw dependencyError;
+  }
+
+  return {
+    ...data,
+    assignee_ids: assigneeIds,
+    subtasks: [],
+    comments: [],
+    acceptance_criteria: insertedCriteria,
+    blocked_by_ids: blockedByIds,
+  } as Task;
 }
 
 export async function patchTask(
   supabase: SupabaseClient,
   id: string,
   updates: Partial<Task>,
-  assigneeIds?: string[]
+  assigneeIds?: string[],
+  criteria?: string[],
+  blockedByIds?: string[]
 ) {
-  const { assignee_ids, subtasks, comments, task_assignees, ...dbUpdates } = updates as any;
+  const {
+    assignee_ids,
+    subtasks,
+    comments,
+    task_assignees,
+    acceptance_criteria,
+    blocked_by_ids,
+    criteria: embeddedCriteria,
+    task_dependencies,
+    ...dbUpdates
+  } = updates as any;
 
   const { data, error } = await supabase
     .from('tasks')
@@ -228,6 +273,29 @@ export async function patchTask(
         .from('task_assignees')
         .insert(assigneeIds.map(mid => ({ task_id: id, member_id: mid })));
       if (junctionError) throw junctionError;
+    }
+  }
+
+  // Full replace: resets satisfied flags. Intended for retrofitting specs
+  // before work starts, not for editing individual criteria (use the
+  // acceptance-criteria endpoints for that).
+  if (criteria !== undefined) {
+    await supabase.from('task_acceptance_criteria').delete().eq('task_id', id);
+    if (criteria.length > 0) {
+      const { error: criteriaError } = await supabase
+        .from('task_acceptance_criteria')
+        .insert(criteria.map((criterion, index) => ({ task_id: id, criterion, sort_order: index })));
+      if (criteriaError) throw criteriaError;
+    }
+  }
+
+  if (blockedByIds !== undefined) {
+    await supabase.from('task_dependencies').delete().eq('task_id', id);
+    if (blockedByIds.length > 0) {
+      const { error: dependencyError } = await supabase
+        .from('task_dependencies')
+        .insert(blockedByIds.map(blockedById => ({ task_id: id, blocked_by_task_id: blockedById })));
+      if (dependencyError) throw dependencyError;
     }
   }
 
@@ -322,6 +390,53 @@ export async function patchSubtask(
 
 export async function removeSubtask(supabase: SupabaseClient, subtaskId: string) {
   const { error } = await supabase.from('task_subtasks').delete().eq('id', subtaskId);
+  if (error) throw error;
+}
+
+// ============================================================
+// ACCEPTANCE CRITERIA
+// ============================================================
+
+export async function insertAcceptanceCriterion(
+  supabase: SupabaseClient,
+  taskId: string,
+  criterion: string
+) {
+  // Get current max sort_order
+  const { data: existing } = await supabase
+    .from('task_acceptance_criteria')
+    .select('sort_order')
+    .eq('task_id', taskId)
+    .order('sort_order', { ascending: false })
+    .limit(1);
+
+  const sortOrder = existing && existing.length > 0 ? existing[0].sort_order + 1 : 0;
+
+  const { data, error } = await supabase
+    .from('task_acceptance_criteria')
+    .insert({ task_id: taskId, criterion, sort_order: sortOrder })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data as AcceptanceCriterion;
+}
+
+export async function patchAcceptanceCriterion(
+  supabase: SupabaseClient,
+  criterionId: string,
+  updates: Partial<Pick<AcceptanceCriterion, 'criterion' | 'satisfied' | 'sort_order'>>
+) {
+  const { error } = await supabase
+    .from('task_acceptance_criteria')
+    .update(updates)
+    .eq('id', criterionId);
+
+  if (error) throw error;
+}
+
+export async function removeAcceptanceCriterion(supabase: SupabaseClient, criterionId: string) {
+  const { error } = await supabase.from('task_acceptance_criteria').delete().eq('id', criterionId);
   if (error) throw error;
 }
 
@@ -1886,25 +2001,64 @@ export async function resolveProjectHourlyRate(
   return Number(project.hourly_rate) || 0;
 }
 
+// The member's current billing-multiplier dial, snapshotted onto each time
+// entry at session start. Agent sessions are converted on stop into one
+// continuous slot of worked time times this snapshot; the rate is never
+// multiplied. Falls back to 1 (parity) if unset or the column is absent.
+export async function fetchMemberBillingMultiplier(
+  supabase: SupabaseClient,
+  memberId: string | null | undefined,
+): Promise<number> {
+  if (!memberId) return 1;
+  const { data: member } = await supabase
+    .from('team_members')
+    .select('billing_multiplier')
+    .eq('id', memberId)
+    .maybeSingle();
+  const multiplier = Number(member?.billing_multiplier);
+  return Number.isFinite(multiplier) && multiplier > 0 ? multiplier : 1;
+}
+
+// Shared embed + mapping so every read path returns task_ids consistently.
+export const TIME_ENTRY_SELECT = '*, time_entry_tasks ( task_id )';
+
+export function mapTimeEntryRow<T extends Record<string, any>>(row: T): TimeEntry {
+  const { time_entry_tasks, ...entry } = row as any;
+  return {
+    ...entry,
+    task_ids: (time_entry_tasks || []).map((link: any) => link.task_id),
+  } as TimeEntry;
+}
+
+async function replaceTimeEntryTasks(supabase: SupabaseClient, entryId: string, taskIds: string[]) {
+  await supabase.from('time_entry_tasks').delete().eq('time_entry_id', entryId);
+  if (taskIds.length > 0) {
+    const { error } = await supabase
+      .from('time_entry_tasks')
+      .insert([...new Set(taskIds)].map(taskId => ({ time_entry_id: entryId, task_id: taskId })));
+    if (error) throw error;
+  }
+}
+
 export async function fetchAllTimeEntries(supabase: SupabaseClient) {
   const { data, error } = await supabase
     .from('project_time_entries')
-    .select('*')
+    .select(TIME_ENTRY_SELECT)
     .order('start_time', { ascending: false });
 
   if (error) throw error;
-  return (data || []) as TimeEntry[];
+  return (data || []).map(mapTimeEntryRow);
 }
 
 export async function fetchTimeEntriesByProject(supabase: SupabaseClient, projectId: string) {
   const { data, error } = await supabase
     .from('project_time_entries')
-    .select('*')
+    .select(TIME_ENTRY_SELECT)
     .eq('project_id', projectId)
     .order('start_time', { ascending: false });
 
   if (error) throw error;
-  return (data || []) as TimeEntry[];
+  return (data || []).map(mapTimeEntryRow);
 }
 
 export async function insertTimeEntry(
@@ -1917,6 +2071,7 @@ export async function insertTimeEntry(
     entry.start_time,
     entry.hourly_rate,
   );
+  const billingMultiplier = await fetchMemberBillingMultiplier(supabase, entry.member_id);
   const { data, error } = await supabase
     .from('project_time_entries')
     .insert({
@@ -1927,20 +2082,26 @@ export async function insertTimeEntry(
       segments: entry.segments ?? [],
       hourly_rate: hourlyRate,
       description: entry.description,
+      billing_multiplier: billingMultiplier,
     })
     .select()
     .single();
 
   if (error) throw error;
-  return data as TimeEntry;
+  const taskIds = entry.task_ids ?? [];
+  if (taskIds.length > 0) {
+    await replaceTimeEntryTasks(supabase, data.id, taskIds);
+  }
+  return { ...data, task_ids: taskIds } as TimeEntry;
 }
 
 export async function patchTimeEntry(
   supabase: SupabaseClient,
   id: string,
-  updates: Partial<Pick<TimeEntry, 'member_id' | 'start_time' | 'end_time' | 'segments' | 'description'>>
+  updates: Partial<Pick<TimeEntry, 'member_id' | 'start_time' | 'end_time' | 'segments' | 'description' | 'task_ids'>>
 ) {
-  const patch: typeof updates & { hourly_rate?: number } = { ...updates };
+  const { task_ids, ...fieldUpdates } = updates;
+  const patch: typeof fieldUpdates & { hourly_rate?: number } = { ...fieldUpdates };
   if (updates.start_time) {
     const { data: existing, error: existingError } = await supabase
       .from('project_time_entries')
@@ -1954,11 +2115,15 @@ export async function patchTimeEntry(
     .from('project_time_entries')
     .update(patch)
     .eq('id', id)
-    .select()
+    .select(TIME_ENTRY_SELECT)
     .single();
 
   if (error) throw error;
-  return data as TimeEntry;
+  if (task_ids !== undefined) {
+    await replaceTimeEntryTasks(supabase, id, task_ids);
+    return { ...mapTimeEntryRow(data), task_ids: [...new Set(task_ids)] } as TimeEntry;
+  }
+  return mapTimeEntryRow(data);
 }
 
 export async function removeTimeEntry(supabase: SupabaseClient, id: string) {

@@ -89,11 +89,11 @@ export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId, acc
     statusCode: 201,
   });
 
-  // Notify admin team members about the new suggestion (respects notification prefs)
+  // Notify the owner and admins about the new suggestion (respects notification prefs)
   const { data: admins } = await supabase
     .from('team_members')
     .select('id, name, notification_prefs')
-    .eq('role', 'admin');
+    .in('role', ['owner', 'admin']);
 
   if (admins && admins.length > 0) {
     for (const admin of admins) {

@@ -5,6 +5,7 @@ export * from './projects';
 export * from './tasks';
 export * from './leads';
 export * from './subtasks';
+export * from './acceptance-criteria';
 export * from './comments';
 export * from './project-contacts';
 export * from './lead-contacts';

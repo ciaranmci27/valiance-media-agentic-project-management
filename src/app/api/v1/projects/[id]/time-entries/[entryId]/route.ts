@@ -6,7 +6,8 @@ import { notFound, badRequest } from '@/lib/api/errors';
 import { logAudit } from '@/lib/api/audit';
 import { evaluateBudgetAlerts } from '@/lib/email/client-notifications';
 import type { TimeSegment } from '@/lib/types';
-import { resolveProjectHourlyRate } from '@/lib/supabase/queries';
+import { resolveProjectHourlyRate, TIME_ENTRY_SELECT, mapTimeEntryRow } from '@/lib/supabase/queries';
+import { assertTasksInProject } from '@/lib/api/task-guards';
 import { apiKeyAllows, sanitizeTimeEntryForAccess } from '@/lib/api/access';
 
 export const GET = withApi(async ({ supabase, params, access, teamMemberId, scopes }) => {
@@ -14,17 +15,17 @@ export const GET = withApi(async ({ supabase, params, access, teamMemberId, scop
 
   const { data, error } = await supabase
     .from('project_time_entries')
-    .select('*')
+    .select(TIME_ENTRY_SELECT)
     .eq('id', entryId)
     .eq('project_id', id)
     .maybeSingle();
 
   if (error) throw error;
   if (!data) throw notFound('Time entry');
-  if (!apiKeyAllows(access, scopes, 'time.read_all') && data.member_id !== teamMemberId) {
+  if (!apiKeyAllows(access, scopes, 'time.read_all') && (data as any).member_id !== teamMemberId) {
     throw notFound('Time entry');
   }
-  return success(sanitizeTimeEntryForAccess(data, access, 'api'));
+  return success(sanitizeTimeEntryForAccess(mapTimeEntryRow(data) as unknown as Record<string, unknown>, access, 'api'));
 }, { permission: ['time.manage_own', 'time.read_all', 'time.manage_all'] });
 
 export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemberId, access, scopes }) => {
@@ -72,6 +73,11 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
     const { data: allocation } = await supabase.from('invoice_time_entry_allocations').select('id').eq('time_entry_id', entryId).limit(1).maybeSingle();
     if (allocation) throw badRequest('Invoiced time entry work type is locked');
   }
+  const taskIds: string[] | undefined = Array.isArray(patch.task_ids) ? (patch.task_ids as string[]) : undefined;
+  delete patch.task_ids;
+  if (taskIds !== undefined && taskIds.length > 0) {
+    await assertTasksInProject(supabase, taskIds, id);
+  }
   const hasStartUpdate = 'start_time' in patch;
   const hasEndUpdate = 'end_time' in patch;
   const hasSegmentsUpdate = 'segments' in patch;
@@ -93,15 +99,29 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
     patch.hourly_rate = await resolveProjectHourlyRate(supabase, id, patch.start_time as string);
   }
 
-  const { data, error } = await supabase
+  const { data: updated, error } = await supabase
     .from('project_time_entries')
     .update(patch as any)
     .eq('id', entryId)
     .eq('project_id', id)
-    .select()
+    .select(TIME_ENTRY_SELECT)
     .single();
 
   if (error) throw error;
+
+  if (taskIds !== undefined) {
+    await supabase.from('time_entry_tasks').delete().eq('time_entry_id', entryId);
+    const uniqueTaskIds = [...new Set(taskIds)];
+    if (uniqueTaskIds.length > 0) {
+      const { error: linkError } = await supabase
+        .from('time_entry_tasks')
+        .insert(uniqueTaskIds.map((linkedTaskId) => ({ time_entry_id: entryId, task_id: linkedTaskId })));
+      if (linkError) throw linkError;
+    }
+  }
+  const data = taskIds !== undefined
+    ? { ...mapTimeEntryRow(updated), task_ids: [...new Set(taskIds)] }
+    : mapTimeEntryRow(updated);
 
   logAudit(supabase, {
     method: 'PATCH',
@@ -120,7 +140,7 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
   // platforms; a bare .catch() can be killed when the response sends.
   after(() => evaluateBudgetAlerts(id));
 
-  return success(sanitizeTimeEntryForAccess(data, access, 'api'));
+  return success(sanitizeTimeEntryForAccess(data as unknown as Record<string, unknown>, access, 'api'));
 }, { schema: updateTimeEntrySchema, permission: ['time.manage_own', 'time.manage_all'] });
 
 export const DELETE = withApi(async ({ supabase, params, apiKeyId, teamMemberId, access, scopes }) => {

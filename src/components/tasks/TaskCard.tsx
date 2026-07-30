@@ -5,7 +5,7 @@ import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { StatusBadge, PriorityBadge, TaskTypeBadge } from '@/components/ui/Badge';
 import { AvatarGroup } from '@/components/ui/Avatar';
-import { Calendar, MessageSquare, CheckSquare, MoreVertical, Edit, Trash2, Clock, User } from 'lucide-react';
+import { Calendar, MessageSquare, CheckSquare, MoreVertical, Edit, Trash2, Clock, User, Lock } from 'lucide-react';
 import { useState, useRef } from 'react';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { Popover } from '@/components/ui/Popover';
@@ -33,7 +33,7 @@ interface TaskCardProps {
 }
 
 export function TaskCard({ task, onView, onEdit, onDelete }: TaskCardProps) {
-  const { team, getProject } = useApp();
+  const { team, tasks, getProject } = useApp();
   const { teamMemberId, access } = useAuth();
   const [showMenu, setShowMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -75,6 +75,12 @@ export function TaskCard({ task, onView, onEdit, onDelete }: TaskCardProps) {
             <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] lg:text-xs font-medium bg-amber-500/15 text-amber-300 border border-amber-500/30 rounded-full">
               <User size={10} />
               Manual
+            </span>
+          )}
+          {task.status !== 'done' && (task.blocked_by_ids || []).some(id => tasks.find(t => t.id === id)?.status !== 'done') && (
+            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] lg:text-xs font-medium bg-amber-500/15 text-amber-300 border border-amber-500/30 rounded-full">
+              <Lock size={10} />
+              Blocked
             </span>
           )}
         </div>

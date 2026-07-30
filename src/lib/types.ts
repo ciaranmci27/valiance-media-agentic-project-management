@@ -200,6 +200,9 @@ export interface LeadContact {
 export const TASK_TYPES = ['engineering', 'research', 'audit', 'marketing', 'copywriting', 'operations', 'general'] as const;
 export type TaskType = typeof TASK_TYPES[number];
 
+export const AI_READINESS = ['ai_ready', 'human_only', 'hybrid'] as const;
+export type AiReadiness = typeof AI_READINESS[number];
+
 export interface Task {
   id: string;
   project_id: string;
@@ -215,6 +218,9 @@ export interface Task {
   sort_order?: number;
   task_type?: TaskType | null;
   ai_managed: boolean;
+  ai_readiness?: AiReadiness | null;
+  acceptance_criteria: AcceptanceCriterion[];
+  blocked_by_ids: string[];
   created_by?: string | null;
   project_goal_id?: string | null;
   source_task_suggestion_id?: string | null;
@@ -228,6 +234,14 @@ export interface Subtask {
   task_id?: string;
   title: string;
   completed: boolean;
+  sort_order?: number;
+}
+
+export interface AcceptanceCriterion {
+  id: string;
+  task_id?: string;
+  criterion: string;
+  satisfied: boolean;
   sort_order?: number;
 }
 
@@ -295,6 +309,8 @@ export interface TeamMember {
   email_notification_prefs?: NotificationPreferences;
   /** Explicit light/dark choice. null/undefined = follow the OS preference. */
   theme_preference?: 'light' | 'dark' | null;
+  /** Multiplier applied to this member's time-entry rate snapshots (1.00 = parity). */
+  billing_multiplier?: number;
 }
 
 export interface FilterState {
@@ -348,6 +364,8 @@ export interface TimeEntry {
   approved_by?: string | null;
   rejection_reason?: string | null;
   description: string;
+  task_ids?: string[];  // Tasks this session was spent on (one session can span several)
+  billing_multiplier?: number;  // Snapshot at session start; agent sessions are converted on stop
   created_at: string;
   updated_at: string;
 }

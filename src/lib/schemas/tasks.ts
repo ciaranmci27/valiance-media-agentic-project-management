@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 const taskTypeEnum = z.enum(['engineering', 'research', 'audit', 'marketing', 'copywriting', 'operations', 'general']);
+const aiReadinessEnum = z.enum(['ai_ready', 'human_only', 'hybrid']);
 
 export const createTaskSchema = z.object({
   project_id: z.string().uuid('project_id must be a UUID'),
@@ -13,7 +14,10 @@ export const createTaskSchema = z.object({
   assignee_ids: z.array(z.string().uuid()).default([]),
   project_goal_id: z.string().uuid().nullable().optional(),
   task_type: taskTypeEnum.nullable().optional(),
-  ai_managed: z.boolean().default(true),
+  ai_managed: z.boolean().default(false),
+  ai_readiness: aiReadinessEnum.nullable().optional(),
+  acceptance_criteria: z.array(z.string().min(1)).optional(),
+  blocked_by_ids: z.array(z.string().uuid()).optional(),
 });
 
 export const updateTaskSchema = z.object({
@@ -28,4 +32,9 @@ export const updateTaskSchema = z.object({
   project_goal_id: z.string().uuid().nullable().optional(),
   task_type: taskTypeEnum.nullable().optional(),
   ai_managed: z.boolean().optional(),
+  ai_readiness: aiReadinessEnum.nullable().optional(),
+  // Full replace: existing criteria rows are deleted and recreated, which
+  // resets satisfied flags. Intended for retrofitting specs before work starts.
+  acceptance_criteria: z.array(z.string().min(1)).optional(),
+  blocked_by_ids: z.array(z.string().uuid()).optional(),
 });

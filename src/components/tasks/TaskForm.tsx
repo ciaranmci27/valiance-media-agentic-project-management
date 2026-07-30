@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Task, TASK_TYPES, TaskType } from '@/lib/types';
+import { AI_READINESS, AiReadiness, Task, TASK_TYPES, TaskType } from '@/lib/types';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import Modal from '@/components/ui/Modal';
@@ -20,8 +20,14 @@ interface TaskFormProps {
   task?: Task | null;
 }
 
+const AI_READINESS_LABELS: Record<AiReadiness, string> = {
+  ai_ready: 'AI Ready',
+  human_only: 'Human Only',
+  hybrid: 'Hybrid',
+};
+
 export function TaskForm({ isOpen, onClose, projectId, task }: TaskFormProps) {
-  const { team, addTask, updateTask } = useApp();
+  const { team, tasks, addTask, updateTask } = useApp();
   const { teamMemberId, access } = useAuth();
 
   const isAgentsEnabled = process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true';
@@ -36,6 +42,8 @@ export function TaskForm({ isOpen, onClose, projectId, task }: TaskFormProps) {
   const [dueDate, setDueDate] = useState('');
   const [tags, setTags] = useState('');
   const [taskType, setTaskType] = useState<TaskType | ''>('');
+  const [aiReadiness, setAiReadiness] = useState<AiReadiness | ''>('');
+  const [blockedByIds, setBlockedByIds] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -48,6 +56,8 @@ export function TaskForm({ isOpen, onClose, projectId, task }: TaskFormProps) {
       setDueDate(task.due_date || '');
       setTags(task.tags.join(', '));
       setTaskType(task.task_type || '');
+      setAiReadiness(task.ai_readiness || '');
+      setBlockedByIds(task.blocked_by_ids || []);
     } else {
       setTitle('');
       setDescription('');
@@ -57,6 +67,8 @@ export function TaskForm({ isOpen, onClose, projectId, task }: TaskFormProps) {
       setDueDate('');
       setTags('');
       setTaskType('');
+      setAiReadiness('');
+      setBlockedByIds([]);
     }
   }, [canAssignOthers, isOpen, task, teamMemberId]);
 
@@ -75,9 +87,11 @@ export function TaskForm({ isOpen, onClose, projectId, task }: TaskFormProps) {
       ...((canAssignOthers || !task) ? { assignee_ids: assigneeIds } : {}),
       due_date: dueDate || null,
       tags: tags.split(',').map(t => t.trim()).filter(Boolean),
-      ...(canManageAgents ? { task_type: taskType || null, ai_managed: task?.ai_managed ?? true } : {}),
+      ...(canManageAgents ? { task_type: taskType || null, ai_managed: task?.ai_managed ?? false, ai_readiness: aiReadiness || null } : {}),
+      blocked_by_ids: blockedByIds,
       subtasks: task?.subtasks || [],
       comments: task?.comments || [],
+      acceptance_criteria: task?.acceptance_criteria || [],
     };
 
     if (task) {
@@ -106,6 +120,10 @@ export function TaskForm({ isOpen, onClose, projectId, task }: TaskFormProps) {
   ];
 
   const isEditing = !!task;
+
+  const projectTaskOptions = tasks
+    .filter(t => t.project_id === projectId && t.id !== task?.id)
+    .map(t => ({ value: t.id, label: t.title }));
 
   return (
     <Modal
@@ -164,14 +182,36 @@ export function TaskForm({ isOpen, onClose, projectId, task }: TaskFormProps) {
         />
 
         {isAgentsEnabled && canManageAgents && (
-          <Select
-            label="Task Type"
-            value={taskType}
-            onChange={(value) => setTaskType(value as TaskType | '')}
-            options={[
-              { value: '', label: 'None' },
-              ...TASK_TYPES.map(t => ({ value: t, label: t.charAt(0).toUpperCase() + t.slice(1) })),
-            ]}
+          <div className="grid grid-cols-2 gap-4">
+            <Select
+              label="Task Type"
+              value={taskType}
+              onChange={(value) => setTaskType(value as TaskType | '')}
+              options={[
+                { value: '', label: 'None' },
+                ...TASK_TYPES.map(t => ({ value: t, label: t.charAt(0).toUpperCase() + t.slice(1) })),
+              ]}
+            />
+            <Select
+              label="AI Readiness"
+              value={aiReadiness}
+              onChange={(value) => setAiReadiness(value as AiReadiness | '')}
+              options={[
+                { value: '', label: 'Unclassified' },
+                ...AI_READINESS.map(r => ({ value: r, label: AI_READINESS_LABELS[r] })),
+              ]}
+            />
+          </div>
+        )}
+
+        {projectTaskOptions.length > 0 && (
+          <MultiSelect
+            label="Blocked By"
+            options={projectTaskOptions}
+            value={blockedByIds}
+            onChange={setBlockedByIds}
+            placeholder="Tasks that must finish first..."
+            searchable={projectTaskOptions.length > 4}
           />
         )}
 

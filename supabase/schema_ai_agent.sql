@@ -14,12 +14,12 @@ ALTER TABLE public.api_keys
 
 CREATE INDEX IF NOT EXISTS idx_api_keys_team_member_id ON public.api_keys(team_member_id);
 
--- 1c. Add 'suggestion' and 'goal' to team_member_notifications entity_type
+-- 1c. Add 'suggestion', 'goal', and 'question' to team_member_notifications entity_type
 ALTER TABLE public.team_member_notifications
   DROP CONSTRAINT IF EXISTS team_member_notifications_entity_type_check;
 ALTER TABLE public.team_member_notifications
   ADD CONSTRAINT team_member_notifications_entity_type_check
-    CHECK (entity_type IN ('task', 'project', 'lead', 'comment', 'member', 'contact', 'suggestion', 'goal'));
+    CHECK (entity_type IN ('task', 'project', 'lead', 'comment', 'member', 'contact', 'suggestion', 'goal', 'question'));
 
 -- ============================================================
 -- 2. PROJECT GOALS
@@ -180,7 +180,10 @@ ALTER TABLE public.task_suggestions
 -- 9. AI MANAGED FLAG FOR TASKS
 -- ============================================================
 ALTER TABLE public.tasks
-  ADD COLUMN IF NOT EXISTS ai_managed boolean NOT NULL DEFAULT true;
+  ADD COLUMN IF NOT EXISTS ai_managed boolean NOT NULL DEFAULT false;
+-- Default flipped to false (2026-07-30): agent involvement is an explicit
+-- opt-in via tasks.ai_readiness, never a default.
+ALTER TABLE public.tasks ALTER COLUMN ai_managed SET DEFAULT false;
 
 -- ============================================================
 -- 10. DEPLOYMENT POLICY FOR PROJECTS

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { Project, Task, TeamMember, FilterState, ViewMode, Subtask, Comment, Contact, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, Activity, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, EntityFileType, ApiKey, NotificationCategory, ProjectGoal, TaskSuggestion, AgentActivity, TimeEntry, ProjectCredentialListItem, CredentialPayload, CredentialCategory, ProjectInvoice, InvoiceStatus, BusinessSettings, EmployeeEarningsData, DEFAULT_SECTION_ORDER } from './types';
+import { Project, Task, TeamMember, FilterState, ViewMode, Subtask, AcceptanceCriterion, Comment, Contact, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, Activity, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, EntityFileType, ApiKey, NotificationCategory, ProjectGoal, TaskSuggestion, AgentActivity, TimeEntry, ProjectCredentialListItem, CredentialPayload, CredentialCategory, ProjectInvoice, InvoiceStatus, BusinessSettings, EmployeeEarningsData, DEFAULT_SECTION_ORDER } from './types';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
@@ -24,6 +24,9 @@ import {
   patchSubtask,
   reorderSubtasks as reorderSubtasksQuery,
   removeSubtask,
+  insertAcceptanceCriterion,
+  patchAcceptanceCriterion,
+  removeAcceptanceCriterion,
   insertComment,
   patchComment,
   removeComment,
@@ -160,6 +163,12 @@ interface AppContextType {
   reorderSubtasks: (taskId: string, subtaskIds: string[]) => void;
   deleteSubtask: (taskId: string, subtaskId: string) => void;
 
+  // Acceptance criteria
+  addCriterion: (taskId: string, criterion: string) => void;
+  toggleCriterion: (taskId: string, criterionId: string) => void;
+  updateCriterion: (taskId: string, criterionId: string, criterion: string) => void;
+  deleteCriterion: (taskId: string, criterionId: string) => void;
+
   // Comments
   addComment: (taskId: string, text: string, userId: string) => void;
   updateComment: (taskId: string, commentId: string, text: string) => void;
@@ -260,7 +269,7 @@ interface AppContextType {
   updateTimeEntry: (id: string, updates: Partial<Pick<TimeEntry, 'member_id' | 'start_time' | 'end_time' | 'segments' | 'description' | 'work_type'>>, options?: { silent?: boolean }) => void;
   deleteTimeEntry: (id: string) => Promise<boolean>;
   getTimeEntriesByProject: (projectId: string) => TimeEntry[];
-  startTimer: (projectId: string, memberId: string, description?: string, customStartTime?: string, workType?: 'client' | 'internal') => void;
+  startTimer: (projectId: string, memberId: string, description?: string, customStartTime?: string, workType?: 'client' | 'internal', taskIds?: string[]) => void;
   pauseTimer: (entryId: string) => void;
   resumeTimer: (entryId: string) => void;
   stopTimer: (entryId: string) => void;
@@ -393,7 +402,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (isDemoMode) {
       setProjects([...demoProjects]);
-      setTasks(demoTasks.map(t => ({ ai_managed: true, ...t } as Task)));
+      setTasks(demoTasks.map(t => ({ ai_managed: false, acceptance_criteria: [], blocked_by_ids: [], ...t } as Task)));
       setTeam([...demoTeam]);
       setContacts([...demoContacts]);
       setProjectContacts([...demoProjectContacts]);
@@ -732,10 +741,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const optimistic: Task = {
       ...task,
       id: optimisticId,
-      ai_managed: task.ai_managed ?? true,
+      ai_managed: task.ai_managed ?? false,
       assignee_ids: assigneeIds,
       subtasks: task.subtasks || [],
       comments: task.comments || [],
+      acceptance_criteria: task.acceptance_criteria || [],
+      blocked_by_ids: task.blocked_by_ids || [],
       created_at: now,
       updated_at: now,
     };
@@ -744,7 +755,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (skipSupabase) return;
 
     try {
-      const newTask = await insertTask(supabase, { ...task, created_by: teamMemberId }, assigneeIds);
+      const newTask = await insertTask(
+        supabase,
+        { ...task, created_by: teamMemberId },
+        assigneeIds,
+        (task.acceptance_criteria || []).map(c => c.criterion),
+        task.blocked_by_ids || []
+      );
       setTasks(prev => prev.map(t => t.id === optimisticId ? newTask : t));
       const project = projects.find(p => p.id === task.project_id);
       const truncTitle = newTask.title.length > 50 ? newTask.title.slice(0, 50) + '...' : newTask.title;
@@ -782,7 +799,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (skipSupabase) return;
 
     try {
-      await patchTask(supabase, id, updates, updates.assignee_ids);
+      await patchTask(supabase, id, updates, updates.assignee_ids, undefined, updates.blocked_by_ids);
 
       if (existingTask && !reorderOnly) {
         const project = projects.find(p => p.id === existingTask.project_id);
@@ -985,6 +1002,107 @@ export function AppProvider({ children }: { children: ReactNode }) {
     } catch (err) {
       setTasks(prev);
       toast('error', 'Failed to delete subtask');
+    }
+  };
+
+  // Acceptance criteria
+  const addCriterion = async (taskId: string, criterion: string) => {
+    const optimisticId = crypto.randomUUID();
+    const optimistic: AcceptanceCriterion = { id: optimisticId, task_id: taskId, criterion, satisfied: false, sort_order: 999 };
+
+    setTasks(prev => prev.map(t =>
+      t.id === taskId
+        ? { ...t, acceptance_criteria: [...t.acceptance_criteria, optimistic], updated_at: new Date().toISOString() }
+        : t
+    ));
+    if (skipSupabase) return;
+
+    try {
+      const newCriterion = await insertAcceptanceCriterion(supabase, taskId, criterion);
+      setTasks(prev => prev.map(t =>
+        t.id === taskId
+          ? { ...t, acceptance_criteria: t.acceptance_criteria.map(c => c.id === optimisticId ? newCriterion : c) }
+          : t
+      ));
+
+      const task = tasks.find(t => t.id === taskId);
+      if (task) {
+        notify(allMemberIds(), `"${task.title}" was updated`, `${actorName()} added an acceptance criterion.`, `/projects/${task.project_id}`, 'task', taskId, 'task_updates');
+      }
+    } catch (err) {
+      setTasks(prev => prev.map(t =>
+        t.id === taskId
+          ? { ...t, acceptance_criteria: t.acceptance_criteria.filter(c => c.id !== optimisticId) }
+          : t
+      ));
+      toast('error', 'Failed to add acceptance criterion');
+    }
+  };
+
+  const toggleCriterion = async (taskId: string, criterionId: string) => {
+    const task = tasks.find(t => t.id === taskId);
+    const criterion = task?.acceptance_criteria.find(c => c.id === criterionId);
+    if (!criterion) return;
+
+    const newSatisfied = !criterion.satisfied;
+
+    setTasks(prev => prev.map(t =>
+      t.id === taskId
+        ? {
+            ...t,
+            acceptance_criteria: t.acceptance_criteria.map(c => c.id === criterionId ? { ...c, satisfied: newSatisfied } : c),
+            updated_at: new Date().toISOString(),
+          }
+        : t
+    ));
+    if (skipSupabase) return;
+
+    try {
+      await patchAcceptanceCriterion(supabase, criterionId, { satisfied: newSatisfied });
+    } catch (err) {
+      setTasks(prev => prev.map(t =>
+        t.id === taskId
+          ? {
+              ...t,
+              acceptance_criteria: t.acceptance_criteria.map(c => c.id === criterionId ? { ...c, satisfied: !newSatisfied } : c),
+            }
+          : t
+      ));
+      toast('error', 'Failed to update acceptance criterion');
+    }
+  };
+
+  const updateCriterion = async (taskId: string, criterionId: string, criterion: string) => {
+    const prev = tasks;
+    setTasks(t => t.map(task =>
+      task.id === taskId
+        ? { ...task, acceptance_criteria: task.acceptance_criteria.map(c => c.id === criterionId ? { ...c, criterion } : c), updated_at: new Date().toISOString() }
+        : task
+    ));
+    if (skipSupabase) return;
+
+    try {
+      await patchAcceptanceCriterion(supabase, criterionId, { criterion });
+    } catch (err) {
+      setTasks(prev);
+      toast('error', 'Failed to update acceptance criterion');
+    }
+  };
+
+  const deleteCriterion = async (taskId: string, criterionId: string) => {
+    const prev = tasks;
+    setTasks(t => t.map(task =>
+      task.id === taskId
+        ? { ...task, acceptance_criteria: task.acceptance_criteria.filter(c => c.id !== criterionId), updated_at: new Date().toISOString() }
+        : task
+    ));
+    if (skipSupabase) return;
+
+    try {
+      await removeAcceptanceCriterion(supabase, criterionId);
+    } catch (err) {
+      setTasks(prev);
+      toast('error', 'Failed to delete acceptance criterion');
     }
   };
 
@@ -2466,7 +2584,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const getTimeEntriesByProject = (projectId: string) =>
     timeEntries.filter(te => te.project_id === projectId);
 
-  const startTimer = async (projectId: string, memberId: string, description = '', customStartTime?: string, workType: 'client' | 'internal' = 'client') => {
+  const startTimer = async (projectId: string, memberId: string, description = '', customStartTime?: string, workType: 'client' | 'internal' = 'client', taskIds: string[] = []) => {
     // Check if this member already has an unfinalized timer (running or paused) on this project.
     // Per-member check so multiple teammates can track simultaneously on the same project.
     const existing = timeEntries.find(te => te.project_id === projectId && te.member_id === memberId && te.end_time === null);
@@ -2485,6 +2603,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       hourly_rate: projects.find(project => project.id === projectId)?.hourly_rate ?? 0,
       description,
       work_type: workType,
+      task_ids: taskIds,
     };
     await addTimeEntry(entry);
   };
@@ -2999,6 +3118,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       updateSubtask,
       reorderSubtasks: reorderSubtasksAction,
       deleteSubtask,
+      addCriterion,
+      toggleCriterion,
+      updateCriterion,
+      deleteCriterion,
       addComment,
       updateComment,
       deleteComment,

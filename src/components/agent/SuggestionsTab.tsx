@@ -360,7 +360,7 @@ export function SuggestionsTab({ filters }: { filters: SuggestionsFilters }) {
           onClose={() => setApproveModalId(null)}
           onApprove={async (overrides) => {
             setApproveModalId(null);
-            const ok = await approveSuggestion(approveModalId, overrides, teamMemberId || '');
+            const ok = await approveSuggestion(approveModalId, { ...overrides, ai_managed: true }, teamMemberId || '');
             if (ok) toast('success', 'Suggestion approved, task created');
           }}
           onApproveManual={async (overrides) => {

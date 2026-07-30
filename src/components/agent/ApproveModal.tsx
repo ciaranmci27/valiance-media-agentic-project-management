@@ -25,7 +25,8 @@ export function ApproveModal({ suggestion, onClose, onApprove, onApproveManual }
   const [assignedTo, setAssignedTo] = useState(suggestion.assigned_to || '');
   const [dueDate, setDueDate] = useState('');
   const [taskType, setTaskType] = useState<TaskType | ''>(suggestion.task_type || '');
-  const [aiManaged, setAiManaged] = useState(true);
+  // Agent involvement is an explicit opt-in, never a default.
+  const [aiManaged, setAiManaged] = useState(false);
 
   const getOverrides = (): ApproveOverrides => ({
     priority,

@@ -46,7 +46,13 @@ function inferredPermission(pathname: string, method: string): PermissionKey {
     return pathname.endsWith('/reveal') ? 'credentials.reveal_shared' : write ? 'credentials.manage' : 'credentials.reveal_shared';
   }
   if (pathname.includes('/communications')) return write ? 'communications.manage' : 'communications.read';
-  if (pathname.includes('/notifications')) return 'notifications.manage_own';
+  if (pathname.includes('/notifications')) {
+    // POST to the collection root sends a notification (agent questions);
+    // mark-all-read and per-notification writes stay manage_own.
+    return method === 'POST' && /\/api\/v1\/notifications\/?$/.test(pathname)
+      ? 'notifications.send'
+      : 'notifications.manage_own';
+  }
   if (pathname.includes('/time-entries')) return 'time.manage_own';
   if (pathname.includes('/tasks')) {
     if (!write) return 'tasks.read';

@@ -30,7 +30,10 @@ export function getEndpointScopes(endpoint: EndpointDoc): string[] {
       ? ['credentials.reveal_shared', 'credentials.manage']
       : ['credentials.manage'];
   }
-  if (path.includes('/notifications')) return ['notifications.manage_own'];
+  if (path.includes('/notifications')) {
+    if (method === 'POST' && path === '/api/v1/notifications') return ['notifications.send'];
+    return ['notifications.manage_own'];
+  }
   if (path.includes('/time-entries')) {
     return write
       ? ['time.manage_own', 'time.manage_all']
@@ -394,9 +397,10 @@ export const endpoints: EndpointDoc[] = [
       { name: 'limit', type: 'number', description: 'Items per page (default 25, max 100)' },
       { name: 'member_id', type: 'uuid', description: 'Filter by team member' },
       { name: 'running', type: 'boolean', description: 'Filter by running timers (true = only running, false = only completed)' },
+      { name: 'task_id', type: 'uuid', description: 'Filter by linked task' },
     ],
   },
-  { method: 'POST', path: '/api/v1/projects/:id/time-entries', description: 'Track human work hours for billing. Two modes: (1) Manual entry — provide member_id + start_time + end_time. (2) Live timer — provide only member_id (optionally description) to start a timer at the current time. This is for HUMAN time tracking, not agent activity. Bare timestamps without Z or offset are interpreted in the given timezone, or the API key owner\'s timezone preference, or UTC.', group: 'Time Entries',
+  { method: 'POST', path: '/api/v1/projects/:id/time-entries', description: 'Track billable work sessions (human or agent). Two modes: (1) Manual entry — provide member_id + start_time + end_time. (2) Live timer — provide only member_id (optionally description) to start a timer at the current time. The hourly rate and the member\'s billing_multiplier are snapshotted server-side at creation. Agent activity narration belongs in agent-activities, not here. Bare timestamps without Z or offset are interpreted in the given timezone, or the API key owner\'s timezone preference, or UTC.', group: 'Time Entries',
     params: [{ name: 'id', type: 'uuid', required: true, description: 'Project ID with time tracking enabled' }],
     body: [
       { name: 'member_id', type: 'uuid', required: true, description: 'Target member. Without time.manage_all this must be the member linked to the API key.' },
@@ -405,6 +409,7 @@ export const endpoints: EndpointDoc[] = [
       { name: 'description', type: 'string', required: false, description: 'What was worked on' },
       { name: 'work_type', type: 'client|internal', required: false, description: 'Client work may feed hourly invoicing; internal work never does (default client)' },
       { name: 'timezone', type: 'string', required: false, description: 'IANA timezone (e.g. America/Phoenix). Only applies to manual entries. Bare timestamps are interpreted in this timezone. Falls back to the API key owner\'s timezone preference if omitted.' },
+      { name: 'task_ids', type: 'uuid[]', required: false, description: 'Link this session to one or more tasks in the same project (per-task billing traceability)' },
     ],
   },
   { method: 'GET', path: '/api/v1/projects/:id/time-entries/:entryId', description: 'Get a single time entry by ID', group: 'Time Entries',
@@ -425,6 +430,7 @@ export const endpoints: EndpointDoc[] = [
       { name: 'segments', type: 'array', required: false, description: 'Worked intervals: [{start: ISO, end: ISO | null}]. Advanced: direct segment rewrites bypass pause/resume invariants, so ensure end_time stays consistent with the last segment.' },
       { name: 'description', type: 'string', required: false, description: 'What was worked on' },
       { name: 'work_type', type: 'client|internal', required: false, description: 'Change billing treatment. Cannot change after any part of the session is invoiced.' },
+      { name: 'task_ids', type: 'uuid[]', required: false, description: 'Replace the full linked-task list (same-project tasks only; empty array unlinks all)' },
     ],
   },
   { method: 'DELETE', path: '/api/v1/projects/:id/time-entries/:entryId', description: 'Permanently delete a time entry', group: 'Time Entries',
@@ -433,7 +439,7 @@ export const endpoints: EndpointDoc[] = [
       { name: 'entryId', type: 'uuid', required: true, description: 'Time entry ID' },
     ],
   },
-  { method: 'POST', path: '/api/v1/projects/:id/time-entries/:entryId/stop', description: 'Finalize a timer. Closes any open segment at now and sets end_time. Works from both running and paused states. Fails if the timer is already finalized.', group: 'Time Entries',
+  { method: 'POST', path: '/api/v1/projects/:id/time-entries/:entryId/stop', description: 'Finalize a timer. Closes any open segment at now and sets end_time. Works from both running and paused states. Fails if the timer is already finalized. For agent members the finalized session is converted to one continuous slot: worked time (pauses excluded) times the entry\'s snapshotted billing_multiplier, anchored at the real start time.', group: 'Time Entries',
     params: [
       { name: 'id', type: 'uuid', required: true, description: 'Project ID' },
       { name: 'entryId', type: 'uuid', required: true, description: 'Time entry ID (must be unfinalized — end_time is null)' },
@@ -453,7 +459,7 @@ export const endpoints: EndpointDoc[] = [
   },
 
   // ─── Tasks ────────────────────────────────────────────────────────
-  { method: 'GET', path: '/api/v1/tasks', description: 'List all tasks across projects with filtering. Each task includes inline subtasks, comments, and assignee_ids. Paginated.', group: 'Tasks',
+  { method: 'GET', path: '/api/v1/tasks', description: 'List all tasks across projects with filtering. Each task includes inline subtasks, comments, assignee_ids, acceptance_criteria, and blocked_by_ids. Paginated.', group: 'Tasks',
     queryParams: [
       { name: 'status', type: 'todo|in_progress|in_review|done', description: 'Filter by task status' },
       { name: 'priority', type: 'low|medium|high|urgent', description: 'Filter by priority' },
@@ -461,6 +467,7 @@ export const endpoints: EndpointDoc[] = [
       { name: 'assignee_id', type: 'uuid', description: 'Filter by assigned team member' },
       { name: 'task_type', type: 'string', description: 'Filter by type: engineering, research, audit, marketing, copywriting, operations, general' },
       { name: 'ai_managed', type: 'boolean', description: 'Filter by AI managed flag (true = AI managed, false = manual)' },
+      { name: 'ai_readiness', type: 'ai_ready|human_only|hybrid', description: 'Filter by AI-readiness classification' },
       { name: 'project_goal_id', type: 'uuid', description: 'Filter by linked project goal' },
       { name: 'search', type: 'string', description: 'Search by task title or description' },
       { name: 'sort', type: 'string', description: 'Sort field (default created_at)' },
@@ -480,11 +487,14 @@ export const endpoints: EndpointDoc[] = [
       { name: 'tags', type: 'string[]', required: false, description: 'Tag labels' },
       { name: 'assignee_ids', type: 'uuid[]', required: false, description: 'Team member IDs to assign' },
       { name: 'task_type', type: 'string|null', required: false, description: 'Task type: engineering, research, audit, marketing, copywriting, operations, general (or null)' },
-      { name: 'ai_managed', type: 'boolean', required: false, description: 'Whether AI agents manage this task (default true)' },
+      { name: 'ai_managed', type: 'boolean', required: false, description: 'Whether AI agents manage this task (default false)' },
+      { name: 'ai_readiness', type: 'ai_ready|human_only|hybrid|null', required: false, description: 'Explicit AI-readiness classification; null until classified' },
+      { name: 'acceptance_criteria', type: 'string[]', required: false, description: 'Creates addressable acceptance criteria (one row per string, in order)' },
+      { name: 'blocked_by_ids', type: 'uuid[]', required: false, description: 'Tasks that must be done first. Must belong to the same project.' },
       { name: 'project_goal_id', type: 'uuid|null', required: false, description: 'Link this task to a project goal' },
     ],
   },
-  { method: 'GET', path: '/api/v1/tasks/:id', description: 'Get a single task with its subtasks (sorted by sort_order), comments (sorted by created_at), and assignee_ids', group: 'Tasks',
+  { method: 'GET', path: '/api/v1/tasks/:id', description: 'Get a single task with its subtasks (sorted by sort_order), comments (sorted by created_at), assignee_ids, acceptance_criteria, blocked_by (each blocker with id, title, status), and dependencies_met (true when every blocker is done)', group: 'Tasks',
     params: [{ name: 'id', type: 'uuid', required: true, description: 'Task ID' }],
   },
   { method: 'PATCH', path: '/api/v1/tasks/:id', description: 'Update a task. Only include fields you want to change. Pass assignee_ids to replace the full assignee list.', group: 'Tasks',
@@ -500,6 +510,9 @@ export const endpoints: EndpointDoc[] = [
       { name: 'project_id', type: 'uuid', required: false, description: 'Move task to a different project' },
       { name: 'task_type', type: 'string|null', required: false, description: 'Task type or null' },
       { name: 'ai_managed', type: 'boolean', required: false, description: 'Set AI managed flag (true = AI managed, false = manual)' },
+      { name: 'ai_readiness', type: 'ai_ready|human_only|hybrid|null', required: false, description: 'Explicit AI-readiness classification; null to unclassify' },
+      { name: 'acceptance_criteria', type: 'string[]', required: false, description: 'Replace the full criteria list (deletes existing rows and resets satisfied flags). Use the acceptance-criteria endpoints to edit individual criteria.' },
+      { name: 'blocked_by_ids', type: 'uuid[]', required: false, description: 'Replace the full blocker list. Must belong to the same project.' },
       { name: 'project_goal_id', type: 'uuid|null', required: false, description: 'Link to a goal or null to unlink' },
     ],
   },
@@ -539,6 +552,31 @@ export const endpoints: EndpointDoc[] = [
     params: [
       { name: 'id', type: 'uuid', required: true, description: 'Parent task ID' },
       { name: 'subtaskId', type: 'uuid', required: true, description: 'Subtask ID' },
+    ],
+  },
+
+  // ─── Acceptance Criteria ──────────────────────────────────────────
+  { method: 'GET', path: '/api/v1/tasks/:id/acceptance-criteria', description: 'List acceptance criteria for a task, ordered by sort_order', group: 'Acceptance Criteria',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'Parent task ID' }],
+  },
+  { method: 'POST', path: '/api/v1/tasks/:id/acceptance-criteria', description: 'Add an acceptance criterion to a task. Appended to the end of the sort order.', group: 'Acceptance Criteria',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'Parent task ID' }],
+    body: [{ name: 'criterion', type: 'string', required: true, description: 'A short, verifiable statement of done' }],
+  },
+  { method: 'PATCH', path: '/api/v1/tasks/:id/acceptance-criteria/:criterionId', description: 'Update an acceptance criterion — mark it satisfied or reword it', group: 'Acceptance Criteria',
+    params: [
+      { name: 'id', type: 'uuid', required: true, description: 'Parent task ID' },
+      { name: 'criterionId', type: 'uuid', required: true, description: 'Criterion ID' },
+    ],
+    body: [
+      { name: 'criterion', type: 'string', required: false, description: 'Criterion text' },
+      { name: 'satisfied', type: 'boolean', required: false, description: 'Whether the criterion is verified as met' },
+    ],
+  },
+  { method: 'DELETE', path: '/api/v1/tasks/:id/acceptance-criteria/:criterionId', description: 'Delete an acceptance criterion', group: 'Acceptance Criteria',
+    params: [
+      { name: 'id', type: 'uuid', required: true, description: 'Parent task ID' },
+      { name: 'criterionId', type: 'uuid', required: true, description: 'Criterion ID' },
     ],
   },
 
@@ -906,7 +944,7 @@ export const endpoints: EndpointDoc[] = [
       { name: 'assigned_to', type: 'uuid|null', required: false, description: 'Override the suggested assignee' },
       { name: 'due_date', type: 'string|null', required: false, description: 'Set a due date on the created task' },
       { name: 'task_type', type: 'string', required: false, description: 'Set the task type on the created task' },
-      { name: 'ai_managed', type: 'boolean', required: false, description: 'Set to false to approve as a manual (human-managed) task. Defaults to true (AI-managed).' },
+      { name: 'ai_managed', type: 'boolean', required: false, description: 'Set to true to approve as an AI-managed task. Defaults to false (manual).' },
     ],
   },
   { method: 'POST', path: '/api/v1/task-suggestions/:id/reject', description: 'Reject a suggestion. Cannot reject an already-approved or already-rejected suggestion. When a rejection_reason is provided, a "lesson_learned" entry is automatically added to the project context so agents can learn from the feedback.', group: 'Task Suggestions',
@@ -1123,7 +1161,17 @@ export const endpoints: EndpointDoc[] = [
       { name: 'page', type: 'number', description: 'Page number (default 1)' },
       { name: 'limit', type: 'number', description: 'Items per page (default 25, max 100)' },
       { name: 'is_read', type: 'boolean', description: 'Filter by read status (true = read only, false = unread only)' },
-      { name: 'entity_type', type: 'string', description: 'Filter by entity type: task, project, lead, comment, member, contact, suggestion, goal' },
+      { name: 'entity_type', type: 'string', description: 'Filter by entity type: task, project, lead, comment, member, contact, suggestion, goal, question' },
+    ],
+  },
+  { method: 'POST', path: '/api/v1/notifications', description: 'Send an in-app notification to the Owner (optionally admins too). Built for agent blocking questions and escalations; recipients are resolved server-side by role, never targeted directly. Requires agents to be enabled.', group: 'Notifications',
+    body: [
+      { name: 'title', type: 'string', required: true, description: 'Short headline shown in the inbox' },
+      { name: 'message', type: 'string', required: true, description: 'The question or escalation detail' },
+      { name: 'link', type: 'string|null', required: false, description: 'In-app path to open (e.g. /projects/:id)' },
+      { name: 'entity_type', type: 'string', required: false, description: 'Entity type for grouping (default question)' },
+      { name: 'entity_id', type: 'string|null', required: false, description: 'Stable ID (e.g. a comment ID) to deduplicate re-sends of the same question. Omit for a fresh notification each time.' },
+      { name: 'audience', type: 'owner|owner_and_admins', required: false, description: 'Who receives it (default owner)' },
     ],
   },
   { method: 'GET', path: '/api/v1/notifications/:id', description: 'Get a single notification by ID. Must belong to the API key\'s linked team member.', group: 'Notifications',

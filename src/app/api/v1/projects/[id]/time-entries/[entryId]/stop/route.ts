@@ -33,7 +33,32 @@ export const POST = withApi(async ({ supabase, params, apiKeyId, teamMemberId, a
   }
   // end_time mirrors the last segment's end (nowIso we just set, or the
   // already-present pause timestamp if stopping from a paused state).
-  const finalEnd = newSegments[newSegments.length - 1]?.end ?? nowIso;
+  let finalEnd = newSegments[newSegments.length - 1]?.end ?? nowIso;
+
+  // Agent sessions are converted into one continuous post-multiplier slot:
+  // worked time (pauses excluded) times the entry's snapshotted multiplier,
+  // anchored at the real start time. The stored entry IS the billing
+  // artifact; real timestamps survive in the audit log's beforeSnapshot and
+  // the agent activity feed. Humans are never converted.
+  const { data: entryMember } = await supabase
+    .from('team_members')
+    .select('role')
+    .eq('id', before.member_id)
+    .maybeSingle();
+  if (entryMember?.role === 'agent') {
+    const workedMs = newSegments.reduce((total, segment) => {
+      if (!segment.end) return total;
+      return total + Math.max(0, Date.parse(segment.end) - Date.parse(segment.start));
+    }, 0);
+    const rawMultiplier = Number(before.billing_multiplier);
+    const multiplier = Number.isFinite(rawMultiplier) && rawMultiplier > 0 ? rawMultiplier : 1;
+    const startMs = Date.parse(before.start_time);
+    if (Number.isFinite(startMs) && workedMs > 0) {
+      const convertedEnd = new Date(startMs + Math.round(workedMs * multiplier)).toISOString();
+      newSegments = [{ start: before.start_time, end: convertedEnd }];
+      finalEnd = convertedEnd;
+    }
+  }
 
   const { data, error } = await supabase
     .from('project_time_entries')

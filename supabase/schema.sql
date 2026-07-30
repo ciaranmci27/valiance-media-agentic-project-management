@@ -16,6 +16,10 @@ create table public.team_members (
   email_notifications_enabled boolean not null default false,
   email_notification_prefs jsonb not null default '{}',
   theme_preference text check (theme_preference in ('light', 'dark')),
+  -- Billing multiplier dial, snapshotted onto each time entry at session
+  -- start. Agent sessions are converted on stop to one continuous slot of
+  -- worked time times this. 1.00 = parity; humans are never converted.
+  billing_multiplier numeric(4,2) not null default 1.00 check (billing_multiplier > 0),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -137,6 +141,8 @@ create table public.tasks (
   sort_order int not null default 0,
   created_by uuid references public.team_members(id) on delete set null,
   completed_at timestamptz,
+  -- Explicit AI-readiness classification; null until someone decides.
+  ai_readiness text check (ai_readiness in ('ai_ready', 'human_only', 'hybrid') or ai_readiness is null),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -162,6 +168,36 @@ create table public.task_subtasks (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+-- ============================================================
+-- 8b. TASK ACCEPTANCE CRITERIA (addressable spec checklist)
+-- ============================================================
+create table public.task_acceptance_criteria (
+  id uuid primary key default gen_random_uuid(),
+  task_id uuid not null references public.tasks(id) on delete cascade,
+  criterion text not null,
+  satisfied boolean not null default false,
+  sort_order int not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index idx_task_acceptance_criteria_task_id
+  on public.task_acceptance_criteria(task_id);
+
+-- ============================================================
+-- 8c. TASK DEPENDENCIES (blocked-by junction)
+-- ============================================================
+create table public.task_dependencies (
+  task_id uuid not null references public.tasks(id) on delete cascade,
+  blocked_by_task_id uuid not null references public.tasks(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (task_id, blocked_by_task_id),
+  check (task_id <> blocked_by_task_id)
+);
+
+create index idx_task_dependencies_blocked_by
+  on public.task_dependencies(blocked_by_task_id);
 
 -- ============================================================
 -- 9. COMMENTS
@@ -453,7 +489,7 @@ create table public.team_member_notifications (
   message text,
   link text,
   is_read boolean not null default false,
-  entity_type text check (entity_type in ('task', 'project', 'lead', 'comment', 'member', 'contact', 'suggestion', 'goal')),
+  entity_type text check (entity_type in ('task', 'project', 'lead', 'comment', 'member', 'contact', 'suggestion', 'goal', 'question')),
   entity_id text,
   created_at timestamptz not null default now()
 );
@@ -476,9 +512,24 @@ create table public.project_time_entries (
   -- Immutable billing-rate snapshot selected from the session start time.
   hourly_rate numeric(10,2) not null default 0 check (hourly_rate >= 0),
   description text not null default '',
+  -- Snapshot of the member's billing multiplier at session start. Agent
+  -- sessions are converted on stop: worked time times this, one segment.
+  billing_multiplier numeric(4,2) not null default 1.00 check (billing_multiplier > 0),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+-- One work session can span multiple tasks (billing traceability for
+-- humans and agents alike). Junction mirrors task_assignees.
+create table public.time_entry_tasks (
+  time_entry_id uuid not null references public.project_time_entries(id) on delete cascade,
+  task_id uuid not null references public.tasks(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (time_entry_id, task_id)
+);
+
+create index idx_time_entry_tasks_task
+  on public.time_entry_tasks(task_id);
 
 -- ============================================================
 -- 21b. PROJECT HOURLY RATE SCHEDULE
@@ -976,6 +1027,10 @@ create trigger tasks_before_insert
 
 create trigger set_task_subtasks_updated_at
   before update on public.task_subtasks
+  for each row execute function public.handle_updated_at();
+
+create trigger set_task_acceptance_criteria_updated_at
+  before update on public.task_acceptance_criteria
   for each row execute function public.handle_updated_at();
 
 create trigger set_leads_updated_at
@@ -1539,6 +1594,8 @@ alter table public.project_contacts enable row level security;
 alter table public.tasks enable row level security;
 alter table public.task_assignees enable row level security;
 alter table public.task_subtasks enable row level security;
+alter table public.task_acceptance_criteria enable row level security;
+alter table public.task_dependencies enable row level security;
 alter table public.task_comments enable row level security;
 alter table public.activities enable row level security;
 alter table public.leads enable row level security;
@@ -1555,6 +1612,7 @@ alter table public.portal_updates enable row level security;
 alter table public.portal_update_attachments enable row level security;
 alter table public.portal_events enable row level security;
 alter table public.project_time_entries enable row level security;
+alter table public.time_entry_tasks enable row level security;
 alter table public.project_hourly_rates enable row level security;
 alter table public.invoice_time_entry_allocations enable row level security;
 alter table public.project_credentials enable row level security;
@@ -1634,6 +1692,9 @@ create policy "portal_events_all" on public.portal_events
   for all to authenticated using (true) with check (true);
 
 create policy "project_time_entries_all" on public.project_time_entries
+  for all to authenticated using (true) with check (true);
+
+create policy "time_entry_tasks_all" on public.time_entry_tasks
   for all to authenticated using (true) with check (true);
 
 create policy "project_hourly_rates_all" on public.project_hourly_rates
@@ -1907,7 +1968,8 @@ VALUES
   ('agent','project_context.read','api'), ('agent','project_context.manage','api'),
   ('agent','goals.read','api'), ('agent','goals.manage','api'),
   ('agent','suggestions.manage','api'), ('agent','files.read','api'),
-  ('agent','notifications.manage_own','api')
+  ('agent','notifications.manage_own','api'),
+  ('agent','time.manage_own','api'), ('agent','notifications.send','api')
 ON CONFLICT DO NOTHING;
 
 -- ---------------------------------------------------------------------------
@@ -2747,7 +2809,8 @@ BEGIN
     'project_invoices','team_member_notifications','project_context','project_budget_history',
     'business_settings','smtp_accounts','role_permissions','team_member_permissions',
     'team_member_hourly_rates','team_member_earning_adjustments','team_member_payouts',
-    'team_member_payout_allocations','project_credential_members'
+    'team_member_payout_allocations','project_credential_members',
+    'task_acceptance_criteria','task_dependencies'
   ] LOOP
     IF to_regclass('public.' || table_name) IS NOT NULL THEN
       FOR policy_name IN
@@ -2844,6 +2907,44 @@ CREATE POLICY task_subtasks_manage ON public.task_subtasks FOR ALL TO authentica
     public.has_permission('tasks.manage_all') OR EXISTS (
       SELECT 1 FROM public.task_assignees assignment
       WHERE assignment.task_id = task_subtasks.task_id
+        AND assignment.member_id = public.current_team_member_id()
+    )
+  ));
+
+CREATE POLICY task_acceptance_criteria_select ON public.task_acceptance_criteria FOR SELECT TO authenticated
+  USING (public.can_access_task(task_id));
+CREATE POLICY task_acceptance_criteria_manage ON public.task_acceptance_criteria FOR ALL TO authenticated
+  USING (public.can_access_task(task_id) AND (
+    public.has_permission('tasks.manage_all') OR (
+      public.has_permission('tasks.manage_assigned') AND EXISTS (
+        SELECT 1 FROM public.task_assignees assignment
+        WHERE assignment.task_id = task_acceptance_criteria.task_id
+          AND assignment.member_id = public.current_team_member_id()
+      )
+    )
+  )) WITH CHECK (public.can_access_task(task_id) AND (
+    public.has_permission('tasks.manage_all') OR EXISTS (
+      SELECT 1 FROM public.task_assignees assignment
+      WHERE assignment.task_id = task_acceptance_criteria.task_id
+        AND assignment.member_id = public.current_team_member_id()
+    )
+  ));
+
+CREATE POLICY task_dependencies_select ON public.task_dependencies FOR SELECT TO authenticated
+  USING (public.can_access_task(task_id));
+CREATE POLICY task_dependencies_manage ON public.task_dependencies FOR ALL TO authenticated
+  USING (public.can_access_task(task_id) AND (
+    public.has_permission('tasks.manage_all') OR (
+      public.has_permission('tasks.manage_assigned') AND EXISTS (
+        SELECT 1 FROM public.task_assignees assignment
+        WHERE assignment.task_id = task_dependencies.task_id
+          AND assignment.member_id = public.current_team_member_id()
+      )
+    )
+  )) WITH CHECK (public.can_access_task(task_id) AND (
+    public.has_permission('tasks.manage_all') OR EXISTS (
+      SELECT 1 FROM public.task_assignees assignment
+      WHERE assignment.task_id = task_dependencies.task_id
         AND assignment.member_id = public.current_team_member_id()
     )
   ));
@@ -3143,7 +3244,9 @@ INSERT INTO public.role_permissions (role, permission_key, access_channel) VALUE
   ('admin','notifications.manage_own','api'),
   ('member','notifications.manage_own','api'),
   ('guest','notifications.manage_own','api'),
-  ('agent','notifications.manage_own','api')
+  ('agent','notifications.manage_own','api'),
+  ('agent','time.manage_own','api'),
+  ('agent','notifications.send','api')
 ON CONFLICT DO NOTHING;
 
 -- Preserve access for legacy lead assignments that predate lead_members.

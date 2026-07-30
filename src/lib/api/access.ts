@@ -257,7 +257,10 @@ export function sanitizeTimeEntryForAccess<T extends Record<string, unknown>>(
   channel: 'app' | 'api' = 'app',
 ): T {
   const sanitized: Record<string, unknown> = { ...entry };
-  if (!accessAllows(access, 'billing.manage', channel)) sanitized.hourly_rate = undefined;
+  if (!accessAllows(access, 'billing.manage', channel)) {
+    sanitized.hourly_rate = undefined;
+    sanitized.billing_multiplier = undefined;
+  }
   const isOwnEntry = entry.member_id === access.member_id;
   const canSeeCompensation = accessAllows(access, 'compensation.manage', channel)
     || accessAllows(access, 'payouts.manage', channel)
