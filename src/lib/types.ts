@@ -56,6 +56,7 @@ export interface BusinessSettings {
   default_invoice_notes: string;
   excluded_ips: ExcludedIp[];
   api_enabled?: boolean;
+  auto_approve_human_hours?: boolean;  // Default true; agent hours always queue for review
   created_at: string;
   updated_at: string;
 }
@@ -365,7 +366,8 @@ export interface TimeEntry {
   rejection_reason?: string | null;
   description: string;
   task_ids?: string[];  // Tasks this session was spent on (one session can span several)
-  billing_multiplier?: number;  // Snapshot at session start; agent sessions are converted on stop
+  billing_multiplier?: number;  // Snapshot at session start; agent sessions are converted at approval
+  billing_converted_at?: string | null;  // Stamped when the agent billing conversion ran (single-shot)
   created_at: string;
   updated_at: string;
 }

@@ -486,6 +486,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         payment_instructions: '',
         default_invoice_notes: '',
         excluded_ips: [],
+        auto_approve_human_hours: true,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       });

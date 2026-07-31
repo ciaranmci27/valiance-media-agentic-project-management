@@ -6,6 +6,7 @@ import { useApp } from '@/lib/store';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { Textarea } from '@/components/ui/inputs/Textarea';
+import { Toggle } from '@/components/ui/Toggle';
 import { toast } from '@/components/ui/Toast';
 import { useDemo } from '@/lib/demo-context';
 
@@ -46,6 +47,20 @@ export function BusinessInfoSection() {
     paymentInstructions !== businessSettings.payment_instructions ||
     defaultNotes !== businessSettings.default_invoice_notes
   );
+
+  // Immediate-save policy toggle (independent of the form's dirty tracking).
+  const autoApproveHours = businessSettings?.auto_approve_human_hours ?? true;
+  const [togglingAutoApprove, setTogglingAutoApprove] = useState(false);
+  const handleToggleAutoApprove = async () => {
+    if (togglingAutoApprove) return;
+    setTogglingAutoApprove(true);
+    try {
+      await updateBusinessSettings({ auto_approve_human_hours: !autoApproveHours });
+      toast('success', !autoApproveHours ? 'Human hours now auto-approve' : 'Human hours now require review');
+    } finally {
+      setTogglingAutoApprove(false);
+    }
+  };
 
   const handleSave = async () => {
     if (!isDirty) return;
@@ -153,6 +168,23 @@ export function BusinessInfoSection() {
         <Button onClick={handleSave} disabled={!isDirty || saving || isDemoMode}>
           {saving ? <><Loader2 size={14} className="animate-spin mr-1.5" />Saving...</> : 'Save Business Info'}
         </Button>
+      </div>
+
+      {/* Time approval policy. Saves immediately on toggle. */}
+      <div className="mt-6 flex items-start justify-between gap-4 border-t border-white/[0.06] pt-5">
+        <div>
+          <p className="text-sm font-medium text-white">Auto-approve human hours</p>
+          <p className="mt-1 text-xs text-zinc-400">
+            Team members&apos; finished sessions go straight to approved. AI agent sessions always
+            queue for review, since their billed time is converted from the agent&apos;s multiplier.
+          </p>
+        </div>
+        <Toggle
+          checked={autoApproveHours}
+          onChange={handleToggleAutoApprove}
+          disabled={togglingAutoApprove || isDemoMode || !businessSettings}
+          aria-label="Auto-approve human hours"
+        />
       </div>
     </section>
   );

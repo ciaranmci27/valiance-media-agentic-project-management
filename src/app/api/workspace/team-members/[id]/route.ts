@@ -51,6 +51,23 @@ export async function PATCH(
   if ('email_notifications_enabled' in updates && typeof updates.email_notifications_enabled !== 'boolean') {
     return NextResponse.json({ error: 'Invalid email notifications value' }, { status: 422 });
   }
+  // Billing multiplier is a billing lever, not a profile field: it scales how
+  // an agent's worked time converts into the billed session at timer stop.
+  // Gated on billing.manage and restricted to agent members, where it has
+  // effect. Applies to future sessions only (each session snapshots it).
+  if ('billing_multiplier' in body) {
+    if (!accessAllows(access, 'billing.manage', 'app')) {
+      return NextResponse.json({ error: 'Billing management permission required to change the billing multiplier' }, { status: 403 });
+    }
+    if (target.role !== 'agent') {
+      return NextResponse.json({ error: 'The billing multiplier applies only to agent members' }, { status: 422 });
+    }
+    const multiplier = Number(body.billing_multiplier);
+    if (!Number.isFinite(multiplier) || multiplier < 0.1 || multiplier > 10) {
+      return NextResponse.json({ error: 'Billing multiplier must be a number between 0.1 and 10' }, { status: 422 });
+    }
+    updates.billing_multiplier = multiplier;
+  }
   if (Object.keys(updates).length === 0) return NextResponse.json({ error: 'No permitted changes' }, { status: 400 });
   if (updates.status === 'suspended') {
     updates.suspended_at = new Date().toISOString();

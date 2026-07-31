@@ -439,7 +439,7 @@ export const endpoints: EndpointDoc[] = [
       { name: 'entryId', type: 'uuid', required: true, description: 'Time entry ID' },
     ],
   },
-  { method: 'POST', path: '/api/v1/projects/:id/time-entries/:entryId/stop', description: 'Finalize a timer. Closes any open segment at now and sets end_time. Works from both running and paused states. Fails if the timer is already finalized. For agent members the finalized session is converted to one continuous slot: worked time (pauses excluded) times the entry\'s snapshotted billing_multiplier, anchored at the real start time.', group: 'Time Entries',
+  { method: 'POST', path: '/api/v1/projects/:id/time-entries/:entryId/stop', description: 'Finalize a timer. Closes any open segment at now and sets end_time. Works from both running and paused states. Fails if the timer is already finalized. Sessions finalize raw (real segments and pauses) for every member; agent sessions are converted at APPROVAL into one continuous slot of worked time times the entry\'s snapshotted billing_multiplier, anchored at the real start time.', group: 'Time Entries',
     params: [
       { name: 'id', type: 'uuid', required: true, description: 'Project ID' },
       { name: 'entryId', type: 'uuid', required: true, description: 'Time entry ID (must be unfinalized — end_time is null)' },
@@ -1041,7 +1041,7 @@ export const endpoints: EndpointDoc[] = [
   },
 
   // ─── Notifications ────────────────────────────────────────────────
-  { method: 'POST', path: '/api/v1/projects/:id/time-entries/review', description: 'Approve or reject pending completed time entries in one project. Reviewers cannot approve their own time. Employee approvals fail if no compensation rate was effective when the session began.', group: 'Time Entries',
+  { method: 'POST', path: '/api/v1/projects/:id/time-entries/review', description: 'Approve or reject pending completed time entries in one project. Reviewers cannot approve their own time. Employee approvals fail if no compensation rate was effective when the session began. Approving an agent entry also converts it into its billed continuous slot (worked time times the snapshotted billing_multiplier).', group: 'Time Entries',
     params: [{ name: 'id', type: 'uuid', required: true, description: 'Project ID' }],
     body: [
       { name: 'entry_ids', type: 'uuid[]', required: true, description: 'One or more time entry IDs from this project' },

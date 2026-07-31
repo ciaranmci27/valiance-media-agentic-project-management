@@ -9,6 +9,7 @@ import { AvatarUpload } from '@/components/ui/AvatarUpload';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
+import { NumberInput } from '@/components/ui/inputs/NumberInput';
 import Modal from '@/components/ui/Modal';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Edit, Shield, User, UserMinus, Bot, UserPlus, Globe, Check, Crown, SlidersHorizontal, DollarSign, type LucideIcon } from 'lucide-react';
@@ -41,6 +42,7 @@ export default function TeamPage() {
   const isOwner = access?.role === 'owner';
   const canManageTeam = hasPermission(access, 'team.manage');
   const canManageCompensation = hasPermission(access, 'compensation.manage');
+  const canManageBilling = hasPermission(access, 'billing.manage');
 
   useEffect(() => { setFilters(defaultFilters); }, [setFilters]);
 
@@ -49,6 +51,7 @@ export default function TeamPage() {
   const [emailError, setEmailError] = useState('');
   const [role, setRole] = useState<TeamMember['role']>('member');
   const [memberStatus, setMemberStatus] = useState<'active' | 'suspended'>('active');
+  const [billingMultiplier, setBillingMultiplier] = useState<number | ''>('');
   const [memberTz, setMemberTz] = useState('UTC');
   const [tzSearch, setTzSearch] = useState('');
   const [tzOpen, setTzOpen] = useState(false);
@@ -125,6 +128,7 @@ export default function TeamPage() {
     setEmailError('');
     setRole('member');
     setMemberStatus('active');
+    setBillingMultiplier('');
     setMemberTz('UTC');
     setTzSearch('');
     setTzOpen(false);
@@ -139,6 +143,7 @@ export default function TeamPage() {
     setEmailError('');
     setRole(member.role);
     setMemberStatus(member.status || 'active');
+    setBillingMultiplier(member.role === 'agent' ? Number(member.billing_multiplier ?? 1) : '');
     setMemberTz(member.timezone || 'UTC');
     setIsFormOpen(true);
   };
@@ -178,6 +183,14 @@ export default function TeamPage() {
     }
   };
 
+  // The multiplier only travels when it is editable here (agent member,
+  // billing permission) and valid; the API enforces the same rules again.
+  const multiplierUpdate = (): { billing_multiplier?: number } => {
+    if (role !== 'agent' || !canManageBilling || billingMultiplier === '') return {};
+    if (!Number.isFinite(billingMultiplier) || billingMultiplier < 0.1 || billingMultiplier > 10) return {};
+    return { billing_multiplier: billingMultiplier };
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !editingMember) return;
@@ -189,7 +202,7 @@ export default function TeamPage() {
       return;
     }
 
-    updateTeamMember(editingMember.id, { name: name.trim(), role, status: memberStatus, timezone: memberTz });
+    updateTeamMember(editingMember.id, { name: name.trim(), role, status: memberStatus, timezone: memberTz, ...multiplierUpdate() });
     toast('success', 'Team member updated');
     handleCloseForm();
   };
@@ -213,7 +226,7 @@ export default function TeamPage() {
         return;
       }
 
-      updateTeamMember(editingMember.id, { name: name.trim(), role, status: memberStatus, timezone: memberTz, email: email.trim().toLowerCase() });
+      updateTeamMember(editingMember.id, { name: name.trim(), role, status: memberStatus, timezone: memberTz, email: email.trim().toLowerCase(), ...multiplierUpdate() });
       toast('success', 'Team member updated');
       handleCloseForm();
     } catch {
@@ -462,6 +475,18 @@ export default function TeamPage() {
 
           {canManageTeam && editingMember?.id !== currentTeamMemberId && (
             <Select label="Account status" value={memberStatus} onChange={(value) => setMemberStatus(value as 'active' | 'suspended')} options={[{ value: 'active', label: 'Active' }, { value: 'suspended', label: 'Suspended' }]} />
+          )}
+
+          {role === 'agent' && canManageBilling && (
+            <NumberInput
+              label="Billing multiplier"
+              description="Scales the agent's worked time into the billed session when a timer stops (1.0 bills actual time). Applies to future sessions only; each session snapshots the value at start."
+              value={billingMultiplier}
+              onChange={setBillingMultiplier}
+              min={0.1}
+              max={10}
+              step={0.1}
+            />
           )}
 
           <div>

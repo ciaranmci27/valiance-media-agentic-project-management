@@ -1,4 +1,4 @@
-import type { TeamMember, Contact, Project, ProjectContact, Task, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, Activity, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, TimeEntry, Notification, ProjectGoal, TaskSuggestion, AgentActivity, ProjectInvoice, ClientCommunication, PortalAnalyticsResponse, PortalSessionSummary } from './types';
+import type { TeamMember, Contact, Project, ProjectContact, Task, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, Activity, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, TimeEntry, Notification, ProjectGoal, TaskSuggestion, AgentActivity, ProjectInvoice, ClientCommunication, PortalAnalyticsResponse, PortalSessionSummary, EmployeeEarningsData } from './types';
 import { DEFAULT_SECTION_ORDER } from './types';
 import { siteConfig } from '@/site-config';
 
@@ -28,8 +28,8 @@ export const demoTeam: TeamMember[] = [
   { id: 'a1a1a1a1-0003-4000-8000-000000000003', auth_user_id: null, name: 'Emily Rodriguez', email: 'emily@valiancemedia.com',  avatar: '', role: 'member', timezone: 'America/Los_Angeles' },
   { id: 'a1a1a1a1-0004-4000-8000-000000000004', auth_user_id: null, name: 'Jake Thompson',   email: 'jake@valiancemedia.com',   avatar: '', role: 'member', timezone: 'America/Chicago' },
   { id: 'a1a1a1a1-0005-4000-8000-000000000005', auth_user_id: null, name: 'Priya Patel',     email: 'priya@valiancemedia.com',  avatar: '', role: 'guest',  timezone: 'Asia/Kolkata' },
-  { id: 'a1a1a1a1-0006-4000-8000-000000000006', auth_user_id: null, name: 'Atlas',           email: 'atlas@agent.local',        avatar: '', role: 'agent',  timezone: 'UTC' },
-  { id: 'a1a1a1a1-0007-4000-8000-000000000007', auth_user_id: null, name: 'Scout',           email: 'scout@agent.local',        avatar: '', role: 'agent',  timezone: 'UTC' },
+  { id: 'a1a1a1a1-0006-4000-8000-000000000006', auth_user_id: null, name: 'Atlas',           email: 'atlas@agent.local',        avatar: '', role: 'agent',  timezone: 'UTC', billing_multiplier: 1.5 },
+  { id: 'a1a1a1a1-0007-4000-8000-000000000007', auth_user_id: null, name: 'Scout',           email: 'scout@agent.local',        avatar: '', role: 'agent',  timezone: 'UTC', billing_multiplier: 1 },
 ];
 
 // ---------------------------------------------------------------------------
@@ -1052,7 +1052,51 @@ export const demoTimeEntries: TimeEntry[] = [
   { id: 'te-0006-4000-8000-000000000006', project_id: 'c3c3c3c3-0002-4000-8000-000000000002', member_id: 'a1a1a1a1-0003-4000-8000-000000000003', start_time: dayAtTime(2, 10, 0), end_time: dayAtTime(2, 14, 0),  segments: oneSegment(dayAtTime(2, 10, 0), dayAtTime(2, 14, 0)),  description: 'Design review meeting',          created_at: daysAgo(2), updated_at: daysAgo(2) },
   { id: 'te-0007-4000-8000-000000000007', project_id: 'c3c3c3c3-0002-4000-8000-000000000002', member_id: 'a1a1a1a1-0001-4000-8000-000000000001', start_time: dayAtTime(4, 11, 0), end_time: dayAtTime(4, 13, 0),  segments: oneSegment(dayAtTime(4, 11, 0), dayAtTime(4, 13, 0)),  description: 'Sprint planning and task setup', created_at: daysAgo(4), updated_at: daysAgo(4) },
   { id: 'te-0008-4000-8000-000000000008', project_id: 'c3c3c3c3-0002-4000-8000-000000000002', member_id: 'a1a1a1a1-0004-4000-8000-000000000004', start_time: dayAtTime(7, 8, 30), end_time: dayAtTime(7, 16, 0),  segments: oneSegment(dayAtTime(7, 8, 30), dayAtTime(7, 16, 0)),  description: 'Auth flow implementation',       created_at: daysAgo(7), updated_at: daysAgo(7) },
+  // Awaiting review: one human session and one RAW agent session (real
+  // segments with a pause, multiplier snapshot unapplied) so the approval
+  // queue, the agent session review modal, and the billing conversion
+  // preview are all demoable end to end.
+  { id: 'te-0009-4000-8000-000000000009', project_id: 'c3c3c3c3-0001-4000-8000-000000000001', member_id: 'a1a1a1a1-0002-4000-8000-000000000002', start_time: dayAtTime(1, 13, 0), end_time: dayAtTime(1, 16, 0), segments: oneSegment(dayAtTime(1, 13, 0), dayAtTime(1, 16, 0)), description: 'Stationery and collateral design', approval_status: 'pending', submitted_at: dayAtTime(1, 16, 5), compensation_rate: 45, created_at: daysAgo(1), updated_at: daysAgo(1) },
+  { id: 'te-0010-4000-8000-000000000010', project_id: 'c3c3c3c3-0002-4000-8000-000000000002', member_id: 'a1a1a1a1-0006-4000-8000-000000000006', start_time: dayAtTime(1, 9, 0), end_time: dayAtTime(1, 10, 41),
+    segments: [
+      { start: dayAtTime(1, 9, 0), end: dayAtTime(1, 9, 47) },
+      { start: dayAtTime(1, 9, 53), end: dayAtTime(1, 10, 41) },
+    ],
+    description: 'Implemented CSV export for reports with tests', approval_status: 'pending', submitted_at: dayAtTime(1, 10, 42), billing_multiplier: 1.5, created_at: daysAgo(1), updated_at: daysAgo(1) },
+  // Recently rejected: recoverable from the review modal in one click.
+  { id: 'te-0011-4000-8000-000000000011', project_id: 'c3c3c3c3-0002-4000-8000-000000000002', member_id: 'a1a1a1a1-0004-4000-8000-000000000004', start_time: dayAtTime(3, 9, 0), end_time: dayAtTime(3, 11, 0), segments: oneSegment(dayAtTime(3, 9, 0), dayAtTime(3, 11, 0)), description: 'Component library audit', approval_status: 'rejected', rejection_reason: 'Logged against the wrong project', submitted_at: dayAtTime(3, 11, 2), compensation_rate: 40, created_at: daysAgo(3), updated_at: daysAgo(3) },
 ];
+
+// ---------------------------------------------------------------------------
+// PAYROLL / COMPENSATION LEDGER (Team compensation panel in demo mode)
+// ---------------------------------------------------------------------------
+const DEMO_RATE_BY_MEMBER: Record<string, number> = {
+  'a1a1a1a1-0002-4000-8000-000000000002': 45,
+  'a1a1a1a1-0003-4000-8000-000000000003': 50,
+  'a1a1a1a1-0004-4000-8000-000000000004': 40,
+};
+
+export const demoPayrollData: EmployeeEarningsData = {
+  // Historical entries read as approved with their member's rate snapshotted;
+  // the two pending rows above stay pending for the review queue.
+  entries: demoTimeEntries.map((entry) => entry.approval_status
+    ? entry
+    : { ...entry, approval_status: 'approved' as const, approved_at: entry.updated_at, compensation_rate: DEMO_RATE_BY_MEMBER[entry.member_id] }),
+  rates: [
+    { id: 'rate-0001-4000-8000-000000000001', member_id: 'a1a1a1a1-0002-4000-8000-000000000002', hourly_rate: 45, effective_at: daysAgo(90), created_by: DEMO_ADMIN_TEAM_MEMBER_ID, created_at: daysAgo(90), updated_at: daysAgo(90) },
+    { id: 'rate-0002-4000-8000-000000000002', member_id: 'a1a1a1a1-0003-4000-8000-000000000003', hourly_rate: 50, effective_at: daysAgo(90), created_by: DEMO_ADMIN_TEAM_MEMBER_ID, created_at: daysAgo(90), updated_at: daysAgo(90) },
+    { id: 'rate-0003-4000-8000-000000000003', member_id: 'a1a1a1a1-0004-4000-8000-000000000004', hourly_rate: 40, effective_at: daysAgo(90), created_by: DEMO_ADMIN_TEAM_MEMBER_ID, created_at: daysAgo(90), updated_at: daysAgo(90) },
+  ],
+  adjustments: [
+    { id: 'adj-0001-4000-8000-000000000001', member_id: 'a1a1a1a1-0003-4000-8000-000000000003', adjustment_type: 'bonus', amount: 250, effective_date: daysAgo(10).slice(0, 10), project_id: null, description: 'Client praise bonus: Bloomwell design review', created_by: DEMO_ADMIN_TEAM_MEMBER_ID, voided_at: null, voided_by: null, created_at: daysAgo(10), updated_at: daysAgo(10) },
+  ],
+  payouts: [
+    { id: 'pay-0001-4000-8000-000000000001', member_id: 'a1a1a1a1-0002-4000-8000-000000000002', payment_date: daysAgo(5).slice(0, 10), amount: 225, payment_method: 'ACH transfer', reference: 'PAY-1042', notes: '', created_by: DEMO_ADMIN_TEAM_MEMBER_ID, voided_at: null, voided_by: null, created_at: daysAgo(5), updated_at: daysAgo(5) },
+  ],
+  allocations: [
+    { id: 'alloc-0001-4000-8000-000000000001', payout_id: 'pay-0001-4000-8000-000000000001', time_entry_id: 'te-0002-4000-8000-000000000002', adjustment_id: null, allocated_amount: 225, created_at: daysAgo(5) },
+  ],
+};
 
 // ---------------------------------------------------------------------------
 // PROJECT INVOICES
@@ -1542,6 +1586,14 @@ export const demoTaskSuggestions: TaskSuggestion[] = [
 // AGENT ACTIVITY
 // ---------------------------------------------------------------------------
 export const demoAgentActivity: AgentActivity[] = [
+  // Atlas's pending billed session (te-0010): narration landing inside the
+  // session window so the agent session review modal shows a real timeline.
+  { id: 'aact-0101-4000-8000-000000000101', agent_id: 'a1a1a1a1-0006-4000-8000-000000000006', project_id: 'c3c3c3c3-0002-4000-8000-000000000002', activity_type: 'task_started', title: 'Starting: Add CSV export to reports', description: '', reference_type: null, reference_id: null, metadata: {}, created_at: dayAtTime(1, 9, 2) },
+  { id: 'aact-0102-4000-8000-000000000102', agent_id: 'a1a1a1a1-0006-4000-8000-000000000006', project_id: 'c3c3c3c3-0002-4000-8000-000000000002', activity_type: 'custom', title: 'Workspace ready: cloned bloomwell-app on branch atlas/csv-export', description: 'Verified', reference_type: null, reference_id: null, metadata: {}, created_at: dayAtTime(1, 9, 8) },
+  { id: 'aact-0103-4000-8000-000000000103', agent_id: 'a1a1a1a1-0006-4000-8000-000000000006', project_id: 'c3c3c3c3-0002-4000-8000-000000000002', activity_type: 'custom', title: 'Implementation started: stream rows through a worker to keep exports under memory limits', description: 'Verified', reference_type: null, reference_id: null, metadata: {}, created_at: dayAtTime(1, 9, 26) },
+  { id: 'aact-0104-4000-8000-000000000104', agent_id: 'a1a1a1a1-0006-4000-8000-000000000006', project_id: 'c3c3c3c3-0002-4000-8000-000000000002', activity_type: 'custom', title: 'Checkpoint audit passed: 3 of 4 criteria underway, continuing', description: 'Verified', reference_type: null, reference_id: null, metadata: {}, created_at: dayAtTime(1, 10, 5) },
+  { id: 'aact-0105-4000-8000-000000000105', agent_id: 'a1a1a1a1-0006-4000-8000-000000000006', project_id: 'c3c3c3c3-0002-4000-8000-000000000002', activity_type: 'custom', title: 'Verification started: lint, typecheck, tests, build', description: 'Verified', reference_type: null, reference_id: null, metadata: {}, created_at: dayAtTime(1, 10, 22) },
+  { id: 'aact-0106-4000-8000-000000000106', agent_id: 'a1a1a1a1-0006-4000-8000-000000000006', project_id: 'c3c3c3c3-0002-4000-8000-000000000002', activity_type: 'task_completed', title: 'PR opened: bloomwell-app#214 CSV export for reports', description: '', reference_type: null, reference_id: null, metadata: {}, created_at: dayAtTime(1, 10, 40) },
   {
     id: 'aact-0001-4000-8000-000000000001',
     agent_id: 'a1a1a1a1-0006-4000-8000-000000000006',

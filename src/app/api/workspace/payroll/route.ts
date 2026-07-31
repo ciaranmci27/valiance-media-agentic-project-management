@@ -13,7 +13,7 @@ export async function GET() {
   }
   const entryTargetMember = canManage || canReview ? null : memberId;
   const financialTargetMember = canManage ? null : memberId;
-  let entriesQuery = service.from('project_time_entries').select('id, project_id, member_id, start_time, end_time, segments, description, compensation_rate, work_type, approval_status, submitted_at, approved_at').not('end_time', 'is', null);
+  let entriesQuery = service.from('project_time_entries').select('id, project_id, member_id, start_time, end_time, segments, description, compensation_rate, work_type, approval_status, submitted_at, approved_at, billing_multiplier, billing_converted_at').not('end_time', 'is', null);
   let ratesQuery = service.from('team_member_hourly_rates').select('*');
   let adjustmentsQuery = service.from('team_member_earning_adjustments').select('*');
   let payoutsQuery = service.from('team_member_payouts').select('*');
@@ -72,10 +72,26 @@ export async function POST(request: Request) {
     if ((reviewEntries || []).length !== entryIds.length) return NextResponse.json({ error: 'One or more time entries were not found' }, { status: 404 });
     if (reviewEntries?.some((entry) => entry.member_id === memberId)) return NextResponse.json({ error: 'You cannot approve your own time' }, { status: 409 });
     if (reviewEntries?.some((entry) => !accessAllowsProject(access, entry.project_id))) return NextResponse.json({ error: 'Project access denied' }, { status: 403 });
+    // Optional per-entry worked-minute adjustments for agent conversions,
+    // shaped { [entryId]: minutes }. Validated here; the conversion function
+    // ignores adjustments for non-agent entries.
+    let adjustments: Record<string, number> | null = null;
+    if (body.adjusted_minutes && typeof body.adjusted_minutes === 'object' && !Array.isArray(body.adjusted_minutes)) {
+      adjustments = {};
+      for (const [entryId, raw] of Object.entries(body.adjusted_minutes as Record<string, unknown>)) {
+        const minutes = Number(raw);
+        if (!entryIds.includes(entryId) || !Number.isFinite(minutes) || minutes <= 0 || minutes > 24 * 60) {
+          return NextResponse.json({ error: 'Adjusted minutes must be a positive number of minutes for a selected entry' }, { status: 422 });
+        }
+        adjustments[entryId] = minutes;
+      }
+      if (Object.keys(adjustments).length === 0) adjustments = null;
+    }
     const { data, error } = await client.rpc('review_time_entries', {
       p_entry_ids: entryIds,
       p_decision: body.decision,
       p_reason: body.reason || null,
+      p_adjustments: adjustments,
     });
     if (error) {
       const status = error.message.includes('Compensation rate missing') ? 409 : 500;

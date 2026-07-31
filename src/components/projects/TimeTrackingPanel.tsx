@@ -1045,46 +1045,6 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                           <p className="text-sm text-zinc-300 truncate">
                             {entry.description || <span className="text-zinc-500 italic">No description</span>}
                           </p>
-                          {(() => {
-                            const linkedTasks = (entry.task_ids || [])
-                              .map(linkedTaskId => ({ id: linkedTaskId, title: getTaskTitle(linkedTaskId) }))
-                              .filter((linked): linked is { id: string; title: string } => !!linked.title);
-                            if (linkedTasks.length === 0) return null;
-                            const visibleTasks = linkedTasks.slice(0, 3);
-                            const overflowTasks = linkedTasks.slice(3);
-                            return (
-                              <div className="mt-1 mb-0.5 flex flex-wrap items-center gap-1">
-                                {visibleTasks.map(linked => (
-                                  <span
-                                    key={linked.id}
-                                    className="inline-flex min-w-0 max-w-[220px] items-center gap-1 rounded-full border border-white/[0.06] bg-white/[0.04] px-2 py-0.5 text-[10px] font-medium text-zinc-400"
-                                  >
-                                    <span
-                                      className="h-1 w-1 flex-shrink-0 rounded-full"
-                                      style={{ backgroundColor: projectColor }}
-                                      aria-hidden="true"
-                                    />
-                                    <span className="truncate">{linked.title}</span>
-                                  </span>
-                                ))}
-                                {overflowTasks.length > 0 && (
-                                  <Tooltip
-                                    content={(
-                                      <div className="space-y-0.5">
-                                        {overflowTasks.map(linked => (
-                                          <p key={linked.id}>{linked.title}</p>
-                                        ))}
-                                      </div>
-                                    )}
-                                  >
-                                    <span className="inline-flex items-center rounded-full border border-white/[0.06] bg-white/[0.04] px-2 py-0.5 text-[10px] font-medium text-zinc-400">
-                                      +{overflowTasks.length} more
-                                    </span>
-                                  </Tooltip>
-                                )}
-                              </div>
-                            );
-                          })()}
                           <div className="flex items-center gap-1.5 text-xs text-zinc-500">
                             <span className="truncate">
                               {member?.name} &middot; {formatTime(entry.start_time, tz)} – {entry.end_time ? formatTime(entry.end_time, tz) : '...'}
@@ -1128,6 +1088,45 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                                     aria-label={`${cfg.label}: ${amountParts.join(', ')}`}
                                   />
                                 </Tooltip>
+                              );
+                            })()}
+                            {(() => {
+                              // Linked tasks live inline after the paid marker so
+                              // every entry stays a two-line row; one truncating
+                              // chip plus a +N tooltip carries any overflow.
+                              const linkedTasks = (entry.task_ids || [])
+                                .map(linkedTaskId => ({ id: linkedTaskId, title: getTaskTitle(linkedTaskId) }))
+                                .filter((linked): linked is { id: string; title: string } => !!linked.title);
+                              if (linkedTasks.length === 0) return null;
+                              const [firstTask, ...restTasks] = linkedTasks;
+                              return (
+                                <span className="flex min-w-0 items-center gap-1">
+                                  <Tooltip content={firstTask.title} className="min-w-0">
+                                    <span className="inline-flex min-w-0 max-w-[200px] items-center gap-1 rounded-full border border-white/[0.06] bg-white/[0.04] px-1 py-0 text-[10px] font-medium text-zinc-400">
+                                      <span className="h-1 w-1 flex-shrink-0 rounded-full" style={{ backgroundColor: projectColor }} aria-hidden="true" />
+                                      <span className="truncate">{firstTask.title}</span>
+                                    </span>
+                                  </Tooltip>
+                                  {restTasks.length > 0 && (
+                                    <Tooltip
+                                      content={(
+                                        <div className="space-y-1 py-0.5">
+                                          <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Also on</p>
+                                          {restTasks.map(linked => (
+                                            <p key={linked.id} className="flex items-center gap-1.5">
+                                              <span className="h-1 w-1 flex-shrink-0 rounded-full" style={{ backgroundColor: projectColor }} aria-hidden="true" />
+                                              <span className="max-w-[240px] truncate font-normal text-zinc-200">{linked.title}</span>
+                                            </p>
+                                          ))}
+                                        </div>
+                                      )}
+                                    >
+                                      <span className="inline-flex flex-shrink-0 items-center rounded-full border border-white/[0.06] bg-white/[0.04] px-1 py-0 text-[10px] font-medium text-zinc-400">
+                                        +{restTasks.length}
+                                      </span>
+                                    </Tooltip>
+                                  )}
+                                </span>
                               );
                             })()}
                             {entry.work_type === 'internal' && <span className="flex-shrink-0 rounded bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-medium text-sky-300">Internal</span>}

@@ -9,6 +9,8 @@ import { toast } from '@/components/ui/Toast';
 import { getWorkedHours } from '@/lib/time-entry-utils';
 import { hasPermission } from '@/lib/access-control';
 import { useAuth } from '@/lib/auth-context';
+import { useDemo } from '@/lib/demo-context';
+import { demoPayrollData } from '@/lib/demo-data';
 import type { Project, TeamMember, TeamMemberEarningAdjustment, TeamMemberHourlyRate, TeamMemberPayout, TeamMemberPayoutAllocation, TimeEntry } from '@/lib/types';
 import { Checkbox } from '@/components/ui/inputs/Checkbox';
 import { DateInput } from '@/components/ui/inputs/DateInput';
@@ -17,6 +19,7 @@ import { TextInput } from '@/components/ui/inputs/TextInput';
 import { Textarea } from '@/components/ui/inputs/Textarea';
 import { Select } from '@/components/ui/Select';
 import { Avatar } from '@/components/ui/Avatar';
+import { AgentSessionModal } from '@/components/finances/AgentSessionModal';
 
 type PayrollData = {
   entries: TimeEntry[];
@@ -52,6 +55,7 @@ type EarningsRow = {
 
 export function PayrollPanel({ team, projects }: { team: TeamMember[]; projects: Project[] }) {
   const { access, teamMemberId } = useAuth();
+  const { isDemoMode } = useDemo();
   const canManageCompensation = hasPermission(access, 'compensation.manage');
   const canManagePayouts = hasPermission(access, 'payouts.manage');
   const canManage = canManageCompensation || canManagePayouts;
@@ -78,6 +82,8 @@ export function PayrollPanel({ team, projects }: { team: TeamMember[]; projects:
   const compMenuRef = useRef<HTMLDivElement>(null);
   const [ledgerMemberId, setLedgerMemberId] = useState<string | null>(null);
   const [earningsFilter, setEarningsFilter] = useState<EarningsFilter>('all');
+  const [sessionEntryId, setSessionEntryId] = useState<string | null>(null);
+  const [showReviewQueue, setShowReviewQueue] = useState(false);
   // Single-flight lock for money actions. The ref blocks re-entry synchronously
   // (before React re-renders), so a rapid double-click cannot record a duplicate
   // payout/adjustment; the state flag drives the disabled button styling.
@@ -99,12 +105,31 @@ export function PayrollPanel({ team, projects }: { team: TeamMember[]; projects:
     [team],
   );
   const payableMemberIds = useMemo(() => new Set(payableMembers.map((member) => member.id)), [payableMembers]);
+  // Approval covers every non-owner, agents included: approval gates whether
+  // time becomes client-billable, which is separate from payroll (agents cost
+  // $0 internally but their approved time still flows to invoices).
+  const reviewableMemberIds = useMemo(
+    () => new Set(team.filter((member) => member.role !== 'owner').map((member) => member.id)),
+    [team],
+  );
+  const agentMemberIds = useMemo(
+    () => new Set(team.filter((member) => member.role === 'agent').map((member) => member.id)),
+    [team],
+  );
   const hasPayableIdentity = canManage
     ? payableMembers.length > 0
     : payableMembers.some((member) => member.id === teamMemberId);
+  // Reviewers with only agent workers still need the panel for the queue.
+  const hasPanelIdentity = hasPayableIdentity
+    || ((canManage || canApprove) && reviewableMemberIds.size > 0);
 
   const load = useCallback(async () => {
-    if (!hasPayableIdentity) return;
+    if (!hasPanelIdentity) return;
+    if (isDemoMode) {
+      setData(demoPayrollData);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
       const response = await fetch('/api/workspace/payroll', { cache: 'no-store' });
@@ -116,7 +141,7 @@ export function PayrollPanel({ team, projects }: { team: TeamMember[]; projects:
     } finally {
       setLoading(false);
     }
-  }, [hasPayableIdentity]);
+  }, [hasPanelIdentity, isDemoMode]);
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => { void load(); }, 0);
@@ -124,9 +149,19 @@ export function PayrollPanel({ team, projects }: { team: TeamMember[]; projects:
   }, [load]);
 
   const pending = useMemo(
-    () => data.entries.filter((entry) => entry.approval_status === 'pending' && entry.member_id !== teamMemberId && payableMemberIds.has(entry.member_id)),
-    [data.entries, payableMemberIds, teamMemberId],
+    () => data.entries.filter((entry) => entry.approval_status === 'pending' && entry.member_id !== teamMemberId && reviewableMemberIds.has(entry.member_id)),
+    [data.entries, reviewableMemberIds, teamMemberId],
   );
+  // Recently rejected entries stay re-reviewable so an accidental reject is
+  // recoverable in one click instead of requiring a token edit to resubmit.
+  const rejectedRecent = useMemo(() => {
+    const cutoff = Date.now() - 30 * 86_400_000;
+    return data.entries.filter((entry) => entry.approval_status === 'rejected'
+      && entry.member_id !== teamMemberId
+      && reviewableMemberIds.has(entry.member_id)
+      && Date.parse(entry.updated_at) >= cutoff);
+  }, [data.entries, reviewableMemberIds, teamMemberId]);
+  const reviewQueueCount = pending.length + rejectedRecent.length;
   const allocatedByEntry = useMemo(() => {
     const map = new Map<string, number>();
     for (const row of data.allocations) if (row.time_entry_id) map.set(row.time_entry_id, (map.get(row.time_entry_id) || 0) + Number(row.allocated_amount));
@@ -218,7 +253,68 @@ export function PayrollPanel({ team, projects }: { team: TeamMember[]; projects:
     (rate) => rate.member_id === memberId && new Date(rate.effective_at).getTime() <= new Date(startTime).getTime(),
   );
 
+  // Demo mode simulates every payroll action locally (including the agent
+  // billing conversion on approval) so the full workflow is explorable
+  // without touching real data. Reloading demo mode resets everything.
+  const applyDemoAction = (body: Record<string, unknown>) => {
+    const action = String(body.action || '');
+    setData((prev) => {
+      if (action === 'review') {
+        const ids = new Set(Array.isArray(body.entry_ids) ? body.entry_ids.map(String) : []);
+        const decision = body.decision as 'approved' | 'rejected';
+        const adjustments = (body.adjusted_minutes && typeof body.adjusted_minutes === 'object'
+          ? body.adjusted_minutes : {}) as Record<string, number>;
+        return {
+          ...prev,
+          entries: prev.entries.map((entry) => {
+            if (!ids.has(entry.id) || !['pending', 'rejected'].includes(entry.approval_status || '')) return entry;
+            if (decision === 'rejected') {
+              return { ...entry, approval_status: 'rejected' as const, rejection_reason: String(body.reason || '') };
+            }
+            const updated: TimeEntry = { ...entry, approval_status: 'approved' as const, approved_at: new Date().toISOString() };
+            if (agentMemberIds.has(entry.member_id) && !entry.billing_converted_at) {
+              const workedMs = adjustments[entry.id]
+                ? adjustments[entry.id] * 60000
+                : (entry.segments || []).reduce((total, segment) => segment.end
+                    ? total + Math.max(0, Date.parse(segment.end) - Date.parse(segment.start))
+                    : total, 0);
+              const multiplier = entry.billing_multiplier && entry.billing_multiplier > 0 ? entry.billing_multiplier : 1;
+              if (workedMs > 0) {
+                const billedEnd = new Date(Date.parse(entry.start_time) + Math.round(workedMs * multiplier)).toISOString();
+                updated.segments = [{ start: entry.start_time, end: billedEnd }];
+                updated.end_time = billedEnd;
+                updated.billing_converted_at = new Date().toISOString();
+              }
+            }
+            return updated;
+          }),
+        };
+      }
+      const nowIso = new Date().toISOString();
+      if (action === 'schedule_rate') {
+        return { ...prev, rates: [...prev.rates, { id: crypto.randomUUID(), member_id: String(body.member_id), hourly_rate: Number(body.hourly_rate), effective_at: String(body.effective_at), created_by: teamMemberId, created_at: nowIso, updated_at: nowIso }] };
+      }
+      if (action === 'adjustment') {
+        return { ...prev, adjustments: [...prev.adjustments, { id: crypto.randomUUID(), member_id: String(body.member_id), adjustment_type: body.adjustment_type as 'bonus' | 'deduction', amount: Number(body.amount), effective_date: String(body.effective_date), project_id: null, description: String(body.description || ''), created_by: teamMemberId, voided_at: null, voided_by: null, created_at: nowIso, updated_at: nowIso }] };
+      }
+      if (action === 'payout') {
+        const payoutId = crypto.randomUUID();
+        const allocationRows = (Array.isArray(body.allocations) ? body.allocations : []) as { time_entry_id?: string | null; adjustment_id?: string | null; allocated_amount: number }[];
+        return {
+          ...prev,
+          payouts: [...prev.payouts, { id: payoutId, member_id: String(body.member_id), payment_date: String(body.payment_date), amount: Number(body.amount), payment_method: String(body.payment_method || ''), reference: String(body.reference || ''), notes: '', created_by: teamMemberId, voided_at: null, voided_by: null, created_at: nowIso, updated_at: nowIso }],
+          allocations: [...prev.allocations, ...allocationRows.map((row) => ({ id: crypto.randomUUID(), payout_id: payoutId, time_entry_id: row.time_entry_id ?? null, adjustment_id: row.adjustment_id ?? null, allocated_amount: Number(row.allocated_amount), created_at: nowIso }))],
+        };
+      }
+      return prev;
+    });
+  };
+
   const post = async (body: Record<string, unknown>) => {
+    if (isDemoMode) {
+      applyDemoAction(body);
+      return null;
+    }
     const response = await fetch('/api/workspace/payroll', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -229,6 +325,25 @@ export function PayrollPanel({ team, projects }: { team: TeamMember[]; projects:
     await load();
     return payload.data;
   };
+
+  // Single-entry review from the agent session modal; approval optionally
+  // carries the reviewer's adjusted worked minutes into the conversion.
+  const reviewSession = (entryId: string, decision: 'approved' | 'rejected', options?: { adjustedMinutes?: number | null; reason?: string }) => runExclusive(async () => {
+    try {
+      await post({
+        action: 'review',
+        entry_ids: [entryId],
+        decision,
+        ...(decision === 'rejected' ? { reason: options?.reason || null } : {}),
+        ...(decision === 'approved' && options?.adjustedMinutes
+          ? { adjusted_minutes: { [entryId]: options.adjustedMinutes } }
+          : {}),
+      });
+      setSelected((current) => { const next = new Set(current); next.delete(entryId); return next; });
+      setSessionEntryId(null);
+      toast('success', decision === 'approved' ? 'Session approved and converted' : 'Session rejected');
+    } catch (error) { toast('error', error instanceof Error ? error.message : 'Review failed'); }
+  });
 
   const approveSelected = () => runExclusive(async () => {
     try {
@@ -367,7 +482,7 @@ export function PayrollPanel({ team, projects }: { team: TeamMember[]; projects:
   const rateMember = team.find((member) => member.id === rateMemberId);
   const adjustmentMember = team.find((member) => member.id === adjustmentMemberId);
   const ledgerMember = team.find((member) => member.id === ledgerMemberId);
-  if (!hasPayableIdentity || (!loading && visibleMembers.length === 0)) return null;
+  if (!hasPanelIdentity || (!loading && visibleMembers.length === 0 && pending.length === 0)) return null;
 
   return (
     <section className="rounded-xl border border-white/[0.08] bg-surface-raised">
@@ -376,21 +491,35 @@ export function PayrollPanel({ team, projects }: { team: TeamMember[]; projects:
           <div className="flex items-center gap-2"><WalletCards size={18} className="text-brand-300" /><h2 className="font-semibold text-white">{canManage ? 'Team compensation' : 'My earnings'}</h2></div>
           <p className="text-xs text-zinc-400 mt-1">Approved work, adjustments, and recorded payments in one ledger.</p>
         </div>
+        {canApprove && reviewQueueCount > 0 && (
+          <button
+            type="button"
+            onClick={() => setShowReviewQueue(true)}
+            className="inline-flex items-center gap-2 rounded-lg border border-white/[0.08] bg-surface-raised px-3 py-2 text-sm font-medium text-zinc-200 transition-colors hover:border-white/[0.12] hover:bg-white/[0.03] focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-500"
+          >
+            <Clock3 size={14} className="text-amber-400" aria-hidden="true" />
+            Review hours
+            {pending.length > 0 && <span className="rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-amber-300">{pending.length}</span>}
+          </button>
+        )}
       </div>
 
       {loading ? <div className="p-6 text-sm text-zinc-400">Loading compensation ledger...</div> : (
         <>
-          {canApprove && pending.length > 0 && (
-            <div className="p-5 border-b border-white/[0.06] bg-amber-500/15">
-              <div className="flex items-center justify-between gap-3 mb-3">
-                <div className="flex items-center gap-2"><Clock3 size={16} className="text-amber-400" /><span className="text-sm font-semibold text-white">{pending.length} submitted {pending.length === 1 ? 'entry' : 'entries'} awaiting review</span></div>
+          <Modal isOpen={showReviewQueue && canApprove && reviewQueueCount > 0} onClose={() => setShowReviewQueue(false)} title="Hours awaiting review" size="2xl">
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="text-xs text-zinc-400">{pending.length} submitted {pending.length === 1 ? 'entry' : 'entries'}. Approving makes the hours invoiceable{pending.some((entry) => agentMemberIds.has(entry.member_id)) ? '; agent sessions convert on approval' : ''}.</p>
                 <div className="flex gap-2"><Button size="sm" variant="secondary" disabled={selected.size === 0 || submitting} onClick={() => setShowReject(true)}>Reject selected</Button><Button size="sm" disabled={selected.size === 0 || submitting} onClick={approveSelected}>Approve selected</Button></div>
               </div>
-              <div className="space-y-1 max-h-56 overflow-y-auto">
+              <div className="max-h-[55vh] space-y-1.5 overflow-y-auto">
                 {pending.map((entry) => {
                   const member = team.find((item) => item.id === entry.member_id);
                   const hours = getWorkedHours(entry);
-                  const missingRate = !hasEffectiveRate(entry.member_id, entry.start_time);
+                  // Agents have no compensation rate by design ($0 internal
+                  // cost); their entries are approvable without one.
+                  const isAgentEntry = agentMemberIds.has(entry.member_id);
+                  const missingRate = !isAgentEntry && !hasEffectiveRate(entry.member_id, entry.start_time);
                   return <Checkbox
                     key={entry.id}
                     checked={selected.has(entry.id)}
@@ -401,13 +530,86 @@ export function PayrollPanel({ team, projects }: { team: TeamMember[]; projects:
                       else next.delete(entry.id);
                       return next;
                     })}
-                    className="w-full items-center rounded-lg border border-white/[0.08] bg-surface-raised px-3 py-2"
-                    label={<span className="flex w-full min-w-0 items-center gap-3 font-normal"><span className="min-w-0 flex-1"><span className="text-sm font-medium text-zinc-100">{member?.name || 'Team member'}</span><span className="block truncate text-xs text-zinc-400">{entry.description || 'No description'} / {new Date(entry.start_time).toLocaleDateString()}</span></span><span className="text-sm tabular-nums text-zinc-300">{hours.toFixed(2)}h</span>{missingRate ? <span className="text-xs font-semibold text-red-400">Rate required</span> : <span className="text-sm font-medium tabular-nums text-white">{money(hours * Number(entry.compensation_rate || 0))}</span>}</span>}
+                    className="w-full items-center rounded-lg border border-white/[0.08] bg-surface-raised px-3.5 py-2.5 transition-colors hover:border-white/[0.12]"
+                    label={<span className="flex w-full min-w-0 items-center gap-4 font-normal">
+                      <span className="min-w-0 flex-1">
+                        <span className="flex items-center gap-1.5">
+                          <span className="text-sm font-medium text-zinc-100">{member?.name || 'Team member'}</span>
+                          {isAgentEntry && <span className="flex-shrink-0 rounded-full bg-purple-500/15 px-1.5 py-0.5 text-[10px] font-medium text-purple-300">AI agent</span>}
+                          <span className="flex-shrink-0 text-[11px] text-zinc-500">{new Date(entry.start_time).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                        </span>
+                        <span className="mt-0.5 block truncate text-xs text-zinc-400">{entry.description || 'No description'}</span>
+                      </span>
+                      <span className="flex flex-shrink-0 items-center gap-3">
+                        {isAgentEntry && (
+                          <button
+                            type="button"
+                            onClick={(event) => { event.preventDefault(); event.stopPropagation(); setShowReviewQueue(false); setSessionEntryId(entry.id); }}
+                            className="rounded-lg border border-brand-500/30 bg-brand-500/15 px-2.5 py-1.5 text-xs font-medium text-brand-300 transition-colors hover:bg-brand-500/25 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-500"
+                          >
+                            Review
+                          </button>
+                        )}
+                        <span className="text-right">
+                          <span className="block text-sm font-semibold tabular-nums text-white">{hours.toFixed(2)}<span className="ml-0.5 text-xs font-normal text-zinc-500">h</span></span>
+                          {!isAgentEntry && !missingRate && <span className="block text-[11px] tabular-nums text-zinc-500">{money(hours * Number(entry.compensation_rate || 0))}</span>}
+                          {missingRate && <span className="block text-[11px] font-semibold text-red-400">Rate required</span>}
+                        </span>
+                      </span>
+                    </span>}
                   />;
                 })}
+                {pending.length === 0 && <p className="py-2 text-center text-xs text-zinc-500">Nothing awaiting review.</p>}
               </div>
+
+              {rejectedRecent.length > 0 && (
+                <div className="border-t border-white/[0.06] pt-3">
+                  <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">Recently rejected</p>
+                  <div className="max-h-40 space-y-1.5 overflow-y-auto">
+                    {rejectedRecent.map((entry) => {
+                      const member = team.find((item) => item.id === entry.member_id);
+                      const hours = getWorkedHours(entry);
+                      const isAgentEntry = agentMemberIds.has(entry.member_id);
+                      return (
+                        <div key={entry.id} className="flex w-full min-w-0 items-center gap-4 rounded-lg border border-white/[0.08] bg-surface-raised px-3.5 py-2.5">
+                          <span className="min-w-0 flex-1">
+                            <span className="flex items-center gap-1.5">
+                              <span className="text-sm font-medium text-zinc-100">{member?.name || 'Team member'}</span>
+                              {isAgentEntry && <span className="flex-shrink-0 rounded-full bg-purple-500/15 px-1.5 py-0.5 text-[10px] font-medium text-purple-300">AI agent</span>}
+                              <span className="flex-shrink-0 rounded-full bg-red-500/15 px-1.5 py-0.5 text-[10px] font-medium text-red-300">Rejected</span>
+                              <span className="flex-shrink-0 text-[11px] text-zinc-500">{new Date(entry.start_time).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                            </span>
+                            <span className="mt-0.5 block truncate text-xs text-zinc-400">{entry.rejection_reason || entry.description || 'No description'}</span>
+                          </span>
+                          <span className="flex flex-shrink-0 items-center gap-3">
+                            {isAgentEntry ? (
+                              <button
+                                type="button"
+                                onClick={() => { setShowReviewQueue(false); setSessionEntryId(entry.id); }}
+                                className="rounded-lg border border-brand-500/30 bg-brand-500/15 px-2.5 py-1.5 text-xs font-medium text-brand-300 transition-colors hover:bg-brand-500/25 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-500"
+                              >
+                                Review
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                disabled={submitting}
+                                onClick={() => reviewSession(entry.id, 'approved')}
+                                className="rounded-lg border border-emerald-500/30 bg-emerald-500/15 px-2.5 py-1.5 text-xs font-medium text-emerald-300 transition-colors hover:bg-emerald-500/25 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-500 disabled:opacity-50"
+                              >
+                                Approve
+                              </button>
+                            )}
+                            <span className="text-right text-sm font-semibold tabular-nums text-white">{hours.toFixed(2)}<span className="ml-0.5 text-xs font-normal text-zinc-500">h</span></span>
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
-          )}
+          </Modal>
 
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-white/[0.06]">
             {(canManage ? visibleMembers : visibleMembers.slice(0, 1)).map((member) => {
@@ -569,6 +771,21 @@ export function PayrollPanel({ team, projects }: { team: TeamMember[]; projects:
           <div className="flex justify-end gap-2"><Button variant="ghost" onClick={() => setShowAdjustment(false)}>Cancel</Button><Button onClick={addAdjustment} disabled={submitting}>Add adjustment</Button></div>
         </div>
       </Modal>
+      {sessionEntryId && (() => {
+        const sessionEntry = data.entries.find((item) => item.id === sessionEntryId);
+        if (!sessionEntry) return null;
+        return (
+          <AgentSessionModal
+            entry={sessionEntry}
+            member={team.find((item) => item.id === sessionEntry.member_id)}
+            projectName={projects.find((project) => project.id === sessionEntry.project_id)?.name || 'Project'}
+            submitting={submitting}
+            onApprove={(adjustedMinutes) => reviewSession(sessionEntry.id, 'approved', { adjustedMinutes })}
+            onReject={(reason) => reviewSession(sessionEntry.id, 'rejected', { reason })}
+            onClose={() => { setSessionEntryId(null); setShowReviewQueue(true); }}
+          />
+        );
+      })()}
     </section>
   );
 }

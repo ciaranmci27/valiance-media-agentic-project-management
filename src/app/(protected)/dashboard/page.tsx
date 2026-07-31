@@ -10,6 +10,7 @@ import { TaskForm } from '@/components/tasks/TaskForm';
 import Link from 'next/link';
 import Modal from '@/components/ui/Modal';
 import { FolderKanban, CheckCircle, Clock, AlertTriangle, Plus, ArrowRight, Users, Target, Activity, DollarSign, Wallet } from 'lucide-react';
+import { Tooltip } from '@/components/ui/Tooltip';
 import { parseDateOnly, toLocalDateKey } from '@/lib/date-utils';
 import { hasPermission } from '@/lib/access-control';
 import { computeCompanyFinanceSummary, computeMemberEarningsSummary } from '@/lib/finance/summary';
@@ -276,18 +277,23 @@ export default function DashboardPage() {
             <div className="flex items-end gap-2 lg:gap-3 h-32 mt-5 pb-6 relative">
               {completedPerDay.map((v, i) => {
                 const isToday = i === completedPerDay.length - 1;
+                const dateLabel = dayBuckets[i].start.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
                 return (
                   <div key={i} className="flex-1 flex flex-col justify-end items-center h-full relative">
-                    <div
-                      className="chart-bar relative w-full max-w-[36px] rounded-t-md transition-all"
-                      style={{
-                        height: `${Math.max((v / maxDay) * 100, 3)}%`,
-                        background: isToday
-                          ? 'linear-gradient(180deg, #a7ccca, var(--color-brand-500))'
-                          : 'linear-gradient(180deg, var(--color-brand-400), var(--color-brand-600))',
-                      }}
-                      title={`${v} completed`}
-                    />
+                    {/* The sized outer div owns the %-height so the Tooltip
+                        wrapper (auto-sized) can't collapse the bar. */}
+                    <div className="w-full max-w-[36px] flex" style={{ height: `${Math.max((v / maxDay) * 100, 3)}%` }}>
+                      <Tooltip content={`${v} ${v === 1 ? 'task' : 'tasks'} completed · ${dateLabel}`} className="w-full h-full">
+                        <div
+                          className="chart-bar relative w-full h-full rounded-t-md transition-all"
+                          style={{
+                            background: isToday
+                              ? 'linear-gradient(180deg, #a7ccca, var(--color-brand-500))'
+                              : 'linear-gradient(180deg, var(--color-brand-400), var(--color-brand-600))',
+                          }}
+                        />
+                      </Tooltip>
+                    </div>
                     <span className={`absolute -bottom-6 text-[11px] ${isToday ? 'text-zinc-300' : 'text-zinc-500'}`}>{isToday ? 'Today' : dayBuckets[i].label}</span>
                   </div>
                 );

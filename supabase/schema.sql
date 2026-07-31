@@ -17,8 +17,8 @@ create table public.team_members (
   email_notification_prefs jsonb not null default '{}',
   theme_preference text check (theme_preference in ('light', 'dark')),
   -- Billing multiplier dial, snapshotted onto each time entry at session
-  -- start. Agent sessions are converted on stop to one continuous slot of
-  -- worked time times this. 1.00 = parity; humans are never converted.
+  -- start. Agent sessions are converted at approval to one continuous slot
+  -- of worked time times this. 1.00 = parity; humans are never converted.
   billing_multiplier numeric(4,2) not null default 1.00 check (billing_multiplier > 0),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -513,8 +513,11 @@ create table public.project_time_entries (
   hourly_rate numeric(10,2) not null default 0 check (hourly_rate >= 0),
   description text not null default '',
   -- Snapshot of the member's billing multiplier at session start. Agent
-  -- sessions are converted on stop: worked time times this, one segment.
+  -- sessions finalize raw and are converted at APPROVAL: worked time times
+  -- this, collapsed to one continuous segment anchored at the real start.
   billing_multiplier numeric(4,2) not null default 1.00 check (billing_multiplier > 0),
+  -- Stamped when the agent billing conversion runs; conversion is single-shot.
+  billing_converted_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -735,6 +738,9 @@ create table public.business_settings (
   -- The dashboard filters these out by default so internal/test traffic
   -- doesn't get counted as real client engagement.
   excluded_ips jsonb not null default '[]'::jsonb,
+  -- Human sessions finalize straight to approved when true (the default:
+  -- a hand-picked team is trusted); agent sessions always queue for review.
+  auto_approve_human_hours boolean not null default true,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -2479,12 +2485,23 @@ BEGIN
       NEW.approved_at := now();
       NEW.approved_by := NEW.member_id;
       NEW.compensation_rate := 0;
+    ELSIF member_role <> 'agent'
+      AND COALESCE((SELECT auto_approve_human_hours FROM public.business_settings LIMIT 1), true) THEN
+      -- Auto-approved by workspace policy; approved_by NULL marks it as
+      -- system-approved rather than reviewed by a person.
+      NEW.approval_status := 'approved';
+      NEW.approved_at := now();
+      NEW.approved_by := NULL;
     ELSE
       NEW.approval_status := 'pending';
       NEW.approved_at := NULL;
       NEW.approved_by := NULL;
     END IF;
-  ELSIF TG_OP = 'UPDATE' AND OLD.approval_status = 'rejected' AND member_role <> 'owner' THEN
+  ELSIF TG_OP = 'UPDATE' AND OLD.approval_status = 'rejected' AND member_role <> 'owner'
+    AND NEW.approval_status = OLD.approval_status THEN
+    -- A content edit to a rejected entry resubmits it for review. A review
+    -- decision (approval_status changed by review_time_entries) passes
+    -- through untouched.
     NEW.approval_status := 'pending';
     NEW.submitted_at := now();
     NEW.approved_at := NULL;
@@ -2500,16 +2517,84 @@ CREATE TRIGGER apply_time_entry_compensation
   BEFORE INSERT OR UPDATE ON public.project_time_entries
   FOR EACH ROW EXECUTE FUNCTION public.apply_time_entry_compensation();
 
+-- Agent billing conversion: runs at APPROVAL (not timer stop) so the reviewer
+-- sees the raw session and edits operate on truth. Collapses the entry into
+-- one continuous slot of worked time (pauses excluded, or the reviewer's
+-- adjusted minutes) times the snapshotted multiplier, anchored at the real
+-- start. Single-shot via billing_converted_at. Called only from the review
+-- functions; no direct grants.
+CREATE OR REPLACE FUNCTION public.apply_agent_billing_conversion(
+  p_entry_id uuid,
+  p_adjusted_minutes numeric DEFAULT NULL
+)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_entry public.project_time_entries%ROWTYPE;
+  v_role text;
+  v_worked_ms numeric;
+  v_multiplier numeric;
+  v_billed_end timestamptz;
+BEGIN
+  SELECT * INTO v_entry FROM public.project_time_entries WHERE id = p_entry_id;
+  IF NOT FOUND THEN RETURN; END IF;
+  SELECT role INTO v_role FROM public.team_members WHERE id = v_entry.member_id;
+  IF v_role IS DISTINCT FROM 'agent' THEN RETURN; END IF;
+  IF v_entry.billing_converted_at IS NOT NULL THEN RETURN; END IF;
+  IF v_entry.end_time IS NULL OR v_entry.approval_status <> 'approved' THEN RETURN; END IF;
+
+  IF p_adjusted_minutes IS NOT NULL AND p_adjusted_minutes > 0 THEN
+    v_worked_ms := p_adjusted_minutes * 60000;
+  ELSE
+    SELECT COALESCE(SUM(
+      GREATEST(0, EXTRACT(EPOCH FROM (
+        (segment->>'end')::timestamptz - (segment->>'start')::timestamptz
+      )) * 1000)
+    ), 0)
+    INTO v_worked_ms
+    FROM jsonb_array_elements(COALESCE(v_entry.segments, '[]'::jsonb)) AS segment
+    WHERE segment->>'end' IS NOT NULL AND segment->>'start' IS NOT NULL;
+  END IF;
+  IF v_worked_ms <= 0 THEN RETURN; END IF;
+
+  v_multiplier := COALESCE(NULLIF(v_entry.billing_multiplier, 0), 1);
+  IF v_multiplier <= 0 THEN v_multiplier := 1; END IF;
+  v_billed_end := v_entry.start_time + make_interval(secs => (v_worked_ms * v_multiplier) / 1000.0);
+
+  UPDATE public.project_time_entries
+  SET segments = jsonb_build_array(jsonb_build_object(
+        'start', to_char(v_entry.start_time AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+        'end', to_char(v_billed_end AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+      )),
+      end_time = v_billed_end,
+      billing_converted_at = now(),
+      updated_at = now()
+  WHERE id = p_entry_id;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.apply_agent_billing_conversion(uuid, numeric) FROM PUBLIC;
+
+-- The 3-argument overload must not coexist with the 4-argument version or
+-- PostgREST calls become ambiguous.
+DROP FUNCTION IF EXISTS public.review_time_entries(uuid[], text, text);
+
 CREATE OR REPLACE FUNCTION public.review_time_entries(
   p_entry_ids uuid[],
   p_decision text,
-  p_reason text DEFAULT NULL
+  p_reason text DEFAULT NULL,
+  p_adjustments jsonb DEFAULT NULL
 )
 RETURNS SETOF public.project_time_entries
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
 AS $$
+DECLARE
+  v_id uuid;
 BEGIN
   IF NOT public.has_permission('time.approve', 'app') THEN
     RAISE EXCEPTION 'Permission denied';
@@ -2532,7 +2617,6 @@ BEGIN
     RAISE EXCEPTION 'Project access denied';
   END IF;
 
-  RETURN QUERY
   UPDATE public.project_time_entries entry
   SET approval_status = p_decision,
       approved_at = CASE WHEN p_decision = 'approved' THEN now() ELSE NULL END,
@@ -2540,9 +2624,22 @@ BEGIN
       rejection_reason = CASE WHEN p_decision = 'rejected' THEN COALESCE(p_reason, '') ELSE NULL END,
       updated_at = now()
   WHERE entry.id = ANY(p_entry_ids)
-    AND entry.approval_status = 'pending'
-    AND entry.end_time IS NOT NULL
-  RETURNING entry.*;
+    AND entry.approval_status IN ('pending', 'rejected')
+    AND entry.end_time IS NOT NULL;
+
+  IF p_decision = 'approved' THEN
+    FOREACH v_id IN ARRAY p_entry_ids LOOP
+      PERFORM public.apply_agent_billing_conversion(
+        v_id,
+        CASE WHEN p_adjustments IS NOT NULL AND p_adjustments ? v_id::text
+          THEN (p_adjustments->>v_id::text)::numeric
+          ELSE NULL END
+      );
+    END LOOP;
+  END IF;
+
+  RETURN QUERY
+  SELECT * FROM public.project_time_entries WHERE id = ANY(p_entry_ids);
 END;
 $$;
 
@@ -3175,7 +3272,7 @@ GRANT EXECUTE ON FUNCTION public.get_team_directory() TO authenticated;
 GRANT EXECUTE ON FUNCTION public.get_accessible_time_entries(uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.get_accessible_credential_metadata(uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.resolve_team_member_hourly_rate(uuid, timestamptz) TO authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.review_time_entries(uuid[], text, text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.review_time_entries(uuid[], text, text, jsonb) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.record_team_member_payout(uuid, text, numeric, text, text, text, jsonb) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.set_credential_members(uuid, uuid[]) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.validate_team_member_payout(uuid) TO authenticated, service_role;
@@ -3337,12 +3434,23 @@ BEGIN
       NEW.approved_at := now();
       NEW.approved_by := NEW.member_id;
       NEW.compensation_rate := 0;
+    ELSIF member_role <> 'agent'
+      AND COALESCE((SELECT auto_approve_human_hours FROM public.business_settings LIMIT 1), true) THEN
+      -- Auto-approved by workspace policy; approved_by NULL marks it as
+      -- system-approved rather than reviewed by a person.
+      NEW.approval_status := 'approved';
+      NEW.approved_at := now();
+      NEW.approved_by := NULL;
     ELSE
       NEW.approval_status := 'pending';
       NEW.approved_at := NULL;
       NEW.approved_by := NULL;
     END IF;
-  ELSIF TG_OP = 'UPDATE' AND OLD.approval_status = 'rejected' AND member_role <> 'owner' THEN
+  ELSIF TG_OP = 'UPDATE' AND OLD.approval_status = 'rejected' AND member_role <> 'owner'
+    AND NEW.approval_status = OLD.approval_status THEN
+    -- A content edit to a rejected entry resubmits it for review. A review
+    -- decision (approval_status changed by review_time_entries) passes
+    -- through untouched.
     NEW.approval_status := 'pending';
     NEW.submitted_at := now();
     NEW.approved_at := NULL;
@@ -3357,13 +3465,16 @@ $$;
 CREATE OR REPLACE FUNCTION public.review_time_entries(
   p_entry_ids uuid[],
   p_decision text,
-  p_reason text DEFAULT NULL
+  p_reason text DEFAULT NULL,
+  p_adjustments jsonb DEFAULT NULL
 )
 RETURNS SETOF public.project_time_entries
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
 AS $$
+DECLARE
+  v_id uuid;
 BEGIN
   IF NOT public.has_permission('time.approve', 'app') THEN
     RAISE EXCEPTION 'Permission denied';
@@ -3390,7 +3501,7 @@ BEGIN
     FROM public.project_time_entries entry
     JOIN public.team_members member ON member.id = entry.member_id
     WHERE entry.id = ANY(p_entry_ids)
-      AND entry.approval_status = 'pending'
+      AND entry.approval_status IN ('pending', 'rejected')
       AND member.role NOT IN ('owner', 'agent')
       AND NOT EXISTS (
         SELECT 1 FROM public.team_member_hourly_rates rate
@@ -3401,7 +3512,6 @@ BEGIN
     RAISE EXCEPTION 'Compensation rate missing for one or more time entries';
   END IF;
 
-  RETURN QUERY
   UPDATE public.project_time_entries entry
   SET approval_status = p_decision,
       compensation_rate = CASE WHEN p_decision = 'approved'
@@ -3412,9 +3522,24 @@ BEGIN
       rejection_reason = CASE WHEN p_decision = 'rejected' THEN COALESCE(p_reason, '') ELSE NULL END,
       updated_at = now()
   WHERE entry.id = ANY(p_entry_ids)
-    AND entry.approval_status = 'pending'
-    AND entry.end_time IS NOT NULL
-  RETURNING entry.*;
+    AND entry.approval_status IN ('pending', 'rejected')
+    AND entry.end_time IS NOT NULL;
+
+  -- Approved agent entries convert to their billed continuous slot here,
+  -- optionally with the reviewer's adjusted worked minutes per entry id.
+  IF p_decision = 'approved' THEN
+    FOREACH v_id IN ARRAY p_entry_ids LOOP
+      PERFORM public.apply_agent_billing_conversion(
+        v_id,
+        CASE WHEN p_adjustments IS NOT NULL AND p_adjustments ? v_id::text
+          THEN (p_adjustments->>v_id::text)::numeric
+          ELSE NULL END
+      );
+    END LOOP;
+  END IF;
+
+  RETURN QUERY
+  SELECT * FROM public.project_time_entries WHERE id = ANY(p_entry_ids);
 END;
 $$;
 
@@ -3734,7 +3859,6 @@ BEGIN
       AND member.role NOT IN ('owner', 'agent')
       AND NOT EXISTS (SELECT 1 FROM public.team_member_hourly_rates rate WHERE rate.member_id = entry.member_id AND rate.effective_at <= entry.start_time)
   ) THEN RAISE EXCEPTION 'Compensation rate missing for one or more time entries'; END IF;
-  RETURN QUERY
   UPDATE public.project_time_entries entry
   SET approval_status = p_decision,
       compensation_rate = CASE WHEN p_decision = 'approved' THEN public.resolve_team_member_hourly_rate(entry.member_id, entry.start_time) ELSE entry.compensation_rate END,
@@ -3743,8 +3867,14 @@ BEGIN
       rejection_reason = CASE WHEN p_decision = 'rejected' THEN COALESCE(p_reason, '') ELSE NULL END,
       updated_at = now()
   WHERE entry.id = ANY(p_entry_ids) AND entry.project_id = p_project_id
-    AND entry.approval_status = 'pending' AND entry.end_time IS NOT NULL
-  RETURNING entry.*;
+    AND entry.approval_status = 'pending' AND entry.end_time IS NOT NULL;
+  IF p_decision = 'approved' THEN
+    PERFORM public.apply_agent_billing_conversion(entry_id, NULL)
+    FROM unnest(p_entry_ids) AS entry_id;
+  END IF;
+  RETURN QUERY
+  SELECT * FROM public.project_time_entries
+  WHERE id = ANY(p_entry_ids) AND project_id = p_project_id;
 END;
 $$;
 
