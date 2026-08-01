@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useId, forwardRef } from 'react';
+import { useRef, useId, useState, forwardRef } from 'react';
 import { ChevronUp, ChevronDown } from 'lucide-react';
 import { mergeRefs, labelSizeClass } from './_shared';
 
@@ -58,6 +58,10 @@ export const NumberInput = forwardRef<HTMLInputElement, NumberInputProps>(
     forwardedRef,
   ) {
     const internalRef = useRef<HTMLInputElement>(null);
+    // What the user is literally typing. The committed value is a number, so
+    // in-progress text like "1." or "1.20" would otherwise be normalised away
+    // on every keystroke and the decimal could never be entered.
+    const [draft, setDraft] = useState<string | null>(null);
     const autoId = useId();
     const inputId = id || autoId;
     const errorId = error ? `${inputId}-error` : undefined;
@@ -73,6 +77,7 @@ export const NumberInput = forwardRef<HTMLInputElement, NumberInputProps>(
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       const raw = e.target.value;
+      setDraft(raw);
 
       if (raw === '') {
         onChange?.('');
@@ -91,6 +96,7 @@ export const NumberInput = forwardRef<HTMLInputElement, NumberInputProps>(
 
     const handleBlur = (e: React.FocusEvent<HTMLInputElement>) => {
       const raw = e.target.value;
+      setDraft(null);
       if (raw === '' || raw === '-' || raw === '.' || raw === '-.') {
         onChange?.('');
       } else {
@@ -146,17 +152,32 @@ export const NumberInput = forwardRef<HTMLInputElement, NumberInputProps>(
       }
     };
 
+    // Fractional steps accumulate binary float noise (1.25 + 0.1 -> 1.3500000000000003),
+    // so snap the result back to the precision the inputs already carry.
+    const decimals = (n: number): number => {
+      const [, frac = ''] = String(n).split('.');
+      return frac.length > 10 ? 10 : frac.length;
+    };
+
+    const stepBy = (current: number, direction: 1 | -1): number => {
+      const next = current + direction * step;
+      const places = Math.max(decimals(step), decimals(current));
+      return places === 0 ? next : parseFloat(next.toFixed(places));
+    };
+
     const increment = () => {
       if (disabled) return;
       const current = typeof value === 'number' ? value : 0;
-      onChange?.(clamp(current + step));
+      setDraft(null);
+      onChange?.(clamp(stepBy(current, 1)));
       internalRef.current?.focus();
     };
 
     const decrement = () => {
       if (disabled) return;
       const current = typeof value === 'number' ? value : 0;
-      onChange?.(clamp(current - step));
+      setDraft(null);
+      onChange?.(clamp(stepBy(current, -1)));
       internalRef.current?.focus();
     };
 
@@ -168,6 +189,15 @@ export const NumberInput = forwardRef<HTMLInputElement, NumberInputProps>(
       size === 'sm' ? 'py-1.5 text-xs' : size === 'lg' ? 'py-2.5 text-base' : 'py-2 text-sm';
 
     const wrapperPx = size === 'sm' ? 'px-2.5' : size === 'lg' ? 'px-3.5' : 'px-3';
+
+    // Prefer the in-progress text, but only while it still describes the
+    // committed value. If the parent resets or overrides the value, the draft
+    // is stale and the prop wins.
+    const draftIsPartial = draft === '-' || draft === '.' || draft === '-.';
+    const draftMatchesValue =
+      draft !== null && (draft === '' ? value === '' : parseFloat(draft) === value);
+    const displayValue =
+      draftIsPartial || draftMatchesValue ? (draft as string) : value === '' ? '' : String(value);
 
     const isInteger = step % 1 === 0;
     const atMax = max !== undefined && typeof value === 'number' && value >= max;
@@ -204,7 +234,7 @@ export const NumberInput = forwardRef<HTMLInputElement, NumberInputProps>(
               name={name}
               type="text"
               inputMode={isInteger ? 'numeric' : 'decimal'}
-              value={value}
+              value={displayValue}
               onChange={handleChange}
               onKeyDown={handleKeyDown}
               onBlur={handleBlur}

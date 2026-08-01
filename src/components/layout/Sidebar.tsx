@@ -130,7 +130,7 @@ export function Sidebar() {
         {/* Logo — pinned to h-16 so its bottom border aligns with the header's */}
         <div className="flex items-center justify-between h-16 px-5 border-b border-white/[0.06]">
           <Link href="/dashboard" className="flex flex-col" onClick={closeSidebar}>
-            <Logo className={`h-9 w-full${siteConfig.invertLogoInSidebar ? ' invert' : ''}`} />
+            <Logo variant="dark" className={`h-9 w-full${siteConfig.invertLogoInSidebar ? ' invert' : ''}`} />
             {siteConfig.showNameUnderLogo && (
               <span className="text-white font-semibold text-[7px] tracking-[0.2em] uppercase w-full text-center">{siteConfig.name}</span>
             )}

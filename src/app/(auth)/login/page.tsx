@@ -52,7 +52,7 @@ export default function LoginPage() {
     <div className="w-full max-w-sm">
       <div className="text-center mb-4">
         <div className="flex flex-col items-center mb-4">
-          <Logo className="h-12 w-auto" />
+          <Logo variant="dark" className="h-12 w-auto" />
           {siteConfig.showNameUnderLogo && (
             <span className="text-white font-semibold text-[7px] tracking-[0.2em] uppercase">{siteConfig.name}</span>
           )}

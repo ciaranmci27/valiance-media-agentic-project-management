@@ -26,8 +26,12 @@ export const siteConfig = {
   description:
     'Manage projects, track leads, and collaborate with our team, all in one place.',
 
-  // Logo: swap the asset served at /api/logo. `invertLogoInSidebar` flips it for
-  // dark chrome; `showNameUnderLogo` renders the name beneath the mark.
+  // Logo: swap the asset served at /api/logo. Dark chrome (sidebar, login) asks
+  // for `logo-dark.*` and falls back to `logo.*` when there isn't one, so the
+  // dark lockup is optional. It carries the mark on its white disc with a
+  // light wordmark, since the standard teal wordmark goes muddy on near-black.
+  // `invertLogoInSidebar` flips the fallback for logos that need it;
+  // `showNameUnderLogo` renders the name beneath the mark.
   invertLogoInSidebar: false,
   showNameUnderLogo: false,
 
