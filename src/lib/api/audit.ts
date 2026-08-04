@@ -33,7 +33,5 @@ export function logAudit(
       status_code: params.statusCode,
       error: params.error || null,
     });
-    // Opportunistic cleanup: ~1% chance per write
-    if (Math.random() < 0.01) await supabase.rpc('cleanup_api_audit_log');
   });
 }

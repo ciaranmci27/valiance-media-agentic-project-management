@@ -60,6 +60,33 @@ export interface FinanceData {
 }
 
 /**
+ * Agent sessions remain in real elapsed time until approval, when the database
+ * replaces them with their multiplier-adjusted billed duration. Project the
+ * same duration before approval so finance values do not jump during review.
+ * Once converted, the stored segments already include the multiplier.
+ */
+export function projectedBillingMultiplier(entry: TimeEntry): number {
+  if (entry.billing_converted_at) return 1;
+  const multiplier = Number(entry.billing_multiplier);
+  return Number.isFinite(multiplier) && multiplier > 0 ? multiplier : 1;
+}
+
+/** Mirror the database's approval-time agent conversion without mutating data. */
+export function projectTimeEntryForBilling(entry: TimeEntry, now: number): TimeEntry {
+  const multiplier = projectedBillingMultiplier(entry);
+  if (multiplier === 1) return entry;
+
+  const startMs = Date.parse(entry.start_time);
+  if (!Number.isFinite(startMs)) return entry;
+  const billedEnd = new Date(startMs + (getWorkedHours(entry, now) * multiplier * 3_600_000)).toISOString();
+  return {
+    ...entry,
+    end_time: billedEnd,
+    segments: [{ start: entry.start_time, end: billedEnd }],
+  };
+}
+
+/**
  * The finance engine. Computes every money figure the app shows from raw workspace
  * data for a given range + project filter. Pure and side-effect free.
  */
@@ -97,7 +124,8 @@ export function computeFinanceData(input: FinanceEngineInput): FinanceData {
 
   for (const te of fTimeEntries) {
     const rate = te.hourly_rate ?? rateByProject.get(te.project_id) ?? 0;
-    for (const [dayKey, workedHours] of getWorkedHoursByDay(te, now)) {
+    const billingEntry = projectTimeEntryForBilling(te, now);
+    for (const [dayKey, workedHours] of getWorkedHoursByDay(billingEntry, now)) {
       if (dayKey < startKey || dayKey > endKey) continue;
       const billableValue = te.work_type === 'internal' ? 0 : workedHours * rate;
       const isEmployee = payableMemberIds.has(te.member_id);
@@ -180,7 +208,11 @@ export function computeFinanceData(input: FinanceEngineInput): FinanceData {
     const pBillable = isHourly
       ? Math.max(
           totalBillableAmount(
-            projectEntries.map(te => ({ id: te.id, hours: getWorkedHours(te, now), hourly_rate: te.hourly_rate })),
+            projectEntries.map(te => ({
+              id: te.id,
+              hours: getWorkedHours(projectTimeEntryForBilling(te, now), now),
+              hourly_rate: te.hourly_rate,
+            })),
             rate,
           ),
           pHourlyInvoiced,

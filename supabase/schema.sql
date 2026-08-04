@@ -518,6 +518,8 @@ create table public.project_time_entries (
   billing_multiplier numeric(4,2) not null default 1.00 check (billing_multiplier > 0),
   -- Stamped when the agent billing conversion runs; conversion is single-shot.
   billing_converted_at timestamptz,
+  -- Immutable raw clock data captured immediately before billing conversion.
+  raw_time_snapshot jsonb check (raw_time_snapshot is null or jsonb_typeof(raw_time_snapshot) = 'object'),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -2535,7 +2537,8 @@ AS $$
 DECLARE
   v_entry public.project_time_entries%ROWTYPE;
   v_role text;
-  v_worked_ms numeric;
+  v_raw_worked_ms numeric;
+  v_billing_worked_ms numeric;
   v_multiplier numeric;
   v_billed_end timestamptz;
 BEGIN
@@ -2546,26 +2549,36 @@ BEGIN
   IF v_entry.billing_converted_at IS NOT NULL THEN RETURN; END IF;
   IF v_entry.end_time IS NULL OR v_entry.approval_status <> 'approved' THEN RETURN; END IF;
 
+  SELECT COALESCE(SUM(
+    GREATEST(0, EXTRACT(EPOCH FROM (
+      (segment->>'end')::timestamptz - (segment->>'start')::timestamptz
+    )) * 1000)
+  ), 0)
+  INTO v_raw_worked_ms
+  FROM jsonb_array_elements(COALESCE(v_entry.segments, '[]'::jsonb)) AS segment
+  WHERE segment->>'end' IS NOT NULL AND segment->>'start' IS NOT NULL;
+
   IF p_adjusted_minutes IS NOT NULL AND p_adjusted_minutes > 0 THEN
-    v_worked_ms := p_adjusted_minutes * 60000;
+    v_billing_worked_ms := p_adjusted_minutes * 60000;
   ELSE
-    SELECT COALESCE(SUM(
-      GREATEST(0, EXTRACT(EPOCH FROM (
-        (segment->>'end')::timestamptz - (segment->>'start')::timestamptz
-      )) * 1000)
-    ), 0)
-    INTO v_worked_ms
-    FROM jsonb_array_elements(COALESCE(v_entry.segments, '[]'::jsonb)) AS segment
-    WHERE segment->>'end' IS NOT NULL AND segment->>'start' IS NOT NULL;
+    v_billing_worked_ms := v_raw_worked_ms;
   END IF;
-  IF v_worked_ms <= 0 THEN RETURN; END IF;
+  IF v_billing_worked_ms <= 0 THEN RETURN; END IF;
 
   v_multiplier := COALESCE(NULLIF(v_entry.billing_multiplier, 0), 1);
   IF v_multiplier <= 0 THEN v_multiplier := 1; END IF;
-  v_billed_end := v_entry.start_time + make_interval(secs => (v_worked_ms * v_multiplier) / 1000.0);
+  v_billed_end := v_entry.start_time + make_interval(secs => (v_billing_worked_ms * v_multiplier) / 1000.0);
 
   UPDATE public.project_time_entries
-  SET segments = jsonb_build_array(jsonb_build_object(
+  SET raw_time_snapshot = COALESCE(v_entry.raw_time_snapshot, jsonb_build_object(
+        'version', 1,
+        'start_time', v_entry.start_time,
+        'end_time', v_entry.end_time,
+        'segments', COALESCE(v_entry.segments, '[]'::jsonb),
+        'worked_ms', v_raw_worked_ms,
+        'captured_at', now()
+      )),
+      segments = jsonb_build_array(jsonb_build_object(
         'start', to_char(v_entry.start_time AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
         'end', to_char(v_billed_end AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
       )),

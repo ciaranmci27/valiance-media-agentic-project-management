@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { Header } from '@/components/layout/Header';
@@ -15,6 +15,7 @@ import { parseDateOnly, toLocalDateKey } from '@/lib/date-utils';
 import { hasPermission } from '@/lib/access-control';
 import { computeCompanyFinanceSummary, computeMemberEarningsSummary } from '@/lib/finance/summary';
 import { toDateKey } from '@/lib/finance/vesting';
+import { isRunning } from '@/lib/time-entry-utils';
 
 const fmtMoney = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n);
@@ -74,6 +75,16 @@ export default function DashboardPage() {
   const canReadOwnEarnings = hasPermission(access, 'earnings.own.read');
   const [showProjectPicker, setShowProjectPicker] = useState(false);
   const [quickAddProjectId, setQuickAddProjectId] = useState<string | null>(null);
+  const [financeNow, setFinanceNow] = useState(() => Date.now());
+  const runningTimerCount = useMemo(() => timeEntries.filter(isRunning).length, [timeEntries]);
+
+  // Keep owner finance KPIs moving while any visible timer is actively accruing.
+  // The interval is absent for other users and when every timer is stopped.
+  useEffect(() => {
+    if (!canReadCompanyFinance || runningTimerCount === 0) return;
+    const id = window.setInterval(() => setFinanceNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [canReadCompanyFinance, runningTimerCount]);
 
   const activeProjects = projects.filter(p => p.status === 'active');
   const inProgressTasks = tasks.filter(t => t.status === 'in_progress');
@@ -128,7 +139,7 @@ export default function DashboardPage() {
   // shared finance summary so they match the Finances page exactly. Last-30-days window.
   const financeCards = useMemo<Kpi[]>(() => {
     const tz = currentMember?.timezone && currentMember.timezone !== 'UTC' ? currentMember.timezone : undefined;
-    const nowMs = Date.now();
+    const nowMs = financeNow;
     const endKey = toLocalDateKey(new Date(nowMs).toISOString(), tz);
     const [ey, em, ed] = endKey.split('-').map(Number);
     const range = { startKey: toDateKey(new Date(ey, em - 1, ed - 29)), endKey };
@@ -156,7 +167,7 @@ export default function DashboardPage() {
       ];
     }
     return [];
-  }, [canReadCompanyFinance, canReadOwnEarnings, employeeEarnings, projects, projectInvoices, timeEntries, team, currentMember?.timezone]);
+  }, [canReadCompanyFinance, canReadOwnEarnings, employeeEarnings, projects, projectInvoices, timeEntries, team, currentMember?.timezone, financeNow]);
 
   const kpis: Kpi[] = financeCards.length
     ? [

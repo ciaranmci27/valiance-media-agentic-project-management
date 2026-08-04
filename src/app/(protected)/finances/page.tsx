@@ -8,7 +8,7 @@ import { DateInput } from '@/components/ui/inputs/DateInput';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { Popover } from '@/components/ui/Popover';
 import { ensureLineItems, spreadLineItem } from '@/lib/invoice-utils';
-import { computeFinanceData } from '@/lib/finance/summary';
+import { computeFinanceData, projectTimeEntryForBilling } from '@/lib/finance/summary';
 import { toDateKey, localNextDayStartMs, hourVestingRatio } from '@/lib/finance/vesting';
 import Link from 'next/link';
 import {
@@ -833,7 +833,7 @@ export default function FinancesPage() {
     for (const te of timeEntries) {
       if (!includeProject(te.project_id)) continue;
       const rate = te.hourly_rate ?? rateByProject.get(te.project_id) ?? 0;
-      const perHour = getWorkedHoursByHour(te, drilldownDay, now);
+      const perHour = getWorkedHoursByHour(projectTimeEntryForBilling(te, now), drilldownDay, now);
       for (let h = 0; h < 24; h++) {
         const hours = perHour[h];
         if (hours <= 0) continue;

@@ -148,17 +148,6 @@ CREATE INDEX idx_api_audit_log_api_key ON public.api_audit_log(api_key_id);
 ALTER TABLE public.api_audit_log ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "api_audit_log_all" ON public.api_audit_log FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
--- 30-day retention cleanup function
-CREATE OR REPLACE FUNCTION public.cleanup_api_audit_log()
-RETURNS void AS $$
-BEGIN
-  DELETE FROM public.api_audit_log WHERE timestamp < now() - interval '30 days';
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
--- If pg_cron is available:
--- SELECT cron.schedule('cleanup-audit-log', '0 3 * * *', 'SELECT public.cleanup_api_audit_log()');
-
 -- ============================================================
 -- 7. AUTONOMOUS MODE FOR PROJECTS
 -- ============================================================

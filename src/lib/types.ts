@@ -368,6 +368,14 @@ export interface TimeEntry {
   task_ids?: string[];  // Tasks this session was spent on (one session can span several)
   billing_multiplier?: number;  // Snapshot at session start; agent sessions are converted at approval
   billing_converted_at?: string | null;  // Stamped when the agent billing conversion ran (single-shot)
+  raw_time_snapshot?: {  // Immutable raw clock data captured before agent billing conversion
+    version: number;
+    start_time: string;
+    end_time: string;
+    segments: TimeSegment[];
+    worked_ms: number;
+    captured_at: string;
+  } | null;
   created_at: string;
   updated_at: string;
 }
