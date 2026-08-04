@@ -39,12 +39,8 @@ export const GET = withApi(async ({ supabase, searchParams, access }) => {
   if (assigneeId) query = query.eq('task_assignees.member_id', assigneeId);
   const taskType = searchParams.get('task_type');
   if (taskType) query = query.eq('task_type', taskType);
-  const aiManaged = searchParams.get('ai_managed');
-  if (aiManaged === 'true' || aiManaged === 'false') {
-    query = query.eq('ai_managed', aiManaged === 'true');
-  }
   const aiReadiness = searchParams.get('ai_readiness');
-  if (aiReadiness === 'ai_ready' || aiReadiness === 'human_only' || aiReadiness === 'hybrid') {
+  if (aiReadiness === 'ai_ready' || aiReadiness === 'human_only') {
     query = query.eq('ai_readiness', aiReadiness);
   }
   const goalId = searchParams.get('project_goal_id');

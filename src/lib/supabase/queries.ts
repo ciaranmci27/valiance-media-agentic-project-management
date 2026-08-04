@@ -192,7 +192,6 @@ export async function insertTask(
   if (task.project_goal_id) insertPayload.project_goal_id = task.project_goal_id;
   if (task.source_task_suggestion_id) insertPayload.source_task_suggestion_id = task.source_task_suggestion_id;
   if (task.task_type) insertPayload.task_type = task.task_type;
-  if (task.ai_managed !== undefined) insertPayload.ai_managed = task.ai_managed;
   if (task.ai_readiness !== undefined) insertPayload.ai_readiness = task.ai_readiness;
 
   const { data, error } = await supabase
@@ -1757,9 +1756,8 @@ export async function patchTaskSuggestion(
 export async function approveTaskSuggestion(
   supabase: SupabaseClient,
   id: string,
-  taskOverrides: { priority?: string; assigned_to?: string | null; due_date?: string | null; project_id?: string; task_type?: string | null },
-  reviewedBy: string,
-  aiManaged?: boolean
+  taskOverrides: { priority?: string; assigned_to?: string | null; due_date?: string | null; project_id?: string; task_type?: string | null; ai_readiness?: 'ai_ready' | 'human_only' | null },
+  reviewedBy: string
 ) {
   // Snapshot the pre-claim review state so a failed approval can restore it
   // exactly (a needs_info suggestion must not silently become pending).
@@ -1786,12 +1784,32 @@ export async function approveTaskSuggestion(
   if (claimErr) throw claimErr;
   if (!suggestion) throw new Error('Suggestion has already been reviewed');
 
-  // Create the task
+  // Create the task, carrying the suggestion's spec with it. The auditing
+  // agent proposes a concrete fix, behavioral acceptance criteria, and an
+  // AI-readiness recommendation in metadata; approval is the human gate, so
+  // whatever is approved must land on the task intact or the dev agent
+  // (which refuses tasks without criteria) can never pick it up.
+  const metadata = (suggestion.metadata || {}) as Record<string, any>;
+  const proposedFix = typeof metadata.proposed_fix === 'string' ? metadata.proposed_fix.trim() : '';
+  const specCriteria: string[] = Array.isArray(metadata.acceptance_criteria)
+    ? metadata.acceptance_criteria.filter((c: unknown): c is string => typeof c === 'string' && c.trim().length > 0)
+    : [];
+  // The reviewer's explicit choice wins; otherwise the recommendation, and
+  // 'hybrid' deliberately maps to null: a hybrid recommendation means "needs
+  // decomposition", which is Ashley's interview, not a runnable task state.
+  const recommended = metadata.ai_readiness_recommendation;
+  const resolvedReadiness =
+    taskOverrides.ai_readiness !== undefined
+      ? taskOverrides.ai_readiness
+      : recommended === 'ai_ready' || recommended === 'human_only'
+        ? recommended
+        : null;
+
   const resolvedTaskType = taskOverrides.task_type !== undefined ? taskOverrides.task_type : suggestion.task_type || null;
   const taskData: Record<string, any> = {
     project_id: taskOverrides.project_id || suggestion.project_id,
     title: suggestion.title,
-    description: suggestion.description,
+    description: proposedFix ? `${suggestion.description}\n\nProposed fix: ${proposedFix}` : suggestion.description,
     status: 'todo' as const,
     priority: (taskOverrides.priority || suggestion.priority) as Task['priority'],
     due_date: taskOverrides.due_date || null,
@@ -1800,7 +1818,7 @@ export async function approveTaskSuggestion(
     project_goal_id: suggestion.goal_id,
   };
   if (resolvedTaskType) taskData.task_type = resolvedTaskType;
-  if (aiManaged !== undefined) taskData.ai_managed = aiManaged;
+  if (resolvedReadiness) taskData.ai_readiness = resolvedReadiness;
 
   const { data: task, error: taskErr } = await supabase
     .from('tasks')
@@ -1820,6 +1838,19 @@ export async function approveTaskSuggestion(
       .eq('id', id)
       .then(() => {}, () => {});
     throw taskErr;
+  }
+
+  // Copy the approved acceptance criteria onto the task. Best-effort is not
+  // good enough here: a task that silently lost its criteria looks done but is
+  // permanently unstartable for the dev agent, so a failure surfaces.
+  let insertedCriteria: AcceptanceCriterion[] = [];
+  if (specCriteria.length) {
+    const { data: criteriaRows, error: criteriaError } = await supabase
+      .from('task_acceptance_criteria')
+      .insert(specCriteria.map((criterion, index) => ({ task_id: task.id, criterion, sort_order: index })))
+      .select();
+    if (criteriaError) throw criteriaError;
+    insertedCriteria = (criteriaRows || []) as AcceptanceCriterion[];
   }
 
   // If assigned_to is set, create task_assignee
@@ -1843,8 +1874,42 @@ export async function approveTaskSuggestion(
 
   return {
     suggestion: updated as TaskSuggestion,
-    task: { ...task, assignee_ids: assignedTo ? [assignedTo] : [], subtasks: [], comments: [] } as Task,
+    task: {
+      ...task,
+      assignee_ids: assignedTo ? [assignedTo] : [],
+      subtasks: [],
+      comments: [],
+      acceptance_criteria: insertedCriteria,
+      blocked_by_ids: [],
+    } as Task,
   };
+}
+
+export async function declineTaskSuggestion(
+  supabase: SupabaseClient,
+  id: string,
+  reviewedBy: string
+) {
+  // Decline is "we do not want this, no comment". Unlike reject it records no
+  // reason and, crucially, writes no lesson_learned: declining housekeeping
+  // (say, four sibling instances of an approved pattern fix) must not teach
+  // the auditing agent that the finding class was unwanted. Same status guard
+  // as approve/reject so a concurrent review cannot be overwritten.
+  const { data, error } = await supabase
+    .from('task_suggestions')
+    .update({
+      status: 'declined',
+      reviewed_by: reviewedBy,
+      reviewed_at: new Date().toISOString(),
+    })
+    .eq('id', id)
+    .in('status', ['pending', 'needs_info'])
+    .select()
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data) throw new Error('Suggestion has already been reviewed');
+  return data as TaskSuggestion;
 }
 
 export async function rejectTaskSuggestion(

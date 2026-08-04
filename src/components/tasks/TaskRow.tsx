@@ -115,7 +115,7 @@ export function TaskRow({ task, onView, onEdit, onDelete }: TaskRowProps) {
             {isAgentsEnabled && canManageAgents && task.task_type && (
               <TaskTypeBadge taskType={task.task_type} />
             )}
-            {isAgentsEnabled && canManageAgents && !task.ai_managed && getProject(task.project_id)?.autonomous_enabled && (
+            {isAgentsEnabled && canManageAgents && task.ai_readiness !== 'ai_ready' && getProject(task.project_id)?.autonomous_enabled && (
               <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium bg-amber-500/15 text-amber-300 border border-amber-500/30 rounded-full">
                 <User size={10} />
                 Manual
@@ -276,8 +276,8 @@ export function TaskRowDesktop({ task, onView, onEdit, onDelete, selected, onTog
         {isAgentsEnabled && canManageAgents && task.task_type && (
           <TaskTypeBadge taskType={task.task_type} />
         )}
-        {isAgentsEnabled && canManageAgents && !task.ai_managed && getProject(task.project_id)?.autonomous_enabled && (
-          <Tooltip content="Manual task (not AI managed)">
+        {isAgentsEnabled && canManageAgents && task.ai_readiness !== 'ai_ready' && getProject(task.project_id)?.autonomous_enabled && (
+          <Tooltip content="Manual task (not AI Ready)">
             <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium bg-amber-500/15 text-amber-300 border border-amber-500/30 rounded-full">
               <User size={10} />
             </span>

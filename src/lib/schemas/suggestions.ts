@@ -30,7 +30,7 @@ export const approveSuggestionSchema = z.object({
   assigned_to: z.string().uuid().nullable().optional(),
   due_date: z.string().nullable().optional(),
   task_type: taskTypeEnum.nullable().optional(),
-  ai_managed: z.boolean().optional(),
+  ai_readiness: z.enum(['ai_ready', 'human_only']).nullable().optional(),
 });
 
 export const rejectSuggestionSchema = z.object({
@@ -48,4 +48,8 @@ export const bulkApproveSchema = z.object({
 export const bulkRejectSchema = z.object({
   ids: z.array(z.string().uuid()).min(1, 'At least one ID is required'),
   rejection_reason: z.string().optional(),
+});
+
+export const bulkDeclineSchema = z.object({
+  ids: z.array(z.string().uuid()).min(1, 'At least one ID is required'),
 });

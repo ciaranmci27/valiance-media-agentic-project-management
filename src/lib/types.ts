@@ -218,7 +218,6 @@ export interface Task {
   comments: Comment[];
   sort_order?: number;
   task_type?: TaskType | null;
-  ai_managed: boolean;
   ai_readiness?: AiReadiness | null;
   acceptance_criteria: AcceptanceCriterion[];
   blocked_by_ids: string[];
@@ -903,7 +902,7 @@ export interface TaskSuggestion {
   priority: 'low' | 'medium' | 'high' | 'urgent';
   effort_estimate: 'small' | 'medium' | 'large' | null;
   task_type?: TaskType | null;
-  status: 'pending' | 'needs_info' | 'approved' | 'rejected';
+  status: 'pending' | 'needs_info' | 'approved' | 'rejected' | 'declined';
   reviewed_by: string | null;
   reviewed_at: string | null;
   rejection_reason: string | null;

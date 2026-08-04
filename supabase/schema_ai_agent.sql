@@ -59,7 +59,7 @@ CREATE TABLE public.task_suggestions (
   reasoning text NOT NULL,
   priority text NOT NULL DEFAULT 'medium' CHECK (priority IN ('low', 'medium', 'high', 'urgent')),
   effort_estimate text CHECK (effort_estimate IN ('small', 'medium', 'large') OR effort_estimate IS NULL),
-  status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'needs_info', 'approved', 'rejected')),
+  status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'needs_info', 'approved', 'rejected', 'declined')),
   reviewed_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
   reviewed_at timestamptz,
   rejection_reason text,
@@ -166,13 +166,11 @@ ALTER TABLE public.task_suggestions
     CHECK (task_type IN ('engineering','research','audit','marketing','copywriting','operations','general') OR task_type IS NULL);
 
 -- ============================================================
--- 9. AI MANAGED FLAG FOR TASKS
+-- 9. (RETIRED 2026-08-04) AI MANAGED FLAG FOR TASKS
 -- ============================================================
-ALTER TABLE public.tasks
-  ADD COLUMN IF NOT EXISTS ai_managed boolean NOT NULL DEFAULT false;
--- Default flipped to false (2026-07-30): agent involvement is an explicit
--- opt-in via tasks.ai_readiness, never a default.
-ALTER TABLE public.tasks ALTER COLUMN ai_managed SET DEFAULT false;
+-- ai_managed was superseded by tasks.ai_readiness ('ai_ready' | 'human_only')
+-- and the column was dropped. Kept as a numbered section so later sections'
+-- numbering stays stable in diffs.
 
 -- ============================================================
 -- 10. DEPLOYMENT POLICY FOR PROJECTS

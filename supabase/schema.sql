@@ -142,7 +142,7 @@ create table public.tasks (
   created_by uuid references public.team_members(id) on delete set null,
   completed_at timestamptz,
   -- Explicit AI-readiness classification; null until someone decides.
-  ai_readiness text check (ai_readiness in ('ai_ready', 'human_only', 'hybrid') or ai_readiness is null),
+  ai_readiness text check (ai_readiness in ('ai_ready', 'human_only') or ai_readiness is null),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );

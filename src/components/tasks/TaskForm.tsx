@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { AI_READINESS, AiReadiness, Task, TASK_TYPES, TaskType } from '@/lib/types';
+import { AiReadiness, Task, TASK_TYPES, TaskType } from '@/lib/types';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import Modal from '@/components/ui/Modal';
@@ -19,12 +19,6 @@ interface TaskFormProps {
   projectId: string;
   task?: Task | null;
 }
-
-const AI_READINESS_LABELS: Record<AiReadiness, string> = {
-  ai_ready: 'AI Ready',
-  human_only: 'Human Only',
-  hybrid: 'Hybrid',
-};
 
 export function TaskForm({ isOpen, onClose, projectId, task }: TaskFormProps) {
   const { team, tasks, addTask, updateTask } = useApp();
@@ -87,7 +81,7 @@ export function TaskForm({ isOpen, onClose, projectId, task }: TaskFormProps) {
       ...((canAssignOthers || !task) ? { assignee_ids: assigneeIds } : {}),
       due_date: dueDate || null,
       tags: tags.split(',').map(t => t.trim()).filter(Boolean),
-      ...(canManageAgents ? { task_type: taskType || null, ai_managed: task?.ai_managed ?? false, ai_readiness: aiReadiness || null } : {}),
+      ...(canManageAgents ? { task_type: taskType || null, ai_readiness: aiReadiness || null } : {}),
       blocked_by_ids: blockedByIds,
       subtasks: task?.subtasks || [],
       comments: task?.comments || [],
@@ -193,12 +187,13 @@ export function TaskForm({ isOpen, onClose, projectId, task }: TaskFormProps) {
               ]}
             />
             <Select
-              label="AI Readiness"
+              label="AI Ready"
               value={aiReadiness}
               onChange={(value) => setAiReadiness(value as AiReadiness | '')}
               options={[
                 { value: '', label: 'Unclassified' },
-                ...AI_READINESS.map(r => ({ value: r, label: AI_READINESS_LABELS[r] })),
+                { value: 'ai_ready', label: 'AI Ready' },
+                { value: 'human_only', label: 'Human' },
               ]}
             />
           </div>

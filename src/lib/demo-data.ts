@@ -109,7 +109,7 @@ const TM2 = 'a1a1a1a1-0002-4000-8000-000000000002';
 const TM3 = 'a1a1a1a1-0003-4000-8000-000000000003';
 const TM4 = 'a1a1a1a1-0004-4000-8000-000000000004';
 
-export const demoTasks: (Omit<Task, 'ai_managed' | 'acceptance_criteria' | 'blocked_by_ids'> & { ai_managed?: boolean; acceptance_criteria?: Task['acceptance_criteria']; blocked_by_ids?: string[] })[] = [
+export const demoTasks: (Omit<Task, 'acceptance_criteria' | 'blocked_by_ids'> & { acceptance_criteria?: Task['acceptance_criteria']; blocked_by_ids?: string[] })[] = [
   // === Crest Financial Rebrand (7 tasks) ===
   { id: 'e5e5e5e5-0001-4000-8000-000000000001', project_id: 'c3c3c3c3-0001-4000-8000-000000000001', title: 'Discovery & brand audit',          description: 'Review current brand assets, competitor analysis, and stakeholder interviews.',  status: 'done',        priority: 'high',   assignee_ids: [TM1], due_date: '2026-01-31', tags: ['research','branding'], subtasks: [], comments: [], created_at: daysAgo(35), updated_at: daysAgo(20) },
   { id: 'e5e5e5e5-0002-4000-8000-000000000002', project_id: 'c3c3c3c3-0001-4000-8000-000000000001', title: 'Logo concepts — round 1',          description: 'Present 3 logo directions based on discovery findings.',                        status: 'done',        priority: 'high',   assignee_ids: [TM3], due_date: '2026-02-14', tags: ['design','branding'], subtasks: [], comments: [], created_at: daysAgo(35), updated_at: daysAgo(14) },

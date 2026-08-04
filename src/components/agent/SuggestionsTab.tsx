@@ -12,11 +12,11 @@ import { Button } from '@/components/ui/Button';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { TextInput } from '@/components/ui/inputs/TextInput';
 import {
-  Check, X, HelpCircle, Lightbulb, Pencil,
+  Ban, Check, X, HelpCircle, Lightbulb, Pencil,
 } from 'lucide-react';
 import { toast } from '@/components/ui/Toast';
 
-export type StatusFilter = '' | 'pending' | 'needs_info' | 'approved' | 'rejected';
+export type StatusFilter = '' | 'pending' | 'needs_info' | 'approved' | 'rejected' | 'declined';
 
 export interface SuggestionsFilters {
   statusFilter: StatusFilter;
@@ -30,8 +30,8 @@ export interface SuggestionsFilters {
 export function SuggestionsTab({ filters }: { filters: SuggestionsFilters }) {
   const {
     taskSuggestions, projects, projectGoals, team,
-    approveSuggestion, rejectSuggestion, requestInfoOnSuggestion,
-    updateSuggestion, bulkApproveSuggestions, bulkRejectSuggestions,
+    approveSuggestion, rejectSuggestion, declineSuggestion, requestInfoOnSuggestion,
+    updateSuggestion, bulkApproveSuggestions, bulkRejectSuggestions, bulkDeclineSuggestions,
   } = useApp();
   const { teamMemberId } = useAuth();
 
@@ -86,6 +86,13 @@ export function SuggestionsTab({ filters }: { filters: SuggestionsFilters }) {
     setSelectedIds(new Set());
     const rejected = await bulkRejectSuggestions(ids);
     if (rejected > 0) toast('success', `Rejected ${rejected} suggestion(s)`);
+  };
+
+  const handleBulkDecline = async () => {
+    const ids = [...selectedIds];
+    setSelectedIds(new Set());
+    const declined = await bulkDeclineSuggestions(ids);
+    if (declined > 0) toast('success', `Declined ${declined} suggestion(s)`);
   };
 
   const handleReject = async (id: string) => {
@@ -143,6 +150,10 @@ export function SuggestionsTab({ filters }: { filters: SuggestionsFilters }) {
           <Button size="sm" variant="ghost" onClick={handleBulkReject}>
             <X size={14} className="mr-1" />
             Reject All
+          </Button>
+          <Button size="sm" variant="ghost" onClick={handleBulkDecline}>
+            <Ban size={14} className="mr-1" />
+            Decline All
           </Button>
           <button
             onClick={() => setSelectedIds(new Set())}
@@ -320,12 +331,23 @@ export function SuggestionsTab({ filters }: { filters: SuggestionsFilters }) {
                       </button>
                     </Tooltip>
                   )}
-                  <Tooltip content="Reject">
+                  <Tooltip content="Reject (teaches the agent why)">
                     <button
                       onClick={() => { setRejectInputId(suggestion.id); setRejectReason(''); }}
                       className="p-2 rounded-lg text-red-400 hover:bg-red-500/15 transition-colors"
                     >
                       <X size={18} />
+                    </button>
+                  </Tooltip>
+                  <Tooltip content="Decline (no lesson recorded)">
+                    <button
+                      onClick={async () => {
+                        const ok = await declineSuggestion(suggestion.id, teamMemberId || '');
+                        if (ok) toast('success', 'Suggestion declined');
+                      }}
+                      className="p-2 rounded-lg text-zinc-400 hover:bg-white/[0.08] transition-colors"
+                    >
+                      <Ban size={18} />
                     </button>
                   </Tooltip>
                 </div>
@@ -360,13 +382,8 @@ export function SuggestionsTab({ filters }: { filters: SuggestionsFilters }) {
           onClose={() => setApproveModalId(null)}
           onApprove={async (overrides) => {
             setApproveModalId(null);
-            const ok = await approveSuggestion(approveModalId, { ...overrides, ai_managed: true }, teamMemberId || '');
+            const ok = await approveSuggestion(approveModalId, overrides, teamMemberId || '');
             if (ok) toast('success', 'Suggestion approved, task created');
-          }}
-          onApproveManual={async (overrides) => {
-            setApproveModalId(null);
-            const ok = await approveSuggestion(approveModalId, { ...overrides, ai_managed: false }, teamMemberId || '');
-            if (ok) toast('success', 'Suggestion approved as manual task');
           }}
         />
       )}

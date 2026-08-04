@@ -88,6 +88,7 @@ import {
   fetchTaskSuggestions,
   approveTaskSuggestion as approveTaskSuggestionQuery,
   rejectTaskSuggestion as rejectTaskSuggestionQuery,
+  declineTaskSuggestion as declineTaskSuggestionQuery,
   requestInfoTaskSuggestion as requestInfoTaskSuggestionQuery,
   patchTaskSuggestion as patchTaskSuggestionQuery,
   fetchAgentActivity,
@@ -308,12 +309,14 @@ interface AppContextType {
   archiveGoal: (id: string) => void;
 
   // Task Suggestion review actions
-  approveSuggestion: (id: string, taskOverrides: { priority?: string; assigned_to?: string | null; due_date?: string | null; project_id?: string; task_type?: string | null; ai_managed?: boolean }, reviewedBy: string) => Promise<boolean>;
+  approveSuggestion: (id: string, taskOverrides: { priority?: string; assigned_to?: string | null; due_date?: string | null; project_id?: string; task_type?: string | null; ai_readiness?: 'ai_ready' | 'human_only' | null }, reviewedBy: string) => Promise<boolean>;
+  declineSuggestion: (id: string, reviewedBy: string) => Promise<boolean>;
   rejectSuggestion: (id: string, reason: string | undefined, reviewedBy: string) => Promise<boolean>;
   requestInfoOnSuggestion: (id: string, infoRequest: string, reviewedBy: string) => void;
   updateSuggestion: (id: string, updates: Partial<TaskSuggestion>) => void;
   bulkApproveSuggestions: (ids: string[]) => Promise<number>;
   bulkRejectSuggestions: (ids: string[], reason?: string) => Promise<number>;
+  bulkDeclineSuggestions: (ids: string[]) => Promise<number>;
 
   // Agent helpers
   getGoalsByProject: (projectId: string) => ProjectGoal[];
@@ -458,7 +461,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (isDemoMode) {
       setProjects([...demoProjects]);
-      setTasks(demoTasks.map(t => ({ ai_managed: false, acceptance_criteria: [], blocked_by_ids: [], ...t } as Task)));
+      setTasks(demoTasks.map(t => ({ acceptance_criteria: [], blocked_by_ids: [], ...t } as Task)));
       setTeam([...demoTeam]);
       setContacts([...demoContacts]);
       setProjectContacts([...demoProjectContacts]);
@@ -983,7 +986,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const optimistic: Task = {
       ...task,
       id: optimisticId,
-      ai_managed: task.ai_managed ?? false,
       assignee_ids: assigneeIds,
       subtasks: task.subtasks || [],
       comments: task.comments || [],
@@ -3023,7 +3025,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // Task Suggestion review actions
   const approveSuggestionAction = async (
     id: string,
-    taskOverrides: { priority?: string; assigned_to?: string | null; due_date?: string | null; project_id?: string; task_type?: string | null; ai_managed?: boolean },
+    taskOverrides: { priority?: string; assigned_to?: string | null; due_date?: string | null; project_id?: string; task_type?: string | null; ai_readiness?: 'ai_ready' | 'human_only' | null },
     reviewedBy: string
   ) => {
     const suggestion = taskSuggestions.find(s => s.id === id);
@@ -3035,8 +3037,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (skipSupabase) return true;
 
     try {
-      const { ai_managed, ...overrides } = taskOverrides;
-      const result = await approveTaskSuggestionQuery(supabase, id, overrides, reviewedBy, ai_managed);
+      const result = await approveTaskSuggestionQuery(supabase, id, taskOverrides, reviewedBy);
       setTaskSuggestions(s => s.map(sug => sug.id === id ? result.suggestion : sug));
       setTasks(prev => [result.task, ...prev]);
 
@@ -3056,6 +3057,33 @@ export function AppProvider({ children }: { children: ReactNode }) {
       // the optimistic state of other suggestions in a bulk approve
       setTaskSuggestions(s => s.map(sug => sug.id === id ? suggestion : sug));
       toast('error', 'Failed to approve suggestion');
+      return false;
+    }
+  };
+
+  const declineSuggestionAction = async (id: string, reviewedBy: string) => {
+    const suggestion = taskSuggestions.find(s => s.id === id);
+    if (!suggestion) return false;
+
+    setTaskSuggestions(s => s.map(sug =>
+      sug.id === id ? { ...sug, status: 'declined' as const, reviewed_by: reviewedBy, reviewed_at: new Date().toISOString() } : sug
+    ));
+    if (skipSupabase) return true;
+
+    try {
+      const updated = await declineTaskSuggestionQuery(supabase, id, reviewedBy);
+      setTaskSuggestions(s => s.map(sug => sug.id === id ? updated : sug));
+      // Deliberately no lesson_learned and no notification fanout: decline is
+      // quiet housekeeping, not feedback the agent should learn from.
+      return true;
+    } catch (err) {
+      if (err instanceof Error && err.message === 'Suggestion has already been reviewed') {
+        const { data } = await supabase.from('task_suggestions').select('*').eq('id', id).maybeSingle();
+        if (data) setTaskSuggestions(s => s.map(sug => sug.id === id ? data as TaskSuggestion : sug));
+        return false;
+      }
+      setTaskSuggestions(s => s.map(sug => sug.id === id ? suggestion : sug));
+      console.error('[declineSuggestion] failed:', err);
       return false;
     }
   };
@@ -3174,6 +3202,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     let succeeded = 0;
     for (const id of ids) {
       if (await rejectSuggestionAction(id, reason, teamMemberId || '')) succeeded++;
+    }
+    return succeeded;
+  };
+
+  const bulkDeclineSuggestionsAction = async (ids: string[]) => {
+    let succeeded = 0;
+    for (const id of ids) {
+      if (await declineSuggestionAction(id, teamMemberId || '')) succeeded++;
     }
     return succeeded;
   };
@@ -3425,10 +3461,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       archiveGoal: archiveGoalAction,
       approveSuggestion: approveSuggestionAction,
       rejectSuggestion: rejectSuggestionAction,
+      declineSuggestion: declineSuggestionAction,
       requestInfoOnSuggestion: requestInfoOnSuggestionAction,
       updateSuggestion: updateSuggestionAction,
       bulkApproveSuggestions: bulkApproveSuggestionsAction,
       bulkRejectSuggestions: bulkRejectSuggestionsAction,
+      bulkDeclineSuggestions: bulkDeclineSuggestionsAction,
       getGoalsByProject,
       getSuggestionsByGoal,
       getPendingSuggestionCount,

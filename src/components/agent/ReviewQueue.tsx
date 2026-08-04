@@ -11,11 +11,11 @@ import { Tooltip } from '@/components/ui/Tooltip';
 import Modal from '@/components/ui/Modal';
 import { Textarea } from '@/components/ui/inputs/Textarea';
 import {
-  Check, X, HelpCircle, Lightbulb, ChevronDown, ChevronRight, Pencil, RotateCcw, ExternalLink,
+  Check, X, HelpCircle, Lightbulb, ChevronDown, ChevronRight, Pencil, RotateCcw, ExternalLink, Ban,
 } from 'lucide-react';
 import { toast } from '@/components/ui/Toast';
 
-type StatusFilter = '' | 'pending' | 'needs_info' | 'approved' | 'rejected';
+type StatusFilter = '' | 'pending' | 'needs_info' | 'approved' | 'rejected' | 'declined';
 
 interface ReviewQueueProps {
   onApprove: (id: string) => void;
@@ -25,8 +25,8 @@ interface ReviewQueueProps {
 export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
   const {
     taskSuggestions, projects, projectGoals, team,
-    rejectSuggestion, requestInfoOnSuggestion, updateSuggestion,
-    bulkApproveSuggestions, bulkRejectSuggestions,
+    rejectSuggestion, declineSuggestion, requestInfoOnSuggestion, updateSuggestion,
+    bulkApproveSuggestions, bulkRejectSuggestions, bulkDeclineSuggestions,
   } = useApp();
   const { teamMemberId } = useAuth();
   const router = useRouter();
@@ -57,6 +57,7 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
     { key: 'needs_info', label: 'Needs Info', count: activeSuggestions.filter(s => s.status === 'needs_info').length },
     { key: 'approved', label: 'Approved', count: activeSuggestions.filter(s => s.status === 'approved').length },
     { key: 'rejected', label: 'Rejected', count: activeSuggestions.filter(s => s.status === 'rejected').length },
+    { key: 'declined', label: 'Declined', count: activeSuggestions.filter(s => s.status === 'declined').length },
   ];
 
   const filtered = useMemo(() => {
@@ -64,7 +65,7 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
       .filter(s => !statusFilter || s.status === statusFilter)
       .sort((a, b) => {
         // Pending first, then needs_info, then by date
-        const statusOrder: Record<string, number> = { pending: 0, needs_info: 1, approved: 2, rejected: 3 };
+        const statusOrder: Record<string, number> = { pending: 0, needs_info: 1, approved: 2, rejected: 3, declined: 4 };
         const orderDiff = (statusOrder[a.status] ?? 4) - (statusOrder[b.status] ?? 4);
         if (orderDiff !== 0) return orderDiff;
         return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
@@ -387,12 +388,24 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
                                   </button>
                                 </Tooltip>
                               )}
-                              <Tooltip content="Reject">
+                              <Tooltip content="Reject (teaches the agent why)">
                                 <button
                                   onClick={(e) => { e.stopPropagation(); setRejectInputId(suggestion.id); setRejectReason(''); }}
                                   className="p-1.5 rounded-lg text-red-500 hover:bg-red-500/15 transition-colors"
                                 >
                                   <X size={16} />
+                                </button>
+                              </Tooltip>
+                              <Tooltip content="Decline (no lesson recorded)">
+                                <button
+                                  onClick={async (e) => {
+                                    e.stopPropagation();
+                                    const ok = await declineSuggestion(suggestion.id, teamMemberId || '');
+                                    if (ok) toast('success', 'Suggestion declined');
+                                  }}
+                                  className="p-1.5 rounded-lg text-zinc-400 hover:bg-white/[0.08] transition-colors"
+                                >
+                                  <Ban size={16} />
                                 </button>
                               </Tooltip>
                             </div>
@@ -679,6 +692,19 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
           >
             <X size={14} />
             Reject All
+          </button>
+          <button
+            onClick={async () => {
+              const ids = [...selectedIds];
+              setSelectedIds(new Set());
+              setShowBulkModal(false);
+              const declined = await bulkDeclineSuggestions(ids);
+              if (declined > 0) toast('success', `Declined ${declined} suggestion(s)`);
+            }}
+            className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-sm font-medium text-zinc-300 bg-white/[0.06] hover:bg-white/[0.08] transition-colors"
+          >
+            <Ban size={14} />
+            Decline All
           </button>
         </div>
 

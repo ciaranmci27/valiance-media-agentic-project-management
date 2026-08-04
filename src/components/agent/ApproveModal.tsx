@@ -9,24 +9,26 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { DateInput } from '@/components/ui/inputs/DateInput';
 
-type ApproveOverrides = { priority?: string; assigned_to?: string | null; due_date?: string | null; project_id?: string; task_type?: string | null };
+type ApproveOverrides = { priority?: string; assigned_to?: string | null; due_date?: string | null; project_id?: string; task_type?: string | null; ai_readiness?: 'ai_ready' | 'human_only' | null };
 
 interface ApproveModalProps {
   suggestion: TaskSuggestion;
   onClose: () => void;
   onApprove: (overrides: ApproveOverrides) => void;
-  onApproveManual?: (overrides: ApproveOverrides) => void;
 }
 
-export function ApproveModal({ suggestion, onClose, onApprove, onApproveManual }: ApproveModalProps) {
+export function ApproveModal({ suggestion, onClose, onApprove }: ApproveModalProps) {
   const { team } = useApp();
 
   const [priority, setPriority] = useState(suggestion.priority);
   const [assignedTo, setAssignedTo] = useState(suggestion.assigned_to || '');
   const [dueDate, setDueDate] = useState('');
   const [taskType, setTaskType] = useState<TaskType | ''>(suggestion.task_type || '');
-  // Agent involvement is an explicit opt-in, never a default.
-  const [aiManaged, setAiManaged] = useState(false);
+  // Prefilled from the auditing agent's recommendation; the reviewer's toggle
+  // is the human confirmation and always wins over the recommendation.
+  const [aiReady, setAiReady] = useState(
+    (suggestion.metadata as Record<string, unknown> | undefined)?.ai_readiness_recommendation === 'ai_ready'
+  );
 
   const getOverrides = (): ApproveOverrides => ({
     priority,
@@ -34,15 +36,12 @@ export function ApproveModal({ suggestion, onClose, onApprove, onApproveManual }
     due_date: dueDate || null,
     project_id: suggestion.project_id,
     task_type: taskType || null,
+    ai_readiness: aiReady ? 'ai_ready' : 'human_only',
   });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!aiManaged && onApproveManual) {
-      onApproveManual(getOverrides());
-    } else {
-      onApprove(getOverrides());
-    }
+    onApprove(getOverrides());
   };
 
   return (
@@ -99,26 +98,24 @@ export function ApproveModal({ suggestion, onClose, onApprove, onApproveManual }
           />
         </div>
 
-        {onApproveManual && (
-          <label className="flex items-center gap-3 pt-2 cursor-pointer group">
-            <button
-              type="button"
-              role="switch"
-              aria-checked={aiManaged}
-              onClick={() => setAiManaged(!aiManaged)}
-              className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-                aiManaged ? 'bg-brand-600' : 'bg-zinc-300'
-              }`}
-            >
-              <span className={`inline-block h-3.5 w-3.5 rounded-full bg-surface-raised transition-transform ${
-                aiManaged ? 'translate-x-[18px]' : 'translate-x-[3px]'
-              }`} />
-            </button>
-            <span className="text-sm text-zinc-300">
-              {aiManaged ? 'AI managed' : 'Manual task'}
-            </span>
-          </label>
-        )}
+        <label className="flex items-center gap-3 pt-2 cursor-pointer group">
+          <button
+            type="button"
+            role="switch"
+            aria-checked={aiReady}
+            onClick={() => setAiReady(!aiReady)}
+            className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+              aiReady ? 'bg-brand-600' : 'bg-zinc-300'
+            }`}
+          >
+            <span className={`inline-block h-3.5 w-3.5 rounded-full bg-surface-raised transition-transform ${
+              aiReady ? 'translate-x-[18px]' : 'translate-x-[3px]'
+            }`} />
+          </button>
+          <span className="text-sm text-zinc-300">
+            {aiReady ? 'AI Ready: the dev agent may pick this up' : 'Human task'}
+          </span>
+        </label>
 
         <div className="flex justify-end gap-3 pt-2">
           <Button type="button" variant="ghost" onClick={onClose}>

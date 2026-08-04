@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { AiReadiness, Task } from '@/lib/types';
+import { Task } from '@/lib/types';
+import { toast } from '@/components/ui/Toast';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { StatusBadge, PriorityBadge } from '@/components/ui/Badge';
@@ -38,12 +39,6 @@ const PRIORITY_OPTIONS: { value: Task['priority']; label: string; color: string 
   { value: 'high', label: 'High', color: 'bg-orange-500' },
   { value: 'urgent', label: 'Urgent', color: 'bg-red-500' },
 ];
-
-const AI_READINESS_DISPLAY: Record<AiReadiness, { label: string; className: string }> = {
-  ai_ready: { label: 'AI Ready', className: 'bg-brand-500/15 text-brand-300' },
-  human_only: { label: 'Human Only', className: 'bg-white/[0.06] text-zinc-300' },
-  hybrid: { label: 'Hybrid', className: 'bg-amber-500/15 text-amber-400' },
-};
 
 export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailPanelProps) {
   const { team, tasks, getTeamMember, getProject, updateTask, toggleSubtask, addSubtask, updateSubtask, reorderSubtasks, deleteSubtask, addCriterion, toggleCriterion, updateCriterion, deleteCriterion, addComment, updateComment, deleteComment } = useApp();
@@ -100,7 +95,6 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
   const isAgentsEnabled = process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true';
   const project = getProject(task.project_id);
   const showAiToggle = isAgentsEnabled && hasPermission(access, 'agents.manage') && project?.autonomous_enabled;
-  const showAiReadiness = isAgentsEnabled && hasPermission(access, 'agents.manage');
 
   const assignees = team.filter(m => task.assignee_ids.includes(m.id));
   const completedSubtasks = task.subtasks.filter(s => s.completed).length;
@@ -320,23 +314,6 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
                 </div>
               )}
 
-              {/* AI Readiness */}
-              {showAiReadiness && (
-                <div className="flex items-center gap-3">
-                  <div className="flex items-center gap-1.5 text-xs text-zinc-400 w-20 flex-shrink-0">
-                    <Bot size={14} />
-                    <span>AI Ready</span>
-                  </div>
-                  {task.ai_readiness ? (
-                    <span className={`px-2 py-0.5 text-xs rounded-full ${AI_READINESS_DISPLAY[task.ai_readiness].className}`}>
-                      {AI_READINESS_DISPLAY[task.ai_readiness].label}
-                    </span>
-                  ) : (
-                    <span className="text-xs text-zinc-500">Unclassified</span>
-                  )}
-                </div>
-              )}
-
               {/* Created */}
               <div className="flex items-center gap-3">
                 <div className="flex items-center gap-1.5 text-xs text-zinc-400 w-20 flex-shrink-0">
@@ -347,20 +324,30 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
               </div>
             </div>
 
-            {/* AI Managed Toggle */}
+            {/* AI Ready Toggle. On = ai_ready (the dev agent may pick it up),
+                off = human_only. A task with no acceptance criteria cannot be
+                flipped on: the dev agent refuses spec-less tasks, so allowing
+                it would create a task that is claimed and then refused, forever. */}
             {showAiToggle && (
               <div className="flex items-center justify-between py-2 px-3 bg-white/[0.03] rounded-lg">
                 <div className="flex items-center gap-2">
                   <Bot size={14} className="text-zinc-400" />
                   <div>
-                    <p className="text-sm font-medium text-zinc-300">AI Managed</p>
-                    <p className="text-xs text-zinc-500">Let Ashley automate this task</p>
+                    <p className="text-sm font-medium text-zinc-300">AI Ready</p>
+                    <p className="text-xs text-zinc-500">The dev agent may pick this task up on its own</p>
                   </div>
                 </div>
                 <Toggle
-                  checked={task.ai_managed}
-                  onChange={() => updateTask(task.id, { ai_managed: !task.ai_managed })}
-                  aria-label="AI managed"
+                  checked={task.ai_readiness === 'ai_ready'}
+                  onChange={() => {
+                    const turningOn = task.ai_readiness !== 'ai_ready';
+                    if (turningOn && (task.acceptance_criteria || []).length === 0) {
+                      toast('error', 'Add acceptance criteria before marking this AI Ready');
+                      return;
+                    }
+                    updateTask(task.id, { ai_readiness: turningOn ? 'ai_ready' : 'human_only' });
+                  }}
+                  aria-label="AI ready"
                 />
               </div>
             )}
