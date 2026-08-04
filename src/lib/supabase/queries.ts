@@ -1806,10 +1806,17 @@ export async function approveTaskSuggestion(
         : null;
 
   const resolvedTaskType = taskOverrides.task_type !== undefined ? taskOverrides.task_type : suggestion.task_type || null;
+  // A spec-less approval (feature or hybrid recommendation, no criteria, or
+  // the reviewer choosing "Needs spec") carries a deterministic marker so the
+  // spec sweep can tell "interview Ciaran" apart from "complete this yourself".
+  const needsInterview = resolvedReadiness === null
+    && (recommended === 'hybrid' || metadata.tier === 'feature' || metadata.tier === 'business' || specCriteria.length === 0);
+  let composedDescription = proposedFix ? `${suggestion.description}\n\nProposed fix: ${proposedFix}` : suggestion.description;
+  if (needsInterview) composedDescription += '\n\n[Needs spec interview before development]';
   const taskData: Record<string, any> = {
     project_id: taskOverrides.project_id || suggestion.project_id,
     title: suggestion.title,
-    description: proposedFix ? `${suggestion.description}\n\nProposed fix: ${proposedFix}` : suggestion.description,
+    description: composedDescription,
     status: 'todo' as const,
     priority: (taskOverrides.priority || suggestion.priority) as Task['priority'],
     due_date: taskOverrides.due_date || null,

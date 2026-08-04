@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useApp } from '@/lib/store';
 import { TaskSuggestion, TASK_TYPES, TaskType } from '@/lib/types';
 import Modal from '@/components/ui/Modal';
+import { toast } from '@/components/ui/Toast';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
@@ -24,23 +25,44 @@ export function ApproveModal({ suggestion, onClose, onApprove }: ApproveModalPro
   const [assignedTo, setAssignedTo] = useState(suggestion.assigned_to || '');
   const [dueDate, setDueDate] = useState('');
   const [taskType, setTaskType] = useState<TaskType | ''>(suggestion.task_type || '');
-  // Prefilled from the auditing agent's recommendation; the reviewer's toggle
-  // is the human confirmation and always wins over the recommendation.
-  const [aiReady, setAiReady] = useState(
-    (suggestion.metadata as Record<string, unknown> | undefined)?.ai_readiness_recommendation === 'ai_ready'
+  // Three outcomes, prefilled from the auditor's recommendation; the reviewer's
+  // choice is the human confirmation and always wins.
+  //   ai_ready:   dev agent claims it within one pickup cycle, auto-assigned.
+  //   human_only: Ciaran's own task.
+  //   needs_spec: readiness stays NULL, so the dev agent structurally cannot
+  //               see it; Ashley's sweep starts the spec interview instead.
+  //               This is the feature path: Greg cannot spec a feature the way
+  //               Ciaran wants it, so approval means "yes, but interview me".
+  const meta = (suggestion.metadata || {}) as Record<string, any>;
+  const criteriaCount = Array.isArray(meta.acceptance_criteria) ? meta.acceptance_criteria.length : 0;
+  const recommended = meta.ai_readiness_recommendation;
+  const [mode, setMode] = useState<'ai_ready' | 'human_only' | 'needs_spec'>(
+    recommended === 'ai_ready' && criteriaCount > 0 ? 'ai_ready'
+      : recommended === 'human_only' ? 'human_only'
+      : 'needs_spec'
   );
+  // The dev agent, found by role. Auto-assigned on the ai_ready path so
+  // approval needs no dropdown decision in the common case.
+  const devAgent = team.find(m => m.role === 'agent' && /jeff/i.test(m.name));
 
   const getOverrides = (): ApproveOverrides => ({
     priority,
-    assigned_to: assignedTo || null,
+    assigned_to: assignedTo || (mode === 'ai_ready' ? devAgent?.id ?? null : null),
     due_date: dueDate || null,
     project_id: suggestion.project_id,
     task_type: taskType || null,
-    ai_readiness: aiReady ? 'ai_ready' : 'human_only',
+    // needs_spec sends an explicit null: the created task has no readiness, is
+    // invisible to the dev agent's pickup filter, and is what Ashley's sweep
+    // recognizes as "interview Ciaran".
+    ai_readiness: mode === 'needs_spec' ? null : mode,
   });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (mode === 'ai_ready' && criteriaCount === 0) {
+      toast('error', 'No acceptance criteria on this suggestion. Choose "Needs spec" so Ashley runs the interview, or edit criteria in first.');
+      return;
+    }
     onApprove(getOverrides());
   };
 
@@ -76,7 +98,7 @@ export function ApproveModal({ suggestion, onClose, onApprove }: ApproveModalPro
             onChange={setAssignedTo}
             options={[
               { value: '', label: 'Unassigned' },
-              ...team.filter(m => m.role !== 'agent').map(m => ({ value: m.id, label: m.name })),
+              ...team.map(m => ({ value: m.id, label: m.role === 'agent' ? `${m.name} (agent)` : m.name })),
             ]}
           />
 
@@ -98,24 +120,34 @@ export function ApproveModal({ suggestion, onClose, onApprove }: ApproveModalPro
           />
         </div>
 
-        <label className="flex items-center gap-3 pt-2 cursor-pointer group">
-          <button
-            type="button"
-            role="switch"
-            aria-checked={aiReady}
-            onClick={() => setAiReady(!aiReady)}
-            className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-              aiReady ? 'bg-brand-600' : 'bg-zinc-300'
-            }`}
-          >
-            <span className={`inline-block h-3.5 w-3.5 rounded-full bg-surface-raised transition-transform ${
-              aiReady ? 'translate-x-[18px]' : 'translate-x-[3px]'
-            }`} />
-          </button>
-          <span className="text-sm text-zinc-300">
-            {aiReady ? 'AI Ready: the dev agent may pick this up' : 'Human task'}
-          </span>
-        </label>
+        <div className="pt-2">
+          <label className="block text-sm font-medium text-zinc-300 mb-1.5">What happens after approval</label>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            {([
+              { key: 'ai_ready', label: 'AI Ready', hint: devAgent ? `${devAgent.name} starts automatically` : 'Dev agent starts automatically' },
+              { key: 'human_only', label: 'Human task', hint: 'Assigned manually, no agent involved' },
+              { key: 'needs_spec', label: 'Needs spec', hint: 'Ashley interviews you first' },
+            ] as const).map(opt => (
+              <button
+                key={opt.key}
+                type="button"
+                onClick={() => setMode(opt.key)}
+                aria-pressed={mode === opt.key}
+                className={`px-3 py-2 rounded-lg border text-left transition-colors ${
+                  mode === opt.key
+                    ? 'border-brand-500 bg-brand-500/15 text-white'
+                    : 'border-white/[0.08] bg-white/[0.03] text-zinc-400 hover:bg-white/[0.06]'
+                }`}
+              >
+                <span className="block text-sm font-medium">{opt.label}</span>
+                <span className="block text-xs opacity-70 mt-0.5">{opt.hint}</span>
+              </button>
+            ))}
+          </div>
+          {criteriaCount === 0 && mode === 'ai_ready' && (
+            <p className="mt-1.5 text-xs text-amber-400">This suggestion has no acceptance criteria; the dev agent will refuse it.</p>
+          )}
+        </div>
 
         <div className="flex justify-end gap-3 pt-2">
           <Button type="button" variant="ghost" onClick={onClose}>
