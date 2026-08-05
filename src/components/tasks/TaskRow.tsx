@@ -5,7 +5,7 @@ import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { StatusBadge, PriorityBadge, TaskTypeBadge } from '@/components/ui/Badge';
 import { AvatarGroup } from '@/components/ui/Avatar';
-import { Calendar, CheckSquare, MessageSquare, MoreVertical, Edit, Trash2, Clock, User, Lock } from 'lucide-react';
+import { Calendar, CheckSquare, MessageSquare, MoreVertical, Edit, Trash2, Clock, User, Lock, FileQuestion } from 'lucide-react';
 import { useState, useRef } from 'react';
 import { Popover } from '@/components/ui/Popover';
 import { Tooltip } from '@/components/ui/Tooltip';
@@ -116,10 +116,17 @@ export function TaskRow({ task, onView, onEdit, onDelete }: TaskRowProps) {
               <TaskTypeBadge taskType={task.task_type} />
             )}
             {isAgentsEnabled && canManageAgents && task.ai_readiness !== 'ai_ready' && getProject(task.project_id)?.autonomous_enabled && (
-              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium bg-amber-500/15 text-amber-300 border border-amber-500/30 rounded-full">
-                <User size={10} />
-                Manual
-              </span>
+              task.ai_readiness ? (
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium bg-amber-500/15 text-amber-300 border border-amber-500/30 rounded-full">
+                  <User size={10} aria-hidden="true" />
+                  Manual
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium bg-sky-500/15 text-sky-300 border border-sky-500/30 rounded-full">
+                  <FileQuestion size={10} aria-hidden="true" />
+                  Needs spec
+                </span>
+              )
             )}
             {task.status !== 'done' && (task.blocked_by_ids || []).some(id => tasks.find(t => t.id === id)?.status !== 'done') && (
               <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium bg-amber-500/15 text-amber-300 border border-amber-500/30 rounded-full">
@@ -277,11 +284,19 @@ export function TaskRowDesktop({ task, onView, onEdit, onDelete, selected, onTog
           <TaskTypeBadge taskType={task.task_type} />
         )}
         {isAgentsEnabled && canManageAgents && task.ai_readiness !== 'ai_ready' && getProject(task.project_id)?.autonomous_enabled && (
-          <Tooltip content="Manual task (not AI Ready)">
-            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium bg-amber-500/15 text-amber-300 border border-amber-500/30 rounded-full">
-              <User size={10} />
-            </span>
-          </Tooltip>
+          task.ai_readiness ? (
+            <Tooltip content="Manual task (not AI Ready)">
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium bg-amber-500/15 text-amber-300 border border-amber-500/30 rounded-full">
+                <User size={10} aria-hidden="true" />
+              </span>
+            </Tooltip>
+          ) : (
+            <Tooltip content="Needs a spec before anyone can start it">
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium bg-sky-500/15 text-sky-300 border border-sky-500/30 rounded-full">
+                <FileQuestion size={10} aria-hidden="true" />
+              </span>
+            </Tooltip>
+          )
         )}
         {task.status !== 'done' && (task.blocked_by_ids || []).some(id => tasks.find(t => t.id === id)?.status !== 'done') && (
           <Tooltip content="Blocked by another task">
