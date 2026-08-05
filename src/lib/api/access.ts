@@ -240,11 +240,17 @@ export function sanitizeProjectForAccess<T extends Record<string, unknown>>(
     });
   }
   if (!accessAllows(access, 'agents.manage', channel)) {
-    // repo_path is deliberately NOT hidden here: it is routing metadata the
-    // dev agent needs to locate its workspace. Editing it still requires
-    // agents.manage (enforced in the PATCH handlers).
+    // repo_path and autonomous_enabled are deliberately NOT hidden here: they
+    // are routing metadata the agents need, not settings. Editing either still
+    // requires agents.manage (enforced in the PATCH handlers).
+    //
+    // Blanking autonomous_enabled cost 25 hours of silent downtime. Every
+    // scheduled loop begins by asking which projects are autonomous, so
+    // forcing it to false told the agents that no project anywhere wanted
+    // work. Jeff answered PICKUP_IDLE roughly 50 times with an approved task
+    // assigned to him, and every liveness check passed the whole time because
+    // the containers were perfectly healthy while doing nothing.
     Object.assign(sanitized, {
-      autonomous_enabled: false,
       deployment_policy: 'production',
       max_concurrent_tasks: 0,
       suggestions_per_cycle: 0,
