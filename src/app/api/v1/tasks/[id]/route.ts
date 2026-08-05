@@ -26,9 +26,19 @@ export const GET = withApi(async ({ supabase, params }) => {
   if (error) throw error;
   if (!data) throw notFound('Task');
 
-  const blockedBy = (data.task_dependencies || [])
+  const rawDependencies = data.task_dependencies || [];
+  const blockedBy = rawDependencies
     .map((d: any) => d.blocker)
     .filter(Boolean);
+  // A blocker the caller cannot resolve is still a blocker. filter(Boolean)
+  // drops rows whose joined task is hidden by project scoping or RLS, and
+  // .every() on what survives then reports dependencies_met: true. The agent
+  // reads that as cleared and starts work that is genuinely blocked.
+  //
+  // Same failure shape as blanking a project's operating parameters, in the
+  // other direction: a read path returning a plausible value instead of
+  // refusing. Unresolved rows now fail closed.
+  const unresolvedBlockers = rawDependencies.length - blockedBy.length;
 
   const task = {
     ...data,
@@ -40,7 +50,7 @@ export const GET = withApi(async ({ supabase, params }) => {
     acceptance_criteria: (data.criteria || []).sort((a: any, b: any) => a.sort_order - b.sort_order),
     blocked_by: blockedBy,
     blocked_by_ids: blockedBy.map((b: any) => b.id),
-    dependencies_met: blockedBy.every((b: any) => b.status === 'done'),
+    dependencies_met: unresolvedBlockers === 0 && blockedBy.every((b: any) => b.status === 'done'),
     criteria: undefined,
     task_dependencies: undefined,
     task_assignees: undefined,

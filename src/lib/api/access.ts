@@ -239,23 +239,25 @@ export function sanitizeProjectForAccess<T extends Record<string, unknown>>(
       client_time_billing: undefined,
     });
   }
-  if (!accessAllows(access, 'agents.manage', channel)) {
-    // repo_path and autonomous_enabled are deliberately NOT hidden here: they
-    // are routing metadata the agents need, not settings. Editing either still
-    // requires agents.manage (enforced in the PATCH handlers).
-    //
-    // Blanking autonomous_enabled cost 25 hours of silent downtime. Every
-    // scheduled loop begins by asking which projects are autonomous, so
-    // forcing it to false told the agents that no project anywhere wanted
-    // work. Jeff answered PICKUP_IDLE roughly 50 times with an approved task
-    // assigned to him, and every liveness check passed the whole time because
-    // the containers were perfectly healthy while doing nothing.
-    Object.assign(sanitized, {
-      deployment_policy: 'production',
-      max_concurrent_tasks: 0,
-      suggestions_per_cycle: 0,
-    });
-  }
+  // The agent block that used to live here is gone on purpose.
+  //
+  // autonomous_enabled, max_concurrent_tasks, suggestions_per_cycle,
+  // deployment_policy and repo_path are OPERATING PARAMETERS the agents read to
+  // decide what to do. They are not secrets and they are not settings from the
+  // reader's point of view: changing any of them still requires agents.manage,
+  // enforced in the PATCH handlers, which is where the boundary belongs.
+  //
+  // Blanking them was silently catastrophic, twice, because a zeroed parameter
+  // is a valid instruction rather than an error. autonomous_enabled forced to
+  // false told every scheduled loop that no project anywhere wanted work, and
+  // cost 25 hours of downtime in which Jeff answered PICKUP_IDLE roughly 50
+  // times with an approved task assigned to him. Fixing only that field left
+  // max_concurrent_tasks reading 0, which told him he may run no tasks at all,
+  // so he investigated the work properly and then declined it. Every request
+  // returned 200 and every container stayed healthy through both.
+  //
+  // A read path that quietly rewrites values into a legal-looking lie is worse
+  // than one that refuses. If a caller should not see these, deny the endpoint.
   return sanitized as T;
 }
 
