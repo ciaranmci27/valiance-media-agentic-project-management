@@ -21,8 +21,24 @@ interface ApproveModalProps {
 export function ApproveModal({ suggestion, onClose, onApprove }: ApproveModalProps) {
   const { team } = useApp();
 
+  const meta = (suggestion.metadata || {}) as Record<string, any>;
+  const criteriaCount = Array.isArray(meta.acceptance_criteria) ? meta.acceptance_criteria.length : 0;
+  const recommended = meta.ai_readiness_recommendation;
+  const initialMode: 'ai_ready' | 'human_only' | 'needs_spec' =
+    recommended === 'ai_ready' && criteriaCount > 0 ? 'ai_ready'
+      : recommended === 'human_only' ? 'human_only'
+      : 'needs_spec';
+  // The dev agent, found by role.
+  const devAgent = team.find(m => m.role === 'agent' && /jeff/i.test(m.name));
+
   const [priority, setPriority] = useState(suggestion.priority);
-  const [assignedTo, setAssignedTo] = useState(suggestion.assigned_to || '');
+  // Prefilled with whoever will actually receive the task, never left blank for
+  // the submit handler to fill in behind the reviewer. A dropdown reading
+  // "Unassigned" while the task silently goes to the dev agent is how a review
+  // screen stops being trustworthy.
+  const [assignedTo, setAssignedTo] = useState(
+    suggestion.assigned_to || (initialMode === 'ai_ready' ? devAgent?.id ?? '' : '')
+  );
   const [dueDate, setDueDate] = useState('');
   const [taskType, setTaskType] = useState<TaskType | ''>(suggestion.task_type || '');
   // Three outcomes, prefilled from the auditor's recommendation; the reviewer's
@@ -33,21 +49,19 @@ export function ApproveModal({ suggestion, onClose, onApprove }: ApproveModalPro
   //               see it; Ashley's sweep starts the spec interview instead.
   //               This is the feature path: Greg cannot spec a feature the way
   //               Ciaran wants it, so approval means "yes, but interview me".
-  const meta = (suggestion.metadata || {}) as Record<string, any>;
-  const criteriaCount = Array.isArray(meta.acceptance_criteria) ? meta.acceptance_criteria.length : 0;
-  const recommended = meta.ai_readiness_recommendation;
-  const [mode, setMode] = useState<'ai_ready' | 'human_only' | 'needs_spec'>(
-    recommended === 'ai_ready' && criteriaCount > 0 ? 'ai_ready'
-      : recommended === 'human_only' ? 'human_only'
-      : 'needs_spec'
-  );
-  // The dev agent, found by role. Auto-assigned on the ai_ready path so
-  // approval needs no dropdown decision in the common case.
-  const devAgent = team.find(m => m.role === 'agent' && /jeff/i.test(m.name));
+  const [mode, setMode] = useState<'ai_ready' | 'human_only' | 'needs_spec'>(initialMode);
+
+  // Switching mode re-points the assignee at that mode's default, because who
+  // does the work follows directly from what happens after approval. Anyone
+  // wanting a different person picks one afterwards, and that choice sticks.
+  const selectMode = (next: typeof mode) => {
+    setMode(next);
+    setAssignedTo(next === 'ai_ready' ? devAgent?.id ?? '' : '');
+  };
 
   const getOverrides = (): ApproveOverrides => ({
     priority,
-    assigned_to: assignedTo || (mode === 'ai_ready' ? devAgent?.id ?? null : null),
+    assigned_to: assignedTo || null,
     due_date: dueDate || null,
     project_id: suggestion.project_id,
     task_type: taskType || null,
@@ -131,7 +145,7 @@ export function ApproveModal({ suggestion, onClose, onApprove }: ApproveModalPro
               <button
                 key={opt.key}
                 type="button"
-                onClick={() => setMode(opt.key)}
+                onClick={() => selectMode(opt.key)}
                 aria-pressed={mode === opt.key}
                 className={`px-3 py-2 rounded-lg border text-left transition-colors ${
                   mode === opt.key

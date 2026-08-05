@@ -1823,6 +1823,10 @@ export async function approveTaskSuggestion(
     tags: [] as string[],
     source_task_suggestion_id: id,
     project_goal_id: suggestion.goal_id,
+    // Required, not cosmetic: the tasks_insert RLS policy checks
+    // `created_by = current_team_member_id()`, so omitting it inserts NULL and
+    // every approval from the browser fails with a 403 that names no column.
+    created_by: reviewedBy,
   };
   if (resolvedTaskType) taskData.task_type = resolvedTaskType;
   if (resolvedReadiness) taskData.ai_readiness = resolvedReadiness;
