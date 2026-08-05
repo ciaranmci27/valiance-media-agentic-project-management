@@ -27,7 +27,7 @@ import { Avatar } from '@/components/ui/Avatar';
 // unknown agents simply show no next-run time. This table dies when per-project
 // cadence lands in the database (audit_interval_hours).
 const CRON_MIRROR: Record<string, { everyHours?: number; atMinutes?: number[] }> = {
-  greg: { everyHours: 4 }, // 0 */4 * * * (UTC)
+  greg: { atMinutes: [0] }, // 0 * * * * (hourly clock; pace is per-project audit_interval_hours)
   jeff: { atMinutes: [0, 30] }, // */30 * * * *
   ashley: { atMinutes: [15, 45] }, // 15,45 * * * *
 };
