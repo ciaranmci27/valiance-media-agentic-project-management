@@ -50,12 +50,16 @@ export default function NotificationsPage() {
   const [hasMore, setHasMore] = useState(true);
   const loadingMoreRef = useRef(false);
 
-  const fetchNotifications = useCallback(async (loadMore = false, tab: FilterTab = filter) => {
+  const fetchNotifications = useCallback(async (loadMore = false, tab: FilterTab = filter, opts: { silent?: boolean } = {}) => {
     if (loadMore) {
       if (loadingMoreRef.current || !hasMore) return;
       loadingMoreRef.current = true;
       setIsLoadingMore(true);
-    } else {
+    } else if (!opts.silent) {
+      // Only a foreground load (first paint, tab switch) may show the loader.
+      // Event-driven refreshes arrive AFTER an optimistic update has already
+      // painted the correct list; flashing the loader then unmounts correct
+      // content twice, which reads as the whole screen flickering.
       setIsLoading(true);
       setHasMore(true);
     }
@@ -116,7 +120,7 @@ export default function NotificationsPage() {
   // its own writes). Refetch resets to the first page, which is fine for a
   // "new notification arrived" signal.
   useEffect(() => {
-    const handler = () => fetchNotifications(false, filter);
+    const handler = () => fetchNotifications(false, filter, { silent: true });
     window.addEventListener('notifications-updated', handler);
     return () => window.removeEventListener('notifications-updated', handler);
     // eslint-disable-next-line react-hooks/exhaustive-deps

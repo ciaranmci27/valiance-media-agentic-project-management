@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { accessAllows, requireSessionAccess } from '@/lib/api/access';
 import { TEAM_ROLES } from '@/lib/access-control';
 
-const PROFILE_FIELDS = ['name', 'avatar', 'timezone', 'notification_prefs', 'email_notifications_enabled', 'email_notification_prefs', 'theme_preference'] as const;
+const PROFILE_FIELDS = ['name', 'title', 'avatar', 'timezone', 'notification_prefs', 'email_notifications_enabled', 'email_notification_prefs', 'theme_preference'] as const;
 const MANAGEMENT_FIELDS = [...PROFILE_FIELDS, 'status'] as const;
 
 export async function PATCH(
@@ -34,12 +34,27 @@ export async function PATCH(
   for (const key of allowed) {
     if (key in body) updates[key] = body[key];
   }
+  // The edit form submits every field it renders, including a disabled Role
+  // select, so an unchanged role arrives on every save. Echoing the current
+  // value back is not an assignment: without this, the Owner editing their own
+  // profile (e.g. to set a title) was refused for "changing" owner to owner.
+  if ('role' in updates && updates.role === target.role) {
+    delete updates.role;
+  }
   if ('role' in updates) {
     if (!TEAM_ROLES.includes(updates.role as never)) {
       return NextResponse.json({ error: 'Invalid role' }, { status: 422 });
     }
     if (!isOwner || (isSelf && target.role === 'owner')) {
       return NextResponse.json({ error: 'Only an Owner can assign roles, and an Owner cannot change their own role' }, { status: 403 });
+    }
+  }
+  if ('title' in updates) {
+    if (updates.title !== null && typeof updates.title !== 'string') {
+      return NextResponse.json({ error: 'Invalid title' }, { status: 422 });
+    }
+    if (typeof updates.title === 'string' && updates.title.length > 80) {
+      return NextResponse.json({ error: 'Title must be 80 characters or fewer' }, { status: 422 });
     }
   }
   if ('status' in updates && !['active', 'suspended'].includes(String(updates.status))) {

@@ -73,6 +73,14 @@ export function AvatarGroup({ users, max = 4, size = 'sm' }: AvatarGroupProps) {
   const visible = users.slice(0, max);
   const remaining = users.length - max;
 
+  // Rings exist ONLY to separate overlapping circles; a single avatar has
+  // nothing to separate from, and ringing it paints a black border that is not
+  // in the design language. When separation is needed, the raised-surface
+  // token sits close to every card background (and follows the theme), where
+  // page-base near-black read as an outline on anything lighter than the page.
+  const overlapping = visible.length + (remaining > 0 ? 1 : 0) > 1;
+  const separation = overlapping ? 'ring-2 ring-surface-raised' : '';
+
   return (
     <div className="flex -space-x-2">
       {visible.map((user) => (
@@ -81,12 +89,12 @@ export function AvatarGroup({ users, max = 4, size = 'sm' }: AvatarGroupProps) {
           name={user.name}
           src={user.avatar}
           size={size}
-          className="ring-2 ring-surface"
+          className={separation}
         />
       ))}
       {remaining > 0 && (
         <div
-          className={`${sizeClasses[size]} rounded-full flex items-center justify-center font-medium bg-white/10 text-zinc-300 ring-2 ring-surface`}
+          className={`${sizeClasses[size]} rounded-full flex items-center justify-center font-medium bg-white/10 text-zinc-300 ${separation}`}
         >
           +{remaining}
         </div>

@@ -50,6 +50,7 @@ export default function TeamPage() {
   const [email, setEmail] = useState('');
   const [emailError, setEmailError] = useState('');
   const [role, setRole] = useState<TeamMember['role']>('member');
+  const [title, setTitle] = useState('');
   const [memberStatus, setMemberStatus] = useState<'active' | 'suspended'>('active');
   const [billingMultiplier, setBillingMultiplier] = useState<number | ''>('');
   const [memberTz, setMemberTz] = useState('UTC');
@@ -124,6 +125,7 @@ export default function TeamPage() {
 
   const resetForm = () => {
     setName('');
+    setTitle('');
     setEmail('');
     setEmailError('');
     setRole('member');
@@ -139,6 +141,7 @@ export default function TeamPage() {
   const handleOpenForm = (member: TeamMember) => {
     setEditingMember(member);
     setName(member.name);
+    setTitle(member.title ?? '');
     setEmail(member.email);
     setEmailError('');
     setRole(member.role);
@@ -202,7 +205,7 @@ export default function TeamPage() {
       return;
     }
 
-    updateTeamMember(editingMember.id, { name: name.trim(), role, status: memberStatus, timezone: memberTz, ...multiplierUpdate() });
+    updateTeamMember(editingMember.id, { name: name.trim(), title: title.trim() || null, role, status: memberStatus, timezone: memberTz, ...multiplierUpdate() });
     toast('success', 'Team member updated');
     handleCloseForm();
   };
@@ -296,7 +299,8 @@ export default function TeamPage() {
             <Avatar name={m.name} src={m.avatar || undefined} size="lg" />
             <div className="min-w-0">
               <h3 className="font-semibold text-white truncate">{m.name}</h3>
-              <p className="text-sm text-zinc-400 truncate">{m.email}</p>
+              {m.title?.trim() && <p className="text-xs text-zinc-400 truncate">{m.title}</p>}
+              <p className="text-sm text-zinc-500 truncate">{m.email}</p>
             </div>
           </div>
           {actions.length > 0 && <RowActionsMenu actions={actions} label={`Actions for ${m.name}`} />}
@@ -326,6 +330,15 @@ export default function TeamPage() {
           <span className="font-semibold text-white truncate">{m.name}</span>
         </div>
       ),
+    },
+    {
+      key: 'title',
+      header: 'Title',
+      className: 'hidden md:table-cell',
+      sortValue: (m) => (m.title ?? '').toLowerCase(),
+      render: (m) => m.title?.trim()
+        ? <span className="text-zinc-300 truncate block max-w-[160px]">{m.title}</span>
+        : null,
     },
     {
       key: 'email',
@@ -447,6 +460,13 @@ export default function TeamPage() {
             onChange={(e) => setName(e.target.value)}
             placeholder="Enter full name"
             required
+          />
+
+          <Input
+            label="Title"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder={'e.g. "Developer", "Auditor"'}
           />
 
           <Input

@@ -11,6 +11,9 @@ create table public.team_members (
   email text not null,
   avatar text not null default '',
   role text not null default 'member' check (role in ('admin', 'member', 'guest', 'agent')),
+  -- Display title shown wherever the member appears as an actor (e.g. the
+  -- agent command center): "Auditor", "Developer". Data, not config.
+  title text,
   timezone text not null default 'UTC',
   notification_prefs jsonb not null default '{}',
   email_notifications_enabled boolean not null default false,
@@ -72,9 +75,17 @@ create table public.projects (
     "showTimeLogs": false
   }'::jsonb,
   autonomous_enabled boolean not null default false,
-  deployment_policy text not null default 'production' check (deployment_policy in ('playground', 'production')),
-  max_concurrent_tasks integer not null default 2,
-  suggestions_per_cycle integer not null default 3,
+  -- Autonomy levers, all read by the agents (semantics in the 20260805204126
+  -- migration): may the merge gate merge here; where the dev agent integrates;
+  -- which branch ships to users (the gate refuses it, and equal branches make
+  -- auto-merge structurally impossible); review-queue backpressure; and the
+  -- minimum gap between audit cycles.
+  auto_merge_enabled boolean not null default false,
+  integration_branch text not null default 'dev' check (length(trim(integration_branch)) > 0),
+  production_branch text not null default 'main' check (length(trim(production_branch)) > 0),
+  suggestions_per_cycle integer not null default 3 check (suggestions_per_cycle <= suggestion_queue_cap),
+  suggestion_queue_cap integer not null default 10 check (suggestion_queue_cap > 0),
+  audit_interval_hours integer not null default 4 check (audit_interval_hours > 0),
   repo_path text,
   created_by uuid references public.team_members(id) on delete set null,
   archived_at timestamptz default null,

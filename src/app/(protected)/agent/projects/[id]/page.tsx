@@ -4,9 +4,11 @@ import { useParams, useRouter } from 'next/navigation';
 import { useApp } from '@/lib/store';
 import { Header } from '@/components/layout/Header';
 import { AgentSettingsCard } from '@/components/agent/AgentSettingsCard';
+import { ProjectPipelineStrip } from '@/components/agent/ProjectPipelineStrip';
+import { AuditQuestionsCard } from '@/components/agent/AuditQuestionsCard';
+import { ActivityTimeline } from '@/components/agent/ActivityTimeline';
 import { AgentGoalsCard } from '@/components/agent/AgentGoalsCard';
 import { ProjectContextPanel } from '@/components/projects/ProjectContextPanel';
-import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { ArrowLeft, Bot } from 'lucide-react';
 
@@ -41,28 +43,11 @@ export default function AgentProjectSettingsPage() {
   }
 
   const goals = projectGoals.filter(g => g.project_id === projectId);
-  const activeGoalCount = goals.filter(g => !g.archived_at).length;
 
   return (
     <div className="animate-fadeIn min-h-screen">
       <Header
         title={project.name}
-        subtitle={
-          <div className="flex items-center gap-2.5">
-            {project.color && (
-              <span
-                className="w-2.5 h-2.5 rounded-full flex-shrink-0"
-                style={{ backgroundColor: project.color }}
-              />
-            )}
-            <Badge variant={project.deployment_policy === 'playground' ? 'purple' : 'default'}>
-              {project.deployment_policy === 'playground' ? 'Playground' : 'Production'}
-            </Badge>
-            <span className="text-xs text-zinc-500">
-              {activeGoalCount} goal{activeGoalCount !== 1 ? 's' : ''}
-            </span>
-          </div>
-        }
         actions={
           <Button
             variant="secondary"
@@ -75,34 +60,40 @@ export default function AgentProjectSettingsPage() {
       />
 
       <div className="p-4 lg:p-6 space-y-6">
-        {/* Settings + Goals */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
-          <AgentSettingsCard
-            project={project}
-            onUpdate={(updates) => updateProject(projectId, updates)}
-          />
-          <AgentGoalsCard
-            projectId={projectId}
-            goals={goals}
-            taskSuggestions={taskSuggestions}
-            tasks={tasks}
-            onAdd={addGoal}
-            onUpdate={updateGoal}
-            onArchive={archiveGoal}
-          />
-        </div>
+        {/* This project's pipeline heartbeat: queue, audits, build, merges */}
+        <ProjectPipelineStrip project={project} />
 
-        {/* Project Context */}
-        <div>
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h2 className="font-semibold text-white">Project Context</h2>
-              <p className="text-xs text-zinc-500 mt-0.5">
-                Help AI agents understand this project by adding context entries.
-              </p>
-            </div>
+        {/* Settings on the left; the right rail stacks Goals and the question
+            selection so both columns fill, instead of one tall card facing one
+            short card across a stretched grid. */}
+        {/* No cross-column height coupling: a shared fixed band breaks the
+            moment any card's natural height shifts with viewport width (it
+            starved the activity feed at one width and the context entries at
+            another). Instead the two cards that can grow without limit carry
+            their own generous fixed windows and scroll internally; everything
+            else sits at natural height. Columns end within a card-gap of each
+            other at common widths, and nothing on the page ever reflows. */}
+        <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 items-start">
+          <div className="lg:col-span-3 space-y-6">
+            <AgentSettingsCard
+              project={project}
+              onUpdate={(updates) => updateProject(projectId, updates)}
+            />
+            <ActivityTimeline projectId={projectId} listMaxHeightClass="max-h-[500px]" />
           </div>
-          <ProjectContextPanel projectId={projectId} />
+          <div className="lg:col-span-2 space-y-6">
+            <AgentGoalsCard
+              projectId={projectId}
+              goals={goals}
+              taskSuggestions={taskSuggestions}
+              tasks={tasks}
+              onAdd={addGoal}
+              onUpdate={updateGoal}
+              onArchive={archiveGoal}
+            />
+            <AuditQuestionsCard projectId={projectId} />
+            <ProjectContextPanel projectId={projectId} />
+          </div>
         </div>
       </div>
     </div>

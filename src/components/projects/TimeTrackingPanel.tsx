@@ -634,7 +634,7 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                   <div className="flex-shrink-0 relative">
                     <Avatar name={getMember(runningTimer.member_id)?.name || '?'} src={getMember(runningTimer.member_id)?.avatar} size="md" />
                     <span
-                      className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ring-2 ring-surface ${runningTimerIsPaused ? '' : 'animate-pulse'}`}
+                      className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ring-2 ring-surface-raised ${runningTimerIsPaused ? '' : 'animate-pulse'}`}
                       style={{ backgroundColor: runningTimerIsPaused ? 'var(--color-zinc-400)' : projectColor }}
                     />
                   </div>
@@ -801,7 +801,7 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                   <div className="flex-shrink-0 relative">
                     <Avatar name={member?.name || '?'} src={member?.avatar} size="sm" />
                     <span
-                      className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full ring-2 ring-surface ${paused ? '' : 'animate-pulse'}`}
+                      className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full ring-2 ring-surface-raised ${paused ? '' : 'animate-pulse'}`}
                       style={{ backgroundColor: paused ? 'var(--color-zinc-400)' : projectColor }}
                     />
                   </div>

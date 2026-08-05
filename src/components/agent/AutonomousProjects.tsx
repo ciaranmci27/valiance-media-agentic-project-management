@@ -60,6 +60,7 @@ export function AutonomousProjects() {
           <h2 className="font-semibold text-white">Active Projects</h2>
           <button
             onClick={() => setShowAddModal(true)}
+            aria-label="Enable agents on a project"
             className="p-1.5 rounded-lg text-zinc-500 hover:text-brand-300 hover:bg-brand-500/15 transition-colors"
           >
             <Plus size={16} />
@@ -74,8 +75,16 @@ export function AutonomousProjects() {
             return (
               <div
                 key={project.id}
+                role="button"
+                tabIndex={0}
                 onClick={() => router.push(`/agent/projects/${project.id}`)}
-                className="p-3 lg:p-4 hover:bg-white/[0.03] transition-colors group cursor-pointer"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    router.push(`/agent/projects/${project.id}`);
+                  }
+                }}
+                className="p-3 lg:p-4 hover:bg-white/[0.03] transition-colors group cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-500 focus-visible:-outline-offset-2"
               >
                 <div className="flex items-center gap-3">
                   {project.color && (
@@ -101,14 +110,6 @@ export function AutonomousProjects() {
                           </span>
                         </>
                       )}
-                      <span className="text-xs text-zinc-600">&middot;</span>
-                      <span className={`text-[10px] font-semibold uppercase ${
-                        project.deployment_policy === 'playground'
-                          ? 'text-violet-400'
-                          : 'text-zinc-500'
-                      }`}>
-                        {project.deployment_policy === 'playground' ? 'Playground' : 'Production'}
-                      </span>
                     </div>
                   </div>
 
@@ -116,17 +117,19 @@ export function AutonomousProjects() {
                     <Tooltip content="Agent settings">
                       <button
                         onClick={(e) => { e.stopPropagation(); router.push(`/agent/projects/${project.id}`); }}
+                        aria-label={`Agent settings for ${project.name}`}
                         className="p-1.5 rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.06] transition-colors"
                       >
-                        <Settings size={14} />
+                        <Settings size={14} aria-hidden="true" />
                       </button>
                     </Tooltip>
                     <Tooltip content={project.autonomous_enabled ? 'Pause agents' : 'Resume agents'}>
                       <button
                         onClick={(e) => { e.stopPropagation(); handleToggle(project.id, project.autonomous_enabled); }}
+                        aria-label={project.autonomous_enabled ? `Pause agents on ${project.name}` : `Resume agents on ${project.name}`}
                         className="p-1.5 rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.06] transition-colors"
                       >
-                        {project.autonomous_enabled ? <Pause size={14} /> : <Play size={14} />}
+                        {project.autonomous_enabled ? <Pause size={14} aria-hidden="true" /> : <Play size={14} aria-hidden="true" />}
                       </button>
                     </Tooltip>
                   </div>
@@ -163,8 +166,16 @@ export function AutonomousProjects() {
               return (
                 <div
                   key={project.id}
-                  className="p-3 lg:p-4 hover:bg-white/[0.03] transition-colors group cursor-pointer"
+                  role="button"
+                  tabIndex={0}
+                  className="p-3 lg:p-4 hover:bg-white/[0.03] transition-colors group cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-500 focus-visible:-outline-offset-2"
                   onClick={() => router.push(`/agent/projects/${project.id}`)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      router.push(`/agent/projects/${project.id}`);
+                    }
+                  }}
                 >
                   <div className="flex items-center gap-3">
                     {project.color && (
@@ -190,17 +201,19 @@ export function AutonomousProjects() {
                       <Tooltip content="Agent settings">
                         <button
                           onClick={(e) => { e.stopPropagation(); router.push(`/agent/projects/${project.id}`); }}
+                          aria-label={`Agent settings for ${project.name}`}
                           className="p-1.5 rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.06] transition-colors"
                         >
-                          <Settings size={14} />
+                          <Settings size={14} aria-hidden="true" />
                         </button>
                       </Tooltip>
                       <Tooltip content="Enable agents">
                         <button
                           onClick={(e) => { e.stopPropagation(); handleEnable(project.id); }}
+                          aria-label={`Enable agents on ${project.name}`}
                           className="p-1.5 rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.06] transition-colors"
                         >
-                          <Play size={14} />
+                          <Play size={14} aria-hidden="true" />
                         </button>
                       </Tooltip>
                     </div>

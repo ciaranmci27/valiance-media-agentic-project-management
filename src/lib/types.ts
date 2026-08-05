@@ -18,8 +18,16 @@ export interface Project {
   budget_type: 'hours' | 'amount' | null;
   budget_value: number | null;
   autonomous_enabled: boolean;
-  deployment_policy: 'playground' | 'production';
-  max_concurrent_tasks: number;
+  /** May the merge gate auto-merge green contained PRs on this project. */
+  auto_merge_enabled: boolean;
+  /** Where the dev agent clones, branches, and PRs; the only legal merge target. */
+  integration_branch: string;
+  /** Declared ship-to-users branch; the merge gate refuses it unconditionally. */
+  production_branch: string;
+  /** Max suggestions awaiting review (pending + needs_info) before the auditor pauses. */
+  suggestion_queue_cap: number;
+  /** Minimum hours between audit cycles on this project. */
+  audit_interval_hours: number;
   suggestions_per_cycle: number;
   repo_path: string | null;
   billing_address?: string | null;
@@ -300,6 +308,8 @@ export interface TeamMember {
   email: string;
   avatar: string;
   role: 'owner' | 'admin' | 'member' | 'guest' | 'agent';
+  /** Display title ("Auditor", "Developer") shown wherever the member acts. */
+  title?: string | null;
   status?: 'active' | 'suspended';
   suspended_at?: string | null;
   suspended_by?: string | null;

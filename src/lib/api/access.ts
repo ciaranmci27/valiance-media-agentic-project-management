@@ -241,8 +241,9 @@ export function sanitizeProjectForAccess<T extends Record<string, unknown>>(
   }
   // The agent block that used to live here is gone on purpose.
   //
-  // autonomous_enabled, max_concurrent_tasks, suggestions_per_cycle,
-  // deployment_policy and repo_path are OPERATING PARAMETERS the agents read to
+  // autonomous_enabled, auto_merge_enabled, integration_branch,
+  // production_branch, suggestion_queue_cap, audit_interval_hours,
+  // suggestions_per_cycle and repo_path are OPERATING PARAMETERS the agents read to
   // decide what to do. They are not secrets and they are not settings from the
   // reader's point of view: changing any of them still requires agents.manage,
   // enforced in the PATCH handlers, which is where the boundary belongs.
@@ -252,7 +253,7 @@ export function sanitizeProjectForAccess<T extends Record<string, unknown>>(
   // false told every scheduled loop that no project anywhere wanted work, and
   // cost 25 hours of downtime in which Jeff answered PICKUP_IDLE roughly 50
   // times with an approved task assigned to him. Fixing only that field left
-  // max_concurrent_tasks reading 0, which told him he may run no tasks at all,
+  // the concurrency field reading 0, which told him he may run no tasks at all,
   // so he investigated the work properly and then declined it. Every request
   // returned 200 and every container stayed healthy through both.
   //

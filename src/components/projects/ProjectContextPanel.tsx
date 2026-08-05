@@ -91,7 +91,11 @@ function timeAgo(iso: string): string {
 export function ProjectContextPanel({ projectId }: ProjectContextPanelProps) {
   const [entries, setEntries] = useState<ProjectContext[]>([]);
   const [loading, setLoading] = useState(true);
-  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
+  // Exactly one category is open at all times: the open one fills the card's
+  // flexible space, so there is never an internal void and never a reflow.
+  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(
+    () => new Set([PROJECT_CONTEXT_CATEGORIES[0]]),
+  );
 
   // Add form state
   const [addingCategory, setAddingCategory] = useState<ProjectContextCategory | null>(null);
@@ -121,7 +125,11 @@ export function ProjectContextPanel({ projectId }: ProjectContextPanelProps) {
       setLoading(false);
       return;
     }
-    setEntries(data || []);
+    // The auditor's question selection is stored as a context entry but is
+    // configuration, not context: it renders as the Audit Questions card on
+    // the agent settings page, so showing the raw blob here would duplicate
+    // it as an uneditable wall of prose.
+    setEntries((data || []).filter(e => !String(e.content || '').startsWith('GREG_QUESTIONS:')));
     setLoading(false);
   }, [projectId]);
 
@@ -197,19 +205,17 @@ export function ProjectContextPanel({ projectId }: ProjectContextPanelProps) {
     setEditContent(entry.content);
   };
 
+  // Switching is the only operation: clicking a closed category opens it and
+  // closes the other; clicking the open one keeps it. Collapse-to-nothing is
+  // deliberately impossible, because an empty absorber is a void.
   const toggleCategory = (cat: string) => {
-    setExpandedCategories(prev => {
-      const next = new Set(prev);
-      if (next.has(cat)) next.delete(cat);
-      else next.add(cat);
-      return next;
-    });
+    setExpandedCategories(new Set([cat]));
   };
 
   const startAdding = (cat: ProjectContextCategory) => {
     setAddingCategory(cat);
     setAddContent('');
-    setExpandedCategories(prev => new Set(prev).add(cat));
+    setExpandedCategories(new Set([cat]));
   };
 
   const grouped = PROJECT_CONTEXT_CATEGORIES.reduce((acc, cat) => {
@@ -219,25 +225,32 @@ export function ProjectContextPanel({ projectId }: ProjectContextPanelProps) {
 
   if (loading) {
     return (
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {[...Array(4)].map((_, i) => (
-          <div key={i} className="rounded-xl border border-white/[0.08] p-4 animate-pulse">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="w-9 h-9 rounded-lg bg-white/[0.06]" />
-              <div className="flex-1">
-                <div className="h-4 w-24 bg-white/[0.06] rounded" />
-                <div className="h-3 w-40 bg-white/[0.03] rounded mt-1" />
-              </div>
+      <div className="glass-card rounded-xl overflow-hidden">
+        <div className="px-5 py-4 border-b border-white/[0.06]">
+          <div className="h-4 w-24 bg-white/[0.06] rounded animate-pulse" />
+        </div>
+        <div className="divide-y divide-white/[0.06]">
+          {[...Array(5)].map((_, i) => (
+            <div key={i} className="px-5 py-3 flex items-center gap-3 animate-pulse">
+              <div className="w-7 h-7 rounded-lg bg-white/[0.06]" />
+              <div className="h-3.5 w-32 bg-white/[0.06] rounded" />
             </div>
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
     );
   }
 
   return (
     <>
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="glass-card rounded-xl overflow-hidden flex flex-col h-[640px]">
+        <div className="px-5 py-4 border-b border-white/[0.06] flex-shrink-0">
+          <h2 className="font-semibold text-white">Context</h2>
+          <p className="text-[11px] text-zinc-500 mt-0.5">
+            What the agents know about this project. Every audit and spec starts from these.
+          </p>
+        </div>
+        <div className="divide-y divide-white/[0.06] flex flex-col flex-1 min-h-0">
         {PROJECT_CONTEXT_CATEGORIES.map(cat => {
           const config = CATEGORY_CONFIG[cat];
           const catEntries = grouped[cat];
@@ -245,22 +258,20 @@ export function ProjectContextPanel({ projectId }: ProjectContextPanelProps) {
           const CategoryIcon = config.icon;
 
           return (
-            <div
-              key={cat}
-              className="rounded-xl border border-white/[0.08] bg-surface-raised hover:border-white/[0.12] transition-all overflow-hidden flex flex-col max-h-[400px]"
-            >
-              {/* Category header */}
-              <div className="px-4 py-3 flex items-center gap-3 flex-shrink-0">
-                <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${config.bg}`}>
-                  <CategoryIcon size={16} className={config.iconColor} />
+            <div key={cat} className={`flex flex-col ${isExpanded ? 'flex-1 min-h-0' : 'flex-shrink-0'}`}>
+              {/* Category row */}
+              <div className="px-4 py-2.5 flex items-center gap-3 flex-shrink-0 hover:bg-white/[0.02] transition-colors">
+                <div className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 ${config.bg}`}>
+                  <CategoryIcon size={14} className={config.iconColor} />
                 </div>
 
                 <button
                   onClick={() => toggleCategory(cat)}
                   className="flex-1 min-w-0 text-left"
+                  aria-expanded={isExpanded}
                 >
                   <div className="flex items-center gap-1.5">
-                    <p className="text-sm font-semibold text-white">{config.label}</p>
+                    <p className="text-sm font-medium text-white">{config.label}</p>
                     {catEntries.length > 0 && (
                       <span className={`inline-flex items-center px-1.5 py-0.5 text-[10px] font-semibold rounded ${config.bg} ${config.text}`}>
                         {catEntries.length}
@@ -271,7 +282,7 @@ export function ProjectContextPanel({ projectId }: ProjectContextPanelProps) {
                       : <ChevronRight size={14} className="text-zinc-500" />
                     }
                   </div>
-                  <p className="text-[11px] text-zinc-500 mt-0.5">{config.description}</p>
+                  {isExpanded && <p className="text-[11px] text-zinc-500 mt-0.5">{config.description}</p>}
                 </button>
 
                 <Tooltip content="Add entry">
@@ -286,7 +297,7 @@ export function ProjectContextPanel({ projectId }: ProjectContextPanelProps) {
 
               {/* Expanded content */}
               {isExpanded && (
-                <div className="px-4 pb-4 space-y-2 overflow-y-auto overflow-x-hidden">
+                <div className="px-4 pb-4 space-y-2 overflow-y-auto overflow-x-hidden board-column-scroll flex-1 min-h-0">
                   {/* Add form */}
                   {addingCategory === cat && (
                     <div className="border border-brand-500/30 bg-brand-500/15 rounded-lg p-3 space-y-2">
@@ -373,6 +384,7 @@ export function ProjectContextPanel({ projectId }: ProjectContextPanelProps) {
             </div>
           );
         })}
+        </div>
       </div>
 
       <ConfirmDialog

@@ -5,6 +5,7 @@ import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { hasPermission } from '@/lib/access-control';
 import { Header } from '@/components/layout/Header';
+import { FleetStatusStrip } from '@/components/agent/FleetStatusStrip';
 import { ReviewQueue } from '@/components/agent/ReviewQueue';
 import { AutonomousProjects } from '@/components/agent/AutonomousProjects';
 import { ActivityTimeline } from '@/components/agent/ActivityTimeline';
@@ -45,7 +46,12 @@ export default function AgentPage() {
         />
       </div>
 
-      <div className="p-4 lg:p-6 lg:flex-1 lg:min-h-0 lg:flex lg:flex-col lg:overflow-hidden">
+      <div className="p-4 lg:p-6 lg:flex-1 lg:min-h-0 lg:flex lg:flex-col lg:overflow-hidden lg:gap-6 space-y-4 lg:space-y-0">
+        {/* Fleet heartbeat: who is alive, what they are doing, what fires next */}
+        <div className="lg:flex-shrink-0">
+          <FleetStatusStrip />
+        </div>
+
         {/* Main Content: Review Queue + Sidebar */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6 lg:flex-1 lg:min-h-0">
           {/* Review Queue - takes 2/3, fills grid row height */}

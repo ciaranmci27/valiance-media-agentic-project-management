@@ -383,11 +383,11 @@ export default function ProjectDetailPage() {
                     <div className="flex items-center -space-x-1.5">
                       {projectContactsList.slice(0, 4).map((pc) => (
                         <Tooltip key={pc.id} content={`${pc.contact?.name || 'Contact'} (${pc.role})`}>
-                          <Avatar name={pc.contact?.name || '?'} src={pc.contact?.avatar_url || undefined} size="sm" className="ring-2 ring-surface" />
+                          <Avatar name={pc.contact?.name || '?'} src={pc.contact?.avatar_url || undefined} size="sm" className="ring-2 ring-surface-raised" />
                         </Tooltip>
                       ))}
                       {projectContactsList.length > 4 && (
-                        <div className="w-6 h-6 rounded-full flex items-center justify-center bg-white/[0.08] text-zinc-300 text-[10px] font-medium ring-2 ring-surface">
+                        <div className="w-6 h-6 rounded-full flex items-center justify-center bg-white/[0.08] text-zinc-300 text-[10px] font-medium ring-2 ring-surface-raised">
                           +{projectContactsList.length - 4}
                         </div>
                       )}

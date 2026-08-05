@@ -83,8 +83,6 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
   const [billingEmail, setBillingEmail] = useState('');
   const [taxRate, setTaxRate] = useState('');
   const [autonomousEnabled, setAutonomousEnabled] = useState(false);
-  const [deploymentPolicy, setDeploymentPolicy] = useState<'playground' | 'production'>('production');
-  const [maxConcurrentTasks, setMaxConcurrentTasks] = useState(2);
   const [suggestionsPerCycle, setSuggestionsPerCycle] = useState(3);
   const [memberIds, setMemberIds] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
@@ -116,8 +114,6 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
       setBillingEmail(project.billing_email ?? '');
       setTaxRate(project.tax_rate != null ? String(project.tax_rate) : '');
       setAutonomousEnabled(project.autonomous_enabled ?? false);
-      setDeploymentPolicy(project.deployment_policy ?? 'production');
-      setMaxConcurrentTasks(project.max_concurrent_tasks ?? 2);
       setSuggestionsPerCycle(project.suggestions_per_cycle ?? 2);
       setMemberIds(project.member_ids);
       const primaryClient = getPrimaryClient(project.id);
@@ -137,8 +133,6 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
       setBillingEmail('');
       setTaxRate('');
       setAutonomousEnabled(false);
-      setDeploymentPolicy('production');
-      setMaxConcurrentTasks(2);
       setSuggestionsPerCycle(3);
       setMemberIds([]);
       setSelectedContactId('');
@@ -190,8 +184,6 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
       } : {}),
       ...(canManageAgents ? {
         autonomous_enabled: autonomousEnabled,
-        deployment_policy: deploymentPolicy,
-        max_concurrent_tasks: maxConcurrentTasks,
         suggestions_per_cycle: suggestionsPerCycle,
         repo_path: project?.repo_path ?? null,
       } : {}),

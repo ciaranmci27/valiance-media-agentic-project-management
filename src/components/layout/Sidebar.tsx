@@ -102,7 +102,7 @@ export function Sidebar() {
       ? [{ href: '/team', icon: Users, label: 'Team', badge: 0, overlay: false }] : []),
     ...(hasPermission(access, 'finance.company.read') || hasPermission(access, 'earnings.own.read')
       ? [{ href: '/finances', icon: DollarSign, label: 'Finances', badge: 0, overlay: false }] : []),
-    ...(isAgentsEnabled && canManageAgents ? [{ href: '/agent', icon: Bot, label: 'Agent', badge: pendingSuggestionCount, overlay: false }] : []),
+    ...(isAgentsEnabled && canManageAgents ? [{ href: '/agent', icon: Bot, label: 'Agent', badge: pendingSuggestionCount, overlay: true }] : []),
     { href: '/notifications', icon: Bell, label: 'Notifications', badge: unreadNotifications, overlay: true },
   ];
 
@@ -161,7 +161,13 @@ export function Sidebar() {
                 <span className="relative flex-shrink-0 leading-none">
                   <item.icon size={18} />
                   {item.overlay && item.badge > 0 && (
-                    <span className="absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-brand-500 px-1 text-[10px] font-semibold text-white ring-2 ring-sidebar">
+                    /* Notifications alone go red: since the notification pruning,
+                       one firing means an agent is blocked on a decision only
+                       Ciaran can make. The Agent badge stays brand because it is
+                       a review queue, not a blocker. */
+                    <span className={`absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-semibold text-white ${
+                      item.href === '/notifications' ? 'bg-red-600' : 'bg-brand-500'
+                    }`}>
                       {item.badge > 9 ? '9+' : item.badge}
                     </span>
                   )}

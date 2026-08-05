@@ -122,6 +122,22 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
     large: 'bg-rose-500/15 text-rose-300',
   };
 
+  // The tier is what Ciaran actually triages by: a bug risk and a feature idea
+  // with the same priority are different decisions. Priority alone made every
+  // row read as identical urgency.
+  const tierConfig: Record<string, { label: string; classes: string }> = {
+    bug_critical: { label: 'critical bug', classes: 'bg-red-500/15 text-red-300' },
+    bug_risk: { label: 'bug risk', classes: 'bg-orange-500/15 text-orange-300' },
+    improvement: { label: 'improvement', classes: 'bg-blue-500/15 text-blue-300' },
+    feature: { label: 'feature', classes: 'bg-violet-500/15 text-violet-300' },
+    business: { label: 'business', classes: 'bg-emerald-500/15 text-emerald-300' },
+  };
+
+  // Chip labels arrive as machine tokens (bug_risk, client-lifecycle-seams,
+  // medium): render them as words.
+  const titleCase = (value: string) =>
+    value.split(/[\s_-]+/).filter(Boolean).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+
   const getGoalTitle = (id: string) => projectGoals.find(g => g.id === id)?.title || 'Unknown';
   const getAgentName = (id: string) => team.find(m => m.id === id)?.name || 'Unknown';
   const getAgentAvatar = (id: string) => team.find(m => m.id === id)?.avatar || '';
@@ -187,6 +203,22 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
 
   const isActionable = (s: TaskSuggestion) => s.status === 'pending' || s.status === 'needs_info';
 
+  // The auditor answers an info request by appending to the description with
+  // this exact marker (its plugin owns the format). Splitting on it lets the UI
+  // show a clean description plus a real Q&A block, and, more importantly, show
+  // WHO HOLDS THE BALL: an unanswered request waits on the agent, an answered
+  // one is back on Ciaran. Without this the two states are indistinguishable.
+  const ANSWER_MARKER = '\n\n--- Answer to info request ---';
+  const splitAnswer = (s: TaskSuggestion): { description: string; answer: string | null } => {
+    const idx = s.description.indexOf(ANSWER_MARKER);
+    if (idx === -1) return { description: s.description, answer: null };
+    const raw = s.description.slice(idx + ANSWER_MARKER.length).trim();
+    // The addendum carries "Asked: ..." then "Answer: ..."; the box already
+    // renders the question, so display only the answer text.
+    const answer = raw.replace(/^Asked:[\s\S]*?\nAnswer:\s*/, '').replace(/^Answer:\s*/, '');
+    return { description: s.description.slice(0, idx).trimEnd(), answer };
+  };
+
   const rejectTarget = rejectInputId ? activeSuggestions.find(s => s.id === rejectInputId) : null;
   const infoTarget = infoInputId ? activeSuggestions.find(s => s.id === infoInputId) : null;
 
@@ -245,7 +277,10 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
         {groupedByProject.map((group) => (
           <div key={group.projectId}>
             {/* Project group header (accordion toggle + select all) */}
-            <div className="w-full px-3 lg:px-4 py-2 bg-white/[0.03] border-b border-white/[0.06] flex items-center gap-2 sticky top-0 z-[1] hover:bg-white/[0.06] transition-colors">
+            {/* Sticky, so it must be OPAQUE: a white-alpha tint here lets the
+                content scrolling beneath show through the pinned row. The solid
+                raised-surface token reads identically over the glass card. */}
+            <div className="w-full px-3 lg:px-4 py-2 bg-surface-raised border-b border-white/[0.06] flex items-center gap-2 sticky top-0 z-[1] hover:brightness-110 transition-[filter]">
               {/* Select all checkbox for pending suggestions in this project */}
               {statusFilter === 'pending' && (() => {
                 const pendingIds = group.suggestions.filter(s => s.status === 'pending').map(s => s.id);
@@ -332,10 +367,21 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
                             <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase ${priorityColors[suggestion.priority]}`}>
                               {suggestion.priority}
                             </span>
-                            {suggestion.status === 'needs_info' && (
-                              <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase bg-amber-500/15 text-amber-300">
-                                Needs Info
+                            {suggestion.metadata?.tier && tierConfig[suggestion.metadata.tier] && (
+                              <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase ${tierConfig[suggestion.metadata.tier].classes}`}>
+                                {tierConfig[suggestion.metadata.tier].label}
                               </span>
+                            )}
+                            {suggestion.status === 'needs_info' && (
+                              splitAnswer(suggestion).answer !== null ? (
+                                <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase bg-emerald-500/15 text-emerald-300">
+                                  Answered
+                                </span>
+                              ) : (
+                                <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase bg-amber-500/15 text-amber-300">
+                                  Waiting on agent
+                                </span>
+                              )
                             )}
                             {suggestion.status === 'approved' && (
                               <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase bg-emerald-500/15 text-emerald-300">
@@ -421,45 +467,143 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
                     {isExpanded && (
                       <div className="px-3 lg:px-4 pb-3 lg:pb-4 bg-white/[0.03] animate-slideDown">
                         <div className="ml-5 lg:ml-5 space-y-3">
-                          {/* Reasoning */}
+                          {/* One visual system, one rule: every section is the same
+                              raised card, and the single deviation is the Proposed Fix,
+                              tinted brand because it is the action being approved. Code
+                              sits in darker insets INSIDE its card. Mixing boxed and
+                              bare sections made the anatomy read as noise.
+
+                              Order mirrors how a finding is judged: what is wrong, why
+                              it matters, the proof, the remedy, the definition of done. */}
+                          {suggestion.description && (
+                            <div className="bg-surface-raised rounded-lg p-3 border border-white/[0.08]">
+                              <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-1.5">The Finding</p>
+                              <p className="text-sm text-zinc-100 leading-relaxed whitespace-pre-line">{splitAnswer(suggestion).description}</p>
+                            </div>
+                          )}
+
                           <div className="bg-surface-raised rounded-lg p-3 border border-white/[0.08]">
-                            <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-1.5">Agent Reasoning</p>
-                            <p className="text-sm text-zinc-100 leading-relaxed">{suggestion.reasoning}</p>
+                            <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-1.5">Why It Matters</p>
+                            <p className="text-sm text-zinc-300 leading-relaxed">{suggestion.reasoning}</p>
                           </div>
 
-                          {/* Description */}
-                          {suggestion.description && (
-                            <div>
-                              <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-1">Description</p>
-                              <p className="text-sm text-zinc-300 leading-relaxed">{suggestion.description}</p>
+                          {Array.isArray(suggestion.metadata?.evidence) && suggestion.metadata.evidence.length > 0 && (
+                            <div className="bg-surface-raised rounded-lg p-3 border border-white/[0.08]">
+                              <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-1.5">
+                                Evidence ({suggestion.metadata.evidence.length})
+                              </p>
+                              <div className="space-y-1.5">
+                                {suggestion.metadata.evidence.map((ev: { file?: string; line?: number; quote?: string }, i: number) => (
+                                  <div key={i} className="bg-surface rounded-md border border-white/[0.06] px-3 py-2">
+                                    <p className="text-[11px] font-mono text-brand-300 break-all">
+                                      {ev.file}{ev.line ? `:${ev.line}` : ''}
+                                    </p>
+                                    {ev.quote && (
+                                      <pre className="mt-1 text-[11px] font-mono text-zinc-300 whitespace-pre-wrap break-all leading-relaxed">{ev.quote}</pre>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {typeof suggestion.metadata?.proposed_fix === 'string' && suggestion.metadata.proposed_fix.trim() && (
+                            <div className="bg-brand-500/10 rounded-lg p-3 border border-brand-500/25">
+                              <p className="text-xs font-semibold text-brand-300 uppercase tracking-wider mb-1.5">Proposed Fix</p>
+                              <p className="text-sm text-zinc-100 leading-relaxed">{suggestion.metadata.proposed_fix}</p>
+                            </div>
+                          )}
+
+                          {Array.isArray(suggestion.metadata?.acceptance_criteria) && suggestion.metadata.acceptance_criteria.length > 0 && (
+                            <div className="bg-surface-raised rounded-lg p-3 border border-white/[0.08]">
+                              <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-1.5">
+                                Acceptance Criteria ({suggestion.metadata.acceptance_criteria.length})
+                              </p>
+                              <ul className="space-y-1.5">
+                                {suggestion.metadata.acceptance_criteria.map((criterion: string, i: number) => (
+                                  <li key={i} className="flex items-start gap-2 text-sm text-zinc-300 leading-relaxed">
+                                    <Check size={14} className="text-brand-300 mt-0.5 flex-shrink-0" aria-hidden="true" />
+                                    <span>{criterion}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+
+                          {typeof suggestion.metadata?.existing_check === 'string' && suggestion.metadata.existing_check.trim() && (
+                            <div className="bg-surface-raised rounded-lg p-3 border border-white/[0.08]">
+                              <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-1.5">Already-Exists Check</p>
+                              <p className="text-sm text-zinc-300 leading-relaxed">{suggestion.metadata.existing_check}</p>
                             </div>
                           )}
 
                           {/* Metadata row */}
                           <div className="flex flex-wrap items-center gap-2">
+                            {suggestion.metadata?.ai_readiness_recommendation && (
+                              <Tooltip content="The auditor's recommendation for who should build this">
+                                <span className={`px-2 py-0.5 rounded-full text-xs font-medium cursor-default ${
+                                  suggestion.metadata.ai_readiness_recommendation === 'ai_ready'
+                                    ? 'bg-cyan-500/15 text-cyan-300'
+                                    : suggestion.metadata.ai_readiness_recommendation === 'human_only'
+                                      ? 'bg-amber-500/15 text-amber-300'
+                                      : 'bg-white/[0.06] text-zinc-300'
+                                }`} tabIndex={0}>
+                                  {suggestion.metadata.ai_readiness_recommendation === 'ai_ready'
+                                    ? 'AI Ready'
+                                    : suggestion.metadata.ai_readiness_recommendation === 'human_only'
+                                      ? 'Human Only'
+                                      : 'Hybrid'}
+                                </span>
+                              </Tooltip>
+                            )}
+                            {suggestion.metadata?.question_id && (
+                              <Tooltip content="The audit question that surfaced this finding">
+                                <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-white/[0.06] text-zinc-400 cursor-default" tabIndex={0}>
+                                  {titleCase(String(suggestion.metadata.question_id))}
+                                </span>
+                              </Tooltip>
+                            )}
                             {suggestion.effort_estimate && (
-                              <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${effortColors[suggestion.effort_estimate]}`}>
-                                {suggestion.effort_estimate} effort
-                              </span>
+                              <Tooltip content="The auditor's estimate of implementation size">
+                                <span className={`px-2 py-0.5 rounded-full text-xs font-medium cursor-default ${effortColors[suggestion.effort_estimate]}`} tabIndex={0}>
+                                  {titleCase(suggestion.effort_estimate)} Effort
+                                </span>
+                              </Tooltip>
                             )}
                             {suggestion.task_type && (
-                              <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-white/[0.06] text-zinc-300">
-                                {suggestion.task_type}
-                              </span>
+                              <Tooltip content="Task type: decides which playbook the developer works from">
+                                <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-white/[0.06] text-zinc-300 cursor-default" tabIndex={0}>
+                                  {titleCase(suggestion.task_type)}
+                                </span>
+                              </Tooltip>
                             )}
-                            <div className="flex items-center gap-1.5 text-xs text-zinc-400">
-                              <Avatar name={getAgentName(suggestion.proposed_by)} src={getAgentAvatar(suggestion.proposed_by) || undefined} size="xs" />
-                              <span>{getAgentName(suggestion.proposed_by)}</span>
-                            </div>
+                            <Tooltip content={`Proposed by ${getAgentName(suggestion.proposed_by)}`}>
+                              <div className="flex items-center gap-1.5 text-xs text-zinc-400 cursor-default" tabIndex={0}>
+                                <Avatar name={getAgentName(suggestion.proposed_by)} src={getAgentAvatar(suggestion.proposed_by) || undefined} size="xs" />
+                                <span>{getAgentName(suggestion.proposed_by)}</span>
+                              </div>
+                            </Tooltip>
                           </div>
 
-                          {/* Info request display */}
-                          {suggestion.info_request && (
-                            <div className="bg-amber-500/15 rounded-lg p-3 border border-amber-500/30">
-                              <p className="text-xs font-semibold text-amber-300 mb-1">Info Requested</p>
-                              <p className="text-sm text-amber-300">{suggestion.info_request}</p>
-                            </div>
-                          )}
+                          {/* Info request, with the agent's answer once it arrives */}
+                          {suggestion.info_request && (() => {
+                            const { answer } = splitAnswer(suggestion);
+                            return (
+                              <div className={`rounded-lg p-3 border ${answer ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-amber-500/15 border-amber-500/30'}`}>
+                                <p className={`text-xs font-semibold mb-1 ${answer ? 'text-emerald-300' : 'text-amber-300'}`}>
+                                  {answer ? 'Info Request, Answered' : 'Info Requested, waiting on the agent'}
+                                </p>
+                                <p className="text-sm text-zinc-300">
+                                  <span className="text-zinc-500">You asked: </span>{suggestion.info_request}
+                                </p>
+                                {answer && (
+                                  <p className="text-sm text-zinc-100 mt-2 leading-relaxed whitespace-pre-line">
+                                    <span className="text-zinc-500">Answer: </span>{answer}
+                                  </p>
+                                )}
+                              </div>
+                            );
+                          })()}
 
                           {/* Rejection reason display */}
                           {suggestion.rejection_reason && (
