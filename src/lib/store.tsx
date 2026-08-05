@@ -3042,7 +3042,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setTasks(prev => [result.task, ...prev]);
 
       // Notify all members that a suggestion was approved
-      notify(adminMemberIds(), `Suggestion "${suggestion.title}" approved`, `${actorName()} approved the suggestion and created a task.`, null, 'suggestion', id, 'agent_suggestions');
       return true;
     } catch (err) {
       if (err instanceof Error && err.message === 'Suggestion has already been reviewed') {
@@ -3118,7 +3117,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
 
       if (suggestion) {
-        notify(adminMemberIds(), `Suggestion "${suggestion.title}" rejected`, reason ? `Reason: ${reason}` : `${actorName()} rejected the suggestion.`, null, 'suggestion', id, 'agent_suggestions');
       }
       return true;
     } catch (err) {
@@ -3149,7 +3147,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setTaskSuggestions(s => s.map(sug => sug.id === id ? updated : sug));
 
       if (suggestion) {
-        notify(adminMemberIds(), `Info requested on "${suggestion.title}"`, `${actorName()} requested more info on a suggestion.`, null, 'suggestion', id, 'agent_suggestions');
       }
     } catch (err) {
       setTaskSuggestions(prev);
@@ -3182,7 +3179,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
 
       if (suggestion) {
-        notify(adminMemberIds(), `Suggestion "${suggestion.title}" updated`, `${actorName()} edited a suggestion.`, null, 'suggestion', id, 'agent_suggestions');
       }
     } catch (err) {
       setTaskSuggestions(prev);

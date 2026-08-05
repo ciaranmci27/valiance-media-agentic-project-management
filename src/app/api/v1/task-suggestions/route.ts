@@ -89,28 +89,15 @@ export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId, acc
     statusCode: 201,
   });
 
-  // Notify the owner and admins about the new suggestion (respects notification prefs)
-  const { data: admins } = await supabase
-    .from('team_members')
-    .select('id, name, notification_prefs')
-    .in('role', ['owner', 'admin']);
-
-  if (admins && admins.length > 0) {
-    for (const admin of admins) {
-      // Skip if admin explicitly disabled agent_suggestions notifications
-      const prefs = (admin as any).notification_prefs;
-      if (prefs?.agent_suggestions === false) continue;
-
-      supabase.rpc('upsert_notification', {
-        p_user_id: admin.id,
-        p_title: `New suggestion from ${member.name || 'Agent'}`,
-        p_message: suggestion.title,
-        p_link: '/agent',
-        p_entity_type: 'suggestion',
-        p_entity_id: suggestion.id,
-      }).then(() => {}, () => {});
-    }
-  }
+  // Deliberately NO notification here. The Agent tab's badge already counts
+  // pending suggestions and links to this exact screen, so a notification
+  // saying one arrived duplicates a signal already on screen. Two indicators
+  // for one item read as twice the work and make an empty-ish queue feel full.
+  //
+  // The rule for this app: notify only about things that have NO other visual
+  // indicator. Anything already carrying a badge, a count, or a column is
+  // surfaced; adding a notification on top subtracts from the value of every
+  // other notification.
 
   return created(suggestion);
 }, { schema: createSuggestionSchema, permission: 'suggestions.create' });
