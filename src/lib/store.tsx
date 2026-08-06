@@ -3034,6 +3034,29 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const suggestion = taskSuggestions.find(s => s.id === id);
     if (!suggestion) return false;
 
+    // An ai_ready task nobody is assigned to is invisible to the dev agent's
+    // pickup filter and strands in todo forever (observed live: a bulk
+    // approve created 8 such tasks). The approve modal preselects the dev
+    // agent; every other path through here must apply the same default,
+    // found by role plus title, never by name. Mirrors the readiness
+    // resolution in approveTaskSuggestionQuery.
+    if (taskOverrides.assigned_to === undefined) {
+      const recommended = (suggestion.metadata as Record<string, any> | null)?.ai_readiness_recommendation;
+      const resolvedReadiness =
+        taskOverrides.ai_readiness !== undefined
+          ? taskOverrides.ai_readiness
+          : recommended === 'ai_ready' || recommended === 'human_only'
+            ? recommended
+            : null;
+      if (resolvedReadiness === 'ai_ready') {
+        const agents = team.filter(m => m.role === 'agent');
+        const devAgent =
+          agents.find(m => /develop|engineer/i.test(m.title || '')) ??
+          (agents.length === 1 ? agents[0] : undefined);
+        if (devAgent) taskOverrides = { ...taskOverrides, assigned_to: devAgent.id };
+      }
+    }
+
     setTaskSuggestions(s => s.map(sug =>
       sug.id === id ? { ...sug, status: 'approved' as const, reviewed_by: reviewedBy, reviewed_at: new Date().toISOString() } : sug
     ));
