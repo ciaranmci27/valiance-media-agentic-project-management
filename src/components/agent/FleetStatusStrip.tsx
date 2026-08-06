@@ -168,15 +168,21 @@ export function FleetStatusStrip() {
 
       let state: PulseState;
       let reason: string;
+      // Precedence: an ACTIVE build outranks a waiting backlog. The dev agent
+      // is serial by design, so approving five tasks at once necessarily
+      // leaves four in todo while the first is built; that queue is healthy.
+      // "Unclaimed" only signals a stall when the agent is idle, which is why
+      // the wait checks sit BELOW the working check. Observed live: an agent
+      // mid-build showed red for work it was simply not allowed to parallelize.
       if (lastWasFailure) {
         state = 'attention';
         reason = `Last action failed: ${lastEntry!.title}`;
-      } else if (oldestWaitMs > STALLED_AFTER_MS) {
-        state = 'attention';
-        reason = `Assigned work unclaimed for ${waitLabel(oldestWaitMs)}`;
       } else if (currentTask || recentlyActive) {
         state = 'working';
         reason = currentTask ? `Working on: ${currentTask.title}` : lastEntry!.title;
+      } else if (oldestWaitMs > STALLED_AFTER_MS) {
+        state = 'attention';
+        reason = `Assigned work unclaimed for ${waitLabel(oldestWaitMs)}`;
       } else if (oldestWaitMs > BEHIND_AFTER_MS) {
         state = 'behind';
         reason = `Assigned work waiting ${waitLabel(oldestWaitMs)} for pickup`;
