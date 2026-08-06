@@ -1802,7 +1802,7 @@ export async function approveTaskSuggestion(
     : [];
   // The reviewer's explicit choice wins; otherwise the recommendation, and
   // 'hybrid' deliberately maps to null: a hybrid recommendation means "needs
-  // decomposition", which is Ashley's interview, not a runnable task state.
+  // decomposition", which is the spec agent's interview, not a runnable task state.
   const recommended = metadata.ai_readiness_recommendation;
   const resolvedReadiness =
     taskOverrides.ai_readiness !== undefined

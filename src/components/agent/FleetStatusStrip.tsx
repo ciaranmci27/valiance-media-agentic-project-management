@@ -21,11 +21,11 @@ import { Avatar } from '@/components/ui/Avatar';
  * table below, which mirrors infrastructure the app cannot see.
  */
 
-// Wake-up cadences, mirrored from the standing VPS cron jobs (see
-// valiance-media-agents docs/08-crons-and-schedules.md). The app has no view
-// into the cron scheduler, so this is a documented mirror keyed by first name:
-// unknown agents simply show no next-run time. This table dies when per-project
-// cadence lands in the database (audit_interval_hours).
+// DEPLOYMENT CONFIG: wake-up cadences of this workspace's standing agent
+// jobs, keyed by the agent's lowercased first name. The app has no view into
+// whatever scheduler runs the agents, so this mirror is maintained by hand;
+// agents missing from it simply show no next-run time. Edit it to match your
+// own schedules (or empty it). Dies when cadence lands in the database.
 const CRON_MIRROR: Record<string, { everyHours?: number; atMinutes?: number[] }> = {
   greg: { atMinutes: [0] }, // 0 * * * * (hourly clock; pace is per-project audit_interval_hours)
   jeff: { atMinutes: [0, 30] }, // */30 * * * *
@@ -42,8 +42,8 @@ const STALLED_AFTER_MS = 2 * 60 * 60 * 1000;
 const FAILURE_TYPES = new Set(['task_failed', 'agent_failed']);
 
 // The fleet's silence-token protocol, mirrored from the agents' standing
-// prompts (each ends an idle run with one of these; Greg additionally logs ONE
-// entry when every project was ineligible). A just-logged skip means the agent
+// prompts (each ends an idle run with one of these; the auditor additionally
+// logs ONE entry when every project was ineligible). A just-logged skip means the agent
 // ran and chose to do nothing, which is standby, not work: without this the
 // pulse went green for ten minutes every time an agent reported doing nothing.
 const SILENCE_TOKEN = /^(NO_WORK|PICKUP_IDLE|SWEEP_CLEAN|HEARTBEAT_OK|ALL_FRESH)\b[\s:-]*/;

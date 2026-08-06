@@ -12,7 +12,7 @@ import { SearchCode } from 'lucide-react';
  * looks at, and it used to be invisible: a GREG_QUESTIONS context entry
  * buried mid-page inside Technical Decisions.
  *
- * Read-only on purpose. Selection is Ashley's job because her tool validates
+ * Read-only on purpose. Selection belongs to the spec agent, whose tool validates
  * it (5 to 10 questions, 3+ themes, at least one opportunity question); an
  * edit path here would bypass those rules.
  */
@@ -99,7 +99,7 @@ export function AuditQuestionsCard({ projectId }: AuditQuestionsCardProps) {
         ) : questions.length === 0 ? (
           <p className="text-sm text-zinc-500 leading-relaxed">
             No question selection yet, so the auditor has nothing to aim at.
-            Ask Ashley to select audit questions for this project.
+            Ask your spec agent to select audit questions for this project.
           </p>
         ) : (
           <>
@@ -129,7 +129,7 @@ export function AuditQuestionsCard({ projectId }: AuditQuestionsCardProps) {
               })}
             </div>
             <p className="text-[11px] text-zinc-500 leading-relaxed mt-3">
-              These steer every audit cycle. The selection is Ashley&apos;s job (her tool
+              These steer every audit cycle. The selection is the spec agent&apos;s job (its tool
               enforces breadth rules), so to change it, ask her to reselect.
             </p>
           </>

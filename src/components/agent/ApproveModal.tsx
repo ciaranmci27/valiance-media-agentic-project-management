@@ -28,8 +28,13 @@ export function ApproveModal({ suggestion, onClose, onApprove }: ApproveModalPro
     recommended === 'ai_ready' && criteriaCount > 0 ? 'ai_ready'
       : recommended === 'human_only' ? 'human_only'
       : 'needs_spec';
-  // The dev agent, found by role.
-  const devAgent = team.find(m => m.role === 'agent' && /jeff/i.test(m.name));
+  // The dev agent, found by role plus title, never by a hardcoded name:
+  // which team member builds approved work is deployment DATA. A lone agent
+  // is the dev agent by elimination.
+  const agents = team.filter(m => m.role === 'agent');
+  const devAgent =
+    agents.find(m => /develop|engineer/i.test(m.title || '')) ??
+    (agents.length === 1 ? agents[0] : undefined);
 
   const [priority, setPriority] = useState(suggestion.priority);
   // Prefilled with whoever will actually receive the task, never left blank for
@@ -46,9 +51,10 @@ export function ApproveModal({ suggestion, onClose, onApprove }: ApproveModalPro
   //   ai_ready:   dev agent claims it within one pickup cycle, auto-assigned.
   //   human_only: Ciaran's own task.
   //   needs_spec: readiness stays NULL, so the dev agent structurally cannot
-  //               see it; Ashley's sweep starts the spec interview instead.
-  //               This is the feature path: Greg cannot spec a feature the way
-  //               Ciaran wants it, so approval means "yes, but interview me".
+  //               see it; the spec agent's sweep starts the interview
+  //               instead. This is the feature path: the auditor cannot spec
+  //               a feature the way the owner wants it, so approval means
+  //               "yes, but interview me".
   const [mode, setMode] = useState<'ai_ready' | 'human_only' | 'needs_spec'>(initialMode);
 
   // Switching mode re-points the assignee at that mode's default, because who
@@ -66,15 +72,15 @@ export function ApproveModal({ suggestion, onClose, onApprove }: ApproveModalPro
     project_id: suggestion.project_id,
     task_type: taskType || null,
     // needs_spec sends an explicit null: the created task has no readiness, is
-    // invisible to the dev agent's pickup filter, and is what Ashley's sweep
-    // recognizes as "interview Ciaran".
+    // invisible to the dev agent's pickup filter, and is what the spec
+    // agent's sweep recognizes as "interview the owner".
     ai_readiness: mode === 'needs_spec' ? null : mode,
   });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (mode === 'ai_ready' && criteriaCount === 0) {
-      toast('error', 'No acceptance criteria on this suggestion. Choose "Needs spec" so Ashley runs the interview, or edit criteria in first.');
+      toast('error', 'No acceptance criteria on this suggestion. Choose "Needs spec" to start a spec interview, or edit criteria in first.');
       return;
     }
     onApprove(getOverrides());
@@ -140,7 +146,7 @@ export function ApproveModal({ suggestion, onClose, onApprove }: ApproveModalPro
             {([
               { key: 'ai_ready', label: 'AI Ready', hint: devAgent ? `${devAgent.name} starts automatically` : 'Dev agent starts automatically' },
               { key: 'human_only', label: 'Human task', hint: 'Assigned manually, no agent involved' },
-              { key: 'needs_spec', label: 'Needs spec', hint: 'Ashley interviews you first' },
+              { key: 'needs_spec', label: 'Needs spec', hint: 'Spec agent interviews you first' },
             ] as const).map(opt => (
               <button
                 key={opt.key}

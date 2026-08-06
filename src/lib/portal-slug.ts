@@ -15,7 +15,7 @@ function slugify(name: string): string {
 
 /**
  * Generate a lowercase slug for DB storage and query matching.
- * e.g. "Plan4TheFuture.com" -> "plan4thefuture"
+ * e.g. "AcmeLegal.com" -> "acmelegal"
  *      "Crest Financial Rebrand" -> "crest-financial-rebrand"
  */
 export function generatePortalSlug(name: string): string {
@@ -24,7 +24,7 @@ export function generatePortalSlug(name: string): string {
 
 /**
  * Generate a display-cased slug preserving the original casing.
- * e.g. "Plan4TheFuture.com" -> "Plan4TheFuture"
+ * e.g. "AcmeLegal.com" -> "AcmeLegal"
  *      "Crest Financial Rebrand" -> "Crest-Financial-Rebrand"
  */
 export function generatePortalSlugDisplay(name: string): string {

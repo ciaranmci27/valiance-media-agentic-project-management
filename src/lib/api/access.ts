@@ -251,11 +251,11 @@ export function sanitizeProjectForAccess<T extends Record<string, unknown>>(
   // Blanking them was silently catastrophic, twice, because a zeroed parameter
   // is a valid instruction rather than an error. autonomous_enabled forced to
   // false told every scheduled loop that no project anywhere wanted work, and
-  // cost 25 hours of downtime in which Jeff answered PICKUP_IDLE roughly 50
-  // times with an approved task assigned to him. Fixing only that field left
-  // the concurrency field reading 0, which told him he may run no tasks at all,
-  // so he investigated the work properly and then declined it. Every request
-  // returned 200 and every container stayed healthy through both.
+  // cost 25 hours of downtime in which the dev agent answered its idle token
+  // roughly 50 times with an approved task assigned to it. Fixing only that
+  // field left the concurrency field reading 0, which said it may run no tasks
+  // at all, so it investigated the work properly and then declined it. Every
+  // request returned 200 and every container stayed healthy through both.
   //
   // A read path that quietly rewrites values into a legal-looking lie is worse
   // than one that refuses. If a caller should not see these, deny the endpoint.
