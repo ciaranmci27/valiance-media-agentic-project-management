@@ -16,6 +16,7 @@ export const GET = withApi(async ({ supabase, params }) => {
       subtasks:task_subtasks(id, task_id, title, completed, sort_order),
       comments:task_comments(id, task_id, user_id, text, created_at),
       criteria:task_acceptance_criteria(id, task_id, criterion, satisfied, sort_order),
+      reviews:task_reviews(id, round, verdict, summary, pr_url, head_sha, reviewer_member_id, created_at),
       task_dependencies!task_dependencies_task_id_fkey(
         blocker:tasks!task_dependencies_blocked_by_task_id_fkey(id, title, status)
       )
@@ -48,10 +49,18 @@ export const GET = withApi(async ({ supabase, params }) => {
       new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
     ),
     acceptance_criteria: (data.criteria || []).sort((a: any, b: any) => a.sort_order - b.sort_order),
+    // Newest review row is the task's current verdict; jeff-automerge reads
+    // this field and fails closed when it is null. Round breaks created_at
+    // ties (same-millisecond rows would otherwise be nondeterministic).
+    latest_review: (data.reviews || []).slice().sort((a: any, b: any) =>
+      (new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+      || ((b.round ?? 0) - (a.round ?? 0))
+    )[0] ?? null,
     blocked_by: blockedBy,
     blocked_by_ids: blockedBy.map((b: any) => b.id),
     dependencies_met: unresolvedBlockers === 0 && blockedBy.every((b: any) => b.status === 'done'),
     criteria: undefined,
+    reviews: undefined,
     task_dependencies: undefined,
     task_assignees: undefined,
   };

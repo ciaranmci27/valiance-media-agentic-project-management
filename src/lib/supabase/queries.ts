@@ -154,6 +154,7 @@ export async function fetchTasks(supabase: SupabaseClient) {
       subtasks:task_subtasks ( id, task_id, title, completed, sort_order ),
       comments:task_comments ( id, task_id, user_id, text, created_at ),
       criteria:task_acceptance_criteria ( id, task_id, criterion, satisfied, sort_order ),
+      reviews:task_reviews ( id, round, verdict, summary, pr_url, head_sha, reviewer_member_id, created_at ),
       task_dependencies!task_dependencies_task_id_fkey ( blocked_by_task_id )
     `)
     .order('created_at', { ascending: false });
@@ -168,6 +169,9 @@ export async function fetchTasks(supabase: SupabaseClient) {
       (a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
     ),
     acceptance_criteria: (t.criteria || []).sort((a: any, b: any) => a.sort_order - b.sort_order),
+    reviews: (t.reviews || []).sort(
+      (a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+    ),
     blocked_by_ids: (t.task_dependencies || []).map((d: any) => d.blocked_by_task_id),
     criteria: undefined,
     task_dependencies: undefined,

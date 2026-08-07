@@ -59,6 +59,9 @@ function inferredPermission(pathname: string, method: string): PermissionKey {
     if (/\/api\/v1\/tasks\/?$/.test(pathname) && method === 'POST') return 'tasks.create';
     if (/\/api\/v1\/tasks\/[^/]+\/?$/.test(pathname) && method === 'DELETE') return 'tasks.manage_all';
     if (pathname.includes('/comments')) return 'tasks.read';
+    // Review verdicts gate merges. manage_assigned must never suffice for
+    // writes: an assignee-scoped agent could otherwise approve its own PR.
+    if (pathname.includes('/reviews')) return write ? 'tasks.manage_all' : 'tasks.read';
     return 'tasks.manage_assigned';
   }
   if (pathname.includes('/leads')) return write ? 'leads.manage' : 'leads.read';

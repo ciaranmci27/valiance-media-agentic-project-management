@@ -215,6 +215,28 @@ create index idx_task_dependencies_blocked_by
   on public.task_dependencies(blocked_by_task_id);
 
 -- ============================================================
+-- 8d. TASK REVIEWS (independent PR review verdicts)
+-- ============================================================
+-- One row per review round; the latest row is the task's current verdict.
+-- head_sha pins the verdict to the exact PR head reviewed so automerge can
+-- refuse commits pushed after approval. Written only via the v1 agent API
+-- (service client); authenticated users read.
+create table public.task_reviews (
+  id uuid primary key default gen_random_uuid(),
+  task_id uuid not null references public.tasks(id) on delete cascade,
+  round int not null default 1,
+  verdict text not null check (verdict in ('approved', 'changes_requested')),
+  summary text,
+  pr_url text,
+  head_sha text,
+  reviewer_member_id uuid references public.team_members(id),
+  created_at timestamptz not null default now()
+);
+
+create index idx_task_reviews_task_created
+  on public.task_reviews(task_id, created_at desc);
+
+-- ============================================================
 -- 9. COMMENTS
 -- ============================================================
 create table public.task_comments (
@@ -1618,6 +1640,7 @@ alter table public.tasks enable row level security;
 alter table public.task_assignees enable row level security;
 alter table public.task_subtasks enable row level security;
 alter table public.task_acceptance_criteria enable row level security;
+alter table public.task_reviews enable row level security;
 alter table public.task_dependencies enable row level security;
 alter table public.task_comments enable row level security;
 alter table public.activities enable row level security;
@@ -2935,7 +2958,7 @@ BEGIN
     'business_settings','smtp_accounts','role_permissions','team_member_permissions',
     'team_member_hourly_rates','team_member_earning_adjustments','team_member_payouts',
     'team_member_payout_allocations','project_credential_members',
-    'task_acceptance_criteria','task_dependencies'
+    'task_acceptance_criteria','task_dependencies','task_reviews'
   ] LOOP
     IF to_regclass('public.' || table_name) IS NOT NULL THEN
       FOR policy_name IN
@@ -3054,6 +3077,11 @@ CREATE POLICY task_acceptance_criteria_manage ON public.task_acceptance_criteria
         AND assignment.member_id = public.current_team_member_id()
     )
   ));
+
+-- Reviews: read-only for humans; the reviewer agent writes via the service
+-- client, so there is intentionally no authenticated write policy.
+CREATE POLICY task_reviews_select ON public.task_reviews FOR SELECT TO authenticated
+  USING (public.can_access_task(task_id));
 
 CREATE POLICY task_dependencies_select ON public.task_dependencies FOR SELECT TO authenticated
   USING (public.can_access_task(task_id));
@@ -3965,7 +3993,7 @@ begin
 
   foreach t in array array[
     'tasks', 'task_subtasks', 'task_assignees', 'task_acceptance_criteria',
-    'task_dependencies', 'task_comments',
+    'task_dependencies', 'task_comments', 'task_reviews',
     'projects', 'project_members',
     'team_members',
     'contacts', 'project_contacts',

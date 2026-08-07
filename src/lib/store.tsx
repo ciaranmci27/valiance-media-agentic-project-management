@@ -130,6 +130,7 @@ const REALTIME_TABLE_SLICES: Record<string, RealtimeSlice> = {
   task_acceptance_criteria: 'tasks',
   task_dependencies: 'tasks',
   task_comments: 'tasks',
+  task_reviews: 'tasks',
   projects: 'projects',
   project_members: 'projects',
   team_members: 'team',

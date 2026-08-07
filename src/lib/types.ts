@@ -231,6 +231,8 @@ export interface Task {
   task_type?: TaskType | null;
   ai_readiness?: AiReadiness | null;
   acceptance_criteria: AcceptanceCriterion[];
+  /** Independent PR review rounds, newest last. Absent outside review flows. */
+  reviews?: TaskReview[];
   blocked_by_ids: string[];
   created_by?: string | null;
   project_goal_id?: string | null;
@@ -246,6 +248,23 @@ export interface Subtask {
   title: string;
   completed: boolean;
   sort_order?: number;
+}
+
+/**
+ * One independent PR review round (written by the reviewer agent through the
+ * v1 API). The newest row for a task is its current verdict; head_sha pins
+ * the verdict to the exact commit reviewed.
+ */
+export interface TaskReview {
+  id: string;
+  task_id?: string;
+  round: number;
+  verdict: 'approved' | 'changes_requested';
+  summary: string | null;
+  pr_url: string | null;
+  head_sha: string | null;
+  reviewer_member_id: string | null;
+  created_at: string;
 }
 
 export interface AcceptanceCriterion {

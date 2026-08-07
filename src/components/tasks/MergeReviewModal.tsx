@@ -3,7 +3,7 @@
 import Modal from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { PriorityBadge } from '@/components/ui/Badge';
-import { ExternalLink, PanelRight, Check, Minus } from 'lucide-react';
+import { ExternalLink, PanelRight, Check, Minus, ShieldCheck, ShieldAlert } from 'lucide-react';
 import type { Task } from '@/lib/types';
 import type { ReviewProfile } from '@/lib/autonomy';
 
@@ -67,6 +67,40 @@ export function MergeReviewModal({
           <p className="text-sm text-amber-200 font-medium">{profile.reviewDepth}</p>
           <p className="text-xs text-zinc-300 mt-1 leading-relaxed">{heldLine} {depthGuidance}</p>
         </div>
+
+        {/* The independent reviewer's word, when there is one. Absence is
+            stated outright: an unreviewed PR should feel unreviewed. */}
+        {profile.reviewerVerdict ? (
+          profile.reviewerVerdict.verdict === 'approved' ? (
+            <div className="bg-emerald-500/[0.07] border border-emerald-500/20 rounded-lg p-3 flex items-start gap-2">
+              <ShieldCheck size={15} className="text-emerald-300 mt-0.5 flex-shrink-0" aria-hidden="true" />
+              <div>
+                <p className="text-sm text-emerald-200 font-medium">
+                  Approved by John · round {profile.reviewerVerdict.round}
+                </p>
+                {profile.reviewerVerdict.summary && (
+                  <p className="text-xs text-zinc-300 mt-1 leading-relaxed">{profile.reviewerVerdict.summary}</p>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="bg-red-500/[0.07] border border-red-500/20 rounded-lg p-3 flex items-start gap-2">
+              <ShieldAlert size={15} className="text-red-300 mt-0.5 flex-shrink-0" aria-hidden="true" />
+              <div>
+                <p className="text-sm text-red-200 font-medium">
+                  John requested changes · round {profile.reviewerVerdict.round}
+                </p>
+                {profile.reviewerVerdict.summary && (
+                  <p className="text-xs text-zinc-300 mt-1 leading-relaxed">{profile.reviewerVerdict.summary}</p>
+                )}
+              </div>
+            </div>
+          )
+        ) : (
+          <p className="text-xs text-zinc-500 leading-relaxed">
+            Not independently reviewed yet. John reviews agent PRs on his next pass; merging now means you are the only reviewer.
+          </p>
+        )}
 
         {/* What must be true: the criteria the agent was gated on */}
         {profile.criteriaTotal > 0 && (

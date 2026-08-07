@@ -1,4 +1,20 @@
-import type { Project, Task, TaskSuggestion } from '@/lib/types';
+import type { Project, Task, TaskReview, TaskSuggestion } from '@/lib/types';
+
+/**
+ * The task's current independent review verdict: the newest review round,
+ * or null when the reviewer has not looked yet. Null and 'changes_requested'
+ * both mean "not mergeable on the reviewer's word"; the merge gate itself
+ * re-checks the reviewed head SHA server-side, so this value is for display
+ * and expectation-setting, never the merge decision.
+ */
+export function latestReview(task: Task): TaskReview | null {
+  const reviews = task.reviews ?? [];
+  if (reviews.length === 0) return null;
+  return reviews.reduce((best, r) => {
+    const dt = new Date(r.created_at).getTime() - new Date(best.created_at).getTime();
+    return dt > 0 || (dt === 0 && r.round > best.round) ? r : best;
+  });
+}
 
 /**
  * Task autonomy lanes: the answer to "will this task ever need a human?".
@@ -96,6 +112,8 @@ export interface NeedsYouItem {
   count?: number;
   /** blocked only: the agent's question, verbatim. */
   question?: string;
+  /** merge only: the independent reviewer's current verdict, if any. */
+  reviewerVerdict?: TaskReview | null;
 }
 
 // The structured blocked signal: the agent logs a task-referenced activity
@@ -144,12 +162,14 @@ export function computeNeedsYou(input: {
   }
 
   // Agent PRs sitting in review: the build is done and the only remaining
-  // step is (or may be) your merge click.
+  // step is (or may be) your merge click. The reviewer verdict rides along
+  // so the row can say whether John has signed off yet; the item itself
+  // always surfaces, because a reviewer outage must never bury a held merge.
   for (const task of tasks) {
     if (task.status !== 'in_review') continue;
     const lane = laneOf(task);
     if (lane === 'needs_merge' || lane === 'merge_unknown') {
-      items.push({ kind: 'merge', task, lane });
+      items.push({ kind: 'merge', task, lane, reviewerVerdict: latestReview(task) });
     }
   }
 
@@ -215,6 +235,7 @@ export interface ReviewProfile {
   reviewDepth: 'Quick skim' | 'Standard review' | 'Deep review';
   prUrl: string | null;            // from the agent's PR-link task comment
   hoursSpent: number;              // linked time entries, worked segments only
+  reviewerVerdict: TaskReview | null; // newest independent review round, if any
 }
 
 export function getReviewProfile(
@@ -262,5 +283,6 @@ export function getReviewProfile(
     tier, effort, valueCategory, billingCase,
     criteriaDone, criteriaTotal: criteria.length,
     matchedCategories, reviewDepth, prUrl, hoursSpent,
+    reviewerVerdict: latestReview(task),
   };
 }
