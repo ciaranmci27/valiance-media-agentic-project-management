@@ -270,6 +270,15 @@ export default function ProjectDetailPage() {
     setConfirmDelete({ type: 'bulk', id: 'bulk' });
   };
 
+  // Clearing due dates wipes data with no undo, so it confirms first; it
+  // already cost real due dates to an accidental click.
+  const [confirmClearDueDates, setConfirmClearDueDates] = useState(false);
+
+  const clearSelection = () => {
+    setSelectedTaskIds(new Set());
+    setShowBulkMenu(false);
+  };
+
   const executeDelete = () => {
     if (!confirmDelete) return;
     if (confirmDelete.type === 'task') {
@@ -482,6 +491,17 @@ export default function ProjectDetailPage() {
                   width={248}
                   className="bg-surface-raised rounded-lg shadow-xl border border-white/[0.08] py-1 max-h-[70vh] overflow-y-auto"
                 >
+                  {/* Same escape hatch the filter panel offers: back out of a
+                      half-committed bulk edit in one click. */}
+                  <div className="flex items-center justify-between px-3 py-1.5 border-b border-white/[0.06] mb-1">
+                    <span className="text-xs font-medium text-zinc-300">{selectedTaskIds.size} selected</span>
+                    <button
+                      onClick={clearSelection}
+                      className="text-xs text-brand-300 hover:text-brand-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-500 rounded"
+                    >
+                      Clear selection
+                    </button>
+                  </div>
                   <p className="px-3 py-1.5 text-xs font-medium text-zinc-400 uppercase">Set Status</p>
                   <div className="grid grid-cols-2 gap-1 px-2 pb-1">
                     {(['todo', 'in_progress', 'in_review', 'done'] as const).map(s => (
@@ -515,7 +535,7 @@ export default function ProjectDetailPage() {
                   <div className="px-3 pb-1.5">
                     <DateInput value="" onChange={v => { if (v) bulkSetDueDate(v); }} />
                   </div>
-                  <button onClick={() => bulkSetDueDate(null)} className="w-full text-left px-3 py-1.5 text-sm text-zinc-400 hover:bg-white/[0.03]">
+                  <button onClick={() => { setShowBulkMenu(false); setConfirmClearDueDates(true); }} className="w-full text-left px-3 py-1.5 text-sm text-zinc-400 hover:bg-white/[0.03]">
                     Clear due date
                   </button>
                   <div className="border-t border-white/[0.06] my-1" />
@@ -584,6 +604,8 @@ export default function ProjectDetailPage() {
                 onDeleteTask={handleDeleteTask}
                 selectedIds={selectedTaskIds}
                 onToggleSelect={toggleTaskSelection}
+                onStatusChange={handleStatusChange}
+                onReorder={handleReorder}
               />
             )}
 
@@ -687,6 +709,21 @@ export default function ProjectDetailPage() {
         }
         confirmLabel="Delete"
         variant="danger"
+      />
+
+      {/* Confirm Clear Due Dates: destructive but recoverable by re-entering
+          dates, so the softer variant without double-confirm. */}
+      <ConfirmDialog
+        isOpen={confirmClearDueDates}
+        onClose={() => setConfirmClearDueDates(false)}
+        onConfirm={() => {
+          setConfirmClearDueDates(false);
+          bulkSetDueDate(null);
+        }}
+        title="Clear Due Dates"
+        message={`This will remove the due date from ${selectedTaskIds.size} selected ${selectedTaskIds.size === 1 ? 'task' : 'tasks'}.`}
+        confirmLabel="Clear due dates"
+        variant="default"
       />
     </div>
   );

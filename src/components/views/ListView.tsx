@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import { Task } from '@/lib/types';
 import { TaskRow, TaskRowDesktop, LIST_GRID_COLS } from '@/components/tasks/TaskRow';
 import { LayoutGrid, ArrowUp, ArrowDown, ArrowUpDown, ChevronDown } from 'lucide-react';
@@ -27,22 +27,100 @@ interface ListViewProps {
   onDeleteTask?: (id: string) => void;
   selectedIds?: Set<string>;
   onToggleSelect?: (id: string) => void;
+  onStatusChange?: (taskId: string, newStatus: Task['status'], targetIndex?: number) => void;
+  onReorder?: (taskId: string, newSortOrder: number) => void;
 }
 
-export function ListView({ tasks, onViewTask, onEditTask, onDeleteTask, selectedIds, onToggleSelect }: ListViewProps) {
+interface ListDropIndicator {
+  group: Task['status'];
+  index: number;
+}
+
+// Same edge auto-scroll dials as the board. The list scrolls with the page,
+// so the drag scrolls the window instead of an inner container.
+const SCROLL_EDGE_PX = 72;
+const SCROLL_MAX_STEP_PX = 16;
+
+export function ListView({ tasks, onViewTask, onEditTask, onDeleteTask, selectedIds, onToggleSelect, onStatusChange, onReorder }: ListViewProps) {
   const [sortField, setSortField] = useState<SortField | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>('asc');
   // Done starts folded: on a mature project it is the largest group and the
   // least useful to scan, and it buried the live work under history.
   const [collapsed, setCollapsed] = useState<Set<Task['status']>>(() => new Set(['done']));
 
+  const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
+  const [dropIndicator, setDropIndicator] = useState<ListDropIndicator | null>(null);
+  const draggedTaskIdRef = useRef<string | null>(null);
+  const dragPointerYRef = useRef<number | null>(null);
+  const autoScrollRafRef = useRef<number | null>(null);
+
+  // Dragging reorders the MANUAL order (sort_order, the same order the board
+  // shows). Under a column sort the visual order is derived, so a drop there
+  // would land somewhere other than where the row was released; rows are
+  // simply not draggable until the sort is cleared (third click on the
+  // active header).
+  const canDrag = sortField === null && Boolean(onReorder || onStatusChange);
+
   const handleSort = (field: SortField) => {
     if (sortField === field) {
-      setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+      if (sortDir === 'asc') {
+        setSortDir('desc');
+      } else {
+        // Third click returns to manual order, where dragging lives.
+        setSortField(null);
+        setSortDir('asc');
+      }
     } else {
       setSortField(field);
       setSortDir('asc');
     }
+  };
+
+  const autoScrollStep = useCallback(() => {
+    const y = dragPointerYRef.current;
+    if (y === null) {
+      autoScrollRafRef.current = null;
+      return;
+    }
+    const fromTop = y;
+    const fromBottom = window.innerHeight - y;
+    if (fromTop < SCROLL_EDGE_PX) {
+      window.scrollBy(0, -SCROLL_MAX_STEP_PX * Math.min(1, 1 - fromTop / SCROLL_EDGE_PX));
+    } else if (fromBottom < SCROLL_EDGE_PX) {
+      window.scrollBy(0, SCROLL_MAX_STEP_PX * Math.min(1, 1 - fromBottom / SCROLL_EDGE_PX));
+    }
+    autoScrollRafRef.current = requestAnimationFrame(autoScrollStep);
+  }, []);
+
+  const trackDragPointer = useCallback((e: React.DragEvent) => {
+    dragPointerYRef.current = e.clientY;
+    if (autoScrollRafRef.current === null) {
+      autoScrollRafRef.current = requestAnimationFrame(autoScrollStep);
+    }
+  }, [autoScrollStep]);
+
+  const stopAutoScroll = useCallback(() => {
+    dragPointerYRef.current = null;
+    if (autoScrollRafRef.current !== null) {
+      cancelAnimationFrame(autoScrollRafRef.current);
+      autoScrollRafRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => stopAutoScroll, [stopAutoScroll]);
+
+  const handleRowDragStart = (e: React.DragEvent, taskId: string) => {
+    draggedTaskIdRef.current = taskId;
+    setDraggedTaskId(taskId);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', taskId);
+  };
+
+  const handleRowDragEnd = () => {
+    draggedTaskIdRef.current = null;
+    setDraggedTaskId(null);
+    setDropIndicator(null);
+    stopAutoScroll();
   };
 
   const toggleGroup = (status: Task['status']) => {
@@ -56,7 +134,9 @@ export function ListView({ tasks, onViewTask, onEditTask, onDeleteTask, selected
   // Sort applies WITHIN each status group; the groups themselves are the
   // structure and never reorder.
   const sortedTasks = useMemo(() => {
-    if (!sortField) return tasks;
+    // Manual mode: the board's exact per-group order (sort_order), so the
+    // two views tell the same story and drag indices mean the same thing.
+    if (!sortField) return [...tasks].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
     return [...tasks].sort((a, b) => {
       let cmp = 0;
       switch (sortField) {
@@ -84,6 +164,79 @@ export function ListView({ tasks, onViewTask, onEditTask, onDeleteTask, selected
   const groups = STATUS_GROUPS
     .map(g => ({ ...g, tasks: sortedTasks.filter(t => t.status === g.key) }))
     .filter(g => g.tasks.length > 0);
+
+  const groupTasksOf = (group: Task['status']) =>
+    groups.find(g => g.key === group)?.tasks ?? [];
+
+  const handleRowDragOver = (e: React.DragEvent, group: Task['status'], rowIndex: number) => {
+    if (!canDrag || !draggedTaskIdRef.current) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'move';
+    trackDragPointer(e);
+
+    const rect = e.currentTarget.getBoundingClientRect();
+    const midY = rect.top + rect.height / 2;
+    const insertIndex = e.clientY < midY ? rowIndex : rowIndex + 1;
+
+    // Suppress the indicator for no-op positions (directly above or below
+    // the dragged row), same as the board.
+    const dragId = draggedTaskIdRef.current;
+    const groupTasks = groupTasksOf(group);
+    const dragIdx = groupTasks.findIndex(t => t.id === dragId);
+    if (dragIdx !== -1 && (insertIndex === dragIdx || insertIndex === dragIdx + 1)) {
+      setDropIndicator(null);
+      return;
+    }
+    setDropIndicator({ group, index: insertIndex });
+  };
+
+  const handleGroupDragOver = (e: React.DragEvent, group: Task['status']) => {
+    if (!canDrag || !draggedTaskIdRef.current) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    trackDragPointer(e);
+    if (!dropIndicator || dropIndicator.group !== group) {
+      setDropIndicator({ group, index: groupTasksOf(group).length });
+    }
+  };
+
+  const handleGroupDragLeave = (e: React.DragEvent) => {
+    const relatedTarget = e.relatedTarget as HTMLElement;
+    const currentTarget = e.currentTarget as HTMLElement;
+    if (!currentTarget.contains(relatedTarget)) {
+      setDropIndicator(null);
+    }
+  };
+
+  const handleGroupDrop = (e: React.DragEvent, group: Task['status']) => {
+    if (!canDrag) return;
+    e.preventDefault();
+    const taskId = e.dataTransfer.getData('text/plain');
+    const task = tasks.find(t => t.id === taskId);
+    if (!task) return;
+
+    if (task.status === group && onReorder && dropIndicator) {
+      const groupTasks = groupTasksOf(group);
+      const currentIndex = groupTasks.findIndex(t => t.id === taskId);
+      let targetIndex = dropIndicator.index;
+      if (currentIndex < targetIndex) targetIndex--;
+      if (currentIndex !== targetIndex && targetIndex >= 0) {
+        onReorder(taskId, targetIndex);
+      }
+    } else if (task.status !== group && onStatusChange) {
+      const targetIndex = dropIndicator ? dropIndicator.index : groupTasksOf(group).length;
+      onStatusChange(taskId, group, targetIndex);
+    }
+    setDropIndicator(null);
+  };
+
+  const rowIndicator = (
+    <div className="flex items-center gap-1.5 py-0.5 px-4" aria-hidden="true">
+      <div className="w-2 h-2 rounded-full bg-brand-500 flex-shrink-0" />
+      <div className="h-0.5 bg-brand-500 flex-1 rounded-full" />
+    </div>
+  );
 
   if (tasks.length === 0) {
     return (
@@ -123,7 +276,7 @@ export function ListView({ tasks, onViewTask, onEditTask, onDeleteTask, selected
           TaskRowDesktop exactly. */}
       <div className={`hidden lg:grid ${LIST_GRID_COLS} py-2.5 bg-white/[0.03] border-b border-white/[0.08]`}>
         <div />
-        <SortHeader field="title" hint="Sort alphabetically by title">Task</SortHeader>
+        <SortHeader field="title" hint="Sort alphabetically by title; third click returns to your manual order">Task</SortHeader>
         <Tooltip content="Who the task is assigned to">
           <span className="text-xs font-medium text-zinc-400 uppercase tracking-wider cursor-default">Assignees</span>
         </Tooltip>
@@ -138,12 +291,21 @@ export function ListView({ tasks, onViewTask, onEditTask, onDeleteTask, selected
       {groups.map((group, index) => (
         <div
           key={group.key}
+          onDragOver={(e) => handleGroupDragOver(e, group.key)}
+          onDragLeave={handleGroupDragLeave}
+          onDrop={(e) => handleGroupDrop(e, group.key)}
           className={
             // The HEADER carries the group's line (below), so it is present
             // whether the group is open or closed. This wrapper border only
             // exists to seal an OPEN group's rows before whatever follows,
             // the next header or the card edge.
-            !collapsed.has(group.key) ? 'border-b border-white/[0.08]' : ''
+            (!collapsed.has(group.key) ? 'border-b border-white/[0.08]' : '')
+            // A drag over a group the task is not in highlights the whole
+            // group as the drop target, collapsed ones included: dropping on
+            // a folded Done is a one-gesture status change.
+            + (draggedTaskId && dropIndicator?.group === group.key
+               && tasks.find(t => t.id === draggedTaskId)?.status !== group.key
+               ? ' bg-brand-500/10' : '')
           }
         >
           {/* A quiet section label, not a boxed bar: no background and no
@@ -171,24 +333,41 @@ export function ListView({ tasks, onViewTask, onEditTask, onDeleteTask, selected
 
           {!collapsed.has(group.key) && (
             <div className="divide-y divide-white/[0.04]">
-              {group.tasks.map(task => (
+              {group.tasks.map((task, rowIndex) => (
                 <div key={task.id}>
-                  <TaskRow
-                    task={task}
-                    onView={onViewTask}
-                    onEdit={onEditTask}
-                    onDelete={onDeleteTask}
-                  />
-                  <TaskRowDesktop
-                    task={task}
-                    onView={onViewTask}
-                    onEdit={onEditTask}
-                    onDelete={onDeleteTask}
-                    selected={selectedIds?.has(task.id)}
-                    onToggleSelect={onToggleSelect}
-                  />
+                  {draggedTaskId
+                    && dropIndicator?.group === group.key
+                    && dropIndicator.index === rowIndex
+                    && draggedTaskId !== task.id
+                    && rowIndicator}
+                  <div
+                    draggable={canDrag}
+                    onDragStart={(e) => handleRowDragStart(e, task.id)}
+                    onDragEnd={handleRowDragEnd}
+                    onDragOver={(e) => handleRowDragOver(e, group.key, rowIndex)}
+                    className={`transition-opacity duration-150 ${draggedTaskId === task.id ? 'opacity-40' : ''} ${canDrag ? 'cursor-grab active:cursor-grabbing' : ''}`}
+                  >
+                    <TaskRow
+                      task={task}
+                      onView={onViewTask}
+                      onEdit={onEditTask}
+                      onDelete={onDeleteTask}
+                    />
+                    <TaskRowDesktop
+                      task={task}
+                      onView={onViewTask}
+                      onEdit={onEditTask}
+                      onDelete={onDeleteTask}
+                      selected={selectedIds?.has(task.id)}
+                      onToggleSelect={onToggleSelect}
+                    />
+                  </div>
                 </div>
               ))}
+              {draggedTaskId
+                && dropIndicator?.group === group.key
+                && dropIndicator.index >= group.tasks.length
+                && rowIndicator}
             </div>
           )}
         </div>

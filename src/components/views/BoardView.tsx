@@ -1,8 +1,16 @@
 'use client';
 
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { Task } from '@/lib/types';
 import { TaskCard } from '@/components/tasks/TaskCard';
+
+// Edge auto-scroll: browsers do not reliably scroll styled inner containers
+// during a native HTML5 drag, so a card being dragged toward a column edge
+// just stops at whatever is visible. Within this band from an edge the drag
+// keeps the column (or the board strip) scrolling, faster the deeper into
+// the band the pointer sits, so one gesture can travel a whole column.
+const SCROLL_EDGE_PX = 72;
+const SCROLL_MAX_STEP_PX = 16;
 
 
 const COLUMNS = [
@@ -30,6 +38,74 @@ export function BoardView({ tasks, onViewTask, onEditTask, onDeleteTask, onStatu
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
   const [dropIndicator, setDropIndicator] = useState<DropIndicator | null>(null);
   const draggedTaskIdRef = useRef<string | null>(null);
+  const boardRef = useRef<HTMLDivElement | null>(null);
+  const scrollAreasRef = useRef<Record<string, HTMLDivElement | null>>({});
+  const dragPointerRef = useRef<{ x: number; y: number } | null>(null);
+  const autoScrollRafRef = useRef<number | null>(null);
+
+  // One rAF loop for the whole drag. dragover events only fire a few times a
+  // second when the pointer is stationary, so scrolling from the event alone
+  // stutters; the loop reads the last known pointer position every frame.
+  const autoScrollStep = useCallback(() => {
+    const pointer = dragPointerRef.current;
+    if (!pointer) {
+      autoScrollRafRef.current = null;
+      return;
+    }
+
+    // Vertical: the column scroll area the pointer is over (or just past the
+    // top/bottom lip of; a drag hovering the column header should still pull
+    // the list upward).
+    for (const el of Object.values(scrollAreasRef.current)) {
+      if (!el || el.scrollHeight <= el.clientHeight) continue;
+      const rect = el.getBoundingClientRect();
+      if (pointer.x < rect.left || pointer.x > rect.right) continue;
+      if (pointer.y < rect.top - SCROLL_EDGE_PX || pointer.y > rect.bottom + SCROLL_EDGE_PX) continue;
+      const fromTop = pointer.y - rect.top;
+      const fromBottom = rect.bottom - pointer.y;
+      if (fromTop < SCROLL_EDGE_PX) {
+        el.scrollTop -= SCROLL_MAX_STEP_PX * Math.min(1, 1 - fromTop / SCROLL_EDGE_PX);
+      } else if (fromBottom < SCROLL_EDGE_PX) {
+        el.scrollTop += SCROLL_MAX_STEP_PX * Math.min(1, 1 - fromBottom / SCROLL_EDGE_PX);
+      }
+      break;
+    }
+
+    // Horizontal: the board strip itself, for carrying a card to an
+    // off-screen column on narrower desktop widths.
+    const board = boardRef.current;
+    if (board && board.scrollWidth > board.clientWidth) {
+      const rect = board.getBoundingClientRect();
+      if (pointer.y >= rect.top && pointer.y <= rect.bottom) {
+        const fromLeft = pointer.x - rect.left;
+        const fromRight = rect.right - pointer.x;
+        if (fromLeft < SCROLL_EDGE_PX) {
+          board.scrollLeft -= SCROLL_MAX_STEP_PX * Math.min(1, 1 - fromLeft / SCROLL_EDGE_PX);
+        } else if (fromRight < SCROLL_EDGE_PX) {
+          board.scrollLeft += SCROLL_MAX_STEP_PX * Math.min(1, 1 - fromRight / SCROLL_EDGE_PX);
+        }
+      }
+    }
+
+    autoScrollRafRef.current = requestAnimationFrame(autoScrollStep);
+  }, []);
+
+  const trackDragPointer = useCallback((e: React.DragEvent) => {
+    dragPointerRef.current = { x: e.clientX, y: e.clientY };
+    if (autoScrollRafRef.current === null) {
+      autoScrollRafRef.current = requestAnimationFrame(autoScrollStep);
+    }
+  }, [autoScrollStep]);
+
+  const stopAutoScroll = useCallback(() => {
+    dragPointerRef.current = null;
+    if (autoScrollRafRef.current !== null) {
+      cancelAnimationFrame(autoScrollRafRef.current);
+      autoScrollRafRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => stopAutoScroll, [stopAutoScroll]);
 
   const getColumnTasks = useCallback((columnId: string) => {
     return tasks
@@ -60,12 +136,14 @@ export function BoardView({ tasks, onViewTask, onEditTask, onDeleteTask, onStatu
     draggedTaskIdRef.current = null;
     setDraggedTaskId(null);
     setDropIndicator(null);
+    stopAutoScroll();
   };
 
   const handleCardDragOver = (e: React.DragEvent, columnId: string, cardIndex: number) => {
     e.preventDefault();
     e.stopPropagation();
     e.dataTransfer.dropEffect = 'move';
+    trackDragPointer(e);
 
     // Determine if cursor is in the top or bottom half of the card
     const rect = e.currentTarget.getBoundingClientRect();
@@ -89,6 +167,7 @@ export function BoardView({ tasks, onViewTask, onEditTask, onDeleteTask, onStatu
   const handleColumnDragOver = (e: React.DragEvent, columnId: string) => {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
+    trackDragPointer(e);
 
     // Only set indicator to end of column if not already over a card
     const columnTasks = getColumnTasks(columnId);
@@ -148,7 +227,7 @@ export function BoardView({ tasks, onViewTask, onEditTask, onDeleteTask, onStatu
           opacity: 0.4;
         }
       `}</style>
-      <div className="flex flex-col lg:flex-row gap-6 pb-4 lg:pb-0 lg:overflow-x-auto lg:h-[calc(100vh-320px)] lg:min-h-[400px]">
+      <div ref={boardRef} className="flex flex-col lg:flex-row gap-6 pb-4 lg:pb-0 lg:overflow-x-auto lg:h-[calc(100vh-320px)] lg:min-h-[400px]">
         {COLUMNS.map((column) => {
           const columnTasks = getColumnTasks(column.id);
           const isOverDifferentColumn = isDragging && dropIndicator?.columnId === column.id && draggedTask?.status !== column.id;
@@ -171,7 +250,7 @@ export function BoardView({ tasks, onViewTask, onEditTask, onDeleteTask, onStatu
               </div>
 
               {/* Scrollable card area */}
-              <div className={`flex-1 overflow-y-auto max-h-[50vh] lg:max-h-none lg:min-h-0 pr-1.5 rounded-lg transition-colors duration-150 board-column-scroll ${
+              <div ref={(el) => { scrollAreasRef.current[column.id] = el; }} className={`flex-1 overflow-y-auto max-h-[50vh] lg:max-h-none lg:min-h-0 pr-1.5 rounded-lg transition-colors duration-150 board-column-scroll ${
                 isOverDifferentColumn
                   ? 'bg-brand-500/15 ring-2 ring-brand-300 ring-dashed'
                   : ''
