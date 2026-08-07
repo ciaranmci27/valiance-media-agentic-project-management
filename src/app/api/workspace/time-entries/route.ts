@@ -233,7 +233,11 @@ export async function PATCH(request: Request) {
     patch.member_id = body.member_id;
   }
   if (body.start_time) patch.hourly_rate = await resolveProjectHourlyRate(service, existing.project_id, body.start_time);
-  let result = await service.from('project_time_entries').update(patch).eq('id', body.id).select('*, time_entry_tasks ( task_id )').single();
+  // Same empty-patch guard as the v1 route: a task_ids-only edit (the entry
+  // editor's task picker) must not send an empty update.
+  let result = Object.keys(patch).length > 0
+    ? await service.from('project_time_entries').update(patch).eq('id', body.id).select('*, time_entry_tasks ( task_id )').single()
+    : await service.from('project_time_entries').select('*, time_entry_tasks ( task_id )').eq('id', body.id).single();
   if (result.error?.message.includes('work_type')) {
     const legacyPatch: typeof patch = { ...patch };
     delete legacyPatch.work_type;

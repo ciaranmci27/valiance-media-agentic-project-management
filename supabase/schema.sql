@@ -86,6 +86,10 @@ create table public.projects (
   suggestions_per_cycle integer not null default 3 check (suggestions_per_cycle <= suggestion_queue_cap),
   suggestion_queue_cap integer not null default 10 check (suggestion_queue_cap > 0),
   audit_interval_hours integer not null default 4 check (audit_interval_hours > 0),
+  -- Case-insensitive regex over changed file paths: matches are never
+  -- auto-merged (the gate holds them for a human), and the app forecasts
+  -- task autonomy from the same pattern. One value, both consumers.
+  sensitive_paths text not null default '(^|/)(migrations?|supabase/migrations)/|\.sql$|auth|permission|role|access|middleware|session|credential|secret|token|rls|billing|payment|invoice|stripe|payout|revenue|pdf|docx|document-generation|(^|/)email/|mailer|smtp|resend|sendgrid|twilio|sms|outbound|webhook',
   repo_path text,
   created_by uuid references public.team_members(id) on delete set null,
   archived_at timestamptz default null,

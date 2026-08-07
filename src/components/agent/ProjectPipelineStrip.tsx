@@ -86,7 +86,9 @@ export function ProjectPipelineStrip({ project }: ProjectPipelineStripProps) {
   const iconWrap = 'w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0';
   const title = 'text-sm font-semibold text-white';
   const caption = 'text-[10px] text-zinc-500 uppercase tracking-wider';
-  const detail = 'text-xs text-zinc-400 truncate cursor-default mt-0.5';
+  // block + w-full + min-w-0: without them, the Tooltip's inline-flex
+  // trigger let long text escape the tile instead of truncating.
+  const detail = 'block w-full min-w-0 text-xs text-zinc-400 truncate cursor-default mt-0.5';
 
   return (
     <div className="glass-card rounded-xl overflow-hidden">
@@ -127,7 +129,7 @@ export function ProjectPipelineStrip({ project }: ProjectPipelineStripProps) {
               <p className={title}>Audits</p>
               <p className={caption}>every {project.audit_interval_hours ?? 4}h</p>
             </div>
-            <Tooltip content={strip.lastAuditStart ? `Last cycle started ${agoLabel(now, strip.lastAuditStart)}` : 'No audit cycle recorded yet'}>
+            <Tooltip className="w-full" content={strip.lastAuditStart ? `Last cycle started ${agoLabel(now, strip.lastAuditStart)}` : 'No audit cycle recorded yet'}>
               <p className={detail} tabIndex={0}>
                 {strip.lastAuditStart
                   ? `Last ${agoLabel(now, strip.lastAuditStart)} · ${strip.nextEligible && strip.nextEligible > now ? `next eligible in ${inHowLong(now, strip.nextEligible)}` : 'eligible now'}`
@@ -147,7 +149,7 @@ export function ProjectPipelineStrip({ project }: ProjectPipelineStripProps) {
               <p className={title}>Build</p>
               {strip.building && <p className={`${caption} text-emerald-300`}>active</p>}
             </div>
-            <Tooltip content={strip.building ? strip.building.title : strip.lastMerge ? `Last merge ${agoLabel(now, strip.lastMerge)}` : 'No agent builds yet'}>
+            <Tooltip className="w-full" content={strip.building ? strip.building.title : strip.lastMerge ? `Last merge ${agoLabel(now, strip.lastMerge)}` : 'No agent builds yet'}>
               <p className={detail} tabIndex={0}>
                 {strip.building
                   ? `Working on: ${strip.building.title}`

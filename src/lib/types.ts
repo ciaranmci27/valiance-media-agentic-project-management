@@ -28,6 +28,9 @@ export interface Project {
   suggestion_queue_cap: number;
   /** Minimum hours between audit cycles on this project. */
   audit_interval_hours: number;
+  // Case-insensitive regex over changed file paths; matches never auto-merge.
+  // One source of truth shared by the merge gate and the app's lane forecasts.
+  sensitive_paths?: string;
   suggestions_per_cycle: number;
   repo_path: string | null;
   billing_address?: string | null;

@@ -1,275 +1,404 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { Header } from '@/components/layout/Header';
-import { Button } from '@/components/ui/Button';
-import { Select } from '@/components/ui/Select';
-import { StatusBadge, PriorityBadge } from '@/components/ui/Badge';
-import { AvatarGroup } from '@/components/ui/Avatar';
+import { PriorityBadge } from '@/components/ui/Badge';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { TaskDetailPanel } from '@/components/tasks/TaskDetailPanel';
 import { TaskForm } from '@/components/tasks/TaskForm';
 import Link from 'next/link';
 import {
-  CheckSquare, Calendar, MessageSquare, FolderKanban, Filter,
-  Edit, Trash2, MoreVertical,
+  ListTodo, Zap, Activity, Hourglass, GitMerge, Eye, CalendarClock,
+  Inbox, ChevronRight, Check, Hammer, MessageSquareWarning,
 } from 'lucide-react';
 import { Task } from '@/lib/types';
 import { parseDateOnly } from '@/lib/date-utils';
+import { hasPermission } from '@/lib/access-control';
+import {
+  computeNeedsYou, getTaskLane, getReviewProfile, type NeedsYouItem,
+} from '@/lib/autonomy';
+import { MergeReviewModal } from '@/components/tasks/MergeReviewModal';
 
-type SortField = 'due_date' | 'priority' | 'status' | 'project' | 'updated_at';
-type FilterTab = 'all' | 'active' | 'overdue';
+/**
+ * Radar: the owner's attention surface. Three bands, strictest first:
+ *
+ *   1. Needs you now   — concrete actions, visually loudest, always present
+ *                        (its empty state IS the good news)
+ *   2. In progress     — work YOU have started; moving a task to
+ *                        in_progress is the owner's own "I'm on this"
+ *   3. Coming your way — agent work in flight that will predictably ask
+ *                        for one merge click later
+ *
+ * Design rules learned the hard way elsewhere in this app: every band uses
+ * ONE shared row anatomy (icon square, title + context line, right-aligned
+ * meta) so nothing sits ragged; and a band never repeats its own meaning on
+ * every row (the old version stamped "AUTO + YOUR MERGE" on all four rows
+ * of the band whose title already said it).
+ */
 
-const PRIORITY_ORDER: Record<string, number> = { urgent: 0, high: 1, medium: 2, low: 3 };
-const STATUS_ORDER: Record<string, number> = { in_progress: 0, in_review: 1, todo: 2, done: 3 };
+export default function RadarPage() {
+  const { tasks, projects, taskSuggestions, timeEntries, agentActivity, deleteTask } = useApp();
+  const { teamMemberId, access } = useAuth();
 
-export default function MyTasksPage() {
-  const { tasks, projects, team, deleteTask, updateTask } = useApp();
-  const { teamMemberId } = useAuth();
-
-  const [filterTab, setFilterTab] = useState<FilterTab>('active');
-  const [sortField, setSortField] = useState<SortField>('priority');
   const [viewingTaskId, setViewingTaskId] = useState<string | null>(null);
+  const [reviewingTaskId, setReviewingTaskId] = useState<string | null>(null);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [deletingTaskId, setDeletingTaskId] = useState<string | null>(null);
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  const isAgentsEnabled = process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true';
+  const canManageAgents = hasPermission(access, 'agents.manage');
 
-  const myTasks = useMemo(() => {
-    if (!teamMemberId) return [];
-    return tasks.filter(t => t.assignee_ids.includes(teamMemberId));
-  }, [tasks, teamMemberId]);
+  const suggestionById = useMemo(
+    () => new Map(taskSuggestions.map(s => [s.id, s])),
+    [taskSuggestions],
+  );
+  const projectById = useMemo(() => new Map(projects.map(p => [p.id, p])), [projects]);
 
-  const filteredTasks = useMemo(() => {
-    let result = [...myTasks];
+  const laneOf = useMemo(() => {
+    return (task: Task) =>
+      getTaskLane(
+        task,
+        task.source_task_suggestion_id ? suggestionById.get(task.source_task_suggestion_id) : undefined,
+        projectById.get(task.project_id),
+      );
+  }, [suggestionById, projectById]);
 
-    if (filterTab === 'active') {
-      result = result.filter(t => t.status !== 'done');
-    } else if (filterTab === 'overdue') {
-      result = result.filter(t => {
-        if (!t.due_date || t.status === 'done') return false;
-        return parseDateOnly(t.due_date) < today;
-      });
-    }
+  const needsYou = useMemo(
+    () => computeNeedsYou({
+      tasks,
+      suggestions: taskSuggestions,
+      projects,
+      teamMemberId,
+      includeSuggestions: false,
+      agentActivity,
+    }),
+    [tasks, taskSuggestions, projects, teamMemberId, agentActivity],
+  );
 
-    result.sort((a, b) => {
-      switch (sortField) {
-        case 'priority':
-          return (PRIORITY_ORDER[a.priority] ?? 99) - (PRIORITY_ORDER[b.priority] ?? 99);
-        case 'status':
-          return (STATUS_ORDER[a.status] ?? 99) - (STATUS_ORDER[b.status] ?? 99);
-        case 'due_date': {
-          if (!a.due_date && !b.due_date) return 0;
-          if (!a.due_date) return 1;
-          if (!b.due_date) return -1;
-          return parseDateOnly(a.due_date).getTime() - parseDateOnly(b.due_date).getTime();
-        }
-        case 'project':
-          return (a.project_id || '').localeCompare(b.project_id || '');
-        case 'updated_at':
-          return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
-        default:
-          return 0;
-      }
-    });
+  // Suggestions get their own band rather than a row inside "Needs you
+  // now": they are batch review work with their own home (the Agent queue
+  // and its badge), not a one-click action here.
+  const pendingSuggestions = isAgentsEnabled && canManageAgents
+    ? taskSuggestions.filter(s => s.status === 'pending').length
+    : 0;
 
-    return result;
-  }, [myTasks, filterTab, sortField, today]);
+  const inProgress = useMemo(
+    () => tasks
+      .filter(t => t.status === 'in_progress' && teamMemberId && t.assignee_ids.includes(teamMemberId))
+      .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()),
+    [tasks, teamMemberId],
+  );
+
+  const comingYourWay = useMemo(
+    () => tasks
+      .filter(t => {
+        if (t.status !== 'todo' && t.status !== 'in_progress') return false;
+        const lane = laneOf(t);
+        return lane === 'needs_merge' || lane === 'merge_unknown';
+      })
+      .sort((a, b) => {
+        // Building first (closest to needing you), then queue order.
+        if (a.status !== b.status) return a.status === 'in_progress' ? -1 : 1;
+        return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
+      }),
+    [tasks, laneOf],
+  );
+
+  // The latest milestone the agent logged for a building task: shows
+  // "Verification started 14m ago" instead of a static "Building now".
+  const buildPhase = (task: Task) => {
+    const latest = agentActivity
+      .filter(a => a.reference_type === 'task' && a.reference_id === task.id)
+      .reduce<{ title: string; created_at: string } | null>(
+        (best, a) => (!best || a.created_at > best.created_at ? a : best), null);
+    if (!latest) return 'Building now';
+    const mins = Math.max(0, Math.floor((Date.now() - new Date(latest.created_at).getTime()) / 60000));
+    const ago = mins < 60 ? `${mins}m ago` : `${Math.floor(mins / 60)}h ago`;
+    return `${latest.title} · ${ago}`;
+  };
 
   const viewingTask = viewingTaskId ? tasks.find(t => t.id === viewingTaskId) ?? null : null;
+  const reviewingTask = reviewingTaskId ? tasks.find(t => t.id === reviewingTaskId) ?? null : null;
+  const reviewingProfile = reviewingTask
+    ? getReviewProfile(
+        reviewingTask,
+        reviewingTask.source_task_suggestion_id ? suggestionById.get(reviewingTask.source_task_suggestion_id) : undefined,
+        timeEntries,
+      )
+    : null;
+  const allClear = needsYou.length === 0 && inProgress.length === 0 && comingYourWay.length === 0 && pendingSuggestions === 0;
 
-  const overdueCount = myTasks.filter(t => {
-    if (!t.due_date || t.status === 'done') return false;
-    return parseDateOnly(t.due_date) < today;
-  }).length;
+  // ── The one row anatomy every band uses ────────────────────────────────
+  //    [icon square] [title / project · context]        [meta] [affordance]
 
-  const activeCount = myTasks.filter(t => t.status !== 'done').length;
+  const iconSquare = (Icon: typeof Zap, tone: string) => (
+    <span className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${tone}`}>
+      <Icon size={15} aria-hidden="true" />
+    </span>
+  );
 
-  const handleEditTask = (task: Task) => {
-    setViewingTaskId(null);
-    setEditingTask(task);
+  const dueLabel = (task: Task) => {
+    if (!task.due_date) return null;
+    const d = parseDateOnly(task.due_date);
+    const overdue = d < new Date(new Date().setHours(0, 0, 0, 0)) && task.status !== 'done';
+    return (
+      <span className={`text-xs flex items-center gap-1 flex-shrink-0 tabular-nums ${overdue ? 'text-red-400 font-medium' : 'text-zinc-500'}`}>
+        <CalendarClock size={12} aria-hidden="true" />
+        {overdue ? 'Overdue ' : ''}
+        {d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+      </span>
+    );
   };
 
-  const handleDeleteTask = (id: string) => {
-    setDeletingTaskId(id);
+  const row = (opts: {
+    key: string;
+    icon: React.ReactNode;
+    title: string;
+    projectId?: string;
+    context: string;
+    task?: Task;
+    href?: string;
+    showPriority?: boolean;
+    showChevron?: boolean;
+    onOpen?: () => void;
+  }) => {
+    const project = opts.projectId ? projectById.get(opts.projectId) : undefined;
+    const inner = (
+      <>
+        {opts.icon}
+        <span className="flex-1 min-w-0">
+          <span className="block text-sm font-medium text-white truncate">{opts.title}</span>
+          <span className="flex items-center gap-1.5 mt-0.5 min-w-0 text-xs text-zinc-500">
+            {project && (
+              <>
+                {project.color && (
+                  <span className="w-1.5 h-1.5 rounded-full inline-block flex-shrink-0" style={{ backgroundColor: project.color }} />
+                )}
+                <span className="truncate flex-shrink-0 max-w-[180px] text-zinc-400">{project.name}</span>
+                <span className="text-zinc-600" aria-hidden="true">·</span>
+              </>
+            )}
+            <span className="truncate">{opts.context}</span>
+          </span>
+        </span>
+        <span className="flex items-center gap-3 flex-shrink-0">
+          {opts.task && dueLabel(opts.task)}
+          {opts.task && opts.showPriority && <PriorityBadge priority={opts.task.priority} />}
+          {opts.showChevron && <ChevronRight size={16} className="text-zinc-600" aria-hidden="true" />}
+        </span>
+      </>
+    );
+    const className =
+      'w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-white/[0.03] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand-500';
+
+    return opts.href ? (
+      <Link key={opts.key} href={opts.href} className={className}>{inner}</Link>
+    ) : (
+      <button
+        key={opts.key}
+        type="button"
+        onClick={() => (opts.onOpen ? opts.onOpen() : opts.task && setViewingTaskId(opts.task.id))}
+        className={className}
+      >
+        {inner}
+      </button>
+    );
   };
 
-  const executeDelete = () => {
-    if (!deletingTaskId) return;
-    deleteTask(deletingTaskId);
-    setViewingTaskId(null);
+  const needsYouRow = (item: NeedsYouItem, index: number) => {
+    // Suggestions render in their own band; this band is task actions only.
+    if (item.kind === 'suggestions' || !item.task) return null;
+    const task = item.task;
+    if (item.kind === 'blocked') {
+      return row({
+        key: `blocked-${task.id}`,
+        icon: iconSquare(MessageSquareWarning, 'bg-red-500/15 text-red-300'),
+        title: task.title,
+        projectId: task.project_id,
+        context: `Blocked: ${item.question || 'waiting on your answer'}`,
+        task,
+        showChevron: true,
+      });
+    }
+    const meta = {
+      merge: {
+        icon: iconSquare(GitMerge, 'bg-amber-500/15 text-amber-300'),
+        context: item.lane === 'needs_merge' ? 'Built and waiting on your merge' : 'In review; may be waiting on your merge',
+      },
+      review: { icon: iconSquare(Eye, 'bg-brand-500/15 text-brand-300'), context: 'Waiting on your review' },
+      due: {
+        icon: iconSquare(CalendarClock, 'bg-red-500/15 text-red-300'),
+        context: task.priority === 'urgent' ? 'Urgent and unstarted' : 'Due and unstarted',
+      },
+    }[item.kind];
+    return row({
+      key: `${item.kind}-${task.id}-${index}`,
+      icon: meta.icon,
+      title: task.title,
+      projectId: task.project_id,
+      context: meta.context,
+      task,
+      showChevron: true,
+      // Action rows open the briefing modal (what kind of review, why held,
+      // straight to the PR); the side panel stays the plain task overview.
+      onOpen: item.kind === 'merge' || item.kind === 'review'
+        ? () => setReviewingTaskId(task.id)
+        : undefined,
+    });
   };
 
-  const formatDueDate = (date: string | null) => {
-    if (!date) return null;
-    const d = parseDateOnly(date);
-    return {
-      text: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-      isOverdue: d < today,
-    };
-  };
-
-  const tabs: { id: FilterTab; label: string; count: number }[] = [
-    { id: 'all', label: 'All', count: myTasks.length },
-    { id: 'active', label: 'Active', count: activeCount },
-    { id: 'overdue', label: 'Overdue', count: overdueCount },
-  ];
-
-  const sortOptions: { id: SortField; label: string }[] = [
-    { id: 'priority', label: 'Priority' },
-    { id: 'due_date', label: 'Due Date' },
-    { id: 'status', label: 'Status' },
-    { id: 'updated_at', label: 'Recent' },
-  ];
+  const band = (opts: {
+    icon: typeof Zap;
+    title: string;
+    hint: string;
+    count: number;
+    emphasis?: boolean;
+    children: React.ReactNode;
+  }) => (
+    <section
+      className={`glass-card rounded-xl overflow-hidden ${opts.emphasis ? 'border border-amber-500/20' : ''}`}
+    >
+      <div className={`flex items-center gap-2 px-4 py-3 border-b ${opts.emphasis ? 'border-amber-500/15 bg-amber-500/[0.05]' : 'border-white/[0.08]'}`}>
+        <opts.icon size={15} className={opts.emphasis ? 'text-amber-300' : 'text-zinc-400'} aria-hidden="true" />
+        <h2 className="text-sm font-semibold text-white">{opts.title}</h2>
+        <span className={`text-xs tabular-nums px-1.5 py-0.5 rounded-full ${
+          opts.emphasis && opts.count > 0 ? 'bg-amber-500/15 text-amber-300' : 'bg-white/[0.06] text-zinc-400'
+        }`}>
+          {opts.count}
+        </span>
+        <span className="text-xs text-zinc-500 ml-auto hidden sm:block truncate pl-3">{opts.hint}</span>
+      </div>
+      <div className="divide-y divide-white/[0.04]">{opts.children}</div>
+    </section>
+  );
 
   return (
     <div className="animate-fadeIn min-h-screen">
       <Header
         title="My Tasks"
-        subtitle={`${activeCount} active task${activeCount !== 1 ? 's' : ''} assigned to you`}
+        subtitle={
+          needsYou.length > 0
+            ? `${needsYou.length} thing${needsYou.length === 1 ? '' : 's'} need${needsYou.length === 1 ? 's' : ''} you`
+            : 'All clear. Nothing needs you right now'
+        }
       />
 
-      <div className="p-4 lg:p-6 space-y-4">
-        {/* Filter Tabs and Sort */}
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="seg-track">
-            {tabs.map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setFilterTab(tab.id)}
-                className={`seg-item flex items-center gap-1.5 ${filterTab === tab.id ? 'is-active' : ''}`}
-              >
-                {tab.label}
-                <span className={`text-[11px] px-1.5 py-0.5 rounded-full leading-none ${
-                  filterTab === tab.id
-                    ? 'bg-white/20 text-white'
-                    : tab.id === 'overdue' && tab.count > 0
-                    ? 'bg-red-500/15 text-red-300'
-                    : 'bg-white/[0.06] text-zinc-400'
-                }`}>
-                  {tab.count}
-                </span>
-              </button>
-            ))}
-          </div>
-
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-zinc-400">Sort by:</span>
-            <div className="w-32">
-              <Select
-                value={sortField}
-                onChange={(value) => setSortField(value as SortField)}
-                options={sortOptions.map(opt => ({ value: opt.id, label: opt.label }))}
-                size="sm"
-              />
+      {/* One centered reading column: a queue reads top-down, and centering
+          is what makes the narrow measure look deliberate on wide screens
+          instead of abandoned. */}
+      <div className="p-4 lg:p-6">
+        <div className="max-w-3xl mx-auto space-y-5">
+          {allClear ? (
+            <div className="text-center py-20 glass-card rounded-xl">
+              <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-white/[0.06] flex items-center justify-center">
+                <ListTodo className="text-brand-300" size={30} aria-hidden="true" />
+              </div>
+              <h3 className="text-lg font-semibold text-white mb-2">All clear</h3>
+              <p className="text-zinc-400 max-w-md mx-auto">
+                Nothing needs you, nothing is in your hands, and nothing in
+                flight is headed your way. The moment that changes, it
+                appears here.
+              </p>
             </div>
-          </div>
-        </div>
-
-        {/* Task List */}
-        {filteredTasks.length === 0 ? (
-          <div className="text-center py-16 glass-card rounded-xl">
-            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-white/[0.06] flex items-center justify-center">
-              <CheckSquare className="text-zinc-500" size={32} />
-            </div>
-            <h3 className="text-lg font-semibold text-white mb-2">
-              {filterTab === 'overdue' ? 'No overdue tasks' : filterTab === 'active' ? 'All caught up!' : 'No tasks assigned to you'}
-            </h3>
-            <p className="text-zinc-400">
-              {filterTab === 'overdue'
-                ? "You're on track with all your deadlines."
-                : filterTab === 'active'
-                ? 'All your tasks have been completed.'
-                : 'Tasks assigned to you will appear here.'}
-            </p>
-          </div>
-        ) : (
-          <div className="glass-card rounded-xl overflow-hidden divide-y divide-white/[0.05]">
-            {filteredTasks.map((task) => {
-              const project = projects.find(p => p.id === task.project_id);
-              const dueInfo = formatDueDate(task.due_date);
-              const completedSubtasks = task.subtasks.filter(s => s.completed).length;
-
-              return (
-                <div
-                  key={task.id}
-                  onClick={() => setViewingTaskId(task.id)}
-                  className="flex items-center gap-3 px-4 py-3.5 hover:bg-white/[0.03] transition-colors cursor-pointer group"
-                >
-                  {/* Status dot */}
-                  <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
-                    task.status === 'done' ? 'bg-emerald-500' :
-                    task.status === 'in_progress' ? 'bg-brand-500' :
-                    task.status === 'in_review' ? 'bg-amber-500' :
-                    'bg-zinc-300'
-                  }`} />
-
-                  {/* Task info */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <p className="font-medium text-white text-sm lg:text-base truncate">{task.title}</p>
-                    </div>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      {project && (
-                        <span className="flex items-center gap-1 text-xs text-zinc-400">
-                          {project.color && (
-                            <span
-                              className="w-2 h-2 rounded-full inline-block"
-                              style={{ backgroundColor: project.color }}
-                            />
-                          )}
-                          {project.name}
-                        </span>
-                      )}
-                      {task.subtasks.length > 0 && (
-                        <span className="text-xs text-zinc-500 flex items-center gap-1">
-                          <CheckSquare size={11} />
-                          {completedSubtasks}/{task.subtasks.length}
-                        </span>
-                      )}
-                      {task.comments.length > 0 && (
-                        <span className="text-xs text-zinc-500 flex items-center gap-1">
-                          <MessageSquare size={11} />
-                          {task.comments.length}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Meta */}
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    {dueInfo && (
-                      <span className={`text-xs px-2 py-0.5 rounded-full flex items-center gap-1 ${
-                        dueInfo.isOverdue
-                          ? 'bg-red-500/15 text-red-300 font-medium'
-                          : 'bg-white/[0.06] text-zinc-300'
-                      }`}>
-                        <Calendar size={11} />
-                        {dueInfo.text}
+          ) : (
+            <>
+              {/* Band 1 is ALWAYS rendered: its empty state is the good
+                  news, and a band that disappears makes the reader hunt
+                  for whether they missed it. */}
+              {band({
+                icon: Zap,
+                title: 'Needs you now',
+                hint: 'each row is one action',
+                count: needsYou.length,
+                emphasis: true,
+                children: needsYou.length > 0
+                  ? needsYou.map(needsYouRow)
+                  : (
+                    <div className="flex items-center gap-3 px-4 py-4 text-sm text-zinc-400">
+                      <span className="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-300 flex items-center justify-center flex-shrink-0">
+                        <Check size={15} aria-hidden="true" />
                       </span>
-                    )}
-                    <StatusBadge status={task.status} />
-                    <PriorityBadge priority={task.priority} />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
+                      Nothing needs you right now.
+                    </div>
+                  ),
+              })}
+
+              {inProgress.length > 0 &&
+                band({
+                  icon: Activity,
+                  title: 'In progress',
+                  hint: 'work you have started',
+                  count: inProgress.length,
+                  children: inProgress.map(task => row({
+                    key: task.id,
+                    icon: iconSquare(Activity, 'bg-brand-500/15 text-brand-300'),
+                    title: task.title,
+                    projectId: task.project_id,
+                    context: task.subtasks.length > 0
+                      ? `${task.subtasks.filter(s => s.completed).length} of ${task.subtasks.length} subtasks done`
+                      : 'Started by you',
+                    task,
+                    showPriority: true,
+                  })),
+                })}
+
+              {pendingSuggestions > 0 &&
+                band({
+                  icon: Inbox,
+                  title: 'Suggestions',
+                  hint: 'reviewed in the Agent queue',
+                  count: pendingSuggestions,
+                  children: row({
+                    key: 'suggestions',
+                    icon: iconSquare(Inbox, 'bg-brand-500/15 text-brand-300'),
+                    title: `${pendingSuggestions} suggestion${pendingSuggestions === 1 ? '' : 's'} awaiting your review`,
+                    context: 'Approve or decline in the review queue',
+                    href: '/agent',
+                    showChevron: true,
+                  }),
+                })}
+
+              {comingYourWay.length > 0 &&
+                band({
+                  icon: Hourglass,
+                  title: 'Coming your way',
+                  hint: 'each will ask for one merge click when built',
+                  count: comingYourWay.length,
+                  children: comingYourWay.map(task => row({
+                    key: task.id,
+                    icon: task.status === 'in_progress'
+                      ? iconSquare(Hammer, 'bg-brand-500/15 text-brand-300')
+                      : iconSquare(Hourglass, 'bg-white/[0.06] text-zinc-400'),
+                    title: task.title,
+                    projectId: task.project_id,
+                    context: task.status === 'in_progress' ? buildPhase(task) : 'Queued for the agent',
+                    task,
+                    showPriority: true,
+                  })),
+                })}
+            </>
+          )}
+        </div>
       </div>
 
-      {/* Task Detail Panel */}
+      <MergeReviewModal
+        task={reviewingTask}
+        profile={reviewingProfile}
+        projectName={reviewingTask ? projectById.get(reviewingTask.project_id)?.name ?? null : null}
+        open={!!reviewingTask}
+        onClose={() => setReviewingTaskId(null)}
+        onOpenTask={(task) => setViewingTaskId(task.id)}
+      />
+
       <TaskDetailPanel
         task={viewingTask}
         onClose={() => setViewingTaskId(null)}
-        onEdit={handleEditTask}
-        onDelete={handleDeleteTask}
+        onEdit={(task) => { setViewingTaskId(null); setEditingTask(task); }}
+        onDelete={(id) => setDeletingTaskId(id)}
       />
 
-      {/* Edit Task Form */}
       {editingTask && (
         <TaskForm
           isOpen={!!editingTask}
@@ -279,11 +408,13 @@ export default function MyTasksPage() {
         />
       )}
 
-      {/* Confirm Delete */}
       <ConfirmDialog
         isOpen={!!deletingTaskId}
         onClose={() => setDeletingTaskId(null)}
-        onConfirm={executeDelete}
+        onConfirm={() => {
+          if (deletingTaskId) deleteTask(deletingTaskId);
+          setViewingTaskId(null);
+        }}
         title="Delete Task"
         message="This will permanently delete this task and all its subtasks and comments. This action cannot be undone."
         confirmLabel="Delete"

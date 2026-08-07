@@ -325,7 +325,7 @@ interface AppContextType {
 
   // Time Entry CRUD
   addTimeEntry: (entry: Omit<TimeEntry, 'id' | 'created_at' | 'updated_at'>) => void;
-  updateTimeEntry: (id: string, updates: Partial<Pick<TimeEntry, 'member_id' | 'start_time' | 'end_time' | 'segments' | 'description' | 'work_type'>>, options?: { silent?: boolean }) => void;
+  updateTimeEntry: (id: string, updates: Partial<Pick<TimeEntry, 'member_id' | 'start_time' | 'end_time' | 'segments' | 'description' | 'work_type' | 'task_ids'>>, options?: { silent?: boolean }) => void;
   deleteTimeEntry: (id: string) => Promise<boolean>;
   getTimeEntriesByProject: (projectId: string) => TimeEntry[];
   startTimer: (projectId: string, memberId: string, description?: string, customStartTime?: string, workType?: 'client' | 'internal', taskIds?: string[]) => void;
@@ -2769,7 +2769,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const updateTimeEntry = async (
     id: string,
-    updates: Partial<Pick<TimeEntry, 'member_id' | 'start_time' | 'end_time' | 'segments' | 'description' | 'work_type'>>,
+    updates: Partial<Pick<TimeEntry, 'member_id' | 'start_time' | 'end_time' | 'segments' | 'description' | 'work_type' | 'task_ids'>>,
     options: { silent?: boolean } = {},
   ) => {
     const prev = timeEntries;

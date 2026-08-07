@@ -9,6 +9,7 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { toast } from '@/components/ui/Toast';
 import { Settings } from 'lucide-react';
 import { Project } from '@/lib/types';
+import { DEFAULT_SENSITIVE_PATHS } from '@/lib/autonomy';
 
 /**
  * People paste whatever their clipboard has: the browser URL, the SSH remote,
@@ -43,6 +44,7 @@ interface AgentSettingsCardProps {
  */
 export function AgentSettingsCard({ project, onUpdate }: AgentSettingsCardProps) {
   const [repoPathDraft, setRepoPathDraft] = useState(project.repo_path ?? '');
+  const [sensitiveDraft, setSensitiveDraft] = useState(project.sensitive_paths ?? DEFAULT_SENSITIVE_PATHS);
   const [integrationDraft, setIntegrationDraft] = useState(project.integration_branch ?? 'dev');
   const [productionDraft, setProductionDraft] = useState(project.production_branch ?? 'main');
   // The numbers are DRAFTS committed once, debounced, never a write per stepper
@@ -57,6 +59,7 @@ export function AgentSettingsCard({ project, onUpdate }: AgentSettingsCardProps)
 
   useEffect(() => {
     setRepoPathDraft(project.repo_path ?? '');
+    setSensitiveDraft(project.sensitive_paths ?? DEFAULT_SENSITIVE_PATHS);
     setIntegrationDraft(project.integration_branch ?? 'dev');
     setProductionDraft(project.production_branch ?? 'main');
     setPerCycleDraft(project.suggestions_per_cycle ?? 3);
@@ -101,6 +104,27 @@ export function AgentSettingsCard({ project, onUpdate }: AgentSettingsCardProps)
   // branch that ships to users. The toggle disables rather than pretending.
   const branchesCollide =
     (project.integration_branch ?? 'dev').trim() === (project.production_branch ?? 'main').trim();
+
+  const commitSensitivePaths = () => {
+    const value = sensitiveDraft.trim();
+    const current = project.sensitive_paths ?? DEFAULT_SENSITIVE_PATHS;
+    if (!value) {
+      // Empty would make EVERYTHING match (grep of an empty pattern matches
+      // every line), silently disabling auto-merge across the project.
+      setSensitiveDraft(current);
+      return;
+    }
+    if (value === current) return;
+    try {
+      new RegExp(value, 'i');
+    } catch {
+      toast('error', 'Invalid pattern, not saved');
+      setSensitiveDraft(current);
+      return;
+    }
+    onUpdate({ sensitive_paths: value });
+    toast('success', 'Sensitive paths updated');
+  };
 
   const commitBranch = (
     draft: string,
@@ -212,6 +236,18 @@ export function AgentSettingsCard({ project, onUpdate }: AgentSettingsCardProps)
           <p className="text-[11px] text-zinc-500 leading-relaxed">
             The dev agent branches from and PRs into the integration branch. The production
             branch is a declaration that it ships to users: the merge gate refuses it, always.
+          </p>
+          <TextInput
+            label="Sensitive paths"
+            value={sensitiveDraft}
+            onChange={setSensitiveDraft}
+            onBlur={commitSensitivePaths}
+            placeholder={DEFAULT_SENSITIVE_PATHS}
+          />
+          <p className="text-[11px] text-zinc-500 leading-relaxed">
+            Case-insensitive pattern over changed file paths. A PR touching a match is never
+            auto-merged; it holds for your click instead. The same pattern drives the autonomy
+            forecasts on Radar and the boards, so what the badge predicts is what the gate does.
           </p>
         </div>
 

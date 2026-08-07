@@ -77,22 +77,28 @@ export function TaskCard({ task, onView, onEdit, onDelete }: TaskCardProps) {
               deliberate choice to keep it off the agents. */}
           {isAgentsEnabled && canManageAgents && task.ai_readiness !== 'ai_ready' && getProject(task.project_id)?.autonomous_enabled && (
             task.ai_readiness ? (
-              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] lg:text-xs font-medium bg-amber-500/15 text-amber-300 border border-amber-500/30 rounded-full">
-                <User size={10} aria-hidden="true" />
-                Manual
-              </span>
+              <Tooltip content="A person does this task; it is kept off the agents on purpose">
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] lg:text-xs font-medium bg-amber-500/15 text-amber-300 border border-amber-500/30 rounded-full">
+                  <User size={10} aria-hidden="true" />
+                  Manual
+                </span>
+              </Tooltip>
             ) : (
-              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] lg:text-xs font-medium bg-sky-500/15 text-sky-300 border border-sky-500/30 rounded-full">
-                <FileQuestion size={10} aria-hidden="true" />
-                Needs spec
-              </span>
+              <Tooltip content="Needs a spec before anyone, human or agent, can start it">
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] lg:text-xs font-medium bg-sky-500/15 text-sky-300 border border-sky-500/30 rounded-full">
+                  <FileQuestion size={10} aria-hidden="true" />
+                  Needs spec
+                </span>
+              </Tooltip>
             )
           )}
           {task.status !== 'done' && (task.blocked_by_ids || []).some(id => tasks.find(t => t.id === id)?.status !== 'done') && (
-            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] lg:text-xs font-medium bg-amber-500/15 text-amber-300 border border-amber-500/30 rounded-full">
-              <Lock size={10} />
-              Blocked
-            </span>
+            <Tooltip content="Waiting on another task to finish first">
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] lg:text-xs font-medium bg-amber-500/15 text-amber-300 border border-amber-500/30 rounded-full">
+                <Lock size={10} />
+                Blocked
+              </span>
+            </Tooltip>
           )}
         </div>
         
@@ -155,7 +161,8 @@ export function TaskCard({ task, onView, onEdit, onDelete }: TaskCardProps) {
 
       {/* Subtasks progress */}
       {task.subtasks.length > 0 && (
-        <div className="flex items-center gap-2 text-xs text-zinc-400 mb-2 lg:mb-3">
+        <Tooltip content={`${completedSubtasks} of ${task.subtasks.length} subtasks complete`} className="w-full">
+        <div className="flex w-full items-center gap-2 text-xs text-zinc-400 mb-2 lg:mb-3">
           <CheckSquare size={14} />
           <span>{completedSubtasks}/{task.subtasks.length}</span>
           <div className="flex-1 h-1 bg-white/[0.06] rounded-full overflow-hidden">
@@ -165,22 +172,27 @@ export function TaskCard({ task, onView, onEdit, onDelete }: TaskCardProps) {
             />
           </div>
         </div>
+        </Tooltip>
       )}
 
       {/* Footer */}
       <div className="flex items-center justify-between pt-2 lg:pt-3 border-t border-white/[0.06]">
         <div className="flex items-center gap-2 lg:gap-3">
           {dueInfo && (
-            <div className={`flex items-center gap-1 text-xs ${dueInfo.isOverdue ? 'text-red-400 font-medium' : 'text-zinc-400'}`}>
-              <Calendar size={14} />
-              <span>{dueInfo.text}</span>
-            </div>
+            <Tooltip content={dueInfo.isOverdue ? `Overdue: was due ${dueInfo.text}` : `Due ${dueInfo.text}`}>
+              <div className={`flex items-center gap-1 text-xs ${dueInfo.isOverdue ? 'text-red-400 font-medium' : 'text-zinc-400'}`}>
+                <Calendar size={14} />
+                <span>{dueInfo.text}</span>
+              </div>
+            </Tooltip>
           )}
           {hasComments && (
-            <div className="flex items-center gap-1 text-xs text-zinc-400">
-              <MessageSquare size={14} />
-              <span>{task.comments.length}</span>
-            </div>
+            <Tooltip content={`${task.comments.length} comment${task.comments.length === 1 ? '' : 's'}`}>
+              <div className="flex items-center gap-1 text-xs text-zinc-400">
+                <MessageSquare size={14} />
+                <span>{task.comments.length}</span>
+              </div>
+            </Tooltip>
           )}
           <Tooltip content={`Updated ${new Date(task.updated_at).toLocaleString()}`}>
             <div className="flex items-center gap-1 text-xs text-zinc-500">
@@ -191,7 +203,9 @@ export function TaskCard({ task, onView, onEdit, onDelete }: TaskCardProps) {
         </div>
         
         {assignees.length > 0 && (
-          <AvatarGroup users={assignees} max={3} size="xs" />
+          <Tooltip content={`Assigned to ${assignees.map(a => a.name).join(', ')}`}>
+            <AvatarGroup users={assignees} max={3} size="xs" />
+          </Tooltip>
         )}
       </div>
     </div>

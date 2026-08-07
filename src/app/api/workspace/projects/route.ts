@@ -3,7 +3,7 @@ import { accessAllows, requireSessionAccess, sanitizeProjectForAccess } from '@/
 import { insertProject, patchProject } from '@/lib/supabase/queries';
 
 const BILLING_FIELDS = ['hourly_rate', 'budget_type', 'budget_value', 'billing_address', 'billing_email', 'tax_rate', 'invoice_pdf_options', 'client_time_billing'] as const;
-const AGENT_FIELDS = ['autonomous_enabled', 'auto_merge_enabled', 'integration_branch', 'production_branch', 'suggestions_per_cycle', 'suggestion_queue_cap', 'audit_interval_hours', 'repo_path'] as const;
+const AGENT_FIELDS = ['autonomous_enabled', 'auto_merge_enabled', 'integration_branch', 'production_branch', 'suggestions_per_cycle', 'suggestion_queue_cap', 'audit_interval_hours', 'sensitive_paths', 'repo_path'] as const;
 const CORE_FIELDS = ['name', 'description', 'color', 'status', 'start_date', 'due_date', 'hourly_tracking', 'time_tracking_enabled'] as const;
 const WRITABLE_FIELDS = new Set<string>([...CORE_FIELDS, ...BILLING_FIELDS, ...AGENT_FIELDS]);
 

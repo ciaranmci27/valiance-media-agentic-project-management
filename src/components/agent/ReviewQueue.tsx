@@ -475,6 +475,25 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
 
                               Order mirrors how a finding is judged: what is wrong, why
                               it matters, the proof, the remedy, the definition of done. */}
+                          {/* The billing case leads: the queue's standard is "would
+                              Ciaran sell this fix", so the sentence he could say to
+                              the client is the first thing he judges, with the
+                              demonstrable-harm category beside it. Older suggestions
+                              predate the field and simply omit the section. */}
+                          {typeof suggestion.metadata?.billing_case === 'string' && suggestion.metadata.billing_case.trim() && (
+                            <div className="bg-brand-500/10 rounded-lg p-3 border border-brand-500/25">
+                              <div className="flex items-center gap-2 mb-1.5">
+                                <p className="text-xs font-semibold text-brand-300 uppercase tracking-wider">Billing Case</p>
+                                {typeof suggestion.metadata?.value_category === 'string' && suggestion.metadata.value_category && (
+                                  <span className="text-[10px] font-medium uppercase tracking-wider text-zinc-300 bg-surface rounded px-1.5 py-0.5 border border-white/[0.08]">
+                                    {suggestion.metadata.value_category.replace(/_/g, ' ')}
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-sm text-zinc-100 leading-relaxed">{suggestion.metadata.billing_case}</p>
+                            </div>
+                          )}
+
                           {suggestion.description && (
                             <div className="bg-surface-raised rounded-lg p-3 border border-white/[0.08]">
                               <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-1.5">The Finding</p>

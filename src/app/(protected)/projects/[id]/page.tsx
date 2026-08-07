@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { Popover } from '@/components/ui/Popover';
+import { TaskFilterControl, UNASSIGNED_FILTER_ID } from '@/components/tasks/TaskFilterControl';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useApp, defaultFilters } from '@/lib/store';
@@ -53,7 +54,7 @@ export default function ProjectDetailPage() {
 
   const {
     getProject, getTasksByProject, getTeamMember,
-    getContactsByProject,
+    getContactsByProject, team,
     deleteTask, deleteProject, updateTask, reorderTasks, updateProject, filters, setFilters,
   } = useApp();
 
@@ -108,7 +109,9 @@ export default function ProjectDetailPage() {
     projectTasks = projectTasks.filter(t => filters.priority.includes(t.priority));
   }
   if (filters.assigneeIds.length > 0) {
-    projectTasks = projectTasks.filter(t => t.assignee_ids.some(id => filters.assigneeIds.includes(id)));
+    projectTasks = projectTasks.filter(t =>
+      (filters.assigneeIds.includes(UNASSIGNED_FILTER_ID) && t.assignee_ids.length === 0) ||
+      t.assignee_ids.some(id => filters.assigneeIds.includes(id)));
   }
   if (filters.tags.length > 0) {
     projectTasks = projectTasks.filter(t => t.tags.some(tag => filters.tags.includes(tag)));
@@ -206,9 +209,12 @@ export default function ProjectDetailPage() {
     reorderColumn(taskId, task.status, newIndex);
   };
 
+  const [taskFormDueDate, setTaskFormDueDate] = useState<string | null>(null);
+
   const handleCloseTaskForm = () => {
     setIsTaskFormOpen(false);
     setEditingTask(null);
+    setTaskFormDueDate(null);
   };
 
   const handleDeleteProject = () => {
@@ -246,6 +252,20 @@ export default function ProjectDetailPage() {
     setShowBulkMenu(false);
   };
 
+  const bulkAssign = (memberId: string | null) => {
+    selectedTaskIds.forEach(id => updateTask(id, { assignee_ids: memberId ? [memberId] : [] }));
+    toast('success', `Updated ${selectedTaskIds.size} tasks`);
+    setSelectedTaskIds(new Set());
+    setShowBulkMenu(false);
+  };
+
+  const bulkSetDueDate = (date: string | null) => {
+    selectedTaskIds.forEach(id => updateTask(id, { due_date: date }));
+    toast('success', `Updated ${selectedTaskIds.size} tasks`);
+    setSelectedTaskIds(new Set());
+    setShowBulkMenu(false);
+  };
+
   const bulkDelete = () => {
     setConfirmDelete({ type: 'bulk', id: 'bulk' });
   };
@@ -276,6 +296,7 @@ export default function ProjectDetailPage() {
       {/* Header */}
       <Header
         title={project.name}
+        searchPlaceholder="Search tasks"
         subtitle={
           <div className="flex flex-wrap items-center gap-2 text-sm">
             {project.color && (
@@ -430,22 +451,25 @@ export default function ProjectDetailPage() {
                 <span className="text-xs text-zinc-500">{progressPercent}%</span>
               </div>
             )}
+            {/* Selection is a desktop-only gesture: the mobile cards have no
+                checkboxes, so offering Select all there would select rows the
+                user cannot see or unpick individually. */}
             {projectTasks.length > 0 && viewMode === 'list' && (
               <button
                 onClick={selectAllTasks}
-                className="text-xs text-brand-300 hover:text-brand-300 transition-colors"
+                className="hidden lg:inline text-xs text-brand-300 hover:text-brand-300 transition-colors"
               >
                 {selectedTaskIds.size === projectTasks.length ? 'Deselect all' : 'Select all'}
               </button>
             )}
           </div>
           <div className="flex items-center gap-2">
-            {/* Bulk Actions */}
+            {/* Bulk Actions (desktop-only, like the selection that feeds it) */}
             {selectedTaskIds.size > 0 && (
-              <div ref={bulkMenuRef} className="relative">
+              <div ref={bulkMenuRef} className="relative hidden lg:block">
                 <button
                   onClick={() => setShowBulkMenu(!showBulkMenu)}
-                  className="flex items-center gap-2 px-3 py-1.5 text-sm bg-brand-500/15 text-brand-300 border border-brand-500/30 rounded-lg hover:bg-brand-500/15 transition-colors"
+                  className="h-9 flex items-center gap-2 px-3 text-sm bg-brand-500/15 text-brand-300 border border-brand-500/30 rounded-lg hover:bg-brand-500/15 transition-colors"
                 >
                   {selectedTaskIds.size} selected
                   <ChevronRight size={14} className="rotate-90" />
@@ -455,22 +479,45 @@ export default function ProjectDetailPage() {
                   open={showBulkMenu}
                   onClose={() => setShowBulkMenu(false)}
                   align="end"
-                  width={200}
-                  className="bg-surface-raised rounded-lg shadow-xl border border-white/[0.08] py-1"
+                  width={248}
+                  className="bg-surface-raised rounded-lg shadow-xl border border-white/[0.08] py-1 max-h-[70vh] overflow-y-auto"
                 >
                   <p className="px-3 py-1.5 text-xs font-medium text-zinc-400 uppercase">Set Status</p>
-                  {(['todo', 'in_progress', 'in_review', 'done'] as const).map(s => (
-                    <button key={s} onClick={() => bulkUpdateStatus(s)} className="w-full text-left px-3 py-1.5 text-sm text-zinc-300 hover:bg-white/[0.03]">
-                      {s.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
-                    </button>
-                  ))}
+                  <div className="grid grid-cols-2 gap-1 px-2 pb-1">
+                    {(['todo', 'in_progress', 'in_review', 'done'] as const).map(s => (
+                      <button key={s} onClick={() => bulkUpdateStatus(s)} className="text-left px-2 py-1.5 text-sm text-zinc-300 rounded-md hover:bg-white/[0.06]">
+                        {s.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                      </button>
+                    ))}
+                  </div>
                   <div className="border-t border-white/[0.06] my-1" />
                   <p className="px-3 py-1.5 text-xs font-medium text-zinc-400 uppercase">Set Priority</p>
-                  {(['low', 'medium', 'high', 'urgent'] as const).map(p => (
-                    <button key={p} onClick={() => bulkUpdatePriority(p)} className="w-full text-left px-3 py-1.5 text-sm text-zinc-300 hover:bg-white/[0.03]">
-                      {p.charAt(0).toUpperCase() + p.slice(1)}
+                  <div className="grid grid-cols-2 gap-1 px-2 pb-1">
+                    {(['low', 'medium', 'high', 'urgent'] as const).map(p => (
+                      <button key={p} onClick={() => bulkUpdatePriority(p)} className="text-left px-2 py-1.5 text-sm text-zinc-300 rounded-md hover:bg-white/[0.06]">
+                        {p.charAt(0).toUpperCase() + p.slice(1)}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="border-t border-white/[0.06] my-1" />
+                  <p className="px-3 py-1.5 text-xs font-medium text-zinc-400 uppercase">Assign To</p>
+                  {team.filter(m => m.status !== 'suspended').map(member => (
+                    <button key={member.id} onClick={() => bulkAssign(member.id)} className="w-full flex items-center gap-2 text-left px-3 py-1.5 text-sm text-zinc-300 hover:bg-white/[0.03]">
+                      <Avatar name={member.name} src={member.avatar || undefined} size="xs" />
+                      {member.name}
                     </button>
                   ))}
+                  <button onClick={() => bulkAssign(null)} className="w-full text-left px-3 py-1.5 text-sm text-zinc-400 hover:bg-white/[0.03]">
+                    Unassign all
+                  </button>
+                  <div className="border-t border-white/[0.06] my-1" />
+                  <p className="px-3 py-1.5 text-xs font-medium text-zinc-400 uppercase">Due Date</p>
+                  <div className="px-3 pb-1.5">
+                    <DateInput value="" onChange={v => { if (v) bulkSetDueDate(v); }} />
+                  </div>
+                  <button onClick={() => bulkSetDueDate(null)} className="w-full text-left px-3 py-1.5 text-sm text-zinc-400 hover:bg-white/[0.03]">
+                    Clear due date
+                  </button>
                   <div className="border-t border-white/[0.06] my-1" />
                   <button onClick={bulkDelete} className="w-full text-left px-3 py-1.5 text-sm text-red-400 hover:bg-red-500/15">
                     Delete selected
@@ -478,6 +525,8 @@ export default function ProjectDetailPage() {
                 </Popover>
               </div>
             )}
+
+            {allProjectTasks.length > 0 && <TaskFilterControl tasks={allProjectTasks} />}
 
             {/* View Mode Toggle */}
             {allProjectTasks.length > 0 && (
@@ -498,7 +547,7 @@ export default function ProjectDetailPage() {
             {canCreateTasks && <Button
               onClick={() => setIsTaskFormOpen(true)}
               icon={<Plus size={16} />}
-              className="whitespace-nowrap"
+              className="whitespace-nowrap h-9"
             >
               <span className="hidden sm:inline">Add Task</span>
             </Button>}
@@ -543,6 +592,7 @@ export default function ProjectDetailPage() {
                 tasks={projectTasks}
                 onViewTask={handleViewTask}
                 onEditTask={handleEditTask}
+                onAddTask={canCreateTasks ? (date) => { setTaskFormDueDate(date); setIsTaskFormOpen(true); } : undefined}
               />
             )}
           </>
@@ -604,6 +654,7 @@ export default function ProjectDetailPage() {
         onClose={handleCloseTaskForm}
         projectId={projectId}
         task={editingTask}
+        initialDueDate={taskFormDueDate || undefined}
       />
 
       {/* Contacts Panel Modal */}

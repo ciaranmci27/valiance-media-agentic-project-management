@@ -18,9 +18,11 @@ interface TaskFormProps {
   onClose: () => void;
   projectId: string;
   task?: Task | null;
+  /** Create mode only: seeds the due date (calendar day-click). */
+  initialDueDate?: string;
 }
 
-export function TaskForm({ isOpen, onClose, projectId, task }: TaskFormProps) {
+export function TaskForm({ isOpen, onClose, projectId, task, initialDueDate }: TaskFormProps) {
   const { team, tasks, addTask, updateTask } = useApp();
   const { teamMemberId, access } = useAuth();
 
@@ -58,13 +60,13 @@ export function TaskForm({ isOpen, onClose, projectId, task }: TaskFormProps) {
       setStatus('todo');
       setPriority('medium');
       setAssigneeIds(!canAssignOthers && teamMemberId ? [teamMemberId] : []);
-      setDueDate('');
+      setDueDate(initialDueDate || '');
       setTags('');
       setTaskType('');
       setAiReadiness('');
       setBlockedByIds([]);
     }
-  }, [canAssignOthers, isOpen, task, teamMemberId]);
+  }, [canAssignOthers, isOpen, task, teamMemberId, initialDueDate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

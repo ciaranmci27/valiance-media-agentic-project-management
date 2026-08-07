@@ -99,15 +99,31 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
     patch.hourly_rate = await resolveProjectHourlyRate(supabase, id, patch.start_time as string);
   }
 
-  const { data: updated, error } = await supabase
-    .from('project_time_entries')
-    .update(patch as any)
-    .eq('id', entryId)
-    .eq('project_id', id)
-    .select(TIME_ENTRY_SELECT)
-    .single();
-
-  if (error) throw error;
+  // A task_ids-only PATCH leaves `patch` empty (links are handled below,
+  // not by this update), and PostgREST rejects an empty update outright.
+  // Observed live: the dev agent linking a task to the day's billing session
+  // got a 500 and blocked. No columns to change means fetch, not update.
+  let updated;
+  if (Object.keys(patch).length > 0) {
+    const { data, error } = await supabase
+      .from('project_time_entries')
+      .update(patch as any)
+      .eq('id', entryId)
+      .eq('project_id', id)
+      .select(TIME_ENTRY_SELECT)
+      .single();
+    if (error) throw error;
+    updated = data;
+  } else {
+    const { data, error } = await supabase
+      .from('project_time_entries')
+      .select(TIME_ENTRY_SELECT)
+      .eq('id', entryId)
+      .eq('project_id', id)
+      .single();
+    if (error) throw error;
+    updated = data;
+  }
 
   if (taskIds !== undefined) {
     await supabase.from('time_entry_tasks').delete().eq('time_entry_id', entryId);

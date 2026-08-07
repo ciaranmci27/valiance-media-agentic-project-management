@@ -219,7 +219,12 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editState, setEditState] = useState<{
     date: string; startTime: string; endTime: string; description: string; memberId: string;
-    workType: 'client' | 'internal';
+    workType: 'client' | 'internal'; taskIds: string[];
+    // What the end field was seeded with. For a RUNNING entry the seed is
+    // "now", so recomputing "now" again at save time to detect changes would
+    // drift across a minute boundary and spuriously finalize a live timer on
+    // a task-only edit. Change detection must compare against the seed.
+    seededEndTime: string;
   } | null>(null);
 
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
@@ -398,13 +403,16 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
   const startEdit = (entry: TimeEntry) => {
     setEditingSegment(null); // segment edit and entry edit are mutually exclusive
     setEditingId(entry.id);
+    const seededEndTime = toLocalTimeString(entry.end_time || new Date().toISOString(), tz);
     setEditState({
       date: getDateKey(entry.start_time, tz),
       startTime: toLocalTimeString(entry.start_time, tz),
-      endTime: toLocalTimeString(entry.end_time || new Date().toISOString(), tz),
+      endTime: seededEndTime,
+      seededEndTime,
       description: entry.description,
       memberId: entry.member_id,
       workType: entry.work_type || 'client',
+      taskIds: entry.task_ids || [],
     });
   };
 
@@ -502,20 +510,26 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
     // "changed" and nuke the segments on every save.
     const originalDate = getDateKey(original.start_time, tz);
     const originalStartTime = toLocalTimeString(original.start_time, tz);
-    const originalEndTime = toLocalTimeString(
-      original.end_time || new Date().toISOString(),
-      tz,
-    );
+    const originalEndTime = editState.seededEndTime;
     const timeFieldsChanged =
       editState.date !== originalDate ||
       editState.startTime !== originalStartTime ||
       editState.endTime !== originalEndTime;
 
-    const patch: Partial<Pick<TimeEntry, 'member_id' | 'start_time' | 'end_time' | 'segments' | 'description' | 'work_type'>> = {
+    const patch: Partial<Pick<TimeEntry, 'member_id' | 'start_time' | 'end_time' | 'segments' | 'description' | 'work_type' | 'task_ids'>> = {
       description: editState.description,
       member_id: editState.memberId,
       work_type: editState.workType,
     };
+
+    // Only send task links when they actually changed: the PATCH replaces the
+    // whole link set, so an unconditional send would rewrite rows on every
+    // save, and order is irrelevant to equality.
+    const originalTaskKey = [...(original.task_ids || [])].sort().join(',');
+    const editedTaskKey = [...editState.taskIds].sort().join(',');
+    if (editedTaskKey !== originalTaskKey) {
+      patch.task_ids = editState.taskIds;
+    }
 
     if (timeFieldsChanged) {
       const start = new Date(`${editState.date}T${editState.startTime}`);
@@ -735,6 +749,26 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                     </button>
                   </div>
                 </div>
+
+                {/* Task links on the LIVE session. The running entry is the
+                    source of truth (not local state), and changes write
+                    through immediately: unlike the description there is no
+                    typing to debounce. Done tasks already linked stay in the
+                    options so a change cannot silently drop them. */}
+                {(projectTaskOptions.length > 0 || (runningTimer.task_ids || []).length > 0) && (
+                  <MultiSelect
+                    options={[
+                      ...projectTaskOptions,
+                      ...(runningTimer.task_ids || [])
+                        .filter(id => !projectTaskOptions.some(o => o.value === id))
+                        .map(id => ({ value: id, label: getTaskTitle(id) || 'Removed task' })),
+                    ]}
+                    value={runningTimer.task_ids || []}
+                    onChange={v => updateTimeEntry(runningTimer.id, { task_ids: v })}
+                    placeholder="Link tasks (optional)"
+                    searchable={projectTaskOptions.length > 4}
+                  />
+                )}
               </div>
             ) : (
               <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-4 space-y-3">
@@ -999,6 +1033,24 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                             onChange={v => setEditState({ ...editState, description: v })}
                             placeholder="Description"
                           />
+                          {/* Task links are editable like every other field. Options
+                              include the entry's currently-linked tasks even when they
+                              are done (the common case for old entries), or the picker
+                              would silently drop them on save. */}
+                          {(projectTaskOptions.length > 0 || editState.taskIds.length > 0) && (
+                            <MultiSelect
+                              options={[
+                                ...projectTaskOptions,
+                                ...editState.taskIds
+                                  .filter(id => !projectTaskOptions.some(o => o.value === id))
+                                  .map(id => ({ value: id, label: getTaskTitle(id) || 'Removed task' })),
+                              ]}
+                              value={editState.taskIds}
+                              onChange={v => setEditState({ ...editState, taskIds: v })}
+                              placeholder="Link tasks (optional)"
+                              searchable={projectTaskOptions.length > 4}
+                            />
+                          )}
                           <div className="flex flex-col gap-2 pb-1 sm:flex-row sm:items-center">
                             <div className={`grid min-w-0 flex-1 gap-2 ${canManageAllTime ? 'grid-cols-2' : 'grid-cols-1'}`}>
                               {canManageAllTime && (

@@ -261,8 +261,8 @@ export function FleetStatusStrip() {
                     {agent.title?.trim() || 'Agent'}
                   </p>
                 </div>
-                <Tooltip content={detail}>
-                  <p className="text-xs text-zinc-400 truncate cursor-default mt-0.5" tabIndex={0}>
+                <Tooltip content={detail} className="w-full">
+                  <p className="block w-full min-w-0 text-xs text-zinc-400 truncate cursor-default mt-0.5" tabIndex={0}>
                     {detail}
                   </p>
                 </Tooltip>

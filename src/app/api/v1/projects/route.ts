@@ -63,7 +63,7 @@ export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId, acc
     }
   }
   if (!apiKeyAllows(access, scopes, 'agents.manage')) {
-    for (const field of ['autonomous_enabled', 'auto_merge_enabled', 'integration_branch', 'production_branch', 'suggestions_per_cycle', 'suggestion_queue_cap', 'audit_interval_hours', 'repo_path']) {
+    for (const field of ['autonomous_enabled', 'auto_merge_enabled', 'integration_branch', 'production_branch', 'suggestions_per_cycle', 'suggestion_queue_cap', 'audit_interval_hours', 'sensitive_paths', 'repo_path']) {
       delete projectData[field];
     }
   }

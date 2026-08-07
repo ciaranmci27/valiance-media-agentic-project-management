@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from 'react';
 import { Task } from '@/lib/types';
-import { ChevronLeft, ChevronRight, AlertCircle } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronDown, AlertCircle, Plus } from 'lucide-react';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { parseDateOnly } from '@/lib/date-utils';
 
@@ -10,13 +10,17 @@ interface CalendarViewProps {
   tasks: Task[];
   onViewTask?: (task: Task) => void;
   onEditTask?: (task: Task) => void;
+  /** Clicking a day's empty space creates a task due that day. */
+  onAddTask?: (date: string) => void;
 }
 
+// Same philosophy as PriorityBadge: color only above medium, so red and
+// amber stay meaningful and the calendar never invents its own palette.
 const PRIORITY_DOT: Record<string, string> = {
   urgent: 'bg-red-500',
-  high: 'bg-orange-500',
-  medium: 'bg-blue-500',
-  low: 'bg-zinc-400',
+  high: 'bg-amber-500',
+  medium: 'bg-zinc-400',
+  low: 'bg-zinc-600',
 };
 
 const STATUS_STYLE: Record<string, { bg: string; text: string; border: string }> = {
@@ -26,9 +30,12 @@ const STATUS_STYLE: Record<string, { bg: string; text: string; border: string }>
   todo: { bg: 'bg-white/[0.03]', text: 'text-zinc-300', border: 'border-l-zinc-400' },
 };
 
-export function CalendarView({ tasks, onViewTask }: CalendarViewProps) {
+export function CalendarView({ tasks, onViewTask, onAddTask }: CalendarViewProps) {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [expandedDay, setExpandedDay] = useState<number | null>(null);
+  // Folded by default: with an agent proposing work faster than it gets
+  // scheduled, this section can outnumber the calendar itself and drown it.
+  const [showUnscheduled, setShowUnscheduled] = useState(false);
 
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
@@ -88,8 +95,16 @@ export function CalendarView({ tasks, onViewTask }: CalendarViewProps) {
     return map;
   }, [tasks, year, month]);
 
-  // Tasks without a due date
-  const unscheduledTasks = useMemo(() => tasks.filter(t => !t.due_date), [tasks]);
+  // Tasks without a due date. Done is excluded on purpose: a finished task
+  // has nothing left to schedule, and done rows were two thirds of the pile.
+  const unscheduledTasks = useMemo(() => {
+    const priorityOrder = { urgent: 0, high: 1, medium: 2, low: 3 };
+    return tasks
+      .filter(t => !t.due_date && t.status !== 'done')
+      .sort((a, b) =>
+        (priorityOrder[a.priority as keyof typeof priorityOrder] ?? 2) -
+        (priorityOrder[b.priority as keyof typeof priorityOrder] ?? 2));
+  }, [tasks]);
 
   // Count scheduled tasks this month
   const scheduledCount = useMemo(
@@ -125,12 +140,18 @@ export function CalendarView({ tasks, onViewTask }: CalendarViewProps) {
 
   const MAX_VISIBLE = 3;
 
-  // Build day cells
+  // Build day cells. Adjacent-month cells show their muted day numbers so
+  // the grid reads as a continuous timeline rather than broken blank boxes;
+  // they are display-only.
   const days = [];
-  // Empty cells for days before the 1st
+  const prevMonthLastDay = new Date(year, month, 0).getDate();
   for (let i = 0; i < startingDay; i++) {
     days.push(
-      <div key={`empty-${i}`} className={`min-h-[5rem] lg:min-h-[7rem] ${isWeekend(i) ? 'bg-white/[0.03]' : 'bg-white/[0.03]'} border-b border-r border-white/[0.06]`} />,
+      <div key={`empty-${i}`} className="min-h-[5rem] lg:min-h-[7rem] p-1 lg:p-1.5 bg-white/[0.02] border-b border-r border-white/[0.06]">
+        <span className="inline-flex items-center justify-center w-6 h-6 text-xs text-zinc-600">
+          {prevMonthLastDay - startingDay + 1 + i}
+        </span>
+      </div>,
     );
   }
 
@@ -146,13 +167,17 @@ export function CalendarView({ tasks, onViewTask }: CalendarViewProps) {
     const visibleTasks = isExpanded ? dayTasks : dayTasks.slice(0, MAX_VISIBLE);
     const hiddenCount = dayTasks.length - MAX_VISIBLE;
 
+    const dayIso = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
     days.push(
       <div
         key={day}
-        className={`min-h-[5rem] lg:min-h-[7rem] p-1 lg:p-1.5 border-b border-r border-white/[0.06] transition-colors relative ${
+        onClick={onAddTask ? () => onAddTask(dayIso) : undefined}
+        title={onAddTask ? 'Add a task due this day' : undefined}
+        className={`group min-h-[5rem] lg:min-h-[7rem] p-1 lg:p-1.5 border-b border-r border-white/[0.06] transition-colors relative overflow-hidden ${
+          onAddTask ? 'cursor-pointer hover:bg-white/[0.05]' : ''
+        } ${
           todayHighlight ? 'bg-brand-500/15' :
-          isWeekend(dayOfWeek) ? 'bg-white/[0.03]' :
-          past ? 'bg-white/[0.03]' :
+          isWeekend(dayOfWeek) ? 'bg-white/[0.02]' :
           'bg-surface-raised'
         }`}
       >
@@ -162,13 +187,15 @@ export function CalendarView({ tasks, onViewTask }: CalendarViewProps) {
             todayHighlight
               ? 'bg-brand-600 text-white'
               : past
-                ? 'text-zinc-500'
+                ? 'text-zinc-600'
                 : 'text-zinc-300'
           }`}>
             {day}
           </div>
           {overdue && (
-            <AlertCircle size={12} className="text-red-500 flex-shrink-0" />
+            <Tooltip content="Has tasks past their due date">
+              <AlertCircle size={12} className="text-red-500 flex-shrink-0" />
+            </Tooltip>
           )}
           {dueToday && !overdue && (
             <span className="text-[10px] font-semibold text-amber-400 bg-amber-500/15 px-1 rounded">
@@ -181,11 +208,21 @@ export function CalendarView({ tasks, onViewTask }: CalendarViewProps) {
             </span>
           )}
           {dayTasks.length > 0 && !overdue && !dueToday && !dueTomorrow && (
-            <span className={`text-[10px] font-medium ${past ? 'text-zinc-500' : 'text-zinc-400'}`}>
-              {dayTasks.length}
-            </span>
+            <Tooltip content={`${dayTasks.length} task${dayTasks.length === 1 ? '' : 's'} due this day`}>
+              <span className={`text-[10px] font-medium cursor-default ${past ? 'text-zinc-500' : 'text-zinc-400'}`}>
+                {dayTasks.length}
+              </span>
+            </Tooltip>
           )}
         </div>
+
+        {onAddTask && (
+          <Plus
+            size={12}
+            className="absolute bottom-1.5 right-1.5 text-zinc-600 opacity-0 group-hover:opacity-100 transition-opacity"
+            aria-hidden="true"
+          />
+        )}
 
         {/* Task items */}
         <div className="space-y-0.5">
@@ -196,10 +233,14 @@ export function CalendarView({ tasks, onViewTask }: CalendarViewProps) {
             const taskDueToday = dueToday && !isDone;
 
             return (
-              <Tooltip key={task.id} content={`${task.title} - ${task.priority} priority`} position="bottom">
-                <div
+              // The Tooltip trigger is inline-flex and sizes to content; without
+              // w-full on it the pill has no width bound, truncate never
+              // engages, and titles crept across cell borders.
+              <Tooltip key={task.id} content={`${task.title} - ${task.priority} priority`} position="bottom" className="w-full">
+                <button
+                  type="button"
                   onClick={(e) => { e.stopPropagation(); onViewTask?.(task); }}
-                  className={`flex items-center gap-1 text-[10px] lg:text-[11px] px-1.5 py-0.5 rounded border-l-2 truncate cursor-pointer hover:shadow-sm transition-shadow ${
+                  className={`w-full min-w-0 flex items-center gap-1 text-[10px] lg:text-[11px] px-1.5 py-0.5 rounded border-l-2 text-left cursor-pointer hover:shadow-sm transition-shadow focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-1 focus-visible:outline-brand-500 ${
                     taskOverdue
                       ? 'bg-red-500/15 text-red-300 border-l-red-500'
                       : taskDueToday
@@ -207,9 +248,9 @@ export function CalendarView({ tasks, onViewTask }: CalendarViewProps) {
                       : `${style.bg} ${style.text} ${style.border}`
                   } ${isDone ? 'line-through opacity-60' : ''}`}
                 >
-                  <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${PRIORITY_DOT[task.priority] || PRIORITY_DOT.medium}`} />
+                  <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${PRIORITY_DOT[task.priority] || PRIORITY_DOT.medium}`} aria-hidden="true" />
                   <span className="truncate">{task.title}</span>
-                </div>
+                </button>
               </Tooltip>
             );
           })}
@@ -234,13 +275,14 @@ export function CalendarView({ tasks, onViewTask }: CalendarViewProps) {
     );
   }
 
-  // Fill remaining cells to complete the last row
+  // Trailing cells: next month's muted day numbers.
   const totalCells = startingDay + daysInMonth;
   const remainingCells = totalCells % 7 === 0 ? 0 : 7 - (totalCells % 7);
   for (let i = 0; i < remainingCells; i++) {
-    const dayOfWeek = (totalCells + i) % 7;
     days.push(
-      <div key={`trail-${i}`} className={`min-h-[5rem] lg:min-h-[7rem] ${isWeekend(dayOfWeek) ? 'bg-white/[0.03]' : 'bg-white/[0.03]'} border-b border-r border-white/[0.06]`} />,
+      <div key={`trail-${i}`} className="min-h-[5rem] lg:min-h-[7rem] p-1 lg:p-1.5 bg-white/[0.02] border-b border-r border-white/[0.06]">
+        <span className="inline-flex items-center justify-center w-6 h-6 text-xs text-zinc-600">{i + 1}</span>
+      </div>,
     );
   }
 
@@ -308,13 +350,13 @@ export function CalendarView({ tasks, onViewTask }: CalendarViewProps) {
             <span className="w-2 h-2 rounded-full bg-red-500" /> Urgent
           </div>
           <div className="flex items-center gap-1.5 text-[10px] text-zinc-400">
-            <span className="w-2 h-2 rounded-full bg-orange-500" /> High
+            <span className="w-2 h-2 rounded-full bg-amber-500" /> High
           </div>
           <div className="flex items-center gap-1.5 text-[10px] text-zinc-400">
-            <span className="w-2 h-2 rounded-full bg-blue-500" /> Medium
+            <span className="w-2 h-2 rounded-full bg-zinc-400" /> Medium
           </div>
           <div className="flex items-center gap-1.5 text-[10px] text-zinc-400">
-            <span className="w-2 h-2 rounded-full bg-zinc-400" /> Low
+            <span className="w-2 h-2 rounded-full bg-zinc-600" /> Low
           </div>
           <div className="hidden lg:flex items-center gap-3 text-[10px] text-zinc-400 ml-auto">
             <span className="flex items-center gap-1.5">
@@ -327,15 +369,28 @@ export function CalendarView({ tasks, onViewTask }: CalendarViewProps) {
         </div>
       </div>
 
-      {/* Unscheduled tasks */}
+      {/* Unscheduled tasks: collapsed by default, open (in-progress and
+          waiting) work only, most urgent first. */}
       {unscheduledTasks.length > 0 && (
         <div className="glass-card rounded-xl overflow-hidden">
-          <div className="px-3 lg:px-4 py-2.5 bg-white/[0.03] border-b border-white/[0.08]">
+          <button
+            type="button"
+            onClick={() => setShowUnscheduled(v => !v)}
+            aria-expanded={showUnscheduled}
+            className="w-full flex items-center gap-2 px-3 lg:px-4 py-2.5 text-left hover:bg-white/[0.04] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand-500"
+          >
+            <ChevronDown
+              size={14}
+              className={`text-zinc-500 transition-transform ${showUnscheduled ? '' : '-rotate-90'}`}
+              aria-hidden="true"
+            />
             <h4 className="text-sm font-semibold text-zinc-300">
-              No Due Date ({unscheduledTasks.length})
+              No due date ({unscheduledTasks.length})
             </h4>
-          </div>
-          <div className="p-2 lg:p-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-1.5">
+            <span className="text-xs text-zinc-500 ml-1 hidden sm:inline">open tasks without a scheduled day</span>
+          </button>
+          {showUnscheduled && (
+          <div className="p-2 lg:p-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-1.5 border-t border-white/[0.08]">
             {unscheduledTasks.map((task) => {
               const style = STATUS_STYLE[task.status] || STATUS_STYLE.todo;
               return (
@@ -350,6 +405,7 @@ export function CalendarView({ tasks, onViewTask }: CalendarViewProps) {
               );
             })}
           </div>
+          )}
         </div>
       )}
     </div>

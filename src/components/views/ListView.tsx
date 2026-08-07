@@ -2,15 +2,23 @@
 
 import { useState, useMemo } from 'react';
 import { Task } from '@/lib/types';
-import { TaskRow, TaskRowDesktop } from '@/components/tasks/TaskRow';
-import { LayoutGrid, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react';
+import { TaskRow, TaskRowDesktop, LIST_GRID_COLS } from '@/components/tasks/TaskRow';
+import { LayoutGrid, ArrowUp, ArrowDown, ArrowUpDown, ChevronDown } from 'lucide-react';
+import { Tooltip } from '@/components/ui/Tooltip';
 import { parseDateOnly } from '@/lib/date-utils';
 
-type SortField = 'title' | 'priority' | 'due_date' | 'subtasks' | 'comments' | 'status';
+type SortField = 'title' | 'priority' | 'due_date' | 'updated';
 type SortDir = 'asc' | 'desc';
 
 const PRIORITY_ORDER: Record<string, number> = { urgent: 0, high: 1, medium: 2, low: 3 };
-const STATUS_ORDER: Record<string, number> = { todo: 0, in_progress: 1, in_review: 2, done: 3 };
+
+// Board column order, so list and board tell the same story.
+const STATUS_GROUPS: { key: Task['status']; label: string; dot: string }[] = [
+  { key: 'todo', label: 'To Do', dot: 'bg-zinc-300' },
+  { key: 'in_progress', label: 'In Progress', dot: 'bg-brand-500' },
+  { key: 'in_review', label: 'In Review', dot: 'bg-amber-500' },
+  { key: 'done', label: 'Done', dot: 'bg-emerald-500' },
+];
 
 interface ListViewProps {
   tasks: Task[];
@@ -24,6 +32,9 @@ interface ListViewProps {
 export function ListView({ tasks, onViewTask, onEditTask, onDeleteTask, selectedIds, onToggleSelect }: ListViewProps) {
   const [sortField, setSortField] = useState<SortField | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>('asc');
+  // Done starts folded: on a mature project it is the largest group and the
+  // least useful to scan, and it buried the live work under history.
+  const [collapsed, setCollapsed] = useState<Set<Task['status']>>(() => new Set(['done']));
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -34,9 +45,18 @@ export function ListView({ tasks, onViewTask, onEditTask, onDeleteTask, selected
     }
   };
 
+  const toggleGroup = (status: Task['status']) => {
+    setCollapsed(prev => {
+      const next = new Set(prev);
+      if (next.has(status)) next.delete(status); else next.add(status);
+      return next;
+    });
+  };
+
+  // Sort applies WITHIN each status group; the groups themselves are the
+  // structure and never reorder.
   const sortedTasks = useMemo(() => {
     if (!sortField) return tasks;
-
     return [...tasks].sort((a, b) => {
       let cmp = 0;
       switch (sortField) {
@@ -46,9 +66,6 @@ export function ListView({ tasks, onViewTask, onEditTask, onDeleteTask, selected
         case 'priority':
           cmp = (PRIORITY_ORDER[a.priority] ?? 99) - (PRIORITY_ORDER[b.priority] ?? 99);
           break;
-        case 'status':
-          cmp = (STATUS_ORDER[a.status] ?? 99) - (STATUS_ORDER[b.status] ?? 99);
-          break;
         case 'due_date': {
           if (!a.due_date && !b.due_date) cmp = 0;
           else if (!a.due_date) cmp = 1;
@@ -56,19 +73,17 @@ export function ListView({ tasks, onViewTask, onEditTask, onDeleteTask, selected
           else cmp = parseDateOnly(a.due_date).getTime() - parseDateOnly(b.due_date).getTime();
           break;
         }
-        case 'subtasks': {
-          const aProgress = a.subtasks.length > 0 ? a.subtasks.filter(s => s.completed).length / a.subtasks.length : -1;
-          const bProgress = b.subtasks.length > 0 ? b.subtasks.filter(s => s.completed).length / b.subtasks.length : -1;
-          cmp = aProgress - bProgress;
-          break;
-        }
-        case 'comments':
-          cmp = a.comments.length - b.comments.length;
+        case 'updated':
+          cmp = new Date(a.updated_at).getTime() - new Date(b.updated_at).getTime();
           break;
       }
       return sortDir === 'desc' ? -cmp : cmp;
     });
   }, [tasks, sortField, sortDir]);
+
+  const groups = STATUS_GROUPS
+    .map(g => ({ ...g, tasks: sortedTasks.filter(t => t.status === g.key) }))
+    .filter(g => g.tasks.length > 0);
 
   if (tasks.length === 0) {
     return (
@@ -89,62 +104,95 @@ export function ListView({ tasks, onViewTask, onEditTask, onDeleteTask, selected
       : <ArrowDown size={12} className="text-brand-300" />;
   };
 
-  const headerClass = "flex items-center gap-1 cursor-pointer hover:text-zinc-300 select-none transition-colors";
+  const SortHeader = ({ field, hint, children, className = '' }: { field: SortField; hint: string; children?: React.ReactNode; className?: string }) => (
+    <Tooltip content={hint}>
+      <button
+        type="button"
+        onClick={() => handleSort(field)}
+        className={`flex items-center gap-1 text-left uppercase tracking-wider text-xs font-medium text-zinc-400 hover:text-zinc-300 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-500 rounded ${className}`}
+      >
+        {children}
+        <SortIcon field={field} />
+      </button>
+    </Tooltip>
+  );
 
   return (
     <div className="glass-card rounded-xl overflow-hidden">
-      {/* Header - hidden on mobile */}
-      <div className="hidden lg:flex items-center gap-4 px-4 py-3 bg-white/[0.03] border-b border-white/[0.08] text-xs font-medium text-zinc-400 uppercase tracking-wider">
-        {onToggleSelect && <div className="w-5" />}
-        <div
-          className={`w-3 ${headerClass}`}
-          onClick={() => handleSort('status')}
-        >
-          <SortIcon field="status" />
+      {/* Header: same grid template as every row. Cell order mirrors
+          TaskRowDesktop exactly. */}
+      <div className={`hidden lg:grid ${LIST_GRID_COLS} py-2.5 bg-white/[0.03] border-b border-white/[0.08]`}>
+        <div />
+        <SortHeader field="title" hint="Sort alphabetically by title">Task</SortHeader>
+        <Tooltip content="Who the task is assigned to">
+          <span className="text-xs font-medium text-zinc-400 uppercase tracking-wider cursor-default">Assignees</span>
+        </Tooltip>
+        <SortHeader field="priority" hint="Sort by priority, urgent first">Priority</SortHeader>
+        <div className="hidden xl:block">
+          <SortHeader field="updated" hint="Sort by last activity on the task">Updated</SortHeader>
         </div>
-        <div className={`flex-1 ${headerClass}`} onClick={() => handleSort('title')}>
-          Task <SortIcon field="title" />
-        </div>
-        <div className="w-32">Tags</div>
-        <div className={`w-20 ${headerClass}`} onClick={() => handleSort('priority')}>
-          Priority <SortIcon field="priority" />
-        </div>
-        <div className={`w-24 ${headerClass}`} onClick={() => handleSort('due_date')}>
-          Due Date <SortIcon field="due_date" />
-        </div>
-        <div className={`w-20 ${headerClass}`} onClick={() => handleSort('subtasks')}>
-          Subtasks <SortIcon field="subtasks" />
-        </div>
-        <div className={`w-16 ${headerClass}`} onClick={() => handleSort('comments')}>
-          <span className="hidden xl:inline">Comments</span>
-          <span className="xl:hidden">Cmts</span>
-          <SortIcon field="comments" />
-        </div>
-        <div className="w-24">Assignees</div>
-        <div className="w-8" />
+        <SortHeader field="due_date" hint="Sort by due date; tasks without one sort last">Due</SortHeader>
+        <div />
       </div>
 
-      {/* Rows */}
-      <div className="divide-y divide-white/[0.06]">
-        {sortedTasks.map((task) => (
-          <div key={task.id}>
-            <TaskRow
-              task={task}
-              onView={onViewTask}
-              onEdit={onEditTask}
-              onDelete={onDeleteTask}
+      {groups.map((group, index) => (
+        <div
+          key={group.key}
+          className={
+            // The HEADER carries the group's line (below), so it is present
+            // whether the group is open or closed. This wrapper border only
+            // exists to seal an OPEN group's rows before whatever follows,
+            // the next header or the card edge.
+            !collapsed.has(group.key) ? 'border-b border-white/[0.08]' : ''
+          }
+        >
+          {/* A quiet section label, not a boxed bar: no background and no
+              border of its own, so the group reads as structure instead of
+              competing with the rows for attention. */}
+          <button
+            type="button"
+            onClick={() => toggleGroup(group.key)}
+            aria-expanded={!collapsed.has(group.key)}
+            className={`w-full flex items-center gap-2 px-4 py-3 text-left transition-colors hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand-500 ${
+              index === groups.length - 1 && collapsed.has(group.key)
+                ? ''
+                : 'border-b border-white/[0.08]'
+            }`}
+          >
+            <ChevronDown
+              size={14}
+              className={`text-zinc-500 transition-transform ${collapsed.has(group.key) ? '-rotate-90' : ''}`}
+              aria-hidden="true"
             />
-            <TaskRowDesktop
-              task={task}
-              onView={onViewTask}
-              onEdit={onEditTask}
-              onDelete={onDeleteTask}
-              selected={selectedIds?.has(task.id)}
-              onToggleSelect={onToggleSelect}
-            />
-          </div>
-        ))}
-      </div>
+            <span className={`w-2 h-2 rounded-full ${group.dot}`} aria-hidden="true" />
+            <span className="text-xs font-semibold text-zinc-300 uppercase tracking-wider">{group.label}</span>
+            <span className="text-xs text-zinc-500 tabular-nums">{group.tasks.length}</span>
+          </button>
+
+          {!collapsed.has(group.key) && (
+            <div className="divide-y divide-white/[0.04]">
+              {group.tasks.map(task => (
+                <div key={task.id}>
+                  <TaskRow
+                    task={task}
+                    onView={onViewTask}
+                    onEdit={onEditTask}
+                    onDelete={onDeleteTask}
+                  />
+                  <TaskRowDesktop
+                    task={task}
+                    onView={onViewTask}
+                    onEdit={onEditTask}
+                    onDelete={onDeleteTask}
+                    selected={selectedIds?.has(task.id)}
+                    onToggleSelect={onToggleSelect}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ))}
     </div>
   );
 }

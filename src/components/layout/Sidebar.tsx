@@ -13,11 +13,13 @@ import {
   Target,
   UserCircle,
   CheckSquare,
+  ListTodo,
   Bot,
   Bell,
   DollarSign,
 } from 'lucide-react';
 import { useApp } from '@/lib/store';
+import { computeNeedsYou } from '@/lib/autonomy';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
 import { Avatar } from '@/components/ui/Avatar';
@@ -31,7 +33,7 @@ import { hasPermission } from '@/lib/access-control';
 
 export function Sidebar() {
   const pathname = usePathname();
-  const { projects, team, loading, getPendingSuggestionCount, timeEntries } = useApp();
+  const { projects, team, loading, getPendingSuggestionCount, timeEntries, tasks, taskSuggestions, agentActivity } = useApp();
   const { user, teamMemberId, access, signOut } = useAuth();
 
   // Project IDs where the current user has an actively-running timer. Used
@@ -89,9 +91,22 @@ export function Sidebar() {
   const canManageAgents = hasPermission(access, 'agents.manage');
   const pendingSuggestionCount = isAgentsEnabled && canManageAgents ? getPendingSuggestionCount() : 0;
 
+  // Radar's badge answers "does anything need me?" before the click. Same
+  // computation as the page's top band, imported so they cannot disagree.
+  // Suggestions are excluded here on purpose: the Agent tab's own badge
+  // already counts them, and one signal per fact is the rule.
+  const radarCount = computeNeedsYou({
+    tasks,
+    suggestions: taskSuggestions,
+    projects,
+    teamMemberId: teamMemberId || null,
+    includeSuggestions: false,
+    agentActivity,
+  }).length;
+
   const navItems = [
     { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', badge: 0, overlay: false },
-    { href: '/my-tasks', icon: CheckSquare, label: 'My Tasks', badge: 0, overlay: false },
+    { href: '/my-tasks', icon: ListTodo, label: 'My Tasks', badge: radarCount, overlay: true },
     ...(hasPermission(access, 'projects.read') || hasPermission(access, 'projects.read_all')
       ? [{ href: '/projects', icon: FolderKanban, label: 'Projects', badge: 0, overlay: false }] : []),
     ...(hasPermission(access, 'leads.read') || hasPermission(access, 'leads.read_all') || hasPermission(access, 'leads.manage')
