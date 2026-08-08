@@ -71,6 +71,18 @@ export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMembe
     .single();
   if (error) throw error;
 
+  // An APPROVED verdict changes nothing on the task itself: it stays in
+  // in_review and only this row is written. The host dispatcher wakes agents
+  // from task timestamps, so without this touch the one path that should be
+  // fastest (approve, then merge) was the only one that waited for the next
+  // 30-minute tick. A changes_requested verdict already moves the task, so it
+  // never had the problem. Best effort: a failed touch costs latency, never
+  // the verdict.
+  await supabase
+    .from('tasks')
+    .update({ updated_at: new Date().toISOString() })
+    .eq('id', id);
+
   logAudit(supabase, { method: 'POST', endpoint: `/api/v1/tasks/${id}/reviews`, entityType: 'task_review', entityId: review.id, apiKeyId, teamMemberId, requestBody: body, afterSnapshot: review, statusCode: 201 });
   return created(review);
 }, { schema: createTaskReviewSchema });
