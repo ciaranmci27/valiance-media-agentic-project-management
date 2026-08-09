@@ -1,0 +1,705 @@
+'use client';
+
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { createClient } from '@/lib/supabase/client';
+import {
+  STATIONS,
+  emptyWork,
+  type AgentKey,
+  type AgentSnapshot,
+  type AgentWork,
+  type CrewReview,
+  type CrewState,
+  type CrewSuggestion,
+  type CrewTask,
+  type FeedItem,
+  type Member,
+  type Mood,
+} from './crew';
+
+/**
+ * The scene's single source of truth.
+ *
+ * Subscribes to postgres_changes directly for row-level payloads. The app
+ * store debounces and refetches whole slices, which is right for lists and
+ * useless for animation: a scene needs to know WHICH row changed, the moment
+ * it did.
+ *
+ * Honesty rules, because the database records milestones rather than
+ * keystrokes:
+ * - Agent state comes from AGENT telemetry only. A task sitting in a column is
+ *   a queue, not a person, and it never makes anyone look busy. Reading task
+ *   presence as activity is what once drew an untouched `human_only` task as
+ *   94 hours of continuous work.
+ * - Heartbeats prove liveness and nothing else. They stay out of the feed
+ *   because they would drown it, but they are the only evidence that an agent
+ *   ran at all, so they must not be discarded outright.
+ * - When an agent reports it found nothing to do, that is believed over any
+ *   inference we might draw.
+ * - With no telemetry there is no state to claim, and the scene says so.
+ * - Elapsed times come from row timestamps, never invented, and each one is
+ *   labelled with what it measures.
+ */
+
+type ActivityRow = {
+  id: string;
+  title: string;
+  agent_id: string | null;
+  activity_type: string;
+  created_at: string;
+};
+
+type ReviewRow = {
+  task_id: string | null;
+  verdict: string;
+  round: number;
+  summary: string | null;
+  pr_url: string | null;
+  head_sha: string | null;
+  created_at: string;
+};
+
+type SuggestionRow = {
+  id: string;
+  title: string;
+  priority: string;
+  effort_estimate: string | null;
+  status: string;
+  created_at: string;
+};
+
+type ProjectRow = { id: string; name: string; integration_branch: string | null };
+
+/** Suggestion states that still represent an open finding of Greg's. */
+const OPEN_SUGGESTION = new Set(['pending', 'needs_info']);
+
+/** How many artefacts each station's screens can usefully show at once. */
+const REVIEW_LIMIT = 8;
+const SUGGESTION_LIMIT = 12;
+
+/**
+ * Per-agent facts accumulated from the activity stream, kept on four separate
+ * clocks because they answer four different questions. Collapsing them into one
+ * "last event" is what made an agent that had just reported an empty queue
+ * indistinguishable from one mid-turn.
+ */
+type AgentTrace = {
+  lastLine?: string;
+  /** Any event at all, heartbeats included: proof the agent is running. */
+  seenAt: number;
+  /** Evidence of actual work: excludes heartbeats and no-work reports. */
+  workAt: number;
+  /** The agent's own report that it looked and found nothing to do. */
+  idleAt: number;
+  blockedAt: number;
+};
+
+/** Types that prove the process is alive but say nothing about work. */
+const SILENT_TYPES = new Set(['heartbeat', 'system_check']);
+
+/**
+ * The agents announce an empty queue in prose rather than a status column, so
+ * this reads their own words. It is a heuristic, but it is their conclusion
+ * rather than our inference, which makes it the best signal available: these
+ * phrases come from Greg's "NO_WORK - all autonomous projects ineligible" and
+ * John's "Independent review cycle: queue empty".
+ */
+const NO_WORK_PHRASE =
+  /\bno[_\s-]?work\b|queue empty|empty queue|nothing to (do|review|build|audit)|no eligible|ineligible|found nothing/i;
+
+/**
+ * How long an agent may go unheard before the scene stops claiming to know its
+ * state. The agents wake on a 30-minute cron plus dispatcher nudges, so three
+ * missed windows means we genuinely have no idea.
+ */
+const SILENT_AFTER_MS = 90 * 60_000;
+
+/**
+ * How long a work event keeps implying work. Turns are bounded; a work event
+ * older than this is a finished turn nobody closed out, not ongoing effort.
+ */
+const TURN_TTL_MS = 45 * 60_000;
+
+/**
+ * How far back the initial load reads. Wide enough that an agent silent for
+ * longer than SILENT_AFTER_MS still has evidence in the window, so "quiet for
+ * three hours" is distinguishable from "emits nothing at all". Beyond this
+ * both simply read as no signal, which is the honest answer either way.
+ */
+const HISTORY_WINDOW_MS = 6 * 60 * 60_000;
+
+const emptyTrace = (): AgentTrace => ({
+  seenAt: 0,
+  workAt: 0,
+  idleAt: 0,
+  blockedAt: 0,
+});
+
+/** A one-shot reaction (celebration) that expires on its own. */
+type Reaction = { mood: Mood; until: number };
+
+export function useCrewData(mock?: { mood?: Mood }): CrewState {
+  const [members, setMembers] = useState<Member[]>([]);
+  const [tasks, setTasks] = useState<CrewTask[]>([]);
+  const [traces, setTraces] = useState<Record<AgentKey, AgentTrace>>({
+    greg: emptyTrace(),
+    ashley: emptyTrace(),
+    jeff: emptyTrace(),
+    john: emptyTrace(),
+  });
+  const [feed, setFeed] = useState<FeedItem[]>([]);
+  /**
+   * The artefacts the monitors read. Held here rather than derived from
+   * `tasks`, because a review and a suggestion outlive the row that produced
+   * them and neither is reachable from a task's own columns.
+   */
+  const [reviews, setReviews] = useState<CrewReview[]>([]);
+  const [suggestions, setSuggestions] = useState<CrewSuggestion[]>([]);
+  const [branch, setBranch] = useState<{ name: string | null; project: string | null }>({
+    name: null,
+    project: null,
+  });
+  const [reactions, setReactions] = useState<Partial<Record<AgentKey, Reaction>>>({});
+  const [celebration, setCelebration] = useState(0);
+  const [live, setLive] = useState(false);
+  const membersRef = useRef<Member[]>([]);
+  membersRef.current = members;
+  const tasksRef = useRef<CrewTask[]>([]);
+  tasksRef.current = tasks;
+
+  useEffect(() => {
+    if (mock) return;
+    const supabase = createClient();
+    let dead = false;
+
+    /**
+     * Roster lookup. The list is a parameter because the initial load resolves
+     * agents in the same tick as `setMembers`, before React re-renders and
+     * refreshes the ref: reading the ref there silently dropped every seeded
+     * row, leaving all four agents with no telemetry at all.
+     */
+    const keyForAgent = (
+      agentId: string | null,
+      roster: Member[] = membersRef.current
+    ): AgentKey | undefined => {
+      if (!agentId) return undefined;
+      const m = roster.find((x) => x.id === agentId);
+      if (!m) return undefined;
+      return STATIONS.find((s) => s.match(m.name.toLowerCase()))?.key;
+    };
+
+    const react = (key: AgentKey, mood: Mood, ms: number) => {
+      setReactions((r) => ({ ...r, [key]: { mood, until: Date.now() + ms } }));
+      window.setTimeout(() => {
+        setReactions((r) => {
+          const cur = r[key];
+          return cur && cur.until <= Date.now() ? { ...r, [key]: undefined } : r;
+        });
+      }, ms + 50);
+    };
+
+    const ingestActivity = (row: ActivityRow, isRealtime: boolean, roster?: Member[]) => {
+      const key = keyForAgent(row.agent_id, roster);
+      if (!key) return;
+      const at = new Date(row.created_at).getTime();
+      // A heartbeat still proves the agent ran, so it always updates `seenAt`;
+      // it simply never counts as work. Discarding it entirely, as this once
+      // did, threw away the only evidence that anyone was alive.
+      const isSilentType = SILENT_TYPES.has(row.activity_type);
+      const reportsNoWork = NO_WORK_PHRASE.test(row.title);
+      const isBlocked = /blocked/i.test(row.title) || row.activity_type === 'task_failed';
+      const isWork = !isSilentType && !reportsNoWork && !isBlocked;
+      setTraces((t) => {
+        const cur = t[key];
+        const next: AgentTrace = {
+          // A bare heartbeat carries no message worth showing, so the last
+          // meaningful line survives it.
+          lastLine: !isSilentType && at >= cur.seenAt ? row.title : cur.lastLine,
+          seenAt: Math.max(cur.seenAt, at),
+          workAt: isWork ? Math.max(cur.workAt, at) : cur.workAt,
+          idleAt: reportsNoWork ? Math.max(cur.idleAt, at) : cur.idleAt,
+          blockedAt: isBlocked ? Math.max(cur.blockedAt, at) : cur.blockedAt,
+        };
+        return { ...t, [key]: next };
+      });
+      // Heartbeats stay out of the feed: at one per agent per cycle they would
+      // bury every real milestone.
+      if (isSilentType) return;
+      if (isRealtime) {
+        setFeed((f) =>
+          [
+            {
+              id: row.id,
+              agent: key,
+              text: row.title,
+              kind: /blocked|fail/i.test(row.title + row.activity_type) ? ('warn' as const) : ('info' as const),
+              at,
+            },
+            ...f,
+          ].slice(0, 30)
+        );
+      }
+    };
+
+    (async () => {
+      const [
+        { data: mem },
+        { data: taskRows },
+        { data: acts },
+        { data: reviewRows },
+        { data: suggestionRows },
+        { data: projectRows },
+      ] = await Promise.all([
+        supabase.from('team_members').select('id, name, title, avatar').eq('role', 'agent'),
+        supabase
+          .from('tasks')
+          .select('id, title, status, priority, updated_at, ai_readiness, task_assignees(member_id)')
+          .neq('status', 'done')
+          .order('updated_at', { ascending: false })
+          .limit(50),
+        // A time window, not a row count. Heartbeats dominate this stream, so
+        // the newest N rows can be entirely one talkative agent while a quieter
+        // one's last event falls off the end and reads as "never seen" rather
+        // than "not seen lately". The window must comfortably exceed
+        // SILENT_AFTER_MS for the distinction to mean anything.
+        supabase
+          .from('agent_activities')
+          .select('id, title, agent_id, activity_type, created_at')
+          .gte('created_at', new Date(Date.now() - HISTORY_WINDOW_MS).toISOString())
+          .order('created_at', { ascending: false })
+          .limit(400),
+        // Widened from one row of three columns. `pr_url` and `head_sha` are
+        // the only verifiable code references in the schema, and John's screen
+        // is the one place in the scene where showing them means anything.
+        supabase
+          .from('task_reviews')
+          .select('task_id, verdict, round, summary, pr_url, head_sha, created_at')
+          .order('created_at', { ascending: false })
+          .limit(REVIEW_LIMIT),
+        // Greg's actual output. Nothing read this before, which is why his
+        // station rendered with no content of its own at all.
+        supabase
+          .from('task_suggestions')
+          .select('id, title, priority, effort_estimate, status, created_at')
+          .in('status', [...OPEN_SUGGESTION])
+          .order('created_at', { ascending: false })
+          .limit(SUGGESTION_LIMIT),
+        // One autonomous project's branch names, for a real branch on Jeff's
+        // status bar instead of an invented one.
+        supabase
+          .from('projects')
+          .select('id, name, integration_branch')
+          .eq('autonomous_enabled', true)
+          .limit(1),
+      ]);
+      if (dead) return;
+      // Held locally and passed down explicitly: the ref behind `keyForAgent`
+      // does not refresh until the next render, which is after every line
+      // below has already run.
+      const roster = (mem as Member[]) || [];
+      setMembers(roster);
+      setTasks(normalizeTasks(taskRows));
+      // Oldest first so newest wins the lastLine slot.
+      for (const row of ((acts as ActivityRow[]) || []).slice().reverse()) {
+        ingestActivity(row, false, roster);
+      }
+      const seeded: FeedItem[] = ((acts as ActivityRow[]) || [])
+        .filter((a) => !SILENT_TYPES.has(a.activity_type))
+        .slice(0, 12)
+        .map((a) => ({
+          id: a.id,
+          agent: keyForAgent(a.agent_id, roster) ?? null,
+          text: a.title,
+          kind: /blocked|fail/i.test(a.title + a.activity_type) ? 'warn' : 'info',
+          at: new Date(a.created_at).getTime(),
+        }));
+      setFeed(seeded);
+
+      const revs = ((reviewRows as ReviewRow[] | null) || []).map(toReview);
+      setReviews(revs);
+      setSuggestions(((suggestionRows as SuggestionRow[] | null) || []).map(toSuggestion));
+      const project = (projectRows as ProjectRow[] | null)?.[0];
+      if (project) setBranch({ name: project.integration_branch, project: project.name });
+
+      const rev = revs[0];
+      if (rev) {
+        setTraces((t) => ({
+          ...t,
+          john: {
+            ...t.john,
+            lastLine:
+              t.john.lastLine ??
+              (rev.verdict === 'approved' ? 'Approved. Ship it.' : `Changes requested, round ${rev.round}`),
+          },
+        }));
+      }
+    })();
+
+    const channel = supabase
+      .channel('command-scene')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'agent_activities' }, (p) => {
+        ingestActivity(p.new as ActivityRow, true);
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, (p) => {
+        const row = p.new as CrewTask & { task_assignees?: { member_id: string }[] };
+        if (!row?.id) return;
+        // Realtime payloads do not include the join; keep any assignees we knew.
+        setTasks((prev) => {
+          const known = prev.find((t) => t.id === row.id);
+          const rest = prev.filter((t) => t.id !== row.id);
+          if (row.status === 'done') return rest;
+          return [{ ...row, assignees: known?.assignees ?? [] }, ...rest];
+        });
+        if (row.status === 'done') {
+          setCelebration(Date.now());
+          const key = keyForAssignees(membersRef.current, row.id, tasksRef.current) ?? 'jeff';
+          react(key, 'celebrating', 4200);
+        }
+      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'task_reviews' }, (p) => {
+        const row = p.new as ReviewRow;
+        const approved = row.verdict === 'approved';
+        const text = approved ? `Approved on round ${row.round}. Ship it.` : `Changes requested, round ${row.round}`;
+        // Newest first, capped: John's panel reads the head of this list and
+        // his screen has to change the instant a verdict lands.
+        setReviews((r) => [toReview(row), ...r].slice(0, REVIEW_LIMIT));
+        // Filing a verdict is the most direct proof of work John ever emits,
+        // so it counts on both the liveness and the work clock.
+        setTraces((t) => ({
+          ...t,
+          john: { ...t.john, lastLine: text, seenAt: Date.now(), workAt: Date.now() },
+        }));
+        setFeed((f) =>
+          [
+            { id: `rev-${Date.now()}`, agent: 'john' as const, text, kind: approved ? ('good' as const) : ('warn' as const), at: Date.now() },
+            ...f,
+          ].slice(0, 30)
+        );
+        if (approved) {
+          setCelebration(Date.now());
+          react('john', 'celebrating', 4200);
+          react('jeff', 'celebrating', 4200);
+        }
+      })
+      // Greg's findings ledger, kept live the same way John's verdicts are.
+      // `*` rather than INSERT because a suggestion leaving `pending` (someone
+      // approved or rejected it) has to drop off his screen, not linger.
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'task_suggestions' }, (p) => {
+        const row = p.new as SuggestionRow | null;
+        const gone = p.eventType === 'DELETE' || !row || !OPEN_SUGGESTION.has(row.status);
+        const id = (row?.id ?? (p.old as { id?: string } | null)?.id) as string | undefined;
+        if (!id) return;
+        setSuggestions((s) => {
+          const rest = s.filter((x) => x.id !== id);
+          if (gone) return rest;
+          return [toSuggestion(row), ...rest]
+            .sort((a, b) => b.at - a.at)
+            .slice(0, SUGGESTION_LIMIT);
+        });
+      })
+      .subscribe((status) => {
+        if (!dead) setLive(status === 'SUBSCRIBED');
+      });
+
+    return () => {
+      dead = true;
+      supabase.removeChannel(channel);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mock ? 1 : 0]);
+
+  // ---- Mock mode: deterministic states for the dev preview route. ----
+  useEffect(() => {
+    if (!mock) return;
+    setMembers(MOCK_MEMBERS);
+    setLive(true);
+    const now = Date.now();
+    setTasks([
+      mockTask('t1', 'Fix invoice rounding on multi-currency projects', 'in_progress', MOCK_IDS.jeff, now - 13 * 60_000),
+      mockTask('t2', 'Spec: client portal file uploads', 'todo', MOCK_IDS.ashley, now - 4 * 60_000),
+      mockTask('t3', 'Webhook retry backoff is wrong under burst load', 'in_review', MOCK_IDS.john, now - 7 * 60_000),
+    ]);
+    // Fixtures deliberately cover every branch of the state machine: working,
+    // an explicit empty-queue report, and an agent that logs nothing at all
+    // (idle with no duration to show, never a fault).
+    setTraces({
+      greg: {
+        lastLine: 'Started audit of app/src/lib/api',
+        seenAt: now - 6 * 60_000,
+        workAt: now - 6 * 60_000,
+        idleAt: 0,
+        blockedAt: 0,
+      },
+      // No telemetry at all: the scene must decline to guess.
+      ashley: emptyTrace(),
+      jeff: {
+        lastLine: 'Opened PR #142',
+        seenAt: now - 13 * 60_000,
+        workAt: now - 13 * 60_000,
+        idleAt: 0,
+        blockedAt: 0,
+      },
+      // Ran recently and reported nothing to do: idle, not reviewing.
+      john: {
+        lastLine: 'Independent review cycle: queue empty',
+        seenAt: now - 7 * 60_000,
+        workAt: now - 52 * 60_000,
+        idleAt: now - 7 * 60_000,
+        blockedAt: 0,
+      },
+    });
+    setFeed([
+      { id: 'f1', agent: 'john', text: 'Review round 2 started', kind: 'info', at: now - 7 * 60_000 },
+      { id: 'f2', agent: 'greg', text: 'Started audit of app/src/lib/api', kind: 'info', at: now - 6 * 60_000 },
+      { id: 'f3', agent: 'jeff', text: 'Opened PR #142', kind: 'info', at: now - 13 * 60_000 },
+    ]);
+    // Artefacts for the monitors. Deliberately concrete: a real-looking PR
+    // URL and SHA so the review panel's parsing is exercised offline, and a
+    // findings list so Greg's ledger is not empty in the preview.
+    setReviews([
+      {
+        taskId: 't3',
+        verdict: 'changes_requested',
+        round: 2,
+        prUrl: 'https://github.com/valiance/bloomwell-app/pull/142',
+        headSha: '9f3c1a4e77b2d0568ac91f3e2b7d4c8a09e1f6b3',
+        summary: 'Backoff resets on every retry; the jitter window is never applied.',
+        at: now - 7 * 60_000,
+      },
+      {
+        taskId: 't3',
+        verdict: 'changes_requested',
+        round: 1,
+        prUrl: 'https://github.com/valiance/bloomwell-app/pull/142',
+        headSha: '1b8e05c9d4a37f26e0b5c8194da2367fbc40e9a1',
+        summary: 'Missing coverage for the burst path.',
+        at: now - 41 * 60_000,
+      },
+    ]);
+    setSuggestions([
+      { id: 's1', title: 'Invoice PDF regenerates on every portal view', priority: 'high', effort: 'small', at: now - 9 * 60_000 },
+      { id: 's2', title: 'Lead import has no upper bound on row count', priority: 'urgent', effort: 'medium', at: now - 22 * 60_000 },
+      { id: 's3', title: 'Time entry segments are re-parsed per render', priority: 'medium', effort: 'small', at: now - 48 * 60_000 },
+      { id: 's4', title: 'Portal share links never expire', priority: 'high', effort: 'medium', at: now - 96 * 60_000 },
+    ]);
+    setBranch({ name: 'dev', project: 'Bloomwell' });
+  }, [mock]);
+
+  return useMemo(() => {
+    const agentIds = new Set(members.map((m) => m.id));
+    // A task sits with whoever owns its pipeline stage, not with whoever the
+    // assignee column names: John reviews every PR in review even though the
+    // row stays assigned to the agent who implemented it.
+    //
+    // Eligibility is the pipeline's own flag, not a guess. Treating unassigned
+    // work as the crew's swept every `human_only` task in the app onto Ashley's
+    // desk, which is how a four-day-old task for a person ended up rendered as
+    // her current job.
+    const crewTasks = tasks.filter(
+      (t) => t.ai_readiness === 'ai_ready' || t.assignees.some((id) => agentIds.has(id))
+    );
+    const now = Date.now();
+
+    const agents = {} as Record<AgentKey, AgentSnapshot>;
+    for (const station of STATIONS) {
+      const member = members.find((m) => station.match(m.name.toLowerCase()));
+      const trace = traces[station.key];
+      const deskTasks = crewTasks.filter((t) => stageOwner(t.status) === station.key);
+      const task = deskTasks.sort(
+        (a, b) => +new Date(b.updated_at) - +new Date(a.updated_at)
+      )[0];
+
+      // State is decided by the agent's own telemetry, in order of how much
+      // each signal actually proves. The task on the desk is display only: it
+      // is what they would pick up, not evidence that they have.
+      // How much history we have on this agent. This qualifies the timer but
+      // never becomes a status of its own: an agent that logs nothing is not
+      // an agent that is down. Ashley writes no activity rows at all and will
+      // still answer a message the moment one arrives.
+      const telemetry: AgentSnapshot['telemetry'] = !trace.seenAt
+        ? 'none'
+        : now - trace.seenAt > SILENT_AFTER_MS
+          ? 'stale'
+          : 'live';
+
+      let mood: Mood;
+      let since: number;
+      let sinceMeans: AgentSnapshot['sinceMeans'];
+
+      if (trace.blockedAt > Math.max(trace.workAt, trace.idleAt)) {
+        // A block persists until the agent does something else, rather than
+        // ageing out on a timer: it is a state someone must clear.
+        mood = 'blocked';
+        since = trace.blockedAt;
+        sinceMeans = 'blocked';
+      } else if (trace.idleAt > trace.workAt) {
+        // They looked and found nothing. Believe them over any inference.
+        mood = 'idle';
+        since = trace.idleAt;
+        sinceMeans = 'idle';
+      } else if (trace.workAt && now - trace.workAt < TURN_TTL_MS) {
+        mood = station.busyMood;
+        since = trace.workAt;
+        sinceMeans = 'working';
+      } else {
+        // Nothing recent. Idle is the honest reading: available, not busy.
+        // The elapsed number carries how long it has been quiet, which is the
+        // useful part, without dressing quiet up as a fault.
+        mood = 'idle';
+        since = trace.seenAt;
+        sinceMeans = 'idle';
+      }
+
+      const reaction = reactions[station.key];
+      if (reaction && reaction.until > now) {
+        mood = reaction.mood;
+        since = reaction.until - 4200;
+        sinceMeans = 'working';
+      }
+      if (mock?.mood) mood = mock.mood;
+
+      const oldestAt = deskTasks.length
+        ? Math.min(...deskTasks.map((t) => +new Date(t.updated_at)))
+        : null;
+
+      agents[station.key] = {
+        key: station.key,
+        member,
+        mood,
+        task,
+        queue: { count: deskTasks.length, oldestAt },
+        since,
+        sinceMeans,
+        telemetry,
+        lastLine: trace.lastLine,
+        lastEventAt: trace.seenAt,
+        work: workFor(station.key, task, reviews, suggestions, branch),
+      };
+    }
+    return { agents, feed, tasksInFlight: crewTasks.length, celebration, live };
+  }, [members, tasks, traces, feed, reactions, celebration, live, reviews, suggestions, branch, mock?.mood]);
+}
+
+/** Row shape to scene shape, in one place so the fetch and the realtime
+ *  handler cannot disagree about what a review is. */
+function toReview(row: ReviewRow): CrewReview {
+  return {
+    taskId: row.task_id ?? null,
+    verdict: row.verdict,
+    round: row.round,
+    prUrl: row.pr_url ?? null,
+    headSha: row.head_sha ?? null,
+    summary: row.summary ?? null,
+    at: new Date(row.created_at).getTime(),
+  };
+}
+
+function toSuggestion(row: SuggestionRow): CrewSuggestion {
+  return {
+    id: row.id,
+    title: row.title,
+    priority: row.priority,
+    effort: row.effort_estimate ?? null,
+    at: new Date(row.created_at).getTime(),
+  };
+}
+
+function normalizeTasks(rows: unknown): CrewTask[] {
+  const list = (rows as (CrewTask & { task_assignees?: { member_id: string }[] })[]) || [];
+  return list.map((t) => ({
+    id: t.id,
+    title: t.title,
+    status: t.status,
+    priority: t.priority,
+    updated_at: t.updated_at,
+    ai_readiness: t.ai_readiness ?? null,
+    assignees: (t.task_assignees || []).map((a) => a.member_id),
+  }));
+}
+
+/**
+ * The artefacts a given station's monitors should show.
+ *
+ * Handed out by role rather than to everyone, because a screen showing facts
+ * that belong to someone else's craft is noise: Greg has no PR to look at and
+ * John has no findings to file. Reviews are narrowed to the task actually on
+ * the desk where there is one, so John's panel tracks the PR he is reviewing
+ * rather than whatever landed most recently anywhere.
+ */
+function workFor(
+  key: AgentKey,
+  task: CrewTask | undefined,
+  reviews: CrewReview[],
+  suggestions: CrewSuggestion[],
+  branch: { name: string | null; project: string | null }
+): AgentWork {
+  const base = emptyWork();
+  base.branch = branch.name;
+  base.project = branch.project;
+  if (key === 'greg') {
+    base.suggestions = suggestions;
+  } else if (key === 'john') {
+    const mine = task ? reviews.filter((r) => r.taskId === task.id) : [];
+    base.reviews = mine.length ? mine : reviews;
+  } else if (key === 'jeff') {
+    // The dev agent cares only about verdicts on what he built, and only to
+    // know whether it bounced.
+    base.reviews = task ? reviews.filter((r) => r.taskId === task.id) : [];
+  }
+  return base;
+}
+
+/**
+ * Which station owns a task, purely by pipeline stage. Greg is deliberately
+ * absent: his work produces suggestions rather than moving task rows, so his
+ * state comes from the activity stream instead, and his desk content comes
+ * from `task_suggestions` via `workFor`.
+ */
+function stageOwner(status: string): AgentKey | null {
+  if (status === 'in_review') return 'john';
+  if (status === 'in_progress') return 'jeff';
+  if (status === 'todo') return 'ashley';
+  return null;
+}
+
+function keyForAssignees(members: Member[], taskId: string | undefined, tasks: CrewTask[]): AgentKey | undefined {
+  if (!taskId) return undefined;
+  const task = tasks.find((t) => t.id === taskId);
+  if (!task) return undefined;
+  for (const id of task.assignees) {
+    const m = members.find((x) => x.id === id);
+    if (!m) continue;
+    const s = STATIONS.find((st) => st.match(m.name.toLowerCase()));
+    if (s) return s.key;
+  }
+  return undefined;
+}
+
+// Fixed fixtures so the dev preview renders the real people without auth.
+const MOCK_IDS = {
+  greg: '16553be9-40ac-4b38-b1e9-d3cfbae71a5b',
+  ashley: '656894b6-5ad3-498c-adad-1845eafe942a',
+  jeff: 'ef1951d2-fa74-4d2b-8b05-f15a69ac7ba8',
+  john: 'cbe473dc-8e2b-456a-8603-df500e16a6c1',
+};
+
+const AVATAR_BASE = 'https://zjwgovvgdbamgtjustuz.supabase.co/storage/v1/object/public/avatars/team';
+
+const MOCK_MEMBERS: Member[] = [
+  { id: MOCK_IDS.greg, name: 'Greg A.', title: 'Technical Auditor', avatar: `${AVATAR_BASE}/${MOCK_IDS.greg}.jpg` },
+  { id: MOCK_IDS.ashley, name: 'Ashley P.', title: 'Project Manager', avatar: `${AVATAR_BASE}/${MOCK_IDS.ashley}.jpg` },
+  { id: MOCK_IDS.jeff, name: 'Jeff D.', title: 'Senior Developer', avatar: `${AVATAR_BASE}/${MOCK_IDS.jeff}.jpg` },
+  { id: MOCK_IDS.john, name: 'John R.', title: 'Code Reviewer', avatar: `${AVATAR_BASE}/${MOCK_IDS.john}.jpg` },
+];
+
+function mockTask(id: string, title: string, status: string, assignee: string, updatedAt: number): CrewTask {
+  return {
+    id,
+    title,
+    status,
+    priority: 'high',
+    updated_at: new Date(updatedAt).toISOString(),
+    ai_readiness: 'ai_ready',
+    assignees: [assignee],
+  };
+}

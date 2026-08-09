@@ -1,9 +1,9 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
-import { hasPermission } from '@/lib/access-control';
 import { Header } from '@/components/layout/Header';
 import { FleetStatusStrip } from '@/components/agent/FleetStatusStrip';
 import { ReviewQueue } from '@/components/agent/ReviewQueue';
@@ -11,7 +11,7 @@ import { AutonomousProjects } from '@/components/agent/AutonomousProjects';
 import { ActivityTimeline } from '@/components/agent/ActivityTimeline';
 import { ApproveModal } from '@/components/agent/ApproveModal';
 import { EditSuggestionModal } from '@/components/agent/EditSuggestionModal';
-import { Bot } from 'lucide-react';
+import { Radio } from 'lucide-react';
 import { toast } from '@/components/ui/Toast';
 
 export default function AgentPage() {
@@ -19,30 +19,28 @@ export default function AgentPage() {
     taskSuggestions,
     approveSuggestion, updateSuggestion,
   } = useApp();
-  const { access, teamMemberId } = useAuth();
+  const { teamMemberId } = useAuth();
   const [approveModalId, setApproveModalId] = useState<string | null>(null);
   const [editModalId, setEditModalId] = useState<string | null>(null);
 
-  const isAgentsEnabled = process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true';
-  const canManageAgents = hasPermission(access, 'agents.manage');
-
-  if (!isAgentsEnabled || !canManageAgents) {
-    return (
-      <div className="animate-fadeIn min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <Bot className="mx-auto mb-3 text-zinc-500" size={40} />
-          <h3 className="font-medium text-zinc-300 mb-1">Not Available</h3>
-          <p className="text-sm text-zinc-400">Agentic workflows are not enabled or you lack permissions.</p>
-        </div>
-      </div>
-    );
-  }
+  // The agents feature flag and `agents.manage` check live in this segment's
+  // layout, which covers every route under /agent rather than this page alone.
 
   return (
-    <div className="animate-fadeIn min-h-screen lg:h-screen bg-white/[0.03] lg:flex lg:flex-col lg:overflow-hidden">
+    <div className="animate-fadeIn min-h-screen lg:h-screen lg:flex lg:flex-col lg:overflow-hidden">
       <div className="lg:flex-shrink-0">
         <Header
           title="Agent Dashboard"
+          subtitle="Fleet status, pending reviews, and what your crew is working on."
+          actions={
+            <Link
+              href="/agent/live"
+              className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-zinc-300 transition-colors hover:bg-white/[0.08] hover:text-zinc-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-400 focus-visible:outline-offset-2"
+            >
+              <Radio size={14} className="text-brand-300" aria-hidden="true" />
+              Live floor
+            </Link>
+          }
         />
       </div>
 

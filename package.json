@@ -11,6 +11,9 @@
   },
   "dependencies": {
     "@react-pdf/renderer": "^4.5.1",
+    "@react-three/drei": "^10.7.8",
+    "@react-three/fiber": "^9.7.0",
+    "@react-three/postprocessing": "^3.0.4",
     "@supabase/ssr": "^0.8.0",
     "@supabase/supabase-js": "^2.97.0",
     "@tiptap/pm": "^3.20.0",
@@ -24,6 +27,8 @@
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-pdf": "^10.4.1",
+    "suncalc": "^2.0.1",
+    "three": "^0.185.1",
     "xlsx": "^0.18.5",
     "zod": "^4.3.6"
   },
