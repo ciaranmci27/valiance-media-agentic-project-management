@@ -2,7 +2,7 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
-import { Canvas, useFrame, useThree } from '@react-three/fiber';
+import { Canvas, useFrame, useStore, useThree } from '@react-three/fiber';
 import { Environment, Lightformer, Stats } from '@react-three/drei';
 import { EffectComposer, Bloom, Vignette, Noise, N8AO, SMAA } from '@react-three/postprocessing';
 import { STATIONS, PALETTE, type CrewState, type Mood } from './scene/crew';
@@ -11,15 +11,22 @@ import { Room } from './scene/Room';
 import { DeskStation } from './scene/DeskStation';
 import { CameraRig } from './scene/CameraRig';
 import { FreeRoamControls } from './scene/FreeRoamControls';
+import { TouchRoamControls } from './scene/TouchRoamControls';
+import { TouchJoystick } from './scene/TouchJoystick';
 import { ScreenFocus } from './scene/ScreenFocus';
 import { ReadPrompt } from './scene/ReadPrompt';
+import { Jukebox } from './scene/Jukebox';
+import { JukeboxPanel, RadioButton } from './scene/JukeboxPanel';
+import { focusedScreen } from './scene/screenRegistry';
 import { CollisionDebug } from './scene/CollisionDebug';
 import { SettingsPanel } from './scene/SettingsPanel';
+import { useCoarsePointer } from './scene/useCoarsePointer';
 import {
   useSceneSettings,
   QUALITY_PRESETS,
   type CameraMode,
   type SceneSettings,
+  type ScenePreferences,
 } from './scene/sceneSettings';
 import { ActivityHUD } from './scene/ActivityHUD';
 import { preloadProps } from './scene/Prop';
@@ -61,13 +68,16 @@ preloadCharacters();
  * so changing the setting later needs the projection matrix rebuilt by hand.
  */
 function ApplyFov({ fov }: { fov: number }) {
-  const { camera } = useThree();
+  // Reached through the store rather than `useThree().camera` because the
+  // camera is a mutable three object we deliberately write to, and a value
+  // handed back by a hook is not ours to modify.
+  const store = useStore();
   useEffect(() => {
-    const cam = camera as THREE.PerspectiveCamera;
+    const cam = store.getState().camera as THREE.PerspectiveCamera;
     if (cam.fov === fov) return;
     cam.fov = fov;
     cam.updateProjectionMatrix();
-  }, [camera, fov]);
+  }, [store, fov]);
   return null;
 }
 
@@ -126,12 +136,18 @@ function SceneContent({
   cameraMode,
   onManualUnlock,
   settings,
+  coarsePointer,
+  move,
+  reading,
 }: {
   crew: CrewState;
   time: TimeOfDay;
   cameraMode: CameraMode;
   onManualUnlock: () => void;
   settings: SceneSettings;
+  coarsePointer: boolean;
+  move: React.RefObject<{ x: number; y: number }>;
+  reading: boolean;
 }) {
   // Whoever spoke last, and when. The camera leans toward them for a while —
   // but deciding *how long* is the rig's job, not this memo's: a memo only
@@ -369,21 +385,39 @@ function SceneContent({
 
       <Room time={time} />
 
+      {/* The radio, and the distance that drives its volume. */}
+      <Jukebox />
+
       {STATIONS.map((station) => (
         <DeskStation key={station.key} station={station} snapshot={crew.agents[station.key]} />
       ))}
 
       {/* One active camera controller at a time: the autonomous tour, or the
-          user walking the floor themselves (pointer-lock look + WASD) once
-          they've toggled into it. Switching either direction is a smooth
-          handoff, never a snap — see FreeRoamControls's own comment for why. */}
+          viewer driving it themselves once they've toggled into it. Switching
+          either direction is a smooth handoff, never a snap — see
+          FreeRoamControls's own comment for why.
+
+          Which controller drives depends on the input, not the screen size.
+          Free roam is pointer lock plus WASD, and a touch device has neither —
+          iOS Safari does not implement the Pointer Lock API at all — so it gets
+          drag-to-look instead. Mounting the wrong one is not a degraded
+          experience, it is a dead canvas. */}
       {cameraMode === 'manual' ? (
-        <FreeRoamControls
-          onUnlock={onManualUnlock}
-          lookSensitivity={settings.lookSensitivity}
-          lookSmoothing={settings.lookSmoothing}
-          walkSpeed={settings.walkSpeed}
-        />
+        coarsePointer ? (
+          <TouchRoamControls
+            lookSensitivity={settings.lookSensitivity}
+            walkSpeed={settings.walkSpeed}
+            move={move}
+            reading={reading}
+          />
+        ) : (
+          <FreeRoamControls
+            onUnlock={onManualUnlock}
+            lookSensitivity={settings.lookSensitivity}
+            lookSmoothing={settings.lookSmoothing}
+            walkSpeed={settings.walkSpeed}
+          />
+        )
       ) : (
         <CameraRig focus={focus} celebration={crew.celebration} motion={settings.autoCameraMotion} />
       )}
@@ -435,12 +469,17 @@ export default function CommandScene({
   mock,
   timezone,
   hour,
+  scenePreferences,
+  onScenePreferencesChange,
 }: {
   mock?: { mood?: Mood };
   /** IANA zone, e.g. "America/Phoenix" — the viewing member's own preference (`team_members.timezone`), not a fixed zone. */
   timezone?: string;
   /** Dev-only override: a fixed fractional hour (0-24) that skips the real-time clock entirely. */
   hour?: number;
+  /** The viewing member's saved per-device settings. Omitted outside the app shell (the dev preview), where localStorage stands in. */
+  scenePreferences?: ScenePreferences | null;
+  onScenePreferencesChange?: (next: ScenePreferences) => void;
 }) {
   const crew = useCrewData(mock);
   // The viewer's own clock, in their own timezone.
@@ -460,14 +499,56 @@ export default function CommandScene({
   const time = useTimeOfDay(timezone ?? 'UTC', hour);
   const [cameraMode, setCameraMode] = useState<CameraMode>('auto');
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // Touch stand-in for holding E. State, not a ref, because the prompt has to
+  // relabel itself — and unlike the focus label this flips on a tap, not ten
+  // times a second, so it costs one render rather than a stream of them.
+  const [reading, setReading] = useState(false);
+  const [radioOpen, setRadioOpen] = useState(false);
 
   /**
    * Stable, so that re-rendering this component never tears down the pointer
    * lock. `FreeRoamControls` reads it through a ref for the same reason, but
    * there is no cost to not handing it a fresh closure in the first place.
+   *
+   * Handing the camera back always drops the reading pose with it. Without
+   * that, tapping into a screen, leaving to the tour and coming back would
+   * resume mid-lean at whatever the crosshair happened to find.
    */
-  const handleManualUnlock = useCallback(() => setCameraMode('auto'), []);
-  const { settings, update, reset } = useSceneSettings();
+  const handleCameraMode = useCallback((mode: CameraMode) => {
+    setCameraMode(mode);
+    if (mode === 'auto') setReading(false);
+  }, []);
+  const handleManualUnlock = useCallback(() => handleCameraMode('auto'), [handleCameraMode]);
+
+  // E opens the radio when you are looking at it.
+  //
+  // A discrete press, not the hold that reads a screen: the two never collide
+  // because the walkers only lean into entries whose kind is 'screen', and this
+  // only fires for a 'device'. Registered on the window rather than the canvas
+  // because pointer lock means the canvas is not what has focus.
+  useEffect(() => {
+    if (cameraMode !== 'manual') return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.code !== 'KeyE' || e.repeat) return;
+      if (focusedScreen()?.kind === 'device') setRadioOpen(true);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [cameraMode]);
+  // Decides which camera controller mounts, how the settings panel presents,
+  // AND which saved profile applies — all three follow the input, not the
+  // viewport, so they can never disagree about what kind of device this is.
+  const coarsePointer = useCoarsePointer();
+  const { settings, update, reset, ranges } = useSceneSettings(
+    coarsePointer ? 'mobile' : 'desktop',
+    scenePreferences,
+    onScenePreferencesChange
+  );
+  // Written by the on-screen thumbstick (a DOM overlay), read every frame by
+  // the touch walker inside the canvas. A ref rather than state: a thumb
+  // produces touchmove at the refresh rate and re-rendering for it would cost
+  // more than the scene.
+  const move = useRef({ x: 0, y: 0 });
 
   return (
     // The scene is a dark room in both themes, so the HUD is authored against
@@ -487,6 +568,15 @@ export default function CommandScene({
       <Canvas
         shadows
         dpr={[1, 2]}
+        // Touch devices only: hand the drag gesture to `TouchLookControls`
+        // instead of letting the browser read it as a scroll or a pull to
+        // refresh. Left alone on a mouse, where touch-action means nothing.
+        //
+        // Targets the canvas rather than this wrapper. R3F applies `className`
+        // to its outer container, two levels above the canvas — an ancestor's
+        // touch-action does restrict its descendants, but the canvas itself
+        // still computes as `auto`, which reads as broken to anyone checking.
+        className={coarsePointer ? '[&_canvas]:touch-none' : undefined}
         gl={{ antialias: true, powerPreference: 'high-performance', toneMappingExposure: 1.1 }}
         // A long lens. At 44 degrees the chairs, being nearest the lens,
         // grew large enough to hide the people sitting in them; compressing
@@ -514,6 +604,9 @@ export default function CommandScene({
             crew={crew}
             time={time}
             cameraMode={cameraMode}
+            coarsePointer={coarsePointer}
+            move={move}
+            reading={reading}
             onManualUnlock={handleManualUnlock}
             settings={settings}
           />
@@ -524,17 +617,36 @@ export default function CommandScene({
           under the crosshair, so it is an affordance rather than chrome. It
           subscribes to the focus itself rather than taking a prop, so that a
           glance at another monitor does not re-render the scene. */}
-      <ReadPrompt active={cameraMode === 'manual'} />
+      <ReadPrompt
+        active={cameraMode === 'manual'}
+        coarsePointer={coarsePointer}
+        reading={reading}
+        deviceOpen={radioOpen}
+        onToggleRead={() => setReading((r) => !r)}
+        onUseDevice={() => setRadioOpen(true)}
+      />
 
-      <ActivityHUD crew={crew} />
+      {/* The walking stick. Only where there is a thumb to use it, and only
+          while the viewer has the camera — the tour ignores it. */}
+      {coarsePointer && cameraMode === 'manual' && <TouchJoystick move={move} />}
+
+      {/* The radio lives inside the HUD column so it shares the crew bar's
+          gap and inset rather than carrying its own. */}
+      <ActivityHUD
+        crew={crew}
+        headerSlot={<RadioButton open={radioOpen} onClick={() => setRadioOpen((o) => !o)} />}
+        rightSlot={<JukeboxPanel open={radioOpen} onOpenChange={setRadioOpen} />}
+      />
       <SettingsPanel
         open={settingsOpen}
         onOpenChange={setSettingsOpen}
         settings={settings}
         update={update}
         reset={reset}
+        coarsePointer={coarsePointer}
+        ranges={ranges}
         cameraMode={cameraMode}
-        onCameraModeChange={setCameraMode}
+        onCameraModeChange={handleCameraMode}
       />
     </div>
   );

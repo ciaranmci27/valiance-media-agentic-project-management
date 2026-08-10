@@ -290,9 +290,11 @@ export default function RadarPage() {
       <Header
         title="My Tasks"
         subtitle={
-          needsYou.length > 0
-            ? `${needsYou.length} thing${needsYou.length === 1 ? '' : 's'} need${needsYou.length === 1 ? 's' : ''} you`
-            : 'All clear. Nothing needs you right now'
+          <span className="hidden sm:inline">
+            {needsYou.length > 0
+              ? `${needsYou.length} thing${needsYou.length === 1 ? '' : 's'} need${needsYou.length === 1 ? 's' : ''} you`
+              : 'All clear. Nothing needs you right now'}
+          </span>
         }
       />
 

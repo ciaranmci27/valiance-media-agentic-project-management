@@ -1,10 +1,12 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Users, X, Radio, TriangleAlert, CheckCircle2 } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Activity, Users, X, Radio, TriangleAlert, CheckCircle2 } from 'lucide-react';
 import { Tooltip } from '@/components/ui/Tooltip';
+import { HUD_SURFACE } from './hudSurface';
 import {
   STATIONS,
+  elapsedLabel,
   queueLabel,
   statusSentence,
   type CrewState,
@@ -70,6 +72,23 @@ function clockLabel(at: number): string {
  */
 const TOAST_SEED_WINDOW_MS = 2000;
 
+/** How long without an event before the log admits the floor has gone quiet. */
+const QUIET_AFTER_MS = 120_000;
+
+/**
+ * Where the mobile overlays start, measured down from the top of the scene.
+ *
+ * The top row sits 16px in and stands 31px tall, so it ends at 47px. The
+ * radio's column starts exactly there and its own p-4 supplies the gap, which
+ * is how the space under the badge comes out the same 16px as the badge's own
+ * inset rather than a number picked to look about right.
+ *
+ * Toasts then clear a minimized radio bar: 47 + 16 (the column's padding) + 45
+ * (the bar) + 16 again.
+ */
+const MOBILE_STACK_TOP = 'top-[47px]';
+const MOBILE_TOAST_TOP = 'top-[124px]';
+
 function useToasts(feed: FeedItem[]) {
   const [toasts, setToasts] = useState<FeedItem[]>([]);
   const seen = useRef<Set<string>>(new Set());
@@ -100,7 +119,16 @@ function useToasts(feed: FeedItem[]) {
   return toasts;
 }
 
-export function ActivityHUD({ crew }: { crew: CrewState }) {
+export function ActivityHUD({
+  crew,
+  headerSlot,
+  rightSlot,
+}: {
+  crew: CrewState;
+  /** Controls that belong beside the LIVE badge, left of it. */
+  headerSlot?: ReactNode;
+  rightSlot?: ReactNode;
+}) {
   const toasts = useToasts(crew.feed);
   // Collapsed by default on mobile: the crew/activity sheet is opt-in there,
   // never a fact the desktop layout needs since it always shows both panels.
@@ -112,35 +140,53 @@ export function ActivityHUD({ crew }: { crew: CrewState }) {
     return () => clearInterval(t);
   }, []);
 
-  const quietFor = useMemo(() => {
-    const newest = crew.feed[0]?.at;
-    return newest ? now - newest : null;
-  }, [crew.feed, now]);
+  // When the newest event landed, so the log header can say how long the floor
+  // has been quiet. "Nothing has ever happened" and "nothing for eleven
+  // minutes" are different facts, and only the second one is reassuring.
+  const quietSince = useMemo(() => crew.feed[0]?.at ?? null, [crew.feed]);
+  const quiet = quietSince !== null && now - quietSince > QUIET_AFTER_MS;
 
   return (
     <>
-      {/* Top bar. justify-between only spaces multiple children apart — with
-          the LIVE badge as the sole item here it collapsed to the start
-          (left) instead of sitting at the far edge; ml-auto pins it right
-          regardless of whether anything else ever joins it on the left. */}
+      {/* Top bar. justify-between only spaces multiple children apart, and with
+          one cluster here it collapsed to the start (left) instead of sitting
+          at the far edge, so ml-auto pins it right regardless of whether
+          anything ever joins it on the left. Controls sit to the left of the
+          status badge, which stays the last thing in the row. */}
       <div className="absolute top-0 inset-x-0 flex items-start justify-between p-4 pointer-events-none">
-        <div className="ml-auto flex items-center gap-2 rounded-full bg-black/50 backdrop-blur-sm border border-white/10 px-3 py-1.5">
-          <span
-            className={`w-1.5 h-1.5 rounded-full ${crew.live ? 'bg-emerald-400 animate-pulse' : 'bg-zinc-600'}`}
-            aria-hidden="true"
-          />
-          <span className={`text-[10px] font-mono tracking-[0.18em] ${crew.live ? 'text-emerald-300' : 'text-zinc-500'}`}>
-            {crew.live ? 'LIVE' : 'CONNECTING'}
-          </span>
+        {/* items-stretch, not items-center: the badge and any control beside it
+            are pills of slightly different natural heights, and matching them
+            by hand would be a number to keep in sync. Stretching makes the
+            shorter one grow to the row. */}
+        <div className="ml-auto flex items-stretch gap-2">
+          {headerSlot}
+          <div className="flex items-center gap-2 rounded-full bg-black/50 backdrop-blur-sm border border-white/10 px-3 py-1.5">
+            <span
+              className={`w-1.5 h-1.5 rounded-full ${crew.live ? 'bg-emerald-400 animate-pulse' : 'bg-zinc-600'}`}
+              aria-hidden="true"
+            />
+            <span
+              className={`text-[10px] font-mono tracking-[0.18em] ${crew.live ? 'text-emerald-300' : 'text-zinc-500'}`}
+            >
+              {crew.live ? 'LIVE' : 'CONNECTING'}
+            </span>
+          </div>
         </div>
       </div>
 
-      {/* Toasts. Full-width with side margins on mobile — a 300px column
-          pinned to the right edge either collided with the LIVE badge or
-          ran off a narrow viewport; on lg+ it's back to a fixed-width column
-          since there's room for it beside the scene. */}
+      {/* Toasts. Full-width with side margins on mobile, since a 300px column
+          pinned to the right edge either collided with the LIVE badge or ran
+          off a narrow viewport; on lg+ it's back to a fixed-width column,
+          because there is room for it beside the scene.
+
+          Below lg they start under where a minimized radio sits (see
+          MOBILE_STACK_TOP): the radio is the later sibling and would paint over
+          them, and a notification hidden behind the music controls is a
+          notification you never got. A radio expanded to its full panel still
+          covers them, which is the accepted cost of only one strip of screen
+          being under the badge. */}
       <div
-        className="absolute top-16 inset-x-3 lg:inset-x-auto lg:right-4 lg:w-[300px] space-y-2 pointer-events-none"
+        className={`absolute ${MOBILE_TOAST_TOP} lg:top-16 inset-x-3 lg:inset-x-auto lg:right-4 lg:w-[300px] space-y-2 pointer-events-none`}
         aria-live="polite"
       >
         {toasts.map((t) => {
@@ -179,37 +225,75 @@ export function ActivityHUD({ crew }: { crew: CrewState }) {
         })}
       </div>
 
-      {/* Live log, bottom left. Desktop only: on mobile it and the crew bar
-          were two separately-positioned panels sized for a wide screen, and
-          the log's offset was a fixed pixel guess at the crew bar's height —
-          on a narrow viewport the crew cards wrap to more rows than that
-          guess assumed and the two overlapped. Below lg, both are replaced by
-          the single toggle sheet underneath. */}
-      <div className="hidden lg:block absolute left-4 bottom-[104px] w-[330px] rounded-xl border border-white/[0.07] bg-black/45 backdrop-blur-sm p-3 pointer-events-none">
-        <p className="text-[9px] font-mono tracking-[0.22em] text-zinc-500 mb-2">ACTIVITY</p>
-        <div className="space-y-1.5">
-          {crew.feed.slice(0, 5).map((f) => (
-            <div key={f.id} className="flex items-baseline gap-2">
-              <span className="text-[9px] font-mono text-zinc-500 tabular-nums flex-shrink-0">{clockLabel(f.at)}</span>
-              <span
-                className={`text-[11px] leading-snug truncate ${
-                  f.kind === 'warn' ? 'text-amber-300' : f.kind === 'good' ? 'text-emerald-300' : 'text-zinc-200'
-                }`}
-              >
-                {f.text}
-              </span>
-            </div>
-          ))}
-          {crew.feed.length === 0 && (
-            <p className="text-[11px] font-mono text-zinc-600">no events yet</p>
-          )}
-        </div>
-      </div>
+      {/* The log and the crew bar, stacked as one column.
+          Desktop only; below lg both are replaced by the toggle sheet further
+          down.
 
-      {/* Crew status bar, desktop only — see MobileCrewSheet below for the
-          small-screen equivalent. */}
-      <div className="hidden lg:block absolute inset-x-0 bottom-0 p-3">
-        <div className="grid grid-cols-4 gap-2 rounded-xl bg-black/55 backdrop-blur border border-white/[0.07] p-2.5">
+          They used to be two independently positioned panels, which meant the
+          log's `bottom-[104px]` was a hardcoded guess at the crew bar's
+          height, wrong the moment a crew card wrapped to another line, and
+          their left edges disagreed (left-4 against the bar's p-3). One
+          container states the inset once and `gap-4` states the space between
+          them, so the gap above the crew bar is the same 16px as the gap to
+          the left edge, by construction rather than by arithmetic.
+
+          The column hangs off the bottom on desktop and off the top below lg,
+          which is the whole of what moves the radio up under the LIVE badge on
+          a phone: on mobile the radio is the only thing in here, since the log
+          and the crew bar are both desktop-only, so re-anchoring the column
+          moves the radio without the radio changing hands. That matters more
+          than it sounds: the YouTube player lives inside it, and handing that
+          subtree to a different parent would reload it and stop the music. */}
+      <div
+        className={`absolute inset-x-0 ${MOBILE_STACK_TOP} lg:top-auto lg:bottom-0 flex flex-col gap-4 p-4 pointer-events-none`}
+      >
+        {/* Log on the left, radio on the right, sharing a baseline. The radio
+            is passed in rather than positioning itself, so the space above the
+            crew bar is the container's one `gap-4` for both of them instead of
+            two offsets that have to be kept equal by hand. Below lg the log is
+            not rendered and this row carries the radio alone, which is why
+            `ml-auto` and not a spacer holds it to the right edge. */}
+        <div className="flex items-end gap-4">
+          <div className={`hidden lg:block w-[330px] ${HUD_SURFACE} p-3`}>
+            <p className="flex items-center gap-1.5 text-[9px] font-mono tracking-[0.22em] text-zinc-500 mb-2">
+              <Activity size={11} className="text-brand-300" aria-hidden="true" />
+              ACTIVITY
+              {quiet && quietSince !== null && (
+                <span className="ml-auto tracking-normal text-zinc-600">
+                  quiet {elapsedLabel(quietSince, now)}
+                </span>
+              )}
+            </p>
+            <div className="space-y-1.5">
+              {crew.feed.slice(0, 5).map((f) => (
+                <div key={f.id} className="flex items-baseline gap-2">
+                  <span className="text-[9px] font-mono text-zinc-500 tabular-nums flex-shrink-0">
+                    {clockLabel(f.at)}
+                  </span>
+                  <span
+                    className={`text-[11px] leading-snug truncate ${
+                      f.kind === 'warn' ? 'text-amber-300' : f.kind === 'good' ? 'text-emerald-300' : 'text-zinc-200'
+                    }`}
+                  >
+                    {f.text}
+                  </span>
+                </div>
+              ))}
+              {crew.feed.length === 0 && (
+                <p className="text-[11px] font-mono text-zinc-600">no events yet</p>
+              )}
+            </div>
+          </div>
+
+          {/* The radio. `ml-auto` rather than a spacer so it stays right-aligned
+              on mobile too, where the log beside it is not rendered. */}
+          {rightSlot && <div className="ml-auto min-w-0 pointer-events-auto">{rightSlot}</div>}
+        </div>
+
+        {/* Crew status bar — see MobileCrewSheet below for the small-screen
+            equivalent. No inset of its own now: the column above owns it, which
+            is what keeps its left edge flush with the log's. */}
+        <div className={`hidden lg:grid grid-cols-4 gap-2 ${HUD_SURFACE} p-2.5`}>
           {STATIONS.map((s) => {
             const snap = crew.agents[s.key];
             const style = MOOD_STYLE[snap.mood];

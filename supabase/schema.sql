@@ -19,6 +19,12 @@ create table public.team_members (
   email_notifications_enabled boolean not null default false,
   email_notification_prefs jsonb not null default '{}',
   theme_preference text check (theme_preference in ('light', 'dark')),
+  -- Live floor viewer settings, keyed by device class:
+  --   { "desktop": { "fov": 32, ... }, "mobile": { "fov": 78, ... } }
+  -- Two profiles because the right values genuinely differ — a phone needs a
+  -- much wider field of view and a thumb wants less look sensitivity than a
+  -- mouse. Opaque to the server, which only stores and returns it.
+  scene_preferences jsonb not null default '{}',
   -- Billing multiplier dial, snapshotted onto each time entry at session
   -- start. Agent sessions are converted at approval to one continuous slot
   -- of worked time times this. 1.00 = parity; humans are never converted.

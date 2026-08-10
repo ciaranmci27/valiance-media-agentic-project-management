@@ -1,0 +1,29 @@
+-- Live floor viewer settings, per member and per device class.
+--
+-- These were localStorage only, which made them a property of a browser rather
+-- than of a person: the same member got different controls on their laptop and
+-- their phone, and a new device started from defaults every time.
+--
+-- One column rather than a row per setting, because the shape is genuinely a
+-- preference blob the client owns end to end — the server never reads an
+-- individual key, it only stores and returns it. Same reasoning, and the same
+-- jsonb shape, as `notification_prefs` above it.
+--
+-- Keyed by device class at the top level:
+--
+--   {
+--     "desktop": { "fov": 32, "lookSensitivity": 0.35, ... },
+--     "mobile":  { "fov": 78, "lookSensitivity": 0.22, ... }
+--   }
+--
+-- Two profiles rather than one because the right values genuinely differ: a
+-- phone needs a much wider field of view to show anything of a room on a small
+-- viewport, and a thumb wants less look sensitivity than a mouse. Collapsing
+-- them to one set would mean every device switch is a re-tune.
+--
+-- Both keys are optional and every setting inside them is optional. The client
+-- merges over its own per-profile defaults, so a member who has never opened
+-- the settings panel stores `{}` and a setting added later is simply absent
+-- rather than null.
+alter table public.team_members
+  add column if not exists scene_preferences jsonb not null default '{}';

@@ -1,7 +1,11 @@
 'use client';
 
 import dynamic from 'next/dynamic';
+import { ArrowLeft } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
+import { Button } from '@/components/ui/Button';
+import type { ScenePreferences } from '@/components/command/scene/sceneSettings';
+import { useCallback } from 'react';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 
@@ -38,18 +42,54 @@ export default function AgentLivePage() {
   // The scene's day/night cycle follows this viewer's own timezone
   // preference (team_members.timezone), not a fixed zone — same lookup
   // pattern as the Sidebar's currentMember.
-  const { team } = useApp();
+  const { team, updateTeamMember } = useApp();
   const { teamMemberId } = useAuth();
-  const timezone = team.find((m) => m.id === teamMemberId)?.timezone;
+  const member = team.find((m) => m.id === teamMemberId);
+  const timezone = member?.timezone;
+
+  // The scene's own settings, threaded the same way the timezone is.
+  //
+  // `CommandScene` cannot read the store itself: it is also rendered by
+  // /dev/command-preview, which sits outside `(protected)` and therefore
+  // outside `AppProvider`, and `useApp()` throws without one. Passing the row
+  // in keeps the preview working on localStorage alone.
+  const scenePreferences = member?.scene_preferences ?? null;
+  const handleScenePreferences = useCallback(
+    (next: ScenePreferences) => {
+      if (teamMemberId) updateTeamMember(teamMemberId, { scene_preferences: next });
+    },
+    [teamMemberId, updateTeamMember]
+  );
 
   return (
     <div className="h-dvh flex flex-col overflow-hidden animate-fadeIn">
       <div className="flex-shrink-0">
-        <Header title="Live Floor" subtitle="Your crew, working. Everything here is a real event; nothing is invented to fill silence." />
+        <Header
+          title="Agent Live"
+          subtitle={
+            <span className="hidden sm:inline">
+              Your crew, working. Everything here is a real event; nothing is invented to fill silence.
+            </span>
+          }
+          actions={
+            // The way back, paired with the Live button on the dashboard.
+            // Identical to the Dashboard button on agent/projects/[id], down to
+            // collapsing to the bare arrow below sm — a back arrow needs no
+            // label, and this header has the least room to spare of any in the
+            // app since everything under it is a fixed-height canvas.
+            <Button variant="secondary" href="/agent" icon={<ArrowLeft size={16} />}>
+              <span className="hidden sm:inline">Dashboard</span>
+            </Button>
+          }
+        />
       </div>
 
       <div className="p-4 lg:p-6 flex-1 min-h-0 flex flex-col overflow-hidden">
-        <CommandScene timezone={timezone} />
+        <CommandScene
+          timezone={timezone}
+          scenePreferences={scenePreferences}
+          onScenePreferencesChange={handleScenePreferences}
+        />
       </div>
     </div>
   );

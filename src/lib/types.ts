@@ -1,4 +1,8 @@
 import type { InvoicePdfData, InvoicePdfOptions } from '@/lib/invoice-pdf/types';
+// Type-only, so this is erased at build and adds no runtime dependency on the
+// scene. The settings live next to their defaults and ranges, which is the one
+// place that has to agree with them.
+import type { ScenePreferences } from '@/components/command/scene/sceneSettings';
 
 export const CONTACT_ROLES = ['Client', 'Primary Contact', 'Technical Contact', 'Billing Contact', 'Stakeholder', 'Other'] as const;
 export type ContactRole = typeof CONTACT_ROLES[number];
@@ -341,6 +345,11 @@ export interface TeamMember {
   email_notification_prefs?: NotificationPreferences;
   /** Explicit light/dark choice. null/undefined = follow the OS preference. */
   theme_preference?: 'light' | 'dark' | null;
+  /**
+   * Live floor viewer settings, per device class. Opaque to the server; the
+   * client merges each profile over its own defaults. See `sceneSettings.ts`.
+   */
+  scene_preferences?: ScenePreferences | null;
   /** Multiplier applied to this member's time-entry rate snapshots (1.00 = parity). */
   billing_multiplier?: number;
 }

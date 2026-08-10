@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { accessAllows, requireSessionAccess } from '@/lib/api/access';
 import { TEAM_ROLES } from '@/lib/access-control';
 
-const PROFILE_FIELDS = ['name', 'title', 'avatar', 'timezone', 'notification_prefs', 'email_notifications_enabled', 'email_notification_prefs', 'theme_preference'] as const;
+const PROFILE_FIELDS = ['name', 'title', 'avatar', 'timezone', 'notification_prefs', 'email_notifications_enabled', 'email_notification_prefs', 'theme_preference', 'scene_preferences'] as const;
 const MANAGEMENT_FIELDS = [...PROFILE_FIELDS, 'status'] as const;
 
 export async function PATCH(
@@ -62,6 +62,27 @@ export async function PATCH(
   }
   if ('theme_preference' in updates && updates.theme_preference !== null && !['light', 'dark'].includes(String(updates.theme_preference))) {
     return NextResponse.json({ error: 'Invalid theme preference' }, { status: 422 });
+  }
+  // Opaque blob, but not unbounded: it is written straight to jsonb, so the
+  // shape is checked (a plain object keyed by device class) and the size is
+  // capped. Anything past that is a client bug or an attempt to use the
+  // column as storage.
+  if ('scene_preferences' in updates) {
+    const prefs = updates.scene_preferences;
+    const isPlainObject = (v: unknown) => typeof v === 'object' && v !== null && !Array.isArray(v);
+    if (!isPlainObject(prefs)) {
+      return NextResponse.json({ error: 'Invalid scene preferences' }, { status: 422 });
+    }
+    const keys = Object.keys(prefs as object);
+    if (keys.some((k) => k !== 'desktop' && k !== 'mobile')) {
+      return NextResponse.json({ error: 'Scene preferences must be keyed by device class' }, { status: 422 });
+    }
+    if (keys.some((k) => !isPlainObject((prefs as Record<string, unknown>)[k]))) {
+      return NextResponse.json({ error: 'Invalid scene preference profile' }, { status: 422 });
+    }
+    if (JSON.stringify(prefs).length > 2000) {
+      return NextResponse.json({ error: 'Scene preferences too large' }, { status: 422 });
+    }
   }
   if ('email_notifications_enabled' in updates && typeof updates.email_notifications_enabled !== 'boolean') {
     return NextResponse.json({ error: 'Invalid email notifications value' }, { status: 422 });

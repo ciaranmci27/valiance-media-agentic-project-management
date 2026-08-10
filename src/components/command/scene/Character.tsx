@@ -345,7 +345,7 @@ export function AgentCharacter({
     return () => {
       delete w.__command?.[agentKey];
     };
-  }, [agentKey, root, mixer, gltf.animations]);
+  }, [agentKey, root, mixer, gltf.animations, craftBones, worker]);
 
   // John used to hold his exhibit: a 0.62 x 0.84m sheet parented to his right
   // palm. At that size — four times a sheet of A4 — and with his right hand

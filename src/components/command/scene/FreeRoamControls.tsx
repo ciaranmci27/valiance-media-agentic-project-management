@@ -101,10 +101,15 @@ export function FreeRoamControls({
 
   /**
    * Latest `onUnlock`, without making the pointer-lock effect depend on it.
-   * Assigned during render so the handler below always calls the current one.
+   *
+   * Synced in an effect rather than assigned during render: a render can be
+   * thrown away or replayed, and writing to a ref on the way through makes the
+   * value depend on how many times that happened. After commit it is a fact.
    */
   const onUnlockRef = useRef(onUnlock);
-  onUnlockRef.current = onUnlock;
+  useEffect(() => {
+    onUnlockRef.current = onUnlock;
+  }, [onUnlock]);
 
   /**
    * Yaw and pitch are the authority, not the camera's quaternion.
@@ -227,7 +232,6 @@ export function FreeRoamControls({
     //
     // The callback is read through a ref instead, so this runs once per mount
     // and the lock survives whatever the parent does above it.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gl]);
 
   // Plain window listeners rather than drei's KeyboardControls provider — a
@@ -322,7 +326,10 @@ export function FreeRoamControls({
     // E, held, while looking at a monitor. The target is kept for the whole
     // blend rather than only while the key is down, so releasing eases back
     // out instead of snapping the instant the pose loses its anchor.
-    const target = keys.has('KeyE') ? focusedScreen() : null;
+    // Screens only: a device is operated from its panel, and leaning the camera
+    // into a radio would be nonsense.
+    const focus = keys.has('KeyE') ? focusedScreen() : null;
+    const target = focus?.kind === 'screen' ? focus : null;
     if (target) lastFocus.current = target;
     focusBlend.current += ((target ? 1 : 0) - focusBlend.current) * (1 - Math.exp(-FOCUS_LAMBDA * dt));
     if (focusBlend.current < 0.001) {

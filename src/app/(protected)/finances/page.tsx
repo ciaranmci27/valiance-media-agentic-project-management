@@ -972,12 +972,15 @@ export default function FinancesPage() {
   }), [chartBars]);
 
   if (!canReadCompanyFinance) {
-    return <div className="animate-fadeIn min-h-screen"><Header title="My earnings" subtitle="Your hours, rates, and payouts." /><div className="p-4 lg:p-6">{canReadOwnEarnings ? <EmployeeEarningsDashboard projects={projects} data={employeeEarnings ?? EMPTY_EMPLOYEE_EARNINGS} /> : <div className="rounded-xl border border-white/[0.08] bg-surface-raised p-8 text-center text-sm text-zinc-400">You do not have access to financial information.</div>}</div></div>;
+    return <div className="animate-fadeIn min-h-screen"><Header title="My earnings" subtitle={<span className="hidden sm:inline">Your hours, rates, and payouts.</span>} /><div className="p-4 lg:p-6">{canReadOwnEarnings ? <EmployeeEarningsDashboard projects={projects} data={employeeEarnings ?? EMPTY_EMPLOYEE_EARNINGS} /> : <div className="rounded-xl border border-white/[0.08] bg-surface-raised p-8 text-center text-sm text-zinc-400">You do not have access to financial information.</div>}</div></div>;
   }
 
   return (
     <div className="animate-fadeIn min-h-screen">
-      <Header title="Finances" subtitle="Revenue, billing, and payroll across every project." />
+      <Header
+        title="Finances"
+        subtitle={<span className="hidden sm:inline">Revenue, billing, and payroll across every project.</span>}
+      />
 
       <div className="p-4 lg:p-6 space-y-4 lg:space-y-6">
         {/* ── Overview + Date Filter ──────────────────────── */}

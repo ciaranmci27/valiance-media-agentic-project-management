@@ -1,7 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import Link from 'next/link';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { Header } from '@/components/layout/Header';
@@ -11,6 +10,7 @@ import { AutonomousProjects } from '@/components/agent/AutonomousProjects';
 import { ActivityTimeline } from '@/components/agent/ActivityTimeline';
 import { ApproveModal } from '@/components/agent/ApproveModal';
 import { EditSuggestionModal } from '@/components/agent/EditSuggestionModal';
+import { Button } from '@/components/ui/Button';
 import { Radio } from 'lucide-react';
 import { toast } from '@/components/ui/Toast';
 
@@ -31,15 +31,22 @@ export default function AgentPage() {
       <div className="lg:flex-shrink-0">
         <Header
           title="Agent Dashboard"
-          subtitle="Fleet status, pending reviews, and what your crew is working on."
+          subtitle={
+            <span className="hidden sm:inline">
+              Fleet status, pending reviews, and what your crew is working on.
+            </span>
+          }
           actions={
-            <Link
-              href="/agent/live"
-              className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-zinc-300 transition-colors hover:bg-white/[0.08] hover:text-zinc-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-400 focus-visible:outline-offset-2"
-            >
-              <Radio size={14} className="text-brand-300" aria-hidden="true" />
-              Live floor
-            </Link>
+            // Paired with the Dashboard button on /agent/live, so the two views
+            // link back to each other. Same `Button variant="secondary"` the
+            // Dashboard button on agent/projects/[id] already uses, so all three
+            // agent pages navigate with one control.
+            //
+            // The label stays visible at every width: "Live" is four characters,
+            // and an icon on its own was ambiguous — which is what this replaces.
+            <Button variant="secondary" href="/agent/live" icon={<Radio size={16} />}>
+              Live
+            </Button>
           }
         />
       </div>

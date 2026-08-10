@@ -206,6 +206,14 @@ export function DeskStation({
    * means the second-to-second activity can change without re-rendering the
    * scene, and guarantees the hand on the mouse and the cursor on the screen
    * are the same fact rather than two animations that happen to look similar.
+   *
+   * Built once with useMemo and then written to every frame, which the
+   * immutability rule reads as modifying a value it owns. A ref is the shape
+   * the rule wants and is worse here: reading `.current` during render to pass
+   * the state down to the body and the screen trips `react-hooks/refs` four
+   * times over. This is the R3F bargain, where the scene graph and everything
+   * driving it are mutable objects on purpose, so the suppression is on the
+   * writes below rather than on the shape of the state.
    */
   const worker = useMemo(() => createWorker(station.key, station.behavior), [station.key, station.behavior]);
 
@@ -241,6 +249,10 @@ export function DeskStation({
   /** Scratch colour for the spill light, same reasoning as the LED's. */
   const spillTint = useRef(new THREE.Color());
 
+  // The whole frame body drives mutable three.js objects and the worker state
+  // described above. See that docblock for why this is suppressed here rather
+  // than reshaped into something the rule accepts.
+  /* eslint-disable react-hooks/immutability */
   useFrame((_, delta) => {
     const dt = Math.min(delta, 0.1);
     advanceWorker(worker, dt, station.behavior, busy);
@@ -309,6 +321,7 @@ export function DeskStation({
     worker.hands.right.y += (handScratch.r.y - worker.hands.right.y) * k;
     worker.hands.right.z += (handScratch.r.z - worker.hands.right.z) * k;
   });
+  /* eslint-enable react-hooks/immutability */
 
   // Screen light breathes while they work and flares only when a real row
   // arrives. No event, no flare.

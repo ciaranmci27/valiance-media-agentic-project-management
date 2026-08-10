@@ -14,10 +14,20 @@ import type * as THREE from 'three';
  * through the station hierarchy to keep this in step with what is mounted.
  */
 
+/**
+ * What looking at this thing offers.
+ *
+ * 'screen' leans the camera in to read it. 'device' is something you operate —
+ * the radio — where leaning in would be wrong and the payoff is a control
+ * panel. Same raycast, same prompt, different verb.
+ */
+export type FocusKind = 'screen' | 'device';
+
 export type ScreenEntry = {
   mesh: THREE.Mesh;
   /** Whose desk, for the focus prompt: "Jeff D. · terminal". */
   label: string;
+  kind: FocusKind;
 };
 
 const entries = new Map<THREE.Mesh, ScreenEntry>();
@@ -25,8 +35,8 @@ const entries = new Map<THREE.Mesh, ScreenEntry>();
 /** Rebuilt on change rather than per frame, since the raycast reads it hot. */
 let snapshot: ScreenEntry[] = [];
 
-export function registerScreen(mesh: THREE.Mesh, label: string): void {
-  entries.set(mesh, { mesh, label });
+export function registerScreen(mesh: THREE.Mesh, label: string, kind: FocusKind = 'screen'): void {
+  entries.set(mesh, { mesh, label, kind });
   snapshot = [...entries.values()];
 }
 
@@ -68,7 +78,10 @@ let focused: ScreenEntry | null = null;
  * changed, ejecting the walker back into the auto tour. Notifying a subscriber
  * directly keeps the churn to the one DOM node that actually has to change.
  */
-type FocusListener = (label: string | null) => void;
+// The whole entry, not just its label: the prompt has to word itself
+// differently for a screen than for a device, and that is the only thing that
+// knows which it is.
+type FocusListener = (entry: ScreenEntry | null) => void;
 const listeners = new Set<FocusListener>();
 
 export function subscribeFocus(fn: FocusListener): () => void {
@@ -83,8 +96,7 @@ export function setFocusedScreen(entry: ScreenEntry | null): void {
   // reports the same answer it did last time.
   if (focused === entry) return;
   focused = entry;
-  const label = entry?.label ?? null;
-  for (const fn of listeners) fn(label);
+  for (const fn of listeners) fn(entry);
 }
 
 export function focusedScreen(): ScreenEntry | null {

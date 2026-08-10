@@ -45,11 +45,12 @@ function useCorkboardTexture(): THREE.CanvasTexture {
     const ctx = canvas.getContext('2d')!;
     ctx.fillStyle = '#8a6f52';
     ctx.fillRect(0, 0, w, h);
-    // Cork speckle.
-    let seed = 51;
+    // Cork speckle. The generator's cursor lives on an object rather than in a
+    // captured `let`, so nothing reassigns a variable from an enclosing render.
+    const state = { seed: 51 };
     const rnd = () => {
-      seed = (seed * 16807) % 2147483647;
-      return seed / 2147483647;
+      state.seed = (state.seed * 16807) % 2147483647;
+      return state.seed / 2147483647;
     };
     for (let i = 0; i < 900; i++) {
       ctx.fillStyle = rnd() < 0.5 ? 'rgba(60,44,28,0.25)' : 'rgba(150,120,88,0.25)';
@@ -203,12 +204,20 @@ function usePbr(prefix: string, planeWidth: number, planeHeight: number, metersP
   return useMemo(() => {
     const rx = planeWidth / metersPerTile;
     const ry = planeHeight / metersPerTile;
+    // Configuring a loaded texture is what three.js expects of you, and drei's
+    // loader hands back the object precisely so it can be set up; there is no
+    // immutable form of a THREE.Texture to return instead. Safe here because
+    // this is the only caller of `usePbr` and nothing else loads these URLs, so
+    // no other surface inherits the repeat set below. Cloning to satisfy the
+    // rule would buy a second copy of each map on the GPU and nothing else.
+    /* eslint-disable react-hooks/immutability */
     for (const t of [map, normalMap, roughnessMap]) {
       t.wrapS = t.wrapT = THREE.RepeatWrapping;
       t.repeat.set(rx, ry);
       t.anisotropy = 16;
     }
     map.colorSpace = THREE.SRGBColorSpace;
+    /* eslint-enable react-hooks/immutability */
     return { map, normalMap, roughnessMap };
   }, [map, normalMap, roughnessMap, planeWidth, planeHeight, metersPerTile]);
 }
@@ -663,9 +672,11 @@ export function Room({ time }: { time: TimeOfDay }) {
 
       {/* Storage clutter by the right wall: a room that gets used. */}
       <Prop file="sideTable.glb" position={[5.5, 0, -3.6]} rotation={[0, -Math.PI / 2, 0]} />
-      {/* On the table top, which measures 0.769. Authored at 0.57, the radio
-          was sunk 20cm THROUGH the table rather than standing on it. */}
-      <Prop file="radio.glb" position={[5.45, 0.769, -3.6]} rotation={[0, -Math.PI / 2, 0]} scale={1.6} />
+      {/* The radio that stood here now lives in `Jukebox`, which owns both the
+          prop and the invisible volume you walk up to and operate. It is
+          mounted from `CommandScene` rather than here because it also reports
+          its distance to the camera every frame, and that is scene state
+          rather than set dressing. */}
       <Prop file="cardboardBoxOpen.glb" position={[5.5, 0, -2.5]} rotation={[0, 0.4, 0]} />
       <Prop file="coatRackStanding.glb" position={[5.6, 0, 4.6]} />
 

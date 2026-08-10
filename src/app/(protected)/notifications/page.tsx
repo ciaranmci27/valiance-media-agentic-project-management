@@ -180,7 +180,11 @@ export default function NotificationsPage() {
     <div className="animate-fadeIn min-h-screen">
       <Header
         title="Notifications"
-        subtitle={unreadCount > 0 ? `${unreadCount} unread` : 'You are all caught up'}
+        subtitle={
+          <span className="hidden sm:inline">
+            {unreadCount > 0 ? `${unreadCount} unread` : 'You are all caught up'}
+          </span>
+        }
         actions={
           <Button variant="secondary" size="sm" onClick={handleMarkAllAsRead} disabled={unreadCount === 0}>
             <CheckCheck size={16} />
