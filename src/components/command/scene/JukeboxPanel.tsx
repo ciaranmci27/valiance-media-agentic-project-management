@@ -1,7 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
-import { Loader2, Maximize2, Minimize2, Music, Pause, Play, Search, Volume2, X } from 'lucide-react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { Loader2, Maximize2, Minimize2, Music, Pause, Play, Search, Volume2, VolumeX, X } from 'lucide-react';
 import { HUD_SURFACE } from './hudSurface';
 import type { YouTubeResult } from '@/lib/youtube-search';
 
@@ -30,6 +30,8 @@ type YouTubePlayer = {
   pauseVideo: () => void;
   stopVideo: () => void;
   setVolume: (v: number) => void;
+  mute: () => void;
+  unMute: () => void;
   loadVideoById: (id: string) => void;
   getPlayerState: () => number;
   /** Undocumented but long-standing; the only way to learn what is playing. */
@@ -48,6 +50,42 @@ declare global {
 }
 
 const API_SRC = 'https://www.youtube.com/iframe_api';
+
+/**
+ * Whether this device lets software set the playback volume at all.
+ *
+ * On iOS it does not. `HTMLMediaElement.volume` is read-only there by design:
+ * Apple hands volume to the hardware buttons and silently ignores writes, which
+ * is why a slider wired to the IFrame API's `setVolume` moves and does nothing.
+ * Nothing can be done about that from a web page, and the honest response is to
+ * not show a control that cannot work. `muted` IS settable on iOS (it is what
+ * makes muted autoplay possible), so a mute toggle takes the slider's place
+ * there and the phone's buttons do the rest.
+ *
+ * Feature-tested rather than sniffed for a user agent: write a volume, read it
+ * back, believe the answer. That also catches iPadOS, which claims to be a Mac.
+ */
+let volumeSettable: boolean | null = null;
+function canSetVolume(): boolean {
+  if (volumeSettable !== null) return volumeSettable;
+  try {
+    const probe = document.createElement('audio');
+    probe.volume = 0.5;
+    volumeSettable = probe.volume === 0.5;
+  } catch {
+    volumeSettable = false;
+  }
+  return volumeSettable;
+}
+
+/** Static after load, so there is nothing to subscribe to. */
+const noSubscribe = () => () => {};
+
+function useVolumeSettable(): boolean {
+  // Assume a slider on the server and correct on hydration, which is exactly
+  // what useSyncExternalStore's third argument is for.
+  return useSyncExternalStore(noSubscribe, canSetVolume, () => true);
+}
 
 /**
  * Loads the IFrame API once per document.
@@ -194,9 +232,11 @@ export function JukeboxPanel({
   const [title, setTitle] = useState<string | null>(null);
   // Counts searches so a slow one that lands late can be recognised and dropped.
   const searchRun = useRef(0);
+  const [muted, setMuted] = useState(false);
   const inputId = useId();
   const levelId = useId();
   const aspect = useVideoAspect(videoId);
+  const volumeSettable = useVolumeSettable();
 
   // Landscape fills the panel width; portrait is sized off its height instead
   // and centred, since a full-width vertical video would be 460px tall.
@@ -358,6 +398,29 @@ export function JukeboxPanel({
     else player.playVideo();
   }, [playing]);
 
+  const toggleMute = useCallback(() => {
+    const player = playerRef.current;
+    if (!player) return;
+    setMuted((was) => {
+      if (was) player.unMute();
+      else player.mute();
+      return !was;
+    });
+  }, []);
+
+  /** The mute button, which is the whole volume control where iOS is in charge. */
+  const muteButton = (
+    <button
+      type="button"
+      onClick={toggleMute}
+      aria-label={muted ? 'Unmute' : 'Mute'}
+      aria-pressed={muted}
+      className="flex-shrink-0 rounded-md border border-white/12 p-1.5 text-zinc-300 hover:bg-white/[0.08] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-400"
+    >
+      {muted ? <VolumeX size={13} aria-hidden="true" /> : <Volume2 size={13} aria-hidden="true" />}
+    </button>
+  );
+
   // Minimized and not being used right now. Walking up to the radio still
   // expands it, and closing that drops back to the bar rather than to the video.
   const compact = minimized && !open && videoId !== null;
@@ -369,9 +432,16 @@ export function JukeboxPanel({
     <div
       className={`relative flex flex-col gap-2 ${HUD_SURFACE} ${
         // `max-w-full` against the slot it sits in rather than the viewport:
-        // on a narrow phone the bar gives up width instead of running off the
-        // right edge, and it does not have to know what else is on screen.
-        idle ? 'hidden' : compact ? 'w-[320px] max-w-full p-2' : 'w-[260px] p-3'
+        // on a narrow phone it gives up width instead of running off the right
+        // edge, and it does not have to know what else is on screen.
+        //
+        // Both states are the same width below lg, so minimizing and expanding
+        // move the panel's edges nowhere. 260px is a desktop measurement: it is
+        // what sits comfortably beside the 330px activity log in the bottom
+        // row. On a phone that log is not rendered, nothing else is competing
+        // for the strip, and being narrower than the bar it collapses into only
+        // made the two look misaligned.
+        idle ? 'hidden' : compact ? 'w-[320px] max-w-full p-2' : 'w-[320px] max-w-full lg:w-[260px] p-3'
       }`}
     >
       {compact ? null : (
@@ -466,17 +536,23 @@ export function JukeboxPanel({
           <p className="min-w-0 flex-1 truncate text-[11px] text-zinc-200" title={title ?? undefined}>
             {title ?? 'Playing'}
           </p>
-          <Volume2 size={12} className="flex-shrink-0 text-zinc-500" aria-hidden="true" />
-          <input
-            type="range"
-            min={0}
-            max={100}
-            step={1}
-            value={level}
-            onChange={(e) => setLevel(Number(e.target.value))}
-            aria-label="Volume"
-            className="w-14 flex-shrink-0 accent-brand-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-400"
-          />
+          {volumeSettable ? (
+            <>
+              <Volume2 size={12} className="flex-shrink-0 text-zinc-500" aria-hidden="true" />
+              <input
+                type="range"
+                min={0}
+                max={100}
+                step={1}
+                value={level}
+                onChange={(e) => setLevel(Number(e.target.value))}
+                aria-label="Volume"
+                className="w-14 flex-shrink-0 accent-brand-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-400"
+              />
+            </>
+          ) : (
+            muteButton
+          )}
           <button
             type="button"
             onClick={() => onOpenChange(true)}
@@ -578,19 +654,33 @@ export function JukeboxPanel({
                 >
                   {playing ? <Pause size={13} aria-hidden="true" /> : <Play size={13} aria-hidden="true" />}
                 </button>
-                <label htmlFor={levelId} className="text-[10px] text-zinc-400">
-                  Volume
-                </label>
-                <input
-                  id={levelId}
-                  type="range"
-                  min={0}
-                  max={100}
-                  step={1}
-                  value={level}
-                  onChange={(e) => setLevel(Number(e.target.value))}
-                  className="min-w-0 flex-1 accent-brand-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-400"
-                />
+                {volumeSettable ? (
+                  <>
+                    <label htmlFor={levelId} className="text-[10px] text-zinc-400">
+                      Volume
+                    </label>
+                    <input
+                      id={levelId}
+                      type="range"
+                      min={0}
+                      max={100}
+                      step={1}
+                      value={level}
+                      onChange={(e) => setLevel(Number(e.target.value))}
+                      className="min-w-0 flex-1 accent-brand-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-400"
+                    />
+                  </>
+                ) : (
+                  <>
+                    {muteButton}
+                    {/* Said out loud, because a missing slider otherwise reads
+                        as something broken rather than as something iOS keeps
+                        for itself. */}
+                    <p className="min-w-0 flex-1 text-[10px] leading-snug text-zinc-500">
+                      Volume is on your device&apos;s buttons
+                    </p>
+                  </>
+                )}
               </div>
             </>
           )}
