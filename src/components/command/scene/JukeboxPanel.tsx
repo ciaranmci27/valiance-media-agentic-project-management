@@ -62,19 +62,33 @@ const API_SRC = 'https://www.youtube.com/iframe_api';
  * makes muted autoplay possible), so a mute toggle takes the slider's place
  * there and the phone's buttons do the rest.
  *
- * Feature-tested rather than sniffed for a user agent: write a volume, read it
- * back, believe the answer. That also catches iPadOS, which claims to be a Mac.
+ * Two signals, and either one is enough to hide the slider.
+ *
+ * The feature test comes first: write a volume to a throwaway element, read it
+ * back, believe the answer. WebKit historically does not update the cached
+ * value on iOS, so this catches it. But that is a detail of an implementation
+ * Apple is free to change, and a version that stores the number while still
+ * ignoring it for output would pass the test and leave a dead slider on screen,
+ * which is the exact thing being fixed. So the platform is checked as well.
+ *
+ * The platform check includes iPadOS claiming to be a Mac, which is what the
+ * touch-point count separates: a real Mac reports zero.
  */
 let volumeSettable: boolean | null = null;
 function canSetVolume(): boolean {
   if (volumeSettable !== null) return volumeSettable;
+  let settable: boolean;
   try {
     const probe = document.createElement('audio');
     probe.volume = 0.5;
-    volumeSettable = probe.volume === 0.5;
+    settable = probe.volume === 0.5;
   } catch {
-    volumeSettable = false;
+    settable = false;
   }
+  const ua = navigator.userAgent;
+  const appleTouch =
+    /iPad|iPhone|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+  volumeSettable = settable && !appleTouch;
   return volumeSettable;
 }
 
