@@ -1,4 +1,8 @@
 import { siteConfig } from '@/site-config';
+import { elapsedLabel, type AgentMood } from '@/lib/agent-status';
+
+/** Local alias so the scene keeps its historical `Mood` name. */
+type Mood = AgentMood;
 
 /**
  * Shared vocabulary for the command scene.
@@ -6,22 +10,17 @@ import { siteConfig } from '@/site-config';
  * One deliberate constraint: the scene uses the brand palette plus semantic
  * status colors only. Agent identity is carried by placement, props, and the
  * character itself, never by assigning each person a neon color.
+ *
+ * Agent STATE (moods, traces, timers) lives in `@/lib/agent-status`, shared
+ * with the fleet strip on /agent so the two views can never disagree about
+ * what an agent is doing. This file re-exports the pieces the scene consumes
+ * and keeps only what is scene-specific: stations, geometry, and the queue.
  */
 
 export type AgentKey = 'greg' | 'ashley' | 'jeff' | 'john';
 
-/**
- * `offline` means the agent is genuinely unreachable: the container is down or
- * the host is gone. It requires positive proof and is never inferred from an
- * agent simply having nothing to say.
- *
- * Nothing derives it yet, because nothing in the database can currently prove a
- * container is down; agent health lives on the VPS and is not published here.
- * The state is defined and styled so a health feed can drive it the day one
- * exists. Until then a quiet agent is idle, which is what it actually is:
- * available, waiting for work, one message away from starting.
- */
-export type Mood = 'idle' | 'working' | 'reviewing' | 'blocked' | 'celebrating' | 'offline';
+export type { AgentMood as Mood } from '@/lib/agent-status';
+export { moodLabel, statusSentence, elapsedLabel } from '@/lib/agent-status';
 
 export type Member = {
   id: string;
@@ -276,54 +275,9 @@ export const PALETTE = {
   night: '#05060a',
 };
 
-export function moodLabel(mood: Mood): string {
-  switch (mood) {
-    case 'working':
-      return 'working';
-    case 'reviewing':
-      return 'reviewing';
-    case 'blocked':
-      return 'blocked';
-    case 'celebrating':
-      return 'shipped it';
-    case 'offline':
-      return 'offline';
-    default:
-      return 'idle';
-  }
-}
-
-/**
- * The full status as one sentence: the state and what the clock beside it is
- * measuring. Kept together deliberately, because a bare duration next to a
- * busy-sounding word is what once made "idle since 16m ago" and "working for
- * 16m" read identically.
- *
- * This is also the accessible name of the status dot, so it has to stand on
- * its own without the colour.
- */
-export function statusSentence(snap: AgentSnapshot, now: number): string {
-  const base = moodLabel(snap.mood);
-  const sentence = base.charAt(0).toUpperCase() + base.slice(1);
-  if (snap.mood === 'celebrating') return sentence;
-  if (snap.mood === 'offline') return `${sentence}: agent unreachable`;
-  // No telemetry means no duration to report. The agent is still idle and
-  // still available; we just cannot say for how long, so nothing is invented.
-  if (snap.telemetry === 'none' || !snap.since) return `${sentence}, no activity logged`;
-  return `${sentence} for ${elapsedLabel(snap.since, now)}`;
-}
-
 /** How long a station's queue has been waiting, for the desk badge. */
 export function queueLabel(queue: StationQueue, now: number): string | null {
   if (!queue.count) return null;
   if (queue.oldestAt == null) return `${queue.count} queued`;
   return `${queue.count} queued · oldest ${elapsedLabel(queue.oldestAt, now)}`;
-}
-
-export function elapsedLabel(sinceMs: number, now: number): string {
-  const s = Math.max(0, Math.floor((now - sinceMs) / 1000));
-  if (s < 60) return `${s}s`;
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m`;
-  return `${Math.floor(m / 60)}h ${m % 60}m`;
 }

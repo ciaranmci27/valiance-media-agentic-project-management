@@ -242,6 +242,21 @@ create table public.task_reviews (
 create index idx_task_reviews_task_created
   on public.task_reviews(task_id, created_at desc);
 
+-- Agent infrastructure heartbeats: one row per agent, upserted in place by a
+-- VPS cron every minute (container state + execution ledger). Current state,
+-- not history; agent_activities remains the narrative log. A stale
+-- reported_at means the publisher itself is silent, which readers surface as
+-- an outage. Written only via the v1 agent API (service client);
+-- authenticated users read.
+create table public.agent_health (
+  member_id uuid primary key references public.team_members(id) on delete cascade,
+  container text not null,
+  container_running boolean not null default false,
+  turn_running boolean not null default false,
+  turn_started_at timestamptz,
+  reported_at timestamptz not null default now()
+);
+
 -- ============================================================
 -- 9. COMMENTS
 -- ============================================================
@@ -1647,6 +1662,7 @@ alter table public.task_assignees enable row level security;
 alter table public.task_subtasks enable row level security;
 alter table public.task_acceptance_criteria enable row level security;
 alter table public.task_reviews enable row level security;
+alter table public.agent_health enable row level security;
 alter table public.task_dependencies enable row level security;
 alter table public.task_comments enable row level security;
 alter table public.activities enable row level security;
@@ -3088,6 +3104,8 @@ CREATE POLICY task_acceptance_criteria_manage ON public.task_acceptance_criteria
 -- client, so there is intentionally no authenticated write policy.
 CREATE POLICY task_reviews_select ON public.task_reviews FOR SELECT TO authenticated
   USING (public.can_access_task(task_id));
+CREATE POLICY agent_health_select ON public.agent_health FOR SELECT TO authenticated
+  USING (true);
 
 CREATE POLICY task_dependencies_select ON public.task_dependencies FOR SELECT TO authenticated
   USING (public.can_access_task(task_id));
@@ -3854,7 +3872,10 @@ GRANT EXECUTE ON FUNCTION public.schedule_team_member_hourly_rate(uuid, numeric,
 REVOKE SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON public.projects FROM authenticated;
 GRANT SELECT (
   id, name, description, color, status, start_date, due_date,
-  hourly_tracking, time_tracking_enabled, created_by, created_at, updated_at, archived_at
+  hourly_tracking, time_tracking_enabled, created_by, created_at, updated_at, archived_at,
+  -- Agent columns, read by the live floor from the client: a feature flag
+  -- and a branch name, neither financial (20260811_grant_agent_project_columns).
+  autonomous_enabled, integration_branch
 ) ON public.projects TO authenticated;
 
 REVOKE SELECT, INSERT, UPDATE, TRUNCATE, REFERENCES, TRIGGER ON public.project_time_entries FROM authenticated;
@@ -4005,7 +4026,7 @@ begin
     'contacts', 'project_contacts',
     'leads', 'lead_members', 'lead_interactions', 'lead_proposals',
     'lead_fields', 'lead_contacts',
-    'activities', 'agent_activities',
+    'activities', 'agent_activities', 'agent_health',
     'portal_settings', 'portal_updates', 'portal_update_attachments',
     'entity_files',
     'project_time_entries', 'time_entry_tasks',

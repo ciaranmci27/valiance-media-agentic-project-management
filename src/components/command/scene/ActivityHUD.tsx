@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Activity, Users, X, Radio, TriangleAlert, CheckCircle2 } from 'lucide-react';
 import { Tooltip } from '@/components/ui/Tooltip';
+// One dot vocabulary for every agent view, shared with the /agent fleet strip.
+import { MOOD_STYLE } from '@/lib/agent-status';
 import { HUD_SURFACE } from './hudSurface';
 import {
   STATIONS,
@@ -11,7 +13,6 @@ import {
   statusSentence,
   type CrewState,
   type FeedItem,
-  type Mood,
 } from './crew';
 
 /**
@@ -20,23 +21,14 @@ import {
  * Lives in the DOM rather than the canvas so text stays crisp at any
  * resolution and survives a WebGL failure. Three parts:
  *  - a live event log, newest first, of real rows only;
- *  - toasts, which fire once per genuinely new event and then leave;
+ *  - toasts (desktop only), seven-second interruptions reserved for events
+ *    that need attention — blocked, changes requested, merged;
  *  - per-agent status cards with truthful elapsed timers.
  *
  * The log distinguishes "no events yet" from "quiet right now", because
  * during a real ten-minute silence the honest thing to show is how long it
  * has been quiet, not an empty panel that looks broken.
  */
-
-const MOOD_STYLE: Record<Mood, { dot: string; text: string }> = {
-  idle: { dot: 'bg-zinc-500', text: 'text-zinc-400' },
-  working: { dot: 'bg-brand-400', text: 'text-brand-300' },
-  reviewing: { dot: 'bg-brand-400', text: 'text-brand-300' },
-  blocked: { dot: 'bg-amber-400', text: 'text-amber-300' },
-  celebrating: { dot: 'bg-emerald-400', text: 'text-emerald-300' },
-  // Red, because this is a fault: the agent is unreachable, not merely quiet.
-  offline: { dot: 'bg-red-500', text: 'text-red-400' },
-};
 
 /** A system event (no agent attached) still needs a face. */
 const KIND_ICON: Record<FeedItem['kind'], typeof Radio> = {
@@ -76,18 +68,16 @@ const TOAST_SEED_WINDOW_MS = 2000;
 const QUIET_AFTER_MS = 120_000;
 
 /**
- * Where the mobile overlays start, measured down from the top of the scene.
+ * Where the mobile top stack (the radio) starts, measured down from the top
+ * of the scene.
  *
  * The top row sits 16px in and stands 31px tall, so it ends at 47px. The
- * radio's column starts exactly there and its own p-4 supplies the gap, which
- * is how the space under the badge comes out the same 16px as the badge's own
- * inset rather than a number picked to look about right.
- *
- * Toasts then clear a minimized radio bar: 47 + 16 (the column's padding) + 45
- * (the bar) + 16 again.
+ * column starts exactly there and its own p-4 supplies the gap, which is how
+ * the space under the badge comes out the same 16px as the badge's own inset
+ * rather than a number picked to look about right. Everything below that is
+ * flex flow, so nothing in the stack needs its own offset.
  */
 const MOBILE_STACK_TOP = 'top-[47px]';
-const MOBILE_TOAST_TOP = 'top-[124px]';
 
 function useToasts(feed: FeedItem[]) {
   const [toasts, setToasts] = useState<FeedItem[]>([]);
@@ -109,8 +99,16 @@ function useToasts(feed: FeedItem[]) {
     const fresh = feed.filter((f) => !seen.current.has(f.id));
     if (!fresh.length) return;
     for (const f of fresh) seen.current.add(f.id);
-    setToasts((prev) => [...fresh, ...prev].slice(0, 4));
-    const timers = fresh.map((f) =>
+    // Only events that warrant an interruption toast — blocked, changes
+    // requested, merged. Routine traffic lives in the activity log and the
+    // crew sheet; a pop-up repeating it was the same information twice.
+    // Every toast is temporary: seven seconds and gone, whatever its
+    // severity — anything that needs to persist belongs in the log, not
+    // hovering over the room.
+    const alerts = fresh.filter((f) => f.kind !== 'info');
+    if (!alerts.length) return;
+    setToasts((prev) => [...alerts, ...prev].slice(0, 4));
+    const timers = alerts.map((f) =>
       window.setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== f.id)), 7000)
     );
     return () => timers.forEach(clearTimeout);
@@ -133,6 +131,8 @@ export function ActivityHUD({
   // Collapsed by default on mobile: the crew/activity sheet is opt-in there,
   // never a fact the desktop layout needs since it always shows both panels.
   const [expanded, setExpanded] = useState(false);
+  // When this HUD mounted, so the log can tell backlog from live arrivals.
+  const [mountedAt] = useState(() => Date.now());
   // Local clock so elapsed labels advance with no events at all.
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -145,6 +145,48 @@ export function ActivityHUD({
   // minutes" are different facts, and only the second one is reassuring.
   const quietSince = useMemo(() => crew.feed[0]?.at ?? null, [crew.feed]);
   const quiet = quietSince !== null && now - quietSince > QUIET_AFTER_MS;
+
+  // The toast rows. Desktop only: on a phone this floor is glanced at, not
+  // worked from, so nothing there earns an interruption — the crew sheet
+  // carries the same feed for anyone who goes looking.
+  const toastRows = toasts.map((t) => {
+    const station = STATIONS.find((s) => s.key === t.agent);
+    const member = t.agent ? crew.agents[t.agent]?.member : undefined;
+    const KindIcon = KIND_ICON[t.kind];
+    return (
+      <div
+        key={t.id}
+        // The one HUD surface, same as the log, the crew bar and the radio.
+        // Toasts predate that constant and had kept their own recipe: a
+        // near-opaque blue-grey tint and a heavy drop shadow, which read as a
+        // different material floating over the same corner of the frame.
+        className={`cmd-toast flex items-start gap-2.5 ${HUD_SURFACE} px-3 py-2.5`}
+      >
+        {member?.avatar ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={member.avatar} alt="" className="w-7 h-7 rounded-md object-cover flex-shrink-0" />
+        ) : (
+          <span
+            className={`w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 ${KIND_STYLE[t.kind].bg}`}
+          >
+            <KindIcon size={14} className={KIND_STYLE[t.kind].fg} aria-hidden="true" />
+          </span>
+        )}
+        <div className="min-w-0">
+          <p className="text-[11px] font-semibold text-zinc-100 truncate">
+            {member?.name ?? station?.key ?? 'System'}
+          </p>
+          <p
+            className={`text-[11px] leading-snug ${
+              t.kind === 'warn' ? 'text-amber-300' : t.kind === 'good' ? 'text-emerald-300' : 'text-zinc-300'
+            }`}
+          >
+            {t.text}
+          </p>
+        </div>
+      </div>
+    );
+  });
 
   return (
     <>
@@ -174,55 +216,18 @@ export function ActivityHUD({
         </div>
       </div>
 
-      {/* Toasts. Full-width with side margins on mobile, since a 300px column
-          pinned to the right edge either collided with the LIVE badge or ran
-          off a narrow viewport; on lg+ it's back to a fixed-width column,
-          because there is room for it beside the scene.
-
-          Below lg they start under where a minimized radio sits (see
-          MOBILE_STACK_TOP): the radio is the later sibling and would paint over
-          them, and a notification hidden behind the music controls is a
-          notification you never got. A radio expanded to its full panel still
-          covers them, which is the accepted cost of only one strip of screen
-          being under the badge. */}
+      {/* Toasts: desktop only, a fixed-width column under the badge.
+          Deliberately absent below lg — a phone is where this floor gets
+          glanced at, not worked from, so nothing there warrants an
+          interruption; the crew sheet carries the identical feed for anyone
+          who wants to look. display:none below lg also silences the
+          aria-live channel, so mobile screen readers are not announced at
+          either. */}
       <div
-        className={`absolute ${MOBILE_TOAST_TOP} lg:top-16 inset-x-3 lg:inset-x-auto lg:right-4 lg:w-[300px] space-y-2 pointer-events-none`}
+        className="hidden lg:block absolute top-16 right-4 w-[300px] space-y-2 pointer-events-none"
         aria-live="polite"
       >
-        {toasts.map((t) => {
-          const station = STATIONS.find((s) => s.key === t.agent);
-          const member = t.agent ? crew.agents[t.agent]?.member : undefined;
-          const KindIcon = KIND_ICON[t.kind];
-          return (
-            <div
-              key={t.id}
-              className="cmd-toast flex items-start gap-2.5 rounded-xl border border-white/10 bg-[#12151b]/95 backdrop-blur px-3 py-2.5 shadow-xl shadow-black/50"
-            >
-              {member?.avatar ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={member.avatar} alt="" className="w-7 h-7 rounded-md object-cover flex-shrink-0" />
-              ) : (
-                <span
-                  className={`w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 ${KIND_STYLE[t.kind].bg}`}
-                >
-                  <KindIcon size={14} className={KIND_STYLE[t.kind].fg} aria-hidden="true" />
-                </span>
-              )}
-              <div className="min-w-0">
-                <p className="text-[11px] font-semibold text-zinc-100 truncate">
-                  {member?.name ?? station?.key ?? 'System'}
-                </p>
-                <p
-                  className={`text-[11px] leading-snug ${
-                    t.kind === 'warn' ? 'text-amber-300' : t.kind === 'good' ? 'text-emerald-300' : 'text-zinc-300'
-                  }`}
-                >
-                  {t.text}
-                </p>
-              </div>
-            </div>
-          );
-        })}
+        {toastRows}
       </div>
 
       {/* The log and the crew bar, stacked as one column.
@@ -265,8 +270,20 @@ export function ActivityHUD({
               )}
             </p>
             <div className="space-y-1.5">
+              {/* `cmd-feed-new` flashes once when a row mounts. Keyed on the
+                  event id, so only a genuinely new event animates — the same
+                  row re-rendering (clock ticks, crew updates) keeps its DOM
+                  node and never replays it — and gated on the event being
+                  newer than the mount, so the backlog the initial fetch pours
+                  in does not flash five rows at once. History is not news
+                  here either. This is where "live" is allowed to show in the
+                  log itself, now that routine events no longer toast on
+                  desktop. */}
               {crew.feed.slice(0, 5).map((f) => (
-                <div key={f.id} className="flex items-baseline gap-2">
+                <div
+                  key={f.id}
+                  className={`flex items-baseline gap-2 ${f.at > mountedAt ? 'cmd-feed-new' : ''}`}
+                >
                   <span className="text-[9px] font-mono text-zinc-500 tabular-nums flex-shrink-0">
                     {clockLabel(f.at)}
                   </span>
@@ -289,6 +306,7 @@ export function ActivityHUD({
               on mobile too, where the log beside it is not rendered. */}
           {rightSlot && <div className="ml-auto min-w-0 pointer-events-auto">{rightSlot}</div>}
         </div>
+
 
         {/* Crew status bar — see MobileCrewSheet below for the small-screen
             equivalent. No inset of its own now: the column above owns it, which
@@ -441,8 +459,26 @@ export function ActivityHUD({
             transform: none;
           }
         }
+        /* A new log row announces itself once: a brand-tinted wash that
+           fades over a couple of seconds. Long deliberately — the log sits
+           in peripheral vision, and a 300ms blink is over before the eye
+           arrives. */
+        .cmd-feed-new {
+          animation: feedNew 2.2s ease-out;
+          border-radius: 4px;
+        }
+        @keyframes feedNew {
+          0% {
+            /* The brand token, not a copied hex — ThemeProvider owns these. */
+            background-color: color-mix(in srgb, var(--color-brand-300) 28%, transparent);
+          }
+          100% {
+            background-color: transparent;
+          }
+        }
         @media (prefers-reduced-motion: reduce) {
-          .cmd-toast {
+          .cmd-toast,
+          .cmd-feed-new {
             animation: none;
           }
         }

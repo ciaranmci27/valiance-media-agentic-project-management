@@ -189,7 +189,7 @@ export function SettingsPanel({
           {driving
             ? coarsePointer
               ? 'Drag to look, stick to walk. Tap Auto to hand it back.'
-              : 'Click the scene to look around. WASD to walk, Shift to run, Esc to hand back.'
+              : 'Click the scene to look around. WASD to walk, Shift to run. Esc frees the cursor; click to walk again.'
             : 'The camera tours the floor on its own.'}
         </p>
       </div>
@@ -343,7 +343,7 @@ export function SettingsPanel({
           <p className="mt-2 rounded-lg bg-black/50 backdrop-blur-sm border border-white/10 px-2.5 py-1.5 text-[10px] font-mono text-zinc-400 leading-snug">
             Click to look around · WASD to walk
             <br />
-            Shift to run · Esc for auto
+            Shift to run · Esc for cursor
           </p>
         )}
 

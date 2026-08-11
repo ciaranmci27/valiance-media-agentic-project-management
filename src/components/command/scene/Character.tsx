@@ -48,12 +48,97 @@ const DIR = '/models/command/characters';
 const BODY_SCALE = 0.4;
 const SEAT_OFFSET_Y = 0;
 
+/**
+ * Jeff's reward: the Chrome Hearts tee. Horseshoe logo front and back.
+ *
+ * The logo (public/textures/command/ch_logo.png, recoloured to white-on-alpha)
+ * rides the chest bone so it follows the seated animation's breathing and
+ * lean. alphaTest rather than blending: a print wants hard edges and no
+ * sorting concerns against the body it hugs.
+ *
+ * CURVED, not flat, and that is the load-bearing decision. The first version
+ * was a plane, and the jacket's raised centre panel pushed through it, eating
+ * the middle of the logo while the sides floated. Each print is now an
+ * open-ended cylinder segment whose crest stands just proud of the ridge and
+ * whose edges sweep back with the torso, which is how ink on fabric behaves.
+ *
+ * Mirroring was checked, not assumed: cylinder UVs run u=0 at thetaStart, and
+ * with the front arc centred on +Z (bone-space chest-forward, probed earlier)
+ * u=0 lands on the wearer's right, which is the viewer's left — unmirrored.
+ * The back arc centred on -Z reverses both, so it also reads correctly to
+ * someone standing behind him. Gothic lettering is unforgiving of getting
+ * this wrong in either place.
+ *
+ * There was jewelry here for a day — a cross pattée on a chunky chain — and
+ * it never survived contact with the eye: geometric pendants at this poly
+ * count read as costume, whatever their proportions. The print is the fit.
+ *
+ * Dimensions are meters; the caller divides out the bone's composed scale.
+ */
+function buildChromeTee(): THREE.Group {
+  const logo = new THREE.TextureLoader().load('/textures/command/ch_logo.png');
+  logo.colorSpace = THREE.SRGBColorSpace;
+  logo.anisotropy = 8;
+  const ink = new THREE.MeshStandardMaterial({
+    map: logo,
+    alphaTest: 0.35,
+    roughness: 0.9,
+    metalness: 0,
+  });
+
+  const group = new THREE.Group();
+  group.name = 'chromePrint';
+
+  /**
+   * One curved patch. `width` is arc length (what the print measures across
+   * the chest), `crest` how far the arc's proudest point sits from the bone,
+   * `facing` +1 for the chest, -1 for the back.
+   *
+   * The crest values were SOLVED, not styled: the jacket's raised placket
+   * strip reaches 0.128 ahead of the bone at the centerline (measured by
+   * posing every skinned vertex via applyBoneTransform), and the first,
+   * hand-guessed crest sat 3.5cm INSIDE it — which is why the logo's middle
+   * vanished into the shirt. Each value below holds its crest 5-10mm proud
+   * of the measured surface across the whole seated cycle: the breathing and
+   * lean wobble the skin a few millimetres relative to the bone (chest verts
+   * carry some shoulder weight), so the margin covers the worst phase, and
+   * that was verified by sampling the cycle rather than one instant.
+   */
+  const patch = (name: string, width: number, height: number, crest: number, y: number, facing: 1 | -1) => {
+    const radius = 0.16;
+    const theta = width / radius;
+    const thetaStart = facing === 1 ? -theta / 2 : Math.PI - theta / 2;
+    const geo = new THREE.CylinderGeometry(radius, radius, height, 24, 1, true, thetaStart, theta);
+    const m = new THREE.Mesh(geo, ink);
+    m.name = name;
+    // Place the cylinder's axis so the arc's crest lands at `crest` from the
+    // bone: crest sits at axisZ + radius (front) or axisZ - radius (back).
+    m.position.set(0, y, facing === 1 ? crest - radius : crest + radius);
+    group.add(m);
+  };
+
+  patch('chromePrintFront', 0.115, 0.115, 0.13, 0.162, 1);
+  // The back one is the statement piece, the way theirs are: bigger, higher,
+  // across the shoulder blades.
+  patch('chromePrintBack', 0.17, 0.17, -0.143, 0.19, -1);
+
+  return group;
+}
+
 export type CraftBehavior = 'type' | 'read' | 'plan' | 'inspect';
 
 type Look = {
   file: string;
   /** Per-material colors. Keys are the GLB's own material names. */
   colors: Record<string, string>;
+  /**
+   * Per-material surface finish, for the few garments that are not cotton.
+   * Everything not named here keeps the standard matte (0.82 / 0), which is
+   * what the whole crew wore before finishes existed at all.
+   */
+  finish?: Record<string, { roughness?: number; metalness?: number }>;
+  /** A graphic worn on the chest, parented to the skeleton. Just the one so far. */
+  print?: 'chrome-tee';
   /**
    * Multiplier on BODY_SCALE. Four people built from two meshes read as one
    * mannequin repeated; a few centimetres of height difference is the cheapest
@@ -109,13 +194,20 @@ export const LOOKS: Record<string, Look> = {
   jeff: {
     file: 'BaseHuman_Man.glb',
     colors: {
-      Shirt: '#1f2126', // plain black shirt
-      Details: '#24262b', // no dress shirt showing
-      TieTexture: '#24262b',
-      Pants: '#22262e',
+      // Black leather rather than black cotton — the reward fit. Slightly
+      // deeper than the old shirt so the sheen is what carries it.
+      Shirt: '#131418',
+      Details: '#1b1d22', // no dress shirt showing
+      TieTexture: '#1b1d22',
+      Pants: '#1c1e24',
       Hair: '#2a211c',
       Skin: '#9d7250', // the crew is not all one complexion
     },
+    // The jacket is the one non-cotton garment on the floor: leather reads by
+    // its specular, not its color, so the sheen is the entire difference
+    // between "black jacket" and "black leather jacket" at this poly count.
+    finish: { Shirt: { roughness: 0.42 } },
+    print: 'chrome-tee',
     // Tallest and leanest.
     build: 1.035,
     shoulders: 0.96,
@@ -216,8 +308,9 @@ export function AgentCharacter({
         const c = (m as THREE.MeshStandardMaterial).clone();
         const want = look.colors[m.name];
         if (want) c.color.set(want);
-        c.roughness = 0.82;
-        c.metalness = 0;
+        const finish = look.finish?.[m.name];
+        c.roughness = finish?.roughness ?? 0.82;
+        c.metalness = finish?.metalness ?? 0;
         cache.set(m, c);
         return c;
       };
@@ -237,6 +330,30 @@ export function AgentCharacter({
       for (const name of ['ShoulderL', 'ShoulderR']) {
         const bone = clone.getObjectByName(name);
         if (bone) bone.scale.x *= shoulders;
+      }
+    }
+
+    // The print rides the chest bone so it follows the seated animation's
+    // breathing and lean for free — the same parenting John's exhibit used.
+    //
+    // The bone is nowhere near unit scale: the armature carries a 100x
+    // internal scale (measured via getWorldScale, 41.4 in the scene = 100 x
+    // BODY_SCALE 0.4 x Jeff's 1.035 build), so a print authored in meters and
+    // parented naively renders billboard-sized. Dividing by the bone's
+    // composed world scale lets the builder speak meters.
+    if (look.print === 'chrome-tee') {
+      const torso = clone.getObjectByName('Torso');
+      if (torso) {
+        clone.updateMatrixWorld(true);
+        const s =
+          torso.getWorldScale(new THREE.Vector3()).x * BODY_SCALE * (look.build ?? 1);
+        const print = buildChromeTee();
+        // Only the scale lives here now. Each patch carries its own height on
+        // the chest and its own crest depth, since front and back differ in
+        // both; the group sits at the bone origin so those numbers stay plain
+        // meters. (+Y runs up the spine, +Z out of the chest — probed.)
+        print.scale.setScalar(1 / s);
+        torso.add(print);
       }
     }
     return clone;

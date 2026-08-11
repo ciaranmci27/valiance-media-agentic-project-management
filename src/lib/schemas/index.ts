@@ -25,3 +25,4 @@ export * from './credentials';
 export * from './invoices';
 export * from './project-context';
 export * from './reviews';
+export * from './agent-health';

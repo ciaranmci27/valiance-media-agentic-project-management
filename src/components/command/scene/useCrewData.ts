@@ -3,6 +3,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import {
+  classifyActivity,
+  deriveStatus,
+  emptyTrace,
+  ingestIntoTrace,
+  type AgentTrace,
+} from '@/lib/agent-status';
+import { useAgentHealth } from '@/lib/use-agent-health';
+import {
   STATIONS,
   emptyWork,
   type AgentKey,
@@ -78,49 +86,6 @@ const REVIEW_LIMIT = 8;
 const SUGGESTION_LIMIT = 12;
 
 /**
- * Per-agent facts accumulated from the activity stream, kept on four separate
- * clocks because they answer four different questions. Collapsing them into one
- * "last event" is what made an agent that had just reported an empty queue
- * indistinguishable from one mid-turn.
- */
-type AgentTrace = {
-  lastLine?: string;
-  /** Any event at all, heartbeats included: proof the agent is running. */
-  seenAt: number;
-  /** Evidence of actual work: excludes heartbeats and no-work reports. */
-  workAt: number;
-  /** The agent's own report that it looked and found nothing to do. */
-  idleAt: number;
-  blockedAt: number;
-};
-
-/** Types that prove the process is alive but say nothing about work. */
-const SILENT_TYPES = new Set(['heartbeat', 'system_check']);
-
-/**
- * The agents announce an empty queue in prose rather than a status column, so
- * this reads their own words. It is a heuristic, but it is their conclusion
- * rather than our inference, which makes it the best signal available: these
- * phrases come from Greg's "NO_WORK - all autonomous projects ineligible" and
- * John's "Independent review cycle: queue empty".
- */
-const NO_WORK_PHRASE =
-  /\bno[_\s-]?work\b|queue empty|empty queue|nothing to (do|review|build|audit)|no eligible|ineligible|found nothing/i;
-
-/**
- * How long an agent may go unheard before the scene stops claiming to know its
- * state. The agents wake on a 30-minute cron plus dispatcher nudges, so three
- * missed windows means we genuinely have no idea.
- */
-const SILENT_AFTER_MS = 90 * 60_000;
-
-/**
- * How long a work event keeps implying work. Turns are bounded; a work event
- * older than this is a finished turn nobody closed out, not ongoing effort.
- */
-const TURN_TTL_MS = 45 * 60_000;
-
-/**
  * How far back the initial load reads. Wide enough that an agent silent for
  * longer than SILENT_AFTER_MS still has evidence in the window, so "quiet for
  * three hours" is distinguishable from "emits nothing at all". Beyond this
@@ -128,17 +93,14 @@ const TURN_TTL_MS = 45 * 60_000;
  */
 const HISTORY_WINDOW_MS = 6 * 60 * 60_000;
 
-const emptyTrace = (): AgentTrace => ({
-  seenAt: 0,
-  workAt: 0,
-  idleAt: 0,
-  blockedAt: 0,
-});
-
 /** A one-shot reaction (celebration) that expires on its own. */
 type Reaction = { mood: Mood; until: number };
 
 export function useCrewData(mock?: { mood?: Mood }): CrewState {
+  // Infrastructure heartbeats, shared with the fleet strip: the authority on
+  // working / idle / offline. Empty in mock mode and wherever the feed is
+  // not deployed, in which case the phrase heuristics carry the answer.
+  const agentHealth = useAgentHealth();
   const [members, setMembers] = useState<Member[]>([]);
   const [tasks, setTasks] = useState<CrewTask[]>([]);
   const [traces, setTraces] = useState<Record<AgentKey, AgentTrace>>({
@@ -202,29 +164,12 @@ export function useCrewData(mock?: { mood?: Mood }): CrewState {
       const key = keyForAgent(row.agent_id, roster);
       if (!key) return;
       const at = new Date(row.created_at).getTime();
-      // A heartbeat still proves the agent ran, so it always updates `seenAt`;
-      // it simply never counts as work. Discarding it entirely, as this once
-      // did, threw away the only evidence that anyone was alive.
-      const isSilentType = SILENT_TYPES.has(row.activity_type);
-      const reportsNoWork = NO_WORK_PHRASE.test(row.title);
-      const isBlocked = /blocked/i.test(row.title) || row.activity_type === 'task_failed';
-      const isWork = !isSilentType && !reportsNoWork && !isBlocked;
-      setTraces((t) => {
-        const cur = t[key];
-        const next: AgentTrace = {
-          // A bare heartbeat carries no message worth showing, so the last
-          // meaningful line survives it.
-          lastLine: !isSilentType && at >= cur.seenAt ? row.title : cur.lastLine,
-          seenAt: Math.max(cur.seenAt, at),
-          workAt: isWork ? Math.max(cur.workAt, at) : cur.workAt,
-          idleAt: reportsNoWork ? Math.max(cur.idleAt, at) : cur.idleAt,
-          blockedAt: isBlocked ? Math.max(cur.blockedAt, at) : cur.blockedAt,
-        };
-        return { ...t, [key]: next };
-      });
+      // Classification and folding both live in @/lib/agent-status, shared
+      // with the fleet strip: one definition of what counts as work.
+      setTraces((t) => ({ ...t, [key]: ingestIntoTrace(t[key], row) }));
       // Heartbeats stay out of the feed: at one per agent per cycle they would
       // bury every real milestone.
-      if (isSilentType) return;
+      if (classifyActivity(row).isSilentType) return;
       if (isRealtime) {
         setFeed((f) =>
           [
@@ -304,7 +249,7 @@ export function useCrewData(mock?: { mood?: Mood }): CrewState {
         ingestActivity(row, false, roster);
       }
       const seeded: FeedItem[] = ((acts as ActivityRow[]) || [])
-        .filter((a) => !SILENT_TYPES.has(a.activity_type))
+        .filter((a) => !classifyActivity(a).isSilentType)
         .slice(0, 12)
         .map((a) => ({
           id: a.id,
@@ -509,46 +454,20 @@ export function useCrewData(mock?: { mood?: Mood }): CrewState {
         (a, b) => +new Date(b.updated_at) - +new Date(a.updated_at)
       )[0];
 
-      // State is decided by the agent's own telemetry, in order of how much
-      // each signal actually proves. The task on the desk is display only: it
-      // is what they would pick up, not evidence that they have.
-      // How much history we have on this agent. This qualifies the timer but
-      // never becomes a status of its own: an agent that logs nothing is not
-      // an agent that is down. Ashley writes no activity rows at all and will
-      // still answer a message the moment one arrives.
-      const telemetry: AgentSnapshot['telemetry'] = !trace.seenAt
-        ? 'none'
-        : now - trace.seenAt > SILENT_AFTER_MS
-          ? 'stale'
-          : 'live';
-
-      let mood: Mood;
-      let since: number;
-      let sinceMeans: AgentSnapshot['sinceMeans'];
-
-      if (trace.blockedAt > Math.max(trace.workAt, trace.idleAt)) {
-        // A block persists until the agent does something else, rather than
-        // ageing out on a timer: it is a state someone must clear.
-        mood = 'blocked';
-        since = trace.blockedAt;
-        sinceMeans = 'blocked';
-      } else if (trace.idleAt > trace.workAt) {
-        // They looked and found nothing. Believe them over any inference.
-        mood = 'idle';
-        since = trace.idleAt;
-        sinceMeans = 'idle';
-      } else if (trace.workAt && now - trace.workAt < TURN_TTL_MS) {
-        mood = station.busyMood;
-        since = trace.workAt;
-        sinceMeans = 'working';
-      } else {
-        // Nothing recent. Idle is the honest reading: available, not busy.
-        // The elapsed number carries how long it has been quiet, which is the
-        // useful part, without dressing quiet up as a fault.
-        mood = 'idle';
-        since = trace.seenAt;
-        sinceMeans = 'idle';
-      }
+      // State is decided by the agent's own telemetry, via the SAME derivation
+      // the fleet strip on /agent uses (@/lib/agent-status), so the two views
+      // cannot disagree. The task on the desk is display only: it is what they
+      // would pick up, not evidence that they have.
+      const derived = deriveStatus(
+        trace,
+        now,
+        station.busyMood,
+        mock ? null : member ? agentHealth[member.id] : null
+      );
+      let mood: Mood = derived.mood;
+      let since: number = derived.since;
+      let sinceMeans: AgentSnapshot['sinceMeans'] = derived.sinceMeans;
+      const telemetry: AgentSnapshot['telemetry'] = derived.telemetry;
 
       const reaction = reactions[station.key];
       if (reaction && reaction.until > now) {
@@ -577,7 +496,7 @@ export function useCrewData(mock?: { mood?: Mood }): CrewState {
       };
     }
     return { agents, feed, tasksInFlight: crewTasks.length, celebration, live };
-  }, [members, tasks, traces, feed, reactions, celebration, live, reviews, suggestions, branch, mock?.mood]);
+  }, [members, tasks, traces, feed, reactions, celebration, live, reviews, suggestions, branch, agentHealth, mock]);
 }
 
 /** Row shape to scene shape, in one place so the fetch and the realtime

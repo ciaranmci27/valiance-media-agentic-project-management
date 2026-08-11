@@ -3,6 +3,7 @@
 import { useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { useFrame } from '@react-three/fiber';
+import { MOOD_LIGHT_HEX } from '@/lib/agent-status';
 import { PALETTE, DESK_TOP, type AgentSnapshot, type Mood, type ScreenKind, type StationDef } from './crew';
 import { screenModel } from './screenContent';
 import { Prop } from './Prop';
@@ -46,15 +47,9 @@ const DESK_TINTS = {
   woodDark: { color: '#0a0b0d', roughness: 0.18, metalness: 0.05 },
 };
 
-const MOOD_LIGHT: Record<Mood, { color: string; intensity: number }> = {
-  idle: { color: '#5a6470', intensity: 0.6 },
-  working: { color: PALETTE.brand, intensity: 2.0 },
-  reviewing: { color: PALETTE.brand, intensity: 2.0 },
-  blocked: { color: PALETTE.blocked, intensity: 2.4 },
-  celebrating: { color: PALETTE.merged, intensity: 3.2 },
-  // A dead station: the machine is down, not the person away from it.
-  offline: { color: '#e0524a', intensity: 0.5 },
-};
+// The shared status palette (@/lib/agent-status), so a desk lamp and the
+// dashboard dot for the same agent can never disagree about colour.
+const MOOD_LIGHT = MOOD_LIGHT_HEX;
 
 /**
  * A mug, so the `sip` activity has something to pick up.

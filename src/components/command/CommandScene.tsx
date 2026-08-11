@@ -134,7 +134,6 @@ function SceneContent({
   crew,
   time,
   cameraMode,
-  onManualUnlock,
   settings,
   coarsePointer,
   move,
@@ -143,7 +142,6 @@ function SceneContent({
   crew: CrewState;
   time: TimeOfDay;
   cameraMode: CameraMode;
-  onManualUnlock: () => void;
   settings: SceneSettings;
   coarsePointer: boolean;
   move: React.RefObject<{ x: number; y: number }>;
@@ -412,7 +410,6 @@ function SceneContent({
           />
         ) : (
           <FreeRoamControls
-            onUnlock={onManualUnlock}
             lookSensitivity={settings.lookSensitivity}
             lookSmoothing={settings.lookSmoothing}
             walkSpeed={settings.walkSpeed}
@@ -518,7 +515,6 @@ export default function CommandScene({
     setCameraMode(mode);
     if (mode === 'auto') setReading(false);
   }, []);
-  const handleManualUnlock = useCallback(() => handleCameraMode('auto'), [handleCameraMode]);
 
   // E opens the radio when you are looking at it.
   //
@@ -607,7 +603,6 @@ export default function CommandScene({
             coarsePointer={coarsePointer}
             move={move}
             reading={reading}
-            onManualUnlock={handleManualUnlock}
             settings={settings}
           />
         </Suspense>

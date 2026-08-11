@@ -86,30 +86,16 @@ function isTypingTarget(el: Element | null): boolean {
 }
 
 export function FreeRoamControls({
-  onUnlock,
   lookSensitivity,
   lookSmoothing,
   walkSpeed,
 }: {
-  onUnlock: () => void;
   lookSensitivity: number;
   lookSmoothing: number;
   walkSpeed: number;
 }) {
   const { camera, gl } = useThree();
   const pressed = useRef<Set<string>>(new Set());
-
-  /**
-   * Latest `onUnlock`, without making the pointer-lock effect depend on it.
-   *
-   * Synced in an effect rather than assigned during render: a render can be
-   * thrown away or replayed, and writing to a ref on the way through makes the
-   * value depend on how many times that happened. After commit it is a fact.
-   */
-  const onUnlockRef = useRef(onUnlock);
-  useEffect(() => {
-    onUnlockRef.current = onUnlock;
-  }, [onUnlock]);
 
   /**
    * Yaw and pitch are the authority, not the camera's quaternion.
@@ -191,10 +177,20 @@ export function FreeRoamControls({
     };
     const onLockChange = () => {
       const nowLocked = document.pointerLockElement === el;
-      // Escape (or any programmatic release) hands control back.
-      if (locked.current && !nowLocked) onUnlockRef.current();
       locked.current = nowLocked;
-      if (!nowLocked) pendingLook.current.x = pendingLook.current.y = 0;
+      // Escape PAUSES the walk, it does not end it. It used to hand the
+      // camera back to the auto tour, which turned "I want my cursor for a
+      // second to poke the HUD" into losing the whole walking session — so
+      // now the camera simply holds where it is, input stops, and clicking
+      // the scene picks the walk back up from the same spot. Leaving walking
+      // mode is the settings panel's job.
+      if (!nowLocked) {
+        pendingLook.current.x = pendingLook.current.y = 0;
+        // Drop held keys too: with input paused, a W held through the unlock
+        // would otherwise still be "down" when the lock returns, walking the
+        // camera before the user touches anything.
+        pressed.current.clear();
+      }
     };
     const onMove = (event: MouseEvent) => {
       if (!locked.current) return;
@@ -223,15 +219,12 @@ export function FreeRoamControls({
     // `gl` only, deliberately.
     //
     // This effect owns the pointer lock, and its cleanup releases it. So any
-    // dependency that changes identity on a parent re-render will tear the
-    // lock down and drop the walker straight back into the auto tour. That is
-    // exactly what `onUnlock` used to do: it arrives as an inline arrow, so it
-    // was a new function on every render of the scene, and once the read
-    // prompt started re-rendering on every glance at a monitor, walking past
-    // the desks ejected you every few seconds.
-    //
-    // The callback is read through a ref instead, so this runs once per mount
-    // and the lock survives whatever the parent does above it.
+    // dependency that changes identity on a parent re-render would tear the
+    // lock down mid-walk. A callback prop did exactly that once: it arrived
+    // as an inline arrow, fresh on every render of the scene, and when the
+    // read prompt started re-rendering on every glance at a monitor, walking
+    // past the desks ejected the user every few seconds. Nothing but the
+    // canvas element may live in this list.
   }, [gl]);
 
   // Plain window listeners rather than drei's KeyboardControls provider — a
@@ -241,6 +234,10 @@ export function FreeRoamControls({
   useEffect(() => {
     const keys = pressed.current;
     const down = (e: KeyboardEvent) => {
+      // No lock, no input: while the cursor is out the keyboard belongs to
+      // the HUD, and WASD sliding the camera under a free cursor reads as
+      // possession.
+      if (!locked.current) return;
       if (!TRACKED_KEYS.has(e.code) || isTypingTarget(document.activeElement)) return;
       keys.add(e.code);
       e.preventDefault();
