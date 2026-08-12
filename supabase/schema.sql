@@ -3496,10 +3496,20 @@ BEGIN
   SELECT role INTO member_role FROM public.team_members WHERE id = NEW.member_id;
 
   IF TG_OP = 'INSERT' OR NEW.start_time IS DISTINCT FROM OLD.start_time OR NEW.member_id IS DISTINCT FROM OLD.member_id THEN
-    IF TG_OP = 'UPDATE' AND OLD.approval_status = 'approved' THEN
+    -- The lock guards entries with real compensation behind them. Owner
+    -- entries are born approved with rate 0 (no reviewer above the owner, no
+    -- hourly pay), so without the role exemption every owner edit was an
+    -- edit to an approved entry and the lock fired on the one person it
+    -- protects nothing from (20260812_owner_time_entries_stay_editable).
+    IF TG_OP = 'UPDATE' AND OLD.approval_status = 'approved' AND member_role <> 'owner' THEN
       RAISE EXCEPTION 'Approved time entry compensation is locked';
     END IF;
-    NEW.compensation_rate := public.resolve_team_member_hourly_rate(NEW.member_id, NEW.start_time);
+    IF member_role = 'owner' THEN
+      -- Owners have no hourly compensation to resolve or to lock.
+      NEW.compensation_rate := 0;
+    ELSE
+      NEW.compensation_rate := public.resolve_team_member_hourly_rate(NEW.member_id, NEW.start_time);
+    END IF;
   END IF;
 
   IF NEW.end_time IS NULL THEN

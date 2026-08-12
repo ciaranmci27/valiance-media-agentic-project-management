@@ -15,8 +15,8 @@ import { LiveSimClient } from './live-client';
  * two-audience routing works in one place.
  */
 export const metadata: Metadata = {
-  title: 'Agent Live — Simulation',
-  description: 'Walk the agent floor: a real-time 3D simulation of an autonomous dev team at work.',
+  title: 'Agent Simulator',
+  description: 'Walk the floor: a live, read-only 3D view of an autonomous dev team at work.',
 };
 
 export default function LiveSimPage() {

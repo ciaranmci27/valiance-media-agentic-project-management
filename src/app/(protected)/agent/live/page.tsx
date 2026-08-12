@@ -87,6 +87,7 @@ export default function AgentLivePage() {
       <div className="p-4 lg:p-6 flex-1 min-h-0 flex flex-col overflow-hidden">
         <CommandScene
           timezone={timezone}
+          defaultCameraMode="manual"
           scenePreferences={scenePreferences}
           onScenePreferencesChange={handleScenePreferences}
         />

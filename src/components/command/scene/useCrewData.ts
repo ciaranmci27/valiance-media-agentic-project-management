@@ -8,6 +8,7 @@ import {
   isBookkeepingEvent,
   emptyTrace,
   ingestIntoTrace,
+  type AgentHealth,
   type AgentTrace,
 } from '@/lib/agent-status';
 import { useAgentHealth } from '@/lib/use-agent-health';
@@ -78,6 +79,19 @@ type SuggestionRow = {
 };
 
 type ProjectRow = { id: string; name: string; integration_branch: string | null };
+type HealthRow = {
+  member_id: string;
+  container_running: boolean;
+  turn_running: boolean;
+  turn_started_at: string | null;
+  reported_at: string;
+};
+
+/**
+ * Public-mode cadence. Slower than the server window's own 10s cache on
+ * purpose: polling faster than the cache refreshes buys traffic, not news.
+ */
+const PUBLIC_POLL_MS = 12_000;
 
 /** Suggestion states that still represent an open finding of Greg's. */
 const OPEN_SUGGESTION = new Set(['pending', 'needs_info']);
@@ -97,11 +111,24 @@ const HISTORY_WINDOW_MS = 6 * 60 * 60_000;
 /** A one-shot reaction (celebration) that expires on its own. */
 type Reaction = { mood: Mood; until: number };
 
-export function useCrewData(mock?: { mood?: Mood }): CrewState {
+/**
+ * `publicFeed` swaps the transport, never the pipeline: instead of reading
+ * Supabase with the viewer's session and hearing realtime, the hook polls the
+ * read-only /api/live/state window every few seconds. Same rows, same
+ * ingestion, same derivations — an anonymous spectator sees the same real
+ * floor a member does, at polling latency, without ever holding database
+ * credentials.
+ */
+export function useCrewData(mock?: { mood?: Mood }, publicFeed?: boolean): CrewState {
   // Infrastructure heartbeats, shared with the fleet strip: the authority on
   // working / idle / offline. Empty in mock mode and wherever the feed is
   // not deployed, in which case the phrase heuristics carry the answer.
-  const agentHealth = useAgentHealth();
+  //
+  // The authenticated hook fails soft to {} for an anonymous visitor (that is
+  // its documented contract), so in public mode the polled rows stand in.
+  const authedHealth = useAgentHealth();
+  const [polledHealth, setPolledHealth] = useState<Record<string, AgentHealth>>({});
+  const agentHealth = publicFeed ? polledHealth : authedHealth;
   const [members, setMembers] = useState<Member[]>([]);
   const [tasks, setTasks] = useState<CrewTask[]>([]);
   const [traces, setTraces] = useState<Record<AgentKey, AgentTrace>>({
@@ -188,7 +215,47 @@ export function useCrewData(mock?: { mood?: Mood }): CrewState {
       }
     };
 
-    (async () => {
+    // Everything from here down is transport-agnostic: one function applies a
+    // full snapshot of rows, and `first` decides whether history seeds
+    // quietly or new rows animate the way realtime pushes do.
+    const seenActivityIds = new Set<string>();
+    const seenReviewKeys = new Set<string>();
+    const reviewKey = (r: ReviewRow) => `${r.task_id}|${r.round}|${r.created_at}`;
+
+    type RawSnapshot = {
+      mem: Member[] | null;
+      taskRows: unknown;
+      acts: ActivityRow[] | null;
+      reviewRows: ReviewRow[] | null;
+      suggestionRows: SuggestionRow[] | null;
+      projectRows: ProjectRow[] | null;
+      healthRows?: HealthRow[] | null;
+    };
+
+    /** A verdict arriving NOW — shared by the realtime handler and the poll
+     *  diff so a spectator and a member see the same moment the same way. */
+    const reviewLanded = (row: ReviewRow) => {
+      const approved = row.verdict === 'approved';
+      const text = approved ? `Approved on round ${row.round}. Ship it.` : `Changes requested, round ${row.round}`;
+      setReviews((r) => [toReview(row), ...r].slice(0, REVIEW_LIMIT));
+      setTraces((t) => ({
+        ...t,
+        john: { ...t.john, lastLine: text, seenAt: Date.now(), workAt: Date.now() },
+      }));
+      setFeed((f) =>
+        [
+          { id: `rev-${Date.now()}`, agent: 'john' as const, text, kind: approved ? ('good' as const) : ('warn' as const), at: Date.now() },
+          ...f,
+        ].slice(0, 30)
+      );
+      if (approved) {
+        setCelebration(Date.now());
+        react('john', 'celebrating', 4200);
+        react('jeff', 'celebrating', 4200);
+      }
+    };
+
+    const fetchViaSupabase = async (): Promise<RawSnapshot> => {
       const [
         { data: mem },
         { data: taskRows },
@@ -239,6 +306,11 @@ export function useCrewData(mock?: { mood?: Mood }): CrewState {
           .eq('autonomous_enabled', true)
           .limit(1),
       ]);
+      return { mem, taskRows, acts, reviewRows, suggestionRows, projectRows };
+    };
+
+    const applyFullState = (raw: RawSnapshot, first: boolean) => {
+      const { mem, taskRows, acts, reviewRows, suggestionRows, projectRows } = raw;
       if (dead) return;
       // Held locally and passed down explicitly: the ref behind `keyForAgent`
       // does not refresh until the next render, which is after every line
@@ -246,30 +318,65 @@ export function useCrewData(mock?: { mood?: Mood }): CrewState {
       const roster = (mem as Member[]) || [];
       setMembers(roster);
       setTasks(normalizeTasks(taskRows));
-      // Oldest first so newest wins the lastLine slot.
+      // Oldest first so newest wins the lastLine slot. The seen-set makes
+      // repeat applications incremental: a row already ingested never
+      // replays, and one arriving on a later poll runs as realtime, so the
+      // feed and the reactions behave as if it had been pushed.
       for (const row of ((acts as ActivityRow[]) || []).slice().reverse()) {
-        ingestActivity(row, false, roster);
+        if (seenActivityIds.has(row.id)) continue;
+        seenActivityIds.add(row.id);
+        ingestActivity(row, !first, roster);
       }
-      const seeded: FeedItem[] = ((acts as ActivityRow[]) || [])
-        .filter((a) => !classifyActivity(a).isSilentType && !isBookkeepingEvent(a.activity_type))
-        .slice(0, 12)
-        .map((a) => ({
-          id: a.id,
-          agent: keyForAgent(a.agent_id, roster) ?? null,
-          text: a.title,
-          kind: /blocked|fail/i.test(a.title + a.activity_type) ? 'warn' : 'info',
-          at: new Date(a.created_at).getTime(),
-        }));
-      setFeed(seeded);
+      if (first) {
+        const seeded: FeedItem[] = ((acts as ActivityRow[]) || [])
+          .filter((a) => !classifyActivity(a).isSilentType && !isBookkeepingEvent(a.activity_type))
+          .slice(0, 12)
+          .map((a) => ({
+            id: a.id,
+            agent: keyForAgent(a.agent_id, roster) ?? null,
+            text: a.title,
+            kind: /blocked|fail/i.test(a.title + a.activity_type) ? 'warn' : 'info',
+            at: new Date(a.created_at).getTime(),
+          }));
+        setFeed(seeded);
+      }
 
-      const revs = ((reviewRows as ReviewRow[] | null) || []).map(toReview);
+      const reviewList = (reviewRows as ReviewRow[] | null) || [];
+      if (first) {
+        for (const r of reviewList) seenReviewKeys.add(reviewKey(r));
+      } else {
+        // Oldest first, so several verdicts landing between polls replay in
+        // the order they actually happened.
+        for (const r of reviewList.slice().reverse()) {
+          if (seenReviewKeys.has(reviewKey(r))) continue;
+          seenReviewKeys.add(reviewKey(r));
+          reviewLanded(r);
+        }
+      }
+      const revs = reviewList.map(toReview);
       setReviews(revs);
       setSuggestions(((suggestionRows as SuggestionRow[] | null) || []).map(toSuggestion));
       const project = (projectRows as ProjectRow[] | null)?.[0];
       if (project) setBranch({ name: project.integration_branch, project: project.name });
 
+      if (raw.healthRows) {
+        setPolledHealth(
+          Object.fromEntries(
+            raw.healthRows.map((r) => [
+              r.member_id,
+              {
+                containerRunning: r.container_running,
+                turnRunning: r.turn_running,
+                turnStartedAt: r.turn_started_at ? new Date(r.turn_started_at).getTime() : null,
+                reportedAt: new Date(r.reported_at).getTime(),
+              },
+            ])
+          )
+        );
+      }
+
       const rev = revs[0];
-      if (rev) {
+      if (first && rev) {
         setTraces((t) => ({
           ...t,
           john: {
@@ -280,6 +387,36 @@ export function useCrewData(mock?: { mood?: Mood }): CrewState {
           },
         }));
       }
+    };
+
+    // ---- Public transport: poll the read-only server window. No database
+    // credentials in the browser, no realtime channel to authenticate; the
+    // interval is the whole story, and setLive reflects whether the last
+    // poll answered. Returns before the channel below is ever created.
+    if (publicFeed) {
+      const poll = async (first: boolean) => {
+        try {
+          const res = await fetch('/api/live/state', { cache: 'no-store' });
+          if (!res.ok) throw new Error(String(res.status));
+          const raw = (await res.json()) as RawSnapshot;
+          if (dead) return;
+          applyFullState(raw, first);
+          setLive(true);
+        } catch {
+          if (!dead) setLive(false);
+        }
+      };
+      void poll(true);
+      const interval = window.setInterval(() => void poll(false), PUBLIC_POLL_MS);
+      return () => {
+        dead = true;
+        window.clearInterval(interval);
+      };
+    }
+
+    // ---- Session transport: direct reads plus realtime, as ever.
+    void (async () => {
+      applyFullState(await fetchViaSupabase(), true);
     })();
 
     const channel = supabase
@@ -304,29 +441,12 @@ export function useCrewData(mock?: { mood?: Mood }): CrewState {
         }
       })
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'task_reviews' }, (p) => {
+        // Same handler the poll diff uses, so the two transports cannot
+        // disagree about what a verdict landing looks like. Marked seen so a
+        // later transport switch could never replay it.
         const row = p.new as ReviewRow;
-        const approved = row.verdict === 'approved';
-        const text = approved ? `Approved on round ${row.round}. Ship it.` : `Changes requested, round ${row.round}`;
-        // Newest first, capped: John's panel reads the head of this list and
-        // his screen has to change the instant a verdict lands.
-        setReviews((r) => [toReview(row), ...r].slice(0, REVIEW_LIMIT));
-        // Filing a verdict is the most direct proof of work John ever emits,
-        // so it counts on both the liveness and the work clock.
-        setTraces((t) => ({
-          ...t,
-          john: { ...t.john, lastLine: text, seenAt: Date.now(), workAt: Date.now() },
-        }));
-        setFeed((f) =>
-          [
-            { id: `rev-${Date.now()}`, agent: 'john' as const, text, kind: approved ? ('good' as const) : ('warn' as const), at: Date.now() },
-            ...f,
-          ].slice(0, 30)
-        );
-        if (approved) {
-          setCelebration(Date.now());
-          react('john', 'celebrating', 4200);
-          react('jeff', 'celebrating', 4200);
-        }
+        seenReviewKeys.add(reviewKey(row));
+        reviewLanded(row);
       })
       // Greg's findings ledger, kept live the same way John's verdicts are.
       // `*` rather than INSERT because a suggestion leaving `pending` (someone
@@ -353,7 +473,7 @@ export function useCrewData(mock?: { mood?: Mood }): CrewState {
       supabase.removeChannel(channel);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mock ? 1 : 0]);
+  }, [mock ? 1 : 0, publicFeed ? 1 : 0]);
 
   // ---- Mock mode: deterministic states for the dev preview route. ----
   useEffect(() => {

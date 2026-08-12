@@ -9,7 +9,6 @@ import { HUD_SURFACE } from './hudSurface';
 import {
   STATIONS,
   elapsedLabel,
-  queueLabel,
   statusSentence,
   type CrewState,
   type FeedItem,
@@ -259,7 +258,7 @@ export function ActivityHUD({
             not rendered and this row carries the radio alone, which is why
             `ml-auto` and not a spacer holds it to the right edge. */}
         <div className="flex items-end gap-4">
-          <div className={`hidden lg:block w-[330px] ${HUD_SURFACE} p-3`}>
+          <div className={`hidden lg:block w-[330px] ${HUD_SURFACE} p-3 pointer-events-auto`}>
             <p className="flex items-center gap-1.5 text-[9px] font-mono tracking-[0.22em] text-zinc-500 mb-2">
               <Activity size={11} className="text-brand-300" aria-hidden="true" />
               ACTIVITY
@@ -287,13 +286,23 @@ export function ActivityHUD({
                   <span className="text-[9px] font-mono text-zinc-500 tabular-nums flex-shrink-0">
                     {clockLabel(f.at)}
                   </span>
-                  <span
-                    className={`text-[11px] leading-snug truncate ${
-                      f.kind === 'warn' ? 'text-amber-300' : f.kind === 'good' ? 'text-emerald-300' : 'text-zinc-200'
-                    }`}
+                  {/* Full text on hover: one truncated line is a teaser, and
+                      a tooltip is cheaper than a wider panel. The inner span
+                      re-enables wrapping inside the tooltip's own nowrap so a
+                      long title becomes a paragraph, not a viewport-wide bar. */}
+                  <Tooltip
+                    position="top"
+                    className="min-w-0 flex-1"
+                    content={<span className="block max-w-[320px] whitespace-normal">{f.text}</span>}
                   >
-                    {f.text}
-                  </span>
+                    <span
+                      className={`block w-full min-w-0 text-[11px] leading-snug truncate ${
+                        f.kind === 'warn' ? 'text-amber-300' : f.kind === 'good' ? 'text-emerald-300' : 'text-zinc-200'
+                      }`}
+                    >
+                      {f.text}
+                    </span>
+                  </Tooltip>
                 </div>
               ))}
               {crew.feed.length === 0 && (
@@ -311,12 +320,11 @@ export function ActivityHUD({
         {/* Crew status bar — see MobileCrewSheet below for the small-screen
             equivalent. No inset of its own now: the column above owns it, which
             is what keeps its left edge flush with the log's. */}
-        <div className={`hidden lg:grid grid-cols-4 gap-2 ${HUD_SURFACE} p-2.5`}>
+        <div className={`hidden lg:grid grid-cols-4 gap-2 ${HUD_SURFACE} p-2.5 pointer-events-auto`}>
           {STATIONS.map((s) => {
             const snap = crew.agents[s.key];
             const style = MOOD_STYLE[snap.mood];
             const status = statusSentence(snap, now);
-            const queued = queueLabel(snap.queue, now);
             return (
               <div key={s.key} className="flex items-start gap-2.5 min-w-0">
                 {snap.member?.avatar ? (
@@ -345,13 +353,21 @@ export function ActivityHUD({
                     </Tooltip>
                   </div>
                   {/* What they last actually did. The task on the desk is not
-                      it: work can sit untouched for days. */}
-                  <p className="text-[11px] text-zinc-300 truncate mt-0.5">
-                    {snap.lastLine ?? s.craft}
-                  </p>
-                  {queued && (
-                    <p className="text-[10px] font-mono text-zinc-500 truncate mt-0.5">{queued}</p>
-                  )}
+                      it: work can sit untouched for days. Hover for the whole
+                      line, since a quarter of the bar truncates most of them. */}
+                  <Tooltip
+                    position="top"
+                    className="w-full min-w-0 mt-0.5"
+                    content={
+                      <span className="block max-w-[320px] whitespace-normal">
+                        {snap.lastLine ?? s.craft}
+                      </span>
+                    }
+                  >
+                    <p className="w-full min-w-0 text-[11px] text-zinc-300 truncate">
+                      {snap.lastLine ?? s.craft}
+                    </p>
+                  </Tooltip>
                 </div>
               </div>
             );
@@ -371,8 +387,7 @@ export function ActivityHUD({
                 const snap = crew.agents[s.key];
                 const style = MOOD_STYLE[snap.mood];
                 const status = statusSentence(snap, now);
-                const queued = queueLabel(snap.queue, now);
-                return (
+                    return (
                   <div key={s.key} className="flex items-start gap-2.5 min-w-0">
                     {snap.member?.avatar ? (
                       // eslint-disable-next-line @next/next/no-img-element
@@ -399,9 +414,6 @@ export function ActivityHUD({
                       <p className="text-[11px] text-zinc-300 truncate mt-0.5">
                         {snap.lastLine ?? s.craft}
                       </p>
-                      {queued && (
-                        <p className="text-[10px] font-mono text-zinc-500 truncate mt-0.5">{queued}</p>
-                      )}
                     </div>
                   </div>
                 );

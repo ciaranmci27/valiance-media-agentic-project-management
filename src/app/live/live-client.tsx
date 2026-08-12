@@ -16,12 +16,13 @@ const CommandScene = dynamic(() => import('@/components/command/CommandScene'), 
 });
 
 /**
- * The public floor: the same scene, walkable by anyone with the link.
+ * The public floor: the same real floor, watchable by anyone with the link.
  *
- * Runs in mock mode — fixture crew, fixture feed — so a visitor plays with
- * the simulation itself and nothing real leaves the building: no client
- * names, no task titles, no PR URLs. The SIMULATION tag in the header is the
- * honest label for that, so nobody reads fixture activity as our live ops.
+ * Real crew, real tasks, real feed — served through the read-only
+ * /api/live/state window at polling latency rather than by handing a
+ * visitor database credentials. Walking, looking and the radio all run
+ * client-side and work for everyone; the scene's own LIVE badge is the only
+ * status chrome, same as the member page.
  *
  * The day/night cycle follows the visitor's own browser timezone: a guest in
  * Sydney should see the floor at night when it is night in Sydney. Members
@@ -40,16 +41,17 @@ export function LiveSimClient() {
     // shell renders outside the app's theme plumbing, and its text is
     // authored against the dark palette.
     <div data-theme="dark" className="h-dvh bg-[#05060a] flex flex-col overflow-hidden">
-      <header className="flex-shrink-0 flex items-center gap-3 px-4 lg:px-6 py-3">
-        <Logo className="h-6 w-auto" />
-        <h1 className="text-sm font-semibold text-zinc-100">Agent Live</h1>
-        <span className="rounded-full border border-white/10 bg-white/[0.06] px-2.5 py-0.5 text-[10px] font-mono tracking-[0.18em] text-zinc-400">
-          SIMULATION
-        </span>
+      {/* Lockup on the left, title pushed to the far right. */}
+      <header className="flex-shrink-0 flex items-center justify-between px-4 lg:px-6 py-3">
+        {/* variant="dark" is load-bearing: without it the resolver serves the
+            standard lockup, whose ink wordmark vanishes into this near-black
+            header. The dark variant pairs the mark with the light wordmark. */}
+        <Logo variant="dark" className="h-6 w-auto" />
+        <h1 className="text-sm font-semibold text-zinc-100">Agent Simulator</h1>
       </header>
 
       <div className="px-4 pb-4 lg:px-6 lg:pb-6 flex-1 min-h-0 flex flex-col overflow-hidden">
-        <CommandScene mock={{}} timezone={timezone} />
+        <CommandScene publicFeed defaultCameraMode="manual" timezone={timezone} />
       </div>
     </div>
   );

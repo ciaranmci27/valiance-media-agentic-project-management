@@ -164,13 +164,9 @@ export function SettingsPanel({
     <div className="flex flex-col gap-4 lg:gap-3.5">
       <div className="flex flex-col gap-1.5">
         <span className="text-xs lg:text-[11px] font-medium text-zinc-200">Camera</span>
+        {/* Walking first: it is the default mode on both live pages now, and
+            the segment reads default-then-alternative left to right. */}
         <div className="flex gap-1 rounded-lg bg-white/[0.04] p-1" role="group" aria-label="Camera mode">
-          <ModeOption
-            active={!driving}
-            onSelect={() => onCameraModeChange('auto')}
-            icon={Video}
-            label="Auto"
-          />
           <ModeOption
             active={driving}
             // On a pointer device this needs the mouse and WASD, and a panel
@@ -183,6 +179,12 @@ export function SettingsPanel({
             }}
             icon={Gamepad2}
             label={coarsePointer ? 'Walk' : 'Walking'}
+          />
+          <ModeOption
+            active={!driving}
+            onSelect={() => onCameraModeChange('auto')}
+            icon={Video}
+            label="Auto"
           />
         </div>
         <p className="text-[11px] lg:text-[10px] leading-snug text-zinc-500">

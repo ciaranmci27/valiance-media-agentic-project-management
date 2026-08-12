@@ -6,8 +6,12 @@ function isPublicRoute(pathname: string) {
     // Local-only preview surfaces (visual iteration without a session); the
     // pages themselves also 404 outside development.
     (process.env.NODE_ENV === 'development' && pathname.startsWith('/dev')) ||
-    // The public agent-floor simulation: fixture data only, nothing real.
+    // The public agent floor and its read-only data window. The route serves
+    // a fixed payload of exactly what the scene renders — no anon database
+    // grants stand behind it, and it caches server-side so visitor count
+    // never reaches the tables.
     pathname === '/live' ||
+    pathname === '/api/live/state' ||
     // The brand lockup, served with ETag revalidation. Public by nature (it
     // is on the marketing site), and the sim's fleet board textures from it:
     // behind the login wall, an anonymous visitor's texture load followed

@@ -464,12 +464,24 @@ function SceneContent({
 
 export default function CommandScene({
   mock,
+  publicFeed,
+  defaultCameraMode = 'auto',
   timezone,
   hour,
   scenePreferences,
   onScenePreferencesChange,
 }: {
   mock?: { mood?: Mood };
+  /** Real data over the read-only public window instead of a session. See `useCrewData`. */
+  publicFeed?: boolean;
+  /**
+   * Which camera the page starts on. Both live pages (member and public)
+   * start on walking — being in the room is the point on either — while the
+   * dev preview keeps the tour, which is what composes its screenshots. Both
+   * modes stay selectable in settings either way; this is only the opening
+   * shot.
+   */
+  defaultCameraMode?: CameraMode;
   /** IANA zone, e.g. "America/Phoenix" — the viewing member's own preference (`team_members.timezone`), not a fixed zone. */
   timezone?: string;
   /** Dev-only override: a fixed fractional hour (0-24) that skips the real-time clock entirely. */
@@ -478,7 +490,7 @@ export default function CommandScene({
   scenePreferences?: ScenePreferences | null;
   onScenePreferencesChange?: (next: ScenePreferences) => void;
 }) {
-  const crew = useCrewData(mock);
+  const crew = useCrewData(mock, publicFeed);
   // The viewer's own clock, in their own timezone.
   //
   // This was pinned to 23:00 for a while, because the day side of the cycle
@@ -494,7 +506,7 @@ export default function CommandScene({
   // interchangeable, because the sun and moon are where they actually are.
   // `?hour=` on the dev preview still pins an exact hour for screenshots.
   const time = useTimeOfDay(timezone ?? 'UTC', hour);
-  const [cameraMode, setCameraMode] = useState<CameraMode>('auto');
+  const [cameraMode, setCameraMode] = useState<CameraMode>(defaultCameraMode);
   const [settingsOpen, setSettingsOpen] = useState(false);
   // Touch stand-in for holding E. State, not a ref, because the prompt has to
   // relabel itself — and unlike the focus label this flips on a tap, not ten

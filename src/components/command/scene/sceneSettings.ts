@@ -92,6 +92,12 @@ export const QUALITY_PRESETS: Record<
   high: { maxDpr: 2, multisampling: 4, ao: 'medium' },
 };
 
+/**
+ * Retuned for walking-first (2026-08): both live pages now open in walking
+ * mode, so the defaults describe a good first walk rather than a good seat
+ * for the tour — wide lens, brisk pace, cheapest render preset. The tour
+ * still uses whatever these say when someone switches to it.
+ */
 export const PROFILE_DEFAULTS: Record<SceneProfile, SceneSettings> = {
   desktop: {
     // drei defaults this to 1.0, which maps raw mouse deltas to radians almost
@@ -100,15 +106,18 @@ export const PROFILE_DEFAULTS: Record<SceneProfile, SceneSettings> = {
     // ~2 frames at 60fps: enough to even out how unevenly the browser delivers
     // mouse events, little enough that the view still feels attached to the
     // hand. Slide to 0 for raw, unsmoothed input.
-    lookSmoothing: 0.035,
-    // The long lens the shot was composed for.
-    fov: 32,
-    walkSpeed: 1.5,
+    lookSmoothing: 0.03,
+    // Wide, though the slider now runs to 100. The 32° long lens the tour's
+    // shots were composed for feels like blinkers the moment you are the one
+    // steering.
+    fov: 75,
+    // Range max: the room is small enough that the old 1.5 m/s read as
+    // wading. Shift still runs on top of whatever this says.
+    walkSpeed: 3.5,
     autoCameraMotion: true,
-    // Balanced by default: full-rate 4x MSAA at a device pixel ratio of 2 is
-    // roughly three times the pixel work of this, and a scene that stutters
-    // while you turn reads far worse than one with slightly softer edges.
-    quality: 'balanced',
+    // FAST: a scene that stutters while you turn reads far worse than one
+    // with slightly softer edges, and walking is all turning.
+    quality: 'performance',
   },
   mobile: {
     // Lower than desktop: a thumb travels further per unit of intent than a
@@ -117,12 +126,11 @@ export const PROFILE_DEFAULTS: Record<SceneProfile, SceneSettings> = {
     // rendered as 0.20 and read as a bug.
     lookSensitivity: 0.2,
     lookSmoothing: 0.035,
-    // Much wider, and this is the single most important difference. `fov` is
-    // VERTICAL, so on a portrait phone the desktop's 32° long lens shows a
-    // slot of room and almost nothing of the city. 78 is about what it takes
-    // for the corner suite to read as a room you are standing in.
-    fov: 78,
-    walkSpeed: 1.3,
+    // The range's wide end, and the single most important number here. `fov`
+    // is VERTICAL, so a portrait phone needs a very wide lens before the
+    // corner suite reads as a room you are standing in at all.
+    fov: 120,
+    walkSpeed: 2.5,
     autoCameraMotion: true,
     // Phones are the tier that actually needs the cheap preset.
     quality: 'performance',
@@ -136,13 +144,14 @@ export type SceneRanges = Record<'lookSensitivity' | 'lookSmoothing' | 'fov' | '
 
 /**
  * Slider bounds, per profile. Only the field of view differs, and it has to:
- * 120 is absurd on a monitor and merely wide on a phone held at arm's length.
+ * 120 is a stretch on a monitor and merely wide on a phone held at arm's
+ * length, so desktop stops at 100.
  */
 export const PROFILE_RANGES: Record<SceneProfile, SceneRanges> = {
   desktop: {
     lookSensitivity: { min: 0.05, max: 1.2, step: 0.05 },
     lookSmoothing: { min: 0, max: 0.12, step: 0.005 },
-    fov: { min: 20, max: 75, step: 1 },
+    fov: { min: 20, max: 100, step: 1 },
     walkSpeed: { min: 0.6, max: 3.5, step: 0.1 },
   },
   mobile: {
