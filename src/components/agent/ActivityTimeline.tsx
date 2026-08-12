@@ -137,7 +137,7 @@ export function ActivityTimeline({ projectId, listMaxHeightClass }: ActivityTime
                         <div className="flex-1 min-w-0">
                           <p className="text-xs text-zinc-300 leading-relaxed">
                             <span className="font-medium">{agentName}</span>
-                            {' '}
+                            <span className="text-zinc-600">{' - '}</span>
                             <span className="text-zinc-400">{entry.title}</span>
                           </p>
                           {(projectName || description || unverified) && (

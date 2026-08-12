@@ -46,6 +46,41 @@ function clockLabel(at: number): string {
 }
 
 /**
+ * Who did it, for a feed row. Every activity row is written by exactly one
+ * agent (agent_id in the table; `agent` on the FeedItem), so the log can
+ * attribute each line the way the dashboard timeline does instead of leaving
+ * "Nothing to review" floating anonymously.
+ */
+function FeedFace({ crew, agent }: { crew: CrewState; agent: FeedItem['agent'] }) {
+  const member = agent ? crew.agents[agent]?.member : undefined;
+  if (!member) {
+    // System rows (merges, escalations) have no author; a spacer keeps the
+    // text column aligned with attributed rows.
+    return <span className="w-4 h-4 rounded flex-shrink-0" aria-hidden="true" />;
+  }
+  return member.avatar ? (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={member.avatar}
+      alt=""
+      className="w-4 h-4 rounded object-cover flex-shrink-0 self-center border border-white/10"
+    />
+  ) : (
+    <span className="w-4 h-4 rounded bg-white/10 flex-shrink-0 self-center" aria-hidden="true" />
+  );
+}
+
+/**
+ * The member's name exactly as the team roster records it ("John R."), same
+ * as the dashboard timeline: one identity, spelled one way, everywhere. The
+ * row truncates the log text, never the name.
+ */
+function feedName(crew: CrewState, agent: FeedItem['agent']): string | null {
+  const member = agent ? crew.agents[agent]?.member : undefined;
+  return member ? member.name.trim() : null;
+}
+
+/**
  * Toasts: one per new event id, auto-dismissed.
  *
  * "History is not news" — the backlog already on screen at mount should never
@@ -286,6 +321,7 @@ export function ActivityHUD({
                   <span className="text-[9px] font-mono text-zinc-500 tabular-nums flex-shrink-0">
                     {clockLabel(f.at)}
                   </span>
+                  <FeedFace crew={crew} agent={f.agent} />
                   {/* Full text on hover: one truncated line is a teaser, and
                       a tooltip is cheaper than a wider panel. The inner span
                       re-enables wrapping inside the tooltip's own nowrap so a
@@ -300,6 +336,12 @@ export function ActivityHUD({
                         f.kind === 'warn' ? 'text-amber-300' : f.kind === 'good' ? 'text-emerald-300' : 'text-zinc-200'
                       }`}
                     >
+                      {feedName(crew, f.agent) && (
+                        <>
+                          <span className="font-semibold text-zinc-100 whitespace-nowrap">{feedName(crew, f.agent)}</span>
+                          <span className="text-zinc-500">{' - '}</span>
+                        </>
+                      )}
                       {f.text}
                     </span>
                   </Tooltip>
@@ -427,11 +469,18 @@ export function ActivityHUD({
                     <span className="text-[9px] font-mono text-zinc-500 tabular-nums flex-shrink-0">
                       {clockLabel(f.at)}
                     </span>
+                    <FeedFace crew={crew} agent={f.agent} />
                     <span
                       className={`text-[11px] leading-snug truncate ${
                         f.kind === 'warn' ? 'text-amber-300' : f.kind === 'good' ? 'text-emerald-300' : 'text-zinc-200'
                       }`}
                     >
+                      {feedName(crew, f.agent) && (
+                        <>
+                          <span className="font-semibold text-zinc-100 whitespace-nowrap">{feedName(crew, f.agent)}</span>
+                          <span className="text-zinc-500">{' - '}</span>
+                        </>
+                      )}
                       {f.text}
                     </span>
                   </div>
