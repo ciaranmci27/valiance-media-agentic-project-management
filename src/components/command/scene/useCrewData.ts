@@ -96,6 +96,10 @@ const PUBLIC_POLL_MS = 12_000;
 /** Suggestion states that still represent an open finding of Greg's. */
 const OPEN_SUGGESTION = new Set(['pending', 'needs_info']);
 
+/** How much narrative the HUD may ask for: the activity log shows 5
+ * collapsed and up to this many expanded. */
+const FEED_LIMIT = 50;
+
 /** How many artefacts each station's screens can usefully show at once. */
 const REVIEW_LIMIT = 8;
 const SUGGESTION_LIMIT = 12;
@@ -210,7 +214,7 @@ export function useCrewData(mock?: { mood?: Mood }, publicFeed?: boolean): CrewS
               at,
             },
             ...f,
-          ].slice(0, 30)
+          ].slice(0, FEED_LIMIT)
         );
       }
     };
@@ -246,7 +250,7 @@ export function useCrewData(mock?: { mood?: Mood }, publicFeed?: boolean): CrewS
         [
           { id: `rev-${Date.now()}`, agent: 'john' as const, text, kind: approved ? ('good' as const) : ('warn' as const), at: Date.now() },
           ...f,
-        ].slice(0, 30)
+        ].slice(0, FEED_LIMIT)
       );
       if (approved) {
         setCelebration(Date.now());
@@ -330,7 +334,7 @@ export function useCrewData(mock?: { mood?: Mood }, publicFeed?: boolean): CrewS
       if (first) {
         const seeded: FeedItem[] = ((acts as ActivityRow[]) || [])
           .filter((a) => !classifyActivity(a).isSilentType && !isBookkeepingEvent(a.activity_type))
-          .slice(0, 12)
+          .slice(0, FEED_LIMIT)
           .map((a) => ({
             id: a.id,
             agent: keyForAgent(a.agent_id, roster) ?? null,

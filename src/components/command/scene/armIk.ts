@@ -62,6 +62,52 @@ const _parentQ = new THREE.Quaternion();
 const _q = new THREE.Quaternion();
 const _scale = new THREE.Vector3();
 
+const _wa = new THREE.Vector3();
+const _wb = new THREE.Vector3();
+const _wc = new THREE.Vector3();
+const _la = new THREE.Vector3();
+const _lb = new THREE.Vector3();
+const _lc = new THREE.Vector3();
+const _mW = new THREE.Matrix4();
+const _mL = new THREE.Matrix4();
+const _qWorld = new THREE.Quaternion();
+
+/**
+ * Set a bone's WORLD orientation from two axis correspondences: its local
+ * `localA` axis ends up along `worldA`, and its local `localB` axis as close
+ * to `worldBHint` as staying orthogonal to `worldA` allows.
+ *
+ * This exists for palms. Every additive-Euler attempt at "lay the hand flat
+ * over the keys" failed the same way: the palm's rotation axes move with the
+ * forearm the IK just placed, so constant offsets produced sideways blades in
+ * one pose and horizontal planks in another. Stating the goal directly — the
+ * finger axis points THERE, the back of the hand faces UP — removes the
+ * dependence on whatever orientation the arm solve left behind.
+ */
+export function orientBone(
+  bone: THREE.Object3D,
+  localA: THREE.Vector3,
+  localB: THREE.Vector3,
+  worldA: THREE.Vector3,
+  worldBHint: THREE.Vector3
+) {
+  if (!bone.parent) return;
+  _wa.copy(worldA).normalize();
+  _wb.copy(worldBHint).addScaledVector(_wa, -worldBHint.dot(_wa)).normalize();
+  _wc.crossVectors(_wa, _wb);
+  _la.copy(localA).normalize();
+  _lb.copy(localB).addScaledVector(_la, -localB.dot(_la)).normalize();
+  _lc.crossVectors(_la, _lb);
+  _mW.makeBasis(_wa, _wb, _wc);
+  // Orthonormal, so the transpose is the inverse.
+  _mL.makeBasis(_la, _lb, _lc).transpose();
+  _mW.multiply(_mL);
+  _qWorld.setFromRotationMatrix(_mW);
+  bone.parent.getWorldQuaternion(_parentQ).invert();
+  bone.quaternion.copy(_parentQ.multiply(_qWorld));
+  bone.updateMatrixWorld(true);
+}
+
 /**
  * Aim `bone` so its child direction points along `dirWorld`.
  * The bone's quaternion is relative to its parent, so the world direction is

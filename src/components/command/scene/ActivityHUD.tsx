@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Activity, Users, X, Radio, TriangleAlert, CheckCircle2 } from 'lucide-react';
+import { Activity, ChevronDown, ChevronUp, Users, X, Radio, TriangleAlert, CheckCircle2 } from 'lucide-react';
 import { Tooltip } from '@/components/ui/Tooltip';
 // One dot vocabulary for every agent view, shared with the /agent fleet strip.
 import { MOOD_STYLE } from '@/lib/agent-status';
@@ -165,6 +165,9 @@ export function ActivityHUD({
   // Collapsed by default on mobile: the crew/activity sheet is opt-in there,
   // never a fact the desktop layout needs since it always shows both panels.
   const [expanded, setExpanded] = useState(false);
+  // Whether the activity log shows its five-line summary or the full held
+  // history (up to FEED_LIMIT in useCrewData). Desktop only, like the log.
+  const [logOpen, setLogOpen] = useState(false);
   // When this HUD mounted, so the log can tell backlog from live arrivals.
   const [mountedAt] = useState(() => Date.now());
   // Local clock so elapsed labels advance with no events at all.
@@ -297,13 +300,26 @@ export function ActivityHUD({
             <p className="flex items-center gap-1.5 text-[9px] font-mono tracking-[0.22em] text-zinc-500 mb-2">
               <Activity size={11} className="text-brand-300" aria-hidden="true" />
               ACTIVITY
-              {quiet && quietSince !== null && (
-                <span className="ml-auto tracking-normal text-zinc-600">
-                  quiet {elapsedLabel(quietSince, now)}
-                </span>
-              )}
+              <span className="ml-auto flex items-center gap-2">
+                {quiet && quietSince !== null && (
+                  <span className="tracking-normal text-zinc-600">
+                    quiet {elapsedLabel(quietSince, now)}
+                  </span>
+                )}
+                {/* The panel is bottom-anchored, so expanding grows it upward
+                    - hence up-chevron to open. */}
+                <button
+                  type="button"
+                  onClick={() => setLogOpen((o) => !o)}
+                  aria-expanded={logOpen}
+                  aria-label={logOpen ? 'Show recent activity only' : 'Show the last 50 events'}
+                  className="-m-1.5 rounded p-1.5 text-zinc-500 hover:text-zinc-200 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-400"
+                >
+                  {logOpen ? <ChevronDown size={12} aria-hidden="true" /> : <ChevronUp size={12} aria-hidden="true" />}
+                </button>
+              </span>
             </p>
-            <div className="space-y-1.5">
+            <div className={logOpen ? 'space-y-1.5 max-h-[220px] overflow-y-auto pr-1' : 'space-y-1.5'}>
               {/* `cmd-feed-new` flashes once when a row mounts. Keyed on the
                   event id, so only a genuinely new event animates — the same
                   row re-rendering (clock ticks, crew updates) keeps its DOM
@@ -313,7 +329,7 @@ export function ActivityHUD({
                   here either. This is where "live" is allowed to show in the
                   log itself, now that routine events no longer toast on
                   desktop. */}
-              {crew.feed.slice(0, 5).map((f) => (
+              {crew.feed.slice(0, logOpen ? 50 : 5).map((f) => (
                 <div
                   key={f.id}
                   className={`flex items-baseline gap-2 ${f.at > mountedAt ? 'cmd-feed-new' : ''}`}
@@ -464,7 +480,7 @@ export function ActivityHUD({
             <div className="border-t border-white/[0.07] p-3">
               <p className="text-[9px] font-mono tracking-[0.22em] text-zinc-500 mb-2">ACTIVITY</p>
               <div className="space-y-1.5">
-                {crew.feed.slice(0, 6).map((f) => (
+                {crew.feed.slice(0, 50).map((f) => (
                   <div key={f.id} className="flex items-baseline gap-2">
                     <span className="text-[9px] font-mono text-zinc-500 tabular-nums flex-shrink-0">
                       {clockLabel(f.at)}

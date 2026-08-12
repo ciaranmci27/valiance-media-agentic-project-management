@@ -598,21 +598,36 @@ export function Room({ time }: { time: TimeOfDay }) {
       </mesh>
       <pointLight position={[-3.3, 2.9, ROOM_FRONT_Z - 1.1]} intensity={1.8} distance={2.6} decay={2} color="#f0ddb8" />
 
-      {/* Baseboard glow cove: the brand's one big gesture.
-          Stays on the left, where it has always been and where the establishing
-          shot sees it — but pushed out from leftX + 0.04 to + 0.15 so it clears
-          the new glazing's sill rail, which is 0.14 deep and would have swallowed
-          it. It now reads as a lit floor track at the foot of the glass, which
-          is what modern curtain wall actually has. */}
-      <mesh position={[ROOM.leftX + 0.15, 0.06, ROOM_CENTER_Z]} rotation={[0, Math.PI / 2, 0]}>
-        <planeGeometry args={[ROOM.depth, 0.05]} />
-        <meshStandardMaterial
-          color={PALETTE.brandDeep}
-          emissive={PALETTE.brand}
-          emissiveIntensity={2.4}
-          toneMapped={false}
-        />
-      </mesh>
+      {/* Baseboard glow cove: the brand's one big gesture, run along BOTH
+          glazed walls so it wraps the corner the suite is named for.
+
+          Mounted flush on the glazing's own knee wall: the sill rail is a box
+          0.14 deep centred on the wall plane, so its inner face sits 0.07
+          into the room, and the strip lives 1mm proud of that face — an LED
+          track fixed to the base of the spandrel, tucked behind the 0.18-deep
+          cap lip above it, which is how the real thing is built. The old
+          version floated 8cm out on the open floor with a band of dark tile
+          between it and the glass, which read as a tube lying on the ground
+          rather than a fitting. */}
+      {(
+        [
+          // Left wall: faces +x into the room, runs the full depth.
+          { pos: [ROOM.leftX + 0.071, 0.06, ROOM_CENTER_Z], rotY: Math.PI / 2, len: ROOM.depth },
+          // Window wall: faces +z, runs the full width. The two meet in the
+          // back-left corner and read as one continuous wrap.
+          { pos: [0, 0.06, ROOM.backZ + 0.071], rotY: 0, len: ROOM.width },
+        ] as const
+      ).map((s, i) => (
+        <mesh key={i} position={[...s.pos]} rotation={[0, s.rotY, 0]}>
+          <planeGeometry args={[s.len, 0.05]} />
+          <meshStandardMaterial
+            color={PALETTE.brandDeep}
+            emissive={PALETTE.brand}
+            emissiveIntensity={2.4}
+            toneMapped={false}
+          />
+        </mesh>
+      ))}
 
       {/* Ceiling with recessed light slots. */}
       <mesh position={[0, ROOM.height, ROOM_CENTER_Z]} rotation={[Math.PI / 2, 0, 0]}>

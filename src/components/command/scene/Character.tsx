@@ -7,7 +7,7 @@ import { useGLTF } from '@react-three/drei';
 import { SkeletonUtils } from 'three-stdlib';
 import { type Mood } from './crew';
 import type { WorkerState } from './behavior';
-import { makeArmChain, solveArm } from './armIk';
+import { makeArmChain, orientBone, solveArm } from './armIk';
 
 /**
  * The people: Quaternius stylized humans (CC0), each a single self-contained
@@ -384,6 +384,10 @@ export function AgentCharacter({
       palmR: get('PalmR'),
       fingersL: get('FingersL'),
       fingersR: get('FingersR'),
+      middleHandL: get('MiddleHandL'),
+      middleHandR: get('MiddleHandR'),
+      thumbL: get('Thumb1L'),
+      thumbR: get('Thumb1R'),
     };
   }, [root]);
 
@@ -409,6 +413,36 @@ export function AgentCharacter({
   const armR = useMemo(() => makeArmChain(bones.upperArmR, bones.lowerArmR, bones.palmR), [bones]);
   const target = useMemo(() => new THREE.Vector3(), []);
   const pole = useMemo(() => new THREE.Vector3(), []);
+  /** Scratch for the palm orientation pass; see the solve block. */
+  const palmScratch = useMemo(
+    () => ({ shL: new THREE.Vector3(), shR: new THREE.Vector3(), fwd: new THREE.Vector3(), up: new THREE.Vector3(0, 1, 0) }),
+    []
+  );
+
+  /**
+   * The palm bones' own frames, read off the rig instead of guessed: the
+   * finger axis is the direction to the middle-hand child, and the back-of-
+   * hand axis is the finger-thumb cross product (order flipped between hands
+   * because the rig mirrors — signs verified against measured palm normals).
+   * Constant in palm-local space, so computed once.
+   */
+  const palmFrames = useMemo(() => {
+    const frame = (mid?: THREE.Object3D, thumb?: THREE.Object3D) => {
+      if (!mid || !thumb) return null;
+      const finger = mid.position.clone().normalize();
+      const th = thumb.position.clone().normalize();
+      // finger x thumb for BOTH hands: the rig's left thumb binds with its
+      // y-component flipped relative to the right's, so the mirroring is
+      // already inside the thumb vector and flipping the cross order again
+      // (the obvious guess) turns the left hand upside down.
+      const back = new THREE.Vector3().crossVectors(finger, th).normalize();
+      return { finger, back };
+    };
+    return {
+      L: frame(bones.middleHandL, bones.thumbL),
+      R: frame(bones.middleHandR, bones.thumbR),
+    };
+  }, [bones]);
 
   // Scratch objects for the craft layer, allocated once rather than per frame.
   const scratch = useMemo(() => ({ q: new THREE.Quaternion(), e: new THREE.Euler() }), []);
@@ -563,6 +597,29 @@ export function AgentCharacter({
       const cursorPitch = (worker.cursor.y - 0.5) * 0.16 * tracking;
       add(bones.head, p.headPitch + cursorPitch, p.headYaw + cursorYaw + Math.sin(t * 0.31) * 0.06);
 
+      // Lay the palms flat over the work. The IK only aims the upper and
+      // forearm; the palm inherits the forearm's roll, and in the raised desk
+      // poses that left hands hanging vertically off the wrist. These are
+      // measured constants, not taste: with them, the typing fingertip sits
+      // 0.045 below the palm bone (swept live against FingersX_end), which is
+      // what the key anchors' height is derived from. The rig mirrors, hence
+      // the sign flip; the smaller left value matches its flatter base pose.
+      // Tuned with a live grid sweep against fingertip direction AND the
+      // palm-plane normal (cross of finger and thumb vectors): the first
+      // attempt drove only the fingertip slope, which flattened the hands
+      // into horizontal planks. These land palms facing down with fingers
+      // descending ~20 degrees onto the work, which is what a hand over a
+      // keyboard or mouse actually does. The rig mirrors, hence the z signs.
+      // Finger arch, applied at the middle-hand joint: the sweep showed it
+      // owns most of the tip travel (the fingers bone beyond it is short).
+      // With the palm plane pinned flat by the orientation pass below, these
+      // are what carry the fingertips from the flat plane down onto the
+      // keytops - both were solved against the held typing pose, and both
+      // are +x because the rig's mirroring is already inside the chains.
+      const deskWork = worker.activity === 'type' || worker.activity === 'mouse' || worker.activity === 'read';
+      if (deskWork) add(bones.middleHandR, 0.75);
+      if (worker.activity === 'type') add(bones.middleHandL, 0.3);
+
       // Fingers only move while keys are actually being struck, and the two
       // hands are deliberately out of phase.
       const key = worker.typing;
@@ -623,6 +680,40 @@ export function AgentCharacter({
       target.set(h.right.x, h.right.y, h.right.z);
       pole.set(h.right.x + 0.55, h.right.y - 0.55, h.right.z + 0.1);
       solveArm(armR, target, pole);
+
+      // ---- Palms, stated rather than nudged. ----
+      //
+      // The IK above only aims the upper arm and forearm; the palm inherits
+      // whatever roll the forearm ends up with, which is why every additive
+      // offset produced sideways blades at one target height and horizontal
+      // planks at another. So for hands that are ON the work, the palm's
+      // world orientation is SET after the solve: back of the hand up,
+      // fingers along the character's facing, pitched gently down toward the
+      // keys. Facing is derived from the shoulder line each frame, so it
+      // holds at any station yaw and through the torso's sway.
+      const act = worker.activity;
+      const busyHands = mood === 'working' || mood === 'reviewing';
+      if (busyHands && (act === 'type' || act === 'mouse' || act === 'read')) {
+        const s = palmScratch;
+        bones.upperArmL?.getWorldPosition(s.shL);
+        bones.upperArmR?.getWorldPosition(s.shR);
+        s.fwd.crossVectors(s.up, s.shR.sub(s.shL)).normalize();
+        // A typing hand drops ~11 degrees from wrist to fingertip. sin/cos
+        // folded in by hand: fwd = fwd*cos(p) - up*sin(p).
+        const pitch = 0.19;
+        s.fwd.multiplyScalar(Math.cos(pitch)).addScaledVector(s.up, -Math.sin(pitch));
+        if (act === 'type' && palmFrames.L) {
+          orientBone(bones.palmL!, palmFrames.L.finger, palmFrames.L.back, s.fwd, s.up);
+        }
+        if (palmFrames.R) {
+          // The mouse hand steers from the wrist: yaw the finger line with
+          // lateral cursor travel, the same signal the old wrist-add used.
+          if (act === 'mouse' || act === 'read') {
+            s.fwd.applyAxisAngle(s.up, (0.5 - worker.cursor.x) * 0.22);
+          }
+          orientBone(bones.palmR!, palmFrames.R.finger, palmFrames.R.back, s.fwd, s.up);
+        }
+      }
     }
   });
 

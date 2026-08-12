@@ -28,8 +28,16 @@ import { advanceWorker, createWorker, type WorkerState } from './behavior';
  * Where the mouse can travel. Small on purpose — a real hand moves a mouse a
  * few centimetres at a time, and a prop sliding across half the desk reads as
  * a glitch rather than as work.
+ *
+ * Everything on the desk is placed against a MEASURED top: the composed desk
+ * clone's surface spans z -0.392..+0.392 in station space (read from the live
+ * scene graph, not the raw GLB, whose node transforms lie about it). The old
+ * numbers assumed more desk than exists — the keyboard and this mat overhung
+ * the near edge by 5cm and the mug stood entirely on air past it. Mat centre
+ * and travel depth are sized so the mouse BODY (7cm half-depth at prop scale)
+ * stays a fingernail inside the edge at full cursor extent.
  */
-const MOUSE_MAT = { x: 0.4, z: 0.32, width: 0.17, depth: 0.13 };
+const MOUSE_MAT = { x: 0.42, z: 0.25, width: 0.17, depth: 0.11 };
 
 /**
  * Black granite desktop: glossier and darker than the shared charcoal
@@ -226,14 +234,33 @@ export function DeskStation({
       return o;
     };
     return {
-      keyLeft: mk(-0.13, DESK_TOP + 0.035, 0.34),
-      keyRight: mk(0.13, DESK_TOP + 0.035, 0.34),
-      mouse: mk(0.4, DESK_TOP + 0.04, 0.32),
-      restLeft: mk(-0.2, DESK_TOP + 0.02, 0.46),
-      restRight: mk(0.2, DESK_TOP + 0.02, 0.46),
+      // z values follow the props they land on (see MOUSE_MAT for the
+      // measured desk edge these all now respect).
+      // Palm heights are tuned against the measured hand, not guessed. In
+      // the typing pose the fingertips sit ~0.045 below the palm bone once
+      // the craft layer lays the palms flat (see Character.tsx), so +0.09
+      // rests the wrist just above the 0.047-tall keyboard with fingertips
+      // on the keytops - the patter then visibly presses them. Parking the
+      // palm at key height buried the fingers; parking it at +0.14 left the
+      // wrists levitating 9cm up, which read as vertical karate hands.
+      // Wrists at the keyboard's NEAR edge (it spans z 0.14..0.34), palms
+      // grazing the keytop plane, so the flat fingers reach the middle of the
+      // keys instead of overshooting the whole board - anchoring at the
+      // board's centre put fingertips past its far edge, hovering over bare
+      // desk. Heights differ because each arm's IK settles with a different
+      // bias (measured: right lands ~1cm high, left ~0.7cm low).
+      keyLeft: mk(-0.13, DESK_TOP + 0.07, 0.33),
+      keyRight: mk(0.13, DESK_TOP + 0.055, 0.33),
+      mouse: mk(MOUSE_MAT.x, DESK_TOP + 0.04, MOUSE_MAT.z),
+      // There are deliberately no desk-edge rest anchors any more: the desk
+      // has no strip deep enough for a parked hand, so idle hands go to the
+      // lap targets below, which is where real hands go between bursts.
       lapLeft: mk(-0.16, 0.55, 0.5),
       lapRight: mk(0.16, 0.55, 0.5),
-      mug: mk(0.34, DESK_TOP + 0.16, 0.44),
+      // Left of the keyboard: the right hand lives on the mouse, so the
+      // coffee is a left-hand reach — and the mug used to share coordinates
+      // with the mouse mat, floating past the edge besides.
+      mug: mk(-0.36, DESK_TOP + 0.16, 0.28),
     };
   }, []);
 
@@ -271,7 +298,10 @@ export function DeskStation({
     if (mouseRef.current) {
       mouseRef.current.position.set(mouseX, DESK_TOP - clickDip, mouseZ);
     }
-    anchors.mouse.position.set(mouseX, DESK_TOP + 0.04 - clickDip, mouseZ);
+    // Palm ON the mouse hump, not inside it: mouse top is 0.04 above the
+    // desk, and with the flattened palm the fingers arc from here over the
+    // shell front - +0.075 reads as a hand draping the mouse.
+    anchors.mouse.position.set(mouseX, DESK_TOP + 0.075 - clickDip, mouseZ);
 
     // Choose which anchors the hands are heading for, then ease toward them so
     // the change from typing to mousing is a movement, not a teleport.
@@ -283,14 +313,20 @@ export function DeskStation({
     } else if (worker.activity === 'mouse') {
       right = anchors.mouse;
     } else if (worker.activity === 'think') {
-      left = anchors.restLeft;
-      right = anchors.restRight;
+      // Idle hands go to the LAP, not to the desk edge. There is no strip of
+      // desk in front of the keyboard deep enough for a resting hand, so the
+      // old edge-rest parked palms inside the keys' front face — and dropping
+      // hands to the lap is what a person actually does between bursts.
+      left = anchors.lapLeft;
+      right = anchors.lapRight;
     } else if (worker.activity === 'read') {
-      left = anchors.restLeft;
+      left = anchors.lapLeft;
       right = anchors.mouse;
     } else if (worker.activity === 'sip') {
-      right = anchors.mug;
-      left = anchors.restLeft;
+      // Left hand: the mug lives left of the keyboard, and the right hand
+      // drops to the lap while they drink.
+      left = anchors.mug;
+      right = anchors.lapRight;
     }
     left.getWorldPosition(handScratch.l);
     right.getWorldPosition(handScratch.r);
@@ -352,7 +388,9 @@ export function DeskStation({
       </group>
       {/* The keyboard and mouse sit at the same anchors the hands reach for,
           so the two can never drift apart. */}
-      <Prop file="computerKeyboard.glb" position={[0, DESK_TOP, 0.34]} scale={1.7} />
+      {/* 3cm closer to the monitors than strictly centred, buying a bare
+          strip of desk in front of it for the resting hands. */}
+      <Prop file="computerKeyboard.glb" position={[0, DESK_TOP, 0.24]} scale={1.7} />
       {/* The mat, so the mouse has somewhere to be rather than sliding on bare
           stone — and so the travel area is legible as an area. */}
       <mesh position={[MOUSE_MAT.x, DESK_TOP + 0.001, MOUSE_MAT.z]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
@@ -367,8 +405,6 @@ export function DeskStation({
       <primitive object={anchors.keyLeft} />
       <primitive object={anchors.keyRight} />
       <primitive object={anchors.mouse} />
-      <primitive object={anchors.restLeft} />
-      <primitive object={anchors.restRight} />
       <primitive object={anchors.lapLeft} />
       <primitive object={anchors.lapRight} />
       <primitive object={anchors.mug} />
@@ -449,7 +485,7 @@ export function DeskStation({
       {/* Everyone gets a mug: `behavior.ts` has always scheduled a `sip`
           activity and the hand has always reached for `anchors.mug`, but there
           was no mug in the scene, so they were lifting nothing. */}
-      <Mug position={[0.34, DESK_TOP, 0.44]} />
+      <Mug position={[-0.36, DESK_TOP, 0.28]} />
 
       {/* Screen light spilling back onto the character. */}
       <spotLight
