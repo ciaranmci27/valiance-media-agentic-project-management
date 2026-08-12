@@ -24,6 +24,9 @@
  *   is labelled with what it measures.
  */
 
+import { EVENT_STATE, isAgentEventType } from '@/lib/agent-events';
+export { isBookkeepingEvent } from '@/lib/agent-events';
+
 export type AgentMood = 'idle' | 'working' | 'reviewing' | 'blocked' | 'celebrating' | 'offline';
 
 /** The minimal shape of an agent_activities row this module reads. */
@@ -111,7 +114,14 @@ export const emptyTrace = (): AgentTrace => ({
   blockedAt: 0,
 });
 
-/** Event classification shared by every consumer, so no view invents its own. */
+/**
+ * Event classification shared by every consumer, so no view invents its own.
+ *
+ * Typed events (the agent-events contract) classify by TYPE via one lookup
+ * table: no prose is read at all. The phrase regexes below survive only for
+ * legacy rows written before the contract existed, and retire when the last
+ * plugin stops writing them.
+ */
 export function classifyActivity(row: ActivityLike): {
   isSilentType: boolean;
   reportsNoWork: boolean;
@@ -119,6 +129,16 @@ export function classifyActivity(row: ActivityLike): {
   isBlocked: boolean;
   isWork: boolean;
 } {
+  if (isAgentEventType(row.activity_type)) {
+    const state = EVENT_STATE[row.activity_type];
+    return {
+      isSilentType: state === 'silent',
+      reportsNoWork: state === 'no_work',
+      reportsDone: state === 'done',
+      isBlocked: state === 'blocked',
+      isWork: state === 'work',
+    };
+  }
   const isSilentType = SILENT_TYPES.has(row.activity_type);
   const reportsNoWork = NO_WORK_PHRASE.test(row.title);
   const reportsDone = DONE_PHRASE.test(row.title);

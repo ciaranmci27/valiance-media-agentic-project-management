@@ -962,7 +962,13 @@ export interface AgentActivity {
   id: string;
   agent_id: string;
   project_id: string | null;
-  activity_type: 'suggestion_created' | 'task_started' | 'task_completed' | 'task_failed' | 'research_started' | 'research_completed' | 'suggestion_reviewed' | 'comment_added' | 'status_changed' | 'agent_spawned' | 'agent_completed' | 'agent_failed' | 'heartbeat' | 'system_check' | 'custom';
+  /**
+   * Legacy vocabulary plus the typed event contract; the union is open as
+   * `string` on the typed side because the vocabulary's single owner is
+   * src/lib/agent-events.ts, and restating its members here would be a
+   * second copy waiting to drift.
+   */
+  activity_type: 'suggestion_created' | 'task_started' | 'task_completed' | 'task_failed' | 'research_started' | 'research_completed' | 'suggestion_reviewed' | 'comment_added' | 'status_changed' | 'agent_spawned' | 'agent_completed' | 'agent_failed' | 'heartbeat' | 'system_check' | 'custom' | (string & {});
   title: string;
   description: string;
   reference_type: string | null;

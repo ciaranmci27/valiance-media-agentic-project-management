@@ -1,6 +1,8 @@
+import { z } from 'zod';
 import { withApi } from '@/lib/api/middleware';
 import { created, paginated } from '@/lib/api/response';
-import { createAgentActivitySchema } from '@/lib/schemas';
+import { createAgentActivitySchema, type LegacyAgentActivity, type TypedAgentEvent } from '@/lib/schemas/agent-activity';
+import { formatEventTitle, isAgentEventType } from '@/lib/agent-events';
 import { requireAgentsEnabled } from '@/lib/api/agents';
 import { parsePagination } from '@/lib/api/pagination';
 import { forbidden, badRequest } from '@/lib/api/errors';
@@ -60,8 +62,30 @@ export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId, acc
     throw forbidden('Project scope denied');
   }
 
+  // Typed events carry no title by design: the server composes the one
+  // canonical sentence per type, and the validated payload is stored in
+  // metadata where queries can reach it. Legacy shapes pass through
+  // unchanged until every plugin speaks the typed contract.
+  const parsed = body as z.infer<typeof createAgentActivitySchema>;
+  const record = isAgentEventType(parsed.activity_type)
+    ? (() => {
+        const typed = parsed as TypedAgentEvent;
+        const payload = typed.payload as Record<string, unknown>;
+        const taskId = typeof payload.task_id === 'string' ? payload.task_id : null;
+        return {
+          project_id: typed.project_id,
+          activity_type: typed.activity_type,
+          title: formatEventTitle(typed.activity_type, payload),
+          description: '',
+          reference_type: taskId ? 'task' : null,
+          reference_id: taskId,
+          metadata: payload,
+        };
+      })()
+    : (parsed as LegacyAgentActivity);
+
   const entry = await insertAgentActivity(supabase, {
-    ...body,
+    ...record,
     agent_id: teamMemberId,
   });
 

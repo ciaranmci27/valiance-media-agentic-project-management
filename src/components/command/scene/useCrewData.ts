@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import {
   classifyActivity,
   deriveStatus,
+  isBookkeepingEvent,
   emptyTrace,
   ingestIntoTrace,
   type AgentTrace,
@@ -167,9 +168,10 @@ export function useCrewData(mock?: { mood?: Mood }): CrewState {
       // Classification and folding both live in @/lib/agent-status, shared
       // with the fleet strip: one definition of what counts as work.
       setTraces((t) => ({ ...t, [key]: ingestIntoTrace(t[key], row) }));
-      // Heartbeats stay out of the feed: at one per agent per cycle they would
-      // bury every real milestone.
-      if (classifyActivity(row).isSilentType) return;
+      // Heartbeats stay out of the feed (one per agent per cycle would bury
+      // every real milestone), and billing events are bookkeeping: they move
+      // the state clocks above but are the wrong altitude for the narrative.
+      if (classifyActivity(row).isSilentType || isBookkeepingEvent(row.activity_type)) return;
       if (isRealtime) {
         setFeed((f) =>
           [
@@ -249,7 +251,7 @@ export function useCrewData(mock?: { mood?: Mood }): CrewState {
         ingestActivity(row, false, roster);
       }
       const seeded: FeedItem[] = ((acts as ActivityRow[]) || [])
-        .filter((a) => !classifyActivity(a).isSilentType)
+        .filter((a) => !classifyActivity(a).isSilentType && !isBookkeepingEvent(a.activity_type))
         .slice(0, 12)
         .map((a) => ({
           id: a.id,

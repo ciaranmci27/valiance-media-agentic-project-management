@@ -97,13 +97,20 @@ CREATE TABLE public.agent_activities (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   agent_id uuid NOT NULL REFERENCES public.team_members(id) ON DELETE CASCADE,
   project_id uuid REFERENCES public.projects(id) ON DELETE SET NULL,
+  -- Legacy values are grandfathered; the typed vocabulary is owned by
+  -- src/lib/agent-events.ts (payload schemas + server-generated titles).
   activity_type text NOT NULL CHECK (activity_type IN (
     'suggestion_created', 'task_started', 'task_completed', 'task_failed',
     'research_started', 'research_completed', 'suggestion_reviewed',
     'comment_added', 'status_changed',
     'agent_spawned', 'agent_completed', 'agent_failed',
     'heartbeat', 'system_check',
-    'custom'
+    'custom',
+    'work.claimed', 'work.milestone', 'work.handoff', 'work.done',
+    'review.started', 'review.verdict',
+    'audit.finding', 'audit.no_work', 'spec.completed',
+    'queue.empty', 'blocked',
+    'billing.started', 'billing.paused', 'billing.resumed', 'billing.stopped'
   )),
   title text NOT NULL,
   description text NOT NULL DEFAULT '',
