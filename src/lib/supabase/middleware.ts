@@ -6,6 +6,13 @@ function isPublicRoute(pathname: string) {
     // Local-only preview surfaces (visual iteration without a session); the
     // pages themselves also 404 outside development.
     (process.env.NODE_ENV === 'development' && pathname.startsWith('/dev')) ||
+    // The public agent-floor simulation: fixture data only, nothing real.
+    pathname === '/live' ||
+    // The brand lockup, served with ETag revalidation. Public by nature (it
+    // is on the marketing site), and the sim's fleet board textures from it:
+    // behind the login wall, an anonymous visitor's texture load followed
+    // the redirect into login-page HTML and crashed the whole scene.
+    pathname.startsWith('/api/logo') ||
     pathname.startsWith('/login') ||
     pathname.startsWith('/auth') ||
     pathname.startsWith('/portal') ||
@@ -56,6 +63,18 @@ export async function updateSession(request: NextRequest) {
     user = data.user;
   } catch {
     // If auth check fails, treat as unauthenticated
+  }
+
+  // /agent/live is shareable: a member sees the real floor, and anyone else
+  // is REWRITTEN (not redirected) to the public simulation, so the address
+  // they were sent is the address that works, with no login wall and no URL
+  // change. The sim page runs on fixtures alone, so an anonymous visitor
+  // reaches no real data — the same guarantee /live makes when hit directly.
+  if (!user && request.nextUrl.pathname === '/agent/live') {
+    const url = request.nextUrl.clone();
+    url.pathname = '/live';
+    url.search = '';
+    return NextResponse.rewrite(url);
   }
 
   // Redirect unauthenticated users to /login (except auth routes). The

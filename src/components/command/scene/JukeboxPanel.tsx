@@ -389,9 +389,13 @@ export function JukeboxPanel({
       if (attempt !== searchRun.current) return;
       if (!response.ok) {
         // The route's own messages are written to be read; its 401 is not.
+        // Phrased for both people who can hit it: the guest on the public
+        // sim, who never had a session, and the member whose session
+        // expired. Pasting a link works for everyone regardless, because it
+        // never touches our server.
         setError(
           response.status === 401
-            ? 'Your session has expired. Reload the page to search.'
+            ? 'Search needs a signed-in session. Paste a YouTube link instead.'
             : (body.error ?? 'Search is unavailable right now.')
         );
         return;

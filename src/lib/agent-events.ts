@@ -121,13 +121,19 @@ export function formatEventTitle(type: AgentEventType, payload: Record<string, u
     case 'work.claimed':
       return `Claimed: ${p.task_title}`;
     case 'work.milestone': {
+      // A note's detail is already a complete phrase (the narration layer
+      // sends "reassigned the task \"Launch\""); prefixing it would read as
+      // stutter, so notes render verbatim with a capital.
+      if (String(p.kind) === 'note') {
+        const d = String(p.detail ?? '');
+        return d.charAt(0).toUpperCase() + d.slice(1);
+      }
       const verbs: Record<string, string> = {
         subtask: p.undone ? 'Reopened subtask' : 'Completed subtask',
         criterion: p.undone ? 'Unchecked criterion' : 'Verified criterion',
         comment: 'Commented',
         commit: 'Committed',
         session: 'Logged work session',
-        note: 'Noted',
       };
       return `${verbs[String(p.kind)] ?? 'Progress'}: ${p.detail}`;
     }

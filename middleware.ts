@@ -36,7 +36,12 @@ export const config = {
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
      * - public folder files (svg, png, jpg, etc.)
+     *
+     * glb is in the list for the public /live simulation: the 3D scene's
+     * props are public-folder models, and an anonymous visitor's fetch for
+     * one would otherwise be redirected to the login page's HTML, which the
+     * GLTF loader chokes on hard enough to take the whole scene down.
      */
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|glb)$).*)',
   ],
 };
