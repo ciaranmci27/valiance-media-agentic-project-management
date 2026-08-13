@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, ReactNode, type SetStateAction } from 'react';
 import { Project, Task, TeamMember, FilterState, ViewMode, Subtask, AcceptanceCriterion, Comment, Contact, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, Activity, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, EntityFileType, ApiKey, NotificationCategory, ProjectGoal, TaskSuggestion, AgentActivity, TimeEntry, ProjectCredentialListItem, CredentialPayload, CredentialCategory, ProjectInvoice, InvoiceStatus, BusinessSettings, EmployeeEarningsData, DEFAULT_SECTION_ORDER } from './types';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/lib/auth-context';
@@ -103,6 +103,7 @@ import { toast } from '@/components/ui/Toast';
 import { siteConfig } from '@/site-config';
 import { findStalePausedEntries, startOfDayInTz } from '@/lib/time-entry-utils';
 import { hasPermission } from '@/lib/access-control';
+import { rollbackScope } from '@/lib/optimistic';
 
 // Best-effort nudge so the webhook dispatcher runs right after an invoice
 // change, delivering the event immediately. The DB trigger already enqueued
@@ -382,30 +383,74 @@ export const defaultFilters: FilterState = {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export function AppProvider({ children }: { children: ReactNode }) {
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [team, setTeam] = useState<TeamMember[]>([]);
-  const [contacts, setContacts] = useState<Contact[]>([]);
-  const [projectContacts, setProjectContacts] = useState<ProjectContact[]>([]);
-  const [leads, setLeads] = useState<Lead[]>([]);
-  const [leadInteractions, setLeadInteractions] = useState<LeadInteraction[]>([]);
-  const [leadProposals, setLeadProposals] = useState<LeadProposal[]>([]);
-  const [leadFields, setLeadFields] = useState<LeadField[]>([]);
-  const [leadContacts, setLeadContacts] = useState<LeadContact[]>([]);
-  const [activities, setActivities] = useState<Activity[]>([]);
-  const [portalSettings, setPortalSettings] = useState<PortalSettings[]>([]);
-  const [portalUpdates, setPortalUpdates] = useState<PortalUpdate[]>([]);
-  const [portalUpdateAttachments, setPortalUpdateAttachments] = useState<PortalUpdateAttachment[]>([]);
-  const [entityFiles, setEntityFiles] = useState<EntityFile[]>([]);
+  const [projects, setProjectsState] = useState<Project[]>([]);
+  const [tasks, setTasksState] = useState<Task[]>([]);
+  const [team, setTeamState] = useState<TeamMember[]>([]);
+  const [contacts, setContactsState] = useState<Contact[]>([]);
+  const [projectContacts, setProjectContactsState] = useState<ProjectContact[]>([]);
+  const [leads, setLeadsState] = useState<Lead[]>([]);
+  const [leadInteractions, setLeadInteractionsState] = useState<LeadInteraction[]>([]);
+  const [leadProposals, setLeadProposalsState] = useState<LeadProposal[]>([]);
+  const [leadFields, setLeadFieldsState] = useState<LeadField[]>([]);
+  const [leadContacts, setLeadContactsState] = useState<LeadContact[]>([]);
+  const [activities, setActivitiesState] = useState<Activity[]>([]);
+  const [portalSettings, setPortalSettingsState] = useState<PortalSettings[]>([]);
+  const [portalUpdates, setPortalUpdatesState] = useState<PortalUpdate[]>([]);
+  const [portalUpdateAttachments, setPortalUpdateAttachmentsState] = useState<PortalUpdateAttachment[]>([]);
+  const [entityFiles, setEntityFilesState] = useState<EntityFile[]>([]);
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
-  const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([]);
-  const [projectCredentials, setProjectCredentials] = useState<ProjectCredentialListItem[]>([]);
-  const [projectInvoices, setProjectInvoices] = useState<ProjectInvoice[]>([]);
+  const [timeEntries, setTimeEntriesState] = useState<TimeEntry[]>([]);
+  const [projectCredentials, setProjectCredentialsState] = useState<ProjectCredentialListItem[]>([]);
+  const [projectInvoices, setProjectInvoicesState] = useState<ProjectInvoice[]>([]);
   const [businessSettings, setBusinessSettings] = useState<BusinessSettings | null>(null);
   const [employeeEarnings, setEmployeeEarnings] = useState<EmployeeEarningsData | null>(null);
-  const [projectGoals, setProjectGoals] = useState<ProjectGoal[]>([]);
-  const [taskSuggestions, setTaskSuggestions] = useState<TaskSuggestion[]>([]);
-  const [agentActivityList, setAgentActivityList] = useState<AgentActivity[]>([]);
+  const [projectGoals, setProjectGoalsState] = useState<ProjectGoal[]>([]);
+  const [taskSuggestions, setTaskSuggestionsState] = useState<TaskSuggestion[]>([]);
+  const [agentActivityList, setAgentActivityListState] = useState<AgentActivity[]>([]);
+
+  /**
+   * When each slice last accepted a LOCAL write.
+   *
+   * Live-sync refetches replace a whole slice, so one ISSUED before a local
+   * write is still carrying the pre-write rows when it lands - and if it
+   * lands after that write's own response, it silently undoes it on screen
+   * while the database holds the new truth. That was the pause button
+   * flashing back to running: the entry really was paused, but an older
+   * in-flight refetch overwrote it, and only a reload showed the real state.
+   *
+   * Every data setter is wrapped to stamp its slice, so no mutator can
+   * forget to - including ones nobody has written yet. refreshSlice discards
+   * any refetch that began before the newest stamp; the write's own realtime
+   * event brings a fresh refetch behind it, so state still converges on the
+   * server. Refetch-applied writes stamp too, which harmlessly also makes an
+   * older refetch lose to a newer one.
+   */
+  const sliceMutatedAt = useRef<Partial<Record<RealtimeSlice, number>>>({});
+  const markSliceMutated = (slice: RealtimeSlice) => {
+    sliceMutatedAt.current[slice] = Date.now();
+  };
+
+  const setProjects = (value: SetStateAction<Project[]>) => { markSliceMutated('projects'); setProjectsState(value); };
+  const setTasks = (value: SetStateAction<Task[]>) => { markSliceMutated('tasks'); setTasksState(value); };
+  const setTeam = (value: SetStateAction<TeamMember[]>) => { markSliceMutated('team'); setTeamState(value); };
+  const setContacts = (value: SetStateAction<Contact[]>) => { markSliceMutated('contacts'); setContactsState(value); };
+  const setProjectContacts = (value: SetStateAction<ProjectContact[]>) => { markSliceMutated('contacts'); setProjectContactsState(value); };
+  const setLeads = (value: SetStateAction<Lead[]>) => { markSliceMutated('leads'); setLeadsState(value); };
+  const setLeadInteractions = (value: SetStateAction<LeadInteraction[]>) => { markSliceMutated('leads'); setLeadInteractionsState(value); };
+  const setLeadProposals = (value: SetStateAction<LeadProposal[]>) => { markSliceMutated('leads'); setLeadProposalsState(value); };
+  const setLeadFields = (value: SetStateAction<LeadField[]>) => { markSliceMutated('leads'); setLeadFieldsState(value); };
+  const setLeadContacts = (value: SetStateAction<LeadContact[]>) => { markSliceMutated('leads'); setLeadContactsState(value); };
+  const setActivities = (value: SetStateAction<Activity[]>) => { markSliceMutated('activities'); setActivitiesState(value); };
+  const setPortalSettings = (value: SetStateAction<PortalSettings[]>) => { markSliceMutated('portal'); setPortalSettingsState(value); };
+  const setPortalUpdates = (value: SetStateAction<PortalUpdate[]>) => { markSliceMutated('portal'); setPortalUpdatesState(value); };
+  const setPortalUpdateAttachments = (value: SetStateAction<PortalUpdateAttachment[]>) => { markSliceMutated('portal'); setPortalUpdateAttachmentsState(value); };
+  const setEntityFiles = (value: SetStateAction<EntityFile[]>) => { markSliceMutated('files'); setEntityFilesState(value); };
+  const setTimeEntries = (value: SetStateAction<TimeEntry[]>) => { markSliceMutated('timeEntries'); setTimeEntriesState(value); };
+  const setProjectCredentials = (value: SetStateAction<ProjectCredentialListItem[]>) => { markSliceMutated('credentials'); setProjectCredentialsState(value); };
+  const setProjectInvoices = (value: SetStateAction<ProjectInvoice[]>) => { markSliceMutated('invoices'); setProjectInvoicesState(value); };
+  const setProjectGoals = (value: SetStateAction<ProjectGoal[]>) => { markSliceMutated('goals'); setProjectGoalsState(value); };
+  const setTaskSuggestions = (value: SetStateAction<TaskSuggestion[]>) => { markSliceMutated('suggestions'); setTaskSuggestionsState(value); };
+  const setAgentActivityList = (value: SetStateAction<AgentActivity[]>) => { markSliceMutated('agentActivity'); setAgentActivityListState(value); };
   const [filters, setFilters] = useState<FilterState>(defaultFilters);
   const [viewMode, setViewMode] = useState<ViewMode>('board');
   const [loading, setLoading] = useState(true);
@@ -640,6 +685,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // freshest closure (access can change) without resubscribing the channel.
   const refreshSlice = async (slice: RealtimeSlice): Promise<void> => {
     if (!access) return;
+    const issuedAt = Date.now();
+    /** True when a local write landed while this refetch was in flight. */
+    const superseded = () => (sliceMutatedAt.current[slice] ?? 0) >= issuedAt;
     const workspaceData = async <T,>(path: string): Promise<T> => {
       const response = await fetch(path, { cache: 'no-store' });
       const payload = await response.json();
@@ -650,22 +698,29 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       switch (slice) {
         case 'tasks':
-          if (hasPermission(access, 'tasks.read')) setTasks(await fetchTasks(supabase));
+          if (hasPermission(access, 'tasks.read')) {
+            const taskRows = await fetchTasks(supabase);
+            if (!superseded()) setTasks(taskRows);
+          }
           break;
         case 'projects':
           if (hasPermission(access, 'projects.read') || hasPermission(access, 'projects.read_all')) {
-            setProjects(await workspaceData<Project[]>('/api/workspace/projects'));
+            const projectRows = await workspaceData<Project[]>('/api/workspace/projects');
+            if (!superseded()) setProjects(projectRows);
           }
           break;
-        case 'team':
-          setTeam(await workspaceData<TeamMember[]>('/api/workspace/team-directory'));
+        case 'team': {
+          const teamRows = await workspaceData<TeamMember[]>('/api/workspace/team-directory');
+          if (!superseded()) setTeam(teamRows);
           break;
+        }
         case 'contacts':
           if (hasPermission(access, 'contacts.read') || hasPermission(access, 'contacts.read_all') || hasPermission(access, 'contacts.manage')) {
             const [contactRows, projectContactRows] = await Promise.all([
               fetchContacts(supabase),
               fetchAllProjectContacts(supabase),
             ]);
+            if (superseded()) break;
             setContacts(contactRows);
             setProjectContacts(projectContactRows);
           }
@@ -679,6 +734,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
               fetchLeadFields(supabase),
               fetchAllLeadContacts(supabase),
             ]);
+            if (superseded()) break;
             setLeads(leadRows);
             setLeadInteractions(interactionRows);
             setLeadProposals(proposalRows);
@@ -686,11 +742,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
             setLeadContacts(leadContactRows);
           }
           break;
-        case 'activities':
-          setActivities(await fetchActivities(supabase));
+        case 'activities': {
+          const activityRows = await fetchActivities(supabase);
+          if (!superseded()) setActivities(activityRows);
           break;
+        }
         case 'agentActivity':
-          if (agentsEnabled) setAgentActivityList(await fetchAgentActivity(supabase));
+          if (agentsEnabled) {
+            const agentRows = await fetchAgentActivity(supabase);
+            if (!superseded()) setAgentActivityList(agentRows);
+          }
           break;
         case 'portal':
           if (hasPermission(access, 'portal.read') || hasPermission(access, 'portal.manage')) {
@@ -699,6 +760,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
               fetchAllPortalUpdates(supabase),
               fetchAllPortalUpdateAttachments(supabase),
             ]);
+            if (superseded()) break;
             setPortalSettings(settingsRows);
             setPortalUpdates(updateRows);
             setPortalUpdateAttachments(attachmentRows);
@@ -706,29 +768,42 @@ export function AppProvider({ children }: { children: ReactNode }) {
           break;
         case 'files':
           if (hasPermission(access, 'files.read') || hasPermission(access, 'files.upload') || hasPermission(access, 'files.manage')) {
-            setEntityFiles(await fetchAllEntityFiles(supabase));
+            const fileRows = await fetchAllEntityFiles(supabase);
+            if (!superseded()) setEntityFiles(fileRows);
           }
           break;
         case 'timeEntries':
           if (hasPermission(access, 'time.manage_own') || hasPermission(access, 'time.read_all') || hasPermission(access, 'time.manage_all')) {
-            setTimeEntries(await workspaceData<TimeEntry[]>('/api/workspace/time-entries'));
+            const rows = await workspaceData<TimeEntry[]>('/api/workspace/time-entries');
+            // Timer buttons write far faster than a refetch round-trip, which
+            // is why this slice is the one that visibly lost the race.
+            if (superseded()) break;
+            setTimeEntries(rows);
           }
           break;
         case 'credentials':
           if (hasPermission(access, 'credentials.reveal_shared') || hasPermission(access, 'credentials.manage')) {
-            setProjectCredentials(await workspaceData<ProjectCredentialListItem[]>('/api/workspace/credentials'));
+            const credentialRows = await workspaceData<ProjectCredentialListItem[]>('/api/workspace/credentials');
+            if (!superseded()) setProjectCredentials(credentialRows);
           }
           break;
         case 'invoices':
           if (hasPermission(access, 'invoices.read') || hasPermission(access, 'invoices.manage')) {
-            setProjectInvoices(await fetchAllProjectInvoices(supabase));
+            const invoiceRows = await fetchAllProjectInvoices(supabase);
+            if (!superseded()) setProjectInvoices(invoiceRows);
           }
           break;
         case 'suggestions':
-          if (agentsEnabled) setTaskSuggestions(await fetchTaskSuggestions(supabase));
+          if (agentsEnabled) {
+            const suggestionRows = await fetchTaskSuggestions(supabase);
+            if (!superseded()) setTaskSuggestions(suggestionRows);
+          }
           break;
         case 'goals':
-          if (agentsEnabled) setProjectGoals(await fetchGoals(supabase));
+          if (agentsEnabled) {
+            const goalRows = await fetchGoals(supabase);
+            if (!superseded()) setProjectGoals(goalRows);
+          }
           break;
         case 'notifications':
           // The sidebar badge and notifications page own their fetches; this
@@ -947,7 +1022,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
       }
     } catch (err) {
-      setProjects(prev);
+      setProjects(rollbackScope(prev, proj => proj.id === id));
       toast('error', 'Failed to update project');
     }
   };
@@ -972,9 +1047,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         notify(allMemberIds(), `Project "${deletedProject.name}" was archived`, `${actorName()} archived the project.`, '/projects', 'project', id, 'project_deleted');
       }
     } catch (err) {
-      setProjects(prev);
-      setTasks(prevTasks);
-      setProjectContacts(prevPc);
+      setProjects(rollbackScope(prev, proj => proj.id === id));
+      setTasks(rollbackScope(prevTasks, task => task.project_id === id));
+      setProjectContacts(rollbackScope(prevPc, pc => pc.project_id === id));
       toast('error', 'Failed to delete project');
     }
   };
@@ -1081,7 +1156,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
       }
     } catch (err) {
-      setTasks(prev);
+      setTasks(rollbackScope(prev, task => task.id === id));
       toast('error', 'Failed to update task');
     }
   };
@@ -1098,7 +1173,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       await reorderTasksQuery(supabase, orders);
     } catch (err) {
-      setTasks(prev);
+      setTasks(rollbackScope(prev, task => orderById.has(task.id)));
       toast('error', 'Failed to reorder tasks');
     }
   };
@@ -1115,7 +1190,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         notify(allMemberIds(), `Task "${deletedTask.title}" was deleted`, `${actorName()} deleted a task.`, deletedTask.project_id ? `/projects/${deletedTask.project_id}` : null, 'task', id, 'task_deleted');
       }
     } catch (err) {
-      setTasks(prev);
+      setTasks(rollbackScope(prev, task => task.id === id));
       toast('error', 'Failed to delete task');
     }
   };
@@ -1205,7 +1280,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       await patchSubtask(supabase, subtaskId, { title });
     } catch (err) {
-      setTasks(prev);
+      setTasks(rollbackScope(prev, task => task.id === taskId));
       toast('error', 'Failed to update subtask');
     }
   };
@@ -1224,7 +1299,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       await reorderSubtasksQuery(supabase, subtaskIds);
     } catch (err) {
-      setTasks(prev);
+      setTasks(rollbackScope(prev, task => task.id === taskId));
       toast('error', 'Failed to reorder subtasks');
     }
   };
@@ -1245,7 +1320,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         notify(allMemberIds(), `"${task.title}" was updated`, `${actorName()} removed a subtask.`, `/projects/${task.project_id}`, 'task', taskId, 'task_subtasks');
       }
     } catch (err) {
-      setTasks(prev);
+      setTasks(rollbackScope(prev, task => task.id === taskId));
       toast('error', 'Failed to delete subtask');
     }
   };
@@ -1329,7 +1404,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       await patchAcceptanceCriterion(supabase, criterionId, { criterion });
     } catch (err) {
-      setTasks(prev);
+      setTasks(rollbackScope(prev, task => task.id === taskId));
       toast('error', 'Failed to update acceptance criterion');
     }
   };
@@ -1346,7 +1421,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       await removeAcceptanceCriterion(supabase, criterionId);
     } catch (err) {
-      setTasks(prev);
+      setTasks(rollbackScope(prev, task => task.id === taskId));
       toast('error', 'Failed to delete acceptance criterion');
     }
   };
@@ -1412,7 +1487,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         notify(allMemberIds(), `Comment edited on "${task.title}"`, `${actorName()}: "${preview}"`, `/projects/${task.project_id}`, 'task', taskId, 'task_comments');
       }
     } catch (err) {
-      setTasks(prev);
+      setTasks(rollbackScope(prev, task => task.id === taskId));
       toast('error', 'Failed to update comment');
     }
   };
@@ -1433,7 +1508,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         notify(allMemberIds(), `Comment removed on "${task.title}"`, `${actorName()} deleted a comment.`, `/projects/${task.project_id}`, 'task', taskId, 'task_comments');
       }
     } catch (err) {
-      setTasks(prev);
+      setTasks(rollbackScope(prev, task => task.id === taskId));
       toast('error', 'Failed to delete comment');
     }
   };
@@ -1480,7 +1555,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         throw new Error(payload.error || 'Failed to update team member');
       }
     } catch (err) {
-      setTeam(prev);
+      setTeam(rollbackScope(prev, m => m.id === id));
       toast('error', 'Failed to update team member');
     }
   };
@@ -1497,7 +1572,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         notify(allMemberIds(), `${removedMember.name} was removed from the team`, `${actorName()} removed a team member.`, '/team', 'member', id, 'team_members');
       }
     } catch (err) {
-      setTeam(prev);
+      setTeam(rollbackScope(prev, m => m.id === id));
       toast('error', 'Failed to remove team member');
     }
   };
@@ -1562,7 +1637,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         notify(allMemberIds(), `Contact "${existingContact.name}" was updated`, `${actorName()} updated the contact.`, null, 'contact', id, 'contact_updates');
       }
     } catch (err) {
-      setContacts(prev);
+      setContacts(rollbackScope(prev, contact => contact.id === id));
       toast('error', 'Failed to update contact');
     }
   };
@@ -1579,7 +1654,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         notify(allMemberIds(), `Contact "${deletedContact.name}" was deleted`, `${actorName()} removed a contact.`, null, 'contact', id, 'contact_deleted');
       }
     } catch (err) {
-      setContacts(prev);
+      setContacts(rollbackScope(prev, contact => contact.id === id));
       toast('error', 'Failed to delete contact');
     }
   };
@@ -1664,7 +1739,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         notify(allMemberIds(), `"${project.name}" contacts updated`, `${actorName()} updated a contact role.`, `/projects/${projectId}`, 'project', projectId, 'project_contacts');
       }
     } catch (err) {
-      setProjectContacts(prev);
+      setProjectContacts(rollbackScope(prev, pc => pc.id === pcId || pc.project_id === projectId));
       toast('error', 'Failed to update project contact');
     }
   };
@@ -1682,7 +1757,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         notify(allMemberIds(), `"${project.name}" contacts updated`, `${actorName()} removed a contact.`, `/projects/${projectId}`, 'project', projectId, 'project_contacts');
       }
     } catch (err) {
-      setProjectContacts(prev);
+      setProjectContacts(rollbackScope(prev, pc => pc.id === pcId));
       toast('error', 'Failed to remove contact from project');
     }
   };
@@ -1772,9 +1847,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
       return true;
     } catch (err) {
-      setLeads(prevLeads);
+      setLeads(rollbackScope(prevLeads, lead => lead.id === id));
       if (hasIdentityUpdates && contactId) {
-        setContacts(prevContacts);
+        setContacts(rollbackScope(prevContacts, contact => contact.id === contactId));
       }
       toast('error', 'Failed to update lead');
       return false;
@@ -1802,11 +1877,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
       return true;
     } catch (err) {
-      setLeads(prev);
-      setLeadInteractions(prevInteractions);
-      setLeadProposals(prevProposals);
-      setLeadFields(prevFields);
-      setLeadContacts(prevLeadContacts);
+      setLeads(rollbackScope(prev, lead => lead.id === id));
+      setLeadInteractions(rollbackScope(prevInteractions, int => int.lead_id === id));
+      setLeadProposals(rollbackScope(prevProposals, prop => prop.lead_id === id));
+      setLeadFields(rollbackScope(prevFields, field => field.lead_id === id));
+      setLeadContacts(rollbackScope(prevLeadContacts, lc => lc.lead_id === id));
       toast('error', 'Failed to delete lead');
       return false;
     }
@@ -1964,7 +2039,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
       return true;
     } catch (err) {
-      setLeadInteractions(prev);
+      setLeadInteractions(rollbackScope(prev, int => int.id === id));
       toast('error', 'Failed to update interaction');
       return false;
     }
@@ -1986,7 +2061,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
       return true;
     } catch (err) {
-      setLeadInteractions(prev);
+      setLeadInteractions(rollbackScope(prev, int => int.id === id));
       toast('error', 'Failed to delete interaction');
       return false;
     }
@@ -2038,7 +2113,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
       }
     } catch (err) {
-      setLeadProposals(prev);
+      setLeadProposals(rollbackScope(prev, prop => prop.id === id));
       toast('error', 'Failed to update proposal');
     }
   };
@@ -2059,7 +2134,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
       return true;
     } catch (err) {
-      setLeadProposals(prev);
+      setLeadProposals(rollbackScope(prev, prop => prop.id === id));
       toast('error', 'Failed to delete proposal');
       return false;
     }
@@ -2086,7 +2161,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const lead = leads.find(l => l.id === leadId);
         if (lead) notify(allMemberIds(), `Lead "${lead.name}" was updated`, `${actorName()} updated lead details.`, `/leads/${leadId}`, 'lead', leadId, 'lead_updates');
       } catch (err) {
-        setLeadFields(prev);
+        setLeadFields(rollbackScope(prev, field => field.id === existing.id));
         toast('error', 'Failed to update field');
       }
     } else {
@@ -2128,7 +2203,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         notify(allMemberIds(), `Lead "${lead.name}" field removed`, `${actorName()} removed a lead field.`, `/leads/${leadId}`, 'lead', leadId, 'lead_updates');
       }
     } catch (err) {
-      setLeadFields(prev);
+      setLeadFields(rollbackScope(prev, field => field.id === id));
       toast('error', 'Failed to remove field');
     }
   };
@@ -2240,8 +2315,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         notify(allMemberIds(), `Lead "${lead.name}" contacts updated`, `${actorName()} updated a contact role.`, `/leads/${leadId}`, 'lead', leadId, 'lead_contacts');
       }
     } catch (err) {
-      setLeadContacts(prev);
-      setLeads(prevLeads);
+      setLeadContacts(rollbackScope(prev, lc => lc.id === lcId || lc.lead_id === leadId));
+      setLeads(rollbackScope(prevLeads, lead => lead.id === leadId));
       toast('error', 'Failed to update lead contact');
     }
   };
@@ -2271,8 +2346,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         notify(allMemberIds(), `Lead "${lead.name}" contacts updated`, `${actorName()} removed a contact.`, `/leads/${leadId}`, 'lead', leadId, 'lead_contacts');
       }
     } catch (err) {
-      setLeadContacts(prev);
-      setLeads(prevLeads);
+      setLeadContacts(rollbackScope(prev, lc => lc.id === lcId));
+      setLeads(rollbackScope(prevLeads, lead => lead.id === leadId));
       toast('error', 'Failed to remove contact from lead');
     }
   };
@@ -2301,7 +2376,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           notify(allMemberIds(), `Portal ${action} for "${project?.name || 'project'}"`, `${actorName()} ${action} the client portal.`, `/projects/${projectId}`, 'project', projectId, 'portal_settings');
         }
       } catch (err) {
-        setPortalSettings(prev);
+        setPortalSettings(rollbackScope(prev, s => s.project_id === projectId));
         toast('error', 'Failed to update portal settings');
       }
     } else {
@@ -2368,7 +2443,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const updated = await updatePortalSlugQuery(supabase, projectId, newSlug);
       setPortalSettings(ps => ps.map(s => s.project_id === projectId ? updated : s));
     } catch (err) {
-      setPortalSettings(prev);
+      setPortalSettings(rollbackScope(prev, s => s.project_id === projectId));
       toast('error', 'Failed to update portal slug');
     }
   };
@@ -2501,8 +2576,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         notify(allMemberIds(), 'Portal update edited', `${actorName()} edited a portal update.`, `/projects/${existing.project_id}`, 'project', existing.project_id, 'portal_updates');
       }
     } catch (err) {
-      setPortalUpdates(prev);
-      setPortalUpdateAttachments(prevAttachments);
+      setPortalUpdates(rollbackScope(prev, upd => upd.id === id));
+      setPortalUpdateAttachments(rollbackScope(prevAttachments, att => att.update_id === id));
       toast('error', 'Failed to update');
     }
   };
@@ -2521,8 +2596,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         notify(allMemberIds(), 'Portal update deleted', `${actorName()} removed a portal update.`, `/projects/${existing.project_id}`, 'project', existing.project_id, 'portal_updates');
       }
     } catch (err) {
-      setPortalUpdates(prev);
-      setPortalUpdateAttachments(prevAttachments);
+      setPortalUpdates(rollbackScope(prev, upd => upd.id === id));
+      setPortalUpdateAttachments(rollbackScope(prevAttachments, att => att.update_id === id));
       toast('error', 'Failed to delete update');
     }
   };
@@ -2542,7 +2617,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
       }
     } catch (err) {
-      setPortalUpdateAttachments(prev);
+      setPortalUpdateAttachments(rollbackScope(prev, att => att.id === id));
       toast('error', 'Failed to delete attachment');
     }
   };
@@ -2613,7 +2688,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
       return true;
     } catch {
-      setProjectCredentials(prev);
+      setProjectCredentials(rollbackScope(prev, c => c.id === id));
       toast('error', 'Failed to update credential');
       return false;
     }
@@ -2633,7 +2708,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         notify(allMemberIds(), 'Credential deleted', `${actorName()} removed a credential from "${project?.name || 'project'}".`, `/projects/${existing.project_id}`, 'project', existing.project_id, 'portal_settings');
       }
     } catch {
-      setProjectCredentials(prev);
+      setProjectCredentials(rollbackScope(prev, c => c.id === id));
       toast('error', 'Failed to delete credential');
     }
   };
@@ -2687,7 +2762,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       await renameEntityFileQuery(supabase, id, name);
     } catch (err) {
-      setEntityFiles(prev);
+      setEntityFiles(rollbackScope(prev, file => file.id === id));
       toast('error', 'Failed to rename file');
     }
   };
@@ -2705,7 +2780,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         notify(allMemberIds(), `File removed from ${existing.entity_type}`, `${actorName()} deleted an attachment.`, link, existing.entity_type, existing.entity_id, 'entity_files');
       }
     } catch (err) {
-      setEntityFiles(prev);
+      setEntityFiles(rollbackScope(prev, file => file.id === id));
       toast('error', 'Failed to delete file');
     }
   };
@@ -2718,7 +2793,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       await updateEntityFileVisibilityQuery(supabase, id, visibility);
     } catch (err) {
-      setEntityFiles(prev);
+      setEntityFiles(rollbackScope(prev, file => file.id === id));
       toast('error', 'Failed to update file visibility');
     }
   };
@@ -2744,9 +2819,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       id: optimisticId,
       created_at: now,
       updated_at: now,
-    };
-
-    setTimeEntries(prev => [optimistic, ...prev]);
+    };    setTimeEntries(prev => [optimistic, ...prev]);
     if (skipSupabase) return;
 
     try {
@@ -2773,9 +2846,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     updates: Partial<Pick<TimeEntry, 'member_id' | 'start_time' | 'end_time' | 'segments' | 'description' | 'work_type' | 'task_ids'>>,
     options: { silent?: boolean } = {},
   ) => {
-    const prev = timeEntries;
-    const existing = timeEntries.find(te => te.id === id);
-    setTimeEntries(te => te.map(entry =>
+    const existing = timeEntries.find(te => te.id === id);    setTimeEntries(te => te.map(entry =>
       entry.id === id ? { ...entry, ...updates, updated_at: new Date().toISOString() } : entry
     ));
     if (skipSupabase) return;
@@ -2799,14 +2870,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const affectsBudget = 'segments' in updates || 'start_time' in updates || 'end_time' in updates;
       if (existing && affectsBudget) triggerBudgetAlerts(existing.project_id);
     } catch (err) {
-      setTimeEntries(prev);
+      // Restore just this entry. Reverting the whole array (what this used to
+      // do) also discarded any other row that changed while the request was
+      // in flight - a teammate's timer, or a second edit of your own.
+      if (existing) setTimeEntries(te => te.map(entry => (entry.id === id ? existing : entry)));
       toast('error', err instanceof Error ? err.message : 'Failed to update time entry');
     }
   };
 
   const deleteTimeEntry = async (id: string) => {
-    const existing = timeEntries.find(te => te.id === id);
-    if (skipSupabase) {
+    const existing = timeEntries.find(te => te.id === id);    if (skipSupabase) {
       setTimeEntries(te => te.filter(entry => entry.id !== id));
       return true;
     }
@@ -2948,7 +3021,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         notify(adminMemberIds(), `API key revoked: "${existing.name}"`, `${actorName()} revoked an API key.`, '/settings', 'member', null, 'api_keys');
       }
     } catch (err) {
-      setApiKeys(prev);
+      setApiKeys(rollbackScope(prev, k => k.id === id));
       toast('error', 'Failed to revoke API key');
     }
   };
@@ -3003,7 +3076,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         notify(adminMemberIds(), `Goal "${goal.title}" updated`, `${actorName()} updated the goal.`, '/agent', 'goal', id, 'agent_goals');
       }
     } catch (err) {
-      setProjectGoals(prev);
+      setProjectGoals(rollbackScope(prev, gl => gl.id === id));
       toast('error', 'Failed to update goal');
     }
   };
@@ -3021,7 +3094,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         notify(adminMemberIds(), `Goal "${goal.title}" archived`, `${actorName()} archived the goal.`, '/agent', 'goal', id, 'agent_goals');
       }
     } catch (err) {
-      setProjectGoals(prev);
+      setProjectGoals(rollbackScope(prev, gl => gl.id === id));
       toast('error', 'Failed to archive goal');
     }
   };
@@ -3176,7 +3249,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (suggestion) {
       }
     } catch (err) {
-      setTaskSuggestions(prev);
+      setTaskSuggestions(rollbackScope(prev, sug => sug.id === id));
       toast('error', 'Failed to request info');
     }
   };
@@ -3208,7 +3281,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (suggestion) {
       }
     } catch (err) {
-      setTaskSuggestions(prev);
+      setTaskSuggestions(rollbackScope(prev, sug => sug.id === id));
       toast('error', 'Failed to update suggestion');
     }
   };
@@ -3322,7 +3395,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return true;
     } catch (error) {
       console.error('Failed to update invoice:', error);
-      setProjectInvoices(prev);
+      setProjectInvoices(rollbackScope(prev, i => i.id === id));
       toast('error', 'Failed to update invoice');
       return false;
     }
@@ -3350,7 +3423,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (existing.status === 'paid') kickWebhookDispatch();
       }
     } catch {
-      setProjectInvoices(prev);
+      setProjectInvoices(rollbackScope(prev, i => i.id === id));
       toast('error', 'Failed to delete invoice');
     }
   };

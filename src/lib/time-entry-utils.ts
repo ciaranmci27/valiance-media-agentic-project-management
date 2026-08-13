@@ -34,10 +34,19 @@ export function getWorkedMs(entry: TimeEntry, now: number = Date.now()): number 
     if (!entry.end_time) return 0;
     return Math.max(0, new Date(entry.end_time).getTime() - new Date(entry.start_time).getTime());
   }
+  // A finalized entry stops the clock at its own end, never at 'now'. An
+  // open segment on a stopped entry should not exist - every stop path closes
+  // it, and an audit of production found none - but nothing in the database or
+  // the API enforces that: validateEntryTiming explicitly permits a null
+  // segment end and never cross-checks end_time. Were one to appear, this
+  // function is what payroll and client billing both read, so the entry would
+  // bill a little more every time anyone looked at it. Clamping costs nothing
+  // and makes that unbounded case unreachable.
+  const openEnd = entry.end_time ? new Date(entry.end_time).getTime() : now;
   let total = 0;
   for (const seg of entry.segments) {
     const startMs = new Date(seg.start).getTime();
-    const endMs = seg.end ? new Date(seg.end).getTime() : now;
+    const endMs = seg.end ? new Date(seg.end).getTime() : openEnd;
     total += Math.max(0, endMs - startMs);
   }
   return total;
@@ -234,4 +243,104 @@ export function closeOpenSegment(segments: TimeSegment[], endIso: string): TimeS
 /** Returns a new segments array with a new open segment appended. */
 export function appendOpenSegment(segments: TimeSegment[], startIso: string): TimeSegment[] {
   return [...segments, { start: startIso, end: null }];
+}
+
+/**
+ * Re-derive an entry's segments when its overall start/end (or date) is edited.
+ *
+ * Editing the entry-level times of a PAUSED entry is genuinely ambiguous, and
+ * the first version of this resolved the ambiguity by collapsing everything to
+ * one segment spanning the new bounds. That silently billed straight through
+ * every break: a real incident turned 5h04m of tracked work into 12h25m by
+ * nudging an end time. The rule now is that no edit may invent worked time.
+ *
+ * What the fields mean for a multi-segment entry, and what each edit does:
+ *
+ *   - The date field moves the whole session. Every segment shifts by the same
+ *     delta, so the pause structure arrives intact on the new day. (Clamping
+ *     instead would strand interior segments on the old date, producing
+ *     negative-duration and out-of-order segments.)
+ *   - The start field adjusts where work BEGINS. Earlier extends the first
+ *     segment; later truncates into it; far enough to clear a segment
+ *     entirely drops it.
+ *   - The end field is the mirror image for where work ENDS.
+ *
+ * Landing in a pause is the case that decides the whole design: dragging the
+ * start into a gap drops the segments before it, and the next segment keeps
+ * its own start rather than being stretched back to meet the typed time —
+ * stretching would invent minutes nobody worked. The returned `start`/`end`
+ * are therefore the bounds the segments actually justify, which may differ
+ * from what was typed, and callers should persist those rather than the raw
+ * input so the entry's bounds and its segments can never disagree.
+ *
+ * Output always satisfies the server's rules (`validateEntryTiming`):
+ * non-empty, every end >= its start, and no overlaps — gaps are only ever
+ * preserved or dropped, never closed.
+ */
+export function resegmentEntry(params: {
+  segments: TimeSegment[];
+  /** Original entry start, to measure the shift against. */
+  previousStart: string;
+  /** Newly typed bounds, in ms. */
+  newStart: number;
+  newEnd: number;
+  /** True when the date field changed, which means "move the whole session". */
+  dayShifted: boolean;
+}): { segments: TimeSegment[]; start: number; end: number } {
+  const { segments, previousStart, newStart, newEnd, dayShifted } = params;
+  const collapsed = {
+    segments: [{ start: new Date(newStart).toISOString(), end: new Date(newEnd).toISOString() }],
+    start: newStart,
+    end: newEnd,
+  };
+  // One segment (or none) carries no pause history worth protecting: its
+  // bounds ARE the entry's, so the typed values are the whole truth.
+  if (!segments || segments.length <= 1) return collapsed;
+
+  // An open segment closes at the new end rather than being discarded.
+  // Dropping it looks harmless and is not: with the running block gone, the
+  // code below sees nothing after the last closed segment and stretches that
+  // one across the whole remaining window - re-inventing the very hours this
+  // function exists to protect (caught by the open-segment case in the
+  // scenario matrix, which billed 10.92h for a 5.07h day). Sorting defends
+  // against rows stored loosely.
+  const ordered = segments
+    .map((s) => ({ start: Date.parse(s.start), end: s.end === null ? newEnd : Date.parse(s.end) }))
+    .filter((s) => Number.isFinite(s.start) && Number.isFinite(s.end))
+    .sort((a, b) => a.start - b.start);
+  if (ordered.length <= 1) return collapsed;
+
+  const shift = dayShifted ? newStart - Date.parse(previousStart) : 0;
+  const moved = ordered.map((s) => ({ start: s.start + shift, end: s.end + shift }));
+
+  // Keep only what the new window still covers. Strict comparisons so a
+  // segment touching the boundary exactly is dropped rather than kept as a
+  // zero-length sliver.
+  const firstIndex = moved.findIndex((s) => s.end > newStart && s.start < newEnd);
+  if (firstIndex === -1) return collapsed;
+  const kept = moved.filter((s) => s.end > newStart && s.start < newEnd);
+
+  // Front edge. Extending backwards is only honest when nothing was dropped
+  // ahead of it — otherwise the typed start sits in a pause, and the first
+  // surviving segment keeps its own start.
+  const droppedFromFront = firstIndex > 0;
+  const head = kept[0];
+  if (newStart > head.start || !droppedFromFront) {
+    head.start = Math.min(newStart, head.end);
+  }
+  // Back edge, mirrored.
+  const droppedFromBack = kept.length + firstIndex < moved.length;
+  const tail = kept[kept.length - 1];
+  if (newEnd < tail.end || !droppedFromBack) {
+    tail.end = Math.max(newEnd, tail.start);
+  }
+
+  return {
+    segments: kept.map((s) => ({
+      start: new Date(s.start).toISOString(),
+      end: new Date(s.end).toISOString(),
+    })),
+    start: kept[0].start,
+    end: kept[kept.length - 1].end,
+  };
 }

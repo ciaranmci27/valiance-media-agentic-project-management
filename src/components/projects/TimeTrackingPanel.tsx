@@ -17,7 +17,7 @@ import { NumberInput } from '@/components/ui/inputs/NumberInput';
 import { TimeEntry } from '@/lib/types';
 import { siteConfig } from '@/site-config';
 import { toLocalTimeString, toLocalDateString } from '@/lib/date-utils';
-import { getWorkedHours, getWorkedMs, isPaused } from '@/lib/time-entry-utils';
+import { getWorkedHours, getWorkedMs, resegmentEntry, isPaused } from '@/lib/time-entry-utils';
 import { paidHourlyLineItemTotal, fifoPaymentBreakdowns, type PaymentBreakdown } from '@/lib/invoice-utils';
 import { hasPermission } from '@/lib/access-control';
 
@@ -539,11 +539,23 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
       } else if (end.getTime() === start.getTime()) {
         toast('error', 'End time must be after start time'); return;
       }
-      // Manual start/end overrides make the existing pause history unreliable,
-      // so collapse to a single clean segment spanning the new bounds.
-      patch.start_time = start.toISOString();
-      patch.end_time = end.toISOString();
-      patch.segments = [{ start: start.toISOString(), end: end.toISOString() }];
+      // Segments are re-derived rather than flattened. resegmentEntry owns
+      // every case (start or end landing mid-segment or inside a pause, the
+      // whole session moving day, nothing surviving at all) and guarantees no
+      // edit can invent worked time; see its docs for the rules.
+      const resegmented = resegmentEntry({
+        segments: original.segments || [],
+        previousStart: original.start_time,
+        newStart: start.getTime(),
+        newEnd: end.getTime(),
+        dayShifted: editState.date !== originalDate,
+      });
+      // Persist the bounds the segments justify, not the raw input: dragging
+      // an edge into a pause settles on the neighbouring block's own edge, and
+      // the entry's start/end must agree with its segments.
+      patch.start_time = new Date(resegmented.start).toISOString();
+      patch.end_time = new Date(resegmented.end).toISOString();
+      patch.segments = resegmented.segments;
     }
 
     updateTimeEntry(editingId, patch);
