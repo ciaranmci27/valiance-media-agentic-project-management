@@ -45,6 +45,27 @@ export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMembe
 
   const { verdict, summary, pr_url, head_sha } = body as any;
 
+  // Idempotency: one verdict per (commit, verdict). Two reviewer turns can
+  // overlap when a dispatcher wake and the standing cron land close together;
+  // the second turn starts before the first verdict exists, reviews honestly,
+  // and files the same conclusion about the same code. Observed live: rounds
+  // 3 and 4 on one PR were identical approvals of one SHA, ten minutes apart,
+  // and round inflation is not cosmetic - the escalation counter reads it.
+  // Returning the existing row keeps the late filer's flow working (it gets a
+  // review back) without minting a duplicate round. A DIFFERENT verdict on
+  // the same SHA still files: reviewer minds may legitimately change.
+  const { data: latest } = await supabase
+    .from('task_reviews')
+    .select('*')
+    .eq('task_id', id)
+    .eq('pr_url', pr_url)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (latest && latest.head_sha === head_sha.toLowerCase() && latest.verdict === verdict) {
+    return created(latest);
+  }
+
   // Round is derived server-side so callers cannot reset the escalation
   // counter, and it is scoped to the PR: a replacement PR for the same task
   // starts at round 1 instead of inheriting the abandoned PR's rounds. count
