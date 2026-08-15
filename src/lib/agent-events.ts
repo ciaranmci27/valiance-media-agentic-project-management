@@ -141,12 +141,19 @@ export function formatEventTitle(type: AgentEventType, payload: Record<string, u
       return pr ? `${pr} ready for review${round}` : `Handed off for review: ${p.task_title}`;
     case 'work.done':
       return `Finished: ${p.task_title}`;
-    case 'review.started':
-      return `Review round ${p.round} started: ${pr ?? p.task_title}`;
-    case 'review.verdict':
+    case 'review.started': {
+      // Both references are optional on a verdict-adjacent event; a missing
+      // one must vanish, not render as the literal string "undefined"
+      // (observed in the live feed: "Approved undefined (round 2)").
+      const subject = pr ?? (p.task_title ? String(p.task_title) : null);
+      return subject ? `Review round ${p.round} started: ${subject}` : `Review round ${p.round} started`;
+    }
+    case 'review.verdict': {
+      const subject = pr ?? (p.task_title ? String(p.task_title) : null);
       return p.verdict === 'approved'
-        ? `Approved ${pr ?? p.task_title}${round}`
-        : `Changes requested on ${pr ?? p.task_title}${round}`;
+        ? (subject ? `Approved ${subject}${round}` : `Approved${round}`)
+        : (subject ? `Changes requested on ${subject}${round}` : `Changes requested${round}`);
+    }
     case 'audit.finding':
       return Number(p.findings) > 0
         ? `Audit found ${p.findings} issue${Number(p.findings) === 1 ? '' : 's'}: ${p.subject}`
