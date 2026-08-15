@@ -14,6 +14,7 @@ import {
   Check, X, HelpCircle, Lightbulb, ChevronDown, ChevronRight, Pencil, RotateCcw, ExternalLink, Ban,
 } from 'lucide-react';
 import { toast } from '@/components/ui/Toast';
+import { BundleApproveModal } from '@/components/agent/BundleApproveModal';
 
 type StatusFilter = '' | 'pending' | 'needs_info' | 'approved' | 'rejected' | 'declined';
 
@@ -27,12 +28,15 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
     taskSuggestions, projects, projectGoals, team,
     rejectSuggestion, declineSuggestion, requestInfoOnSuggestion, updateSuggestion,
     bulkApproveSuggestions, bulkRejectSuggestions, bulkDeclineSuggestions,
+    approveSuggestionBundle, bundleSuggestions, unbundleSuggestion,
   } = useApp();
   const { teamMemberId } = useAuth();
   const router = useRouter();
 
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('pending');
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  // The bundle whose approve-together modal is open, by shared key.
+  const [bundleModalKey, setBundleModalKey] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [rejectInputId, setRejectInputId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState('');
@@ -83,11 +87,21 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
 
     for (const [projectId, suggestions] of map) {
       const project = projects.find(p => p.id === projectId);
+      // Bundle members render adjacently: stable-sort by first appearance of
+      // each bundle key, keeping unbundled rows in their original order.
+      const firstSeen = new Map<string, number>();
+      suggestions.forEach((s, i) => {
+        if (s.bundle_key && !firstSeen.has(s.bundle_key)) firstSeen.set(s.bundle_key, i);
+      });
+      const clustered = suggestions
+        .map((s, i) => ({ s, order: s.bundle_key ? firstSeen.get(s.bundle_key)! : i, i }))
+        .sort((a, b) => a.order - b.order || a.i - b.i)
+        .map(x => x.s);
       groups.push({
         projectId,
         projectName: project?.name || 'Unknown',
         projectColor: project?.color || null,
-        suggestions,
+        suggestions: clustered,
       });
     }
 
@@ -333,16 +347,42 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
             {/* Suggestions under this project */}
             {!collapsedProjects.has(group.projectId) && (
             <div className="divide-y divide-white/[0.06]">
-              {group.suggestions.map((suggestion) => {
+              {group.suggestions.map((suggestion, idx) => {
                 const isExpanded = expandedId === suggestion.id;
+                // A bundle header renders above its FIRST member: name the
+                // group, count it, and offer approve-together when 2+ members
+                // are still pending.
+                const bundleKey = suggestion.bundle_key || null;
+                const isBundleStart = Boolean(
+                  bundleKey && (idx === 0 || group.suggestions[idx - 1].bundle_key !== bundleKey)
+                );
+                const bundleMembers = bundleKey
+                  ? group.suggestions.filter(x => x.bundle_key === bundleKey)
+                  : [];
+                const bundlePending = bundleMembers.filter(x => x.status === 'pending');
 
                 return (
                   <div key={suggestion.id} className="group">
+                    {isBundleStart && (
+                      <div className="px-3 lg:px-4 py-1.5 bg-brand-500/[0.06] border-y border-brand-400/15 flex items-center gap-2">
+                        <span className="text-[10px] font-semibold uppercase tracking-wider text-brand-300">
+                          Bundle · {bundleMembers.length} suggestions
+                        </span>
+                        {bundlePending.length >= 2 && (
+                          <button
+                            onClick={() => setBundleModalKey(bundleKey)}
+                            className="ml-auto text-[11px] font-medium text-brand-300 hover:text-brand-200 transition-colors"
+                          >
+                            Approve together ({bundlePending.length})
+                          </button>
+                        )}
+                      </div>
+                    )}
                     {/* Collapsed row */}
                     <div
                       className={`p-3 lg:p-4 cursor-pointer hover:bg-white/[0.03] transition-colors ${
                         isExpanded ? 'bg-white/[0.03]' : ''
-                      }`}
+                      } ${bundleKey ? 'border-l-2 border-brand-400/40' : ''}`}
                       onClick={() => setExpandedId(isExpanded ? null : suggestion.id)}
                     >
                       <div className="flex items-start gap-3">
@@ -467,6 +507,19 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
                     {isExpanded && (
                       <div className="px-3 lg:px-4 pb-3 lg:pb-4 bg-white/[0.03] animate-slideDown">
                         <div className="ml-5 lg:ml-5 space-y-3">
+                          {/* Manual unbundle: final by design - the auditor
+                              respects the marker and never re-bundles it. */}
+                          {bundleKey && suggestion.status === 'pending' && (
+                            <button
+                              onClick={async (e) => {
+                                e.stopPropagation();
+                                if (await unbundleSuggestion(suggestion.id)) toast('success', 'Removed from bundle');
+                              }}
+                              className="text-[11px] font-medium text-zinc-400 hover:text-zinc-200 underline underline-offset-2 transition-colors"
+                            >
+                              Remove from bundle
+                            </button>
+                          )}
                           {/* One visual system, one rule: every section is the same
                               raised card, and the single deviation is the Proposed Fix,
                               tinted brand because it is the action being approved. Code
@@ -732,6 +785,24 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
         <div className="flex-shrink-0 border-t border-white/[0.08] bg-white/[0.03] px-4 py-2.5 flex items-center justify-between animate-fadeIn">
           <span className="text-xs font-medium text-zinc-300">{selectedIds.size} selected</span>
           <div className="flex items-center gap-2">
+            {(() => {
+              const chosen = taskSuggestions.filter(x => selectedIds.has(x.id) && x.status === 'pending');
+              const oneProject = new Set(chosen.map(x => x.project_id)).size === 1;
+              if (chosen.length < 2 || !oneProject) return null;
+              return (
+                <button
+                  onClick={async () => {
+                    if (await bundleSuggestions(chosen.map(x => x.id))) {
+                      toast('success', `Bundled ${chosen.length} suggestions`);
+                      setSelectedIds(new Set());
+                    }
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-brand-300 bg-surface-raised border border-brand-400/25 hover:bg-brand-500/10 transition-colors"
+                >
+                  Bundle
+                </button>
+              );
+            })()}
             <button
               onClick={() => setShowBulkModal(true)}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-zinc-300 bg-surface-raised border border-white/[0.08] hover:bg-white/[0.03] transition-colors"
@@ -748,6 +819,24 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
         </div>
       )}
     </div>
+
+    {/* Bundle approve modal: every member visible, any subset approvable. */}
+    {bundleModalKey && (() => {
+      const members = taskSuggestions.filter(x => x.bundle_key === bundleModalKey && x.status === 'pending');
+      if (members.length < 2) return null;
+      return (
+        <BundleApproveModal
+          suggestions={members}
+          onClose={() => setBundleModalKey(null)}
+          onApprove={async (ids, overrides) => {
+            setBundleModalKey(null);
+            if (await approveSuggestionBundle(ids, overrides, teamMemberId || '')) {
+              toast('success', `Approved ${ids.length} suggestions as one task`);
+            }
+          }}
+        />
+      );
+    })()}
 
     {/* Reject Modal */}
     <Modal isOpen={!!rejectInputId} onClose={() => setRejectInputId(null)} title="Reject Suggestion" size="sm">

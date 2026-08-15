@@ -952,6 +952,8 @@ export interface TaskSuggestion {
   metadata: Record<string, any>;
   created_at: string;
   updated_at: string;
+  /** Shared bundle key; members stay atomic, approval composes one task. */
+  bundle_key?: string | null;
 }
 
 // ============================================================

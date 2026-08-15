@@ -1739,6 +1739,7 @@ export async function insertTaskSuggestion(
       task_type: suggestion.task_type || null,
       status: suggestion.status || 'pending',
       metadata: suggestion.metadata || {},
+      bundle_key: (suggestion as { bundle_key?: string | null }).bundle_key || null,
     })
     .select()
     .single();
@@ -1895,6 +1896,134 @@ export async function approveTaskSuggestion(
 
   return {
     suggestion: updated as TaskSuggestion,
+    task: {
+      ...task,
+      assignee_ids: assignedTo ? [assignedTo] : [],
+      subtasks: [],
+      comments: [],
+      acceptance_criteria: insertedCriteria,
+      blocked_by_ids: [],
+    } as Task,
+  };
+}
+
+/**
+ * Approve several bundled suggestions as ONE task.
+ *
+ * Composition, never blending: the task description carries one section per
+ * member verbatim, criteria are the union of every member's criteria, and
+ * each member links to the same converted task. Members are claimed with the
+ * same compare-and-set as single approval, one by one; a member that loses
+ * its race is skipped (reported back) rather than failing the batch, because
+ * the remaining members still deserve their task.
+ */
+export async function approveTaskSuggestionBundle(
+  supabase: SupabaseClient,
+  ids: string[],
+  taskOverrides: { title?: string; priority?: string; assigned_to?: string | null; due_date?: string | null; task_type?: string | null; ai_readiness?: 'ai_ready' | 'human_only' | null },
+  reviewedBy: string
+) {
+  if (ids.length < 2) throw new Error('A bundle approval needs at least two suggestions');
+
+  const { data: members, error: memberErr } = await supabase
+    .from('task_suggestions')
+    .select('*')
+    .in('id', ids);
+  if (memberErr) throw memberErr;
+  const list = (members || []) as TaskSuggestion[];
+  if (list.length !== ids.length) throw new Error('Some bundle members no longer exist');
+  const projectIds = new Set(list.map(s => s.project_id));
+  if (projectIds.size !== 1) throw new Error('Bundle members must share one project');
+
+  // Claim each member; losers of a concurrent race are excluded, not fatal.
+  const claimed: TaskSuggestion[] = [];
+  const skipped: string[] = [];
+  for (const member of list) {
+    const { data: row, error: claimErr } = await supabase
+      .from('task_suggestions')
+      .update({ status: 'approved', reviewed_by: reviewedBy, reviewed_at: new Date().toISOString() })
+      .eq('id', member.id)
+      .in('status', ['pending', 'needs_info'])
+      .select()
+      .maybeSingle();
+    if (claimErr) throw claimErr;
+    if (row) claimed.push(row as TaskSuggestion); else skipped.push(member.id);
+  }
+  if (claimed.length === 0) throw new Error('Suggestion has already been reviewed');
+
+  const sections: string[] = [];
+  const criteria: string[] = [];
+  for (const member of claimed) {
+    const md = (member.metadata || {}) as Record<string, any>;
+    const fix = typeof md.proposed_fix === 'string' && md.proposed_fix.trim() ? `
+
+Proposed fix: ${md.proposed_fix.trim()}` : '';
+    sections.push(`## ${member.title}
+
+${member.description}${fix}`);
+    if (Array.isArray(md.acceptance_criteria)) {
+      for (const c of md.acceptance_criteria) {
+        if (typeof c === 'string' && c.trim() && !criteria.includes(c.trim())) criteria.push(c.trim());
+      }
+    }
+  }
+
+  const first = claimed[0];
+  const priorities = ['urgent', 'high', 'medium', 'low'];
+  const topPriority = priorities.find(p => claimed.some(m => m.priority === p)) || 'medium';
+  const taskData: Record<string, any> = {
+    project_id: first.project_id,
+    title: taskOverrides.title?.trim() || `${first.title} (+${claimed.length - 1} bundled)`,
+    description: sections.join('\n\n---\n\n'),
+    status: 'todo' as const,
+    priority: (taskOverrides.priority || topPriority) as Task['priority'],
+    due_date: taskOverrides.due_date || null,
+    tags: [] as string[],
+    source_task_suggestion_id: first.id,
+    project_goal_id: first.goal_id,
+    created_by: reviewedBy,
+  };
+  const resolvedTaskType = taskOverrides.task_type !== undefined ? taskOverrides.task_type : first.task_type || null;
+  if (resolvedTaskType) taskData.task_type = resolvedTaskType;
+  if (taskOverrides.ai_readiness) taskData.ai_readiness = taskOverrides.ai_readiness;
+
+  const { data: task, error: taskErr } = await supabase.from('tasks').insert(taskData).select().single();
+  if (taskErr) {
+    for (const member of claimed) {
+      await supabase
+        .from('task_suggestions')
+        .update({ status: 'pending', reviewed_by: null, reviewed_at: null })
+        .eq('id', member.id)
+        .then(() => {}, () => {});
+    }
+    throw taskErr;
+  }
+
+  let insertedCriteria: AcceptanceCriterion[] = [];
+  if (criteria.length) {
+    const { data: criteriaRows, error: criteriaError } = await supabase
+      .from('task_acceptance_criteria')
+      .insert(criteria.map((criterion, index) => ({ task_id: task.id, criterion, sort_order: index })))
+      .select();
+    if (criteriaError) throw criteriaError;
+    insertedCriteria = (criteriaRows || []) as AcceptanceCriterion[];
+  }
+
+  const assignedTo = taskOverrides.assigned_to || first.assigned_to;
+  if (assignedTo) {
+    await supabase.from('task_assignees').insert({ task_id: task.id, member_id: assignedTo }).then(() => {}, () => {});
+  }
+
+  const { data: updatedRows, error: linkErr } = await supabase
+    .from('task_suggestions')
+    .update({ converted_task_id: task.id })
+    .in('id', claimed.map(m => m.id))
+    .select();
+  if (linkErr) throw linkErr;
+
+  return {
+    suggestions: (updatedRows || []) as TaskSuggestion[],
+    skipped,
     task: {
       ...task,
       assignee_ids: assignedTo ? [assignedTo] : [],

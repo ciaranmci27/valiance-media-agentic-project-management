@@ -87,6 +87,7 @@ import {
   archiveGoal as archiveGoalQuery,
   fetchTaskSuggestions,
   approveTaskSuggestion as approveTaskSuggestionQuery,
+  approveTaskSuggestionBundle as approveTaskSuggestionBundleQuery,
   rejectTaskSuggestion as rejectTaskSuggestionQuery,
   declineTaskSuggestion as declineTaskSuggestionQuery,
   requestInfoTaskSuggestion as requestInfoTaskSuggestionQuery,
@@ -313,6 +314,12 @@ interface AppContextType {
   // Task Suggestion review actions
   approveSuggestion: (id: string, taskOverrides: { priority?: string; assigned_to?: string | null; due_date?: string | null; project_id?: string; task_type?: string | null; ai_readiness?: 'ai_ready' | 'human_only' | null }, reviewedBy: string) => Promise<boolean>;
   declineSuggestion: (id: string, reviewedBy: string) => Promise<boolean>;
+  /** Approve several BUNDLED suggestions as one composed task. */
+  approveSuggestionBundle: (ids: string[], overrides: { title?: string; priority?: string; assigned_to?: string | null; due_date?: string | null; task_type?: string | null; ai_readiness?: 'ai_ready' | 'human_only' | null }, reviewedBy: string) => Promise<boolean>;
+  /** Manually tie pending suggestions together (same project). */
+  bundleSuggestions: (ids: string[]) => Promise<boolean>;
+  /** Remove one suggestion from its bundle; the agent never re-bundles it. */
+  unbundleSuggestion: (id: string) => Promise<boolean>;
   rejectSuggestion: (id: string, reason: string | undefined, reviewedBy: string) => Promise<boolean>;
   requestInfoOnSuggestion: (id: string, infoRequest: string, reviewedBy: string) => void;
   updateSuggestion: (id: string, updates: Partial<TaskSuggestion>) => void;
@@ -2819,7 +2826,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       id: optimisticId,
       created_at: now,
       updated_at: now,
-    };    setTimeEntries(prev => [optimistic, ...prev]);
+    };
+    setTimeEntries(prev => [optimistic, ...prev]);
     if (skipSupabase) return;
 
     try {
@@ -2846,7 +2854,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     updates: Partial<Pick<TimeEntry, 'member_id' | 'start_time' | 'end_time' | 'segments' | 'description' | 'work_type' | 'task_ids'>>,
     options: { silent?: boolean } = {},
   ) => {
-    const existing = timeEntries.find(te => te.id === id);    setTimeEntries(te => te.map(entry =>
+    const existing = timeEntries.find(te => te.id === id);
+    setTimeEntries(te => te.map(entry =>
       entry.id === id ? { ...entry, ...updates, updated_at: new Date().toISOString() } : entry
     ));
     if (skipSupabase) return;
@@ -2879,7 +2888,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   const deleteTimeEntry = async (id: string) => {
-    const existing = timeEntries.find(te => te.id === id);    if (skipSupabase) {
+    const existing = timeEntries.find(te => te.id === id);
+    if (skipSupabase) {
       setTimeEntries(te => te.filter(entry => entry.id !== id));
       return true;
     }
@@ -3156,6 +3166,91 @@ export function AppProvider({ children }: { children: ReactNode }) {
       // the optimistic state of other suggestions in a bulk approve
       setTaskSuggestions(s => s.map(sug => sug.id === id ? suggestion : sug));
       toast('error', 'Failed to approve suggestion');
+      return false;
+    }
+  };
+
+  const approveSuggestionBundleAction = async (
+    ids: string[],
+    overrides: { title?: string; priority?: string; assigned_to?: string | null; due_date?: string | null; task_type?: string | null; ai_readiness?: 'ai_ready' | 'human_only' | null },
+    reviewedBy: string
+  ) => {
+    const members = taskSuggestions.filter(s => ids.includes(s.id));
+    if (members.length < 2) return false;
+
+    // Same dev-agent defaulting as single approval: an ai_ready task nobody
+    // is assigned to strands in todo forever.
+    if (overrides.assigned_to === undefined && overrides.ai_readiness === 'ai_ready') {
+      const agents = team.filter(m => m.role === 'agent');
+      const devAgent =
+        agents.find(m => /develop|engineer/i.test(m.title || '')) ??
+        (agents.length === 1 ? agents[0] : undefined);
+      if (devAgent) overrides = { ...overrides, assigned_to: devAgent.id };
+    }
+
+    setTaskSuggestions(s => s.map(sug =>
+      ids.includes(sug.id) ? { ...sug, status: 'approved' as const, reviewed_by: reviewedBy, reviewed_at: new Date().toISOString() } : sug
+    ));
+    if (skipSupabase) return true;
+
+    try {
+      const result = await approveTaskSuggestionBundleQuery(supabase, ids, overrides, reviewedBy);
+      const updatedById = new Map(result.suggestions.map(u => [u.id, u]));
+      setTaskSuggestions(s => s.map(sug => updatedById.get(sug.id) ?? sug));
+      setTasks(prev => [result.task, ...prev]);
+      if (result.skipped.length) {
+        toast('error', `${result.skipped.length} suggestion(s) were already reviewed and stayed out of the bundle`);
+      }
+      return true;
+    } catch (err) {
+      setTaskSuggestions(s => s.map(sug => {
+        const original = members.find(m => m.id === sug.id);
+        return original ?? sug;
+      }));
+      toast('error', err instanceof Error ? err.message : 'Failed to approve bundle');
+      return false;
+    }
+  };
+
+  const bundleSuggestionsAction = async (ids: string[]) => {
+    const members = taskSuggestions.filter(s => ids.includes(s.id) && s.status === 'pending');
+    if (members.length < 2) return false;
+    if (new Set(members.map(m => m.project_id)).size !== 1) {
+      toast('error', 'Bundles cannot cross projects');
+      return false;
+    }
+    const key = members.find(m => m.bundle_key)?.bundle_key ?? crypto.randomUUID();
+    setTaskSuggestions(s => s.map(sug => ids.includes(sug.id) ? { ...sug, bundle_key: key } : sug));
+    if (skipSupabase) return true;
+    try {
+      for (const m of members) {
+        await patchTaskSuggestionQuery(supabase, m.id, { bundle_key: key });
+      }
+      return true;
+    } catch {
+      setTaskSuggestions(s => s.map(sug => {
+        const original = members.find(m => m.id === sug.id);
+        return original ?? sug;
+      }));
+      toast('error', 'Failed to bundle suggestions');
+      return false;
+    }
+  };
+
+  const unbundleSuggestionAction = async (id: string) => {
+    const suggestion = taskSuggestions.find(s => s.id === id);
+    if (!suggestion) return false;
+    // metadata.unbundled is the marker the auditor respects: a manual
+    // unbundle is final, never re-proposed into a bundle.
+    const nextMetadata = { ...((suggestion.metadata || {}) as Record<string, unknown>), unbundled: true };
+    setTaskSuggestions(s => s.map(sug => sug.id === id ? { ...sug, bundle_key: null, metadata: nextMetadata } : sug));
+    if (skipSupabase) return true;
+    try {
+      await patchTaskSuggestionQuery(supabase, id, { bundle_key: null, metadata: nextMetadata as TaskSuggestion['metadata'] });
+      return true;
+    } catch {
+      setTaskSuggestions(s => s.map(sug => sug.id === id ? suggestion : sug));
+      toast('error', 'Failed to unbundle');
       return false;
     }
   };
@@ -3556,6 +3651,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       updateGoal: updateGoalAction,
       archiveGoal: archiveGoalAction,
       approveSuggestion: approveSuggestionAction,
+    approveSuggestionBundle: approveSuggestionBundleAction,
+    bundleSuggestions: bundleSuggestionsAction,
+    unbundleSuggestion: unbundleSuggestionAction,
       rejectSuggestion: rejectSuggestionAction,
       declineSuggestion: declineSuggestionAction,
       requestInfoOnSuggestion: requestInfoOnSuggestionAction,

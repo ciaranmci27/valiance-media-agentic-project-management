@@ -68,9 +68,13 @@ CREATE TABLE public.task_suggestions (
   metadata jsonb NOT NULL DEFAULT '{}',
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
-);
+,
+  -- Bundle membership: a shared key, nothing more. Members stay atomic;
+  -- approving a subset composes ONE task. NULL means unbundled.
+  bundle_key uuid);
 
 CREATE INDEX idx_task_suggestions_project_id ON public.task_suggestions(project_id);
+CREATE INDEX idx_task_suggestions_bundle ON public.task_suggestions(bundle_key) WHERE bundle_key IS NOT NULL;
 CREATE INDEX idx_task_suggestions_goal_id ON public.task_suggestions(goal_id);
 CREATE INDEX idx_task_suggestions_proposed_by ON public.task_suggestions(proposed_by);
 CREATE INDEX idx_task_suggestions_status ON public.task_suggestions(status);

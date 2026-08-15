@@ -13,6 +13,13 @@ export const createSuggestionSchema = z.object({
   assigned_to: z.string().uuid().nullable().default(null),
   task_type: taskTypeEnum.nullable().optional(),
   metadata: z.record(z.string(), z.any()).default({}),
+  /**
+   * Bundle this suggestion with an existing PENDING one (same project). The
+   * server resolves the shared key: the target's bundle_key if it has one,
+   * else a fresh key stamped on both. Suggestions are never merged; a
+   * bundle is one review session and, for the approved subset, one task.
+   */
+  bundle_with: z.string().uuid().nullable().optional(),
 });
 
 export const updateSuggestionSchema = z.object({

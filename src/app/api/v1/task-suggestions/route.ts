@@ -71,11 +71,35 @@ export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId, acc
     .maybeSingle();
   if (!goal) throw badRequest('goal_id must belong to project_id');
 
+  // Bundling: resolve the shared key server-side so the proposer cannot
+  // invent keys or reach across projects. The target must be a PENDING
+  // suggestion in the same project; anything else drops the bundle silently
+  // (a failed bundle must never block a valid finding). A target Ciaran
+  // manually unbundled (metadata.unbundled) is left alone: his arrangement
+  // always wins over the proposer's.
+  const { bundle_with, ...suggestionBody } = body as Record<string, unknown> & { bundle_with?: string | null };
+  let bundleKey: string | null = null;
+  if (bundle_with) {
+    const { data: target } = await supabase
+      .from('task_suggestions')
+      .select('id, project_id, status, bundle_key, metadata')
+      .eq('id', bundle_with)
+      .maybeSingle();
+    const unbundled = Boolean((target?.metadata as Record<string, unknown> | null)?.unbundled);
+    if (target && target.status === 'pending' && target.project_id === suggestionInput.project_id && !unbundled) {
+      bundleKey = (target.bundle_key as string | null) ?? crypto.randomUUID();
+      if (!target.bundle_key) {
+        await supabase.from('task_suggestions').update({ bundle_key: bundleKey }).eq('id', target.id);
+      }
+    }
+  }
+
   const suggestion = await insertTaskSuggestion(supabase, {
-    ...body,
+    ...suggestionBody,
+    ...(bundleKey ? { bundle_key: bundleKey } : {}),
     proposed_by: teamMemberId,
     status: 'pending',
-  });
+  } as Parameters<typeof insertTaskSuggestion>[1]);
 
   logAudit(supabase, {
     method: 'POST',
