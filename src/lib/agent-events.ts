@@ -69,7 +69,11 @@ export const AGENT_EVENT_SCHEMAS = {
     cost_status: z.string().min(1).max(100).optional(),
     cost_source: z.string().min(1).max(100).optional(),
     session_id: z.string().min(1).max(300).optional(),
-    recorded_at: z.string().datetime().optional(),
+    // offset: true accepts "+00:00" alongside "Z". The host publisher emits
+    // python isoformat() timestamps, which carry the numeric offset form, and
+    // both are valid ISO 8601 instants; rejecting one is contract brittleness,
+    // observed live as every usage event bouncing 422.
+    recorded_at: z.string().datetime({ offset: true }).optional(),
   }),
 
   // -- reviewing -----------------------------------------------------------
