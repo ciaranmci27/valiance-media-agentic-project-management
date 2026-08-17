@@ -141,7 +141,10 @@ export function ActivityTimeline({ projectId, listMaxHeightClass }: ActivityTime
 
                         {/* Content */}
                         <div className="flex-1 min-w-0">
-                          <p className="text-xs text-zinc-300 leading-relaxed">
+                          {/* Agent titles carry PR links, which are single
+                              unbreakable tokens: without break-words the line
+                              runs past the card instead of wrapping in it. */}
+                          <p className="text-xs text-zinc-300 leading-relaxed break-words">
                             <span className="font-medium">{agentName}</span>
                             <span className="text-zinc-600">{' - '}</span>
                             <span className="text-zinc-400">{entry.title}</span>
@@ -245,9 +248,9 @@ export function ActivityTimeline({ projectId, listMaxHeightClass }: ActivityTime
               </div>
 
               <div className="bg-surface-raised rounded-lg p-3 border border-white/[0.08]">
-                <p className="text-sm text-zinc-100 leading-relaxed whitespace-pre-line">{selected.title}</p>
+                <p className="text-sm text-zinc-100 leading-relaxed whitespace-pre-line break-words">{selected.title}</p>
                 {description && (
-                  <p className="text-sm text-zinc-400 leading-relaxed whitespace-pre-line mt-2">{description}</p>
+                  <p className="text-sm text-zinc-400 leading-relaxed whitespace-pre-line break-words mt-2">{description}</p>
                 )}
               </div>
 

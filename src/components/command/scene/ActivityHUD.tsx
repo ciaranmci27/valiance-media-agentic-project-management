@@ -209,12 +209,16 @@ export function ActivityHUD({
             <KindIcon size={14} className={KIND_STYLE[t.kind].fg} aria-hidden="true" />
           </span>
         )}
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <p className="text-[11px] font-semibold text-zinc-100 truncate">
             {member?.name ?? station?.key ?? 'System'}
           </p>
+          {/* A toast wraps rather than truncates, so `break-words` is what
+              keeps that promise: a PR link is one unbreakable token, and
+              without it the line runs straight out of this 300px column and
+              off the right edge of the screen. */}
           <p
-            className={`text-[11px] leading-snug ${
+            className={`text-[11px] leading-snug break-words ${
               t.kind === 'warn' ? 'text-amber-300' : t.kind === 'good' ? 'text-emerald-300' : 'text-zinc-300'
             }`}
           >
@@ -345,7 +349,7 @@ export function ActivityHUD({
                   <Tooltip
                     position="top"
                     className="min-w-0 flex-1"
-                    content={<span className="block max-w-[320px] whitespace-normal">{f.text}</span>}
+                    content={<span className="block max-w-[320px] whitespace-normal break-words">{f.text}</span>}
                   >
                     <span
                       className={`block w-full min-w-0 text-[11px] leading-snug truncate ${
@@ -417,7 +421,7 @@ export function ActivityHUD({
                     position="top"
                     className="w-full min-w-0 mt-0.5"
                     content={
-                      <span className="block max-w-[320px] whitespace-normal">
+                      <span className="block max-w-[320px] whitespace-normal break-words">
                         {snap.lastLine ?? s.craft}
                       </span>
                     }

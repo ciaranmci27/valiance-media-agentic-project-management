@@ -26,7 +26,6 @@ import {
   ClipboardCheck,
   Coins,
   DollarSign,
-  FileDiff,
   FolderKanban,
   GitMerge,
   Timer,
@@ -164,18 +163,23 @@ function bucketLabel(startKey: string, gran: Granularity, todayKey: string): str
 // tile selects what the chart plots.
 // ---------------------------------------------------------------------------
 
-type ChartMetric = 'revenue' | 'modelCost' | 'profit' | 'runtime' | 'prsMerged' | 'linesChanged' | 'reviewRounds';
+// Six, deliberately: the tile row divides evenly at every breakpoint (3 and 6
+// columns), where a seventh stranded one tile on a row of its own. Lines
+// changed rides along in the merged tile's context line, which is where those
+// lines come from, and stays a column in the leaderboard.
+type ChartMetric = 'revenue' | 'modelCost' | 'profit' | 'runtime' | 'prsMerged' | 'reviewRounds';
 
 type MetricFormat = 'currency' | 'count' | 'duration';
 
 const CHART_METRICS: { key: ChartMetric; label: string; format: MetricFormat; icon: LucideIcon }[] = [
+  // Revenue and profit sit together because they are read together: what came
+  // in, and what survived. Cost follows as the explanation of the gap.
   { key: 'revenue', label: 'Revenue', format: 'currency', icon: DollarSign },
-  { key: 'modelCost', label: 'Model cost', format: 'currency', icon: Coins },
   { key: 'profit', label: 'Profit', format: 'currency', icon: TrendingUp },
+  { key: 'modelCost', label: 'Model cost', format: 'currency', icon: Coins },
   // Fleet capacity: how long the agents actually ran. Internal only, never billed.
   { key: 'runtime', label: 'Active runtime', format: 'duration', icon: Timer },
   { key: 'prsMerged', label: 'PRs merged', format: 'count', icon: GitMerge },
-  { key: 'linesChanged', label: 'Lines changed', format: 'count', icon: FileDiff },
   { key: 'reviewRounds', label: 'Review rounds', format: 'count', icon: ClipboardCheck },
 ];
 
@@ -188,7 +192,6 @@ function metricOf(day: AgentAnalyticsDay, metric: ChartMetric): number {
     case 'profit': return day.profit ?? 0;
     case 'runtime': return day.runtimeMs ?? 0;
     case 'prsMerged': return day.prsMerged;
-    case 'linesChanged': return day.linesChanged;
     case 'reviewRounds': return day.reviewRounds;
   }
 }
@@ -436,7 +439,6 @@ export default function AgentAnalyticsPage() {
       profit: Array(rangeDays).fill(0),
       runtime: Array(rangeDays).fill(0),
       prsMerged: Array(rangeDays).fill(0),
-      linesChanged: Array(rangeDays).fill(0),
       reviewRounds: Array(rangeDays).fill(0),
     };
     for (const day of analytics.daily) {
@@ -499,24 +501,24 @@ export default function AgentAnalyticsPage() {
               : 'Turn telemetry has not reported yet. Runtime appears once completed turns are recorded.',
           };
         }
-        case 'prsMerged': return {
-          ...metric,
-          value: telemetry.merged ? summary.prsMerged.toLocaleString('en-US') : null,
-          valueClass: 'text-white',
-          context: telemetry.handoff
-            ? `${summary.prsOpened.toLocaleString('en-US')} opened`
-            : 'Merged pull requests',
-          notTracked: mergeReason,
-        };
-        case 'linesChanged': return {
-          ...metric,
-          value: telemetry.merged ? fmtCount(summary.linesChanged) : null,
-          valueClass: 'text-white',
-          context: telemetry.merged
-            ? `+${fmtCount(summary.additions)} / -${fmtCount(summary.deletions)}`
-            : 'From merged pull requests',
-          notTracked: 'Line counts arrive with merge telemetry, which has not reported yet.',
-        };
+        case 'prsMerged': {
+          // Opened and the diff size both belong to this tile: they describe
+          // the same pull requests, and a separate lines tile stranded a
+          // seventh card on its own row for a number that means little alone.
+          const parts = [
+            telemetry.handoff ? `${summary.prsOpened.toLocaleString('en-US')} opened` : null,
+            telemetry.merged && summary.linesChanged > 0
+              ? `+${fmtCount(summary.additions)} / -${fmtCount(summary.deletions)}`
+              : null,
+          ].filter(Boolean);
+          return {
+            ...metric,
+            value: telemetry.merged ? summary.prsMerged.toLocaleString('en-US') : null,
+            valueClass: 'text-white',
+            context: parts.length ? parts.join(' · ') : 'Merged pull requests',
+            notTracked: mergeReason,
+          };
+        }
         case 'reviewRounds': return {
           ...metric,
           value: summary.reviewRounds.toLocaleString('en-US'),
@@ -648,11 +650,13 @@ export default function AgentAnalyticsPage() {
   );
 
   const noTelemetryForMetric =
-    (chartMetric === 'prsMerged' || chartMetric === 'linesChanged') && !telemetry.merged
+    chartMetric === 'prsMerged' && !telemetry.merged
       ? 'Merge telemetry has not reported yet. This chart fills in once merged pull requests are recorded.'
       : (chartMetric === 'modelCost' || chartMetric === 'profit') && !telemetry.usage
         ? usageReason
-        : null;
+        : chartMetric === 'runtime' && !telemetry.runtime
+          ? 'Turn telemetry has not reported yet. Runtime appears once completed turns are recorded.'
+          : null;
 
   const fmtValue = (v: number) => metricConfig.format === 'currency'
     ? fmtCurrency(v)
