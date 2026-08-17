@@ -1971,6 +1971,22 @@ ${member.description}${fix}`);
   const first = claimed[0];
   const priorities = ['urgent', 'high', 'medium', 'low'];
   const topPriority = priorities.find(p => claimed.some(m => m.priority === p)) || 'medium';
+  // The reviewer's explicit choice wins; otherwise inherit the members'
+  // recommendations, mirroring the solo path: unanimous ai_ready runs
+  // autonomously, any human_only makes the whole composed task human (one
+  // human member gates the branch), anything mixed or hybrid stays unset
+  // until a human or the spec pass decides.
+  const recommendations = claimed.map(
+    m => ((m.metadata || {}) as Record<string, unknown>).ai_readiness_recommendation
+  );
+  const inheritedReadiness = recommendations.every(r => r === 'ai_ready')
+    ? 'ai_ready'
+    : recommendations.some(r => r === 'human_only')
+      ? 'human_only'
+      : null;
+  const resolvedReadiness = taskOverrides.ai_readiness !== undefined
+    ? taskOverrides.ai_readiness
+    : inheritedReadiness;
   const taskData: Record<string, any> = {
     project_id: first.project_id,
     title: taskOverrides.title?.trim() || `${first.title} (+${claimed.length - 1} bundled)`,
@@ -1985,7 +2001,7 @@ ${member.description}${fix}`);
   };
   const resolvedTaskType = taskOverrides.task_type !== undefined ? taskOverrides.task_type : first.task_type || null;
   if (resolvedTaskType) taskData.task_type = resolvedTaskType;
-  if (taskOverrides.ai_readiness) taskData.ai_readiness = taskOverrides.ai_readiness;
+  if (resolvedReadiness) taskData.ai_readiness = resolvedReadiness;
 
   const { data: task, error: taskErr } = await supabase.from('tasks').insert(taskData).select().single();
   if (taskErr) {

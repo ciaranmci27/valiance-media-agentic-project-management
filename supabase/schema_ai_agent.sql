@@ -111,6 +111,7 @@ CREATE TABLE public.agent_activities (
     'heartbeat', 'system_check',
     'custom',
     'work.claimed', 'work.milestone', 'work.handoff', 'work.done',
+    'pr.merged', 'usage.recorded',
     'review.started', 'review.verdict',
     'audit.finding', 'audit.no_work', 'spec.completed',
     'queue.empty', 'blocked',
@@ -128,6 +129,13 @@ CREATE INDEX idx_agent_activities_agent_id ON public.agent_activities(agent_id);
 CREATE INDEX idx_agent_activities_project_id ON public.agent_activities(project_id);
 CREATE INDEX idx_agent_activities_activity_type ON public.agent_activities(activity_type);
 CREATE INDEX idx_agent_activities_created_at ON public.agent_activities(created_at DESC);
+-- Retry-safe identity for events whose source can resend after an ambiguous
+-- network failure. Exact-string pr_url uniqueness is intentional; syntactic
+-- variants are deduplicated downstream by the analytics read model.
+CREATE UNIQUE INDEX idx_agent_activities_usage_identity ON public.agent_activities(agent_id, (metadata->>'source_usage_id'))
+  WHERE activity_type = 'usage.recorded' AND metadata->>'source_usage_id' IS NOT NULL;
+CREATE UNIQUE INDEX idx_agent_activities_merged_pr_identity ON public.agent_activities(agent_id, (metadata->>'pr_url'))
+  WHERE activity_type = 'pr.merged' AND metadata->>'pr_url' IS NOT NULL;
 
 ALTER TABLE public.agent_activities ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "agent_activities_all" ON public.agent_activities FOR ALL TO authenticated USING (true) WITH CHECK (true);

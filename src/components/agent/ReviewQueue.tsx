@@ -11,7 +11,7 @@ import { Tooltip } from '@/components/ui/Tooltip';
 import Modal from '@/components/ui/Modal';
 import { Textarea } from '@/components/ui/inputs/Textarea';
 import {
-  Check, X, HelpCircle, Lightbulb, ChevronDown, ChevronRight, Pencil, RotateCcw, ExternalLink, Ban,
+  Check, Layers, X, HelpCircle, Lightbulb, ChevronDown, ChevronRight, Pencil, RotateCcw, ExternalLink, Ban,
 } from 'lucide-react';
 import { toast } from '@/components/ui/Toast';
 import { BundleApproveModal } from '@/components/agent/BundleApproveModal';
@@ -185,11 +185,61 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
     toast('success', 'Suggestion reopened');
   };
 
+  // Bulk approve honors bundles: members sharing a bundle_key compose ONE
+  // task, exactly as the session's "Approve N as one task" button does.
+  // Selecting a bundle's row and approving from the Manage modal must never
+  // explode it into separate tasks; the grouping is the point of the bundle.
   const handleBulkApprove = async () => {
     const ids = [...selectedIds];
     setSelectedIds(new Set());
-    const approved = await bulkApproveSuggestions(ids);
-    if (approved > 0) toast('success', `Approved ${approved} suggestion(s)`);
+
+    const claimable = (s: TaskSuggestion) => s.status === 'pending' || s.status === 'needs_info';
+    const byBundle = new Map<string, TaskSuggestion[]>();
+    for (const s of taskSuggestions) {
+      if (!ids.includes(s.id) || !s.bundle_key || !claimable(s)) continue;
+      const group = byBundle.get(s.bundle_key) ?? [];
+      group.push(s);
+      byBundle.set(s.bundle_key, group);
+    }
+    const bundleGroups = [...byBundle.values()].filter(g => g.length >= 2);
+    const bundledIds = new Set(bundleGroups.flatMap(g => g.map(s => s.id)));
+    const soloIds = ids.filter(id => !bundledIds.has(id));
+
+    let approved = 0;
+    let bundles = 0;
+    for (const group of bundleGroups) {
+      // The auditor's stated reason is the composed task's best default name,
+      // matching the BundleApproveModal's prefill.
+      let reason: string | undefined;
+      for (const m of group) {
+        const r = (m.metadata as Record<string, unknown> | null)?.bundle_reason;
+        if (typeof r === 'string' && r.trim()) { reason = r.trim(); break; }
+      }
+      // The composer inherits AI readiness from the members' unanimous
+      // recommendation; assignment is a UI concern, so mirror the
+      // BundleApproveModal's default here: unanimously ai_ready work goes to
+      // the dev agent instead of landing unassigned.
+      const unanimouslyAiReady = group.every(
+        m => (m.metadata as Record<string, unknown> | null)?.ai_readiness_recommendation === 'ai_ready'
+      );
+      const agents = team.filter(m => m.role === 'agent');
+      const devAgent = agents.find(m => /develop|engineer/i.test(m.title || ''))
+        ?? (agents.length === 1 ? agents[0] : undefined);
+      const overrides = unanimouslyAiReady && devAgent
+        ? { title: reason, assigned_to: devAgent.id }
+        : { title: reason };
+      if (await approveSuggestionBundle(group.map(s => s.id), overrides, teamMemberId || '')) {
+        approved += group.length;
+        bundles += 1;
+      }
+    }
+    if (soloIds.length > 0) approved += await bulkApproveSuggestions(soloIds);
+
+    if (approved > 0) {
+      toast('success', bundles > 0
+        ? `Approved ${approved} suggestion(s); ${bundles} bundle${bundles === 1 ? '' : 's'} became one task each`
+        : `Approved ${approved} suggestion(s)`);
+    }
   };
 
   const formatTime = (ts: string) => {
@@ -349,40 +399,219 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
             <div className="divide-y divide-white/[0.06]">
               {group.suggestions.map((suggestion, idx) => {
                 const isExpanded = expandedId === suggestion.id;
-                // A bundle header renders above its FIRST member: name the
-                // group, count it, and offer approve-together when 2+ members
-                // are still pending.
                 const bundleKey = suggestion.bundle_key || null;
                 const isBundleStart = Boolean(
                   bundleKey && (idx === 0 || group.suggestions[idx - 1].bundle_key !== bundleKey)
                 );
-                const bundleMembers = bundleKey
-                  ? group.suggestions.filter(x => x.bundle_key === bundleKey)
-                  : [];
-                const bundlePending = bundleMembers.filter(x => x.status === 'pending');
+                // Bundle members never render as list rows; the bundle is ONE
+                // row (one decision, one row - the list's grammar), and its
+                // expansion is the review session where members appear as
+                // sections with their own verbs.
+                if (bundleKey && !isBundleStart) return null;
+
+                if (bundleKey) {
+                  const bundleMembers = group.suggestions.filter(x => x.bundle_key === bundleKey);
+                  const bundlePending = bundleMembers.filter(x => x.status === 'pending');
+                  const bid = `bundle:${bundleKey}`;
+                  const bundleExpanded = expandedId === bid;
+
+                  // Title: the auditor's reason, else the members' common
+                  // leading words, else the first title plus a count.
+                  let bundleReason: string | null = null;
+                  for (const m of bundleMembers) {
+                    const r = (m.metadata as Record<string, unknown> | null)?.bundle_reason;
+                    if (typeof r === 'string' && r.trim()) { bundleReason = r.trim(); break; }
+                  }
+                  let label = bundleReason;
+                  if (!label) {
+                    const split = bundleMembers.map(m => m.title.split(/\s+/));
+                    const common: string[] = [];
+                    for (let w = 0; ; w++) {
+                      const word = split[0]?.[w];
+                      if (!word || !split.every(t => t[w] === word)) break;
+                      common.push(word);
+                    }
+                    if (common.join(' ').length >= 4) label = common.join(' ');
+                  }
+                  const labelIsFallback = !label;
+                  if (!label) label = bundleMembers[0].title;
+
+                  const bundleTop = ['urgent', 'high', 'medium', 'low'].find(pr => bundleMembers.some(m => m.priority === pr)) || 'medium';
+                  const tierSet = new Set(bundleMembers.map(m => (m.metadata as Record<string, unknown> | null)?.tier).filter(Boolean));
+                  const sharedTier = tierSet.size === 1 ? String([...tierSet][0]) : null;
+                  const newest = bundleMembers.reduce((a, b) => (a.created_at > b.created_at ? a : b));
+                  const memberIds = bundlePending.map(m => m.id);
+                  const allSelected = memberIds.length > 0 && memberIds.every(id => selectedIds.has(id));
+                  const someSelected = !allSelected && memberIds.some(id => selectedIds.has(id));
+
+                  return (
+                    <div key={suggestion.id} className="group">
+                      {/* The bundle's own row: same silhouette as every other
+                          decision in this list. */}
+                      <div
+                        role="button"
+                        tabIndex={0}
+                        aria-expanded={bundleExpanded}
+                        className={`p-3 lg:p-4 cursor-pointer hover:bg-white/[0.03] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-500 ${bundleExpanded ? 'bg-white/[0.03]' : ''}`}
+                        onClick={() => setExpandedId(bundleExpanded ? null : bid)}
+                        onKeyDown={(e) => {
+                          // Keys from the member checkbox bubble up; only the
+                          // row itself may toggle expansion.
+                          if (e.target !== e.currentTarget) return;
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            setExpandedId(bundleExpanded ? null : bid);
+                          }
+                        }}
+                      >
+                        <div className="flex items-start gap-3">
+                          {memberIds.length > 0 && statusFilter !== '' && (
+                            <input
+                              type="checkbox"
+                              checked={allSelected}
+                              ref={(el) => { if (el) el.indeterminate = someSelected; }}
+                              onChange={(e) => {
+                                e.stopPropagation();
+                                setSelectedIds(prev => {
+                                  const next = new Set(prev);
+                                  if (allSelected) memberIds.forEach(id => next.delete(id));
+                                  else memberIds.forEach(id => next.add(id));
+                                  return next;
+                                });
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                              className="mt-1 w-4 h-4 rounded border-white/[0.12] text-brand-300 focus:ring-brand-500 flex-shrink-0"
+                            />
+                          )}
+                          <div className={`w-2 h-2 rounded-full mt-2 flex-shrink-0 ${priorityDots[bundleTop] || 'bg-zinc-400'}`} />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <Layers size={13} className="text-brand-300 flex-shrink-0" aria-label="Bundle" />
+                              <h3 className="text-sm font-semibold text-white">{label}</h3>
+                              <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase ${priorityColors[bundleTop]}`}>
+                                {bundleTop}
+                              </span>
+                              {sharedTier && tierConfig[sharedTier] && (
+                                <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase ${tierConfig[sharedTier].classes}`}>
+                                  {tierConfig[sharedTier].label}
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-1.5 mt-1">
+                              <p className="text-xs text-zinc-500 truncate">
+                                {labelIsFallback ? `${bundleMembers.length} bundled suggestions` : `${bundleMembers.length} suggestions, one review`}
+                              </p>
+                              <span className="text-xs text-zinc-600 flex-shrink-0">&middot;</span>
+                              <span className="text-xs text-zinc-500 flex-shrink-0">{formatTime(newest.created_at)}</span>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 flex-shrink-0">
+                            <ChevronDown size={14} className={`text-zinc-500 transition-transform ${bundleExpanded ? 'rotate-180' : ''}`} />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* The review session: every member in full, each with
+                          its own verbs, then one action that composes them. */}
+                      {bundleExpanded && (
+                        <div className="px-3 lg:px-4 pb-4 bg-white/[0.03] animate-slideDown">
+                          <div className="ml-5 space-y-3">
+                            {bundleReason && bundleReason !== label && (
+                              <p className="text-xs text-zinc-400">{bundleReason}</p>
+                            )}
+                            {bundleMembers.map(m => {
+                              const md = (m.metadata || {}) as Record<string, unknown>;
+                              const crit = Array.isArray(md.acceptance_criteria)
+                                ? (md.acceptance_criteria as unknown[]).filter((c): c is string => typeof c === 'string')
+                                : [];
+                              return (
+                                <div key={m.id} className="rounded-lg border border-white/[0.07] bg-surface-raised overflow-hidden">
+                                  <div className="px-3.5 py-2.5 flex items-center gap-2 border-b border-white/[0.06]">
+                                    <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${priorityDots[m.priority] || 'bg-zinc-400'}`} />
+                                    <h4 className="text-[13px] font-semibold text-white truncate">{m.title}</h4>
+                                    {m.status !== 'pending' && (
+                                      <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase bg-white/[0.06] text-zinc-400 flex-shrink-0">
+                                        {m.status}
+                                      </span>
+                                    )}
+                                    <span className="ml-auto text-[10px] text-zinc-500 flex-shrink-0">{formatTime(m.created_at)}</span>
+                                  </div>
+                                  <div className="px-3.5 py-3 space-y-2.5">
+                                    {typeof md.billing_case === 'string' && md.billing_case.trim() && (
+                                      <div className="bg-brand-500/10 rounded-md px-3 py-2 border border-brand-500/25">
+                                        <p className="text-xs text-brand-100/90 leading-relaxed">{md.billing_case}</p>
+                                      </div>
+                                    )}
+                                    <p className="text-xs text-zinc-300 leading-relaxed">{m.description}</p>
+                                    {typeof md.proposed_fix === 'string' && md.proposed_fix.trim() && (
+                                      <p className="text-xs text-zinc-400 leading-relaxed">
+                                        <span className="font-semibold text-zinc-300">Fix: </span>
+                                        {md.proposed_fix}
+                                      </p>
+                                    )}
+                                    {crit.length > 0 && (
+                                      <ul className="space-y-1 pt-0.5">
+                                        {crit.map((c, i) => (
+                                          <li key={i} className="flex items-start gap-1.5 text-[11px] text-zinc-400 leading-relaxed">
+                                            <Check size={11} className="text-zinc-500 mt-0.5 flex-shrink-0" aria-hidden="true" />
+                                            {c}
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    )}
+                                  </div>
+                                  {m.status === 'pending' && (
+                                    <div className="px-3.5 py-2 border-t border-white/[0.06] flex items-center justify-end gap-1">
+                                      <button
+                                        onClick={(e) => { e.stopPropagation(); onApprove(m.id); }}
+                                        className="px-2 py-1 rounded-md text-[11px] font-medium text-emerald-300 hover:bg-emerald-500/10 transition-colors"
+                                      >
+                                        Approve solo
+                                      </button>
+                                      <button
+                                        onClick={(e) => { e.stopPropagation(); setRejectInputId(m.id); }}
+                                        className="px-2 py-1 rounded-md text-[11px] font-medium text-red-300 hover:bg-red-500/10 transition-colors"
+                                      >
+                                        Reject
+                                      </button>
+                                      <button
+                                        onClick={async (e) => {
+                                          e.stopPropagation();
+                                          if (await unbundleSuggestion(m.id)) toast('success', 'Removed from bundle');
+                                        }}
+                                        className="px-2 py-1 rounded-md text-[11px] font-medium text-zinc-400 hover:bg-white/[0.06] hover:text-zinc-200 transition-colors"
+                                      >
+                                        Unbundle
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                            {bundlePending.length >= 2 && (
+                              <div className="flex items-center justify-between gap-3 pt-1">
+                                <p className="text-[11px] text-zinc-500">
+                                  One task, {bundlePending.length} sections, criteria combined.
+                                </p>
+                                <Button size="sm" onClick={() => setBundleModalKey(bundleKey)}>
+                                  Approve {bundlePending.length} as one task
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                }
 
                 return (
                   <div key={suggestion.id} className="group">
-                    {isBundleStart && (
-                      <div className="px-3 lg:px-4 py-1.5 bg-brand-500/[0.06] border-y border-brand-400/15 flex items-center gap-2">
-                        <span className="text-[10px] font-semibold uppercase tracking-wider text-brand-300">
-                          Bundle · {bundleMembers.length} suggestions
-                        </span>
-                        {bundlePending.length >= 2 && (
-                          <button
-                            onClick={() => setBundleModalKey(bundleKey)}
-                            className="ml-auto text-[11px] font-medium text-brand-300 hover:text-brand-200 transition-colors"
-                          >
-                            Approve together ({bundlePending.length})
-                          </button>
-                        )}
-                      </div>
-                    )}
                     {/* Collapsed row */}
                     <div
                       className={`p-3 lg:p-4 cursor-pointer hover:bg-white/[0.03] transition-colors ${
                         isExpanded ? 'bg-white/[0.03]' : ''
-                      } ${bundleKey ? 'border-l-2 border-brand-400/40' : ''}`}
+                      }`}
                       onClick={() => setExpandedId(isExpanded ? null : suggestion.id)}
                     >
                       <div className="flex items-start gap-3">
@@ -507,19 +736,6 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
                     {isExpanded && (
                       <div className="px-3 lg:px-4 pb-3 lg:pb-4 bg-white/[0.03] animate-slideDown">
                         <div className="ml-5 lg:ml-5 space-y-3">
-                          {/* Manual unbundle: final by design - the auditor
-                              respects the marker and never re-bundles it. */}
-                          {bundleKey && suggestion.status === 'pending' && (
-                            <button
-                              onClick={async (e) => {
-                                e.stopPropagation();
-                                if (await unbundleSuggestion(suggestion.id)) toast('success', 'Removed from bundle');
-                              }}
-                              className="text-[11px] font-medium text-zinc-400 hover:text-zinc-200 underline underline-offset-2 transition-colors"
-                            >
-                              Remove from bundle
-                            </button>
-                          )}
                           {/* One visual system, one rule: every section is the same
                               raised card, and the single deviation is the Proposed Fix,
                               tinted brand because it is the action being approved. Code
@@ -789,6 +1005,34 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
               const chosen = taskSuggestions.filter(x => selectedIds.has(x.id) && x.status === 'pending');
               const oneProject = new Set(chosen.map(x => x.project_id)).size === 1;
               if (chosen.length < 2 || !oneProject) return null;
+
+              // When every selected row already shares one bundle, bundling is
+              // a no-op; the meaningful action is the inverse. The moment the
+              // selection includes anything outside that bundle, Bundle comes
+              // back (it would grow the bundle to cover the selection).
+              const keys = [...new Set(chosen.map(x => x.bundle_key || null))];
+              const sharedKey = keys.length === 1 ? keys[0] : null;
+              if (sharedKey) {
+                return (
+                  <button
+                    onClick={async () => {
+                      // A one-member bundle is meaningless: if unbundling the
+                      // selection strands exactly one member, release it too.
+                      const leftovers = taskSuggestions.filter(
+                        x => x.bundle_key === sharedKey && !selectedIds.has(x.id) && x.status === 'pending'
+                      );
+                      let ok = true;
+                      for (const s of chosen) ok = (await unbundleSuggestion(s.id)) && ok;
+                      if (leftovers.length === 1) await unbundleSuggestion(leftovers[0].id);
+                      if (ok) toast('success', `Unbundled ${chosen.length} suggestions`);
+                      setSelectedIds(new Set());
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-zinc-300 bg-surface-raised border border-white/[0.12] hover:bg-white/[0.06] transition-colors"
+                  >
+                    Unbundle
+                  </button>
+                );
+              }
               return (
                 <button
                   onClick={async () => {
@@ -891,34 +1135,94 @@ export function ReviewQueue({ onApprove, onEdit }: ReviewQueueProps) {
     {/* Bulk Manage Modal */}
     <Modal isOpen={showBulkModal} onClose={() => { setShowBulkModal(false); }} title={`Manage ${selectedIds.size} Suggestion${selectedIds.size !== 1 ? 's' : ''}`} size="md">
       <div className="space-y-4">
-        {/* List selected suggestions */}
-        <div className="max-h-48 overflow-y-auto border border-white/[0.08] rounded-lg divide-y divide-white/[0.06]">
-          {[...selectedIds].map(id => {
-            const s = activeSuggestions.find(sug => sug.id === id);
-            if (!s) return null;
+        {/* List selected suggestions, grouped exactly the way Approve All
+            will treat them: bundle members render inside one framed unit
+            that becomes ONE task; everything else is a solo row. */}
+        {(() => {
+          const selected = [...selectedIds]
+            .map(id => activeSuggestions.find(sug => sug.id === id))
+            .filter((s): s is TaskSuggestion => Boolean(s));
+          const byBundle = new Map<string, TaskSuggestion[]>();
+          const rest: TaskSuggestion[] = [];
+          for (const s of selected) {
+            if (s.bundle_key && (s.status === 'pending' || s.status === 'needs_info')) {
+              const group = byBundle.get(s.bundle_key) ?? [];
+              group.push(s);
+              byBundle.set(s.bundle_key, group);
+            } else {
+              rest.push(s);
+            }
+          }
+          const bundleGroups = [...byBundle.values()].filter(g => g.length >= 2);
+          const singles = [...rest, ...[...byBundle.values()].filter(g => g.length < 2).flat()];
+
+          const removeFromSelection = (id: string) => {
+            const next = new Set(selectedIds);
+            next.delete(id);
+            if (next.size === 0) { setShowBulkModal(false); setSelectedIds(new Set()); }
+            else setSelectedIds(next);
+          };
+
+          const row = (s: TaskSuggestion, inBundle: boolean) => {
             const project = projects.find(p => p.id === s.project_id);
             return (
-              <div key={id} className="px-3 py-2 flex items-center gap-2">
+              <div key={s.id} className={`px-3 py-2 flex items-center gap-2 ${inBundle ? 'pl-5' : ''}`}>
                 <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${priorityDots[s.priority] || 'bg-zinc-400'}`} />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm text-white truncate">{s.title}</p>
-                  <p className="text-xs text-zinc-500 truncate">{project?.name}</p>
+                  {!inBundle && <p className="text-xs text-zinc-500 truncate">{project?.name}</p>}
                 </div>
                 <button
-                  onClick={() => {
-                    const next = new Set(selectedIds);
-                    next.delete(id);
-                    if (next.size === 0) { setShowBulkModal(false); setSelectedIds(new Set()); }
-                    else setSelectedIds(next);
-                  }}
+                  onClick={() => removeFromSelection(s.id)}
+                  aria-label={`Remove ${s.title} from selection`}
                   className="p-0.5 text-zinc-500 hover:text-zinc-300 flex-shrink-0"
                 >
-                  <X size={12} />
+                  <X size={12} aria-hidden="true" />
                 </button>
               </div>
             );
-          })}
-        </div>
+          };
+
+          return (
+            <>
+              <div className="max-h-64 overflow-y-auto space-y-2">
+                {bundleGroups.map(group => {
+                  let reason: string | null = null;
+                  for (const m of group) {
+                    const r = (m.metadata as Record<string, unknown> | null)?.bundle_reason;
+                    if (typeof r === 'string' && r.trim()) { reason = r.trim(); break; }
+                  }
+                  return (
+                    <div key={group[0].bundle_key} className="border border-brand-400/25 rounded-lg overflow-hidden">
+                      <div className="px-3 py-1.5 bg-brand-500/[0.07] flex items-center gap-1.5">
+                        <Layers size={12} className="text-brand-300 flex-shrink-0" aria-hidden="true" />
+                        <span className="text-xs font-medium text-brand-300 truncate flex-1 min-w-0">
+                          {reason ?? 'Bundled suggestions'}
+                        </span>
+                        <span className="text-[10px] font-semibold uppercase text-brand-300/80 flex-shrink-0">
+                          One task
+                        </span>
+                      </div>
+                      <div className="divide-y divide-white/[0.06]">
+                        {group.map(s => row(s, true))}
+                      </div>
+                    </div>
+                  );
+                })}
+                {singles.length > 0 && (
+                  <div className="border border-white/[0.08] rounded-lg divide-y divide-white/[0.06]">
+                    {singles.map(s => row(s, false))}
+                  </div>
+                )}
+              </div>
+              {bundleGroups.length > 0 && (
+                <p className="text-[11px] text-zinc-500">
+                  Approve All creates {bundleGroups.length + singles.length} task{bundleGroups.length + singles.length === 1 ? '' : 's'}: each bundle becomes one composed task, singles convert individually.
+                </p>
+              )}
+            </>
+          );
+        })()}
 
         {/* Actions */}
         <div className="flex flex-col sm:flex-row gap-2 pt-2">

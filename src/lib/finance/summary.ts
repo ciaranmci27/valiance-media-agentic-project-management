@@ -266,6 +266,153 @@ export function computeCompanyFinanceSummary(input: FinanceEngineInput): Company
   return { earned: d.earned, received: d.received, invoiced: d.invoiced, outstanding: d.outstanding, overdue: d.overdue, hours: d.hours };
 }
 
+// Contributor attribution is additive to the established finance engine.
+// It does not redefine `earned`, so Dashboard and Finances totals retain their
+// existing contract while the new UI can explain who produced the value.
+export type FinanceAttributionSource = 'owner' | 'human' | 'agent' | 'business';
+export type FinanceCostTracking = 'tracked' | 'not_tracked';
+
+export interface FinanceAttributionRow {
+  id: string;
+  name: string;
+  source: FinanceAttributionSource;
+  memberId: string | null;
+  grossRevenue: number;
+  recordedCost: number | null;
+  contribution: number | null;
+  hours: number;
+  costTracking: FinanceCostTracking;
+}
+
+export interface FinanceAttributionData {
+  rows: FinanceAttributionRow[];
+  grossRevenue: number;
+  recordedCost: number | null;
+  contribution: number | null;
+  hours: number;
+  costTracking: FinanceCostTracking;
+}
+
+export interface FinanceAttributionInput extends FinanceEngineInput {
+  /** A present key, including a zero value, means usage cost is tracked. */
+  agentUsageCostByMember?: ReadonlyMap<string, number>;
+  selectedMemberIds?: Set<string>;
+  selectedSources?: Set<FinanceAttributionSource>;
+}
+
+export function computeFinanceAttribution(input: FinanceAttributionInput): FinanceAttributionData {
+  const { startKey, endKey } = input.range;
+  const selectedProjects = input.selectedProjectIds;
+  const projectIncluded = (projectId: string) => !selectedProjects?.size || selectedProjects.has(projectId);
+  const memberIncluded = (memberId: string | null) => !input.selectedMemberIds?.size || (!!memberId && input.selectedMemberIds.has(memberId));
+  const sourceIncluded = (source: FinanceAttributionSource) => !input.selectedSources?.size || input.selectedSources.has(source);
+  const projectLookup = new Map(input.projects.map(project => [project.id, project]));
+  const memberLookup = new Map(input.team.map(member => [member.id, member]));
+  const mutableRows = new Map<string, FinanceAttributionRow>();
+
+  const ensureMemberRow = (member: TeamMember): FinanceAttributionRow | null => {
+    const source: FinanceAttributionSource = member.role === 'owner'
+      ? 'owner'
+      : member.role === 'agent'
+        ? 'agent'
+        : 'human';
+    if (!memberIncluded(member.id) || !sourceIncluded(source)) return null;
+    let row = mutableRows.get(member.id);
+    if (!row) {
+      const agentCostTracked = source !== 'agent' || input.agentUsageCostByMember?.has(member.id) === true;
+      const cost = source === 'agent'
+        ? (agentCostTracked ? Number(input.agentUsageCostByMember?.get(member.id) ?? 0) : null)
+        : 0;
+      row = {
+        id: member.id,
+        name: member.name,
+        source,
+        memberId: member.id,
+        grossRevenue: 0,
+        recordedCost: cost,
+        contribution: cost === null ? null : -cost,
+        hours: 0,
+        costTracking: agentCostTracked ? 'tracked' : 'not_tracked',
+      };
+      mutableRows.set(member.id, row);
+    }
+    return row;
+  };
+
+  // Usage cost can exist in a range with no billable entry, such as an audit
+  // or an idle scheduled check. Preserve that cost as a zero-revenue row.
+  if (input.agentUsageCostByMember) {
+    for (const member of input.team) {
+      if (member.role === 'agent' && input.agentUsageCostByMember.has(member.id)) ensureMemberRow(member);
+    }
+  }
+
+  for (const entry of input.timeEntries) {
+    if (!projectIncluded(entry.project_id) || entry.work_type === 'internal') continue;
+    const member = memberLookup.get(entry.member_id);
+    if (!member) continue;
+    if (member.role !== 'owner' && member.role !== 'agent' && entry.approval_status !== 'approved') continue;
+    const row = ensureMemberRow(member);
+    if (!row) continue;
+    const project = projectLookup.get(entry.project_id);
+    const rate = entry.hourly_rate ?? input.rateByProject.get(entry.project_id) ?? (project?.hourly_tracking ? project.hourly_rate ?? 0 : 0);
+    const billingEntry = projectTimeEntryForBilling(entry, input.now);
+    for (const [dateKey, workedHours] of getWorkedHoursByDay(billingEntry, input.now)) {
+      if (dateKey < startKey || dateKey > endKey) continue;
+      const revenue = workedHours * rate;
+      const compensation = row.source === 'human'
+        ? workedHours * Number(entry.compensation_rate || 0)
+        : 0;
+      row.hours += workedHours;
+      row.grossRevenue += revenue;
+      if (row.recordedCost !== null) row.recordedCost += compensation;
+      if (row.contribution !== null) row.contribution += revenue - compensation;
+    }
+  }
+
+  if (sourceIncluded('business') && !input.selectedMemberIds?.size) {
+    let businessRevenue = 0;
+    for (const invoice of input.invoices) {
+      if (invoice.status === 'cancelled' || !projectIncluded(invoice.project_id)) continue;
+      for (const item of ensureLineItems(invoice)) {
+        if (item.item_type !== 'fixed' && item.item_type !== 'recurring') continue;
+        for (const [dateKey, dollars] of spreadLineItem(item, invoice.date)) {
+          if (dateKey < startKey || dateKey > endKey) continue;
+          businessRevenue += dollars * dayVestingRatio(dateKey, input.now, input.timezone);
+        }
+      }
+    }
+    mutableRows.set('business', {
+      id: 'business',
+      name: 'Business revenue',
+      source: 'business',
+      memberId: null,
+      grossRevenue: businessRevenue,
+      recordedCost: 0,
+      contribution: businessRevenue,
+      hours: 0,
+      costTracking: 'tracked',
+    });
+  }
+
+  const rows = Array.from(mutableRows.values())
+    .filter(row => row.grossRevenue !== 0 || row.recordedCost !== 0 || row.hours !== 0 || row.source === 'business')
+    .sort((a, b) => b.grossRevenue - a.grossRevenue || a.name.localeCompare(b.name));
+  const hasUntrackedCost = rows.some(row => row.costTracking === 'not_tracked');
+  const grossRevenue = rows.reduce((sum, row) => sum + row.grossRevenue, 0);
+  const recordedCost = hasUntrackedCost ? null : rows.reduce((sum, row) => sum + Number(row.recordedCost), 0);
+  const contribution = hasUntrackedCost ? null : rows.reduce((sum, row) => sum + Number(row.contribution), 0);
+
+  return {
+    rows,
+    grossRevenue,
+    recordedCost,
+    contribution,
+    hours: rows.reduce((sum, row) => sum + row.hours, 0),
+    costTracking: hasUntrackedCost ? 'not_tracked' : 'tracked',
+  };
+}
+
 // ── Member earnings summary (earnings.own.read) ──
 export interface MemberEarningsSummary { earned: number; owed: number }
 

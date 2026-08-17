@@ -1,9 +1,7 @@
 'use client';
 
 import dynamic from 'next/dynamic';
-import { ArrowLeft } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
-import { Button } from '@/components/ui/Button';
 import type { ScenePreferences } from '@/components/command/scene/sceneSettings';
 import { useCallback } from 'react';
 import { useApp } from '@/lib/store';
@@ -70,16 +68,6 @@ export default function AgentLivePage() {
             <span className="hidden sm:inline">
               Your crew, working. Everything here is a real event; nothing is invented to fill silence.
             </span>
-          }
-          actions={
-            // The way back, paired with the Live button on the dashboard.
-            // Identical to the Dashboard button on agent/projects/[id], down to
-            // collapsing to the bare arrow below sm — a back arrow needs no
-            // label, and this header has the least room to spare of any in the
-            // app since everything under it is a fixed-height canvas.
-            <Button variant="secondary" href="/agent" icon={<ArrowLeft size={16} />}>
-              <span className="hidden sm:inline">Dashboard</span>
-            </Button>
           }
         />
       </div>

@@ -8,7 +8,12 @@ import { DateInput } from '@/components/ui/inputs/DateInput';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { Popover } from '@/components/ui/Popover';
 import { ensureLineItems, spreadLineItem } from '@/lib/invoice-utils';
-import { computeFinanceData, projectTimeEntryForBilling } from '@/lib/finance/summary';
+import {
+  computeFinanceData,
+  computeFinanceAttribution,
+  projectTimeEntryForBilling,
+} from '@/lib/finance/summary';
+import { computeAgentAnalytics, trackedAgentUsageCostByMember } from '@/lib/agent-analytics';
 import { toDateKey, localNextDayStartMs, hourVestingRatio } from '@/lib/finance/vesting';
 import Link from 'next/link';
 import {
@@ -19,7 +24,9 @@ import {
   CalendarRange,
   ChevronDown,
   Check,
+  Users,
 } from 'lucide-react';
+import { Avatar } from '@/components/ui/Avatar';
 import { PayrollPanel } from '@/components/finances/PayrollPanel';
 import { EmployeeEarningsDashboard } from '@/components/finances/EmployeeEarningsDashboard';
 import { useAuth } from '@/lib/auth-context';
@@ -205,6 +212,29 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 // ---------------------------------------------------------------------------
+// Earnings-source filter (attribution)
+// ---------------------------------------------------------------------------
+
+type EarningsSource = 'company' | 'business' | 'owner' | 'human' | 'agent' | 'member';
+
+const SOURCE_OPTIONS: { value: Exclude<EarningsSource, 'member'>; label: string; hint: string }[] = [
+  { value: 'company', label: 'Company', hint: 'Every contributor plus business revenue' },
+  { value: 'business', label: 'Business', hint: 'Fixed and recurring accrued revenue' },
+  { value: 'owner', label: 'Owner', hint: 'Owner billable time' },
+  { value: 'human', label: 'Human team', hint: 'Approved billable value minus compensation' },
+  { value: 'agent', label: 'AI agents', hint: 'Billable value minus tracked model cost' },
+];
+
+/** The one way a missing measurement renders. Never a fake zero. */
+function NotTrackedValue({ reason, className = '' }: { reason: string; className?: string }) {
+  return (
+    <Tooltip content={<span className="block max-w-[260px] whitespace-normal">{reason}</span>}>
+      <span className={`font-medium text-zinc-500 cursor-help ${className}`}>Not tracked</span>
+    </Tooltip>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Daily chart data type
 // ---------------------------------------------------------------------------
 
@@ -349,11 +379,152 @@ function LiveTickIndicator({
 }
 
 // ---------------------------------------------------------------------------
+// Bar building
+// ---------------------------------------------------------------------------
+
+// Turns one finance-engine pass into the chart's bar array. Shared by the
+// company-wide pass and the source-scoped pass so both build identical bars.
+function buildRangeBars(
+  engine: ReturnType<typeof computeFinanceData>,
+  range: { startKey: string; endKey: string },
+  todayKey: string,
+): { dailyBars: DayBar[]; maxBarTotal: number; granularity: Granularity } {
+  const { workByDay, fixedByDayProject, recurringByDayProject, paymentsByDay, projectLookup } = engine;
+  const { startKey, endKey } = range;
+
+  // Build bar array across the range. Pick a granularity (day/week/month)
+  // based on span so very wide ranges don't produce hundreds of hairline bars.
+  const rangeDays = daysBetween(startKey, endKey);
+  const granularity = pickGranularity(rangeDays);
+  const [sy, sm, sd] = startKey.split('-').map(Number);
+  const startDate = new Date(sy, sm - 1, sd);
+
+  // Bucket accumulator keyed by bucket start date
+  interface BucketAgg {
+    startKey: string;
+    endKey: string;
+    hours: number;
+    hourly: number;
+    fixed: number;
+    recurring: number;
+    payments: number;
+    teamContribution: number;
+    projects: Map<string, { hours: number; value: number; fixed: number; recurring: number; teamContribution: number }>;
+  }
+  const buckets = new Map<string, BucketAgg>();
+  const getBucket = (dk: string): BucketAgg => {
+    const bStart = bucketStartKey(dk, granularity);
+    let b = buckets.get(bStart);
+    if (!b) {
+      // Clamp bucket end to range end so partial weeks/months don't overstate span
+      const rawEnd = bucketEndKey(bStart, granularity);
+      const clampedEnd = rawEnd > endKey ? endKey : rawEnd;
+      // Also clamp start up to range start (for the first bucket when week/month
+      // begins before the selected range).
+      const clampedStart = bStart < startKey ? startKey : bStart;
+      b = {
+        startKey: clampedStart,
+        endKey: clampedEnd,
+        hours: 0, hourly: 0, fixed: 0, recurring: 0, payments: 0, teamContribution: 0,
+        projects: new Map(),
+      };
+      buckets.set(bStart, b);
+    }
+    return b;
+  };
+  const mergeProject = (b: BucketAgg, pid: string, delta: { hours?: number; value?: number; fixed?: number; recurring?: number; teamContribution?: number }) => {
+    const cur = b.projects.get(pid) ?? { hours: 0, value: 0, fixed: 0, recurring: 0, teamContribution: 0 };
+    cur.hours += delta.hours ?? 0;
+    cur.value += delta.value ?? 0;
+    cur.fixed += delta.fixed ?? 0;
+    cur.recurring += delta.recurring ?? 0;
+    cur.teamContribution += delta.teamContribution ?? 0;
+    b.projects.set(pid, cur);
+  };
+
+  // Walk every day in the range so empty buckets still get created (keeps
+  // the x-axis continuous).
+  for (let i = 0; i < rangeDays; i++) {
+    const d = new Date(startDate);
+    d.setDate(d.getDate() + i);
+    const dk = toDateKey(d);
+    const b = getBucket(dk);
+
+    const dayProjects = workByDay.get(dk);
+    if (dayProjects) {
+      for (const [pid, w] of dayProjects) {
+        b.hours += w.hours;
+        b.hourly += w.value;
+        b.teamContribution += w.teamContribution;
+        mergeProject(b, pid, { hours: w.hours, value: w.value, teamContribution: w.teamContribution });
+      }
+    }
+    const dayFixed = fixedByDayProject.get(dk);
+    if (dayFixed) {
+      for (const [pid, dollars] of dayFixed) {
+        b.fixed += dollars;
+        mergeProject(b, pid, { fixed: dollars });
+      }
+    }
+    const dayRecurring = recurringByDayProject.get(dk);
+    if (dayRecurring) {
+      for (const [pid, dollars] of dayRecurring) {
+        b.recurring += dollars;
+        mergeProject(b, pid, { recurring: dollars });
+      }
+    }
+    const dayPayment = paymentsByDay.get(dk);
+    if (dayPayment) b.payments += dayPayment;
+  }
+
+  const dailyBars: DayBar[] = Array.from(buckets.values())
+    .sort((a, b) => a.startKey.localeCompare(b.startKey))
+    .map(b => {
+      const projectWork: DayProjectWork[] = Array.from(b.projects.entries())
+        .map(([pid, w]) => {
+          const proj = projectLookup.get(pid);
+          return {
+            projectId: pid,
+            projectName: proj?.name ?? 'Unknown',
+            color: proj?.color,
+            hours: w.hours,
+            value: w.value,
+            fixed: w.fixed,
+            recurring: w.recurring,
+            teamContribution: w.teamContribution,
+          };
+        })
+        .sort((a, b) => (b.value + b.fixed + b.recurring) - (a.value + a.fixed + a.recurring));
+      return {
+        dateKey: b.startKey,
+        endKey: b.endKey,
+        label: bucketAxisLabel(b.startKey, granularity, todayKey),
+        tooltipDate: bucketTooltipLabel(b.startKey, b.endKey, granularity),
+        hourlyValue: b.hourly,
+        hoursWorked: b.hours,
+        fixedRevenue: b.fixed,
+        recurringRevenue: b.recurring,
+        paymentReceived: b.payments,
+        teamContribution: b.teamContribution,
+        projectWork,
+      };
+    });
+
+  // Max bar height = max(hourly + fixed + recurring + payment) across the range
+  const maxBarTotal = Math.max(
+    ...dailyBars.map(d => d.hourlyValue + d.fixedRevenue + d.recurringRevenue + d.paymentReceived + Math.max(0, d.teamContribution)),
+    1,
+  );
+
+  return { dailyBars, maxBarTotal, granularity };
+}
+
+// ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
 
 export default function FinancesPage() {
-  const { projects, projectInvoices, timeEntries, team, employeeEarnings } = useApp();
+  const { projects, projectInvoices, timeEntries, team, employeeEarnings, agentActivity } = useApp();
   const { access, teamMemberId } = useAuth();
   const canReadCompanyFinance = hasPermission(access, 'finance.company.read');
   const canReadOwnEarnings = hasPermission(access, 'earnings.own.read');
@@ -395,6 +566,16 @@ export default function FinancesPage() {
   const [selectedProjectIds, setSelectedProjectIds] = useState<Set<string>>(() => new Set());
   const [projectFilterOpen, setProjectFilterOpen] = useState(false);
   const projectFilterDropdownRef = useRef<HTMLDivElement>(null);
+
+  // ── Earnings-source filter state ────────────────────────────
+  // Re-scopes the chart and the Overview strip to one earnings source via a
+  // second engine pass (see sourceData below). The Invoices card and By
+  // Project stay company-wide: a payment belongs to a project, never to one
+  // contributor.
+  const [sourceFilter, setSourceFilter] = useState<EarningsSource>('company');
+  const [sourceMemberId, setSourceMemberId] = useState<string | null>(null);
+  const [sourceFilterOpen, setSourceFilterOpen] = useState(false);
+  const sourceFilterDropdownRef = useRef<HTMLDivElement>(null);
 
   // Chart bars scroll horizontally on mobile (fixed ~30-bar window); the day
   // labels row mirrors that scroll so labels stay aligned to their bars.
@@ -467,146 +648,16 @@ export default function FinancesPage() {
   );
 
   const data = useMemo(() => {
-    const { startKey, endKey } = range;
-
     // All money rules come from the shared finance engine (single source of truth,
-    // shared with the Dashboard). Below, the page only turns the engine's per-day maps
-    // into chart bars + drilldown — no money logic lives here anymore.
+    // shared with the Dashboard). Bar building lives in buildRangeBars, shared
+    // with the source-scoped pass below - no money logic lives here anymore.
     const engine = computeFinanceData({
       projects, invoices: projectInvoices, timeEntries, team, rateByProject,
       now, timezone: preferredTimezone, range, selectedProjectIds,
     });
-    const { workByDay, fixedByDayProject, recurringByDayProject, paymentsByDay, projectLookup, invoicesInRange } = engine;
-
-    // "Today" axis label rolls over at local midnight (nowDayKey is timezone-aware).
-    const todayKey = nowDayKey;
-
-    // Build bar array across the range. Pick a granularity (day/week/month)
-    // based on span so very wide ranges don't produce hundreds of hairline bars.
-    const rangeDays = daysBetween(startKey, endKey);
-    const granularity = pickGranularity(rangeDays);
-    const [sy, sm, sd] = startKey.split('-').map(Number);
-    const startDate = new Date(sy, sm - 1, sd);
-
-    // Bucket accumulator keyed by bucket start date
-    interface BucketAgg {
-      startKey: string;
-      endKey: string;
-      hours: number;
-      hourly: number;
-      fixed: number;
-      recurring: number;
-      payments: number;
-      teamContribution: number;
-      projects: Map<string, { hours: number; value: number; fixed: number; recurring: number; teamContribution: number }>;
-    }
-    const buckets = new Map<string, BucketAgg>();
-    const getBucket = (dk: string): BucketAgg => {
-      const bStart = bucketStartKey(dk, granularity);
-      let b = buckets.get(bStart);
-      if (!b) {
-        // Clamp bucket end to range end so partial weeks/months don't overstate span
-        const rawEnd = bucketEndKey(bStart, granularity);
-        const clampedEnd = rawEnd > endKey ? endKey : rawEnd;
-        // Also clamp start up to range start (for the first bucket when week/month
-        // begins before the selected range).
-        const clampedStart = bStart < startKey ? startKey : bStart;
-        b = {
-          startKey: clampedStart,
-          endKey: clampedEnd,
-          hours: 0, hourly: 0, fixed: 0, recurring: 0, payments: 0, teamContribution: 0,
-          projects: new Map(),
-        };
-        buckets.set(bStart, b);
-      }
-      return b;
-    };
-    const mergeProject = (b: BucketAgg, pid: string, delta: { hours?: number; value?: number; fixed?: number; recurring?: number; teamContribution?: number }) => {
-      const cur = b.projects.get(pid) ?? { hours: 0, value: 0, fixed: 0, recurring: 0, teamContribution: 0 };
-      cur.hours += delta.hours ?? 0;
-      cur.value += delta.value ?? 0;
-      cur.fixed += delta.fixed ?? 0;
-      cur.recurring += delta.recurring ?? 0;
-      cur.teamContribution += delta.teamContribution ?? 0;
-      b.projects.set(pid, cur);
-    };
-
-    // Walk every day in the range so empty buckets still get created (keeps
-    // the x-axis continuous).
-    for (let i = 0; i < rangeDays; i++) {
-      const d = new Date(startDate);
-      d.setDate(d.getDate() + i);
-      const dk = toDateKey(d);
-      const b = getBucket(dk);
-
-      const dayProjects = workByDay.get(dk);
-      if (dayProjects) {
-        for (const [pid, w] of dayProjects) {
-          b.hours += w.hours;
-          b.hourly += w.value;
-          b.teamContribution += w.teamContribution;
-          mergeProject(b, pid, { hours: w.hours, value: w.value, teamContribution: w.teamContribution });
-        }
-      }
-      const dayFixed = fixedByDayProject.get(dk);
-      if (dayFixed) {
-        for (const [pid, dollars] of dayFixed) {
-          b.fixed += dollars;
-          mergeProject(b, pid, { fixed: dollars });
-        }
-      }
-      const dayRecurring = recurringByDayProject.get(dk);
-      if (dayRecurring) {
-        for (const [pid, dollars] of dayRecurring) {
-          b.recurring += dollars;
-          mergeProject(b, pid, { recurring: dollars });
-        }
-      }
-      const dayPayment = paymentsByDay.get(dk);
-      if (dayPayment) b.payments += dayPayment;
-    }
-
-    const dailyBars: DayBar[] = Array.from(buckets.values())
-      .sort((a, b) => a.startKey.localeCompare(b.startKey))
-      .map(b => {
-        const projectWork: DayProjectWork[] = Array.from(b.projects.entries())
-          .map(([pid, w]) => {
-            const proj = projectLookup.get(pid);
-            return {
-              projectId: pid,
-              projectName: proj?.name ?? 'Unknown',
-              color: proj?.color,
-              hours: w.hours,
-              value: w.value,
-              fixed: w.fixed,
-              recurring: w.recurring,
-              teamContribution: w.teamContribution,
-            };
-          })
-          .sort((a, b) => (b.value + b.fixed + b.recurring) - (a.value + a.fixed + a.recurring));
-        return {
-          dateKey: b.startKey,
-          endKey: b.endKey,
-          label: bucketAxisLabel(b.startKey, granularity, todayKey),
-          tooltipDate: bucketTooltipLabel(b.startKey, b.endKey, granularity),
-          hourlyValue: b.hourly,
-          hoursWorked: b.hours,
-          fixedRevenue: b.fixed,
-          recurringRevenue: b.recurring,
-          paymentReceived: b.payments,
-          teamContribution: b.teamContribution,
-          projectWork,
-        };
-      });
-
-    // Max bar height = max(hourly + fixed + recurring + payment) across the range
-    const maxBarTotal = Math.max(
-      ...dailyBars.map(d => d.hourlyValue + d.fixedRevenue + d.recurringRevenue + d.paymentReceived + Math.max(0, d.teamContribution)),
-      1,
-    );
 
     // ── Invoices in range (sorted newest first) ─────────────
-    const allInvoices = [...invoicesInRange]
+    const allInvoices = [...engine.invoicesInRange]
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
     return {
@@ -617,15 +668,111 @@ export default function FinancesPage() {
       totalOverdue: engine.overdue,
       totalHours: engine.hours,
       activeInvoicesCount: engine.activeInvoicesCount,
-      dailyBars, maxBarTotal, granularity,
+      // "Today" axis labels roll over at local midnight (nowDayKey is timezone-aware).
+      ...buildRangeBars(engine, range, nowDayKey),
       projectBreakdown: engine.projectBreakdown, allInvoices,
       // Exposed for bucket drilldown (week/month → days). Each map is keyed by
       // YYYY-MM-DD and contains the per-day data already used to build
       // dailyBars; the drilldown just re-aggregates those days at day
       // granularity without redoing the time-entry / invoice scans.
-      workByDay, fixedByDayProject, recurringByDayProject, paymentsByDay, projectLookup,
+      workByDay: engine.workByDay,
+      fixedByDayProject: engine.fixedByDayProject,
+      recurringByDayProject: engine.recurringByDayProject,
+      paymentsByDay: engine.paymentsByDay,
+      projectLookup: engine.projectLookup,
     };
   }, [projects, projectInvoices, timeEntries, team, rateByProject, range, now, nowDayKey, preferredTimezone, selectedProjectIds]);
+
+  // ── Earnings-source scoping ─────────────────────────────────
+  // The source filter re-scopes the chart and the Overview strip through a
+  // second engine pass over filtered inputs. People-sources get no invoices
+  // at all: fixed/recurring accrual and payments belong to projects, never to
+  // one contributor, so those series simply have no data (and the legend
+  // hides them) instead of being force-toggled off. The raw `data` pass stays
+  // company-wide for the Invoices card and By Project.
+  const sourceMemberIds = useMemo<Set<string> | null>(() => {
+    switch (sourceFilter) {
+      case 'company': return null;
+      case 'business': return new Set<string>();
+      case 'owner': return new Set(team.filter(m => m.role === 'owner').map(m => m.id));
+      // The human bucket must match computeFinanceAttribution's (any
+      // non-owner, non-agent member, guests included) or the strip's cost and
+      // contribution would disagree with the chart.
+      case 'human': return new Set(team.filter(m => m.role !== 'owner' && m.role !== 'agent').map(m => m.id));
+      case 'agent': return new Set(team.filter(m => m.role === 'agent').map(m => m.id));
+      case 'member': return sourceMemberId ? new Set([sourceMemberId]) : null;
+    }
+  }, [team, sourceFilter, sourceMemberId]);
+
+  const isPeopleSource = sourceFilter !== 'company' && sourceFilter !== 'business';
+  const effectiveTimeEntries = useMemo(
+    () => (sourceMemberIds === null ? timeEntries : timeEntries.filter(te => sourceMemberIds.has(te.member_id))),
+    [timeEntries, sourceMemberIds],
+  );
+  const effectiveInvoices = useMemo(
+    () => (isPeopleSource ? [] : projectInvoices),
+    [isPeopleSource, projectInvoices],
+  );
+
+  const sourceData = useMemo(() => {
+    if (sourceFilter === 'company') return null;
+    const engine = computeFinanceData({
+      projects, invoices: effectiveInvoices, timeEntries: effectiveTimeEntries, team, rateByProject,
+      now, timezone: preferredTimezone, range, selectedProjectIds,
+    });
+    return {
+      totalEarned: engine.earned,
+      totalHours: engine.hours,
+      ...buildRangeBars(engine, range, nowDayKey),
+      workByDay: engine.workByDay,
+      fixedByDayProject: engine.fixedByDayProject,
+      recurringByDayProject: engine.recurringByDayProject,
+      paymentsByDay: engine.paymentsByDay,
+      projectLookup: engine.projectLookup,
+    };
+  }, [sourceFilter, projects, effectiveInvoices, effectiveTimeEntries, team, rateByProject, now, nowDayKey, preferredTimezone, range, selectedProjectIds]);
+
+  // What the chart and drilldowns read from: the source-scoped pass when a
+  // source is active, the company-wide pass otherwise.
+  const chartData = sourceData ?? data;
+
+  // ── Attribution (who produced the value) ────────────────────
+  // Hermes usage cost is agent-level, not project-attributed. With a project
+  // filter active, the global cost map is withheld so a whole-fleet cost is
+  // never assigned to one project; agent rows then report cost as not
+  // tracked instead of a misleading number.
+  const agentUsageCostByMember = useMemo(() => {
+    if (sourceFilter === 'company' || selectedProjectIds.size > 0) return undefined;
+    return trackedAgentUsageCostByMember(computeAgentAnalytics({
+      activities: agentActivity, timeEntries, team, projects, range, now,
+      timezone: preferredTimezone,
+    }));
+  }, [agentActivity, timeEntries, team, projects, range, now, preferredTimezone, selectedProjectIds, sourceFilter]);
+
+  // Cost and contribution for the active source's Overview strip. Earned and
+  // hours come from the sourceData engine pass so strip and chart agree.
+  const attribution = useMemo(() => {
+    if (sourceFilter === 'company') return null;
+    return computeFinanceAttribution({
+      projects, invoices: projectInvoices, timeEntries, team, rateByProject,
+      now, timezone: preferredTimezone, range, selectedProjectIds,
+      agentUsageCostByMember,
+      selectedMemberIds: sourceFilter === 'member' && sourceMemberId ? new Set([sourceMemberId]) : undefined,
+      selectedSources: sourceFilter !== 'member' ? new Set([sourceFilter]) : undefined,
+    });
+  }, [projects, projectInvoices, timeEntries, team, rateByProject, now, preferredTimezone, range, selectedProjectIds, agentUsageCostByMember, sourceFilter, sourceMemberId]);
+
+  // Label for the active source, shown as a pill in the Overview header and
+  // as a suffix on the chart heading.
+  const sourceLabel = sourceFilter === 'company'
+    ? null
+    : sourceFilter === 'member'
+      ? (team.find(m => m.id === sourceMemberId)?.name ?? 'Contributor')
+      : SOURCE_OPTIONS.find(o => o.value === sourceFilter)?.label ?? null;
+
+  const costNotTrackedReason = selectedProjectIds.size > 0
+    ? 'Hermes usage cost is tracked per agent, not per project, so it cannot be assigned to a project-scoped view. Clear the project filter to see agent cost and contribution.'
+    : 'Hermes usage telemetry has not reported for one or more agents in this selection.';
 
   // ── Chart state & constants ────────────────────────────────
   const [showHourly, setShowHourly] = useState(true);
@@ -646,12 +793,12 @@ export default function FinancesPage() {
   const [drilldownDay, setDrilldownDay] = useState<string | null>(null);
   const [togglesLoaded, setTogglesLoaded] = useState(false);
 
-  // Exit drilldown when the user changes the range OR the project filter -
-  // the drilled level might no longer be relevant under the new scope.
-  // Derived-from-props pattern: compare against the last filter snapshot
-  // and reset during render rather than in an effect (effect form triggers
-  // React's set-state-in-effect lint).
-  const filterKey = `${range.startKey}_${range.endKey}_${[...selectedProjectIds].sort().join(',')}`;
+  // Exit drilldown when the user changes the range, the project filter, or
+  // the earnings source - the drilled level might no longer be relevant under
+  // the new scope. Derived-from-props pattern: compare against the last
+  // filter snapshot and reset during render rather than in an effect (effect
+  // form triggers React's set-state-in-effect lint).
+  const filterKey = `${range.startKey}_${range.endKey}_${[...selectedProjectIds].sort().join(',')}_${sourceFilter}_${sourceMemberId ?? ''}`;
   const [prevFilterKey, setPrevFilterKey] = useState(filterKey);
   if (filterKey !== prevFilterKey) {
     setPrevFilterKey(filterKey);
@@ -732,7 +879,7 @@ export default function FinancesPage() {
       };
 
       let hours = 0, hourly = 0, fixed = 0, recurring = 0, teamContribution = 0;
-      const dayWork = data.workByDay.get(dk);
+      const dayWork = chartData.workByDay.get(dk);
       if (dayWork) {
         for (const [pid, w] of dayWork) {
           hours += w.hours;
@@ -741,25 +888,25 @@ export default function FinancesPage() {
           bumpProject(pid, { hours: w.hours, value: w.value, teamContribution: w.teamContribution });
         }
       }
-      const dayFixed = data.fixedByDayProject.get(dk);
+      const dayFixed = chartData.fixedByDayProject.get(dk);
       if (dayFixed) {
         for (const [pid, dollars] of dayFixed) {
           fixed += dollars;
           bumpProject(pid, { fixed: dollars });
         }
       }
-      const dayRecurring = data.recurringByDayProject.get(dk);
+      const dayRecurring = chartData.recurringByDayProject.get(dk);
       if (dayRecurring) {
         for (const [pid, dollars] of dayRecurring) {
           recurring += dollars;
           bumpProject(pid, { recurring: dollars });
         }
       }
-      const payments = data.paymentsByDay.get(dk) ?? 0;
+      const payments = chartData.paymentsByDay.get(dk) ?? 0;
 
       const projectWork: DayProjectWork[] = Array.from(projectMap.entries())
         .map(([pid, w]) => {
-          const proj = data.projectLookup.get(pid);
+          const proj = chartData.projectLookup.get(pid);
           return {
             projectId: pid,
             projectName: proj?.name ?? 'Unknown',
@@ -788,7 +935,7 @@ export default function FinancesPage() {
       });
     }
     return bars;
-  }, [drilldownBucket, data, nowDayKey]);
+  }, [drilldownBucket, chartData, nowDayKey]);
 
   // ── Hourly drilldown bars ──────────────────────────────────
   // When the user clicks a daily candle we surface a 24-bar view of that day,
@@ -823,14 +970,15 @@ export default function FinancesPage() {
       b.projects.set(pid, cur);
     };
 
-    // Hourly work, split per local hour-of-day. Respects the page-level
-    // project filter so the drilldown matches the parent chart.
+    // Hourly work, split per local hour-of-day. Scans the effective arrays so
+    // the drilldown matches the parent chart under both the project filter
+    // and the earnings-source filter.
     const includeProject = (id: string) =>
       selectedProjectIds.size === 0 || selectedProjectIds.has(id);
     const payableMemberIds = new Set(
       team.filter(member => member.role !== 'owner' && member.role !== 'agent').map(member => member.id),
     );
-    for (const te of timeEntries) {
+    for (const te of effectiveTimeEntries) {
       if (!includeProject(te.project_id)) continue;
       const rate = te.hourly_rate ?? rateByProject.get(te.project_id) ?? 0;
       const perHour = getWorkedHoursByHour(projectTimeEntryForBilling(te, now), drilldownDay, now);
@@ -852,7 +1000,7 @@ export default function FinancesPage() {
 
     // Fixed and recurring line items vest across the service day. Past hours
     // count fully, the current hour counts partially, and future hours are zero.
-    for (const inv of projectInvoices) {
+    for (const inv of effectiveInvoices) {
       if (inv.status === 'cancelled') continue;
       if (!includeProject(inv.project_id)) continue;
       for (const li of ensureLineItems(inv)) {
@@ -875,7 +1023,7 @@ export default function FinancesPage() {
     // hours. paid_date carries no time-of-day so per-hour attribution is a
     // visual convenience, not a claim about when the money arrived.
     let paymentsToday = 0;
-    for (const inv of projectInvoices) {
+    for (const inv of effectiveInvoices) {
       if (!includeProject(inv.project_id)) continue;
       if (inv.status === 'paid' && inv.paid_date === drilldownDay) paymentsToday += inv.amount;
     }
@@ -917,11 +1065,11 @@ export default function FinancesPage() {
         projectWork,
       };
     });
-  }, [drilldownDay, timeEntries, team, rateByProject, projectInvoices, projects, now, preferredTimezone, selectedProjectIds]);
+  }, [drilldownDay, effectiveTimeEntries, team, rateByProject, effectiveInvoices, projects, now, preferredTimezone, selectedProjectIds]);
 
   // What the chart actually renders, in priority order:
   //   hour drilldown → bucket drilldown → main range.
-  const chartBars = hourlyBars ?? bucketDayBars ?? data.dailyBars;
+  const chartBars = hourlyBars ?? bucketDayBars ?? chartData.dailyBars;
   const isHourView = hourlyBars !== null;
   const isBucketView = !isHourView && bucketDayBars !== null;
   const isDrilledDown = isHourView || isBucketView;
@@ -989,6 +1137,11 @@ export default function FinancesPage() {
             <div className="flex items-center gap-2">
               <DollarSign size={18} className="text-zinc-400" />
               <h2 className="font-semibold text-white">Overview</h2>
+              {sourceLabel && (
+                <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-brand-500/15 text-brand-300">
+                  {sourceLabel}
+                </span>
+              )}
               <LiveTickIndicator
                 timerCount={runningCount}
                 fixedIncomeLive={liveServiceRevenue.fixed}
@@ -996,7 +1149,9 @@ export default function FinancesPage() {
               />
             </div>
 
-            <div className="flex items-center gap-2.5 w-full sm:w-auto">
+            {/* Three dropdowns no longer fit one mobile row; the source
+                filter wraps to its own full-width line below sm. */}
+            <div className="flex flex-wrap items-center gap-2.5 w-full sm:w-auto">
             <span className="hidden sm:inline text-xs text-zinc-500 font-medium">
               {fmtRangeDisplay(range.startKey, range.endKey)}
             </span>
@@ -1011,7 +1166,7 @@ export default function FinancesPage() {
                 className="w-full sm:w-auto flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-md bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.08] transition-colors"
               >
                 <CalendarRange size={13} className="text-zinc-400 flex-shrink-0" />
-                <span className="text-xs font-medium text-zinc-300">
+                <span className="text-xs font-medium text-zinc-300 whitespace-nowrap">
                   {PRESET_OPTIONS.find(o => o.value === preset)?.label ?? 'Custom'}
                 </span>
                 <ChevronDown size={13} className={`text-zinc-500 transition-transform duration-150 ${rangeOpen ? 'rotate-180' : ''}`} />
@@ -1182,47 +1337,167 @@ export default function FinancesPage() {
                 </div>
               );
             })()}
+
+            {/* Earnings-source filter - re-scopes the chart and the Overview
+                strip. Same compact pattern as the date and project dropdowns. */}
+            {(() => {
+              const members = team
+                .filter(m => m.role !== 'guest' && m.status !== 'suspended')
+                .slice()
+                .sort((a, b) => a.name.localeCompare(b.name));
+              const buttonLabel = sourceFilter === 'member'
+                ? (team.find(m => m.id === sourceMemberId)?.name ?? 'Contributor')
+                : (SOURCE_OPTIONS.find(o => o.value === sourceFilter)?.label ?? 'Company');
+              return (
+                <div ref={sourceFilterDropdownRef} className="relative flex-1 sm:flex-none">
+                  <button
+                    type="button"
+                    onClick={() => setSourceFilterOpen(o => !o)}
+                    aria-expanded={sourceFilterOpen}
+                    aria-haspopup="menu"
+                    className="w-full sm:w-auto flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-md bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.08] focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 transition-colors"
+                  >
+                    <Users size={13} className="text-zinc-400 flex-shrink-0" aria-hidden="true" />
+                    <span className="text-xs font-medium text-zinc-300 truncate max-w-[140px]">{buttonLabel}</span>
+                    <ChevronDown size={13} className={`text-zinc-500 transition-transform duration-150 ${sourceFilterOpen ? 'rotate-180' : ''}`} aria-hidden="true" />
+                  </button>
+
+                  <Popover
+                    anchorRef={sourceFilterDropdownRef}
+                    open={sourceFilterOpen}
+                    onClose={() => setSourceFilterOpen(false)}
+                    align="end"
+                    className="bg-surface-raised border border-white/[0.08] rounded-lg shadow-lg overflow-hidden"
+                  >
+                    <div className="px-2.5 py-2 border-b border-white/[0.06]">
+                      <span className="text-[10px] uppercase tracking-wider font-semibold text-zinc-400">Earnings source</span>
+                    </div>
+                    <div className="p-1">
+                      {SOURCE_OPTIONS.map(opt => {
+                        const active = sourceFilter === opt.value;
+                        return (
+                          <button
+                            key={opt.value}
+                            type="button"
+                            role="menuitemradio"
+                            aria-checked={active}
+                            onClick={() => {
+                              setSourceFilter(opt.value);
+                              setSourceMemberId(null);
+                              setSourceFilterOpen(false);
+                            }}
+                            className={`w-full text-left px-2.5 py-1.5 rounded-md transition-colors ${
+                              active ? 'bg-brand-500/15' : 'hover:bg-white/[0.03]'
+                            }`}
+                          >
+                            <span className={`block text-sm ${active ? 'text-brand-300 font-medium' : 'text-zinc-300'}`}>{opt.label}</span>
+                            <span className="block text-[11px] text-zinc-500">{opt.hint}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <div className="border-t border-white/[0.06]">
+                      <p className="px-2.5 pt-2 pb-1 text-[10px] uppercase tracking-wider font-semibold text-zinc-400">Individual contributor</p>
+                      <div className="max-h-[240px] overflow-y-auto pb-1 px-1">
+                        {members.map(m => {
+                          const active = sourceFilter === 'member' && sourceMemberId === m.id;
+                          return (
+                            <button
+                              key={m.id}
+                              type="button"
+                              role="menuitemradio"
+                              aria-checked={active}
+                              onClick={() => {
+                                setSourceFilter('member');
+                                setSourceMemberId(m.id);
+                                setSourceFilterOpen(false);
+                              }}
+                              className={`w-full text-left text-sm px-1.5 py-1.5 rounded-md transition-colors flex items-center gap-2 ${
+                                active ? 'bg-brand-500/15 text-brand-300 font-medium' : 'text-zinc-300 hover:bg-white/[0.03]'
+                              }`}
+                            >
+                              <Avatar name={m.name} src={m.avatar || undefined} size="xs" />
+                              <span className="truncate flex-1 min-w-0">{m.name}</span>
+                              {m.role === 'agent' && (
+                                <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-violet-500/15 text-violet-300 flex-shrink-0">AI</span>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </Popover>
+                </div>
+              );
+            })()}
             </div>
           </div>
 
           <div className="px-5 py-3 sm:overflow-x-auto">
-            {/* Mobile: 3-col × 2-row grid (all 6 stats, no overflow, adapts to width).
+            {/* Mobile: 3-col grid (all stats, no overflow, adapts to width).
                 sm+: single inline row that scrolls if needed. */}
-            <div className="grid grid-cols-3 gap-x-3 gap-y-4 sm:flex sm:gap-6 lg:gap-8 sm:min-w-max">
-              <div className="min-w-0 sm:shrink-0 sm:min-w-[5.5rem]">
-                <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">Earned</p>
-                <p className={`text-sm font-semibold ${data.totalEarned >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{fmtCurrency(data.totalEarned)}</p>
-              </div>
-              <div className="min-w-0 sm:shrink-0 sm:min-w-[5.5rem]">
-                <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">Outstanding</p>
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <p className={`text-sm font-semibold ${data.totalOutstanding > 0 ? 'text-amber-400' : 'text-zinc-500'}`}>
-                    ${fmt(data.totalOutstanding)}
-                  </p>
-                  {data.totalOverdue > 0 && (
-                    <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-red-500/15 text-red-400">
-                      ${fmt(data.totalOverdue)} overdue
-                    </span>
-                  )}
+            {sourceData && attribution ? (
+              /* Source view: the contributor lens. Invoice metrics are
+                 company money, so they only render in the company view. */
+              <div className="grid grid-cols-2 gap-x-3 gap-y-4 sm:flex sm:gap-6 lg:gap-8 sm:min-w-max">
+                <div className="min-w-0 sm:shrink-0 sm:min-w-[5.5rem]">
+                  <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">Earned</p>
+                  <p className={`text-sm font-semibold ${sourceData.totalEarned >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{fmtCurrency(sourceData.totalEarned)}</p>
+                </div>
+                <div className="min-w-0 sm:shrink-0 sm:min-w-[5.5rem]">
+                  <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">Recorded cost</p>
+                  {attribution.recordedCost !== null
+                    ? <p className={`text-sm font-semibold ${attribution.recordedCost > 0 ? 'text-amber-400' : 'text-zinc-500'}`}>{fmtCurrency(attribution.recordedCost)}</p>
+                    : <NotTrackedValue className="text-sm" reason={costNotTrackedReason} />}
+                </div>
+                <div className="min-w-0 sm:shrink-0 sm:min-w-[5.5rem]">
+                  <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">Contribution</p>
+                  {attribution.contribution !== null
+                    ? <p className={`text-sm font-semibold ${attribution.contribution >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{fmtCurrency(attribution.contribution)}</p>
+                    : <NotTrackedValue className="text-sm" reason={costNotTrackedReason} />}
+                </div>
+                <div className="min-w-0 sm:shrink-0 sm:min-w-[5.5rem]">
+                  <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">Hours</p>
+                  <p className="text-sm font-semibold text-white">{sourceData.totalHours.toFixed(1)}</p>
                 </div>
               </div>
-              <div className="min-w-0 sm:shrink-0 sm:min-w-[5.5rem]">
-                <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">Invoiced</p>
-                <p className="text-sm font-semibold text-white">${fmt(data.totalInvoiced)}</p>
+            ) : (
+              <div className="grid grid-cols-3 gap-x-3 gap-y-4 sm:flex sm:gap-6 lg:gap-8 sm:min-w-max">
+                <div className="min-w-0 sm:shrink-0 sm:min-w-[5.5rem]">
+                  <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">Earned</p>
+                  <p className={`text-sm font-semibold ${data.totalEarned >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{fmtCurrency(data.totalEarned)}</p>
+                </div>
+                <div className="min-w-0 sm:shrink-0 sm:min-w-[5.5rem]">
+                  <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">Outstanding</p>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <p className={`text-sm font-semibold ${data.totalOutstanding > 0 ? 'text-amber-400' : 'text-zinc-500'}`}>
+                      ${fmt(data.totalOutstanding)}
+                    </p>
+                    {data.totalOverdue > 0 && (
+                      <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-red-500/15 text-red-400">
+                        ${fmt(data.totalOverdue)} overdue
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="min-w-0 sm:shrink-0 sm:min-w-[5.5rem]">
+                  <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">Invoiced</p>
+                  <p className="text-sm font-semibold text-white">${fmt(data.totalInvoiced)}</p>
+                </div>
+                <div className="min-w-0 sm:shrink-0 sm:min-w-[5.5rem]">
+                  <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">Received</p>
+                  <p className="text-sm font-semibold text-emerald-400">${fmt(data.totalPaymentsReceived)}</p>
+                </div>
+                <div className="min-w-0 sm:shrink-0 sm:min-w-[5.5rem]">
+                  <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">Total Hours</p>
+                  <p className="text-sm font-semibold text-white">{data.totalHours.toFixed(1)}</p>
+                </div>
+                <div className="min-w-0 sm:shrink-0 sm:min-w-[5.5rem]">
+                  <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">Invoices</p>
+                  <p className="text-sm font-semibold text-white">{data.activeInvoicesCount}</p>
+                </div>
               </div>
-              <div className="min-w-0 sm:shrink-0 sm:min-w-[5.5rem]">
-                <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">Received</p>
-                <p className="text-sm font-semibold text-emerald-400">${fmt(data.totalPaymentsReceived)}</p>
-              </div>
-              <div className="min-w-0 sm:shrink-0 sm:min-w-[5.5rem]">
-                <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">Total Hours</p>
-                <p className="text-sm font-semibold text-white">{data.totalHours.toFixed(1)}</p>
-              </div>
-              <div className="min-w-0 sm:shrink-0 sm:min-w-[5.5rem]">
-                <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">Invoices</p>
-                <p className="text-sm font-semibold text-white">{data.activeInvoicesCount}</p>
-              </div>
-            </div>
+            )}
           </div>
         </div>
 
@@ -1239,7 +1514,7 @@ export default function FinancesPage() {
                     ? `Hourly Earnings · ${fmtDate(drilldownDay!, true)}`
                     : isBucketView
                       ? `Daily Earnings · ${fmtRangeDisplay(drilldownBucket!.startKey, drilldownBucket!.endKey)}`
-                      : data.granularity === 'month' ? 'Monthly Earnings' : data.granularity === 'week' ? 'Weekly Earnings' : 'Daily Earnings'}
+                      : `${chartData.granularity === 'month' ? 'Monthly' : chartData.granularity === 'week' ? 'Weekly' : 'Daily'} Earnings${sourceLabel ? ` · ${sourceLabel}` : ''}`}
                 </h2>
                 <LiveTickIndicator
                   timerCount={runningCount}
@@ -1359,8 +1634,8 @@ export default function FinancesPage() {
                           // Drilldown ladder: week/month bar → bucket of days,
                           // day bar → 24 hours, hour bar → no further drill.
                           // Hour view bars only toggle their sticky tooltip.
-                          const canDrillToBucket = !isDrilledDown && data.granularity !== 'day';
-                          const canDrillToHour = !isHourView && (isBucketView || data.granularity === 'day');
+                          const canDrillToBucket = !isDrilledDown && chartData.granularity !== 'day';
+                          const canDrillToHour = !isHourView && (isBucketView || chartData.granularity === 'day');
 
                           // Figure out which segment is at the top so it gets rounded corners.
                           // Order top→bottom: payment, hourly, fixed, recurring.

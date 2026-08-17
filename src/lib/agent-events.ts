@@ -46,6 +46,31 @@ export const AGENT_EVENT_SCHEMAS = {
     round: z.number().int().min(1).optional(),
   }),
   'work.done': z.object({ ...taskRef, task_title: z.string().min(1).max(200) }),
+  'pr.merged': z.object({
+    ...taskRef,
+    pr_url: z.string().url(),
+    additions: z.number().int().min(0),
+    deletions: z.number().int().min(0),
+    head_sha: z.string().regex(/^[0-9a-f]{40}$/i).optional(),
+    repository: z.string().min(1).max(300).optional(),
+  }),
+
+  // Emitted by the host-side Hermes publisher, never by an agent mid-turn.
+  // source_usage_id is the idempotency key shared by the publisher and every
+  // downstream analytics projection.
+  'usage.recorded': z.object({
+    ...taskRef,
+    source_usage_id: z.string().min(1).max(300),
+    model: z.string().min(1).max(200),
+    input_tokens: z.number().int().min(0),
+    output_tokens: z.number().int().min(0),
+    cached_tokens: z.number().int().min(0).default(0),
+    cost_usd: z.number().min(0),
+    cost_status: z.string().min(1).max(100).optional(),
+    cost_source: z.string().min(1).max(100).optional(),
+    session_id: z.string().min(1).max(300).optional(),
+    recorded_at: z.string().datetime().optional(),
+  }),
 
   // -- reviewing -----------------------------------------------------------
   'review.started': z.object({
@@ -141,6 +166,10 @@ export function formatEventTitle(type: AgentEventType, payload: Record<string, u
       return pr ? `${pr} ready for review${round}` : `Handed off for review: ${p.task_title}`;
     case 'work.done':
       return `Finished: ${p.task_title}`;
+    case 'pr.merged':
+      return pr ? `Merged ${pr}` : 'Merged pull request';
+    case 'usage.recorded':
+      return `Recorded ${Number(p.input_tokens) + Number(p.output_tokens)} tokens for ${p.model}`;
     case 'review.started': {
       // Both references are optional on a verdict-adjacent event; a missing
       // one must vanish, not render as the literal string "undefined"
@@ -195,6 +224,8 @@ export const EVENT_STATE: Record<AgentEventType, 'work' | 'done' | 'no_work' | '
   'work.milestone': 'work',
   'work.handoff': 'done',
   'work.done': 'done',
+  'pr.merged': 'done',
+  'usage.recorded': 'silent',
   'review.started': 'work',
   'review.verdict': 'done',
   'audit.finding': 'work',

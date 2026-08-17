@@ -11,6 +11,7 @@ import Link from 'next/link';
 import Modal from '@/components/ui/Modal';
 import { FolderKanban, CheckCircle, Clock, AlertTriangle, Plus, ArrowRight, Users, Target, Activity, DollarSign, Wallet } from 'lucide-react';
 import { Tooltip } from '@/components/ui/Tooltip';
+import { Sparkline } from '@/components/ui/Sparkline';
 import { parseDateOnly, toLocalDateKey } from '@/lib/date-utils';
 import { hasPermission } from '@/lib/access-control';
 import { computeCompanyFinanceSummary, computeMemberEarningsSummary } from '@/lib/finance/summary';
@@ -42,25 +43,6 @@ function getTimeAgo(dateStr: string): string {
   const diffDays = Math.floor(diffHours / 24);
   if (diffDays < 7) return `${diffDays}d ago`;
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-}
-
-/** Tiny sparkline from a series of numbers. */
-function Sparkline({ data, className = 'text-brand-400' }: { data: number[]; className?: string }) {
-  if (data.length < 2) return null;
-  const w = 72, h = 22, pad = 2;
-  const max = Math.max(1, ...data);
-  const pts = data.map((v, i) => {
-    const x = (i / (data.length - 1)) * w;
-    const y = h - pad - (v / max) * (h - pad * 2);
-    return `${x.toFixed(1)},${y.toFixed(1)}`;
-  });
-  const last = pts[pts.length - 1].split(',');
-  return (
-    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} className={className} aria-hidden="true">
-      <polyline points={pts.join(' ')} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-      <circle cx={last[0]} cy={last[1]} r="2.4" fill="currentColor" />
-    </svg>
-  );
 }
 
 export default function DashboardPage() {

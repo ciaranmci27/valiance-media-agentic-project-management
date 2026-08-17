@@ -84,10 +84,51 @@ export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId, acc
       })()
     : (parsed as LegacyAgentActivity);
 
-  const entry = await insertAgentActivity(supabase, {
-    ...record,
-    agent_id: teamMemberId,
-  });
+  // Host publishers and merge scripts retry after ambiguous network failures.
+  // Make their natural source identities idempotent at the API door: the
+  // pre-check handles the common resend, and the partial unique indexes close
+  // the race between concurrent retries (the 23505 catch below).
+  const metadata = record.metadata as Record<string, unknown>;
+  const identity = !isAgentEventType(parsed.activity_type)
+    ? null
+    : parsed.activity_type === 'usage.recorded'
+      ? { source_usage_id: metadata.source_usage_id }
+      : parsed.activity_type === 'pr.merged'
+        ? { pr_url: metadata.pr_url }
+        : null;
+  const hasIdentity = Boolean(identity && Object.values(identity)[0]);
+
+  const findExisting = async () => {
+    const { data: existing, error: existingError } = await supabase
+      .from('agent_activities')
+      .select('*')
+      .eq('agent_id', teamMemberId)
+      .eq('activity_type', parsed.activity_type)
+      .contains('metadata', identity!)
+      .limit(1)
+      .maybeSingle();
+    if (existingError) throw existingError;
+    return existing;
+  };
+
+  if (hasIdentity) {
+    const existing = await findExisting();
+    if (existing) return created(existing);
+  }
+
+  let entry;
+  try {
+    entry = await insertAgentActivity(supabase, {
+      ...record,
+      agent_id: teamMemberId,
+    });
+  } catch (error) {
+    if (hasIdentity && (error as { code?: string } | null)?.code === '23505') {
+      const existing = await findExisting();
+      if (existing) return created(existing);
+    }
+    throw error;
+  }
 
   logAudit(supabase, {
     method: 'POST',

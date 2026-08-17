@@ -10,8 +10,6 @@ import { AutonomousProjects } from '@/components/agent/AutonomousProjects';
 import { ActivityTimeline } from '@/components/agent/ActivityTimeline';
 import { ApproveModal } from '@/components/agent/ApproveModal';
 import { EditSuggestionModal } from '@/components/agent/EditSuggestionModal';
-import { Button } from '@/components/ui/Button';
-import { Radio } from 'lucide-react';
 import { toast } from '@/components/ui/Toast';
 
 export default function AgentPage() {
@@ -35,18 +33,6 @@ export default function AgentPage() {
             <span className="hidden sm:inline">
               Fleet status, pending reviews, and what your crew is working on.
             </span>
-          }
-          actions={
-            // Paired with the Dashboard button on /agent/live, so the two views
-            // link back to each other. Same `Button variant="secondary"` the
-            // Dashboard button on agent/projects/[id] already uses, so all three
-            // agent pages navigate with one control.
-            //
-            // The label stays visible at every width: "Live" is four characters,
-            // and an icon on its own was ambiguous — which is what this replaces.
-            <Button variant="secondary" href="/agent/live" icon={<Radio size={16} />}>
-              Live
-            </Button>
           }
         />
       </div>

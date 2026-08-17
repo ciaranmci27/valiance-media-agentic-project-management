@@ -16,6 +16,7 @@ import {
   ListTodo,
   Bot,
   Bell,
+  ChevronDown,
   DollarSign,
 } from 'lucide-react';
 import { useApp } from '@/lib/store';
@@ -50,6 +51,9 @@ export function Sidebar() {
   const { isEnvForcedDemo, isDemoMode } = useDemo();
   const [isOpen, setIsOpen] = useState(false);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
+  // The Agent item expands into its three surfaces. null = follow the route
+  // (auto-expand while on an /agent page); a manual toggle always wins.
+  const [agentOpen, setAgentOpen] = useState<boolean | null>(null);
 
   // Listen for the Header's hamburger button event
   useEffect(() => {
@@ -162,6 +166,77 @@ export function Sidebar() {
         <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto sidebar-scroll">
           {navItems.map((item) => {
             const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
+            // Agent is the one expandable group: the row toggles a sub-list of
+            // the three agent surfaces instead of navigating, so the pages'
+            // headers no longer need their own switcher.
+            if (item.href === '/agent') {
+              const agentExpanded = agentOpen ?? pathname.startsWith('/agent');
+              const agentLinks = [
+                // Project detail pages belong to the dashboard flow.
+                { href: '/agent', label: 'Dashboard', active: pathname === '/agent' || pathname.startsWith('/agent/projects') },
+                { href: '/agent/analytics', label: 'Analytics', active: pathname === '/agent/analytics' },
+                { href: '/agent/live', label: 'Live', active: pathname === '/agent/live' },
+              ];
+              // The parent row reads active only while one of its tabs is the
+              // current route; opening the dropdown alone does not color it.
+              // The child list stays a quiet rail so the two never compete as
+              // twin pills.
+              return (
+                <div key={item.href}>
+                  <button
+                    type="button"
+                    onClick={() => setAgentOpen(!agentExpanded)}
+                    aria-expanded={agentExpanded}
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${
+                      isActive
+                        ? 'bg-brand-500/15 text-brand-300 glow-brand-soft'
+                        : 'text-zinc-400 hover:bg-white/5 hover:text-zinc-200'
+                    }`}
+                  >
+                    <span className="relative flex-shrink-0 leading-none">
+                      <item.icon size={18} />
+                      {item.badge > 0 && (
+                        <span className="absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-semibold text-white bg-brand-500">
+                          {item.badge > 9 ? '9+' : item.badge}
+                        </span>
+                      )}
+                    </span>
+                    <span className="text-sm font-medium flex-1 text-left">{item.label}</span>
+                    <ChevronDown
+                      size={14}
+                      className={`flex-shrink-0 transition-transform ${agentExpanded ? '' : '-rotate-90'}`}
+                      aria-hidden="true"
+                    />
+                  </button>
+                  {agentExpanded && (
+                    /* Rail list, not pills: one hairline centered under the
+                       parent icon (row px-3 = 12px + half the 18px icon =
+                       21px), labels indented to meet the parent label at
+                       42px. The active surface reads as brand text plus a
+                       short brand tick on the rail. */
+                    <div className="relative ml-[20.5px] mt-0.5 mb-1 animate-slideDown">
+                      <span className="absolute left-0 top-1 bottom-1 w-px bg-white/[0.08]" aria-hidden="true" />
+                      {agentLinks.map(link => (
+                        <Link
+                          key={link.href}
+                          href={link.href}
+                          onClick={closeSidebar}
+                          aria-current={link.active ? 'page' : undefined}
+                          className={`relative flex items-center pl-[21.5px] pr-3 py-1.5 rounded-md text-[13px] font-medium transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${
+                            link.active ? 'text-brand-300' : 'text-zinc-500 hover:text-zinc-200'
+                          }`}
+                        >
+                          {link.active && (
+                            <span className="absolute -left-[0.5px] top-1/2 -translate-y-1/2 h-4 w-[2px] rounded-full bg-brand-400" aria-hidden="true" />
+                          )}
+                          {link.label}
+                        </Link>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            }
             return (
               <Link
                 key={item.href}
