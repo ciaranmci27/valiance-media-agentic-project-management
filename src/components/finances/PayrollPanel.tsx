@@ -482,7 +482,15 @@ export function PayrollPanel({ team, projects }: { team: TeamMember[]; projects:
   const rateMember = team.find((member) => member.id === rateMemberId);
   const adjustmentMember = team.find((member) => member.id === adjustmentMemberId);
   const ledgerMember = team.find((member) => member.id === ledgerMemberId);
-  if (!hasPanelIdentity || (!loading && visibleMembers.length === 0 && pending.length === 0)) return null;
+  if (!hasPanelIdentity) return null;
+  // Whether this panel has anything to show depends on fetched data, so while
+  // that is in flight it renders only when the store ALREADY proves there is
+  // content: someone payable on the team. With an all-agent roster there is
+  // nobody to pay, and the panel used to paint its header and a loading line
+  // before discovering that and removing itself, which read as the page
+  // breaking. Now it either appears once, complete, or never appears.
+  if (loading && !hasPayableIdentity) return null;
+  if (!loading && visibleMembers.length === 0 && pending.length === 0) return null;
 
   return (
     <section className="rounded-xl border border-white/[0.08] bg-surface-raised">
@@ -504,7 +512,34 @@ export function PayrollPanel({ team, projects }: { team: TeamMember[]; projects:
         )}
       </div>
 
-      {loading ? <div className="p-6 text-sm text-zinc-400">Loading compensation ledger...</div> : (
+      {loading ? (
+        // The ledger's figures come from the server, so they cannot exist on
+        // first paint. Everything else can: the roster is already in the store,
+        // so the panel opens in its final shape with real names, and only the
+        // amounts resolve. Nothing moves when they land.
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-white/[0.06]">
+          {(canManage ? payableMembers : payableMembers.filter((member) => member.id === teamMemberId)).map((member) => (
+            <div key={member.id} className="p-5">
+              <div className="flex min-w-0 items-center gap-2.5">
+                <Avatar name={member.name} src={member.avatar} size="sm" />
+                <div className="flex min-w-0 items-center gap-1.5">
+                  <p className="truncate text-sm font-semibold text-white">{member.name}</p>
+                  <span className={`flex-shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium capitalize ${ROLE_BADGE_CLASSES[member.role]}`}>{member.role}</span>
+                </div>
+              </div>
+              <div className="mt-4 grid grid-cols-3 gap-2" aria-hidden="true">
+                {['Earned', 'Paid', 'Owed'].map((label) => (
+                  <div key={label}>
+                    <p className="text-[10px] uppercase text-zinc-500">{label}</p>
+                    <div className="mt-1 h-4 w-14 rounded bg-white/[0.08] motion-safe:animate-pulse" />
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+          <span className="sr-only" role="status">Loading compensation ledger</span>
+        </div>
+      ) : (
         <>
           <Modal isOpen={showReviewQueue && canApprove && reviewQueueCount > 0} onClose={() => setShowReviewQueue(false)} title="Hours awaiting review" size="2xl">
             <div className="space-y-3">
