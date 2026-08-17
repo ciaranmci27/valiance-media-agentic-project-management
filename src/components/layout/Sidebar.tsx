@@ -31,6 +31,8 @@ import { demoNotifications } from '@/lib/demo-data';
 import { isRunning } from '@/lib/time-entry-utils';
 import { siteConfig } from '@/site-config';
 import { hasPermission } from '@/lib/access-control';
+import { prefetchAgentAnalytics } from '@/lib/use-agent-analytics-events';
+import { defaultAgentAnalyticsRange } from '@/lib/agent-range';
 
 export function Sidebar() {
   const pathname = usePathname();
@@ -221,6 +223,16 @@ export function Sidebar() {
                           key={link.href}
                           href={link.href}
                           onClick={closeSidebar}
+                          // Warm the report on intent. Pointing at the link is a
+                          // reliable signal a moment before the click, and the
+                          // query is cached by range, so arriving costs nothing:
+                          // the page opens with its figures already measured.
+                          onMouseEnter={link.href === '/agent/analytics'
+                            ? () => prefetchAgentAnalytics(defaultAgentAnalyticsRange(currentMember?.timezone))
+                            : undefined}
+                          onFocus={link.href === '/agent/analytics'
+                            ? () => prefetchAgentAnalytics(defaultAgentAnalyticsRange(currentMember?.timezone))
+                            : undefined}
                           aria-current={link.active ? 'page' : undefined}
                           className={`relative flex items-center pl-[21.5px] pr-3 py-1.5 rounded-md text-[13px] font-medium transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${
                             link.active ? 'text-brand-300' : 'text-zinc-500 hover:text-zinc-200'

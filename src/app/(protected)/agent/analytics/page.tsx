@@ -3,6 +3,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
+import { useDemo } from '@/lib/demo-context';
 import { Header } from '@/components/layout/Header';
 import { Avatar } from '@/components/ui/Avatar';
 import { Tooltip } from '@/components/ui/Tooltip';
@@ -17,6 +18,7 @@ import {
 import { toDateKey } from '@/lib/finance/vesting';
 import { toLocalDateKey } from '@/lib/date-utils';
 import { useAgentAnalyticsEvents } from '@/lib/use-agent-analytics-events';
+import { PRESET_OPTIONS, resolveRange, DEFAULT_PRESET, type RangePreset } from '@/lib/agent-range';
 import {
   BarChart3,
   Bot,
@@ -74,52 +76,6 @@ function fmtDate(dateKey: string, withWeekday = false): string {
 
 function fmtRangeDisplay(startKey: string, endKey: string): string {
   return `${fmtDate(startKey)} - ${fmtDate(endKey)}`;
-}
-
-// ---------------------------------------------------------------------------
-// Date range presets (same vocabulary as the Finances page)
-// ---------------------------------------------------------------------------
-
-type RangePreset = '7d' | '30d' | '90d' | 'mtd' | 'all' | 'custom';
-
-const PRESET_OPTIONS: { value: RangePreset; label: string }[] = [
-  { value: '7d', label: 'Last 7 days' },
-  { value: '30d', label: 'Last 30 days' },
-  { value: '90d', label: 'Last 90 days' },
-  { value: 'mtd', label: 'Month to date' },
-  { value: 'all', label: 'All time' },
-  { value: 'custom', label: 'Custom' },
-];
-
-function resolveRange(
-  preset: RangePreset,
-  customStart: string,
-  customEnd: string,
-  earliestDateKey: string | null,
-  todayKey: string,
-): { startKey: string; endKey: string } {
-  const [ty, tm, td] = todayKey.split('-').map(Number);
-  const today = new Date(ty, tm - 1, td);
-  const makeStart = (daysBack: number): string => {
-    const d = new Date(today);
-    d.setDate(d.getDate() - daysBack);
-    return toDateKey(d);
-  };
-  switch (preset) {
-    case '7d': return { startKey: makeStart(6), endKey: todayKey };
-    case '30d': return { startKey: makeStart(29), endKey: todayKey };
-    case '90d': return { startKey: makeStart(89), endKey: todayKey };
-    case 'mtd': return { startKey: toDateKey(new Date(today.getFullYear(), today.getMonth(), 1)), endKey: todayKey };
-    case 'all': return { startKey: earliestDateKey ?? makeStart(89), endKey: todayKey };
-    case 'custom': {
-      if (customStart && customEnd) {
-        return customStart <= customEnd
-          ? { startKey: customStart, endKey: customEnd }
-          : { startKey: customEnd, endKey: customStart };
-      }
-      return { startKey: makeStart(29), endKey: todayKey };
-    }
-  }
 }
 
 function daysBetween(startKey: string, endKey: string): number {
@@ -281,6 +237,7 @@ function NotTracked({ reason, className = '' }: { reason: string; className?: st
 
 export default function AgentAnalyticsPage() {
   const { agentActivity: recentActivity, timeEntries, team, projects } = useApp();
+  const { isDemoMode } = useDemo();
   const { teamMemberId } = useAuth();
   const currentMember = team.find(member => member.id === teamMemberId);
   const preferredTimezone = currentMember?.timezone && currentMember.timezone !== 'UTC'
@@ -292,7 +249,7 @@ export default function AgentAnalyticsPage() {
   const todayKey = toLocalDateKey(new Date(now).toISOString(), preferredTimezone);
 
   // ── Filters ─────────────────────────────────────────────────
-  const [preset, setPreset] = useState<RangePreset>('30d');
+  const [preset, setPreset] = useState<RangePreset>(DEFAULT_PRESET);
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
   const [rangeOpen, setRangeOpen] = useState(false);
@@ -344,8 +301,12 @@ export default function AgentAnalyticsPage() {
 
   // A report reads its whole range from the database rather than the store's
   // recent-activity window, which is deliberately small and excludes telemetry.
-  const events = useAgentAnalyticsEvents(range, recentActivity);
-  const agentActivity = events.rows;
+  const events = useAgentAnalyticsEvents(range, { enabled: !isDemoMode });
+  const agentActivity = isDemoMode ? recentActivity : events.rows;
+  // The page's structure, filters and roster come from the store and paint on
+  // the first frame; only measured figures wait. A repeat visit has the range
+  // cached and skips this entirely.
+  const measuring = events.loading;
 
   // ── Read model ──────────────────────────────────────────────
   const analytics = useMemo(
@@ -940,7 +901,15 @@ export default function AgentAnalyticsPage() {
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <p className="text-xs lg:text-sm text-zinc-500 font-medium">{tile.label}</p>
-                    {tile.value !== null ? (
+                    {measuring ? (
+                      // A figure that is still being measured is left blank on
+                      // purpose. Showing an approximation from whatever is
+                      // already in memory made the page correct itself in front
+                      // of the reader, which is worse than a moment of honesty.
+                      <div className="mt-1.5 h-7 lg:h-8 flex items-center">
+                        <div className="h-6 lg:h-7 w-24 rounded bg-white/[0.07] motion-safe:animate-pulse" />
+                      </div>
+                    ) : tile.value !== null ? (
                       <p className={`text-2xl lg:text-3xl font-bold tracking-tight mt-1.5 leading-none ${tile.valueClass}`}>
                         {tile.value}
                       </p>
@@ -955,8 +924,8 @@ export default function AgentAnalyticsPage() {
                   </div>
                 </div>
                 <div className="flex items-center justify-between gap-2 mt-3.5 min-h-[22px]">
-                  <span className="text-xs text-zinc-500 truncate">{tile.context}</span>
-                  {showSpark && (
+                  <span className="text-xs text-zinc-500 truncate">{measuring ? '' : tile.context}</span>
+                  {!measuring && showSpark && (
                     <Sparkline data={spark} className={selected ? 'text-brand-400 flex-shrink-0' : 'text-zinc-500 flex-shrink-0'} />
                   )}
                 </div>
@@ -980,7 +949,20 @@ export default function AgentAnalyticsPage() {
           </div>
 
           <div className="chart-vivid px-5 pt-5 pb-4 flex-1 flex flex-col">
-            {!hasChartData ? (
+            {measuring ? (
+              // The plot area holds its height so the page below does not jump
+              // when the series arrives. "Nothing here" is a verdict this card
+              // has not earned yet.
+              <div className="flex-1 min-h-[160px] flex items-end gap-[3px]" aria-hidden="true">
+                {Array.from({ length: 24 }).map((_, i) => (
+                  <div
+                    key={i}
+                    className="flex-1 rounded-t bg-white/[0.05] motion-safe:animate-pulse"
+                    style={{ height: `${18 + ((i * 37) % 55)}%`, animationDelay: `${(i % 6) * 90}ms` }}
+                  />
+                ))}
+              </div>
+            ) : !hasChartData ? (
               <div className="flex-1 flex flex-col items-center justify-center text-center px-6 py-10">
                 <div className="w-10 h-10 rounded-full bg-white/[0.06] flex items-center justify-center mb-3">
                   <TrendingUp size={18} className="text-zinc-500" aria-hidden="true" />
@@ -1226,7 +1208,28 @@ export default function AgentAnalyticsPage() {
             </span>
           </div>
 
-          {analytics.agents.length === 0 ? (
+          {measuring ? (
+            // The roster is known from the store, so the crew appears at once
+            // and only their figures resolve. Rendering zeroes here would show
+            // every agent as having done nothing, then correct itself.
+            <div className="divide-y divide-white/[0.06]">
+              {roster.map(member => (
+                <div key={member.id} className="flex items-center gap-3 px-5 py-3.5">
+                  <Avatar name={member.name} src={member.avatar || undefined} size="sm" />
+                  <div className="min-w-0 flex-1">
+                    <span className="text-sm font-medium text-white truncate block">{member.name}</span>
+                    {member.title && <span className="text-[11px] text-zinc-500 truncate block">{member.title}</span>}
+                  </div>
+                  <div className="flex items-center gap-5 flex-shrink-0" aria-hidden="true">
+                    {Array.from({ length: 4 }).map((_, i) => (
+                      <div key={i} className="h-4 w-14 rounded bg-white/[0.07] motion-safe:animate-pulse" />
+                    ))}
+                  </div>
+                </div>
+              ))}
+              <span className="sr-only" role="status">Measuring agent analytics</span>
+            </div>
+          ) : analytics.agents.length === 0 ? (
             <div className="flex-1 flex flex-col items-center justify-center text-center px-6 py-10">
               <div className="w-10 h-10 rounded-full bg-white/[0.06] flex items-center justify-center mb-3">
                 <Bot size={18} className="text-zinc-500" aria-hidden="true" />
