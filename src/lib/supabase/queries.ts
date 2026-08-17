@@ -4,6 +4,7 @@ import { notFound } from '@/lib/api/errors';
 import { siteConfig } from '@/site-config';
 import { generatePortalSlug } from '@/lib/portal-slug';
 import { ensureLineItems } from '@/lib/invoice-utils';
+import { TELEMETRY_EVENT_TYPES } from '@/lib/agent-events';
 
 // ============================================================
 // PROJECTS
@@ -2143,6 +2144,16 @@ export async function fetchPendingSuggestionCount(supabase: SupabaseClient) {
 // AGENT ACTIVITY
 // ============================================================
 
+/**
+ * The NARRATIVE feed: recent events a person would want to read.
+ *
+ * Telemetry (usage counters, turn runtimes) is excluded by type rather than
+ * trimmed by luck. Host publishers emit those in the hundreds per backfill, and
+ * with a bounded window they crowd out every real event: hours after the usage
+ * publisher went live, all 100 rows here were usage deltas, which blanked the
+ * dashboard feed and starved analytics of the handoffs it counts. Analytics
+ * reads telemetry through `fetchAgentActivityRange` instead.
+ */
 export async function fetchAgentActivity(supabase: SupabaseClient, filters?: { agent_id?: string; project_id?: string; activity_type?: string }) {
   let query = supabase
     .from('agent_activities')
@@ -2150,6 +2161,10 @@ export async function fetchAgentActivity(supabase: SupabaseClient, filters?: { a
     .order('created_at', { ascending: false })
     .limit(100);
 
+  // An explicit type filter is a deliberate request and wins over the default.
+  if (!filters?.activity_type) {
+    query = query.not('activity_type', 'in', `(${TELEMETRY_EVENT_TYPES.join(',')})`);
+  }
   if (filters?.agent_id) query = query.eq('agent_id', filters.agent_id);
   if (filters?.project_id) query = query.eq('project_id', filters.project_id);
   if (filters?.activity_type) query = query.eq('activity_type', filters.activity_type);
@@ -2157,6 +2172,43 @@ export async function fetchAgentActivity(supabase: SupabaseClient, filters?: { a
   const { data, error } = await query;
   if (error) throw error;
   return (data || []) as AgentActivity[];
+}
+
+/**
+ * Every agent event in a date range, telemetry included, paged so a wide range
+ * is complete rather than silently truncated.
+ *
+ * Analytics cannot read the narrative window: it needs all of a range (a month
+ * of turns and usage deltas runs to thousands of rows) and it needs the types
+ * that window deliberately drops. A hard ceiling still applies, and the caller
+ * is told when it was hit so the UI can say so instead of quietly under-reporting.
+ */
+export async function fetchAgentActivityRange(
+  supabase: SupabaseClient,
+  range: { startKey: string; endKey: string },
+  options?: { maxRows?: number },
+): Promise<{ rows: AgentActivity[]; truncated: boolean }> {
+  const maxRows = options?.maxRows ?? 20000;
+  const pageSize = 1000;
+  const rows: AgentActivity[] = [];
+  // Date keys are calendar days; widen to cover the whole end day in any zone.
+  const from = `${range.startKey}T00:00:00.000Z`;
+  const to = `${range.endKey}T23:59:59.999Z`;
+
+  for (let offset = 0; offset < maxRows; offset += pageSize) {
+    const { data, error } = await supabase
+      .from('agent_activities')
+      .select('*')
+      .gte('created_at', from)
+      .lte('created_at', to)
+      .order('created_at', { ascending: false })
+      .range(offset, offset + pageSize - 1);
+    if (error) throw error;
+    const page = (data || []) as AgentActivity[];
+    rows.push(...page);
+    if (page.length < pageSize) return { rows, truncated: false };
+  }
+  return { rows, truncated: true };
 }
 
 export async function insertAgentActivity(

@@ -111,7 +111,7 @@ CREATE TABLE public.agent_activities (
     'heartbeat', 'system_check',
     'custom',
     'work.claimed', 'work.milestone', 'work.handoff', 'work.done',
-    'pr.merged', 'usage.recorded',
+    'pr.merged', 'usage.recorded', 'turn.completed',
     'review.started', 'review.verdict',
     'audit.finding', 'audit.no_work', 'spec.completed',
     'queue.empty', 'blocked',
@@ -136,6 +136,11 @@ CREATE UNIQUE INDEX idx_agent_activities_usage_identity ON public.agent_activiti
   WHERE activity_type = 'usage.recorded' AND metadata->>'source_usage_id' IS NOT NULL;
 CREATE UNIQUE INDEX idx_agent_activities_merged_pr_identity ON public.agent_activities(agent_id, (metadata->>'pr_url'))
   WHERE activity_type = 'pr.merged' AND metadata->>'pr_url' IS NOT NULL;
+CREATE UNIQUE INDEX idx_agent_activities_turn_identity ON public.agent_activities(agent_id, (metadata->>'source_turn_id'))
+  WHERE activity_type = 'turn.completed' AND metadata->>'source_turn_id' IS NOT NULL;
+-- Runtime rollups read one agent's turns over a date window.
+CREATE INDEX idx_agent_activities_turn_created ON public.agent_activities(agent_id, created_at DESC)
+  WHERE activity_type = 'turn.completed';
 
 ALTER TABLE public.agent_activities ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "agent_activities_all" ON public.agent_activities FOR ALL TO authenticated USING (true) WITH CHECK (true);

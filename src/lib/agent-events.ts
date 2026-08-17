@@ -76,6 +76,21 @@ export const AGENT_EVENT_SCHEMAS = {
     recorded_at: z.string().datetime({ offset: true }).optional(),
   }),
 
+  // How long an agent actually RAN. An internal capacity metric, never a
+  // billing input: only Jeff bills, and only through project time entries tied
+  // to real client work. Emitted by the host publisher from the scheduler's own
+  // ledger (scheduled turns) and from message timing (directed turns), so a
+  // 25 minute conversation with 15 minutes of processing records the 15.
+  'turn.completed': z.object({
+    source_turn_id: z.string().min(1).max(300),
+    origin: z.enum(['scheduled', 'directed']),
+    duration_ms: z.number().int().min(0),
+    started_at: z.string().datetime({ offset: true }),
+    finished_at: z.string().datetime({ offset: true }),
+    job_name: z.string().min(1).max(200).optional(),
+    session_id: z.string().min(1).max(300).optional(),
+  }),
+
   // -- reviewing -----------------------------------------------------------
   'review.started': z.object({
     ...taskRef,
@@ -132,6 +147,25 @@ export function isBookkeepingEvent(t: string): boolean {
   return t.startsWith('billing.');
 }
 
+/**
+ * Machine measurement rather than narrative: usage counters and turn runtimes.
+ *
+ * These arrive from host publishers at a volume no reader wants in a feed (one
+ * usage delta per model per session, one record per turn), and they compete for
+ * the same rows as real events. Keeping them out of narrative queries is not
+ * cosmetic: the browser store loads a bounded window of recent activity, and
+ * within hours of the usage publisher going live every row in that window was
+ * telemetry, which blanked the dashboard feed and starved the analytics read
+ * model of the handoffs and reviews it counts. Analytics reads these types
+ * directly, range-scoped, where they belong.
+ */
+export function isTelemetryEvent(t: string): boolean {
+  return t === 'usage.recorded' || t === 'turn.completed';
+}
+
+/** Every activity type analytics reads but no human should read in a feed. */
+export const TELEMETRY_EVENT_TYPES: AgentEventType[] = ['usage.recorded', 'turn.completed'];
+
 const short = (pr?: string) => {
   const m = pr ? /\/pull\/(\d+)/.exec(pr) : null;
   return m ? `PR #${m[1]}` : null;
@@ -174,6 +208,11 @@ export function formatEventTitle(type: AgentEventType, payload: Record<string, u
       return pr ? `Merged ${pr}` : 'Merged pull request';
     case 'usage.recorded':
       return `Recorded ${Number(p.input_tokens) + Number(p.output_tokens)} tokens for ${p.model}`;
+    case 'turn.completed': {
+      const seconds = Math.round(Number(p.duration_ms) / 1000);
+      const spell = seconds >= 60 ? `${Math.floor(seconds / 60)}m ${seconds % 60}s` : `${seconds}s`;
+      return `Ran ${spell} (${p.origin === 'directed' ? 'directed' : 'scheduled'})`;
+    }
     case 'review.started': {
       // Both references are optional on a verdict-adjacent event; a missing
       // one must vanish, not render as the literal string "undefined"
@@ -230,6 +269,9 @@ export const EVENT_STATE: Record<AgentEventType, 'work' | 'done' | 'no_work' | '
   'work.done': 'done',
   'pr.merged': 'done',
   'usage.recorded': 'silent',
+  // Runtime is measurement, not state: a turn record arrives after the fact and
+  // must never move an agent's mood. agent_health remains the status authority.
+  'turn.completed': 'silent',
   'review.started': 'work',
   'review.verdict': 'done',
   'audit.finding': 'work',

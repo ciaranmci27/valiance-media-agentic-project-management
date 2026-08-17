@@ -16,6 +16,7 @@ import {
 } from '@/lib/agent-analytics';
 import { toDateKey } from '@/lib/finance/vesting';
 import { toLocalDateKey } from '@/lib/date-utils';
+import { useAgentAnalyticsEvents } from '@/lib/use-agent-analytics-events';
 import {
   BarChart3,
   Bot,
@@ -28,6 +29,7 @@ import {
   FileDiff,
   FolderKanban,
   GitMerge,
+  Timer,
   TrendingUp,
   Trophy,
   X,
@@ -162,15 +164,19 @@ function bucketLabel(startKey: string, gran: Granularity, todayKey: string): str
 // tile selects what the chart plots.
 // ---------------------------------------------------------------------------
 
-type ChartMetric = 'revenue' | 'modelCost' | 'profit' | 'prsMerged' | 'linesChanged' | 'reviewRounds';
+type ChartMetric = 'revenue' | 'modelCost' | 'profit' | 'runtime' | 'prsMerged' | 'linesChanged' | 'reviewRounds';
 
-const CHART_METRICS: { key: ChartMetric; label: string; currency: boolean; icon: LucideIcon }[] = [
-  { key: 'revenue', label: 'Revenue', currency: true, icon: DollarSign },
-  { key: 'modelCost', label: 'Model cost', currency: true, icon: Coins },
-  { key: 'profit', label: 'Profit', currency: true, icon: TrendingUp },
-  { key: 'prsMerged', label: 'PRs merged', currency: false, icon: GitMerge },
-  { key: 'linesChanged', label: 'Lines changed', currency: false, icon: FileDiff },
-  { key: 'reviewRounds', label: 'Review rounds', currency: false, icon: ClipboardCheck },
+type MetricFormat = 'currency' | 'count' | 'duration';
+
+const CHART_METRICS: { key: ChartMetric; label: string; format: MetricFormat; icon: LucideIcon }[] = [
+  { key: 'revenue', label: 'Revenue', format: 'currency', icon: DollarSign },
+  { key: 'modelCost', label: 'Model cost', format: 'currency', icon: Coins },
+  { key: 'profit', label: 'Profit', format: 'currency', icon: TrendingUp },
+  // Fleet capacity: how long the agents actually ran. Internal only, never billed.
+  { key: 'runtime', label: 'Active runtime', format: 'duration', icon: Timer },
+  { key: 'prsMerged', label: 'PRs merged', format: 'count', icon: GitMerge },
+  { key: 'linesChanged', label: 'Lines changed', format: 'count', icon: FileDiff },
+  { key: 'reviewRounds', label: 'Review rounds', format: 'count', icon: ClipboardCheck },
 ];
 
 /** Untracked cost/profit days count as 0 on the chart; the tiles carry the
@@ -180,16 +186,39 @@ function metricOf(day: AgentAnalyticsDay, metric: ChartMetric): number {
     case 'revenue': return day.revenue;
     case 'modelCost': return day.modelCost ?? 0;
     case 'profit': return day.profit ?? 0;
+    case 'runtime': return day.runtimeMs ?? 0;
     case 'prsMerged': return day.prsMerged;
     case 'linesChanged': return day.linesChanged;
     case 'reviewRounds': return day.reviewRounds;
   }
 }
 
+/** Runtime reads in hours and minutes; milliseconds are a storage detail. */
+function fmtDuration(ms: number): string {
+  const totalMinutes = Math.round(ms / 60000);
+  if (totalMinutes < 1) return `${Math.max(0, Math.round(ms / 1000))}s`;
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours === 0) return `${minutes}m`;
+  return minutes === 0 ? `${hours}h` : `${hours}h ${minutes}m`;
+}
+
 /** ~4 rounded axis ticks from 0 to just past maxVal. Integer steps for counts. */
-function axisTicks(maxVal: number, currency: boolean): number[] {
+function axisTicks(maxVal: number, format: MetricFormat): number[] {
   if (maxVal <= 0) return [0];
-  if (!currency && maxVal <= 4) {
+  // Durations tick in whole minutes or hours rather than arbitrary round
+  // milliseconds, which would label an axis "1.5M".
+  if (format === 'duration') {
+    const unit = maxVal >= 4 * 3_600_000 ? 3_600_000 : 60_000;
+    const steps = Math.max(1, Math.ceil(maxVal / unit / 4));
+    const step = steps * unit;
+    const ticks: number[] = [0];
+    let v = step;
+    while (v < maxVal * 1.05) { ticks.push(v); v += step; }
+    ticks.push(v);
+    return ticks;
+  }
+  if (format === 'count' && maxVal <= 4) {
     return Array.from({ length: Math.ceil(maxVal) + 1 }, (_, i) => i);
   }
   const rawStep = maxVal / 4;
@@ -200,7 +229,7 @@ function axisTicks(maxVal: number, currency: boolean): number[] {
   else if (residual <= 3.5) step = 2 * mag;
   else if (residual <= 7.5) step = 5 * mag;
   else step = 10 * mag;
-  if (!currency) step = Math.max(1, Math.round(step));
+  if (format === 'count') step = Math.max(1, Math.round(step));
   const ticks: number[] = [0];
   let v = step;
   while (v <= maxVal * 1.05) { ticks.push(v); v += step; }
@@ -208,10 +237,11 @@ function axisTicks(maxVal: number, currency: boolean): number[] {
   return ticks;
 }
 
-function fmtAxis(value: number, currency: boolean): string {
+function fmtAxis(value: number, format: MetricFormat): string {
+  if (format === 'duration') return value === 0 ? '0' : fmtDuration(value);
   const sign = value < 0 ? '-' : '';
   const abs = Math.abs(value);
-  const prefix = currency ? '$' : '';
+  const prefix = format === 'currency' ? '$' : '';
   if (value === 0) return `${prefix}0`;
   if (abs >= 1000) return `${sign}${prefix}${(abs / 1000).toFixed(abs % 1000 === 0 ? 0 : 1)}K`;
   const rounded = Math.round(abs * 100) / 100;
@@ -247,7 +277,7 @@ function NotTracked({ reason, className = '' }: { reason: string; className?: st
 // ---------------------------------------------------------------------------
 
 export default function AgentAnalyticsPage() {
-  const { agentActivity, timeEntries, team, projects } = useApp();
+  const { agentActivity: recentActivity, timeEntries, team, projects } = useApp();
   const { teamMemberId } = useAuth();
   const currentMember = team.find(member => member.id === teamMemberId);
   const preferredTimezone = currentMember?.timezone && currentMember.timezone !== 'UTC'
@@ -291,7 +321,7 @@ export default function AgentAnalyticsPage() {
 
   const earliestDateKey = useMemo(() => {
     let earliest: string | null = null;
-    for (const a of agentActivity) {
+    for (const a of recentActivity) {
       const k = toLocalDateKey(a.created_at, preferredTimezone);
       if (!earliest || k < earliest) earliest = k;
     }
@@ -302,12 +332,17 @@ export default function AgentAnalyticsPage() {
       if (!earliest || k < earliest) earliest = k;
     }
     return earliest;
-  }, [agentActivity, timeEntries, roster, preferredTimezone]);
+  }, [recentActivity, timeEntries, roster, preferredTimezone]);
 
   const range = useMemo(
     () => resolveRange(preset, customStart, customEnd, earliestDateKey, todayKey),
     [preset, customStart, customEnd, earliestDateKey, todayKey],
   );
+
+  // A report reads its whole range from the database rather than the store's
+  // recent-activity window, which is deliberately small and excludes telemetry.
+  const events = useAgentAnalyticsEvents(range, recentActivity);
+  const agentActivity = events.rows;
 
   // ── Read model ──────────────────────────────────────────────
   const analytics = useMemo(
@@ -331,6 +366,7 @@ export default function AgentAnalyticsPage() {
     handoff: agentActivity.some(a => a.activity_type === 'work.handoff'),
     merged: agentActivity.some(a => a.activity_type === 'pr.merged'),
     usage: agentActivity.some(a => a.activity_type === 'usage.recorded'),
+    runtime: agentActivity.some(a => a.activity_type === 'turn.completed'),
   }), [agentActivity]);
 
   const summary = useMemo(() => {
@@ -361,6 +397,13 @@ export default function AgentAnalyticsPage() {
       usagePartial: usageTracked && trackedRows.length < rows.length,
       usageAgents: trackedRows.length,
       totalAgents: rows.length,
+      runtimeMs: rows.some(r => r.runtimeMs.tracking === 'tracked')
+        ? rows.reduce((s, r) => s + (r.runtimeMs.value ?? 0), 0)
+        : null,
+      productiveRuntimeMs: rows.some(r => r.productiveRuntimeMs.tracking === 'tracked')
+        ? rows.reduce((s, r) => s + (r.productiveRuntimeMs.value ?? 0), 0)
+        : null,
+      turns: sum(r => r.turns),
     };
   }, [analytics]);
 
@@ -368,6 +411,9 @@ export default function AgentAnalyticsPage() {
     ? 'Hermes usage telemetry has not reported for this selection.'
     : 'Hermes usage telemetry has not reported yet. Token and cost figures appear once usage events are recorded.';
   const mergeReason = 'Merge telemetry has not reported yet. Counts appear once merged pull requests are recorded.';
+  const runtimeReason = selectedProjectIds.size > 0
+    ? 'Runtime is fleet-wide, not per project: a turn can touch several projects or none, so it is not attributed to a project filter.'
+    : 'Turn telemetry has not reported yet. Runtime appears once completed turns are recorded.';
   const profitReason = telemetry.usage
     ? 'Model cost is missing for at least one agent with revenue in this selection, so profit would be overstated.'
     : usageReason;
@@ -388,6 +434,7 @@ export default function AgentAnalyticsPage() {
       revenue: Array(rangeDays).fill(0),
       modelCost: Array(rangeDays).fill(0),
       profit: Array(rangeDays).fill(0),
+      runtime: Array(rangeDays).fill(0),
       prsMerged: Array(rangeDays).fill(0),
       linesChanged: Array(rangeDays).fill(0),
       reviewRounds: Array(rangeDays).fill(0),
@@ -433,6 +480,25 @@ export default function AgentAnalyticsPage() {
           context: marginPct !== null ? `${marginPct}% margin` : 'Revenue minus model cost',
           notTracked: profitReason,
         };
+        case 'runtime': {
+          // The capacity trend: how long the fleet ran. Productive share is the
+          // context because runtime spent finding nothing is real time but not
+          // real output, and the gap between them is the useful signal.
+          const productivePct = summary.runtimeMs && summary.runtimeMs > 0 && summary.productiveRuntimeMs !== null
+            ? Math.round((summary.productiveRuntimeMs / summary.runtimeMs) * 100)
+            : null;
+          return {
+            ...metric,
+            value: summary.runtimeMs !== null ? fmtDuration(summary.runtimeMs) : null,
+            valueClass: 'text-sky-300',
+            context: productivePct !== null
+              ? `${productivePct}% productive · ${summary.turns.toLocaleString('en-US')} turns`
+              : 'Time the agents actually ran',
+            notTracked: selectedProjectIds.size > 0
+              ? 'Runtime is fleet-wide, not per project: a turn can touch several projects or none, so it is not attributed to a project filter.'
+              : 'Turn telemetry has not reported yet. Runtime appears once completed turns are recorded.',
+          };
+        }
         case 'prsMerged': return {
           ...metric,
           value: telemetry.merged ? summary.prsMerged.toLocaleString('en-US') : null,
@@ -460,7 +526,7 @@ export default function AgentAnalyticsPage() {
         };
       }
     });
-  }, [summary, telemetry, usageReason, profitReason, mergeReason]);
+  }, [summary, telemetry, usageReason, profitReason, mergeReason, selectedProjectIds]);
 
   const metricConfig = CHART_METRICS.find(m => m.key === chartMetric)!;
 
@@ -525,14 +591,14 @@ export default function AgentAnalyticsPage() {
 
   // Axis with an optional negative region below the zero line (profit only).
   const ticks = useMemo(() => {
-    const positive = axisTicks(Math.max(chart.posMax, 1), metricConfig.currency);
+    const positive = axisTicks(Math.max(chart.posMax, 1), metricConfig.format);
     if (chart.negMin >= 0) return positive;
-    const negative = axisTicks(Math.abs(chart.negMin), metricConfig.currency)
+    const negative = axisTicks(Math.abs(chart.negMin), metricConfig.format)
       .slice(1)
       .map(v => -v)
       .reverse();
     return [...negative, ...positive];
-  }, [chart.posMax, chart.negMin, metricConfig.currency]);
+  }, [chart.posMax, chart.negMin, metricConfig.format]);
   const axisMin = Math.min(0, ticks[0] ?? 0);
   const axisMax = Math.max(ticks[ticks.length - 1] ?? 1, 1);
   const axisRange = axisMax - axisMin;
@@ -588,7 +654,9 @@ export default function AgentAnalyticsPage() {
         ? usageReason
         : null;
 
-  const fmtValue = (v: number) => (metricConfig.currency ? fmtCurrency(v) : fmtCount(v));
+  const fmtValue = (v: number) => metricConfig.format === 'currency'
+    ? fmtCurrency(v)
+    : metricConfig.format === 'duration' ? fmtDuration(v) : fmtCount(v);
 
   return (
     <div className="animate-fadeIn min-h-screen">
@@ -927,7 +995,7 @@ export default function AgentAnalyticsPage() {
                   <div className="flex flex-col justify-between flex-shrink-0 pr-2">
                     {[...ticks].reverse().map(tick => (
                       <span key={tick} className="text-[10px] text-zinc-500 font-medium leading-none text-right" style={{ minWidth: 36 }}>
-                        {fmtAxis(tick, metricConfig.currency)}
+                        {fmtAxis(tick, metricConfig.format)}
                       </span>
                     ))}
                   </div>
@@ -1166,11 +1234,12 @@ export default function AgentAnalyticsPage() {
             <>
               {/* Desktop table */}
               <div className="hidden md:block">
-                <div className="grid grid-cols-[1fr_repeat(7,auto)] gap-x-5 px-5 py-2.5 text-[10px] uppercase tracking-wider font-medium text-zinc-500 border-b border-white/[0.06]">
+                <div className="grid grid-cols-[1fr_repeat(8,auto)] gap-x-5 px-5 py-2.5 text-[10px] uppercase tracking-wider font-medium text-zinc-500 border-b border-white/[0.06]">
                   <span>Agent</span>
                   <span className="text-right w-16">Opened</span>
                   <span className="text-right w-16">Merged</span>
                   <span className="text-right w-16">Rounds</span>
+                  <span className="text-right w-20">Runtime</span>
                   <span className="text-right w-24">Lines +/-</span>
                   <span className="text-right w-20">Revenue</span>
                   <span className="text-right w-20">Cost</span>
@@ -1190,7 +1259,7 @@ export default function AgentAnalyticsPage() {
                         onKeyDown={e => {
                           if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleFocus(row.agentId); }
                         }}
-                        className={`grid grid-cols-[1fr_repeat(7,auto)] gap-x-5 px-5 py-3.5 items-center cursor-pointer transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-500 ${
+                        className={`grid grid-cols-[1fr_repeat(8,auto)] gap-x-5 px-5 py-3.5 items-center cursor-pointer transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-500 ${
                           focused ? 'bg-brand-500/[0.07]' : 'hover:bg-white/[0.03]'
                         }`}
                       >
@@ -1213,6 +1282,11 @@ export default function AgentAnalyticsPage() {
                           {telemetry.merged ? row.prsMerged : <NotTracked className="text-[11px]" reason="Merge telemetry has not reported yet." />}
                         </span>
                         <span className="text-sm text-zinc-300 font-medium text-right w-16">{row.reviewRounds}</span>
+                        <span className="text-sm font-medium text-right w-20">
+                          {row.runtimeMs.tracking === 'tracked' && row.runtimeMs.value !== null
+                            ? <span className="text-sky-300">{fmtDuration(row.runtimeMs.value)}</span>
+                            : <NotTracked className="text-[11px]" reason={runtimeReason} />}
+                        </span>
                         <span className="text-sm font-medium text-right w-24">
                           {telemetry.merged
                             ? <><span className="text-emerald-400">+{fmtCount(row.additions)}</span>{' '}<span className="text-rose-400">-{fmtCount(row.deletions)}</span></>
@@ -1282,6 +1356,14 @@ export default function AgentAnalyticsPage() {
                         <div>
                           <p className="text-[10px] uppercase tracking-wider text-zinc-500 font-medium">Rounds</p>
                           <p className="text-sm font-semibold text-white">{row.reviewRounds}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] uppercase tracking-wider text-zinc-500 font-medium">Runtime</p>
+                          <p className="text-sm font-semibold text-sky-300">
+                            {row.runtimeMs.tracking === 'tracked' && row.runtimeMs.value !== null
+                              ? fmtDuration(row.runtimeMs.value)
+                              : <NotTracked className="text-xs" reason={runtimeReason} />}
+                          </p>
                         </div>
                         <div>
                           <p className="text-[10px] uppercase tracking-wider text-zinc-500 font-medium">Revenue</p>

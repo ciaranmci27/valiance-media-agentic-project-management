@@ -1,6 +1,7 @@
 import type { AgentActivity, Project, TeamMember, TimeEntry } from '@/lib/types';
 import { projectTimeEntryForBilling, type DateRange } from '@/lib/finance/summary';
 import { getWorkedHoursByDay } from '@/lib/time-entry-utils';
+import { EVENT_STATE, isAgentEventType } from '@/lib/agent-events';
 
 export type TrackingState = 'tracked' | 'not_tracked';
 
@@ -25,6 +26,18 @@ export interface AgentAnalyticsRow {
   cachedTokens: TrackedMetric;
   modelCost: TrackedMetric;
   profit: TrackedMetric;
+  /**
+   * How long this agent actually ran, in milliseconds.
+   *
+   * A capacity measure, and INTERNAL ONLY: runtime never becomes a time entry,
+   * never carries a rate, and never reaches the finance engine, which reads
+   * project_time_entries alone. Only Jeff bills, through that separate path.
+   */
+  runtimeMs: TrackedMetric;
+  /** Runtime spent on turns that produced work rather than finding none. */
+  productiveRuntimeMs: TrackedMetric;
+  /** Completed turns behind the runtime figures. */
+  turns: number;
 }
 
 export interface AgentAnalyticsDay {
@@ -40,6 +53,8 @@ export interface AgentAnalyticsDay {
   cachedTokens: number | null;
   modelCost: number | null;
   profit: number | null;
+  runtimeMs: number | null;
+  productiveRuntimeMs: number | null;
 }
 
 export interface AgentAnalyticsData {
@@ -75,6 +90,9 @@ interface MutableRow {
   cachedTokens: number;
   modelCost: number;
   usageRecords: number;
+  runtimeMs: number;
+  productiveRuntimeMs: number;
+  turns: number;
 }
 
 interface MutableDay {
@@ -90,6 +108,9 @@ interface MutableDay {
   cachedTokens: number;
   modelCost: number;
   usageRecords: number;
+  runtimeMs: number;
+  productiveRuntimeMs: number;
+  turns: number;
 }
 
 const numeric = (value: unknown): number => {
@@ -155,6 +176,9 @@ export function computeAgentAnalytics(input: AgentAnalyticsInput): AgentAnalytic
         cachedTokens: 0,
         modelCost: 0,
         usageRecords: 0,
+        runtimeMs: 0,
+        productiveRuntimeMs: 0,
+        turns: 0,
       };
       rows.set(agentId, row);
     }
@@ -177,6 +201,9 @@ export function computeAgentAnalytics(input: AgentAnalyticsInput): AgentAnalytic
         cachedTokens: 0,
         modelCost: 0,
         usageRecords: 0,
+        runtimeMs: 0,
+        productiveRuntimeMs: 0,
+        turns: 0,
       };
       days.set(key, day);
     }
@@ -277,6 +304,59 @@ export function computeAgentAnalytics(input: AgentAnalyticsInput): AgentAnalytic
     }
   }
 
+  // ── Runtime: how long each agent actually ran ──────────────────────────
+  // Classification lives here rather than in the host publisher, so what counts
+  // as "productive" can be revised in the app without redeploying the VPS. The
+  // publisher only reports facts: which turn, when, how long.
+  //
+  // A turn is productive when it overlaps an event proving the agent did
+  // something. Turns that woke, found nothing, and logged `audit.no_work` or
+  // `queue.empty` are real runtime but not real output, and the gap between the
+  // two numbers is itself the signal: a fleet spending its day finding nothing.
+  const workWindowsByAgent = new Map<string, number[]>();
+  for (const activity of input.activities) {
+    if (!isAgentEventType(activity.activity_type)) continue;
+    if (EVENT_STATE[activity.activity_type] !== 'work') continue;
+    if (!includeProject(activity.project_id)) continue;
+    const at = Date.parse(activity.created_at);
+    if (!Number.isFinite(at)) continue;
+    const stamps = workWindowsByAgent.get(activity.agent_id);
+    if (stamps) stamps.push(at); else workWindowsByAgent.set(activity.agent_id, [at]);
+  }
+  for (const stamps of workWindowsByAgent.values()) stamps.sort((a, b) => a - b);
+
+  const turnIds = new Set<string>();
+  for (const activity of input.activities) {
+    if (activity.activity_type !== 'turn.completed') continue;
+    const metadata = activity.metadata ?? {};
+    const sourceId = typeof metadata.source_turn_id === 'string' ? metadata.source_turn_id : null;
+    // Runtime is not project-scoped: a single turn can touch several projects
+    // or none. Under a project filter, delivery and revenue narrow but runtime
+    // would be a half-truth, so it is withheld rather than misattributed.
+    if (!sourceId || turnIds.has(sourceId) || input.selectedProjectIds?.size) continue;
+    const startedAt = typeof metadata.started_at === 'string' ? metadata.started_at : activity.created_at;
+    const dateKey = isoToDateKey(startedAt, input.timezone);
+    if (!inRange(dateKey)) continue;
+    const row = getRow(activity.agent_id);
+    if (!row) continue;
+    turnIds.add(sourceId);
+
+    const duration = numeric(metadata.duration_ms);
+    const startMs = Date.parse(startedAt);
+    const endMs = Number.isFinite(startMs) ? startMs + duration : NaN;
+    const stamps = workWindowsByAgent.get(activity.agent_id) ?? [];
+    const productive = Number.isFinite(startMs)
+      && stamps.some(at => at >= startMs && at <= endMs);
+
+    row.runtimeMs += duration;
+    row.turns += 1;
+    if (productive) row.productiveRuntimeMs += duration;
+    const day = getDay(dateKey, row.agentId);
+    day.runtimeMs += duration;
+    day.turns += 1;
+    if (productive) day.productiveRuntimeMs += duration;
+  }
+
   for (const entry of input.timeEntries) {
     const row = getRow(entry.member_id);
     if (!row || !includeProject(entry.project_id) || entry.work_type === 'internal') continue;
@@ -317,6 +397,9 @@ export function computeAgentAnalytics(input: AgentAnalyticsInput): AgentAnalytic
           cachedTokens: tracked(row.cachedTokens, usageTracked),
           modelCost: tracked(row.modelCost, usageTracked),
           profit: tracked(row.revenue - row.modelCost, usageTracked),
+          runtimeMs: tracked(row.runtimeMs, row.turns > 0),
+          productiveRuntimeMs: tracked(row.productiveRuntimeMs, row.turns > 0),
+          turns: row.turns,
         };
       })
       .sort((a, b) => b.revenue - a.revenue || a.agentName.localeCompare(b.agentName)),
@@ -334,6 +417,8 @@ export function computeAgentAnalytics(input: AgentAnalyticsInput): AgentAnalytic
         cachedTokens: day.usageRecords > 0 ? day.cachedTokens : null,
         modelCost: day.usageRecords > 0 ? day.modelCost : null,
         profit: day.usageRecords > 0 ? day.revenue - day.modelCost : null,
+        runtimeMs: day.turns > 0 ? day.runtimeMs : null,
+        productiveRuntimeMs: day.turns > 0 ? day.productiveRuntimeMs : null,
       }))
       .sort((a, b) => a.dateKey.localeCompare(b.dateKey) || a.agentId.localeCompare(b.agentId)),
   };

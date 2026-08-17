@@ -8,6 +8,7 @@ import { Tooltip } from '@/components/ui/Tooltip';
 import { Avatar } from '@/components/ui/Avatar';
 import Modal from '@/components/ui/Modal';
 import { AgentActivity } from '@/lib/types';
+import { isTelemetryEvent } from '@/lib/agent-events';
 
 const MAX_VISIBLE = 15;
 
@@ -20,8 +21,13 @@ interface ActivityTimelineProps {
 
 export function ActivityTimeline({ projectId, listMaxHeightClass }: ActivityTimelineProps = {}) {
   const { agentActivity: allActivity, team, projects } = useApp();
+  // Telemetry (token counters, turn runtimes) is machine measurement at a volume
+  // that buries the narrative. The store already excludes it; this filter keeps
+  // the guarantee local so a future data source cannot quietly flood the feed.
   const agentActivity = useMemo(
-    () => (projectId ? allActivity.filter(a => a.project_id === projectId) : allActivity),
+    () => allActivity.filter(a =>
+      !isTelemetryEvent(a.activity_type) && (!projectId || a.project_id === projectId)
+    ),
     [allActivity, projectId],
   );
   const [showAll, setShowAll] = useState(false);
