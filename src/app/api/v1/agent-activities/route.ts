@@ -95,7 +95,9 @@ export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId, acc
       ? { source_usage_id: metadata.source_usage_id }
       : parsed.activity_type === 'pr.merged'
         ? { pr_url: metadata.pr_url }
-        : null;
+        : parsed.activity_type === 'turn.completed'
+          ? { source_turn_id: metadata.source_turn_id }
+          : null;
   const hasIdentity = Boolean(identity && Object.values(identity)[0]);
 
   const findExisting = async () => {

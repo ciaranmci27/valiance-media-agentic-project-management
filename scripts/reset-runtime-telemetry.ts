@@ -3,8 +3,13 @@
  *
  * Safe by construction: runtime events are derived telemetry, reproducible in
  * full from each container's scheduler ledger and message history. Nothing else
- * references them, and they never touched billing. Run this only alongside
- * clearing the publisher's checkpoint on the VPS, or nothing will be re-sent.
+ * references them, and they never touched billing.
+ *
+ * ORDER MATTERS, learned the hard way. Pause the publisher's crontab line
+ * FIRST, then delete, then clear ~/.agent-turns/checkpoint.json, then restore
+ * cron. Deleting while it runs lets it checkpoint turns whose rows are being
+ * removed, and a checkpointed turn is never re-sent: the totals then sit
+ * permanently short with nothing in any log to say so.
  *
  * Run: npx tsx scripts/reset-runtime-telemetry.ts
  */
