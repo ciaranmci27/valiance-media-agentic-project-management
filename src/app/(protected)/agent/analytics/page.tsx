@@ -12,12 +12,14 @@ import { Sparkline } from '@/components/ui/Sparkline';
 import { DateInput } from '@/components/ui/inputs/DateInput';
 import {
   computeAgentAnalytics,
+  computePipelineLatency,
+  computeAvailability,
   type AgentAnalyticsDay,
   type AgentAnalyticsRow,
 } from '@/lib/agent-analytics';
 import { toDateKey } from '@/lib/finance/vesting';
 import { toLocalDateKey } from '@/lib/date-utils';
-import { useAgentAnalyticsEvents } from '@/lib/use-agent-analytics-events';
+import { useAgentAnalyticsEvents, useAgentHealthHistory } from '@/lib/use-agent-analytics-events';
 import { PRESET_OPTIONS, resolveRange, DEFAULT_PRESET, type RangePreset } from '@/lib/agent-range';
 import {
   BarChart3,
@@ -26,6 +28,7 @@ import {
   Check,
   ChevronDown,
   ClipboardCheck,
+  Clock,
   Coins,
   DollarSign,
   FolderKanban,
@@ -324,6 +327,22 @@ export default function AgentAnalyticsPage() {
     [agentActivity, timeEntries, team, projects, range, now, preferredTimezone, selectedAgentIds, selectedProjectIds],
   );
 
+  // Where work waits, and how much of the fleet's day was available. Both are
+  // read from data already fetched, so neither costs another round trip.
+  const latency = useMemo(
+    () => computePipelineLatency(agentActivity, range, preferredTimezone),
+    [agentActivity, range, preferredTimezone],
+  );
+  const health = useAgentHealthHistory({ enabled: !isDemoMode });
+  const availability = useMemo(
+    () => computeAvailability(health.rows, team, range, now),
+    [health.rows, team, range, now],
+  );
+  const availabilitySince = availability
+    .map(a => a.measuredSince)
+    .filter((value): value is string => Boolean(value))
+    .sort()[0] ?? null;
+
   // Which telemetry streams have EVER reported. A stream that has never
   // reported renders as "Not tracked"; a stream that reports zero renders 0.
   const telemetry = useMemo(() => ({
@@ -353,6 +372,8 @@ export default function AgentAnalyticsPage() {
       linesChanged: sum(r => r.linesChanged),
       revenue: sum(r => r.revenue),
       hours: sum(r => r.hours),
+      pendingRevenue: sum(r => r.pendingRevenue),
+      pendingHours: sum(r => r.pendingHours),
       inputTokens: usageTracked ? trackedSum(r => r.inputTokens.value) : null,
       outputTokens: usageTracked ? trackedSum(r => r.outputTokens.value) : null,
       cachedTokens: usageTracked ? trackedSum(r => r.cachedTokens.value) : null,
@@ -364,6 +385,11 @@ export default function AgentAnalyticsPage() {
       runtimeMs: rows.some(r => r.runtimeMs.tracking === 'tracked')
         ? rows.reduce((s, r) => s + (r.runtimeMs.value ?? 0), 0)
         : null,
+      effectiveMs: rows.some(r => r.runtimeMs.tracking === 'tracked')
+        ? rows.reduce((s, r) => s + (r.effectiveRuntimeMs.value ?? 0), 0)
+        : null,
+      reworkMs: rows.reduce((s, r) => s + (r.reworkRuntimeMs.value ?? 0), 0),
+      blockedMs: rows.reduce((s, r) => s + (r.blockedRuntimeMs.value ?? 0), 0),
       productiveRuntimeMs: rows.some(r => r.productiveRuntimeMs.tracking === 'tracked')
         ? rows.reduce((s, r) => s + (r.productiveRuntimeMs.value ?? 0), 0)
         : null,
@@ -424,7 +450,11 @@ export default function AgentAnalyticsPage() {
           ...metric,
           value: fmtCurrency(summary.revenue),
           valueClass: 'text-white',
-          context: `${fmt(summary.hours)} hrs billed`,
+          // Approved hours only. Unapproved value is named rather than folded
+          // in, so approving a session can only move money into this number.
+          context: summary.pendingRevenue > 0.005
+            ? `${fmt(summary.hours)} hrs approved · ${fmtCurrency(summary.pendingRevenue)} pending`
+            : `${fmt(summary.hours)} hrs approved`,
           notTracked: null,
         };
         case 'modelCost': return {
@@ -1190,6 +1220,117 @@ export default function AgentAnalyticsPage() {
                     <span className="w-3.5 h-[2px] rounded-full bg-amber-400" aria-hidden="true" />
                     <span className="text-[11px] text-zinc-300 font-medium">Model cost</span>
                   </span>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ── Where the time went ────────────────────────────── */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
+          {/* Time accounting: active runtime is the measured total, and every
+              deduction below it is named so the smaller number can be audited
+              rather than trusted. */}
+          <div className="glass-card rounded-xl overflow-hidden">
+            <div className="px-5 py-4 border-b border-white/[0.06] flex items-center gap-2">
+              <Timer size={18} className="text-zinc-400 flex-shrink-0" aria-hidden="true" />
+              <h2 className="font-semibold text-white">Time accounting</h2>
+            </div>
+            {measuring ? (
+              <div className="p-5 space-y-3" aria-hidden="true">
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <div key={i} className="h-5 w-full rounded bg-white/[0.05] motion-safe:animate-pulse" />
+                ))}
+              </div>
+            ) : summary.runtimeMs === null ? (
+              <div className="px-5 py-8 text-center">
+                <NotTracked className="text-sm" reason={runtimeReason} />
+              </div>
+            ) : (
+              <div className="p-5 space-y-4">
+                <div className="flex items-baseline justify-between gap-3">
+                  <span className="text-sm text-zinc-400">Active runtime</span>
+                  <span className="text-lg font-bold text-sky-300">{fmtDuration(summary.runtimeMs)}</span>
+                </div>
+                {[
+                  { label: 'Rework on approved work', value: summary.reworkMs, tone: 'text-amber-400',
+                    hint: 'Rebuilding or re-reviewing a pull request that had already been approved.' },
+                  { label: 'Blocked', value: summary.blockedMs, tone: 'text-red-400',
+                    hint: 'Turns that ran while the agent could not proceed.' },
+                ].filter(row => (row.value ?? 0) > 0).map(row => (
+                  <div key={row.label} className="flex items-baseline justify-between gap-3">
+                    <Tooltip content={<span className="block max-w-[260px] whitespace-normal">{row.hint}</span>}>
+                      <span className="text-sm text-zinc-500 cursor-help">− {row.label}</span>
+                    </Tooltip>
+                    <span className={`text-sm font-semibold ${row.tone}`}>{fmtDuration(row.value ?? 0)}</span>
+                  </div>
+                ))}
+                <div className="flex items-baseline justify-between gap-3 pt-3 border-t border-white/[0.08]">
+                  <span className="text-sm font-medium text-zinc-300">Effective runtime</span>
+                  <span className="text-lg font-bold text-emerald-400">{fmtDuration(summary.effectiveMs ?? 0)}</span>
+                </div>
+                {summary.runtimeMs > 0 && (
+                  <p className="text-[11px] text-zinc-500">
+                    {Math.round(((summary.effectiveMs ?? 0) / summary.runtimeMs) * 100)}% of runtime displaced work a person would have had to do.
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Latency: runtime says how long agents ran, this says how long work
+              sat still, which is usually the larger number. */}
+          <div className="glass-card rounded-xl overflow-hidden">
+            <div className="px-5 py-4 border-b border-white/[0.06] flex items-center gap-2">
+              <Clock size={18} className="text-zinc-400 flex-shrink-0" aria-hidden="true" />
+              <h2 className="font-semibold text-white">Where work waits</h2>
+            </div>
+            {measuring ? (
+              <div className="p-5 space-y-3" aria-hidden="true">
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <div key={i} className="h-5 w-full rounded bg-white/[0.05] motion-safe:animate-pulse" />
+                ))}
+              </div>
+            ) : (
+              <div className="divide-y divide-white/[0.06]">
+                {latency.map(stage => (
+                  <div key={stage.key} className="px-5 py-3.5 flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm text-zinc-300 truncate">{stage.label}</p>
+                      <p className="text-[11px] text-zinc-500">
+                        {stage.samples > 0 ? `${stage.samples} handoff${stage.samples === 1 ? '' : 's'}` : 'none in range'}
+                      </p>
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      {stage.notTracked ? (
+                        <NotTracked className="text-xs" reason="Merge telemetry has not reported yet, so the wait between approval and merge cannot be measured." />
+                      ) : stage.medianMs === null ? (
+                        <span className="text-sm text-zinc-600">-</span>
+                      ) : (
+                        <>
+                          <p className="text-sm font-semibold text-white">{fmtDuration(stage.medianMs)}</p>
+                          <p className="text-[11px] text-zinc-500">worst {fmtDuration(stage.worstMs ?? 0)}</p>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                ))}
+                {availability.some(a => a.uptimePct !== null) && (
+                  <div className="px-5 py-3.5">
+                    <p className="text-[10px] uppercase tracking-wider font-semibold text-zinc-600 mb-2">Availability</p>
+                    {availability.filter(a => a.uptimePct !== null).map(a => (
+                      <div key={a.agentId} className="flex items-center justify-between gap-3 py-1">
+                        <span className="text-sm text-zinc-400 truncate">{a.agentName}</span>
+                        <span className="text-sm font-medium text-zinc-200">
+                          {a.uptimePct!.toFixed(1)}%
+                          {a.outages > 0 && <span className="text-zinc-500 font-normal"> · {a.outages} outage{a.outages === 1 ? '' : 's'}</span>}
+                        </span>
+                      </div>
+                    ))}
+                    <p className="text-[11px] text-zinc-500 mt-2">
+                      Measured from {availabilitySince ? fmtDate(availabilitySince.slice(0, 10)) : 'first observation'}, when uptime history began.
+                    </p>
+                  </div>
                 )}
               </div>
             )}

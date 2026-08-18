@@ -263,6 +263,44 @@ create table public.agent_health (
   reported_at timestamptz not null default now()
 );
 
+-- Availability needs history, and the table above has none by design: it is
+-- upserted in place, so an outage is invisible the moment it ends. A trigger
+-- records CONTAINER transitions here, which is enough to measure uptime without
+-- storing a row per minute. Turn starts and stops are deliberately not recorded:
+-- they are already tracked, in full and reconciled, as turn.completed events.
+create table public.agent_health_history (
+  id uuid primary key default gen_random_uuid(),
+  member_id uuid not null references public.team_members(id) on delete cascade,
+  container_running boolean not null,
+  turn_running boolean not null,
+  -- The publisher's clock, not the database's: a delayed write must not shift
+  -- when the state actually changed.
+  changed_at timestamptz not null
+);
+
+create index idx_agent_health_history_member
+  on public.agent_health_history (member_id, changed_at desc);
+
+create or replace function public.log_agent_health_change()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if tg_op = 'INSERT'
+     or new.container_running is distinct from old.container_running then
+    insert into public.agent_health_history (member_id, container_running, turn_running, changed_at)
+    values (new.member_id, new.container_running, new.turn_running, new.reported_at);
+  end if;
+  return new;
+end;
+$$;
+
+create trigger agent_health_history_trigger
+  after insert or update on public.agent_health
+  for each row execute function public.log_agent_health_change();
+
 -- ============================================================
 -- 9. COMMENTS
 -- ============================================================
@@ -1669,6 +1707,7 @@ alter table public.task_subtasks enable row level security;
 alter table public.task_acceptance_criteria enable row level security;
 alter table public.task_reviews enable row level security;
 alter table public.agent_health enable row level security;
+alter table public.agent_health_history enable row level security;
 alter table public.task_dependencies enable row level security;
 alter table public.task_comments enable row level security;
 alter table public.activities enable row level security;
@@ -3111,6 +3150,9 @@ CREATE POLICY task_acceptance_criteria_manage ON public.task_acceptance_criteria
 CREATE POLICY task_reviews_select ON public.task_reviews FOR SELECT TO authenticated
   USING (public.can_access_task(task_id));
 CREATE POLICY agent_health_select ON public.agent_health FOR SELECT TO authenticated
+  USING (true);
+-- Written by the trigger under the service client; signed-in members read.
+CREATE POLICY agent_health_history_select ON public.agent_health_history FOR SELECT TO authenticated
   USING (true);
 
 CREATE POLICY task_dependencies_select ON public.task_dependencies FOR SELECT TO authenticated

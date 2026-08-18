@@ -667,6 +667,7 @@ export default function FinancesPage() {
       totalOutstanding: engine.outstanding,
       totalOverdue: engine.overdue,
       totalHours: engine.hours,
+      totalPendingEarned: engine.pendingEarned,
       activeInvoicesCount: engine.activeInvoicesCount,
       // "Today" axis labels roll over at local midnight (nowDayKey is timezone-aware).
       ...buildRangeBars(engine, range, nowDayKey),
@@ -1467,6 +1468,17 @@ export default function FinancesPage() {
                   <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">Earned</p>
                   <p className={`text-sm font-semibold ${data.totalEarned >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{fmtCurrency(data.totalEarned)}</p>
                 </div>
+                {/* Worked but unapproved value. Shown rather than folded into
+                    Earned so reviewing a session can only ever move this number
+                    into Earned, never make Earned fall. */}
+                {data.totalPendingEarned > 0.005 && (
+                  <div className="min-w-0 sm:shrink-0 sm:min-w-[5.5rem]">
+                    <Tooltip content="Worked time awaiting your approval. It becomes Earned once approved.">
+                      <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5 cursor-help">Pending</p>
+                    </Tooltip>
+                    <p className="text-sm font-semibold text-zinc-400">{fmtCurrency(data.totalPendingEarned)}</p>
+                  </div>
+                )}
                 <div className="min-w-0 sm:shrink-0 sm:min-w-[5.5rem]">
                   <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">Outstanding</p>
                   <div className="flex flex-wrap items-center gap-1.5">

@@ -5,6 +5,7 @@ import { fetchAgentActivityRange } from '@/lib/supabase/queries';
 import { prefetchQuery, useCachedQuery } from '@/lib/query-cache';
 import type { DateRange } from '@/lib/finance/summary';
 import type { AgentActivity } from '@/lib/types';
+import type { AgentHealthTransition } from '@/lib/agent-analytics';
 
 export interface AgentAnalyticsEvents {
   rows: AgentActivity[];
@@ -46,6 +47,37 @@ export function prefetchAgentAnalytics(range: DateRange): void {
  * page looked wrong, then looked broken for changing. A report either shows a
  * measured answer or shows that it is still measuring.
  */
+/**
+ * Recorded container-state transitions, for availability.
+ *
+ * Kept separate from the event query because it answers a different question
+ * and is tiny: only changes are stored, so a stable fleet writes almost nothing.
+ * The whole history is fetched rather than a range slice, since the state before
+ * a range is what establishes the state during it.
+ */
+export function useAgentHealthHistory(options?: { enabled?: boolean }): {
+  rows: AgentHealthTransition[];
+  loading: boolean;
+} {
+  const enabled = options?.enabled !== false;
+  const query = useCachedQuery<AgentHealthTransition[]>(
+    enabled ? 'agent-health-history' : 'agent-health-history:disabled',
+    enabled
+      ? async () => {
+          const supabase = createClient();
+          const { data, error } = await supabase
+            .from('agent_health_history')
+            .select('member_id, container_running, changed_at')
+            .order('changed_at', { ascending: true })
+            .limit(5000);
+          if (error) throw error;
+          return (data ?? []) as AgentHealthTransition[];
+        }
+      : async () => [],
+  );
+  return { rows: query.data ?? [], loading: enabled && query.loading };
+}
+
 export function useAgentAnalyticsEvents(
   range: DateRange,
   options?: { enabled?: boolean },

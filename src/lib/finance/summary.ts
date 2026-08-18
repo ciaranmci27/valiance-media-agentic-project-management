@@ -47,6 +47,8 @@ export interface FinanceData {
   outstanding: number;
   overdue: number;
   hours: number;
+  /** Billable value of worked time still awaiting approval. Not in `earned`. */
+  pendingEarned: number;
   activeInvoicesCount: number;
   // Per-project rows (range-scoped earned/received/invoiced; all-time outstanding)
   projectBreakdown: ProjectFinanceRow[];
@@ -118,9 +120,16 @@ export function computeFinanceData(input: FinanceEngineInput): FinanceData {
   const payableMemberIds = new Set(
     team.filter(member => member.role !== 'owner' && member.role !== 'agent').map(member => member.id),
   );
+  // The owner's own time answers to nobody, so it is revenue the moment it is
+  // worked and a running timer ticks up live. Everyone else's time is a request
+  // that the owner approves, and a request is not revenue yet.
+  const ownerMemberIds = new Set(
+    team.filter(member => member.role === 'owner').map(member => member.id),
+  );
   let hours = 0;
   let hourlyEarnedInRange = 0;
   let teamContributionInRange = 0;
+  let pendingEarnedInRange = 0;
 
   for (const te of fTimeEntries) {
     const rate = te.hourly_rate ?? rateByProject.get(te.project_id) ?? 0;
@@ -129,8 +138,16 @@ export function computeFinanceData(input: FinanceEngineInput): FinanceData {
       if (dayKey < startKey || dayKey > endKey) continue;
       const billableValue = te.work_type === 'internal' ? 0 : workedHours * rate;
       const isEmployee = payableMemberIds.has(te.member_id);
+      // Time that needs approving is not revenue until it is approved, and
+      // time that needs no approving is revenue as it is worked. Gating the
+      // owner's own hours too would have meant a live timer reporting nothing
+      // earned all day; gating nobody's meant an agent's disputed session was
+      // already counted, so rejecting part of it made the books fall.
+      const needsApproval = !ownerMemberIds.has(te.member_id);
+      const counts = !needsApproval || te.approval_status === 'approved';
       const isApprovedEmployeeWork = isEmployee && te.approval_status === 'approved';
-      const value = isEmployee ? 0 : billableValue;
+      const value = isEmployee || !counts ? 0 : billableValue;
+      if (!isEmployee && !counts) pendingEarnedInRange += billableValue;
       const teamContribution = isApprovedEmployeeWork
         ? billableValue - (workedHours * Number(te.compensation_rate || 0))
         : 0;
@@ -250,7 +267,8 @@ export function computeFinanceData(input: FinanceEngineInput): FinanceData {
     .sort((a, b) => b.earned - a.earned);
 
   return {
-    earned, received, invoiced, outstanding, overdue, hours, activeInvoicesCount,
+    earned, received, invoiced, outstanding, overdue, hours,
+    pendingEarned: pendingEarnedInRange, activeInvoicesCount,
     projectBreakdown, invoicesInRange,
     workByDay, fixedByDayProject, recurringByDayProject, paymentsByDay, projectLookup,
   };
@@ -351,7 +369,9 @@ export function computeFinanceAttribution(input: FinanceAttributionInput): Finan
     if (!projectIncluded(entry.project_id) || entry.work_type === 'internal') continue;
     const member = memberLookup.get(entry.member_id);
     if (!member) continue;
-    if (member.role !== 'owner' && member.role !== 'agent' && entry.approval_status !== 'approved') continue;
+    // Same rule as computeFinanceData: whoever needs approving waits for it,
+    // and the owner, who approves, does not wait for themselves.
+    if (member.role !== 'owner' && entry.approval_status !== 'approved') continue;
     const row = ensureMemberRow(member);
     if (!row) continue;
     const project = projectLookup.get(entry.project_id);

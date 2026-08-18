@@ -101,6 +101,7 @@ import {
   patchBusinessSettings as patchBusinessSettingsQuery,
 } from '@/lib/supabase/queries';
 import { toast } from '@/components/ui/Toast';
+import { isTelemetryEvent } from '@/lib/agent-events';
 import { siteConfig } from '@/site-config';
 import { findStalePausedEntries, startOfDayInTz } from '@/lib/time-entry-utils';
 import { hasPermission } from '@/lib/access-control';
@@ -865,7 +866,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
       .channel(`workspace-live-sync-${Math.random().toString(36).slice(2)}`)
       .on('postgres_changes', { event: '*', schema: 'public' }, (payload) => {
         const slice = REALTIME_TABLE_SLICES[payload.table];
-        if (slice) queue(slice);
+        if (!slice) return;
+        // Telemetry writes constantly and is excluded from the narrative query
+        // anyway, so refetching on it costs a request and changes nothing. The
+        // host publishers post token and runtime rows every minute; without
+        // this each one woke a hundred-row refetch, and during a backfill that
+        // became hundreds of requests a minute against a query whose answer had
+        // not moved.
+        if (payload.table === 'agent_activities') {
+          const row = (payload.new ?? payload.old) as { activity_type?: string } | undefined;
+          if (row?.activity_type && isTelemetryEvent(row.activity_type)) return;
+        }
+        queue(slice);
       })
       .subscribe((status, err) => {
         if (disposed) return;
