@@ -45,26 +45,30 @@ export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMembe
 
   const { verdict, summary, pr_url, head_sha } = body as any;
 
-  // Idempotency: one verdict per (commit, verdict). Two reviewer turns can
-  // overlap when a dispatcher wake and the standing cron land close together;
-  // the second turn starts before the first verdict exists, reviews honestly,
-  // and files the same conclusion about the same code. Observed live: rounds
-  // 3 and 4 on one PR were identical approvals of one SHA, ten minutes apart,
-  // and round inflation is not cosmetic - the escalation counter reads it.
-  // Returning the existing row keeps the late filer's flow working (it gets a
-  // review back) without minting a duplicate round. A DIFFERENT verdict on
-  // the same SHA still files: reviewer minds may legitimately change.
-  const { data: latest } = await supabase
+  // Idempotency is per COMMIT, and deliberately not per (commit, verdict).
+  //
+  // Reviewer turns overlap: a dispatcher wake and the standing cron land close
+  // together, and the second turn starts before the first verdict exists. When
+  // both reach the SAME conclusion the old rule was enough. When they disagree
+  // about identical bytes it was not, and the cost was real: one PR reached
+  // eleven rounds because four commits each received both verdicts, including
+  // an approval undone twelve minutes later by a contradicting review of the
+  // very same SHA. That sent the developer back to rebuild already-approved
+  // work, on the client's bill.
+  //
+  // The same bytes cannot be both approved and rejected, so the first verdict
+  // on a commit is the verdict. A reviewer that genuinely changes its mind says
+  // so on the next commit, which is the only place new evidence can live.
+  const { data: existing } = await supabase
     .from('task_reviews')
     .select('*')
     .eq('task_id', id)
     .eq('pr_url', pr_url)
-    .order('created_at', { ascending: false })
+    .eq('head_sha', head_sha.toLowerCase())
+    .order('created_at', { ascending: true })
     .limit(1)
     .maybeSingle();
-  if (latest && latest.head_sha === head_sha.toLowerCase() && latest.verdict === verdict) {
-    return created(latest);
-  }
+  if (existing) return created(existing);
 
   // Round is derived server-side so callers cannot reset the escalation
   // counter, and it is scoped to the PR: a replacement PR for the same task
@@ -77,11 +81,12 @@ export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMembe
     .eq('task_id', id)
     .eq('pr_url', pr_url);
   if (countError) throw countError;
+  const round = (count || 0) + 1;
   const { data: review, error } = await supabase
     .from('task_reviews')
     .insert({
       task_id: id,
-      round: (count || 0) + 1,
+      round,
       verdict,
       summary,
       pr_url,
@@ -99,9 +104,22 @@ export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMembe
   // 30-minute tick. A changes_requested verdict already moves the task, so it
   // never had the problem. Best effort: a failed touch costs latency, never
   // the verdict.
+  // Circuit breaker. A loop still bouncing after this many rounds is not
+  // converging, and every further round is billable developer time spent
+  // reworking code a reviewer has already seen. Handing it to a human costs
+  // one decision; letting it grind costs hours, silently. The developer agent
+  // claims only `ai_ready` work, so this stops the loop without touching the
+  // branch, the PR, or the review history, and the task surfaces in the
+  // owner's "needs you" lane instead of disappearing into another cycle.
+  const MAX_AUTONOMOUS_ROUNDS = 5;
+  const stalled = round > MAX_AUTONOMOUS_ROUNDS && verdict === 'changes_requested';
+
   await supabase
     .from('tasks')
-    .update({ updated_at: new Date().toISOString() })
+    .update({
+      updated_at: new Date().toISOString(),
+      ...(stalled ? { ai_readiness: 'human_only' } : {}),
+    })
     .eq('id', id);
 
   logAudit(supabase, { method: 'POST', endpoint: `/api/v1/tasks/${id}/reviews`, entityType: 'task_review', entityId: review.id, apiKeyId, teamMemberId, requestBody: body, afterSnapshot: review, statusCode: 201 });

@@ -242,6 +242,12 @@ create table public.task_reviews (
 create index idx_task_reviews_task_created
   on public.task_reviews(task_id, created_at desc);
 
+-- One verdict per commit. Overlapping reviewer turns once filed opposite
+-- conclusions about identical bytes, and each contradiction minted a new round
+-- that sent the developer back to rebuild approved work.
+create unique index idx_task_reviews_commit_identity
+  on public.task_reviews(task_id, pr_url, head_sha);
+
 -- Agent infrastructure heartbeats: one row per agent, upserted in place by a
 -- VPS cron every minute (container state + execution ledger). Current state,
 -- not history; agent_activities remains the narrative log. A stale
