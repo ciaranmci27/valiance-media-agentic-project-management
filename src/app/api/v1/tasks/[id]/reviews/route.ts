@@ -95,6 +95,20 @@ export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMembe
     })
     .select('*')
     .single();
+  // The index is the backstop for two inserts that both passed the pre-check.
+  // The loser reads the winner and reports it, so a reviewer that raced never
+  // sees an error for work that was in fact recorded.
+  if (error?.code === '23505') {
+    const { data: winner } = await supabase
+      .from('task_reviews')
+      .select('*')
+      .eq('task_id', id)
+      .eq('pr_url', pr_url)
+      .eq('head_sha', head_sha.toLowerCase())
+      .limit(1)
+      .maybeSingle();
+    if (winner) return created(winner);
+  }
   if (error) throw error;
 
   // An APPROVED verdict changes nothing on the task itself: it stays in
