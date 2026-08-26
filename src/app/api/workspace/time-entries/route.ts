@@ -140,6 +140,22 @@ export async function POST(request: Request) {
     const { data: assignment } = await service.from('project_members').select('project_id').eq('project_id', body.project_id).eq('member_id', targetMemberId).maybeSingle();
     if (!assignment) return responseError('Team member is not assigned to this project', 422);
   }
+  // Starting a timer (no end_time) while one is already unfinalized would
+  // create a second running entry the dashboard never shows (own entries are
+  // excluded from the teammates list), silently billing forever. The client
+  // checks too, but a double-click races its own optimistic state; this is
+  // the guard that holds. Mirrors the v1 route.
+  if ((body.end_time ?? null) === null) {
+    const { data: alreadyRunning } = await service
+      .from('project_time_entries')
+      .select('id')
+      .eq('project_id', body.project_id)
+      .eq('member_id', targetMemberId)
+      .is('end_time', null)
+      .limit(1)
+      .maybeSingle();
+    if (alreadyRunning) return responseError('A timer is already running for this member on this project', 409);
+  }
   const hourlyRate = await resolveProjectHourlyRate(
     service,
     body.project_id,
@@ -201,6 +217,21 @@ export async function PATCH(request: Request) {
     const effectiveSegments = 'segments' in body ? body.segments : undefined;
     const patchTimingError = validateEntryTiming(effectiveStart, effectiveEnd, effectiveSegments);
     if (patchTimingError) return responseError(patchTimingError, 422);
+  }
+
+  // Reopening a finalized entry (the resume-after-stop feature) must respect
+  // the same one-unfinalized-entry-per-member invariant that POST enforces.
+  if ('end_time' in body && body.end_time === null && existing.end_time !== null) {
+    const { data: alreadyRunning } = await service
+      .from('project_time_entries')
+      .select('id')
+      .eq('project_id', existing.project_id)
+      .eq('member_id', existing.member_id)
+      .is('end_time', null)
+      .neq('id', existing.id)
+      .limit(1)
+      .maybeSingle();
+    if (alreadyRunning) return responseError('A timer is already running for this member on this project', 409);
   }
 
   if (body.work_type && body.work_type !== (existing.work_type || 'client')) {

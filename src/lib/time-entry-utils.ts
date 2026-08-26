@@ -210,7 +210,31 @@ export function startOfDayInTz(date: Date, timezone?: string): number {
 }
 
 /**
- * Returns entries that are paused on a previous calendar day and should be
+ * Minimum age before a paused entry may be treated as stale. Crossing a
+ * midnight alone is not enough: `team_members.timezone` defaults to 'UTC'
+ * (with no settings UI to change it), and for anyone west of UTC that
+ * midnight lands mid-evening local time, so a fresh pause straddling it
+ * looked like "yesterday" and Resume finalized the session instead of
+ * resuming it. The age floor also protects deliberate work-past-midnight
+ * sessions (pause 11:55pm, resume 12:10am).
+ */
+export const MIN_STALE_PAUSE_MS = 4 * 3_600_000;
+
+/**
+ * True when a pause is old enough to auto-finalize instead of resume:
+ * it ended on a previous calendar day in `timezone` AND is at least
+ * MIN_STALE_PAUSE_MS old. Both conditions are required; see the constant's
+ * doc for why midnight-crossing alone misfires.
+ */
+export function isStalePause(lastEndIso: string, timezone?: string, now: Date = new Date()): boolean {
+  const lastEndMs = new Date(lastEndIso).getTime();
+  if (!Number.isFinite(lastEndMs)) return false;
+  if (now.getTime() - lastEndMs < MIN_STALE_PAUSE_MS) return false;
+  return lastEndMs < startOfDayInTz(now, timezone);
+}
+
+/**
+ * Returns entries that are stale-paused (see isStalePause) and should be
  * auto-finalized before rendering. Accepts either a single timezone or a
  * per-entry resolver (for the store load path where each entry may belong
  * to a different team member).
@@ -226,9 +250,7 @@ export function findStalePausedEntries(
     if (e.end_time !== null) return false; // already finalized
     const last = e.segments[e.segments.length - 1];
     if (!last || last.end === null) return false; // actively running, not paused
-    const tz = resolveTz(e);
-    const todayStart = startOfDayInTz(now, tz);
-    return new Date(last.end).getTime() < todayStart;
+    return isStalePause(last.end, resolveTz(e), now);
   });
 }
 

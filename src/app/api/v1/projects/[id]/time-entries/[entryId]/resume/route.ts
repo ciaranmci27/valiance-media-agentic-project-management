@@ -2,7 +2,7 @@ import { withApi } from '@/lib/api/middleware';
 import { success } from '@/lib/api/response';
 import { notFound, badRequest } from '@/lib/api/errors';
 import { logAudit } from '@/lib/api/audit';
-import { startOfDayInTz } from '@/lib/time-entry-utils';
+import { isStalePause } from '@/lib/time-entry-utils';
 import type { TimeSegment } from '@/lib/types';
 import { apiKeyAllows, sanitizeTimeEntryForAccess } from '@/lib/api/access';
 
@@ -28,16 +28,18 @@ export const POST = withApi(async ({ supabase, params, apiKeyId, teamMemberId, a
     throw badRequest('Timer is not paused');
   }
 
-  // Stale guard: if the last segment ended on a previous calendar day
-  // in the entry's member timezone, auto-finalize instead of resuming.
+  // Stale guard: a pause that crossed a calendar day in the member's
+  // timezone AND is at least MIN_STALE_PAUSE_MS old auto-finalizes instead
+  // of resuming. The age floor matters because timezone defaults to 'UTC',
+  // whose midnight lands mid-evening for members west of it; without the
+  // floor a fresh pause straddling that instant was finalized on resume.
   const { data: member } = await supabase
     .from('team_members')
     .select('timezone')
     .eq('id', before.member_id)
     .maybeSingle();
   const tz = member?.timezone || undefined;
-  const todayStart = startOfDayInTz(new Date(), tz);
-  if (new Date(last.end).getTime() < todayStart) {
+  if (isStalePause(last.end, tz)) {
     const { data: finalized, error: finalizeErr } = await supabase
       .from('project_time_entries')
       .update({ end_time: last.end })

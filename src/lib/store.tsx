@@ -103,7 +103,7 @@ import {
 import { toast } from '@/components/ui/Toast';
 import { isTelemetryEvent } from '@/lib/agent-events';
 import { siteConfig } from '@/site-config';
-import { findStalePausedEntries, startOfDayInTz } from '@/lib/time-entry-utils';
+import { findStalePausedEntries, isStalePause } from '@/lib/time-entry-utils';
 import { hasPermission } from '@/lib/access-control';
 import { rollbackScope } from '@/lib/optimistic';
 
@@ -342,6 +342,7 @@ interface AppContextType {
   pauseTimer: (entryId: string) => void;
   resumeTimer: (entryId: string) => void;
   stopTimer: (entryId: string) => void;
+  resumeStoppedTimer: (entryId: string) => Promise<boolean>;
   getRunningTimer: (projectId: string, memberId?: string) => TimeEntry | undefined;
 
   // Credential CRUD
@@ -631,10 +632,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setEntityFiles(entityFilesData);
         setApiKeys(apiKeysData);
 
-        // Auto-finalize any paused timers whose last segment ended on a
-        // previous calendar day (in the entry's member timezone). This runs
-        // silently so users don't see yesterday's paused state on load.
+        // Auto-finalize any paused timers that are stale per isStalePause
+        // (crossed a midnight AND paused 4h+). This runs silently so users
+        // don't see yesterday's paused state on load.
         const staleEntries = findStalePausedEntries(timeEntriesData, (entry) => {
+          // Own entries judge "yesterday" by the browser's clock: the profile
+          // timezone is an unreliable 'UTC' default with no settings UI.
+          // Teammates keep their profile timezone, with the age floor in
+          // isStalePause absorbing that default's skew.
+          if (entry.member_id === teamMemberId) return undefined;
           return teamData.find(m => m.id === entry.member_id)?.timezone;
         });
         if (staleEntries.length > 0) {
@@ -2861,6 +2867,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  // Per-entry write chain. Timer transitions fire PATCHes in quick succession
+  // (describe -> pause, pause -> resume, resume -> stop), and responses used to
+  // apply in ARRIVAL order: a slow earlier response could land after a faster
+  // later one and revert the newer state locally, flipping the UI back to
+  // Paused after a Resume and inviting a second click that rewrote the
+  // segments again. Chaining per entry keeps requests and their responses in
+  // issue order; entries never contend with each other.
+  const entryWriteChains = useRef(new Map<string, Promise<void>>());
+
   const updateTimeEntry = async (
     id: string,
     updates: Partial<Pick<TimeEntry, 'member_id' | 'start_time' | 'end_time' | 'segments' | 'description' | 'work_type' | 'task_ids'>>,
@@ -2872,30 +2887,41 @@ export function AppProvider({ children }: { children: ReactNode }) {
     ));
     if (skipSupabase) return;
 
-    try {
-      const response = await fetch('/api/workspace/time-entries', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, ...updates }),
-      });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || 'Failed to update time entry');
-      const updated = payload.data as TimeEntry;
-      setTimeEntries(entries => entries.map(entry => entry.id === id ? updated : entry));
-      if (!options.silent && existing) {
-        const project = projects.find(p => p.id === existing.project_id);
-        notify(allMemberIds(), `Time entry updated on "${project?.name || 'project'}"`, `${actorName()} updated a time entry.`, `/projects/${existing.project_id}`, 'project', existing.project_id, 'time_entries');
+    const send = async () => {
+      try {
+        const response = await fetch('/api/workspace/time-entries', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id, ...updates }),
+        });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.error || 'Failed to update time entry');
+        const updated = payload.data as TimeEntry;
+        setTimeEntries(entries => entries.map(entry => entry.id === id ? updated : entry));
+        if (!options.silent && existing) {
+          const project = projects.find(p => p.id === existing.project_id);
+          notify(allMemberIds(), `Time entry updated on "${project?.name || 'project'}"`, `${actorName()} updated a time entry.`, `/projects/${existing.project_id}`, 'project', existing.project_id, 'time_entries');
+        }
+        // Only time fields can move budget usage; description edits (debounced
+        // while typing) must not trigger a server-side evaluation each keystroke
+        const affectsBudget = 'segments' in updates || 'start_time' in updates || 'end_time' in updates;
+        if (existing && affectsBudget) triggerBudgetAlerts(existing.project_id);
+      } catch (err) {
+        // Restore just this entry. Reverting the whole array (what this used to
+        // do) also discarded any other row that changed while the request was
+        // in flight - a teammate's timer, or a second edit of your own.
+        if (existing) setTimeEntries(te => te.map(entry => (entry.id === id ? existing : entry)));
+        toast('error', err instanceof Error ? err.message : 'Failed to update time entry');
       }
-      // Only time fields can move budget usage; description edits (debounced
-      // while typing) must not trigger a server-side evaluation each keystroke
-      const affectsBudget = 'segments' in updates || 'start_time' in updates || 'end_time' in updates;
-      if (existing && affectsBudget) triggerBudgetAlerts(existing.project_id);
-    } catch (err) {
-      // Restore just this entry. Reverting the whole array (what this used to
-      // do) also discarded any other row that changed while the request was
-      // in flight - a teammate's timer, or a second edit of your own.
-      if (existing) setTimeEntries(te => te.map(entry => (entry.id === id ? existing : entry)));
-      toast('error', err instanceof Error ? err.message : 'Failed to update time entry');
+    };
+    // send() never rejects (errors are handled inside), so the chain is safe
+    // to extend without a catch link.
+    const chained = (entryWriteChains.current.get(id) ?? Promise.resolve()).then(send);
+    entryWriteChains.current.set(id, chained);
+    try {
+      await chained;
+    } finally {
+      if (entryWriteChains.current.get(id) === chained) entryWriteChains.current.delete(id);
     }
   };
 
@@ -2927,7 +2953,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const getTimeEntriesByProject = (projectId: string) =>
     timeEntries.filter(te => te.project_id === projectId);
 
+  // Keys ("projectId:memberId") of timer starts whose POST is still in flight.
+  // The state-based duplicate check below cannot catch a double-click: the
+  // second click's handler runs before the optimistic entry from the first has
+  // re-rendered, so both pass the find(). A ref is synchronous.
+  const timerStartsInFlight = useRef(new Set<string>());
+
   const startTimer = async (projectId: string, memberId: string, description = '', customStartTime?: string, workType: 'client' | 'internal' = 'client', taskIds: string[] = []) => {
+    const inFlightKey = `${projectId}:${memberId}`;
+    if (timerStartsInFlight.current.has(inFlightKey)) return;
     // Check if this member already has an unfinalized timer (running or paused) on this project.
     // Per-member check so multiple teammates can track simultaneously on the same project.
     const existing = timeEntries.find(te => te.project_id === projectId && te.member_id === memberId && te.end_time === null);
@@ -2948,7 +2982,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       work_type: workType,
       task_ids: taskIds,
     };
-    await addTimeEntry(entry);
+    timerStartsInFlight.current.add(inFlightKey);
+    try {
+      await addTimeEntry(entry);
+    } finally {
+      timerStartsInFlight.current.delete(inFlightKey);
+    }
   };
 
   const pauseTimer = async (entryId: string) => {
@@ -2970,14 +3009,34 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const active = timeEntries.find(te => te.id === entryId);
     if (!active || active.end_time !== null) return;
     const last = active.segments[active.segments.length - 1];
-    // Not paused — nothing to resume
+    // Not paused, nothing to resume
     if (!last || last.end === null) return;
-    // Stale guard: if the last segment ended on a previous calendar day, the
-    // entry should be finalized rather than resumed. Fall through silently.
-    const memberTz = team.find(m => m.id === active.member_id)?.timezone;
-    const todayStart = startOfDayInTz(new Date(), memberTz);
-    if (new Date(last.end).getTime() < todayStart) {
+    // Stale guard: a pause left over from a previous day should not resume
+    // into a session spanning days. Staleness is judged by the browser's
+    // clock: the UI only lets you resume your own timer from your own
+    // browser, and the profile timezone is an unreliable 'UTC' default that
+    // used to finalize fresh evening pauses. When the pause IS stale, the
+    // click still does what the button says: the old session is saved at the
+    // pause and a fresh timer starts carrying the same details. Silently
+    // ending the entry here was the "resume just ends it" bug.
+    if (isStalePause(last.end)) {
       await updateTimeEntry(active.id, { end_time: last.end }, { silent: true });
+      const startTime = new Date().toISOString();
+      // addTimeEntry directly, not startTimer: this closure's timeEntries
+      // still holds the just-finalized entry as unfinalized, so startTimer's
+      // duplicate check would reject the restart.
+      await addTimeEntry({
+        project_id: active.project_id,
+        member_id: active.member_id,
+        start_time: startTime,
+        end_time: null,
+        segments: [{ start: startTime, end: null }],
+        hourly_rate: active.hourly_rate ?? 0,
+        description: active.description,
+        work_type: active.work_type,
+        task_ids: active.task_ids || [],
+      });
+      toast('info', 'That pause was from a previous day, so the session was saved and a new timer started');
       return;
     }
     const resumedAt = new Date().toISOString();
@@ -2999,6 +3058,37 @@ export function AppProvider({ children }: { children: ReactNode }) {
     // or the already-present paused_at if stopping from a paused state).
     const finalEnd = segments[segments.length - 1]?.end ?? nowIso;
     await updateTimeEntry(active.id, { segments, end_time: finalEnd });
+  };
+
+  // Reopen a recently stopped entry: the undo for an accidental Stop click.
+  // Appends a fresh open segment and clears end_time, so the stopped gap
+  // becomes an ordinary pause in the same session. The panel decides WHICH
+  // entry offers this (own most recent entry, stopped recently); the store
+  // enforces the invariants: the entry is finalized, and a member never has
+  // two unfinalized entries on one project. Approval state needs no handling
+  // here: the DB trigger resets a reopened entry to 'draft' and re-approves
+  // per policy on the next stop.
+  const resumeStoppedTimer = async (entryId: string): Promise<boolean> => {
+    const entry = timeEntries.find(te => te.id === entryId);
+    if (!entry || entry.end_time === null) return false;
+    const existing = timeEntries.find(te =>
+      te.project_id === entry.project_id && te.member_id === entry.member_id && te.end_time === null);
+    if (existing) {
+      toast('error', 'You already have a timer running for this project');
+      return false;
+    }
+    const resumedAt = new Date().toISOString();
+    // Legacy rows may predate segments; synthesize the closed block first so
+    // the reopened entry's elapsed time stays correct.
+    const base = entry.segments?.length
+      ? entry.segments
+      : [{ start: entry.start_time, end: entry.end_time }];
+    await updateTimeEntry(
+      entryId,
+      { end_time: null, segments: [...base, { start: resumedAt, end: null }] },
+      { silent: true },
+    );
+    return true;
   };
 
   const getRunningTimer = (projectId: string, memberId?: string) =>
@@ -3652,6 +3742,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       pauseTimer,
       resumeTimer,
       stopTimer,
+      resumeStoppedTimer,
       getRunningTimer,
       getTimeEntriesByProject,
       addApiKey: addApiKeyAction,

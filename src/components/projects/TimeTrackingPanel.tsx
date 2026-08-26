@@ -14,10 +14,10 @@ import { MultiSelect } from '@/components/ui/inputs/MultiSelect';
 import { TimeInput } from '@/components/ui/inputs/TimeInput';
 import { DateInput } from '@/components/ui/inputs/DateInput';
 import { NumberInput } from '@/components/ui/inputs/NumberInput';
-import { TimeEntry } from '@/lib/types';
+import { TimeEntry, TimeSegment } from '@/lib/types';
 import { siteConfig } from '@/site-config';
 import { toLocalTimeString, toLocalDateString } from '@/lib/date-utils';
-import { getWorkedHours, getWorkedMs, resegmentEntry, isPaused } from '@/lib/time-entry-utils';
+import { getWorkedHours, getWorkedMs, resegmentEntry, isPaused, isStalePause } from '@/lib/time-entry-utils';
 import { paidHourlyLineItemTotal, fifoPaymentBreakdowns, type PaymentBreakdown } from '@/lib/invoice-utils';
 import { hasPermission } from '@/lib/access-control';
 
@@ -48,6 +48,11 @@ function formatHM(decimal: number): string {
 function formatGap(ms: number): string {
   if (ms < 60_000) return '< 1m';
   return formatHM(ms / 3_600_000);
+}
+
+/** Elapsed ms of a still-open segment; the 1s tick keeps renders fresh. */
+function liveSegMs(startIso: string): number {
+  return Math.max(0, Date.now() - new Date(startIso).getTime());
 }
 
 function formatTime(iso: string, timezone?: string): string {
@@ -81,7 +86,7 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
   const {
     getTimeEntriesByProject, team, tasks, getProject, getInvoicesByProject,
     addTimeEntry, updateTimeEntry, deleteTimeEntry,
-    startTimer, pauseTimer, resumeTimer, stopTimer, getRunningTimer,
+    startTimer, pauseTimer, resumeTimer, stopTimer, resumeStoppedTimer, getRunningTimer,
   } = useApp();
   const { teamMemberId, access } = useAuth();
 
@@ -134,17 +139,10 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
     if (stored === 'timer' || stored === 'manual') return stored;
     return 'timer';
   });
-
-  // If there's a running timer, force into timer mode and sync description
-  useEffect(() => {
-    if (runningTimer) {
-      if (mode !== 'timer') {
-        setMode('timer');
-        localStorage.setItem(getStorageKey(projectId), 'timer');
-      }
-      setTimerDescription(runningTimer.description || '');
-    }
-  }, [runningTimer?.id]);
+  // A running timer always shows timer mode. Derived, not forced via
+  // setState: the stored preference is untouched, so stopping the timer
+  // returns the panel to whatever the user last chose.
+  const effectiveMode: TrackingMode = runningTimer ? 'timer' : mode;
 
   const toggleMode = () => {
     if (runningTimer) {
@@ -192,6 +190,19 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
   const [adjustingStart, setAdjustingStart] = useState(false);
   const [adjustStartTime, setAdjustStartTime] = useState('');
   const descDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Per-entry state sync, done with the render-derive pattern rather than an
+  // effect (setState inside an effect is a cascading-render lint error).
+  // When the running entry changes: seed the description input from it, and
+  // drop any in-progress start adjustment, which belonged to the previous
+  // entry. Mode forcing needs no state at all; see effectiveMode above.
+  const [syncedTimerId, setSyncedTimerId] = useState<string | null>(null);
+  if ((runningTimer?.id ?? null) !== syncedTimerId) {
+    setSyncedTimerId(runningTimer?.id ?? null);
+    if (runningTimer) setTimerDescription(runningTimer.description || '');
+    setAdjustingStart(false);
+    setAdjustStartTime('');
+  }
 
   // ── Manual entry form state ──
   const [manualEntryMode, setManualEntryMode] = useState<ManualEntryMode>('range');
@@ -245,6 +256,36 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
     [completedEntries],
   );
 
+  // ── Resume after stop ──
+  // Your own most recent completed entry can be reopened while its stop is
+  // still fresh, the undo for an accidental Stop click. Freshness reuses the
+  // pause staleness rule (not across a 4h-old midnight, judged by the browser
+  // clock) so both resume paths draw the same line. Hidden while any of your
+  // timers runs on the project (one unfinalized entry per member).
+  //
+  // Approval status is deliberately NOT checked here: the DB trigger stamps
+  // owner and auto-approved entries 'approved' the instant they stop, so an
+  // approved-check hid the icon from the very people it was built for. The
+  // same trigger resets a reopened entry to 'draft' and re-approves it on the
+  // next stop, so the lifecycle round-trips cleanly. Who may reopen follows
+  // the row's canModifyEntry (this icon renders inside that block), which
+  // mirrors the server PATCH rule: managers can edit approved entries,
+  // everyone else gets a 409.
+  const resumableEntryId = useMemo(() => {
+    if (!teamMemberId || runningTimer) return null;
+    const own = completedEntries.filter(e => e.member_id === teamMemberId && e.end_time !== null);
+    if (own.length === 0) return null;
+    const latest = own.reduce((a, b) =>
+      new Date(a.end_time!).getTime() >= new Date(b.end_time!).getTime() ? a : b);
+    if (isStalePause(latest.end_time!)) return null;
+    return latest.id;
+  }, [completedEntries, teamMemberId, runningTimer]);
+
+  const handleResumeStopped = async (entryId: string) => {
+    const reopened = await resumeStoppedTimer(entryId);
+    if (reopened) toast('success', 'Timer resumed');
+  };
+
   const thisWeekHours = useMemo(() => {
     const now = new Date();
     const day = now.getDay();
@@ -275,7 +316,7 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
       groups[dateKey].push(entry);
     }
     return groups;
-  }, [completedEntries]);
+  }, [completedEntries, tz]);
 
   const getMember = (id: string) => team.find(m => m.id === id);
   const getTaskTitle = (id: string | null | undefined) => (id ? tasks.find(t => t.id === id)?.title : undefined);
@@ -337,6 +378,16 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
 
   const handleResumeTimer = () => {
     if (!runningTimer) return;
+    // Flush the pending description debounce like pause/stop do. The stale
+    // path of resumeTimer copies the entry's description into the fresh
+    // timer it starts, so an unflushed edit would be dropped there.
+    if (descDebounceRef.current) {
+      clearTimeout(descDebounceRef.current);
+      descDebounceRef.current = null;
+    }
+    if (timerDescription && timerDescription !== runningTimer.description) {
+      updateTimeEntry(runningTimer.id, { description: timerDescription });
+    }
     resumeTimer(runningTimer.id);
   };
 
@@ -421,14 +472,15 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
   // ── Segment handlers ──
   const startEditSegment = (entry: TimeEntry, index: number) => {
     const seg = entry.segments[index];
-    if (!seg || seg.end === null) return; // can't edit an open (running) segment
+    if (!seg) return;
     setEditingId(null);
     setEditState(null);
     setEditingSegment({
       entryId: entry.id,
       index,
       startTime: toLocalTimeString(seg.start, tz),
-      endTime: toLocalTimeString(seg.end, tz),
+      // An open (live) segment has no end yet; only its start is editable.
+      endTime: seg.end ? toLocalTimeString(seg.end, tz) : '',
     });
   };
 
@@ -445,33 +497,48 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
     // the auto-finalize rules, so editing only rewrites the HH:MM on the same day.
     const dateKey = getDateKey(origSeg.start, tz);
     const newStart = new Date(`${dateKey}T${editingSegment.startTime}`);
-    const newEnd = new Date(`${dateKey}T${editingSegment.endTime}`);
-    if (Number.isNaN(newStart.getTime()) || Number.isNaN(newEnd.getTime())) {
+    if (Number.isNaN(newStart.getTime())) {
       toast('error', 'Invalid time'); return;
     }
-    if (newEnd <= newStart) {
-      toast('error', 'End time must be after start time'); return;
+    let newSeg: TimeSegment;
+    if (origSeg.end === null) {
+      // The live segment: only its start moves, and never into the future.
+      if (newStart.getTime() > Date.now()) {
+        toast('error', 'Start time cannot be in the future'); return;
+      }
+      newSeg = { start: newStart.toISOString(), end: null };
+    } else {
+      const newEnd = new Date(`${dateKey}T${editingSegment.endTime}`);
+      if (Number.isNaN(newEnd.getTime())) {
+        toast('error', 'Invalid time'); return;
+      }
+      if (newEnd <= newStart) {
+        toast('error', 'End time must be after start time'); return;
+      }
+      newSeg = { start: newStart.toISOString(), end: newEnd.toISOString() };
     }
 
     // Build the updated segments array and validate ordering against neighbors.
-    const newSeg = { start: newStart.toISOString(), end: newEnd.toISOString() };
     const newSegments = entry.segments.map((s, i) => (i === editingSegment.index ? newSeg : s));
     const before = newSegments[editingSegment.index - 1];
     const after = newSegments[editingSegment.index + 1];
     if (before && before.end && new Date(before.end).getTime() > newStart.getTime()) {
       toast('error', 'Segment cannot overlap the previous one'); return;
     }
-    if (after && new Date(after.start).getTime() < newEnd.getTime()) {
+    if (after && newSeg.end && new Date(after.start).getTime() < new Date(newSeg.end).getTime()) {
       toast('error', 'Segment cannot overlap the next one'); return;
     }
 
-    // Keep denormalized start_time / end_time mirrored on the first/last segment.
+    // Keep denormalized start_time / end_time mirrored on the first/last
+    // segment. Never mirror end_time onto an unfinalized entry: a PAUSED
+    // entry's last segment has an end, and writing it to end_time would
+    // silently stop the timer.
     const firstStart = newSegments[0].start;
     const lastEnd = newSegments[newSegments.length - 1].end;
     updateTimeEntry(entry.id, {
       segments: newSegments,
       start_time: firstStart,
-      ...(lastEnd ? { end_time: lastEnd } : {}),
+      ...(entry.end_time !== null && lastEnd ? { end_time: lastEnd } : {}),
     });
     setEditingSegment(null);
     toast('success', 'Segment updated');
@@ -492,7 +559,9 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
     updateTimeEntry(entry.id, {
       segments: newSegments,
       start_time: firstStart,
-      ...(lastEnd ? { end_time: lastEnd } : {}),
+      // Same unfinalized guard as saveEditSegment: deleting a closed block
+      // from a running or paused session must not finalize the entry.
+      ...(entry.end_time !== null && lastEnd ? { end_time: lastEnd } : {}),
     });
     setDeleteSegmentTarget(null);
     toast('success', 'Segment removed');
@@ -582,6 +651,132 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
 
   const dateGroups = Object.entries(groupedByDate);
 
+  // Segment breakdown list, shared by the live timer card and history rows.
+  // The open (still running) segment shows "start – now" with a live
+  // duration; its START is editable like any other row, but it has no end
+  // to edit and cannot be deleted (that would be a disguised pause).
+  // History rows keep their own margins; the live card's space-y already
+  // provides spacing, so it passes marginClass ''.
+  const renderSegmentList = (entry: TimeEntry, canModify: boolean, marginClass = 'mt-2 mb-1') => (
+    <ul className={`seg-zone ${marginClass} rounded-lg bg-white/[0.03] border border-white/[0.06] px-2.5 py-1.5 space-y-1`}>
+      {entry.segments.map((seg, i) => {
+        const isEditingThisSegment =
+          editingSegment?.entryId === entry.id && editingSegment.index === i;
+        const segDurationHours = seg.end
+          ? (new Date(seg.end).getTime() - new Date(seg.start).getTime()) / 3_600_000
+          : 0;
+        // Gap to the next segment = pause duration. Only shown when this
+        // segment has an end (otherwise it's still running and there's no
+        // "pause" yet) and a next segment exists.
+        const nextSeg = entry.segments[i + 1];
+        const gapMs = seg.end && nextSeg
+          ? new Date(nextSeg.start).getTime() - new Date(seg.end).getTime()
+          : 0;
+        const showGap = gapMs > 0;
+        const gapLabel = showGap ? (
+          <li
+            key={`gap-${i}`}
+            className="flex items-center gap-1.5 pl-[3px] select-none"
+          >
+            <span className="w-px h-2.5 bg-white/[0.08] ml-[2px]" />
+            <span className="text-[10px] italic text-zinc-500">
+              Paused for {formatGap(gapMs)}
+            </span>
+          </li>
+        ) : null;
+        if (isEditingThisSegment && editingSegment) {
+          return (
+            <Fragment key={i}>
+              <li className="flex items-center gap-1.5 py-0.5">
+                <span
+                  className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                  style={{ backgroundColor: projectColor }}
+                />
+                <div className="w-[88px]">
+                  <TimeInput
+                    size="sm"
+                    value={editingSegment.startTime}
+                    onChange={v => setEditingSegment({ ...editingSegment, startTime: v })}
+                  />
+                </div>
+                {seg.end !== null ? (
+                  <>
+                    <span className="text-[10px] text-zinc-600 select-none">–</span>
+                    <div className="w-[88px]">
+                      <TimeInput
+                        size="sm"
+                        value={editingSegment.endTime}
+                        onChange={v => setEditingSegment({ ...editingSegment, endTime: v })}
+                      />
+                    </div>
+                  </>
+                ) : (
+                  <span className="text-[10px] text-zinc-500 select-none">– now</span>
+                )}
+                <button
+                  aria-label="Save segment changes"
+                  onClick={saveEditSegment}
+                  className="p-1 text-emerald-400 hover:bg-emerald-500/15 rounded transition-colors flex-shrink-0"
+                >
+                  <Check size={12} />
+                </button>
+                <button
+                  aria-label="Cancel segment changes"
+                  onClick={cancelEditSegment}
+                  className="p-1 text-zinc-500 hover:bg-white/[0.06] rounded transition-colors flex-shrink-0"
+                >
+                  <X size={12} />
+                </button>
+              </li>
+              {gapLabel}
+            </Fragment>
+          );
+        }
+        return (
+          <Fragment key={i}>
+            <li className="flex items-center gap-2 group/seg">
+              <span
+                className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${seg.end === null ? 'animate-pulse' : ''}`}
+                style={{ backgroundColor: projectColor }}
+              />
+              <span className="text-[11px] font-medium text-zinc-300 tabular-nums">
+                {formatTime(seg.start, tz)} – {seg.end ? formatTime(seg.end, tz) : 'now'}
+              </span>
+              <span className="text-[10px] text-zinc-500 tabular-nums">
+                {seg.end ? formatHM(segDurationHours) : formatGap(liveSegMs(seg.start))}
+              </span>
+              {canModify ? (
+                <div className="flex items-center gap-0.5 sm:opacity-0 sm:group-hover/seg:opacity-100 transition-opacity">
+                  <Tooltip content={seg.end ? 'Edit segment' : 'Edit start time'}>
+                    <button
+                      aria-label={seg.end ? 'Edit segment' : 'Edit start time'}
+                      onClick={() => startEditSegment(entry, i)}
+                      className="p-1 text-zinc-500 hover:text-brand-300 hover:bg-surface-raised rounded transition-colors"
+                    >
+                      <Pencil size={11} />
+                    </button>
+                  </Tooltip>
+                  {seg.end && (
+                    <Tooltip content="Delete segment">
+                      <button
+                        aria-label="Delete segment"
+                        onClick={() => setDeleteSegmentTarget({ entryId: entry.id, index: i })}
+                        className="p-1 text-zinc-500 hover:text-red-500 hover:bg-surface-raised rounded transition-colors"
+                      >
+                        <Trash2 size={11} />
+                      </button>
+                    </Tooltip>
+                  )}
+                </div>
+              ) : null}
+            </li>
+            {gapLabel}
+          </Fragment>
+        );
+      })}
+    </ul>
+  );
+
   /* ================================================================
      RENDER
   ================================================================ */
@@ -595,15 +790,15 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
         </div>
         <div className="seg-track seg-sm">
           <button
-            onClick={() => { if (mode !== 'timer') toggleMode(); }}
-            className={`seg-item flex items-center gap-1.5 ${mode === 'timer' ? 'is-active' : ''}`}
+            onClick={() => { if (effectiveMode !== 'timer') toggleMode(); }}
+            className={`seg-item flex items-center gap-1.5 ${effectiveMode === 'timer' ? 'is-active' : ''}`}
           >
             <Timer size={12} />
             Timer
           </button>
           <button
-            onClick={() => { if (mode !== 'manual') toggleMode(); }}
-            className={`seg-item flex items-center gap-1.5 ${mode === 'manual' ? 'is-active' : ''}`}
+            onClick={() => { if (effectiveMode !== 'manual') toggleMode(); }}
+            className={`seg-item flex items-center gap-1.5 ${effectiveMode === 'manual' ? 'is-active' : ''}`}
           >
             <Clock size={12} />
             Manual
@@ -645,7 +840,7 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
         {/* ═══════════════════════════════════════════════════════
              LIVE TIMER MODE
            ═══════════════════════════════════════════════════════ */}
-        {mode === 'timer' && (
+        {effectiveMode === 'timer' && (
           <div className="mx-4 mt-3 mb-2">
             {runningTimer ? (
               <div
@@ -671,7 +866,12 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                         <span className="ml-1.5 text-xs font-normal text-zinc-500">· Paused</span>
                       )}
                     </p>
-                    {adjustingStart ? (
+                    {/* "Started X" (and its adjust pencil) is the single-
+                        segment affordance. Once a pause splits the session,
+                        the segment list below carries the same fact on its
+                        first row along with the editor, so the line here
+                        would be a duplicate. */}
+                    {runningTimer.segments.length > 1 ? null : adjustingStart ? (
                       <div className="flex items-center gap-1.5 mt-1">
                         <div className="w-[120px]">
                           <TimeInput
@@ -700,6 +900,7 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                         Started {formatTime(runningTimer.start_time, tz)}
                         <button
                           type="button"
+                          aria-label="Adjust start time"
                           onClick={() => {
                             setAdjustingStart(true);
                             setAdjustStartTime(toLocalTimeString(runningTimer.start_time, tz));
@@ -761,6 +962,12 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                     </button>
                   </div>
                 </div>
+
+                {/* Segment breakdown for the LIVE session, visible once a
+                    pause has split it, so each worked block can be reviewed
+                    and corrected without stopping the timer. */}
+                {runningTimer.segments.length > 1 &&
+                  renderSegmentList(runningTimer, canManageAllTime || canManageOwnTime, '')}
 
                 {/* Task links on the LIVE session. The running entry is the
                     source of truth (not local state), and changes write
@@ -877,7 +1084,7 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
         {/* ═══════════════════════════════════════════════════════
              MANUAL ENTRY MODE
            ═══════════════════════════════════════════════════════ */}
-        {mode === 'manual' && (
+        {effectiveMode === 'manual' && (
           <form onSubmit={handleManualAdd} className="mx-4 mt-3 mb-2 rounded-xl bg-white/[0.03] border border-white/[0.06] p-4 space-y-3">
             {/* Date and, for time managers only, the team member */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
@@ -1197,6 +1404,17 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                             {entry.approval_status && entry.approval_status !== 'approved' && <span className={`flex-shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${entry.approval_status === 'rejected' ? 'bg-red-500/15 text-red-300' : 'bg-amber-500/15 text-amber-300'}`}>{entry.approval_status === 'pending' ? 'Awaiting approval' : entry.approval_status}</span>}
                             {canModifyEntry ? (
                               <div className="flex items-center gap-0.5 sm:opacity-0 sm:group-hover/entry:opacity-100 sm:group-has-[.seg-zone:hover]/entry:!opacity-0 transition-opacity flex-shrink-0">
+                                {entry.id === resumableEntryId && (
+                                  <Tooltip content="Resume this session">
+                                    <button
+                                      aria-label="Resume this session"
+                                      onClick={() => handleResumeStopped(entry.id)}
+                                      className="p-1 text-zinc-600 hover:text-emerald-400 transition-colors"
+                                    >
+                                      <Play size={12} aria-hidden="true" />
+                                    </button>
+                                  </Tooltip>
+                                )}
                                 <Tooltip content="Edit">
                                   <button
                                     onClick={() => startEdit(entry)}
@@ -1216,115 +1434,7 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                               </div>
                             ) : null}
                           </div>
-                          {hasMultipleSegments && (
-                            <ul className="seg-zone mt-2 mb-1 rounded-lg bg-white/[0.03] border border-white/[0.06] px-2.5 py-1.5 space-y-1">
-                              {entry.segments.map((seg, i) => {
-                                const isEditingThisSegment =
-                                  editingSegment?.entryId === entry.id && editingSegment.index === i;
-                                const segDurationHours = seg.end
-                                  ? (new Date(seg.end).getTime() - new Date(seg.start).getTime()) / 3_600_000
-                                  : 0;
-                                // Gap to the next segment = pause duration. Only shown when
-                                // this segment has an end (otherwise it's still running and
-                                // there's no "pause" yet) and a next segment exists.
-                                const nextSeg = entry.segments[i + 1];
-                                const gapMs = seg.end && nextSeg
-                                  ? new Date(nextSeg.start).getTime() - new Date(seg.end).getTime()
-                                  : 0;
-                                const showGap = gapMs > 0;
-                                const gapLabel = showGap ? (
-                                  <li
-                                    key={`gap-${i}`}
-                                    className="flex items-center gap-1.5 pl-[3px] select-none"
-                                  >
-                                    <span className="w-px h-2.5 bg-white/[0.08] ml-[2px]" />
-                                    <span className="text-[10px] italic text-zinc-500">
-                                      Paused for {formatGap(gapMs)}
-                                    </span>
-                                  </li>
-                                ) : null;
-                                if (isEditingThisSegment && editingSegment) {
-                                  return (
-                                    <Fragment key={i}>
-                                      <li className="flex items-center gap-1.5 py-0.5">
-                                        <span
-                                          className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                                          style={{ backgroundColor: projectColor }}
-                                        />
-                                        <div className="w-[88px]">
-                                          <TimeInput
-                                            size="sm"
-                                            value={editingSegment.startTime}
-                                            onChange={v => setEditingSegment({ ...editingSegment, startTime: v })}
-                                          />
-                                        </div>
-                                        <span className="text-[10px] text-zinc-600 select-none">–</span>
-                                        <div className="w-[88px]">
-                                          <TimeInput
-                                            size="sm"
-                                            value={editingSegment.endTime}
-                                            onChange={v => setEditingSegment({ ...editingSegment, endTime: v })}
-                                          />
-                                        </div>
-                                        <button
-                                          onClick={saveEditSegment}
-                                          className="p-1 text-emerald-400 hover:bg-emerald-500/15 rounded transition-colors flex-shrink-0"
-                                        >
-                                          <Check size={12} />
-                                        </button>
-                                        <button
-                                          onClick={cancelEditSegment}
-                                          className="p-1 text-zinc-500 hover:bg-white/[0.06] rounded transition-colors flex-shrink-0"
-                                        >
-                                          <X size={12} />
-                                        </button>
-                                      </li>
-                                      {gapLabel}
-                                    </Fragment>
-                                  );
-                                }
-                                return (
-                                  <Fragment key={i}>
-                                    <li className="flex items-center gap-2 group/seg">
-                                      <span
-                                        className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                                        style={{ backgroundColor: projectColor }}
-                                      />
-                                      <span className="text-[11px] font-medium text-zinc-300 tabular-nums">
-                                        {formatTime(seg.start, tz)} – {seg.end ? formatTime(seg.end, tz) : '...'}
-                                      </span>
-                                      {seg.end && (
-                                        <span className="text-[10px] text-zinc-500 tabular-nums">
-                                          {formatHM(segDurationHours)}
-                                        </span>
-                                      )}
-                                      {canModifyEntry ? (
-                                        <div className="flex items-center gap-0.5 sm:opacity-0 sm:group-hover/seg:opacity-100 transition-opacity">
-                                          <Tooltip content="Edit segment">
-                                            <button
-                                              onClick={() => startEditSegment(entry, i)}
-                                              className="p-1 text-zinc-500 hover:text-brand-300 hover:bg-surface-raised rounded transition-colors"
-                                            >
-                                              <Pencil size={11} />
-                                            </button>
-                                          </Tooltip>
-                                          <Tooltip content="Delete segment">
-                                            <button
-                                              onClick={() => setDeleteSegmentTarget({ entryId: entry.id, index: i })}
-                                              className="p-1 text-zinc-500 hover:text-red-500 hover:bg-surface-raised rounded transition-colors"
-                                            >
-                                              <Trash2 size={11} />
-                                            </button>
-                                          </Tooltip>
-                                        </div>
-                                      ) : null}
-                                    </li>
-                                    {gapLabel}
-                                  </Fragment>
-                                );
-                              })}
-                            </ul>
-                          )}
+                          {hasMultipleSegments && renderSegmentList(entry, canModifyEntry)}
                         </div>
                       </div>
                     );
@@ -1340,7 +1450,7 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
             </div>
             <p className="text-sm font-medium text-zinc-400">No hours logged yet</p>
             <p className="text-xs text-zinc-500 mt-1">
-              {mode === 'timer' ? 'Start a timer to begin tracking' : 'Use the form above to log your first entry'}
+              {effectiveMode === 'timer' ? 'Start a timer to begin tracking' : 'Use the form above to log your first entry'}
             </p>
           </div>
         ) : null}
