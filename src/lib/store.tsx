@@ -2849,10 +2849,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (skipSupabase) return;
 
     try {
+      // keepalive for parity with updateTimeEntry: a timer start clicked on
+      // the way out the door should survive the tab closing.
       const response = await fetch('/api/workspace/time-entries', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(entry),
+        keepalive: true,
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || 'Failed to add time entry');
@@ -2889,10 +2892,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     const send = async () => {
       try {
+        // keepalive lets the request outlive the page. Without it, clicking
+        // Stop and closing the tab aborted the PATCH after the optimistic UI
+        // already showed the timer stopped, and the server kept billing all
+        // night. The payloads here are far under the keepalive 64KB cap.
         const response = await fetch('/api/workspace/time-entries', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ id, ...updates }),
+          keepalive: true,
         });
         const payload = await response.json();
         if (!response.ok) throw new Error(payload.error || 'Failed to update time entry');

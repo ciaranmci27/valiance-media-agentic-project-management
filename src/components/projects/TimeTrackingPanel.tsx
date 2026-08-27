@@ -70,6 +70,19 @@ function getDateKey(iso: string, timezone?: string): string {
   return new Date(iso).toLocaleDateString('en-CA', timezone ? { timeZone: timezone } : undefined);
 }
 
+/**
+ * Whole calendar days between two instants' local dates (in `timezone`):
+ * 0 for same-day, 1 when `toIso` lands on the next day. Time editors carry
+ * only HH:MM, so an overnight span's end needs its day offset restored
+ * before the two can be compared.
+ */
+function calendarDayOffset(fromIso: string, toIso: string, timezone?: string): number {
+  const from = Date.parse(`${getDateKey(fromIso, timezone)}T00:00:00`);
+  const to = Date.parse(`${getDateKey(toIso, timezone)}T00:00:00`);
+  if (Number.isNaN(from) || Number.isNaN(to)) return 0;
+  return Math.round((to - from) / 86_400_000);
+}
+
 function formatDateHeader(dateStr: string): string {
   const d = new Date(dateStr + 'T12:00:00');
   return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
@@ -493,8 +506,9 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
     const origSeg = entry.segments[editingSegment.index];
     if (!origSeg) return;
 
-    // Reuse the segment's own calendar date — segments don't span days under
-    // the auto-finalize rules, so editing only rewrites the HH:MM on the same day.
+    // Anchor both fields to the segment's own start date. Segments CAN span
+    // midnight (a timer left running overnight), so the end's calendar day
+    // is resolved below rather than assumed to match.
     const dateKey = getDateKey(origSeg.start, tz);
     const newStart = new Date(`${dateKey}T${editingSegment.startTime}`);
     if (Number.isNaN(newStart.getTime())) {
@@ -511,6 +525,20 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
       const newEnd = new Date(`${dateKey}T${editingSegment.endTime}`);
       if (Number.isNaN(newEnd.getTime())) {
         toast('error', 'Invalid time'); return;
+      }
+      // Resolve which day the end lands on. HH:MM alone cannot say, and
+      // parsing it onto the start's date made an overnight segment's editor
+      // invalid the moment it opened (11:03 PM - 11:24 AM read as ending
+      // before it began). An unchanged field keeps the segment's original
+      // day offset; an edited one rolls forward a day when it reads before
+      // the start, mirroring the manual-entry form's rule.
+      const endFieldChanged = editingSegment.endTime !== toLocalTimeString(origSeg.end, tz);
+      if (!endFieldChanged) {
+        newEnd.setDate(newEnd.getDate() + calendarDayOffset(origSeg.start, origSeg.end, tz));
+      } else if (newEnd < newStart) {
+        // Strictly before: an end EQUAL to the start is an input error, not
+        // a day rollover (rolling it would mint a 24h segment).
+        newEnd.setDate(newEnd.getDate() + 1);
       }
       if (newEnd <= newStart) {
         toast('error', 'End time must be after start time'); return;
@@ -603,9 +631,19 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
     if (timeFieldsChanged) {
       const start = new Date(`${editState.date}T${editState.startTime}`);
       const end = new Date(`${editState.date}T${editState.endTime}`);
-      if (end < start) {
+      // Resolve the end's calendar day. An overnight session ends on a later
+      // day than it starts; parsing the unchanged end onto the start's date
+      // would silently truncate the span (10:46 AM - 11:24 AM next day would
+      // collapse to 38 minutes on a date-only edit). Unchanged keeps the
+      // original day offset; edited rolls forward when it reads before the
+      // start, as before.
+      const endFieldChanged = editState.endTime !== editState.seededEndTime;
+      if (!endFieldChanged && original.end_time) {
+        end.setDate(end.getDate() + calendarDayOffset(original.start_time, original.end_time, tz));
+      } else if (end < start) {
         end.setDate(end.getDate() + 1);
-      } else if (end.getTime() === start.getTime()) {
+      }
+      if (end.getTime() <= start.getTime()) {
         toast('error', 'End time must be after start time'); return;
       }
       // Segments are re-derived rather than flattened. resegmentEntry owns
