@@ -1,4 +1,7 @@
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=DM+Mono:wght@400;500&display=swap');
+/* Fonts are loaded via next/font in src/app/layout.tsx (self-hosted DM Sans
+   variable + DM Mono), exposed as --font-dm-sans / --font-dm-mono on <html>.
+   Do NOT use a Google Fonts @import url() here: Turbopack (Next 16's default
+   production bundler) drops external @import rules from bundled CSS. */
 @import "tailwindcss";
 
 /* Bind the `dark:` variant to our data-theme system (default v4 uses the OS
@@ -18,8 +21,8 @@
 */
 
 @theme {
-  --font-sans: 'DM Sans', system-ui, sans-serif;
-  --font-mono: 'DM Mono', monospace;
+  --font-sans: var(--font-dm-sans), 'DM Sans', system-ui, sans-serif;
+  --font-mono: var(--font-dm-mono), 'DM Mono', monospace;
 
   /* Brand color scale — defaults match site-config.ts (teal); ThemeProvider overrides at runtime */
   --color-brand-50:  #F0F5F5;
@@ -313,7 +316,7 @@ html[data-theme="light"] {
 }
 
 html {
-  font-family: 'DM Sans', system-ui, sans-serif;
+  font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   scrollbar-gutter: stable;
@@ -322,7 +325,7 @@ html {
 body {
   background-color: var(--color-surface);
   color: var(--color-text-primary);
-  font-family: 'DM Sans', system-ui, sans-serif;
+  font-family: var(--font-sans);
 }
 
 /* Ambient back-light — teal-forward with a copper whisper and a soft bottom glow.

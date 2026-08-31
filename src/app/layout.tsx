@@ -1,12 +1,26 @@
 import type { Metadata } from 'next';
 import './globals.css';
-import { DM_Sans } from 'next/font/google';
+import { DM_Sans, DM_Mono } from 'next/font/google';
 import { siteConfig } from '@/site-config';
 import { ThemeProvider } from '@/components/ui/ThemeProvider';
 
+// Self-hosted via next/font and consumed by --font-sans / --font-mono in
+// globals.css. Do not load fonts with a Google Fonts @import url() there:
+// Turbopack (Next 16's default bundler for production builds) drops external
+// @import rules from bundled CSS, silently breaking the webfont.
 const dmSans = DM_Sans({
   subsets: ['latin'],
+  style: ['normal', 'italic'],
+  axes: ['opsz'],
   variable: '--font-dm-sans',
+  display: 'swap',
+});
+
+const dmMono = DM_Mono({
+  subsets: ['latin'],
+  weight: ['400', '500'],
+  variable: '--font-dm-mono',
+  display: 'swap',
 });
 
 export const metadata: Metadata = {
@@ -33,7 +47,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={dmSans.variable} suppressHydrationWarning>
+    <html
+      lang="en"
+      className={`${dmSans.variable} ${dmMono.variable}`}
+      suppressHydrationWarning
+    >
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
