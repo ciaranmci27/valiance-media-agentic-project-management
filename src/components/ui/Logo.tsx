@@ -12,6 +12,9 @@ import { siteConfig } from '@/site-config';
  */
 const ASSET_VERSION = 2;
 
+/** The lockup drawn for dark chrome, at the current asset version. */
+export const DARK_LOGO_SRC = `/api/logo?variant=dark&v=${ASSET_VERSION}`;
+
 /**
  * `variant="dark"` requests the lockup drawn for dark chrome: the mark as the
  * brand draws it, paired with a light wordmark. The route falls back to the
@@ -31,7 +34,7 @@ export function Logo({ className, variant }: { className?: string; variant?: 'da
 
   return (
     <img
-      src={variant === 'dark' ? `/api/logo?variant=dark&v=${ASSET_VERSION}` : '/api/logo'}
+      src={variant === 'dark' ? DARK_LOGO_SRC : '/api/logo'}
       alt={siteConfig.name}
       className={className}
       onError={() => setImgFailed(true)}

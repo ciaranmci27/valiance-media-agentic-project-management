@@ -112,7 +112,7 @@ export function buildInvoiceData({
   });
 
   return {
-    brandColor: siteConfig.colors.brand[600],
+    brandColor: siteConfig.colors.brand[500],
     logoUrl,
     business,
     billTo,

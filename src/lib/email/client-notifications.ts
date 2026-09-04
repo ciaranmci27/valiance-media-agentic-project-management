@@ -651,7 +651,6 @@ export async function renderCommunication(
     projectName: project.name,
     clientName: client.name,
     portalUrl: portal ? portalUrl(portal.token) : '',
-    accentColor: portal?.accentColor,
     logoUrl: portal?.logoUrl || undefined,
   };
 

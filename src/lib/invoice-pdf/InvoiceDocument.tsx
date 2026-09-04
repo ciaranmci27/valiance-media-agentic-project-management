@@ -4,20 +4,19 @@ import { INVOICE_FONT_FAMILY, registerInvoiceFonts } from './registerFonts';
 
 registerInvoiceFonts();
 
-// ── Color tokens (subset of globals.css palette, hardcoded as hex since
-//    react-pdf can't read CSS variables) ──────────────────────────────
+// ── Color tokens: the marketing site's ink scale on a light print page,
+//    hardcoded as hex since react-pdf can't read CSS variables. ──────────
 const COLOR = {
-  ink: '#18181B',      // zinc-900 — headlines / strong text
-  body: '#3F3F46',     // zinc-700 — body copy
-  mute: '#71717A',     // zinc-500 — captions
-  faint: '#A1A1AA',    // zinc-400 — micro labels
-  hairline: '#E4E4E7', // zinc-200 — strong rules
-  thin: '#F4F4F5',     // zinc-100 — table row separators
-  surface: '#FAFAFA',  // zinc-50 — table header
-  emerald: '#059669',
-  amber: '#B45309',
-  red: '#B91C1C',
-  zincStamp: '#71717A',
+  ink: '#0D0F14',      // headlines / strong text
+  body: '#3F4046',     // body copy
+  mute: '#6E6D69',     // captions
+  faint: '#8F8E8A',    // micro labels
+  hairline: '#E6E4DF', // strong rules
+  thin: '#EFEDE8',     // table row separators
+  surface: '#F5F3EF',  // table header
+  teal: '#5B8A8A',     // paid
+  copper: '#A88B74',   // overdue
+  rose: '#B94A4A',     // cancelled
 };
 
 const PAGE_MARGIN_X = 48;
@@ -59,10 +58,10 @@ function formatDecimalHours(hours: number): string {
 
 function statusPill(status: InvoicePdfData['status']): { label: string; color: string } {
   switch (status) {
-    case 'paid':      return { label: 'Paid',      color: COLOR.emerald };
-    case 'overdue':   return { label: 'Overdue',   color: COLOR.red };
-    case 'cancelled': return { label: 'Cancelled', color: COLOR.zincStamp };
-    case 'sent':      return { label: 'Sent',      color: COLOR.amber };
+    case 'paid':      return { label: 'Paid',      color: COLOR.teal };
+    case 'overdue':   return { label: 'Overdue',   color: COLOR.copper };
+    case 'cancelled': return { label: 'Cancelled', color: COLOR.rose };
+    case 'sent':      return { label: 'Sent',      color: COLOR.mute };
     case 'draft':     return { label: 'Draft',     color: COLOR.faint };
     default:          return { label: '',          color: COLOR.faint };
   }
@@ -70,9 +69,9 @@ function statusPill(status: InvoicePdfData['status']): { label: string; color: s
 
 function shouldStamp(status: InvoicePdfData['status']): { label: string; color: string } | null {
   switch (status) {
-    case 'paid':      return { label: 'PAID',      color: COLOR.emerald };
-    case 'overdue':   return { label: 'OVERDUE',   color: COLOR.red };
-    case 'cancelled': return { label: 'CANCELLED', color: COLOR.zincStamp };
+    case 'paid':      return { label: 'PAID',      color: COLOR.teal };
+    case 'overdue':   return { label: 'OVERDUE',   color: COLOR.copper };
+    case 'cancelled': return { label: 'CANCELLED', color: COLOR.rose };
     default:          return null;
   }
 }
@@ -95,7 +94,7 @@ export function InvoiceDocument({ data }: { data: InvoicePdfData }) {
         {opts.showTopAccent && <View style={styles.topAccent} fixed />}
 
         {/* Diagonal status stamp (paid/overdue/cancelled only). Not `fixed`
-            so it only stamps page 1 — the page with the actual invoice
+            so it only stamps page 1: the page with the actual invoice
             content. Repeating on every page would just clutter overflow
             pages that hold notes / portal callout. */}
         {stamp && opts.showStatusStamp && (
@@ -127,7 +126,7 @@ export function InvoiceDocument({ data }: { data: InvoicePdfData }) {
           </View>
           <View style={styles.detailsCell}>
             <Text style={styles.detailsKey}>Due Date</Text>
-            <Text style={styles.detailsValue}>{data.dueDate ? formatDate(data.dueDate) : '—'}</Text>
+            <Text style={styles.detailsValue}>{data.dueDate ? formatDate(data.dueDate) : '–'}</Text>
           </View>
           <View style={styles.detailsCell}>
             <Text style={styles.detailsKey}>Payment Terms</Text>
@@ -154,7 +153,7 @@ export function InvoiceDocument({ data }: { data: InvoicePdfData }) {
             ) : data.billTo.name ? (
               <Text style={styles.partyHeading}>{data.billTo.name}</Text>
             ) : (
-              <Text style={[styles.partyHeading, { color: COLOR.faint }]}>—</Text>
+              <Text style={[styles.partyHeading, { color: COLOR.faint }]}>-</Text>
             )}
             {data.billTo.company && data.billTo.name ? (
               <Text style={styles.partyLine}>{data.billTo.name}</Text>
@@ -188,7 +187,7 @@ export function InvoiceDocument({ data }: { data: InvoicePdfData }) {
           <Text style={styles.sectionLabelText}>Items</Text>
         </View>
 
-        {/* Not `fixed` — `fixed` would repeat the header on every page,
+        {/* Not `fixed`: `fixed` would repeat the header on every page,
             including pages that only contain post-items content (notes,
             portal callout) and would show a header with no rows beneath. */}
         <View style={styles.tableHeader}>
@@ -365,7 +364,7 @@ function TimeLogsPage({
       <View style={styles.timeLogSummary}>
         <View style={styles.detailsCell}>
           <Text style={styles.detailsKey}>Period</Text>
-          <Text style={styles.detailsValue}>{rangeLabel || '—'}</Text>
+          <Text style={styles.detailsValue}>{rangeLabel || '–'}</Text>
         </View>
         <View style={styles.detailsCell}>
           <Text style={styles.detailsKey}>Entries</Text>
@@ -405,7 +404,7 @@ function TimeLogsPage({
             <Text style={[styles.tdMono, styles.tlColTime]}>{timeRange}</Text>
             <View style={styles.tlColDescription}>
               <Text style={styles.tdDescription}>
-                {entry.description || <Text style={{ color: COLOR.faint }}>—</Text>}
+                {entry.description || <Text style={{ color: COLOR.faint }}>-</Text>}
               </Text>
               {showMember && entry.memberName ? (
                 <Text style={styles.tdCaption}>{entry.memberName}</Text>

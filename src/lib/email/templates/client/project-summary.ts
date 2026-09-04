@@ -6,8 +6,22 @@
  * progress, dates) are always computed from real project state.
  */
 
-import { ctaButton, escapeHtml, getSiteName, brandPrimary, brandLight, brandSubtle, NEUTRAL } from '../shared';
-import { clientEmailLayout, clientAvatar } from './layout';
+import {
+  EMAIL,
+  FONT_MONO,
+  FONT_SANS,
+  accentPalette,
+  ctaButton,
+  escapeHtml,
+  getSiteName,
+  kvRows,
+  label,
+  linkLine,
+  paragraph,
+  statGrid,
+  tile,
+} from '../shared';
+import { clientEmailLayout, clientHeader, greeting, usageMeter } from './layout';
 
 export interface ProjectSummarySlots {
   subject: string;
@@ -19,7 +33,7 @@ export interface ProjectSummarySlots {
 export function projectSummaryDefaults(ctx: { projectName: string }): ProjectSummarySlots {
   return {
     subject: `Project update: ${ctx.projectName}`,
-    opening_line: "Here's a quick update on where things stand with your project.",
+    opening_line: 'Here is a quick update on where things stand with your project.',
     closing_line: 'Let us know if you have any questions.',
     custom_paragraph: '',
   };
@@ -29,7 +43,6 @@ interface ProjectSummaryParams {
   projectName: string;
   clientName: string;
   portalUrl: string;
-  accentColor?: string;
   logoUrl?: string;
   unpaidHours: number | null;
   hourlyRate: number | null;
@@ -50,174 +63,100 @@ function fmtHours(value: number): string {
   return `${value.toFixed(1)} hrs`;
 }
 
+/** Date-only strings (YYYY-MM-DD) are read as local dates so they never slip a day. */
+function fmtDate(value: string | Date): string {
+  let date: Date;
+  if (value instanceof Date) {
+    date = value;
+  } else {
+    const [year, month, day] = value.split('-').map(Number);
+    date = /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(year) && Number.isFinite(month) && Number.isFinite(day)
+      ? new Date(year, month - 1, day)
+      : new Date(value);
+  }
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
 export function buildProjectSummaryEmail(
   params: ProjectSummaryParams,
 ): { subject: string; html: string; text: string } {
   const {
-    projectName, clientName, portalUrl, accentColor, logoUrl,
+    projectName, clientName, portalUrl, logoUrl,
     unpaidHours, hourlyRate, currentBalance,
     lastPaymentDate, lastPaymentAmount,
     budgetType, budgetValue, budgetUsed,
     slots,
   } = params;
   const name = getSiteName();
-  const primary = brandPrimary();
-  const light = brandLight();
-  const subtle = brandSubtle();
-
-  const safeClient = escapeHtml(clientName);
-  const safeProject = escapeHtml(projectName);
+  const teal = accentPalette();
 
   const allCaughtUp = currentBalance <= 0 && (!unpaidHours || unpaidHours <= 0);
 
   let statsHtml = '';
   if (allCaughtUp) {
-    statsHtml = `
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin: 0 0 24px 0; border-radius: 10px; overflow: hidden; border: 1px solid ${NEUTRAL.border};">
-        <tr><td style="background-color: ${primary}; height: 3px; font-size: 0; line-height: 0;">&nbsp;</td></tr>
-        <tr>
-          <td style="padding: 28px; text-align: center; background-color: ${subtle};">
-            <p style="margin: 0 0 8px 0; font-size: 32px; line-height: 1;">&#10003;</p>
-            <p style="margin: 0 0 4px 0; font-size: 20px; font-weight: 700; color: ${primary};">All caught up</p>
-            <p style="margin: 0; font-size: 14px; color: ${NEUTRAL.textMuted};">No outstanding balance at this time.</p>
-          </td>
-        </tr>
-      </table>
-    `;
+    statsHtml = tile(
+      `${label('Balance', { color: teal.bright })}
+       <p style="margin: 0 0 4px 0; font-family: ${FONT_MONO}; font-size: 24px; line-height: 1.1; font-weight: 300; letter-spacing: -0.02em; color: ${teal.bright};">All caught up</p>
+       <p style="margin: 0; font-family: ${FONT_SANS}; font-size: 14px; line-height: 1.5; color: ${EMAIL.body};">No outstanding balance at this time.</p>`,
+      { tone: 'teal', padding: '20px 22px' },
+    );
   } else {
-    const cards: string[] = [];
-
+    const stats: Array<{ label: string; value: string }> = [];
     if (unpaidHours && unpaidHours > 0 && hourlyRate && hourlyRate > 0) {
-      cards.push(`
-        <td width="${currentBalance > 0 ? '49%' : '100%'}" style="${currentBalance > 0 ? 'padding: 0 8px 0 0;' : ''} vertical-align: top;">
-          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-radius: 10px; overflow: hidden; border: 1px solid ${NEUTRAL.border};">
-            <tr><td style="background-color: ${light}; height: 3px; font-size: 0; line-height: 0;">&nbsp;</td></tr>
-            <tr>
-              <td style="padding: 20px 16px; text-align: center; background-color: ${NEUTRAL.white};">
-                <p style="margin: 0 0 6px 0; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: ${NEUTRAL.textMuted}; font-weight: 600;">Hours since last payment</p>
-                <p style="margin: 0; font-size: 24px; font-weight: 800; color: ${NEUTRAL.black};">${fmtHours(unpaidHours)}</p>
-              </td>
-            </tr>
-          </table>
-        </td>
-      `);
+      stats.push({ label: 'Hours since last payment', value: fmtHours(unpaidHours) });
     }
     if (currentBalance > 0) {
-      cards.push(`
-        <td width="${cards.length > 0 ? '49%' : '100%'}" style="${cards.length > 0 ? 'padding: 0 0 0 8px;' : ''} vertical-align: top;">
-          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-radius: 10px; overflow: hidden; border: 1px solid ${NEUTRAL.border};">
-            <tr><td style="background-color: ${primary}; height: 3px; font-size: 0; line-height: 0;">&nbsp;</td></tr>
-            <tr>
-              <td style="padding: 20px 16px; text-align: center; background-color: ${NEUTRAL.white};">
-                <p style="margin: 0 0 6px 0; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: ${NEUTRAL.textMuted}; font-weight: 600;">Current balance</p>
-                <p style="margin: 0; font-size: 24px; font-weight: 800; color: ${primary};">${fmtCurrency(currentBalance)}</p>
-              </td>
-            </tr>
-          </table>
-        </td>
-      `);
+      stats.push({ label: 'Current balance', value: fmtCurrency(currentBalance) });
     }
-
-    if (cards.length > 0) {
-      statsHtml = `
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin: 0 0 24px 0;">
-          <tr>${cards.join('')}</tr>
-        </table>
-      `;
-    }
+    if (stats.length > 0) statsHtml = statGrid(stats);
   }
 
+  // Plain-text lines for the facts beneath the numbers. The HTML renders the
+  // payment as a key/value row and the budget as a meter.
   const detailRows: Array<{ label: string; value: string }> = [];
 
+  let paymentHtml = '';
   if (lastPaymentDate && lastPaymentAmount && lastPaymentAmount > 0) {
-    const dateStr = new Date(lastPaymentDate).toLocaleDateString('en-US', {
-      month: 'short', day: 'numeric', year: 'numeric',
-    });
-    detailRows.push({ label: 'Last payment', value: `${fmtCurrency(lastPaymentAmount)} on ${dateStr}` });
+    const row = { label: 'Last payment', value: `${fmtCurrency(lastPaymentAmount)} on ${fmtDate(lastPaymentDate)}` };
+    detailRows.push(row);
+    paymentHtml = kvRows([row]);
   }
 
+  let budgetHtml = '';
   if (budgetType && budgetValue && budgetValue > 0 && budgetUsed !== null) {
     const pct = Math.min(100, Math.round((budgetUsed / budgetValue) * 100));
-    if (budgetType === 'hours') {
-      detailRows.push({ label: 'Budget progress', value: `${pct}% of ${fmtHours(budgetValue)}` });
-    } else {
-      detailRows.push({ label: 'Budget progress', value: `${pct}% of ${fmtCurrency(budgetValue)}` });
-    }
+    const fmt = budgetType === 'hours' ? fmtHours : fmtCurrency;
+    detailRows.push({ label: 'Budget progress', value: `${pct}% of ${fmt(budgetValue)}` });
+    budgetHtml = `
+      ${label('Budget progress', { margin: '4px 0 10px 0' })}
+      ${usageMeter({ percent: pct, left: `${pct}% used`, right: `${fmt(budgetUsed)} of ${fmt(budgetValue)}` })}`;
   }
 
-  const detailsHtml = detailRows.length > 0 ? `
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="
-      margin: 0 0 24px 0;
-      border-radius: 10px;
-      overflow: hidden;
-      border: 1px solid ${NEUTRAL.border};
-    ">
-      <tr><td style="background-color: ${light}; height: 3px; font-size: 0; line-height: 0;">&nbsp;</td></tr>
-      <tr><td style="padding: 0;">
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-          ${detailRows.map((r, i) => `
-            <tr>
-              <td style="padding: 12px 16px; ${i < detailRows.length - 1 ? `border-bottom: 1px solid ${NEUTRAL.border};` : ''}">
-                <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-                  <tr>
-                    <td style="color: ${NEUTRAL.textMuted}; font-size: 13px; font-weight: 500;">
-                      ${escapeHtml(r.label)}
-                    </td>
-                    <td align="right" style="color: ${NEUTRAL.black}; font-size: 13px; font-weight: 600;">
-                      ${escapeHtml(r.value)}
-                    </td>
-                  </tr>
-                </table>
-              </td>
-            </tr>
-          `).join('')}
-        </table>
-      </td></tr>
-    </table>
-  ` : '';
-
-  const customParagraphBlock = slots.custom_paragraph
-    ? `<p style="margin: 0 0 24px 0; color: ${NEUTRAL.textBody}; font-size: 15px; line-height: 1.7;">${escapeHtml(slots.custom_paragraph)}</p>`
-    : '';
-
   const body = `
-    <table role="presentation" cellpadding="0" cellspacing="0" style="margin: 0 0 24px 0;">
-      <tr>
-        <td style="padding: 0 14px 0 0; vertical-align: middle;">
-          ${clientAvatar(projectName, logoUrl, 44)}
-        </td>
-        <td style="vertical-align: middle;">
-          <p style="margin: 0 0 2px 0; font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px; color: ${light}; font-weight: 600;">Project Update</p>
-          <p style="margin: 0; font-size: 22px; font-weight: 700; color: ${NEUTRAL.black}; line-height: 1.3;">${safeProject}</p>
-        </td>
-      </tr>
-    </table>
-
-    <p style="margin: 0 0 8px 0; color: ${NEUTRAL.textBody}; font-size: 15px;">
-      Hi ${safeClient},
-    </p>
-    <p style="margin: 0 0 24px 0; color: ${NEUTRAL.textBody}; font-size: 15px; line-height: 1.7;">
-      ${escapeHtml(slots.opening_line)}
-    </p>
-
+    ${clientHeader({
+      projectName,
+      logoUrl,
+      title: 'Where things',
+      tail: 'stand.',
+      meta: [projectName, 'Project update', fmtDate(new Date())],
+    })}
+    ${greeting(clientName)}
+    ${paragraph(escapeHtml(slots.opening_line))}
     ${statsHtml}
-    ${detailsHtml}
-    ${customParagraphBlock}
-
-    <p style="margin: 0 0 8px 0; color: ${NEUTRAL.textBody}; font-size: 14px;">
-      You can view the full details in your project portal anytime.
-    </p>
-    ${ctaButton('View Full Details', portalUrl)}
-    <p style="margin: 0; color: ${NEUTRAL.textMuted}; font-size: 13px;">
-      ${escapeHtml(slots.closing_line)}
-    </p>
+    ${paymentHtml}
+    ${budgetHtml}
+    ${slots.custom_paragraph ? paragraph(escapeHtml(slots.custom_paragraph)) : ''}
+    ${paragraph('The full breakdown is in your project portal.')}
+    ${ctaButton('View full details', portalUrl)}
+    ${linkLine(portalUrl)}
+    ${paragraph(escapeHtml(slots.closing_line), { muted: true, size: 13 })}
   `;
 
   const html = clientEmailLayout({
     preheader: `Project update for ${projectName}`,
     body,
     portalUrl,
-    accentColor,
   });
 
   const lines = [
@@ -227,7 +166,7 @@ export function buildProjectSummaryEmail(
     '',
   ];
   if (allCaughtUp) {
-    lines.push('All caught up! No outstanding balance at this time.', '');
+    lines.push('All caught up. No outstanding balance at this time.', '');
   } else {
     if (unpaidHours && unpaidHours > 0) {
       lines.push(`Hours since last payment: ${fmtHours(unpaidHours)}`);
@@ -241,7 +180,7 @@ export function buildProjectSummaryEmail(
   if (detailRows.length > 0) lines.push('');
   if (slots.custom_paragraph) lines.push(slots.custom_paragraph, '');
   lines.push(
-    'View the full details:',
+    'The full breakdown is in your project portal:',
     portalUrl,
     '',
     slots.closing_line,

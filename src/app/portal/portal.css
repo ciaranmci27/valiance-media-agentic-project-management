@@ -1,0 +1,710 @@
+/* ============================================================
+   VALIANCE CLIENT PORTAL DESIGN LANGUAGE
+
+   The website's dark cinematic system (website/src/styles/site.css),
+   ported for product UI. Near-black canvas, cream ink, teal as light,
+   copper for the warm accents, DM Sans / DM Mono / Instrument Serif.
+
+   Scoped to `.vm` so nothing leaks into the internal app. Every teal
+   tint derives from --vm-teal through color-mix(), so a project's own
+   accent colour (portal_settings.accent_color) re-tints the whole
+   portal by overriding that one variable on the wrapper.
+
+   Everything sits in @layer components so Tailwind utilities (which live in
+   @layer utilities) can still override a token class on the same property,
+   e.g. `vm-tile rounded-full` or `vm-icon-btn h-9 w-9`.
+   ============================================================ */
+
+@layer components {
+  .vm {
+    --vm-bg: #08090c;
+    --vm-bg-2: #0d0f14;
+    --vm-ink: #f5f3ef;
+    --vm-ink-rgb: 245, 243, 239;
+    --vm-teal: #5b8a8a;
+    --vm-teal-300: color-mix(in srgb, var(--vm-teal) 65%, var(--vm-ink));
+    --vm-teal-200: color-mix(in srgb, var(--vm-teal) 40%, var(--vm-ink));
+    --vm-teal-600: color-mix(in srgb, var(--vm-teal) 70%, var(--vm-bg));
+    --vm-copper: #c5a68f;
+    --vm-copper-300: #d4bba8;
+    --vm-error: #f0a3a3;
+    --vm-line: rgba(255, 255, 255, 0.08);
+    --vm-line-strong: rgba(255, 255, 255, 0.14);
+    --vm-glass: rgba(26, 28, 35, 0.55);
+    --vm-glass-strong: rgba(14, 16, 21, 0.9);
+    --vm-glass-rim: rgba(255, 255, 255, 0.09);
+    --vm-ease: cubic-bezier(0.22, 1, 0.36, 1);
+
+    font-family: var(--font-dm-sans), 'DM Sans', system-ui, sans-serif;
+    background: var(--vm-bg);
+    color: var(--vm-ink);
+    -webkit-font-smoothing: antialiased;
+    position: relative;
+    isolation: isolate;
+    overflow-x: clip;
+    min-height: 100dvh;
+  }
+
+  .vm ::selection {
+    background: color-mix(in srgb, var(--vm-teal) 45%, transparent);
+    color: var(--vm-ink);
+  }
+
+  .vm a:focus-visible,
+  .vm button:focus-visible,
+  .vm input:focus-visible,
+  .vm textarea:focus-visible,
+  .vm select:focus-visible,
+  .vm [tabindex]:focus-visible {
+    outline: 2px solid var(--vm-teal-300);
+    outline-offset: 3px;
+    border-radius: 6px;
+  }
+
+  /* Tailwind's preflight leaves buttons on the default cursor. */
+  .vm button:not(:disabled) {
+    cursor: pointer;
+  }
+
+  .vm * {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(var(--vm-ink-rgb), 0.18) transparent;
+  }
+
+  /* Ambient light, the same idea as the website hero: one soft teal glow
+     at the top, nothing else painted on the canvas. */
+  /* The homepage canvas: one fixed layer lit teal from the top left and copper
+     from the bottom right, plus a whisper of teal behind the aside, and the
+     same grain the site uses. No blend mode, so scrolling stays cheap. */
+  .vm-ambient {
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background:
+      radial-gradient(60% 45% at 12% 0%, color-mix(in srgb, var(--vm-teal) 16%, transparent), transparent 70%),
+      radial-gradient(45% 40% at 88% 28%, color-mix(in srgb, var(--vm-teal) 9%, transparent), transparent 70%),
+      radial-gradient(50% 40% at 100% 100%, color-mix(in srgb, var(--vm-copper) 10%, transparent), transparent 70%),
+      var(--vm-bg);
+  }
+
+  .vm-grain {
+    position: fixed;
+    inset: 0;
+    z-index: 70;
+    pointer-events: none;
+    opacity: 0.035;
+    will-change: transform;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.6 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+  }
+
+  /* ---------- Type ---------- */
+
+  .vm-display {
+    font-weight: 500;
+    letter-spacing: -0.035em;
+    line-height: 0.98;
+    text-wrap: balance;
+  }
+
+  .vm-h1 {
+    font-weight: 500;
+    letter-spacing: -0.03em;
+    line-height: 1.02;
+    font-size: clamp(2rem, 4vw, 3rem);
+    text-wrap: balance;
+  }
+
+  .vm-h2 {
+    font-weight: 500;
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+    font-size: clamp(1.25rem, 1.6vw, 1.5rem);
+  }
+
+  .vm-serif {
+    font-family: var(--font-instrument-serif), 'Instrument Serif', Georgia, serif;
+    font-style: italic;
+    font-weight: 400;
+    letter-spacing: -0.01em;
+    color: var(--vm-copper-300);
+  }
+
+  /* Instrument Serif has a small x-height; inside a heading or lede it sits a
+     touch larger than the sans so the two faces read at one optical size. */
+  .vm-display .vm-serif,
+  .vm-h2 .vm-serif {
+    font-size: 1.06em;
+  }
+
+  .vm-lede .vm-serif {
+    font-size: 1.08em;
+  }
+
+  .vm-mono {
+    font-family: var(--font-dm-mono), 'DM Mono', monospace;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .vm-lede {
+    font-size: clamp(1rem, 1.2vw, 1.125rem);
+    line-height: 1.6;
+    color: rgba(var(--vm-ink-rgb), 0.72);
+    text-wrap: pretty;
+  }
+
+  .vm-muted {
+    color: rgba(var(--vm-ink-rgb), 0.62);
+  }
+
+  .vm-faint {
+    color: rgba(var(--vm-ink-rgb), 0.5);
+  }
+
+  /* Ink at 70%: icons and secondary text that should still read as ink. */
+  .vm-soft {
+    color: rgba(var(--vm-ink-rgb), 0.7);
+  }
+
+  /* Small mono caption for data: field names, table heads, timestamps. */
+  .vm-label {
+    display: block;
+    font-family: var(--font-dm-mono), 'DM Mono', monospace;
+    font-size: 0.68rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: rgba(var(--vm-ink-rgb), 0.6);
+  }
+
+  /* A number that should read at a glance: totals, hours, percentages. */
+  .vm-stat {
+    font-family: var(--font-dm-mono), 'DM Mono', monospace;
+    font-variant-numeric: tabular-nums;
+    font-weight: 300;
+    letter-spacing: -0.02em;
+    line-height: 1;
+    font-size: clamp(1.6rem, 2.4vw, 2.1rem);
+  }
+
+  /* ---------- Surfaces ---------- */
+
+  .vm-glass {
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.012)),
+      var(--vm-glass);
+    border: 1px solid var(--vm-line);
+    box-shadow:
+      inset 0 1px 0 var(--vm-glass-rim),
+      0 4px 24px -6px rgba(0, 0, 0, 0.55);
+  }
+
+  .vm-glass-strong {
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.01)),
+      var(--vm-glass-strong);
+    border: 1px solid var(--vm-line);
+    box-shadow:
+      inset 0 1px 0 var(--vm-glass-rim),
+      0 16px 48px -12px rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(22px) saturate(140%);
+    -webkit-backdrop-filter: blur(22px) saturate(140%);
+  }
+
+  /* A section panel. Rounded like the website cards; lifts only for real pointers. */
+  .vm-card {
+    position: relative;
+    border-radius: 1.5rem;
+    transition:
+      transform 0.7s var(--vm-ease),
+      border-color 0.4s var(--vm-ease),
+      box-shadow 0.7s var(--vm-ease);
+  }
+
+  @media (hover: hover) {
+    .vm-card-interactive:hover {
+      transform: translateY(-2px);
+      border-color: rgba(255, 255, 255, 0.16);
+      box-shadow:
+        inset 0 1px 0 var(--vm-glass-rim),
+        0 18px 48px -14px rgba(0, 0, 0, 0.7),
+        0 0 40px -16px color-mix(in srgb, var(--vm-teal) 50%, transparent);
+    }
+  }
+
+  /* A quieter inner surface for rows and tiles inside a card. */
+  .vm-tile {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--vm-line);
+    border-radius: 1rem;
+  }
+
+  .vm-tile-teal {
+    background: color-mix(in srgb, var(--vm-teal) 10%, transparent);
+    border-color: color-mix(in srgb, var(--vm-teal) 30%, transparent);
+  }
+
+  .vm-hr {
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--vm-line-strong), transparent);
+  }
+
+  /* Rows in a list: hairline between, none after the last. */
+  .vm-row + .vm-row {
+    border-top: 1px solid var(--vm-line);
+  }
+
+  /* The newest point on a timeline: a teal dot with a soft halo. */
+  .vm-dot-live {
+    background: var(--vm-teal-200);
+    box-shadow: 0 0 16px 0 color-mix(in srgb, var(--vm-teal) 80%, transparent);
+  }
+
+  /* ---------- Progress ---------- */
+
+  .vm-track {
+    height: 6px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.07);
+    overflow: hidden;
+  }
+
+  .vm-track-fill {
+    height: 100%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, var(--vm-teal-300), var(--vm-teal-200));
+    transform-origin: left;
+    animation: vm-fill 1.1s var(--vm-ease) both;
+  }
+
+  @keyframes vm-fill {
+    from {
+      transform: scaleX(0);
+    }
+  }
+
+  /* The progress ring draws in from empty. --vm-ring-c is the circumference,
+     set inline next to the real dash offset the stroke lands on. */
+  .vm-ring-fill {
+    animation: vm-ring 1.4s var(--vm-ease) 0.2s both;
+  }
+
+  @keyframes vm-ring {
+    from {
+      stroke-dashoffset: var(--vm-ring-c, 0);
+    }
+  }
+
+  /* ---------- Chips ---------- */
+
+  .vm-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    height: 1.6rem;
+    padding: 0 0.6rem;
+    border-radius: 999px;
+    border: 1px solid var(--vm-line);
+    background: rgba(255, 255, 255, 0.03);
+    font-family: var(--font-dm-mono), 'DM Mono', monospace;
+    font-size: 0.68rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: rgba(var(--vm-ink-rgb), 0.7);
+    white-space: nowrap;
+  }
+
+  .vm-chip-teal {
+    border-color: color-mix(in srgb, var(--vm-teal) 45%, transparent);
+    background: color-mix(in srgb, var(--vm-teal) 12%, transparent);
+    color: var(--vm-teal-200);
+  }
+
+  .vm-chip-copper {
+    border-color: rgba(197, 166, 143, 0.4);
+    background: rgba(197, 166, 143, 0.1);
+    color: var(--vm-copper-300);
+  }
+
+  .vm-chip-error {
+    border-color: rgba(240, 163, 163, 0.4);
+    background: rgba(240, 163, 163, 0.1);
+    color: var(--vm-error);
+  }
+
+  /* ---------- Buttons ---------- */
+
+  .vm-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.6rem;
+    height: 3rem;
+    padding: 0 1.4rem;
+    border-radius: 999px;
+    font-size: 0.92rem;
+    font-weight: 500;
+    letter-spacing: -0.005em;
+    white-space: nowrap;
+    text-decoration: none;
+    cursor: pointer;
+    transition:
+      transform 0.5s var(--vm-ease),
+      box-shadow 0.5s var(--vm-ease),
+      background-color 0.3s var(--vm-ease),
+      border-color 0.3s var(--vm-ease),
+      color 0.3s var(--vm-ease),
+      opacity 0.3s var(--vm-ease);
+  }
+
+  .vm-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+  }
+
+  .vm-btn-sm {
+    height: 2.4rem;
+    padding: 0 1rem;
+    font-size: 0.84rem;
+  }
+
+  .vm-btn-lg {
+    height: 3.4rem;
+    padding: 0 1.7rem;
+    font-size: 1rem;
+  }
+
+  /* The website button, verbatim: the portal is brand teal only, so the exact
+     gradient and glow can be shared rather than derived. */
+  .vm-btn-primary {
+    color: #08090c;
+    background: linear-gradient(180deg, #a3c4c4 0%, #5b8a8a 100%);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.5),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.18),
+      0 10px 28px -10px rgba(91, 138, 138, 0.7);
+  }
+
+  .vm-btn:hover svg {
+    transform: translate(2px, -2px);
+  }
+
+  .vm-btn svg {
+    transition: transform 0.5s var(--vm-ease);
+  }
+
+  .vm-btn-ghost {
+    color: var(--vm-ink);
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--vm-line-strong);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  }
+
+  .vm-btn-ghost:hover {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.24);
+  }
+
+  @media (hover: hover) {
+    .vm-btn-primary:hover:not(:disabled) {
+      transform: translateY(-1px);
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.6),
+        inset 0 -1px 0 rgba(0, 0, 0, 0.18),
+        0 16px 36px -10px rgba(91, 138, 138, 0.85);
+    }
+  }
+
+  /* A small round icon button: back arrows, close, copy. */
+  .vm-icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.5rem;
+    height: 2.5rem;
+    border-radius: 999px;
+    color: rgba(var(--vm-ink-rgb), 0.7);
+    transition:
+      background-color 0.3s var(--vm-ease),
+      color 0.3s var(--vm-ease);
+  }
+
+  .vm-icon-btn:hover {
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--vm-ink);
+  }
+
+  /* ---------- Inputs ---------- */
+
+  .vm-input {
+    width: 100%;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.11);
+    border-radius: 0.8rem;
+    padding: 0.8rem 1rem;
+    color: var(--vm-ink);
+    font: inherit;
+    font-size: 0.95rem;
+    line-height: 1.4;
+    transition:
+      border-color 0.25s var(--vm-ease),
+      background-color 0.25s var(--vm-ease),
+      box-shadow 0.25s var(--vm-ease);
+  }
+
+  .vm-input::placeholder {
+    color: rgba(var(--vm-ink-rgb), 0.4);
+  }
+
+  .vm-input:hover {
+    border-color: rgba(255, 255, 255, 0.2);
+  }
+
+  .vm-input:focus,
+  .vm-input[aria-expanded='true'] {
+    outline: none;
+    border-color: var(--vm-teal-300);
+    background: rgba(255, 255, 255, 0.05);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--vm-teal) 30%, transparent);
+  }
+
+  .vm-input[aria-invalid='true'] {
+    border-color: var(--vm-error);
+  }
+
+  textarea.vm-input {
+    resize: vertical;
+    min-height: 6rem;
+  }
+
+  /* ---------- Segmented control ---------- */
+
+  .vm-seg {
+    display: inline-flex;
+    padding: 0.25rem;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--vm-line);
+  }
+
+  .vm-seg-btn {
+    position: relative;
+    padding: 0.45rem 0.9rem;
+    border-radius: 999px;
+    font-size: 0.82rem;
+    line-height: 1.2;
+    color: rgba(var(--vm-ink-rgb), 0.7);
+    transition:
+      color 0.3s var(--vm-ease),
+      background-color 0.3s var(--vm-ease);
+    white-space: nowrap;
+  }
+
+  .vm-seg-btn.is-on {
+    color: var(--vm-ink);
+    background: rgba(255, 255, 255, 0.08);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  }
+
+  /* ---------- Motion ---------- */
+
+  @keyframes vm-rise {
+    from {
+      opacity: 0;
+      transform: translateY(18px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  .vm-rise {
+    opacity: 0;
+    animation: vm-rise 0.9s var(--vm-ease) forwards;
+    animation-delay: var(--d, 0s);
+  }
+
+  /* Chart bars grow up from their baseline as the card rises. */
+  @keyframes vm-bar {
+    from {
+      transform: scaleY(0);
+    }
+  }
+
+  .vm-bar {
+    transform-box: fill-box;
+    transform-origin: 50% 100%;
+    animation: vm-bar 0.9s var(--vm-ease) both;
+    animation-delay: var(--d, 0s);
+  }
+
+  @keyframes vm-fade {
+    to {
+      opacity: 1;
+    }
+  }
+
+  .vm-fade {
+    opacity: 0;
+    animation: vm-fade 0.8s ease forwards;
+    animation-delay: var(--d, 0s);
+  }
+
+  /* ---------- Loading ---------- */
+
+  /* The loading screen is a splash built from the mark: the emblem on the bare
+     canvas, a hairline orbit around it with a quarter turn of teal light going
+     round, and one quiet line underneath. */
+  .vm-loader-stage {
+    transform-origin: center;
+  }
+
+  /* The page is ready: the stage dissolves before the content fades in. */
+  .vm-loader.is-leaving .vm-loader-stage {
+    animation: vm-loader-out 0.32s var(--vm-ease) forwards;
+  }
+
+  @keyframes vm-loader-out {
+    to {
+      opacity: 0;
+      transform: scale(0.96);
+      filter: blur(4px);
+    }
+  }
+
+  /* Orbit and mark share one cell so they stay concentric. */
+  .vm-splash {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: 7.5rem;
+    height: 7.5rem;
+    animation: vm-splash-in 1s var(--vm-ease) both;
+  }
+
+  .vm-splash > * {
+    grid-area: 1 / 1;
+  }
+
+  @keyframes vm-splash-in {
+    from {
+      opacity: 0;
+      transform: scale(0.9);
+    }
+  }
+
+  /* The round window the emblem is cropped through; the image inside is
+     positioned by the component from the emblem's measured place in the file. */
+  .vm-splash-mark {
+    position: relative;
+    width: 5.25rem;
+    height: 5.25rem;
+    border-radius: 50%;
+    overflow: hidden;
+  }
+
+  .vm-splash-orbit {
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+  }
+
+  .vm-splash-track {
+    fill: none;
+    stroke: var(--vm-line-strong);
+    stroke-width: 1.5;
+  }
+
+  .vm-splash-arc {
+    fill: none;
+    stroke: var(--vm-teal-200);
+    stroke-width: 2;
+    stroke-linecap: round;
+    transform-origin: 50% 50%;
+    filter: drop-shadow(0 0 6px color-mix(in srgb, var(--vm-teal) 85%, transparent));
+    animation: vm-splash-spin 1.4s linear infinite;
+  }
+
+  @keyframes vm-splash-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  @keyframes vm-shake {
+    0%,
+    100% {
+      transform: translateX(0);
+    }
+    15%,
+    45%,
+    75% {
+      transform: translateX(-5px);
+    }
+    30%,
+    60%,
+    90% {
+      transform: translateX(5px);
+    }
+  }
+
+  .vm-shake {
+    animation: vm-shake 0.5s ease;
+  }
+
+  /* Three dots that breathe after a loading line. */
+  .vm-dots {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    margin-left: 4px;
+  }
+
+  .vm-dots i {
+    width: 3px;
+    height: 3px;
+    border-radius: 999px;
+    background: currentColor;
+    animation: vm-dot 1.2s ease-in-out infinite;
+  }
+
+  .vm-dots i:nth-child(2) {
+    animation-delay: 0.15s;
+  }
+
+  .vm-dots i:nth-child(3) {
+    animation-delay: 0.3s;
+  }
+
+  @keyframes vm-dot {
+    0%,
+    80%,
+    100% {
+      opacity: 0.25;
+    }
+    40% {
+      opacity: 1;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .vm *,
+    .vm *::before,
+    .vm *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+      scroll-behavior: auto !important;
+    }
+
+    .vm-rise,
+    .vm-fade {
+      opacity: 1;
+      animation: none;
+    }
+
+    .vm-card-interactive:hover {
+      transform: none;
+    }
+  }
+}

@@ -69,7 +69,7 @@ export function ToastContainer() {
       {visible.map((t) => (
         <div
           key={t.id}
-          className={`flex items-center gap-3 px-4 py-3 rounded-lg border shadow-[0_16px_48px_-12px_rgba(0,0,0,0.7)] animate-slideIn ${bgColors[t.type]}`}
+          className={`flex items-center gap-3 px-4 py-3 rounded-lg border shadow-[0_16px_48px_-12px_rgba(0,0,0,0.7)] animate-slideInUp ${bgColors[t.type]}`}
         >
           {icons[t.type]}
           <span className="text-sm font-medium text-zinc-100">{t.message}</span>

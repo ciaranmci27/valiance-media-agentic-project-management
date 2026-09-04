@@ -7,6 +7,10 @@ import {
 } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { DEFAULT_SECTION_ORDER, PORTAL_SECTION_LABELS, type PortalSectionKey } from '@/lib/types';
+
+// The portal is two columns on desktop: these fill the main column, the rest sit
+// in the sidebar. The drag order applies within each column, and top to bottom on phones.
+const PORTAL_MAIN_COLUMN = new Set<PortalSectionKey>(['show_progress', 'show_invoices', 'show_hours', 'show_updates']);
 import { useDemo } from '@/lib/demo-context';
 import { toast } from '@/components/ui/Toast';
 import { TextInput } from '@/components/ui/inputs/TextInput';
@@ -479,10 +483,16 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
                         {isActive ? <Eye size={13} /> : <EyeOff size={13} />}
                         {PORTAL_SECTION_LABELS[key]}
                       </button>
+                      <span className="ml-auto pr-2.5 font-mono text-[10px] uppercase tracking-wider text-zinc-500">
+                        {PORTAL_MAIN_COLUMN.has(key) ? 'Main' : 'Sidebar'}
+                      </span>
                     </div>
                   );
                 })}
             </div>
+            <p className="mt-2 text-[11px] leading-relaxed text-zinc-500">
+              On desktop the portal is two columns: Progress, Invoices, Hours, and Updates fill the main column, and Files and Credentials sit in the sidebar. The order above applies within each column, and top to bottom on phones.
+            </p>
           </div>
 
         </div>

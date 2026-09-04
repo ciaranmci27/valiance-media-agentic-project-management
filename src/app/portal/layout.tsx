@@ -1,16 +1,34 @@
+import type { Metadata } from 'next';
+import { Instrument_Serif } from 'next/font/google';
 import { ToastContainer } from '@/components/ui/Toast';
+import './portal.css';
+
+// The one accent face in the portal's type system: an italic word in a
+// heading. Self-hosted through next/font like DM Sans and DM Mono in the
+// root layout; portal.css reads it as --font-instrument-serif.
+const instrumentSerif = Instrument_Serif({
+  weight: '400',
+  style: ['normal', 'italic'],
+  subsets: ['latin'],
+  variable: '--font-instrument-serif',
+  display: 'swap',
+});
+
+export const metadata: Metadata = {
+  title: 'Client portal',
+  robots: { index: false, follow: false },
+};
 
 export default function PortalLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  // The client portal is always light and authored against the standard palette.
-  // data-theme="dark" pins the subtree to the default token values so a visitor
-  // whose OS/app preference sets data-theme="light" on <html> doesn't get the
-  // zinc/ink remaps inverting the page (same pattern as the always-dark sidebar).
+  // data-theme="dark" pins the shared primitives (Toast, Select, Tooltip,
+  // FilePreviewModal, PinInput) to their dark chrome, which is the portal's
+  // own palette, whatever theme the visitor's browser has saved for the app.
   return (
-    <div data-theme="dark">
+    <div data-theme="dark" className={instrumentSerif.variable}>
       {children}
       <ToastContainer />
     </div>

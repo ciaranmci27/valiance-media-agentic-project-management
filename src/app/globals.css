@@ -616,22 +616,6 @@ button.bg-brand-500, a.bg-brand-500 {
   .card-lift:hover, .glass-card-interactive:hover { transform: none; }
 }
 
-/* ── Portal-specific animations (external client portal keeps its own light theme) ── */
-@keyframes portalFadeUp {
-  from { opacity: 0; transform: translateY(12px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-
-@keyframes portalShake {
-  0%, 100% { transform: translateX(0); }
-  15%, 45%, 75% { transform: translateX(-5px); }
-  30%, 60%, 90% { transform: translateX(5px); }
-}
-
-@keyframes portalBarFill {
-  from { transform: scaleX(0); }
-}
-
 /* Default border color. Tailwind v4 defaults bare `border` utilities to currentColor,
    which renders as bright white on dark surfaces. Restore a subtle default so any
    element using `border` without an explicit color reads as a hairline, not white.

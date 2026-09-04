@@ -3,19 +3,30 @@
 import { useState } from 'react';
 
 const TEMPLATES = [
-  { key: 'team-task-assigned', label: 'Task Assigned', group: 'Team' },
-  { key: 'team-task-status', label: 'Task Status Change', group: 'Team' },
-  { key: 'team-task-comment', label: 'Task Comment', group: 'Team' },
-  { key: 'team-project-created', label: 'Project Created', group: 'Team' },
-  { key: 'team-lead-converted', label: 'Lead Converted', group: 'Team' },
-  { key: 'team-lead-status', label: 'Lead Status (No Details)', group: 'Team' },
-  { key: 'team-minimal', label: 'Minimal (No Link/Details)', group: 'Team' },
-  { key: 'portal-welcome', label: 'Portal Welcome', group: 'Client' },
-  { key: 'budget-threshold-hours', label: 'Budget Alert (Hours)', group: 'Client' },
-  { key: 'budget-threshold-amount', label: 'Budget Alert (Amount)', group: 'Client' },
-  { key: 'project-summary', label: 'Project Summary', group: 'Client' },
-  { key: 'project-summary-caught-up', label: 'Summary (All Caught Up)', group: 'Client' },
-  { key: 'project-summary-no-budget', label: 'Summary (No Budget)', group: 'Client' },
+  { key: 'team-task-assigned', label: 'Task assigned', group: 'Team' },
+  { key: 'team-task-status', label: 'Task status change', group: 'Team' },
+  { key: 'team-task-comment', label: 'Task comment', group: 'Team' },
+  { key: 'team-project-created', label: 'Project created', group: 'Team' },
+  { key: 'team-lead-converted', label: 'Lead converted', group: 'Team' },
+  { key: 'team-lead-status', label: 'Lead status (no details)', group: 'Team' },
+  { key: 'team-minimal', label: 'Minimal (no link or details)', group: 'Team' },
+  { key: 'smtp-test', label: 'SMTP test', group: 'Team' },
+  { key: 'portal-welcome', label: 'Portal welcome', group: 'Client' },
+  { key: 'portal-welcome-plain', label: 'Portal welcome (logo, no message)', group: 'Client' },
+  { key: 'project-summary', label: 'Project summary', group: 'Client' },
+  { key: 'project-summary-caught-up', label: 'Summary (all caught up)', group: 'Client' },
+  { key: 'project-summary-no-budget', label: 'Summary (no budget)', group: 'Client' },
+  { key: 'budget-threshold-hours', label: 'Budget alert (hours)', group: 'Client' },
+  { key: 'budget-threshold-amount', label: 'Budget alert (amount, 90%)', group: 'Client' },
+  { key: 'dollar-interval', label: 'Dollar interval', group: 'Client' },
+  { key: 'budget-extended', label: 'Budget extended', group: 'Client' },
+  { key: 'budget-updated', label: 'Budget updated (unit change)', group: 'Client' },
+  { key: 'invoice-sent', label: 'Invoice (sent)', group: 'Invoice' },
+  { key: 'invoice-paid', label: 'Invoice (paid)', group: 'Invoice' },
+  { key: 'invoice-overdue', label: 'Invoice (overdue)', group: 'Invoice' },
+  { key: 'invoice-cancelled', label: 'Invoice (cancelled)', group: 'Invoice' },
+  { key: 'invoice-draft', label: 'Invoice (draft)', group: 'Invoice' },
+  { key: 'invoice-no-portal', label: 'Invoice (no portal)', group: 'Invoice' },
 ] as const;
 
 type TemplateKey = typeof TEMPLATES[number]['key'];
@@ -23,7 +34,7 @@ type TemplateKey = typeof TEMPLATES[number]['key'];
 export default function EmailPreviewPage() {
   const [active, setActive] = useState<TemplateKey>('team-task-assigned');
 
-  const groups = ['Team', 'Client'] as const;
+  const groups = ['Team', 'Client', 'Invoice'] as const;
 
   return (
     <div className="min-h-screen bg-zinc-100 p-6">
@@ -57,7 +68,7 @@ export default function EmailPreviewPage() {
             key={active}
             src={`/api/email-preview?template=${active}`}
             className="w-full border-0"
-            style={{ height: '800px' }}
+            style={{ height: '900px' }}
             title={`Preview: ${active}`}
           />
         </div>

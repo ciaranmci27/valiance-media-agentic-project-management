@@ -4,15 +4,21 @@
  */
 
 import {
+  EMAIL,
+  FONT_MONO,
+  FONT_SANS,
+  accentPalette,
+  chip,
   ctaButton,
   escapeHtml,
   getSiteName,
-  brandPrimary,
-  brandLight,
-  brandSubtle,
-  NEUTRAL,
+  kvRows,
+  label,
+  linkLine,
+  paragraph,
+  tile,
 } from '../shared';
-import { clientEmailLayout, clientAvatar } from './layout';
+import { clientEmailLayout, clientHeader, greeting } from './layout';
 import type { InvoiceStatus } from '@/lib/types';
 
 export interface InvoiceEmailSlots {
@@ -30,6 +36,7 @@ export function invoiceEmailDefaults(ctx: {
   status: InvoiceStatus;
 }): InvoiceEmailSlots {
   const dueText = ctx.dueDate ? ` due ${fmtDate(ctx.dueDate)}` : '';
+  const overdueText = ctx.dueDate ? `was due ${fmtDate(ctx.dueDate)} and is now past due` : 'is past due';
   const paidText = ctx.paidDate ? ` on ${fmtDate(ctx.paidDate)}` : '';
   const amount = fmtCurrency(ctx.amount);
 
@@ -49,7 +56,7 @@ export function invoiceEmailDefaults(ctx: {
     case 'overdue':
       return {
         subject: `Overdue invoice ${ctx.invoiceNumber} for ${ctx.projectName}`,
-        opening_line: `A quick reminder that invoice ${ctx.invoiceNumber} for ${amount} is past due${dueText}. The invoice PDF is attached for reference.`,
+        opening_line: `A quick reminder that invoice ${ctx.invoiceNumber} for ${amount} ${overdueText}. The invoice PDF is attached for reference.`,
         closing_line: 'Please let us know if you need anything from us to complete payment.',
       };
     case 'cancelled':
@@ -62,7 +69,7 @@ export function invoiceEmailDefaults(ctx: {
     default:
       return {
         subject: `Invoice ${ctx.invoiceNumber} for ${ctx.projectName}`,
-        opening_line: `Invoice ${ctx.invoiceNumber} for ${amount} is attached${dueText}.`,
+        opening_line: `Invoice ${ctx.invoiceNumber} for ${amount} is attached${dueText ? ` and is${dueText}` : ''}.`,
         closing_line: 'Thank you, and let us know if you have any questions.',
       };
   }
@@ -72,7 +79,6 @@ interface InvoiceEmailParams {
   projectName: string;
   clientName: string;
   portalUrl: string | null;
-  accentColor?: string;
   logoUrl?: string;
   invoiceNumber: string;
   invoiceAmount: number;
@@ -107,8 +113,16 @@ function statusLabel(value: string): string {
     .join(' ');
 }
 
+type Tone = 'teal' | 'copper' | 'error' | 'neutral';
+
 function statusDetails(status: InvoiceStatus): {
   eyebrow: string;
+  title: string;
+  tail: string;
+  /** Tint of the amount tile. Neutral for open and draft invoices. */
+  tileTone: Tone;
+  /** Tone of the status pill. Sent reads teal: open and on track. */
+  chipTone: Tone;
   amountLabel: string;
   attachmentSentence: string;
   portalCtaLabel: string;
@@ -117,32 +131,48 @@ function statusDetails(status: InvoiceStatus): {
   switch (status) {
     case 'draft':
       return {
-        eyebrow: 'Draft Invoice',
-        amountLabel: 'Draft Total',
+        eyebrow: 'Draft invoice',
+        title: 'Draft invoice for',
+        tail: 'review.',
+        tileTone: 'neutral',
+        chipTone: 'neutral',
+        amountLabel: 'Draft total',
         attachmentSentence: 'The draft invoice PDF is attached to this email.',
         portalCtaLabel: 'Review draft invoice',
         note: 'This is a draft for review. Payment is not due until the invoice is finalized.',
       };
     case 'paid':
       return {
-        eyebrow: 'Payment Received',
-        amountLabel: 'Paid',
+        eyebrow: 'Payment received',
+        title: 'Payment',
+        tail: 'received.',
+        tileTone: 'teal',
+        chipTone: 'teal',
+        amountLabel: 'Amount paid',
         attachmentSentence: 'A PDF copy is attached to this email for your records.',
         portalCtaLabel: 'View paid invoice',
         note: 'This invoice is marked paid. No further action is needed.',
       };
     case 'overdue':
       return {
-        eyebrow: 'Past Due Invoice',
-        amountLabel: 'Past Due',
+        eyebrow: 'Past due invoice',
+        title: 'This invoice is',
+        tail: 'past due.',
+        tileTone: 'copper',
+        chipTone: 'copper',
+        amountLabel: 'Past due',
         attachmentSentence: 'The overdue invoice PDF is attached to this email.',
         portalCtaLabel: 'View overdue invoice',
         note: 'This invoice is past due. Please complete payment when you can.',
       };
     case 'cancelled':
       return {
-        eyebrow: 'Cancelled Invoice',
-        amountLabel: 'Cancelled Total',
+        eyebrow: 'Cancelled invoice',
+        title: 'Invoice',
+        tail: 'cancelled.',
+        tileTone: 'error',
+        chipTone: 'error',
+        amountLabel: 'Cancelled total',
         attachmentSentence: 'A PDF copy of the cancelled invoice is attached for your records.',
         portalCtaLabel: 'View cancelled invoice',
         note: 'This invoice has been cancelled. No payment is needed for it.',
@@ -151,12 +181,23 @@ function statusDetails(status: InvoiceStatus): {
     default:
       return {
         eyebrow: 'Invoice',
-        amountLabel: 'Amount Due',
+        title: 'Your invoice is',
+        tail: 'ready.',
+        tileTone: 'neutral',
+        chipTone: 'teal',
+        amountLabel: 'Amount due',
         attachmentSentence: 'The PDF invoice is attached to this email.',
         portalCtaLabel: 'View invoice in portal',
         note: 'Payment details are included in the attached invoice.',
       };
   }
+}
+
+function amountColor(tone: Tone): string {
+  if (tone === 'teal') return accentPalette().bright;
+  if (tone === 'copper') return EMAIL.copper300;
+  if (tone === 'error') return EMAIL.error;
+  return EMAIL.ink;
 }
 
 export function buildInvoiceEmail(
@@ -166,7 +207,6 @@ export function buildInvoiceEmail(
     projectName,
     clientName,
     portalUrl,
-    accentColor,
     logoUrl,
     invoiceNumber,
     invoiceAmount,
@@ -178,103 +218,54 @@ export function buildInvoiceEmail(
   } = params;
 
   const siteName = getSiteName();
-  const primary = brandPrimary();
-  const light = brandLight();
-  const subtle = brandSubtle();
-  const safeClient = escapeHtml(clientName);
-  const safeProject = escapeHtml(projectName);
-  const safeInvoiceNumber = escapeHtml(invoiceNumber);
-  const safeStatus = escapeHtml(statusLabel(status));
   const details = statusDetails(status);
-  const portalCta = portalUrl ? ctaButton(details.portalCtaLabel, portalUrl) : '';
+  const amount = fmtCurrency(invoiceAmount);
+
+  const heroTile = tile(
+    `<table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+      <tr>
+        <td style="vertical-align: top;">
+          ${label(details.amountLabel)}
+          <p style="margin: 0; font-family: ${FONT_MONO}; font-size: 32px; line-height: 1.1; font-weight: 300; letter-spacing: -0.02em; color: ${amountColor(details.tileTone)};">${escapeHtml(amount)}</p>
+        </td>
+        <td align="right" style="vertical-align: top; text-align: right; padding: 0 0 0 12px;">
+          ${chip(statusLabel(status), details.chipTone)}
+        </td>
+      </tr>
+    </table>
+    <p style="margin: 14px 0 0 0; font-family: ${FONT_SANS}; font-size: 13px; line-height: 1.5; color: ${EMAIL.muted};">${escapeHtml(details.note)}</p>`,
+    { tone: details.tileTone, padding: '20px 22px' },
+  );
 
   const rows = [
-    { label: 'Invoice', value: safeInvoiceNumber },
-    { label: 'Amount', value: fmtCurrency(invoiceAmount) },
+    { label: 'Invoice', value: invoiceNumber, strong: true },
     { label: 'Issued', value: fmtDate(issueDate) },
     ...(dueDate ? [{ label: 'Due', value: fmtDate(dueDate) }] : []),
     ...(paidDate ? [{ label: 'Paid', value: fmtDate(paidDate) }] : []),
-    { label: 'Status', value: safeStatus },
   ];
 
-  const detailsHtml = `
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="
-      margin: 0 0 24px 0;
-      border-radius: 10px;
-      overflow: hidden;
-      border: 1px solid ${NEUTRAL.border};
-    ">
-      <tr><td style="background-color: ${light}; height: 3px; font-size: 0; line-height: 0;">&nbsp;</td></tr>
-      <tr><td style="padding: 0;">
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-          ${rows.map((row, index) => `
-            <tr>
-              <td style="padding: 12px 16px; ${index < rows.length - 1 ? `border-bottom: 1px solid ${NEUTRAL.border};` : ''}">
-                <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-                  <tr>
-                    <td style="color: ${NEUTRAL.textMuted}; font-size: 13px; font-weight: 500;">
-                      ${escapeHtml(row.label)}
-                    </td>
-                    <td align="right" style="color: ${NEUTRAL.black}; font-size: 13px; font-weight: 700;">
-                      ${row.value}
-                    </td>
-                  </tr>
-                </table>
-              </td>
-            </tr>
-          `).join('')}
-        </table>
-      </td></tr>
-    </table>
-  `;
-
   const body = `
-    <table role="presentation" cellpadding="0" cellspacing="0" style="margin: 0 0 24px 0;">
-      <tr>
-        <td style="padding: 0 14px 0 0; vertical-align: middle;">
-          ${clientAvatar(projectName, logoUrl, 44)}
-        </td>
-        <td style="vertical-align: middle;">
-          <p style="margin: 0 0 2px 0; font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px; color: ${light}; font-weight: 600;">${escapeHtml(details.eyebrow)}</p>
-          <p style="margin: 0; font-size: 22px; font-weight: 700; color: ${NEUTRAL.black}; line-height: 1.3;">${safeProject}</p>
-        </td>
-      </tr>
-    </table>
-
-    <p style="margin: 0 0 8px 0; color: ${NEUTRAL.textBody}; font-size: 15px;">
-      Hi ${safeClient},
-    </p>
-    <p style="margin: 0 0 24px 0; color: ${NEUTRAL.textBody}; font-size: 15px; line-height: 1.7;">
-      ${escapeHtml(slots.opening_line)}
-    </p>
-
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin: 0 0 24px 0; border-radius: 10px; overflow: hidden; border: 1px solid ${NEUTRAL.border};">
-      <tr><td style="background-color: ${primary}; height: 3px; font-size: 0; line-height: 0;">&nbsp;</td></tr>
-      <tr>
-        <td style="padding: 24px 16px; text-align: center; background-color: ${subtle};">
-          <p style="margin: 0 0 6px 0; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: ${NEUTRAL.textMuted}; font-weight: 600;">${escapeHtml(details.amountLabel)}</p>
-          <p style="margin: 0; font-size: 28px; font-weight: 800; color: ${primary};">${fmtCurrency(invoiceAmount)}</p>
-          <p style="margin: 8px 0 0 0; font-size: 13px; color: ${NEUTRAL.textMuted};">${escapeHtml(details.note)}</p>
-        </td>
-      </tr>
-    </table>
-
-    ${detailsHtml}
-
-    <p style="margin: 0 0 8px 0; color: ${NEUTRAL.textBody}; font-size: 14px;">
-      ${escapeHtml(details.attachmentSentence)}
-    </p>
-    ${portalCta}
-    <p style="margin: 0; color: ${NEUTRAL.textMuted}; font-size: 13px;">
-      ${escapeHtml(slots.closing_line)}
-    </p>
+    ${clientHeader({
+      projectName,
+      logoUrl,
+      title: details.title,
+      tail: details.tail,
+      meta: [projectName, `Invoice ${invoiceNumber}`, `Issued ${fmtDate(issueDate)}`],
+    })}
+    ${greeting(clientName)}
+    ${paragraph(escapeHtml(slots.opening_line))}
+    ${heroTile}
+    ${kvRows(rows)}
+    ${paragraph(escapeHtml(details.attachmentSentence))}
+    ${portalUrl ? ctaButton(details.portalCtaLabel, portalUrl) : ''}
+    ${portalUrl ? linkLine(portalUrl) : ''}
+    ${paragraph(escapeHtml(slots.closing_line), { muted: true, size: 13 })}
   `;
 
   const html = clientEmailLayout({
     preheader: `${details.eyebrow}: ${invoiceNumber} for ${projectName}`,
     body,
     portalUrl,
-    accentColor,
   });
 
   const lines = [
@@ -282,12 +273,12 @@ export function buildInvoiceEmail(
     '',
     slots.opening_line,
     '',
+    `${details.amountLabel}: ${amount}`,
+    `Status: ${statusLabel(status)}`,
     `Invoice: ${invoiceNumber}`,
-    `Amount: ${fmtCurrency(invoiceAmount)}`,
     `Issued: ${fmtDate(issueDate)}`,
     ...(dueDate ? [`Due: ${fmtDate(dueDate)}`] : []),
     ...(paidDate ? [`Paid: ${fmtDate(paidDate)}`] : []),
-    `Status: ${statusLabel(status)}`,
     '',
     details.note,
     details.attachmentSentence,
