@@ -7,7 +7,7 @@ const DEFAULT_MIN_SHOW_MS = 1100;
 /**
  * The dissolve reports its own end (see `onLeft`); this only steps in if the
  * event never comes, for instance in a background tab where the animation is
- * not being played. Longer than .vm-loader-out so it never cuts it short.
+ * not being played. Longer than .brand-loader-out so it never cuts it short.
  */
 const EXIT_FALLBACK_MS = 1000;
 

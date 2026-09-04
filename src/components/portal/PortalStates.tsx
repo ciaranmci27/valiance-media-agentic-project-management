@@ -1,67 +1,16 @@
 'use client';
 
-import { useEffect, useState, type AnimationEvent, type CSSProperties } from 'react';
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
-import { DARK_LOGO_SRC, Logo } from '@/components/ui/Logo';
-import { siteConfig } from '@/site-config';
-import { PORTAL_STEPS, STEP_MS } from './loaderSteps';
+import { BrandLoader } from '@/components/ui/BrandLoader';
+import { Logo } from '@/components/ui/Logo';
+import { PORTAL_STEPS } from './loaderSteps';
 import { PortalRoot } from './PortalShell';
 
-// The orbit around the mark: a hairline track and a quarter turn of teal light.
-const ORBIT = 120;
-const ORBIT_R = 56;
-const ORBIT_C = 2 * Math.PI * ORBIT_R;
-const ARC = ORBIT_C / 4;
-
 /**
- * Where the emblem sits in the dark lockup, in pixels of the 3443 x 820 file:
- * a circle of radius 397 centred at (403, 413.5). The crop is a slightly
- * larger circle so the ring's edge is never clipped, and round so the top of
- * the wordmark's first letter, which starts just past the ring, stays out.
- */
-const MARK = { cx: 403, cy: 413.5, r: 402, fileHeight: 820 };
-const MARK_D = MARK.r * 2;
-
-/**
- * Our mark by itself, cropped out of the dark lockup so it is exactly the
- * emblem the page header shows, drawn for this canvas.
- */
-function Emblem() {
-  const style: CSSProperties = {
-    height: `${(MARK.fileHeight / MARK_D) * 100}%`,
-    left: `${(-(MARK.cx - MARK.r) / MARK_D) * 100}%`,
-    top: `${(-(MARK.cy - MARK.r) / MARK_D) * 100}%`,
-  };
-  return (
-    <span className="vm-splash-mark">
-      {/* eslint-disable-next-line @next/next/no-img-element -- served by /api/logo so the brand can swap it */}
-      <img src={DARK_LOGO_SRC} alt={siteConfig.name} className="absolute max-w-none" style={style} />
-    </span>
-  );
-}
-
-/**
- * Walks a status sequence one line at a time and stops on the last one.
- */
-function useStepIndex(count: number) {
-  const [index, setIndex] = useState(0);
-  useEffect(() => {
-    if (index >= count - 1) return;
-    const timer = window.setTimeout(() => setIndex((i) => Math.min(i + 1, count - 1)), STEP_MS);
-    return () => window.clearTimeout(timer);
-  }, [index, count]);
-  return index;
-}
-
-/**
- * Waiting for the portal payload.
- *
- * A splash built from the mark: the emblem on the bare canvas, a hairline
- * orbit around it with a quarter turn of teal light going round, and one
- * status line underneath that narrates the portal coming up. `leaving`
- * dissolves the stage for the page, and `onLeft` is called once that
- * dissolve has finished playing.
+ * Waiting for the portal payload: the shared brand loader on the portal's
+ * canvas. `leaving` dissolves the stage for the page, and `onLeft` is called
+ * once that dissolve has finished playing.
  */
 export function PortalLoading({
   leaving = false,
@@ -76,46 +25,10 @@ export function PortalLoading({
   /** The one thing a screen reader hears, instead of every line. */
   announcement?: string;
 }) {
-  const step = useStepIndex(steps.length);
-
-  // Every animation inside the stage bubbles its end up here; only the
-  // stage's own dissolve means the loader is gone.
-  const handleAnimationEnd = (event: AnimationEvent<HTMLDivElement>) => {
-    if (leaving && event.target === event.currentTarget) onLeft?.();
-  };
-
   return (
     <PortalRoot>
-      <main className={`vm-loader flex flex-1 items-center justify-center px-5 sm:px-8 ${leaving ? 'is-leaving' : ''}`}>
-        <div className="vm-loader-stage flex flex-col items-center" onAnimationEnd={handleAnimationEnd}>
-          <div className="vm-splash">
-            <svg className="vm-splash-orbit" viewBox={`0 0 ${ORBIT} ${ORBIT}`} aria-hidden="true">
-              <circle className="vm-splash-track" cx={ORBIT / 2} cy={ORBIT / 2} r={ORBIT_R} />
-              <circle
-                className="vm-splash-arc"
-                cx={ORBIT / 2}
-                cy={ORBIT / 2}
-                r={ORBIT_R}
-                strokeDasharray={`${ARC} ${ORBIT_C - ARC}`}
-              />
-            </svg>
-            <Emblem />
-          </div>
-          {/* The status sequence. The orbit already says "loading", so the line
-              carries no indicator of its own; the outgoing and incoming lines
-              share one cell so the swap moves nothing. */}
-          <div
-            className="vm-loader-steps vm-muted vm-fade mt-5 text-[15px]"
-            style={{ '--d': '0.4s' } as CSSProperties}
-            aria-hidden="true"
-          >
-            {step > 0 && (
-              <span key={`out-${step - 1}`} className="vm-step vm-step-out">{steps[step - 1]}</span>
-            )}
-            <span key={`in-${step}`} className="vm-step vm-step-in">{steps[step]}</span>
-          </div>
-          <p role="status" className="sr-only">{announcement}</p>
-        </div>
+      <main className="flex flex-1 items-center justify-center px-5 sm:px-8">
+        <BrandLoader steps={steps} announcement={announcement} leaving={leaving} onLeft={onLeft} />
       </main>
     </PortalRoot>
   );

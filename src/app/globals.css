@@ -609,11 +609,82 @@ button.bg-brand-500, a.bg-brand-500 {
   transform: translateY(-1px);
 }
 
+/* ── Brand loader ────────────────────────────────────────
+   The one loading screen, shared by the app shell and the client portal
+   (components/ui/BrandLoader.tsx): the emblem cropped out of the lockup, a
+   hairline orbit with a quarter turn of brand light going round, and a status
+   line beneath that advances through a short sequence. Which lockup shows
+   follows the nearest data-theme through inherited variables, so a portal
+   pinned dark inside a light-themed document still gets the dark mark. */
+:root, [data-theme="dark"] { --loader-mark-dark: block; --loader-mark-light: none; }
+[data-theme="light"]       { --loader-mark-dark: none;  --loader-mark-light: block; }
+
+.brand-loader { display: flex; align-items: center; justify-content: center; }
+.brand-loader-stage { display: flex; flex-direction: column; align-items: center; transform-origin: center; }
+/* The page is ready: the stage dissolves before the content takes over. */
+.brand-loader.is-leaving .brand-loader-stage { animation: brand-loader-out 0.32s cubic-bezier(0.22, 1, 0.36, 1) forwards; }
+@keyframes brand-loader-out { to { opacity: 0; transform: scale(0.96); filter: blur(4px); } }
+
+/* Orbit and mark share one cell so they stay concentric. */
+.brand-splash {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 7.5rem;
+  height: 7.5rem;
+  animation: brand-splash-in 1s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.brand-splash > * { grid-area: 1 / 1; }
+@keyframes brand-splash-in { from { opacity: 0; transform: scale(0.9); } }
+
+.brand-splash-orbit { width: 100%; height: 100%; overflow: visible; }
+.brand-splash-track { fill: none; stroke: rgba(var(--ink), 0.14); stroke-width: 1.5; }
+.brand-splash-arc {
+  fill: none;
+  stroke: var(--color-brand-300);
+  stroke-width: 2;
+  stroke-linecap: round;
+  transform-origin: 50% 50%;
+  filter: drop-shadow(0 0 6px color-mix(in srgb, var(--color-brand-500) 85%, transparent));
+  animation: brand-splash-spin 1.4s linear infinite;
+}
+@keyframes brand-splash-spin { to { transform: rotate(360deg); } }
+
+/* The round window the emblem is cropped through; the image inside is
+   positioned by the component from the emblem's measured place in the file. */
+.brand-splash-mark { position: relative; width: 5.25rem; height: 5.25rem; border-radius: 50%; overflow: hidden; }
+.brand-splash-mark-img { position: absolute; max-width: none; }
+.brand-splash-mark-img.is-dark  { display: var(--loader-mark-dark, block); }
+.brand-splash-mark-img.is-light { display: var(--loader-mark-light, none); }
+
+/* The status sequence: outgoing and incoming lines in one grid cell. */
+.brand-loader-steps {
+  display: grid;
+  justify-items: center;
+  text-align: center;
+  margin-top: 1.25rem;
+  font-size: 15px;
+  color: rgba(var(--ink), 0.62);
+  opacity: 0;
+  animation: fadeIn 0.8s ease 0.4s forwards;
+}
+.brand-step { grid-area: 1 / 1; white-space: nowrap; }
+.brand-step-in  { animation: brand-step-in 0.45s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.brand-step-out { animation: brand-step-out 0.35s cubic-bezier(0.22, 1, 0.36, 1) forwards; pointer-events: none; }
+@keyframes brand-step-in  { from { opacity: 0; transform: translateY(8px); } }
+@keyframes brand-step-out { to   { opacity: 0; transform: translateY(-8px); } }
+
 /* Respect reduced motion */
 @media (prefers-reduced-motion: reduce) {
   .animate-fadeIn, .animate-scaleIn, .animate-slideInLeft, .animate-slideInUp,
   .animate-slideDown, .stagger > * { animation: none !important; }
   .card-lift:hover, .glass-card-interactive:hover { transform: none; }
+  /* The loader keeps its shape and its dissolve, without motion: lines swap in
+     place, the arc stands still, and the dissolve still ends so the page can
+     take over. */
+  .brand-splash, .brand-splash-arc, .brand-step-in, .brand-loader-steps { animation: none !important; opacity: 1; }
+  .brand-step-out { display: none; }
+  .brand-loader.is-leaving .brand-loader-stage { animation-duration: 0.001ms !important; }
 }
 
 /* Default border color. Tailwind v4 defaults bare `border` utilities to currentColor,
@@ -672,3 +743,4 @@ button.bg-brand-500, a.bg-brand-500 {
 .no-scrollbar::-webkit-scrollbar {
   display: none;
 }
+
