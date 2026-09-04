@@ -1,5 +1,12 @@
 import type { InvoiceLineItem, InvoiceStatus } from '@/lib/types';
 
+/**
+ * Which canvas the document is drawn on. `dark` is the brand's own (the
+ * website, the portal and the emails) and is what screens get; `paper` is the
+ * same layout on white for anyone who prints or files a copy.
+ */
+export type InvoicePdfTheme = 'dark' | 'paper';
+
 export interface InvoicePdfRateBreakdown {
   hourlyRate: number;
   hours: number;
@@ -23,6 +30,8 @@ export interface InvoicePdfLineItem extends InvoiceLineItem {
  */
 export interface InvoicePdfOptions {
   showLogo: boolean;
+  /** Retired: the page no longer draws a top bar. Kept because the key is
+   *  persisted in projects.invoice_pdf_options and older rows carry it. */
   showTopAccent: boolean;
   showStatusStamp: boolean;
   showSenderName: boolean;
@@ -75,6 +84,8 @@ export interface InvoicePdfData {
   // Branding
   brandColor: string;
   logoUrl: string;
+  /** The lockup drawn for dark chrome, used on the dark canvas. Falls back to logoUrl. */
+  logoDarkUrl: string | null;
 
   // From (workspace business identity)
   business: {

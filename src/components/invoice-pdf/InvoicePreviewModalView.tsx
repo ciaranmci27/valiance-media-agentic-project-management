@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { X, Download, Loader2, FileText, Settings, RotateCcw } from 'lucide-react';
-import type { InvoicePdfData, InvoicePdfOptions } from '@/lib/invoice-pdf/types';
+import type { InvoicePdfData, InvoicePdfOptions, InvoicePdfTheme } from '@/lib/invoice-pdf/types';
 import { DEFAULT_INVOICE_PDF_OPTIONS } from '@/lib/invoice-pdf/types';
 
 // React-PDF and pdfjs are heavy. Load them on demand so callers don't pay
@@ -115,8 +115,7 @@ interface InvoicePreviewModalViewProps {
 
 const TOGGLE_DEFINITIONS: { key: keyof InvoicePdfOptions; label: string; description: string }[] = [
   { key: 'showLogo',                label: 'Logo',                 description: 'Show the brand logo in the header.' },
-  { key: 'showTopAccent',           label: 'Top accent bar',       description: 'Brand-colored bar at the top of every page.' },
-  { key: 'showStatusStamp',         label: 'Status stamp',         description: 'Diagonal PAID / OVERDUE / CANCELLED stamp.' },
+  { key: 'showStatusStamp',         label: 'Status stamp',         description: 'Letter-spaced PAID / OVERDUE / CANCELLED stamp.' },
   { key: 'showSenderName',          label: 'Sender name',          description: 'Your name underneath the business in “From”.' },
   { key: 'showLineCaptions',        label: 'Line item captions',   description: 'Service period and frequency under each line item.' },
   { key: 'showPortalLink',          label: 'Client portal link',   description: 'Callout linking to the project portal (only shown when enabled).' },
@@ -126,8 +125,24 @@ const TOGGLE_DEFINITIONS: { key: keyof InvoicePdfOptions; label: string; descrip
   { key: 'showTimeLogs',            label: 'Time log page',        description: 'Append a second page listing the time entries that back the hourly line items.' },
 ];
 
+/** The two editions a download can be: the dark canvas on screen, or white for paper. */
+const EDITIONS: { theme: InvoicePdfTheme; label: string; description: string }[] = [
+  { theme: 'dark', label: 'Dark', description: 'As shown on screen.' },
+  { theme: 'paper', label: 'Light', description: 'On white, for printing and filing.' },
+];
+
 function sanitizeForFilename(input: string): string {
   return input.replace(/[^a-z0-9\-_.]/gi, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
+}
+
+/** Hand a blob URL to the browser as a file download. */
+function saveBlobUrl(url: string, filename: string) {
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
 }
 
 export function InvoicePreviewModalView({
@@ -146,12 +161,16 @@ export function InvoicePreviewModalView({
   const overlayRef = useRef<HTMLDivElement>(null);
   const customizeButtonRef = useRef<HTMLDivElement>(null);
   const settingsPanelRef = useRef<HTMLDivElement>(null);
+  const downloadButtonRef = useRef<HTMLDivElement>(null);
+  const downloadMenuRef = useRef<HTMLDivElement>(null);
 
   const [pdfLib, setPdfLib] = useState<PdfModule | null>(null);
   const [docLib, setDocLib] = useState<DocModule | null>(null);
   const [previewLib, setPreviewLib] = useState<PreviewModule | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [downloading, setDownloading] = useState(false);
+  /** Which edition is being generated for download, or null when idle. */
+  const [downloading, setDownloading] = useState<InvoicePdfTheme | null>(null);
+  const [downloadMenuOpen, setDownloadMenuOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   // Memoize the document JSX. Without this, every parent re-render creates a
@@ -222,17 +241,34 @@ export function InvoicePreviewModalView({
     return () => { document.body.style.overflow = 'unset'; };
   }, [isOpen]);
 
-  // Esc closes the dropdown first, then the modal.
+  // Esc closes an open dropdown first, then the modal.
   useEffect(() => {
     if (!isOpen) return;
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
-      if (settingsOpen) setSettingsOpen(false);
+      if (downloadMenuOpen) setDownloadMenuOpen(false);
+      else if (settingsOpen) setSettingsOpen(false);
       else onClose();
     };
     document.addEventListener('keydown', handleEscape);
     return () => document.removeEventListener('keydown', handleEscape);
-  }, [isOpen, onClose, settingsOpen]);
+  }, [isOpen, onClose, settingsOpen, downloadMenuOpen]);
+
+  // Click outside the download menu closes it (without closing the modal).
+  useEffect(() => {
+    if (!downloadMenuOpen) return;
+    const handleClick = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (
+        !downloadMenuRef.current?.contains(target) &&
+        !downloadButtonRef.current?.contains(target)
+      ) {
+        setDownloadMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [downloadMenuOpen]);
 
   // Click outside the dropdown closes it (without closing the modal).
   useEffect(() => {
@@ -250,32 +286,28 @@ export function InvoicePreviewModalView({
     return () => document.removeEventListener('mousedown', handleClick);
   }, [settingsOpen]);
 
-  const handleDownload = async () => {
-    if (!pdfData) return;
-    setDownloading(true);
+  const baseFilename = `${sanitizeForFilename(invoiceNumber)}_${sanitizeForFilename(clientLabel)}_${invoiceDate}`;
+
+  // One download, two editions. Dark is the one on screen, so the preview blob
+  // is reused when it is ready; light is the same invoice on white for anyone
+  // who prints or files a paper copy, rendered on demand.
+  const downloadEdition = async (theme: InvoicePdfTheme) => {
+    if (!pdfData || !pdfLib || !docLib) return;
+    setDownloadMenuOpen(false);
+    setDownloading(theme);
     onDownload?.();
     try {
-      // Reuse the preview blob when available so we don't pay the
-      // generation cost twice. Only fall back to a fresh render if the
-      // preview hasn't finished yet (rare race).
-      let url = previewUrl;
+      let url = theme === 'dark' ? previewUrl : null;
       let createdHere = false;
       if (!url) {
-        if (!pdfLib || !docLib) return;
-        const blob = await pdfLib.pdf(<docLib.InvoiceDocument data={pdfData} />).toBlob();
+        const blob = await pdfLib.pdf(<docLib.InvoiceDocument data={pdfData} theme={theme} />).toBlob();
         url = URL.createObjectURL(blob);
         createdHere = true;
       }
-      const filename = `${sanitizeForFilename(invoiceNumber)}_${sanitizeForFilename(clientLabel)}_${invoiceDate}.pdf`;
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+      saveBlobUrl(url, `${baseFilename}${theme === 'paper' ? '_light' : ''}.pdf`);
       if (createdHere) URL.revokeObjectURL(url);
     } finally {
-      setDownloading(false);
+      setDownloading(null);
     }
   };
 
@@ -325,7 +357,7 @@ export function InvoicePreviewModalView({
             {customizer && (
               <div ref={customizeButtonRef}>
                 <button
-                  onClick={() => setSettingsOpen(o => !o)}
+                  onClick={() => { setDownloadMenuOpen(false); setSettingsOpen(o => !o); }}
                   aria-label="Preview settings"
                   aria-expanded={settingsOpen}
                   className={`relative inline-flex items-center gap-1.5 px-2.5 py-1.5 text-sm font-medium rounded-lg transition-colors ${
@@ -343,15 +375,19 @@ export function InvoicePreviewModalView({
               </div>
             )}
 
-            <button
-              onClick={handleDownload}
-              disabled={!pdfData || (!previewUrl && (!pdfLib || !docLib)) || downloading}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {downloading
-                ? <><Loader2 size={14} className="animate-spin" /><span className="hidden sm:inline">Generating…</span></>
-                : <><Download size={14} /><span className="hidden sm:inline">Download PDF</span></>}
-            </button>
+            <div ref={downloadButtonRef}>
+              <button
+                onClick={() => { setSettingsOpen(false); setDownloadMenuOpen(o => !o); }}
+                disabled={!pdfData || !pdfLib || !docLib || downloading !== null}
+                aria-haspopup="menu"
+                aria-expanded={downloadMenuOpen}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {downloading
+                  ? <><Loader2 size={14} className="animate-spin" /><span className="hidden sm:inline">Generating…</span></>
+                  : <><Download size={14} /><span className="hidden sm:inline">Download PDF</span></>}
+              </button>
+            </div>
             <button
               onClick={onClose}
               aria-label="Close"
@@ -361,6 +397,36 @@ export function InvoicePreviewModalView({
             </button>
           </div>
         </div>
+
+        {/* Which edition to download. The swatch is the canvas each one is drawn on. */}
+        {downloadMenuOpen && (
+          <div
+            ref={downloadMenuRef}
+            role="menu"
+            aria-label="Choose an edition to download"
+            className={`absolute right-5 top-[60px] z-20 w-64 max-w-[calc(100%-2.5rem)] ${chrome.panel} rounded-lg animate-slideDown py-1`}
+          >
+            {EDITIONS.map(({ theme, label, description }) => (
+              <button
+                key={theme}
+                role="menuitem"
+                onClick={() => downloadEdition(theme)}
+                className={`w-full px-3 py-2 flex items-start gap-3 ${chrome.row} transition-colors text-left`}
+              >
+                <span
+                  className={`mt-0.5 h-3.5 w-3.5 flex-shrink-0 rounded-full border ${
+                    theme === 'dark' ? 'bg-[#08090C] border-white/20' : 'bg-white border-black/15'
+                  }`}
+                  aria-hidden="true"
+                />
+                <span className="flex-1 min-w-0">
+                  <span className={`block text-xs font-medium ${chrome.rowLabel}`}>{label}</span>
+                  <span className="block text-[10px] text-zinc-400 mt-0.5 leading-relaxed">{description}</span>
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
 
         {customizer && settingsOpen && (
           <div

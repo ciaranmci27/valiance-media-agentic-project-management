@@ -335,6 +335,7 @@ export async function GET(
           // Portal previews don't carry a logged-in admin's identity.
           senderName: '',
           logoUrl: `${origin}/logos/logo.png`,
+          logoDarkUrl: `${origin}/logos/logo-dark.png`,
           portalUrl: `${origin}/portal/${token}?invoice=${encodeURIComponent(inv.invoice_number)}`,
           options: portalOptions,
           timeEntries: portalTimeEntries,
@@ -578,6 +579,7 @@ function handleDemoMode(token: string, request: NextRequest) {
         businessSettings: null,
         senderName: '',
         logoUrl: `${origin}/logos/logo.png`,
+        logoDarkUrl: `${origin}/logos/logo-dark.png`,
         portalUrl: `${origin}/portal/${token}?invoice=${encodeURIComponent(inv.invoice_number)}`,
         options: { showSenderName: false },
         projectInvoices: demoActiveInvoices,

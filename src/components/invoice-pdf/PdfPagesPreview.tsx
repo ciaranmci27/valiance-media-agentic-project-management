@@ -118,8 +118,11 @@ export function PdfPagesPreview({ file, appearance = 'themed' }: PdfPagesPreview
               and pushes container scroll when they don't (zoomed in). Plain
               `flex items-center` would left-align overflowing children. */}
           <div className="inline-flex flex-col items-center min-w-full">
+            {/* No paper-white plate behind a page: the document paints its own
+                canvas, and a hairline ring gives a dark page an edge against the
+                dark body. */}
             {Array.from({ length: numPages }, (_, i) => (
-              <div key={i} className="mb-4 last:mb-0 bg-white shadow-md">
+              <div key={i} className="mb-4 last:mb-0 shadow-lg ring-1 ring-white/10">
                 <Page
                   pageNumber={i + 1}
                   width={pageWidth}

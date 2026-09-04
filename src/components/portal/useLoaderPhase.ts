@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 /** The loader stays up at least this long, so a fast response never flashes it. */
-const MIN_SHOW_MS = 1100;
+const DEFAULT_MIN_SHOW_MS = 1100;
 /**
  * The dissolve reports its own end (see `onLeft`); this only steps in if the
  * event never comes, for instance in a background tab where the animation is
@@ -20,8 +20,14 @@ export type LoaderPhase = 'loading' | 'leaving' | 'done';
  * the dissolve has finished) and its real content only for `done`. Arrival
  * then reads as one choreographed hand-off rather than a cut from a
  * half-drawn loader to a page fading in from nothing.
+ *
+ * `minShowMs` is how long the loader is held even when the data is quick; a
+ * loader that narrates a sequence passes the time its lines need to be read.
  */
-export function useLoaderPhase(loading: boolean): { phase: LoaderPhase; onLeft: () => void } {
+export function useLoaderPhase(
+  loading: boolean,
+  minShowMs = DEFAULT_MIN_SHOW_MS,
+): { phase: LoaderPhase; onLeft: () => void } {
   // The later phases are reached once `loading` clears. A hook that starts
   // out not loading was never shown, so it is done from the start.
   const [settled, setSettled] = useState<Exclude<LoaderPhase, 'loading'> | null>(loading ? null : 'done');
@@ -41,14 +47,14 @@ export function useLoaderPhase(loading: boolean): { phase: LoaderPhase; onLeft: 
     }
     // Never shown: nothing to hold or dissolve.
     if (shownAt.current === 0) return;
-    const hold = Math.max(0, MIN_SHOW_MS - (performance.now() - shownAt.current));
+    const hold = Math.max(0, minShowMs - (performance.now() - shownAt.current));
     const leave = window.setTimeout(() => setSettled('leaving'), hold);
     const fallback = window.setTimeout(() => setSettled('done'), hold + EXIT_FALLBACK_MS);
     return () => {
       window.clearTimeout(leave);
       window.clearTimeout(fallback);
     };
-  }, [loading]);
+  }, [loading, minShowMs]);
 
   /** The loader's dissolve has finished playing. */
   const onLeft = useCallback(() => {

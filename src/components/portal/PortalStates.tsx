@@ -1,10 +1,11 @@
 'use client';
 
-import type { AnimationEvent, CSSProperties } from 'react';
+import { useEffect, useState, type AnimationEvent, type CSSProperties } from 'react';
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
 import { DARK_LOGO_SRC, Logo } from '@/components/ui/Logo';
 import { siteConfig } from '@/site-config';
+import { PORTAL_STEPS, STEP_MS } from './loaderSteps';
 import { PortalRoot } from './PortalShell';
 
 // The orbit around the mark: a hairline track and a quarter turn of teal light.
@@ -41,22 +42,42 @@ function Emblem() {
 }
 
 /**
+ * Walks a status sequence one line at a time and stops on the last one.
+ */
+function useStepIndex(count: number) {
+  const [index, setIndex] = useState(0);
+  useEffect(() => {
+    if (index >= count - 1) return;
+    const timer = window.setTimeout(() => setIndex((i) => Math.min(i + 1, count - 1)), STEP_MS);
+    return () => window.clearTimeout(timer);
+  }, [index, count]);
+  return index;
+}
+
+/**
  * Waiting for the portal payload.
  *
  * A splash built from the mark: the emblem on the bare canvas, a hairline
  * orbit around it with a quarter turn of teal light going round, and one
- * quiet line underneath. `leaving` dissolves the stage for the page,
- * and `onLeft` is called once that dissolve has finished playing.
+ * status line underneath that narrates the portal coming up. `leaving`
+ * dissolves the stage for the page, and `onLeft` is called once that
+ * dissolve has finished playing.
  */
 export function PortalLoading({
   leaving = false,
   onLeft,
-  label = 'Preparing your portal',
+  steps = PORTAL_STEPS,
+  announcement = 'Loading your portal',
 }: {
   leaving?: boolean;
   onLeft?: () => void;
-  label?: string;
+  /** The lines the status reads, in order; the last one holds. */
+  steps?: readonly string[];
+  /** The one thing a screen reader hears, instead of every line. */
+  announcement?: string;
 }) {
+  const step = useStepIndex(steps.length);
+
   // Every animation inside the stage bubbles its end up here; only the
   // stage's own dissolve means the loader is gone.
   const handleAnimationEnd = (event: AnimationEvent<HTMLDivElement>) => {
@@ -80,11 +101,20 @@ export function PortalLoading({
             </svg>
             <Emblem />
           </div>
-          {/* One quiet sentence. The orbit already says "loading", so the line
-              carries no indicator of its own. */}
-          <p role="status" className="vm-muted vm-fade mt-5 text-[15px]" style={{ '--d': '0.4s' } as CSSProperties}>
-            {label}
-          </p>
+          {/* The status sequence. The orbit already says "loading", so the line
+              carries no indicator of its own; the outgoing and incoming lines
+              share one cell so the swap moves nothing. */}
+          <div
+            className="vm-loader-steps vm-muted vm-fade mt-5 text-[15px]"
+            style={{ '--d': '0.4s' } as CSSProperties}
+            aria-hidden="true"
+          >
+            {step > 0 && (
+              <span key={`out-${step - 1}`} className="vm-step vm-step-out">{steps[step - 1]}</span>
+            )}
+            <span key={`in-${step}`} className="vm-step vm-step-in">{steps[step]}</span>
+          </div>
+          <p role="status" className="sr-only">{announcement}</p>
         </div>
       </main>
     </PortalRoot>

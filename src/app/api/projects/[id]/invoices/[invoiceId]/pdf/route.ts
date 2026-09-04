@@ -10,7 +10,7 @@ function contentDispositionFilename(filename: string): string {
 }
 
 export async function GET(
-  _req: Request,
+  req: Request,
   ctx: { params: Promise<{ id: string; invoiceId: string }> },
 ) {
   const { id: projectId, invoiceId } = await ctx.params;
@@ -22,7 +22,9 @@ export async function GET(
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
-  const attachment = await buildInvoicePdfAttachment(projectId, invoiceId, auth.data.memberId);
+  // `?theme=paper` asks for the print version on white; the dark canvas is the default.
+  const theme = new URL(req.url).searchParams.get('theme') === 'paper' ? 'paper' : 'dark';
+  const attachment = await buildInvoicePdfAttachment(projectId, invoiceId, auth.data.memberId, theme);
   if ('error' in attachment) {
     return NextResponse.json({ error: attachment.error }, { status: 400 });
   }

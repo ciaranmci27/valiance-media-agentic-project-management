@@ -1,12 +1,16 @@
 import { Font } from '@react-pdf/renderer';
 
 export const INVOICE_FONT_FAMILY = 'Invoice DM Sans';
+export const INVOICE_FONT_MONO = 'Invoice DM Mono';
+export const INVOICE_FONT_SERIF = 'Invoice Instrument Serif';
 
 let registered = false;
 
 /**
- * Register DM Sans with react-pdf so the invoice PDF matches the app's
- * typography. Idempotent — safe to call on every modal open.
+ * Register the brand's three faces with react-pdf so the invoice PDF speaks
+ * the same type as the website, the portal and the emails: DM Sans for copy,
+ * DM Mono for captions and figures, Instrument Serif for the italic accent.
+ * Idempotent, safe to call on every modal open.
  *
  * Fonts are served from /public/fonts so we don't depend on Google's
  * rotating gstatic URLs (which silently 404 when the hash changes).
@@ -28,6 +32,27 @@ export function registerInvoiceFonts() {
       { src: u('/fonts/dm-sans-500.ttf'), fontWeight: 500 },
       { src: u('/fonts/dm-sans-600.ttf'), fontWeight: 600 },
       { src: u('/fonts/dm-sans-700.ttf'), fontWeight: 700 },
+    ],
+  });
+
+  // The light weight is the one the emails set figures in; without it
+  // react-pdf would quietly substitute the regular.
+  Font.register({
+    family: INVOICE_FONT_MONO,
+    fonts: [
+      { src: u('/fonts/dm-mono-300.ttf'), fontWeight: 300 },
+      { src: u('/fonts/dm-mono-400.ttf'), fontWeight: 400 },
+      { src: u('/fonts/dm-mono-500.ttf'), fontWeight: 500 },
+    ],
+  });
+
+  // Both styles: asking for italic from a family with no italic source is a
+  // hard error in react-pdf, not a fallback.
+  Font.register({
+    family: INVOICE_FONT_SERIF,
+    fonts: [
+      { src: u('/fonts/instrument-serif-400.ttf'), fontWeight: 400, fontStyle: 'normal' },
+      { src: u('/fonts/instrument-serif-400-italic.ttf'), fontWeight: 400, fontStyle: 'italic' },
     ],
   });
 

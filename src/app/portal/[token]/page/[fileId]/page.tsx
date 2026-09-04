@@ -10,6 +10,7 @@ import { PinGate } from '@/components/portal/PinGate';
 import { PortalRoot } from '@/components/portal/PortalShell';
 import { PortalError, PortalLoading } from '@/components/portal/PortalStates';
 import { describeMime } from '@/components/portal/format';
+import { FILE_STEPS, loaderHoldMs } from '@/components/portal/loaderSteps';
 import { useLoaderPhase } from '@/components/portal/useLoaderPhase';
 import { getStoredPin, portalDemoQuery } from '@/components/portal/usePortalData';
 
@@ -35,7 +36,7 @@ export default function PortalFilePage() {
   const [file, setFile] = useState<FileInfo | null>(null);
   const [htmlContent, setHtmlContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const { phase, onLeft: onLoaderLeft } = useLoaderPhase(loading);
+  const { phase, onLeft: onLoaderLeft } = useLoaderPhase(loading, loaderHoldMs(FILE_STEPS));
   const [error, setError] = useState<string | null>(null);
   const [pinRequired, setPinRequired] = useState(false);
   const [pin, setPin] = useState('');
@@ -123,7 +124,14 @@ export default function PortalFilePage() {
   };
 
   if (phase !== 'done') {
-    return <PortalLoading leaving={phase === 'leaving'} onLeft={onLoaderLeft} label="Opening your file" />;
+    return (
+      <PortalLoading
+        leaving={phase === 'leaving'}
+        onLeft={onLoaderLeft}
+        steps={FILE_STEPS}
+        announcement="Loading your file"
+      />
+    );
   }
 
   if (error) {

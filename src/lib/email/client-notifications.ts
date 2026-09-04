@@ -59,7 +59,7 @@ import type {
 } from '@/lib/types';
 import { buildInvoiceData } from '@/lib/invoice-pdf/buildInvoiceData';
 import { InvoicePdfIntegrityError } from '@/lib/invoice-pdf/resolveInvoicePdfBilling';
-import { DEFAULT_INVOICE_PDF_OPTIONS } from '@/lib/invoice-pdf/types';
+import { DEFAULT_INVOICE_PDF_OPTIONS, type InvoicePdfData, type InvoicePdfTheme } from '@/lib/invoice-pdf/types';
 import { ensureLineItems, paidHourlyLineItemTotal, invoicedTotalsByItemType, unpaidHoursByEntry } from '@/lib/invoice-utils';
 import { resolveProjectHourlyRate } from '@/lib/supabase/queries';
 
@@ -476,12 +476,13 @@ async function getSenderName(memberId: string | null | undefined): Promise<strin
   return typeof data?.name === 'string' ? data.name : '';
 }
 
-function invoicePdfFilename(invoiceNumber: string): string {
+/** `INV-007.pdf` for the dark edition, `INV-007-light.pdf` for the one on white. */
+function invoicePdfFilename(invoiceNumber: string, theme: InvoicePdfTheme = 'dark'): string {
   const safe = invoiceNumber
     .trim()
     .replace(/[^a-zA-Z0-9._-]+/g, '-')
     .replace(/^-+|-+$/g, '');
-  return `${safe || 'invoice'}.pdf`;
+  return `${safe || 'invoice'}${theme === 'paper' ? '-light' : ''}.pdf`;
 }
 
 async function streamToBuffer(stream: NodeJS.ReadableStream): Promise<Buffer> {
@@ -492,11 +493,22 @@ async function streamToBuffer(stream: NodeJS.ReadableStream): Promise<Buffer> {
   return Buffer.concat(chunks);
 }
 
-export async function buildInvoicePdfAttachment(
+function invoicePdfRenderError(error: unknown): RenderError {
+  const message = error instanceof InvoicePdfIntegrityError
+    ? error.message
+    : process.env.NODE_ENV === 'production'
+      ? 'Failed to render invoice PDF attachment'
+      : `Failed to render invoice PDF attachment: ${error instanceof Error ? error.message : String(error)}`;
+  console.error('Invoice PDF attachment render failed', error);
+  return { error: message };
+}
+
+/** Everything the invoice PDF needs, loaded once so both editions share it. */
+async function loadInvoicePdfData(
   projectId: string,
   invoiceId: string,
-  triggeredBy?: string | null,
-): Promise<EmailAttachment | RenderError> {
+  triggeredBy: string | null,
+): Promise<InvoicePdfData | RenderError> {
   const [
     project,
     invoice,
@@ -523,15 +535,10 @@ export async function buildInvoicePdfAttachment(
   if ('error' in invoice) return invoice;
 
   try {
-    const [{ renderToStream }, React, { InvoiceDocument }] = await Promise.all([
-      import('@react-pdf/renderer'),
-      import('react'),
-      import('@/lib/invoice-pdf/InvoiceDocument'),
-    ]);
     const portalInvoiceUrl = portal
       ? `${portalUrl(portal.token)}?invoice=${encodeURIComponent(invoice.invoice_number)}`
       : null;
-    const data = buildInvoiceData({
+    return buildInvoiceData({
       invoice,
       project,
       primaryContact,
@@ -542,27 +549,68 @@ export async function buildInvoicePdfAttachment(
         ...(project.invoice_pdf_options ?? {}),
       },
       logoUrl: `${getSiteUrl()}/logos/logo.png`,
+      // Static paths, like the light one: react-pdf validates images by URL
+      // extension, so the /api/logo route (no extension) is rejected.
+      logoDarkUrl: `${getSiteUrl()}/logos/logo-dark.png`,
       portalUrl: portalInvoiceUrl,
       timeEntries,
       projectInvoices,
       team,
     });
-    const document = React.createElement(InvoiceDocument, { data }) as unknown as Parameters<typeof renderToStream>[0];
+  } catch (error) {
+    return invoicePdfRenderError(error);
+  }
+}
+
+async function renderInvoicePdf(
+  data: InvoicePdfData,
+  theme: InvoicePdfTheme,
+): Promise<EmailAttachment | RenderError> {
+  try {
+    const [{ renderToStream }, React, { InvoiceDocument }] = await Promise.all([
+      import('@react-pdf/renderer'),
+      import('react'),
+      import('@/lib/invoice-pdf/InvoiceDocument'),
+    ]);
+    const document = React.createElement(InvoiceDocument, { data, theme }) as unknown as Parameters<typeof renderToStream>[0];
     const stream = await renderToStream(document);
     return {
-      filename: invoicePdfFilename(invoice.invoice_number),
+      filename: invoicePdfFilename(data.invoiceNumber, theme),
       content: await streamToBuffer(stream),
       contentType: 'application/pdf',
     };
   } catch (error) {
-    const message = error instanceof InvoicePdfIntegrityError
-      ? error.message
-      : process.env.NODE_ENV === 'production'
-        ? 'Failed to render invoice PDF attachment'
-        : `Failed to render invoice PDF attachment: ${error instanceof Error ? error.message : String(error)}`;
-    console.error('Invoice PDF attachment render failed', error);
-    return { error: message };
+    return invoicePdfRenderError(error);
   }
+}
+
+/** One edition of the invoice: the dark canvas by default, or paper for printing. */
+export async function buildInvoicePdfAttachment(
+  projectId: string,
+  invoiceId: string,
+  triggeredBy?: string | null,
+  theme: InvoicePdfTheme = 'dark',
+): Promise<EmailAttachment | RenderError> {
+  const data = await loadInvoicePdfData(projectId, invoiceId, triggeredBy ?? null);
+  if ('error' in data) return data;
+  return renderInvoicePdf(data, theme);
+}
+
+/**
+ * Both editions for an email: the dark one that matches the mail it rides
+ * in, and the print version on white for whoever files a paper copy.
+ */
+export async function buildInvoicePdfAttachments(
+  projectId: string,
+  invoiceId: string,
+  triggeredBy?: string | null,
+): Promise<EmailAttachment[] | RenderError> {
+  const data = await loadInvoicePdfData(projectId, invoiceId, triggeredBy ?? null);
+  if ('error' in data) return data;
+  const [dark, paper] = await Promise.all([renderInvoicePdf(data, 'dark'), renderInvoicePdf(data, 'paper')]);
+  if ('error' in dark) return dark;
+  if ('error' in paper) return paper;
+  return [dark, paper];
 }
 
 interface BudgetUsage {
@@ -811,11 +859,20 @@ export async function renderCommunication(
         paidDate: invoice.paid_date,
         attachmentFilename,
       },
-      attachments: [{
-        filename: attachmentFilename,
-        contentType: 'application/pdf',
-        previewUrl: `/api/projects/${projectId}/invoices/${invoice.id}/pdf`,
-      }],
+      // Both editions ride along: the dark one that matches the mail, and the
+      // print version on white.
+      attachments: [
+        {
+          filename: attachmentFilename,
+          contentType: 'application/pdf',
+          previewUrl: `/api/projects/${projectId}/invoices/${invoice.id}/pdf`,
+        },
+        {
+          filename: invoicePdfFilename(invoice.invoice_number, 'paper'),
+          contentType: 'application/pdf',
+          previewUrl: `/api/projects/${projectId}/invoices/${invoice.id}/pdf?theme=paper`,
+        },
+      ],
     };
   }
 
@@ -1149,12 +1206,12 @@ export async function sendCommunication(
       await markCommunicationFailed(commId, 'Invoice metadata is missing invoiceId');
       return { success: false, error: 'Invoice metadata is missing invoiceId' };
     }
-    const attachment = await buildInvoicePdfAttachment(projectId, invoiceId, opts.triggeredBy ?? null);
-    if ('error' in attachment) {
-      await markCommunicationFailed(commId, attachment.error);
-      return { success: false, error: attachment.error };
+    const built = await buildInvoicePdfAttachments(projectId, invoiceId, opts.triggeredBy ?? null);
+    if ('error' in built) {
+      await markCommunicationFailed(commId, built.error);
+      return { success: false, error: built.error };
     }
-    attachments = [attachment];
+    attachments = built;
   }
 
   const sendRes = await sendTransactional({
@@ -1350,21 +1407,21 @@ export async function approveCommunication(
         .eq('status', 'sent');
       return { success: false, error: 'Invoice metadata is missing invoiceId' };
     }
-    const attachment = await buildInvoicePdfAttachment(row.project_id, invoiceId, triggeredBy);
-    if ('error' in attachment) {
+    const built = await buildInvoicePdfAttachments(row.project_id, invoiceId, triggeredBy);
+    if ('error' in built) {
       await supabase
         .from('client_communications')
         .update({
           status: 'pending',
           sent_at: null,
           triggered_by: null,
-          metadata: { ...finalMetadata, send_error: attachment.error },
+          metadata: { ...finalMetadata, send_error: built.error },
         })
         .eq('id', commId)
         .eq('status', 'sent');
-      return { success: false, error: attachment.error };
+      return { success: false, error: built.error };
     }
-    attachments = [attachment];
+    attachments = built;
   }
 
   const sendRes = await sendTransactional({

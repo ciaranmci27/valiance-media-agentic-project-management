@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { PortalData } from '@/lib/types';
 import type { PinInputRef } from '@/components/ui/PinInput';
 import { toast } from '@/components/ui/Toast';
+import { PORTAL_STEPS, loaderHoldMs } from './loaderSteps';
 import { useLoaderPhase } from './useLoaderPhase';
 
 export interface PortalBranding {
@@ -83,7 +84,7 @@ export function usePortalData(token: string) {
   const [loading, setLoading] = useState(true);
   // The loader holds and then dissolves after `loading` clears; the page only
   // mounts its content at 'done', so anything that reads the DOM waits for it.
-  const { phase, onLeft: onLoaderLeft } = useLoaderPhase(loading);
+  const { phase, onLeft: onLoaderLeft } = useLoaderPhase(loading, loaderHoldMs(PORTAL_STEPS));
   const [error, setError] = useState<string | null>(null);
   const [pinRequired, setPinRequired] = useState(false);
   const [pin, setPin] = useState('');

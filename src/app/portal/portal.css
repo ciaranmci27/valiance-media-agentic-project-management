@@ -631,6 +631,43 @@
     }
   }
 
+  /* The status line under the mark advances through a short sequence. The
+     outgoing and incoming lines share one grid cell, so the swap never moves
+     anything: the old line lifts out as the new one rises in. */
+  .vm-loader-steps {
+    display: grid;
+    justify-items: center;
+    text-align: center;
+  }
+
+  .vm-step {
+    grid-area: 1 / 1;
+    white-space: nowrap;
+  }
+
+  .vm-step-in {
+    animation: vm-step-in 0.45s var(--vm-ease) both;
+  }
+
+  .vm-step-out {
+    animation: vm-step-out 0.35s var(--vm-ease) forwards;
+    pointer-events: none;
+  }
+
+  @keyframes vm-step-in {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+  }
+
+  @keyframes vm-step-out {
+    to {
+      opacity: 0;
+      transform: translateY(-8px);
+    }
+  }
+
   @keyframes vm-shake {
     0%,
     100% {

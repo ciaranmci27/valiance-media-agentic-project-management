@@ -26,6 +26,8 @@ interface BuildInvoiceDataInput {
   senderName: string;
   /** Absolute URL to the logo, or a relative path the PDF can resolve. */
   logoUrl: string;
+  /** Absolute URL to the lockup drawn for dark chrome; the dark canvas uses it. */
+  logoDarkUrl?: string | null;
   /** Absolute URL to the client portal — null/undefined when not enabled. */
   portalUrl?: string | null;
   /** Optional per-invoice rendering toggles. Falls back to all-on. */
@@ -54,6 +56,7 @@ export function buildInvoiceData({
   businessSettings,
   senderName,
   logoUrl,
+  logoDarkUrl,
   portalUrl,
   options,
   timeEntries,
@@ -114,6 +117,7 @@ export function buildInvoiceData({
   return {
     brandColor: siteConfig.colors.brand[500],
     logoUrl,
+    logoDarkUrl: logoDarkUrl ?? null,
     business,
     billTo,
     invoiceNumber: invoice.invoice_number,
