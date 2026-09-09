@@ -6,7 +6,7 @@ import { useApp } from '@/lib/store';
 import Modal from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import { Select } from '@/components/ui/Select';
+import { Select } from '@/components/ui/inputs/Select';
 import { RichTextEditor } from '@/components/ui/RichTextEditor';
 import { MultiSelect } from '@/components/ui/inputs/MultiSelect';
 import { formatPhone } from '@/lib/format-phone';
@@ -138,12 +138,7 @@ export function LeadForm({ isOpen, onClose, lead, onConvertRequested }: LeadForm
   };
 
   return (
-    <Modal
-      isOpen={isOpen}
-      onClose={onClose}
-      title={lead ? 'Edit Lead' : 'New Lead'}
-      size="lg"
-    >
+    <Modal isOpen={isOpen} onClose={onClose} title={lead ? 'Edit Lead' : 'New Lead'} size="lg">
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="grid grid-cols-2 gap-4">
           <Input
@@ -201,7 +196,7 @@ export function LeadForm({ isOpen, onClose, lead, onConvertRequested }: LeadForm
 
         <MultiSelect
           label="Team Members"
-          options={team.map(m => ({ value: m.id, label: m.name }))}
+          options={team.map((m) => ({ value: m.id, label: m.name }))}
           value={memberIds}
           onChange={setMemberIds}
           placeholder="Select team members..."

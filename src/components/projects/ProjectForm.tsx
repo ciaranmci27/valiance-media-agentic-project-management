@@ -8,7 +8,7 @@ import { useApp } from '@/lib/store';
 import Modal from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import { Select } from '@/components/ui/Select';
+import { Select } from '@/components/ui/inputs/Select';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { ContactForm } from '@/components/contacts/ContactForm';
 import { Textarea } from '@/components/ui/inputs/Textarea';
@@ -20,8 +20,14 @@ import { hasPermission } from '@/lib/access-control';
 
 const DEFAULT_PROJECT_COLOR = '';
 const PROJECT_COLORS = [
-  '#8B5CF6', '#EC4899', '#EF4444', '#F59E0B',
-  '#10B981', '#06B6D4', '#3B82F6', siteConfig.colors.brand[500],
+  '#8B5CF6',
+  '#EC4899',
+  '#EF4444',
+  '#F59E0B',
+  '#10B981',
+  '#06B6D4',
+  '#3B82F6',
+  siteConfig.colors.brand[500],
 ];
 
 function formatBudgetDisplay(val: string): string {
@@ -63,7 +69,8 @@ interface ProjectFormProps {
 }
 
 export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
-  const { team, contacts, addProject, updateProject, addProjectContact, getPrimaryClient } = useApp();
+  const { team, contacts, addProject, updateProject, addProjectContact, getPrimaryClient } =
+    useApp();
   const { access, teamMemberId } = useAuth();
   const canManageBilling = hasPermission(access, 'billing.manage');
   const canManageProjectMembers = hasPermission(access, 'project_members.manage');
@@ -107,7 +114,9 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
       setStartDate(project.start_date || '');
       setDueDate(project.due_date || '');
       setHourlyTracking(project.time_tracking_enabled ?? project.hourly_tracking ?? false);
-      setClientTimeBilling(project.client_time_billing ?? (project.hourly_tracking ? 'hourly' : 'included'));
+      setClientTimeBilling(
+        project.client_time_billing ?? (project.hourly_tracking ? 'hourly' : 'included'),
+      );
       setBudgetType(project.budget_type ?? '');
       setBudgetValue(project.budget_value != null ? String(project.budget_value) : '');
       setBillingAddress(project.billing_address ?? '');
@@ -158,7 +167,9 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
         // Silent fail: the toggle will just stay hidden.
       }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [canManageBilling, isOpen, project]);
 
   const doSave = async () => {
@@ -172,21 +183,28 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
       due_date: dueDate || null,
       hourly_tracking: hourlyTracking,
       time_tracking_enabled: hourlyTracking,
-      member_ids: canManageProjectMembers ? memberIds : (project?.member_ids || (teamMemberId ? [teamMemberId] : [])),
-      ...(canManageBilling ? {
-        client_time_billing: clientTimeBilling,
-        hourly_rate: project?.hourly_rate ?? null,
-        budget_type: budgetType || null,
-        budget_value: budgetValue && !isNaN(parseFloat(budgetValue)) ? parseFloat(budgetValue) : null,
-        billing_address: billingAddress.trim() || null,
-        billing_email: billingEmail.trim() || null,
-        tax_rate: taxRate && !isNaN(parseFloat(taxRate)) ? parseFloat(taxRate) : null,
-      } : {}),
-      ...(canManageAgents ? {
-        autonomous_enabled: autonomousEnabled,
-        suggestions_per_cycle: suggestionsPerCycle,
-        repo_path: project?.repo_path ?? null,
-      } : {}),
+      member_ids: canManageProjectMembers
+        ? memberIds
+        : project?.member_ids || (teamMemberId ? [teamMemberId] : []),
+      ...(canManageBilling
+        ? {
+            client_time_billing: clientTimeBilling,
+            hourly_rate: project?.hourly_rate ?? null,
+            budget_type: budgetType || null,
+            budget_value:
+              budgetValue && !isNaN(parseFloat(budgetValue)) ? parseFloat(budgetValue) : null,
+            billing_address: billingAddress.trim() || null,
+            billing_email: billingEmail.trim() || null,
+            tax_rate: taxRate && !isNaN(parseFloat(taxRate)) ? parseFloat(taxRate) : null,
+          }
+        : {}),
+      ...(canManageAgents
+        ? {
+            autonomous_enabled: autonomousEnabled,
+            suggestions_per_cycle: suggestionsPerCycle,
+            repo_path: project?.repo_path ?? null,
+          }
+        : {}),
     } as Omit<Project, 'id' | 'created_at' | 'updated_at'>;
 
     if (project) {
@@ -211,7 +229,7 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
   };
 
   const handleToggleBudgetHistory = () => {
-    setShowBudgetHistory(prev => !prev);
+    setShowBudgetHistory((prev) => !prev);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -232,17 +250,16 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
     await doSave();
   };
 
-
   // Outside-click for the client dropdown is handled by its Popover.
 
   const filteredContacts = contacts
-    .filter(c => {
+    .filter((c) => {
       const q = contactSearch.toLowerCase();
       return c.name.toLowerCase().includes(q) || c.company?.toLowerCase().includes(q);
     })
     .sort((a, b) => a.name.localeCompare(b.name));
 
-  const selectedContact = contacts.find(c => c.id === selectedContactId);
+  const selectedContact = contacts.find((c) => c.id === selectedContactId);
 
   const statusOptions = [
     { value: 'active', label: 'Active' },
@@ -277,147 +294,162 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
         <Textarea
           label="Description"
           value={description}
-          onChange={v => setDescription(v.slice(0, 100))}
+          onChange={(v) => setDescription(v.slice(0, 100))}
           placeholder="Describe the project..."
           rows={2}
           maxLength={100}
           showCharCount
         />
 
-        {canManageContacts && <div className="space-y-1.5" ref={contactDropdownRef}>
-          <label className="block text-sm font-medium text-zinc-300">
-            Primary Client {!project && <span className="text-red-500">*</span>}
-          </label>
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => {
-                setContactDropdownOpen(!contactDropdownOpen);
-                setContactSearch('');
-              }}
-              className={`w-full px-3 py-2 text-sm text-left bg-surface-raised border rounded-lg outline-none transition-all ${
-                clientError && !selectedContactId
-                  ? 'border-red-400 focus:border-red-500 focus:ring-2 focus:ring-red-500/30'
-                  : 'border-white/[0.08] focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30'
-              }`}
-            >
-              {selectedContact ? (
-                <span className="flex items-center gap-2">
-                  <span className="w-5 h-5 rounded-full bg-brand-500/15 text-brand-300 flex items-center justify-center text-[10px] font-semibold shrink-0">
-                    {selectedContact.name.charAt(0).toUpperCase()}
-                  </span>
-                  <span className="truncate">{selectedContact.name}</span>
-                  {selectedContact.company && (
-                    <span className="text-zinc-500 truncate">- {selectedContact.company}</span>
-                  )}
-                </span>
-              ) : (
-                <span className="text-zinc-500">Select primary client...</span>
-              )}
-            </button>
-            <Popover
-              anchorRef={contactDropdownRef}
-              open={contactDropdownOpen}
-              onClose={() => setContactDropdownOpen(false)}
-              align="start"
-              matchAnchorWidth
-              className="bg-surface-raised border border-white/[0.08] rounded-lg shadow-lg"
-            >
-              <div className="flex flex-col max-h-60">
-                {contactSearchVisible && (
-                  <div className="p-2 border-b border-white/[0.06] shrink-0">
-                    <input
-                      type="text"
-                      value={contactSearch}
-                      onChange={(e) => setContactSearch(e.target.value)}
-                      placeholder="Search contacts..."
-                      className="w-full px-2 py-1.5 text-sm bg-white/[0.03] border border-white/[0.08] rounded-md outline-none focus:border-brand-500"
-                      autoFocus
-                    />
-                  </div>
-                )}
-                <div className="overflow-y-auto min-h-0 flex-1">
-                  {filteredContacts.length === 0 ? (
-                    <div className="px-3 py-2 text-sm text-zinc-500">No contacts found</div>
-                  ) : (
-                    filteredContacts.map((c) => (
-                      <button
-                        key={c.id}
-                        type="button"
-                        onClick={() => {
-                          setSelectedContactId(c.id);
-                          setContactDropdownOpen(false);
-                          setClientError(false);
-                        }}
-                        className={`w-full px-3 py-2 text-sm text-left hover:bg-brand-500/15 flex items-center gap-2 transition-colors ${
-                          c.id === selectedContactId ? 'bg-brand-500/15 text-brand-300' : 'text-zinc-300'
-                        }`}
-                      >
-                        <span className="w-5 h-5 rounded-full bg-brand-500/15 text-brand-300 flex items-center justify-center text-[10px] font-semibold shrink-0">
-                          {c.name.charAt(0).toUpperCase()}
-                        </span>
-                        <span className="truncate">{c.name}</span>
-                        {c.company && (
-                          <span className="text-zinc-500 text-xs truncate">- {c.company}</span>
-                        )}
-                      </button>
-                    ))
-                  )}
-                </div>
-                <div className="shrink-0 border-t border-white/[0.06]">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setContactSearchVisible(!contactSearchVisible);
-                      if (contactSearchVisible) setContactSearch('');
-                    }}
-                    className="w-full px-3 py-2 text-sm text-left text-brand-300 hover:bg-brand-500/15 flex items-center gap-2 transition-colors font-medium"
-                  >
-                    <span className="w-4 h-4 rounded-full bg-brand-500/15 text-brand-300 flex items-center justify-center shrink-0">
-                      <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                      </svg>
+        {canManageContacts && (
+          <div className="space-y-1.5" ref={contactDropdownRef}>
+            <label className="block text-sm font-medium text-zinc-300">
+              Primary Client {!project && <span className="text-red-500">*</span>}
+            </label>
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => {
+                  setContactDropdownOpen(!contactDropdownOpen);
+                  setContactSearch('');
+                }}
+                className={`w-full px-3 py-2 text-sm text-left bg-surface-raised border rounded-lg outline-none transition-all ${
+                  clientError && !selectedContactId
+                    ? 'border-red-400 focus:border-red-500 focus:ring-2 focus:ring-red-500/30'
+                    : 'border-white/[0.08] focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30'
+                }`}
+              >
+                {selectedContact ? (
+                  <span className="flex items-center gap-2">
+                    <span className="w-5 h-5 rounded-full bg-brand-500/15 text-brand-300 flex items-center justify-center text-[10px] font-semibold shrink-0">
+                      {selectedContact.name.charAt(0).toUpperCase()}
                     </span>
-                    {contactSearchVisible ? 'Hide search' : 'Search contacts'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      contactsCountBeforeRef.current = contacts.length;
-                      setContactDropdownOpen(false);
-                      setShowNewContactForm(true);
-                    }}
-                    className="w-full px-3 py-2 text-sm text-left text-brand-300 hover:bg-brand-500/15 flex items-center gap-2 transition-colors font-medium"
-                  >
-                    <span className="w-4 h-4 rounded-full bg-brand-500/15 text-brand-300 flex items-center justify-center text-xs shrink-0">+</span>
-                    Create new contact
-                  </button>
+                    <span className="truncate">{selectedContact.name}</span>
+                    {selectedContact.company && (
+                      <span className="text-zinc-500 truncate">- {selectedContact.company}</span>
+                    )}
+                  </span>
+                ) : (
+                  <span className="text-zinc-500">Select primary client...</span>
+                )}
+              </button>
+              <Popover
+                anchorRef={contactDropdownRef}
+                open={contactDropdownOpen}
+                onClose={() => setContactDropdownOpen(false)}
+                align="start"
+                matchAnchorWidth
+                className="bg-surface-raised border border-white/[0.08] rounded-lg shadow-lg"
+              >
+                <div className="flex flex-col max-h-60">
+                  {contactSearchVisible && (
+                    <div className="p-2 border-b border-white/[0.06] shrink-0">
+                      <input
+                        type="text"
+                        value={contactSearch}
+                        onChange={(e) => setContactSearch(e.target.value)}
+                        placeholder="Search contacts..."
+                        className="w-full px-2 py-1.5 text-sm bg-white/[0.03] border border-white/[0.08] rounded-md outline-none focus:border-brand-500"
+                        autoFocus
+                      />
+                    </div>
+                  )}
+                  <div className="overflow-y-auto min-h-0 flex-1">
+                    {filteredContacts.length === 0 ? (
+                      <div className="px-3 py-2 text-sm text-zinc-500">No contacts found</div>
+                    ) : (
+                      filteredContacts.map((c) => (
+                        <button
+                          key={c.id}
+                          type="button"
+                          onClick={() => {
+                            setSelectedContactId(c.id);
+                            setContactDropdownOpen(false);
+                            setClientError(false);
+                          }}
+                          className={`w-full px-3 py-2 text-sm text-left hover:bg-brand-500/15 flex items-center gap-2 transition-colors ${
+                            c.id === selectedContactId
+                              ? 'bg-brand-500/15 text-brand-300'
+                              : 'text-zinc-300'
+                          }`}
+                        >
+                          <span className="w-5 h-5 rounded-full bg-brand-500/15 text-brand-300 flex items-center justify-center text-[10px] font-semibold shrink-0">
+                            {c.name.charAt(0).toUpperCase()}
+                          </span>
+                          <span className="truncate">{c.name}</span>
+                          {c.company && (
+                            <span className="text-zinc-500 text-xs truncate">- {c.company}</span>
+                          )}
+                        </button>
+                      ))
+                    )}
+                  </div>
+                  <div className="shrink-0 border-t border-white/[0.06]">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setContactSearchVisible(!contactSearchVisible);
+                        if (contactSearchVisible) setContactSearch('');
+                      }}
+                      className="w-full px-3 py-2 text-sm text-left text-brand-300 hover:bg-brand-500/15 flex items-center gap-2 transition-colors font-medium"
+                    >
+                      <span className="w-4 h-4 rounded-full bg-brand-500/15 text-brand-300 flex items-center justify-center shrink-0">
+                        <svg
+                          className="w-2.5 h-2.5"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                          strokeWidth={3}
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                          />
+                        </svg>
+                      </span>
+                      {contactSearchVisible ? 'Hide search' : 'Search contacts'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        contactsCountBeforeRef.current = contacts.length;
+                        setContactDropdownOpen(false);
+                        setShowNewContactForm(true);
+                      }}
+                      className="w-full px-3 py-2 text-sm text-left text-brand-300 hover:bg-brand-500/15 flex items-center gap-2 transition-colors font-medium"
+                    >
+                      <span className="w-4 h-4 rounded-full bg-brand-500/15 text-brand-300 flex items-center justify-center text-xs shrink-0">
+                        +
+                      </span>
+                      Create new contact
+                    </button>
+                  </div>
                 </div>
-              </div>
-            </Popover>
+              </Popover>
+            </div>
+            {clientError && !selectedContactId && (
+              <p className="text-xs text-red-500">
+                Please select a primary client for this project
+              </p>
+            )}
           </div>
-          {clientError && !selectedContactId && (
-            <p className="text-xs text-red-500">Please select a primary client for this project</p>
-          )}
-        </div>}
+        )}
 
-        {canManageProjectMembers && <MultiSelect
-          label="Team Members"
-          options={team.map(m => ({ value: m.id, label: m.name }))}
-          value={memberIds}
-          onChange={setMemberIds}
-          placeholder="Select team members..."
-          selectAll
-          searchable={team.length > 4}
-        />}
+        {canManageProjectMembers && (
+          <MultiSelect
+            label="Team Members"
+            options={team.map((m) => ({ value: m.id, label: m.name }))}
+            value={memberIds}
+            onChange={setMemberIds}
+            placeholder="Select team members..."
+            selectAll
+            searchable={team.length > 4}
+          />
+        )}
 
         <div className="grid grid-cols-2 gap-4">
-          <DateInput
-            label="Start Date"
-            value={startDate}
-            onChange={setStartDate}
-            clearable
-          />
+          <DateInput label="Start Date" value={startDate} onChange={setStartDate} clearable />
           <DateInput
             label="Due Date"
             value={dueDate}
@@ -448,144 +480,185 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
         </div>
         {hourlyTracking && canManageBilling && (
           <div>
-            <label className="block text-sm font-medium text-zinc-300 mb-1.5">Client billing treatment</label>
-            <Select value={clientTimeBilling} onChange={(value) => setClientTimeBilling(value as 'hourly' | 'included')} options={[{ value: 'hourly', label: 'Bill tracked time to client' }, { value: 'included', label: 'Time is included in project price' }]} />
-            <p className="text-xs text-zinc-500 mt-1">Employee compensation is calculated either way. Included time never enters the client invoice queue.</p>
+            <label className="block text-sm font-medium text-zinc-300 mb-1.5">
+              Client billing treatment
+            </label>
+            <Select
+              ariaLabel="Client time billing"
+              value={clientTimeBilling}
+              onChange={(value) => setClientTimeBilling(value as 'hourly' | 'included')}
+              options={[
+                { value: 'hourly', label: 'Bill tracked time to client' },
+                { value: 'included', label: 'Time is included in project price' },
+              ]}
+            />
+            <p className="text-xs text-zinc-500 mt-1">
+              Employee compensation is calculated either way. Included time never enters the client
+              invoice queue.
+            </p>
           </div>
         )}
 
         {/* Budget */}
-        {canManageBilling && <><div className="space-y-2">
-          <label className="block text-sm font-medium text-zinc-300">Budget <span className="font-normal text-zinc-500">(optional)</span></label>
-          <div className="flex gap-2">
-            <div className="flex rounded-lg border border-white/[0.08] overflow-hidden">
-              <button
-                type="button"
-                onClick={() => setBudgetType(budgetType === 'amount' ? '' : 'amount')}
-                className={`px-3 py-1.5 text-sm font-medium transition-colors ${
-                  budgetType === 'amount' ? 'bg-brand-600 text-white' : 'bg-surface-raised text-zinc-400 hover:bg-white/[0.03]'
-                }`}
-              >
-                Amount
-              </button>
-              <button
-                type="button"
-                onClick={() => setBudgetType(budgetType === 'hours' ? '' : 'hours')}
-                className={`px-3 py-1.5 text-sm font-medium transition-colors border-l border-white/[0.08] ${
-                  budgetType === 'hours' ? 'bg-brand-600 text-white' : 'bg-surface-raised text-zinc-400 hover:bg-white/[0.03]'
-                }`}
-              >
-                Hours
-              </button>
-            </div>
-            {budgetType && (
-              <div className="relative flex-1">
-                {budgetType === 'amount' && (
-                  <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-zinc-400 z-10">
-                    $
-                  </span>
-                )}
-                <Input
-                  type="text"
-                  inputMode="decimal"
-                  value={formatBudgetDisplay(budgetValue)}
-                  onChange={(e) => setBudgetValue(sanitizeBudgetInput(e.target.value))}
-                  placeholder={budgetType === 'amount' ? '5,000' : '40'}
-                  className={budgetType === 'amount' ? 'pl-7' : ''}
-                />
-              </div>
-            )}
-          </div>
-          {budgetType && (
-            <p className="text-xs text-zinc-500">
-              {budgetType === 'amount' ? 'Total dollar budget for this project' : 'Total hours allocated for this project'}
-            </p>
-          )}
-
-          {project && budgetHistory && budgetHistory.length >= 2 && (
-            <div className="pt-1">
-              <button
-                type="button"
-                onClick={handleToggleBudgetHistory}
-                className="inline-flex items-center gap-1 text-xs text-zinc-400 hover:text-zinc-300 transition-colors"
-                aria-expanded={showBudgetHistory}
-              >
-                <History size={12} />
-                {showBudgetHistory ? 'Hide budget history' : 'View budget history'}
-                <ChevronDown
-                  size={12}
-                  className={`transition-transform ${showBudgetHistory ? 'rotate-180' : ''}`}
-                />
-              </button>
-              {showBudgetHistory && (
-                <div className="mt-2 rounded-md border border-white/[0.08] bg-white/[0.03] overflow-hidden">
-                  <ul className="divide-y divide-white/[0.08]">
-                    {budgetHistory.map((entry) => {
-                      const changer = entry.changed_by
-                        ? team.find(m => m.id === entry.changed_by)?.name ?? 'Unknown'
-                        : 'System';
-                      return (
-                        <li key={entry.id} className="px-3 py-2 flex items-center justify-between gap-3 text-xs">
-                          <div className="flex items-center gap-2 min-w-0">
-                            <span className="text-zinc-400 whitespace-nowrap">{formatHistoryDate(entry.created_at)}</span>
-                            <span className="text-zinc-300 truncate">
-                              <span className="text-zinc-500">{formatBudgetSnapshot(entry.old_type, entry.old_value)}</span>
-                              <span className="mx-1.5 text-zinc-500">→</span>
-                              <span className="font-medium">{formatBudgetSnapshot(entry.new_type, entry.new_value)}</span>
-                            </span>
-                          </div>
-                          <span className="text-zinc-500 whitespace-nowrap">by {changer}</span>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                  <div className="px-3 py-1.5 text-[10px] text-zinc-500 border-t border-white/[0.08] bg-surface-raised">
-                    {budgetHistory.length} change{budgetHistory.length === 1 ? '' : 's'} total
+        {canManageBilling && (
+          <>
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-zinc-300">
+                Budget <span className="font-normal text-zinc-500">(optional)</span>
+              </label>
+              <div className="flex gap-2">
+                <div className="flex rounded-lg border border-white/[0.08] overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => setBudgetType(budgetType === 'amount' ? '' : 'amount')}
+                    className={`px-3 py-1.5 text-sm font-medium transition-colors ${
+                      budgetType === 'amount'
+                        ? 'bg-brand-600 text-white'
+                        : 'bg-surface-raised text-zinc-400 hover:bg-white/[0.03]'
+                    }`}
+                  >
+                    Amount
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setBudgetType(budgetType === 'hours' ? '' : 'hours')}
+                    className={`px-3 py-1.5 text-sm font-medium transition-colors border-l border-white/[0.08] ${
+                      budgetType === 'hours'
+                        ? 'bg-brand-600 text-white'
+                        : 'bg-surface-raised text-zinc-400 hover:bg-white/[0.03]'
+                    }`}
+                  >
+                    Hours
+                  </button>
+                </div>
+                {budgetType && (
+                  <div className="relative flex-1">
+                    {budgetType === 'amount' && (
+                      <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-zinc-400 z-10">
+                        $
+                      </span>
+                    )}
+                    <Input
+                      type="text"
+                      inputMode="decimal"
+                      value={formatBudgetDisplay(budgetValue)}
+                      onChange={(e) => setBudgetValue(sanitizeBudgetInput(e.target.value))}
+                      placeholder={budgetType === 'amount' ? '5,000' : '40'}
+                      className={budgetType === 'amount' ? 'pl-7' : ''}
+                    />
                   </div>
+                )}
+              </div>
+              {budgetType && (
+                <p className="text-xs text-zinc-500">
+                  {budgetType === 'amount'
+                    ? 'Total dollar budget for this project'
+                    : 'Total hours allocated for this project'}
+                </p>
+              )}
+
+              {project && budgetHistory && budgetHistory.length >= 2 && (
+                <div className="pt-1">
+                  <button
+                    type="button"
+                    onClick={handleToggleBudgetHistory}
+                    className="inline-flex items-center gap-1 text-xs text-zinc-400 hover:text-zinc-300 transition-colors"
+                    aria-expanded={showBudgetHistory}
+                  >
+                    <History size={12} />
+                    {showBudgetHistory ? 'Hide budget history' : 'View budget history'}
+                    <ChevronDown
+                      size={12}
+                      className={`transition-transform ${showBudgetHistory ? 'rotate-180' : ''}`}
+                    />
+                  </button>
+                  {showBudgetHistory && (
+                    <div className="mt-2 rounded-md border border-white/[0.08] bg-white/[0.03] overflow-hidden">
+                      <ul className="divide-y divide-white/[0.08]">
+                        {budgetHistory.map((entry) => {
+                          const changer = entry.changed_by
+                            ? (team.find((m) => m.id === entry.changed_by)?.name ?? 'Unknown')
+                            : 'System';
+                          return (
+                            <li
+                              key={entry.id}
+                              className="px-3 py-2 flex items-center justify-between gap-3 text-xs"
+                            >
+                              <div className="flex items-center gap-2 min-w-0">
+                                <span className="text-zinc-400 whitespace-nowrap">
+                                  {formatHistoryDate(entry.created_at)}
+                                </span>
+                                <span className="text-zinc-300 truncate">
+                                  <span className="text-zinc-500">
+                                    {formatBudgetSnapshot(entry.old_type, entry.old_value)}
+                                  </span>
+                                  <span className="mx-1.5 text-zinc-500">→</span>
+                                  <span className="font-medium">
+                                    {formatBudgetSnapshot(entry.new_type, entry.new_value)}
+                                  </span>
+                                </span>
+                              </div>
+                              <span className="text-zinc-500 whitespace-nowrap">by {changer}</span>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                      <div className="px-3 py-1.5 text-[10px] text-zinc-500 border-t border-white/[0.08] bg-surface-raised">
+                        {budgetHistory.length} change{budgetHistory.length === 1 ? '' : 's'} total
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
-          )}
-        </div>
 
-        {/* Billing — used on the invoice PDF for this project */}
-        <div className="space-y-3 rounded-lg border border-white/[0.08] bg-white/[0.03] p-3">
-          <div>
-            <label className="block text-sm font-medium text-zinc-300">Billing <span className="font-normal text-zinc-500">(optional)</span></label>
-            <p className="text-xs text-zinc-500">Shown on invoice PDFs. Falls back to the primary client&apos;s contact info when blank.</p>
-          </div>
-          <Textarea
-            label="Bill To Address"
-            value={billingAddress}
-            onChange={(v) => setBillingAddress(v.slice(0, 300))}
-            placeholder={'Client name or company\nStreet address\nCity, State 12345'}
-            rows={3}
-            maxLength={300}
-            showCharCount
-          />
-          <div className="grid grid-cols-2 gap-3">
-            <Input
-              label="Bill To Email"
-              type="email"
-              value={billingEmail}
-              onChange={(e) => setBillingEmail(e.target.value)}
-              placeholder="billing@client.com"
-            />
-            <div className="relative">
-              <Input
-                label="Tax Rate (%)"
-                type="text"
-                inputMode="decimal"
-                value={taxRate}
-                onChange={(e) => setTaxRate(e.target.value.replace(/[^0-9.]/g, ''))}
-                placeholder="0"
+            {/* Billing ; used on the invoice PDF for this project */}
+            <div className="space-y-3 rounded-lg border border-white/[0.08] bg-white/[0.03] p-3">
+              <div>
+                <label className="block text-sm font-medium text-zinc-300">
+                  Billing <span className="font-normal text-zinc-500">(optional)</span>
+                </label>
+                <p className="text-xs text-zinc-500">
+                  Shown on invoice PDFs. Falls back to the primary client&apos;s contact info when
+                  blank.
+                </p>
+              </div>
+              <Textarea
+                label="Bill To Address"
+                value={billingAddress}
+                onChange={(v) => setBillingAddress(v.slice(0, 300))}
+                placeholder={'Client name or company\nStreet address\nCity, State 12345'}
+                rows={3}
+                maxLength={300}
+                showCharCount
               />
+              <div className="grid grid-cols-2 gap-3">
+                <Input
+                  label="Bill To Email"
+                  type="email"
+                  value={billingEmail}
+                  onChange={(e) => setBillingEmail(e.target.value)}
+                  placeholder="billing@client.com"
+                />
+                <div className="relative">
+                  <Input
+                    label="Tax Rate (%)"
+                    type="text"
+                    inputMode="decimal"
+                    value={taxRate}
+                    onChange={(e) => setTaxRate(e.target.value.replace(/[^0-9.]/g, ''))}
+                    placeholder="0"
+                  />
+                </div>
+              </div>
             </div>
-          </div>
-        </div></>}
+          </>
+        )}
 
         <div className="space-y-1.5">
-          <label className="block text-sm font-medium text-zinc-300">Color <span className="font-normal text-zinc-500">(optional)</span></label>
+          <label className="block text-sm font-medium text-zinc-300">
+            Color <span className="font-normal text-zinc-500">(optional)</span>
+          </label>
           <div className="flex gap-2">
             {PROJECT_COLORS.map((c) => (
               <button
@@ -611,20 +684,22 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
         </div>
       </form>
 
-      {canManageContacts && <ContactForm
-        isOpen={showNewContactForm}
-        onClose={() => {
-          setShowNewContactForm(false);
-          // Auto-select the newly created contact if one was added
-          if (contacts.length > contactsCountBeforeRef.current) {
-            const newest = contacts[0]; // store prepends new contacts
-            if (newest) {
-              setSelectedContactId(newest.id);
-              setClientError(false);
+      {canManageContacts && (
+        <ContactForm
+          isOpen={showNewContactForm}
+          onClose={() => {
+            setShowNewContactForm(false);
+            // Auto-select the newly created contact if one was added
+            if (contacts.length > contactsCountBeforeRef.current) {
+              const newest = contacts[0]; // store prepends new contacts
+              if (newest) {
+                setSelectedContactId(newest.id);
+                setClientError(false);
+              }
             }
-          }
-        }}
-      />}
+          }}
+        />
+      )}
 
       <ConfirmDialog
         isOpen={confirmStatusChange}

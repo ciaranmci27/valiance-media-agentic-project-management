@@ -1,8 +1,24 @@
 'use client';
+import { FileInput } from '@/components/ui/inputs/FileInput';
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { Upload, Download, Trash2, Pencil, File, FileText, Image, Archive, Globe, Paperclip, Eye, MoreHorizontal, Share2, ShieldOff } from 'lucide-react';
+import {
+  Upload,
+  Download,
+  Trash2,
+  Pencil,
+  File,
+  FileText,
+  Image,
+  Archive,
+  Globe,
+  Paperclip,
+  Eye,
+  MoreHorizontal,
+  Share2,
+  ShieldOff,
+} from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
@@ -35,11 +51,18 @@ interface FileAttachmentsProps {
 }
 
 export function FileAttachments({ entityType, entityId }: FileAttachmentsProps) {
-  const { getEntityFiles, addEntityFile, renameEntityFile, deleteEntityFile, updateEntityFileVisibility } = useApp();
+  const {
+    getEntityFiles,
+    addEntityFile,
+    renameEntityFile,
+    deleteEntityFile,
+    updateEntityFileVisibility,
+  } = useApp();
   const { teamMemberId, access } = useAuth();
   const canUpload = hasPermission(access, 'files.upload');
   const canManageFiles = hasPermission(access, 'files.manage');
-  const canDeleteFile = (file: EntityFile) => canManageFiles || (file.uploaded_by === teamMemberId && file.visibility === 'internal');
+  const canDeleteFile = (file: EntityFile) =>
+    canManageFiles || (file.uploaded_by === teamMemberId && file.visibility === 'internal');
   const { isDemoMode } = useDemo();
 
   const [uploading, setUploading] = useState(false);
@@ -50,7 +73,9 @@ export function FileAttachments({ entityType, entityId }: FileAttachmentsProps) 
   const [menuPos, setMenuPos] = useState({ top: 0, left: 0, openAbove: false });
   const [previewFile, setPreviewFile] = useState<EntityFile | null>(null);
   const [showNewNote, setShowNewNote] = useState(false);
-  const [noteEditMode, setNoteEditMode] = useState<{ initialFileName: string; initialContent: string; fileId: string } | undefined>(undefined);
+  const [noteEditMode, setNoteEditMode] = useState<
+    { initialFileName: string; initialContent: string; fileId: string } | undefined
+  >(undefined);
 
   const renameCancelledRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -91,8 +116,10 @@ export function FileAttachments({ entityType, entityId }: FileAttachmentsProps) 
     const handleClick = (e: MouseEvent) => {
       const target = e.target as Node;
       if (
-        triggerRefs.current[openMenuId] && !triggerRefs.current[openMenuId]!.contains(target) &&
-        dropdownRef.current && !dropdownRef.current.contains(target)
+        triggerRefs.current[openMenuId] &&
+        !triggerRefs.current[openMenuId]!.contains(target) &&
+        dropdownRef.current &&
+        !dropdownRef.current.contains(target)
       ) {
         setOpenMenuId(null);
       }
@@ -139,9 +166,7 @@ export function FileAttachments({ entityType, entityId }: FileAttachmentsProps) 
 
       if (uploadError) throw uploadError;
 
-      const { data: urlData } = supabase.storage
-        .from('entity-files')
-        .getPublicUrl(fileName);
+      const { data: urlData } = supabase.storage.from('entity-files').getPublicUrl(fileName);
 
       addEntityFile({
         entity_type: entityType,
@@ -178,7 +203,10 @@ export function FileAttachments({ entityType, entityId }: FileAttachmentsProps) 
   const handleToggleVisibility = (fileId: string, currentVisibility: string) => {
     const newVisibility = currentVisibility === 'external' ? 'internal' : 'external';
     updateEntityFileVisibility(fileId, newVisibility);
-    toast('success', newVisibility === 'external' ? 'File shared to portal' : 'File removed from portal');
+    toast(
+      'success',
+      newVisibility === 'external' ? 'File shared to portal' : 'File removed from portal',
+    );
   };
 
   const handleDownload = async (fileUrl: string, fileName: string) => {
@@ -201,7 +229,9 @@ export function FileAttachments({ entityType, entityId }: FileAttachmentsProps) 
 
   const handleCreateNote = async (fileName: string, content: string, mimeType: string) => {
     const blob = new Blob([content], { type: mimeType });
-    const oldVisibility = noteEditMode ? files.find(f => f.id === noteEditMode.fileId)?.visibility : undefined;
+    const oldVisibility = noteEditMode
+      ? files.find((f) => f.id === noteEditMode.fileId)?.visibility
+      : undefined;
 
     if (isDemoMode) {
       // Demo mode: safe to delete first since addEntityFile can't fail
@@ -230,9 +260,7 @@ export function FileAttachments({ entityType, entityId }: FileAttachmentsProps) 
 
       if (uploadError) throw uploadError;
 
-      const { data: urlData } = supabase.storage
-        .from('entity-files')
-        .getPublicUrl(storagePath);
+      const { data: urlData } = supabase.storage.from('entity-files').getPublicUrl(storagePath);
 
       // Delete old file only after new one is successfully uploaded
       if (noteEditMode?.fileId) deleteEntityFile(noteEditMode.fileId);
@@ -263,7 +291,7 @@ export function FileAttachments({ entityType, entityId }: FileAttachmentsProps) 
       try {
         const res = await fetch(file.file_url);
         const text = await res.text();
-        const entityFile = files.find(f => f.file_url === file.file_url);
+        const entityFile = files.find((f) => f.file_url === file.file_url);
         setNoteEditMode({
           initialFileName: file.name,
           initialContent: text,
@@ -275,7 +303,7 @@ export function FileAttachments({ entityType, entityId }: FileAttachmentsProps) 
       }
     } else {
       // Demo mode file, open with empty content
-      const entityFile = files.find(f => f.name === file.name);
+      const entityFile = files.find((f) => f.name === file.name);
       setNoteEditMode({
         initialFileName: file.name,
         initialContent: '',
@@ -285,7 +313,7 @@ export function FileAttachments({ entityType, entityId }: FileAttachmentsProps) 
     }
   };
 
-  const currentMenuFile = openMenuId ? files.find(f => f.id === openMenuId) : null;
+  const currentMenuFile = openMenuId ? files.find((f) => f.id === openMenuId) : null;
 
   return (
     <>
@@ -293,37 +321,41 @@ export function FileAttachments({ entityType, entityId }: FileAttachmentsProps) 
         <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.08] flex-shrink-0">
           <div className="flex items-center gap-2">
             <Paperclip size={18} className="text-zinc-400" />
-            <h2 className="font-semibold text-white">
-              Files ({files.length})
-            </h2>
+            <h2 className="font-semibold text-white">Files ({files.length})</h2>
           </div>
-          {canUpload && <div className="flex items-center gap-2">
-            <button
-              onClick={() => { setNoteEditMode(undefined); setShowNewNote(true); }}
-              className="liquid-glass inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors"
-            >
-              <FileText size={14} />
-              Note
-            </button>
-            <label className="cursor-pointer">
-              <input
-                ref={fileInputRef}
-                type="file"
-                className="hidden"
-                onChange={handleFileUpload}
-                disabled={uploading}
-              />
-              <span className="liquid-primary inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white rounded-lg transition-colors cursor-pointer">
-                <Upload size={14} />
-                <span className="hidden min-[400px]:inline">{uploading ? 'Uploading...' : 'Upload'}</span>
-              </span>
-            </label>
-          </div>}
+          {canUpload && (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => {
+                  setNoteEditMode(undefined);
+                  setShowNewNote(true);
+                }}
+                className="liquid-glass inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors"
+              >
+                <FileText size={14} />
+                Note
+              </button>
+              <label className="cursor-pointer">
+                <FileInput
+                  ref={fileInputRef}
+                  className="hidden"
+                  onChange={handleFileUpload}
+                  disabled={uploading}
+                />
+                <span className="liquid-primary inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white rounded-lg transition-colors cursor-pointer">
+                  <Upload size={14} />
+                  <span className="hidden min-[400px]:inline">
+                    {uploading ? 'Uploading...' : 'Upload'}
+                  </span>
+                </span>
+              </label>
+            </div>
+          )}
         </div>
 
         {files.length > 0 ? (
           <div className="flex-1 overflow-y-auto p-3 space-y-1">
-            {files.map(file => {
+            {files.map((file) => {
               const FileIcon = getFileIcon(file.mime_type);
               const isEditing = editingFileId === file.id;
               const isExternal = file.visibility === 'external';
@@ -342,8 +374,8 @@ export function FileAttachments({ entityType, entityId }: FileAttachmentsProps) 
                         autoFocus
                         type="text"
                         value={editingFileName}
-                        onChange={e => setEditingFileName(e.target.value)}
-                        onKeyDown={e => {
+                        onChange={(e) => setEditingFileName(e.target.value)}
+                        onKeyDown={(e) => {
                           if (e.key === 'Enter') {
                             (e.target as HTMLInputElement).blur();
                           } else if (e.key === 'Escape') {
@@ -366,14 +398,23 @@ export function FileAttachments({ entityType, entityId }: FileAttachmentsProps) 
                         className="text-sm text-zinc-300 bg-surface-raised border border-brand-500/30 rounded px-1.5 py-0.5 outline-none focus:ring-2 focus:ring-brand-500/30 min-w-0 w-full"
                       />
                     ) : (
-                      <p className="text-sm text-zinc-300 truncate">
-                        {file.name}
-                      </p>
+                      <p className="text-sm text-zinc-300 truncate">{file.name}</p>
                     )}
-                    <p className="text-xs text-zinc-500">{formatFileSize(file.file_size)} &middot; {new Date(file.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p>
+                    <p className="text-xs text-zinc-500">
+                      {formatFileSize(file.file_size)} &middot;{' '}
+                      {new Date(file.created_at).toLocaleDateString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                        year: 'numeric',
+                      })}
+                    </p>
                   </div>
                   {!isEditing && isProject && canManageFiles && (
-                    <Tooltip content={isExternal ? 'Shared on portal (click to remove)' : 'Share to portal'}>
+                    <Tooltip
+                      content={
+                        isExternal ? 'Shared on portal (click to remove)' : 'Share to portal'
+                      }
+                    >
                       <button
                         onClick={() => handleToggleVisibility(file.id, file.visibility)}
                         className={`p-1.5 rounded-md transition-all ${
@@ -388,7 +429,9 @@ export function FileAttachments({ entityType, entityId }: FileAttachmentsProps) 
                   )}
                   {!isEditing && (
                     <button
-                      ref={el => { triggerRefs.current[file.id] = el; }}
+                      ref={(el) => {
+                        triggerRefs.current[file.id] = el;
+                      }}
                       onClick={() => setOpenMenuId(isMenuOpen ? null : file.id)}
                       className="p-1.5 text-zinc-600 hover:text-zinc-300 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 data-[open]:opacity-100 transition-all rounded-md hover:bg-white/[0.08]"
                       data-open={isMenuOpen || undefined}
@@ -406,75 +449,98 @@ export function FileAttachments({ entityType, entityId }: FileAttachmentsProps) 
               <Paperclip size={18} className="text-zinc-500" />
             </div>
             <p className="text-sm font-medium text-zinc-400">No files attached yet</p>
-            <p className="text-xs text-zinc-500 mt-1">{canUpload ? 'Upload files to attach them to this project' : 'No files are available for this project'}</p>
+            <p className="text-xs text-zinc-500 mt-1">
+              {canUpload
+                ? 'Upload files to attach them to this project'
+                : 'No files are available for this project'}
+            </p>
           </div>
         )}
       </div>
 
       {/* Portalled context menu */}
-      {openMenuId && currentMenuFile && typeof document !== 'undefined' && createPortal(
-        <div
-          ref={dropdownRef}
-          className="fixed z-[9999] w-48 bg-surface-raised border border-white/[0.08] rounded-lg shadow-lg py-1"
-          style={{
-            top: menuPos.top,
-            left: menuPos.left,
-            transform: menuPos.openAbove ? 'translateY(-100%)' : undefined,
-          }}
-        >
-          <button
-            onClick={() => { setPreviewFile(currentMenuFile); setOpenMenuId(null); }}
-            className="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-zinc-300 hover:bg-white/[0.03] transition-colors"
+      {openMenuId &&
+        currentMenuFile &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div
+            ref={dropdownRef}
+            className="fixed z-[9999] w-48 bg-surface-raised border border-white/[0.08] rounded-lg shadow-lg py-1"
+            style={{
+              top: menuPos.top,
+              left: menuPos.left,
+              transform: menuPos.openAbove ? 'translateY(-100%)' : undefined,
+            }}
           >
-            <Eye size={14} className="text-zinc-500" />
-            Preview
-          </button>
-          <button
-            onClick={() => handleDownload(currentMenuFile.file_url, currentMenuFile.name)}
-            className="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-zinc-300 hover:bg-white/[0.03] transition-colors"
-          >
-            <Download size={14} className="text-zinc-500" />
-            Download
-          </button>
-          {canManageFiles && <button
-            onClick={() => { setEditingFileId(currentMenuFile.id); setEditingFileName(currentMenuFile.name); setOpenMenuId(null); }}
-            className="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-zinc-300 hover:bg-white/[0.03] transition-colors"
-          >
-            <Pencil size={14} className="text-zinc-500" />
-            Rename
-          </button>}
-          {isProject && canManageFiles && (
-            <>
-              <div className="border-t border-white/[0.06] my-1" />
+            <button
+              onClick={() => {
+                setPreviewFile(currentMenuFile);
+                setOpenMenuId(null);
+              }}
+              className="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-zinc-300 hover:bg-white/[0.03] transition-colors"
+            >
+              <Eye size={14} className="text-zinc-500" />
+              Preview
+            </button>
+            <button
+              onClick={() => handleDownload(currentMenuFile.file_url, currentMenuFile.name)}
+              className="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-zinc-300 hover:bg-white/[0.03] transition-colors"
+            >
+              <Download size={14} className="text-zinc-500" />
+              Download
+            </button>
+            {canManageFiles && (
               <button
-                onClick={() => { handleToggleVisibility(currentMenuFile.id, currentMenuFile.visibility); setOpenMenuId(null); }}
+                onClick={() => {
+                  setEditingFileId(currentMenuFile.id);
+                  setEditingFileName(currentMenuFile.name);
+                  setOpenMenuId(null);
+                }}
                 className="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-zinc-300 hover:bg-white/[0.03] transition-colors"
               >
-                {currentMenuFile.visibility === 'external' ? (
-                  <>
-                    <ShieldOff size={14} className="text-zinc-500" />
-                    Remove from Portal
-                  </>
-                ) : (
-                  <>
-                    <Share2 size={14} className="text-zinc-500" />
-                    Share to Portal
-                  </>
-                )}
+                <Pencil size={14} className="text-zinc-500" />
+                Rename
               </button>
-            </>
-          )}
-          {canDeleteFile(currentMenuFile) && <><div className="border-t border-white/[0.06] my-1" />
-          <button
-            onClick={() => handleDeleteFile(currentMenuFile.id)}
-            className="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-red-400 hover:bg-red-500/15 transition-colors"
-          >
-            <Trash2 size={14} />
-            Delete
-          </button></>}
-        </div>,
-        document.body
-      )}
+            )}
+            {isProject && canManageFiles && (
+              <>
+                <div className="border-t border-white/[0.06] my-1" />
+                <button
+                  onClick={() => {
+                    handleToggleVisibility(currentMenuFile.id, currentMenuFile.visibility);
+                    setOpenMenuId(null);
+                  }}
+                  className="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-zinc-300 hover:bg-white/[0.03] transition-colors"
+                >
+                  {currentMenuFile.visibility === 'external' ? (
+                    <>
+                      <ShieldOff size={14} className="text-zinc-500" />
+                      Remove from Portal
+                    </>
+                  ) : (
+                    <>
+                      <Share2 size={14} className="text-zinc-500" />
+                      Share to Portal
+                    </>
+                  )}
+                </button>
+              </>
+            )}
+            {canDeleteFile(currentMenuFile) && (
+              <>
+                <div className="border-t border-white/[0.06] my-1" />
+                <button
+                  onClick={() => handleDeleteFile(currentMenuFile.id)}
+                  className="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-red-400 hover:bg-red-500/15 transition-colors"
+                >
+                  <Trash2 size={14} />
+                  Delete
+                </button>
+              </>
+            )}
+          </div>,
+          document.body,
+        )}
 
       <ConfirmDialog
         isOpen={!!deleteFileTarget}
@@ -495,7 +561,10 @@ export function FileAttachments({ entityType, entityId }: FileAttachmentsProps) 
 
       <NewNoteModal
         isOpen={showNewNote}
-        onClose={() => { setShowNewNote(false); setNoteEditMode(undefined); }}
+        onClose={() => {
+          setShowNewNote(false);
+          setNoteEditMode(undefined);
+        }}
         onSave={handleCreateNote}
         editMode={noteEditMode}
       />

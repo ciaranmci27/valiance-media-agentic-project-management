@@ -1,4 +1,5 @@
 'use client';
+import { FileInput } from '@/components/ui/inputs/FileInput';
 
 import { useRef } from 'react';
 import { Download, Eye, Loader2, Upload } from 'lucide-react';
@@ -38,7 +39,10 @@ export function FilesSection({
       {files.length > 0 ? (
         <ul>
           {files.map((file) => (
-            <li key={file.id} className="vm-row flex items-center gap-3.5 py-3.5 first:pt-0 last:pb-0">
+            <li
+              key={file.id}
+              className="vm-row flex items-center gap-3.5 py-3.5 first:pt-0 last:pb-0"
+            >
               <span
                 className="vm-tile flex h-10 w-10 shrink-0 items-center justify-center vm-soft"
                 aria-hidden="true"
@@ -49,7 +53,10 @@ export function FilesSection({
                 <p className="truncate text-[15px] font-medium">{file.name}</p>
                 <p className="vm-faint mt-0.5 text-[13px]">
                   {formatFileSize(file.file_size)}
-                  <span className="opacity-50" aria-hidden="true"> / </span>
+                  <span className="opacity-50" aria-hidden="true">
+                    {' '}
+                    /{' '}
+                  </span>
                   {describeMime(file.mime_type)}
                 </p>
               </div>
@@ -93,12 +100,15 @@ export function FilesSection({
           disabled={uploading}
           className="vm-btn vm-btn-ghost vm-btn-sm w-full sm:w-auto"
         >
-          {uploading ? <Loader2 size={15} className="animate-spin" aria-hidden="true" /> : <Upload size={15} aria-hidden="true" />}
+          {uploading ? (
+            <Loader2 size={15} className="animate-spin" aria-hidden="true" />
+          ) : (
+            <Upload size={15} aria-hidden="true" />
+          )}
           {uploading ? 'Uploading' : 'Choose a file'}
         </button>
-        <input
+        <FileInput
           ref={inputRef}
-          type="file"
           className="hidden"
           tabIndex={-1}
           aria-hidden="true"

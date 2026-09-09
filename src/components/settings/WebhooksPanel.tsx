@@ -4,12 +4,23 @@ import { useState, useEffect, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import { Toggle } from '@/components/ui/Toggle';
+import { Toggle } from '@/components/ui/inputs/Toggle';
 import { Checkbox } from '@/components/ui/inputs/Checkbox';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { toast } from '@/components/ui/Toast';
 import Link from 'next/link';
-import { Webhook, Plus, Copy, Check, Trash2, RefreshCw, Eye, EyeOff, Send, BookOpen } from 'lucide-react';
+import {
+  Webhook,
+  Plus,
+  Copy,
+  Check,
+  Trash2,
+  RefreshCw,
+  Eye,
+  EyeOff,
+  Send,
+  BookOpen,
+} from 'lucide-react';
 import { generateWebhookSecret } from '@/lib/webhooks/sign';
 import {
   fetchWebhookEndpoints,
@@ -19,7 +30,12 @@ import {
   fetchWebhookDeliveries,
   requeueWebhookDelivery,
 } from '@/lib/supabase/queries';
-import { WEBHOOK_EVENT_TYPES, type WebhookEndpoint, type WebhookDelivery, type WebhookDeliveryStatus } from '@/lib/types';
+import {
+  WEBHOOK_EVENT_TYPES,
+  type WebhookEndpoint,
+  type WebhookDelivery,
+  type WebhookDeliveryStatus,
+} from '@/lib/types';
 
 const EVENT_LABELS: Record<string, string> = {
   'invoice.paid': 'Invoice paid',
@@ -35,9 +51,12 @@ const STATUS_STYLES: Record<WebhookDeliveryStatus, string> = {
 };
 
 function formatWhen(value: string | null): string {
-  if (!value) return '—';
+  if (!value) return ';';
   return new Date(value).toLocaleString(undefined, {
-    month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
   });
 }
 
@@ -84,34 +103,48 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
   }, [supabase]);
 
   useEffect(() => {
-    (async () => { await load(); })();
+    (async () => {
+      await load();
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function toggleEvent(evt: string) {
-    setEvents(prev => prev.includes(evt) ? prev.filter(e => e !== evt) : [...prev, evt]);
+    setEvents((prev) => (prev.includes(evt) ? prev.filter((e) => e !== evt) : [...prev, evt]));
   }
 
   function resetForm() {
-    setName(''); setUrl(''); setDescription(''); setEvents([...WEBHOOK_EVENT_TYPES]); setShowForm(false);
+    setName('');
+    setUrl('');
+    setDescription('');
+    setEvents([...WEBHOOK_EVENT_TYPES]);
+    setShowForm(false);
   }
 
   async function handleCreate() {
     const trimmedName = name.trim();
     const trimmedUrl = url.trim();
-    if (!trimmedName) { toast('error', 'Name is required'); return; }
+    if (!trimmedName) {
+      toast('error', 'Name is required');
+      return;
+    }
     let parsed: URL;
     try {
       parsed = new URL(trimmedUrl);
     } catch {
-      toast('error', 'Enter a valid URL'); return;
+      toast('error', 'Enter a valid URL');
+      return;
     }
     // Require HTTPS, except plain http on localhost for local development.
     const isLocalhost = ['localhost', '127.0.0.1', '::1', '[::1]'].includes(parsed.hostname);
     if (parsed.protocol !== 'https:' && !(parsed.protocol === 'http:' && isLocalhost)) {
-      toast('error', 'Endpoint URL must use HTTPS'); return;
+      toast('error', 'Endpoint URL must use HTTPS');
+      return;
     }
-    if (events.length === 0) { toast('error', 'Select at least one event'); return; }
+    if (events.length === 0) {
+      toast('error', 'Select at least one event');
+      return;
+    }
 
     setSaving(true);
     try {
@@ -124,7 +157,7 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
         description: description.trim(),
         created_by: teamMemberId,
       });
-      setEndpoints(prev => [created, ...prev]);
+      setEndpoints((prev) => [created, ...prev]);
       setNewSecret({ name: created.name, secret });
       resetForm();
     } catch (e) {
@@ -137,12 +170,14 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
 
   async function handleToggleActive(endpoint: WebhookEndpoint) {
     const next = !endpoint.is_active;
-    setEndpoints(prev => prev.map(e => e.id === endpoint.id ? { ...e, is_active: next } : e));
+    setEndpoints((prev) => prev.map((e) => (e.id === endpoint.id ? { ...e, is_active: next } : e)));
     try {
       await updateWebhookEndpoint(supabase, endpoint.id, { is_active: next });
     } catch (e) {
       console.error(e);
-      setEndpoints(prev => prev.map(el => el.id === endpoint.id ? { ...el, is_active: endpoint.is_active } : el));
+      setEndpoints((prev) =>
+        prev.map((el) => (el.id === endpoint.id ? { ...el, is_active: endpoint.is_active } : el)),
+      );
       toast('error', 'Failed to update endpoint');
     }
   }
@@ -151,7 +186,7 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
     if (!deleteTarget) return;
     const target = deleteTarget;
     setDeleteTarget(null);
-    setEndpoints(prev => prev.filter(e => e.id !== target.id));
+    setEndpoints((prev) => prev.filter((e) => e.id !== target.id));
     try {
       await deleteWebhookEndpoint(supabase, target.id);
       toast('success', 'Webhook endpoint deleted');
@@ -167,7 +202,9 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
       await navigator.clipboard.writeText(secret);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch { /* clipboard blocked */ }
+    } catch {
+      /* clipboard blocked */
+    }
   }
 
   async function handleRunNow() {
@@ -231,10 +268,13 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
         <div className="mb-6 p-4 bg-emerald-500/15 border border-emerald-500/30 rounded-lg space-y-3">
           <div className="flex items-center gap-2">
             <Check size={16} className="text-emerald-400" aria-hidden="true" />
-            <p className="text-sm font-medium text-emerald-300">Endpoint “{newSecret.name}” created</p>
+            <p className="text-sm font-medium text-emerald-300">
+              Endpoint “{newSecret.name}” created
+            </p>
           </div>
           <p className="text-xs text-emerald-300">
-            Copy this signing secret into your receiver now (it verifies each request). You can reveal it again below at any time.
+            Copy this signing secret into your receiver now (it verifies each request). You can
+            reveal it again below at any time.
           </p>
           <div className="flex items-center gap-2">
             <code className="flex-1 px-3 py-2 bg-surface-raised border border-emerald-500/30 rounded-lg text-sm font-mono text-zinc-100 break-all select-all">
@@ -248,7 +288,9 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
               {copied ? <Check size={16} /> : <Copy size={16} />}
             </button>
           </div>
-          <Button size="sm" variant="secondary" onClick={() => setNewSecret(null)}>Done</Button>
+          <Button size="sm" variant="secondary" onClick={() => setNewSecret(null)}>
+            Done
+          </Button>
         </div>
       )}
 
@@ -256,9 +298,24 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
       {showForm && (
         <div className="mb-6 p-4 bg-white/[0.03] border border-white/[0.08] rounded-lg space-y-3">
           <h4 className="text-sm font-medium text-white">New endpoint</h4>
-          <Input label="Name" value={name} onChange={(e) => setName(e.target.value)} placeholder='e.g. "Personal Finance"' />
-          <Input label="Endpoint URL" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://your-app.com/api/webhooks/invoices" />
-          <Input label="Description (optional)" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="What this endpoint is for" />
+          <Input
+            label="Name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder='e.g. "Personal Finance"'
+          />
+          <Input
+            label="Endpoint URL"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            placeholder="https://your-app.com/api/webhooks/invoices"
+          />
+          <Input
+            label="Description (optional)"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="What this endpoint is for"
+          />
           <div>
             <label className="block text-sm font-medium text-zinc-300 mb-1.5">Events</label>
             <div className="rounded-lg border border-white/[0.08] bg-surface-raised divide-y divide-white/[0.06]">
@@ -279,7 +336,9 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
             <Button size="sm" onClick={handleCreate} disabled={saving}>
               {saving ? 'Creating…' : 'Create endpoint'}
             </Button>
-            <Button size="sm" variant="secondary" onClick={resetForm} disabled={saving}>Cancel</Button>
+            <Button size="sm" variant="secondary" onClick={resetForm} disabled={saving}>
+              Cancel
+            </Button>
           </div>
         </div>
       )}
@@ -288,28 +347,40 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
       {loading ? (
         <p className="text-sm text-zinc-500">Loading…</p>
       ) : endpoints.length === 0 ? (
-        <p className="text-sm text-zinc-500">No webhook endpoints yet. Create one to start relaying events.</p>
+        <p className="text-sm text-zinc-500">
+          No webhook endpoints yet. Create one to start relaying events.
+        </p>
       ) : (
         <ul className="space-y-3">
           {endpoints.map((endpoint) => (
-            <li key={endpoint.id} className="p-4 bg-white/[0.02] border border-white/[0.08] rounded-lg">
+            <li
+              key={endpoint.id}
+              className="p-4 bg-white/[0.02] border border-white/[0.08] rounded-lg"
+            >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="font-medium text-white truncate">{endpoint.name}</span>
                     {!endpoint.is_active && (
-                      <span className="text-[11px] uppercase tracking-wide text-zinc-500 border border-white/[0.1] rounded px-1.5 py-0.5">Paused</span>
+                      <span className="text-[11px] uppercase tracking-wide text-zinc-500 border border-white/[0.1] rounded px-1.5 py-0.5">
+                        Paused
+                      </span>
                     )}
                   </div>
                   <p className="text-xs font-mono text-zinc-400 break-all mt-0.5">{endpoint.url}</p>
                   <div className="flex flex-wrap gap-1.5 mt-2">
                     {endpoint.events.map((evt) => (
-                      <span key={evt} className="text-[11px] text-violet-300 bg-violet-500/10 border border-violet-500/20 rounded px-1.5 py-0.5">
+                      <span
+                        key={evt}
+                        className="text-[11px] text-violet-300 bg-violet-500/10 border border-violet-500/20 rounded px-1.5 py-0.5"
+                      >
                         {EVENT_LABELS[evt] || evt}
                       </span>
                     ))}
                   </div>
-                  <p className="text-[11px] text-zinc-500 mt-2">Last delivery: {formatWhen(endpoint.last_delivery_at)}</p>
+                  <p className="text-[11px] text-zinc-500 mt-2">
+                    Last delivery: {formatWhen(endpoint.last_delivery_at)}
+                  </p>
                 </div>
                 <div className="flex items-center gap-1.5 flex-shrink-0">
                   <button
@@ -321,8 +392,11 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
                   >
                     <Send size={15} />
                   </button>
-                  <Toggle checked={endpoint.is_active} onChange={() => handleToggleActive(endpoint)}
-                    aria-label={endpoint.is_active ? 'Pause endpoint' : 'Activate endpoint'} />
+                  <Toggle
+                    checked={endpoint.is_active}
+                    onChange={() => handleToggleActive(endpoint)}
+                    aria-label={endpoint.is_active ? 'Pause endpoint' : 'Activate endpoint'}
+                  />
                   <button
                     onClick={() => setDeleteTarget(endpoint)}
                     aria-label="Delete endpoint"
@@ -339,8 +413,12 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
                   {shownSecrets[endpoint.id] ? endpoint.secret : '•'.repeat(24)}
                 </code>
                 <button
-                  onClick={() => setShownSecrets(prev => ({ ...prev, [endpoint.id]: !prev[endpoint.id] }))}
-                  aria-label={shownSecrets[endpoint.id] ? 'Hide signing secret' : 'Reveal signing secret'}
+                  onClick={() =>
+                    setShownSecrets((prev) => ({ ...prev, [endpoint.id]: !prev[endpoint.id] }))
+                  }
+                  aria-label={
+                    shownSecrets[endpoint.id] ? 'Hide signing secret' : 'Reveal signing secret'
+                  }
                   className="p-1.5 text-zinc-400 hover:text-white hover:bg-white/[0.06] rounded-md transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
                 >
                   {shownSecrets[endpoint.id] ? <EyeOff size={15} /> : <Eye size={15} />}
@@ -386,13 +464,23 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
               <tbody className="divide-y divide-white/[0.05]">
                 {deliveries.map((d) => (
                   <tr key={d.id}>
-                    <td className="px-3 py-2 text-zinc-300 whitespace-nowrap">{d.webhook_events?.event_type || '—'}</td>
-                    <td className="px-3 py-2">
-                      <span className={`text-[11px] border rounded px-1.5 py-0.5 ${STATUS_STYLES[d.status]}`}>{d.status}</span>
+                    <td className="px-3 py-2 text-zinc-300 whitespace-nowrap">
+                      {d.webhook_events?.event_type || ';'}
                     </td>
-                    <td className="px-3 py-2 text-zinc-400 font-mono">{d.last_status_code ?? '—'}</td>
+                    <td className="px-3 py-2">
+                      <span
+                        className={`text-[11px] border rounded px-1.5 py-0.5 ${STATUS_STYLES[d.status]}`}
+                      >
+                        {d.status}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 text-zinc-400 font-mono">
+                      {d.last_status_code ?? ';'}
+                    </td>
                     <td className="px-3 py-2 text-zinc-400 font-mono">{d.attempts}</td>
-                    <td className="px-3 py-2 text-zinc-500 whitespace-nowrap">{formatWhen(d.created_at)}</td>
+                    <td className="px-3 py-2 text-zinc-500 whitespace-nowrap">
+                      {formatWhen(d.created_at)}
+                    </td>
                     <td className="px-3 py-2 text-right">
                       {d.status === 'failed' && (
                         <button

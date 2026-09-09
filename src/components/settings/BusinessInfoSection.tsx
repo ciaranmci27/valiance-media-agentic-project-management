@@ -6,7 +6,7 @@ import { useApp } from '@/lib/store';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { Textarea } from '@/components/ui/inputs/Textarea';
-import { Toggle } from '@/components/ui/Toggle';
+import { Toggle } from '@/components/ui/inputs/Toggle';
 import { toast } from '@/components/ui/Toast';
 import { useDemo } from '@/lib/demo-context';
 
@@ -38,15 +38,15 @@ export function BusinessInfoSection() {
     setDefaultNotes(businessSettings.default_invoice_notes);
   }, [businessSettings?.id]);
 
-  const isDirty = !!businessSettings && (
-    name !== businessSettings.business_name ||
-    address !== businessSettings.business_address ||
-    email !== businessSettings.business_email ||
-    phone !== businessSettings.business_phone ||
-    paymentTerms !== businessSettings.payment_terms ||
-    paymentInstructions !== businessSettings.payment_instructions ||
-    defaultNotes !== businessSettings.default_invoice_notes
-  );
+  const isDirty =
+    !!businessSettings &&
+    (name !== businessSettings.business_name ||
+      address !== businessSettings.business_address ||
+      email !== businessSettings.business_email ||
+      phone !== businessSettings.business_phone ||
+      paymentTerms !== businessSettings.payment_terms ||
+      paymentInstructions !== businessSettings.payment_instructions ||
+      defaultNotes !== businessSettings.default_invoice_notes);
 
   // Immediate-save policy toggle (independent of the form's dirty tracking).
   const autoApproveHours = businessSettings?.auto_approve_human_hours ?? true;
@@ -56,7 +56,10 @@ export function BusinessInfoSection() {
     setTogglingAutoApprove(true);
     try {
       await updateBusinessSettings({ auto_approve_human_hours: !autoApproveHours });
-      toast('success', !autoApproveHours ? 'Human hours now auto-approve' : 'Human hours now require review');
+      toast(
+        'success',
+        !autoApproveHours ? 'Human hours now auto-approve' : 'Human hours now require review',
+      );
     } finally {
       setTogglingAutoApprove(false);
     }
@@ -89,7 +92,9 @@ export function BusinessInfoSection() {
         </div>
         <div>
           <h2 className="font-semibold text-white">Business Info</h2>
-          <p className="text-sm text-zinc-400">Used as the &quot;From&quot; block on invoice PDFs</p>
+          <p className="text-sm text-zinc-400">
+            Used as the &quot;From&quot; block on invoice PDFs
+          </p>
         </div>
       </div>
 
@@ -166,7 +171,14 @@ export function BusinessInfoSection() {
 
       <div className="mt-4">
         <Button onClick={handleSave} disabled={!isDirty || saving || isDemoMode}>
-          {saving ? <><Loader2 size={14} className="animate-spin mr-1.5" />Saving...</> : 'Save Business Info'}
+          {saving ? (
+            <>
+              <Loader2 size={14} className="animate-spin mr-1.5" />
+              Saving...
+            </>
+          ) : (
+            'Save Business Info'
+          )}
         </Button>
       </div>
 

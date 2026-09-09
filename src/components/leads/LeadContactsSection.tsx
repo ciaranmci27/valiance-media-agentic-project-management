@@ -9,7 +9,7 @@ import { Avatar } from '@/components/ui/Avatar';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import { Select } from '@/components/ui/Select';
+import { Select } from '@/components/ui/inputs/Select';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { ContactForm } from '@/components/contacts/ContactForm';
 import { LeadContact, CONTACT_ROLES } from '@/lib/types';
@@ -48,21 +48,23 @@ export function LeadContactsSection({ leadId, readOnly = false }: LeadContactsSe
   const [showNewContactForm, setShowNewContactForm] = useState(false);
 
   const leadContactsList = getContactsByLead(leadId);
-  const existingContactIds = leadContactsList.map(lc => lc.contact_id);
+  const existingContactIds = leadContactsList.map((lc) => lc.contact_id);
   const hasPrimaryClient = !!getPrimaryLeadContact(leadId);
 
   const availableContacts = useMemo(() => {
-    return contacts.filter(c => {
+    return contacts.filter((c) => {
       if (existingContactIds.includes(c.id)) return false;
       if (!addSearch) return true;
       const s = addSearch.toLowerCase();
-      return c.name.toLowerCase().includes(s) ||
+      return (
+        c.name.toLowerCase().includes(s) ||
         c.email.toLowerCase().includes(s) ||
-        c.company.toLowerCase().includes(s);
+        c.company.toLowerCase().includes(s)
+      );
     });
   }, [contacts, existingContactIds, addSearch]);
 
-  const roleOptions = CONTACT_ROLES.map(r => ({ value: r, label: r }));
+  const roleOptions = CONTACT_ROLES.map((r) => ({ value: r, label: r }));
 
   // Edit handlers
   const handleStartEdit = (lc: LeadContact) => {
@@ -108,7 +110,7 @@ export function LeadContactsSection({ leadId, readOnly = false }: LeadContactsSe
       addContactId,
       addRole,
       addRole === 'Other' ? addCustomRole : null,
-      addIsPrimary
+      addIsPrimary,
     );
 
     resetAddForm();
@@ -129,16 +131,10 @@ export function LeadContactsSection({ leadId, readOnly = false }: LeadContactsSe
         <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.08] flex-shrink-0">
           <div className="flex items-center gap-2">
             <Users size={18} className="text-zinc-400" />
-            <h2 className="font-semibold text-white">
-              Contacts ({leadContactsList.length})
-            </h2>
+            <h2 className="font-semibold text-white">Contacts ({leadContactsList.length})</h2>
           </div>
           {!readOnly && !showAddForm && (
-            <Button
-              size="sm"
-              onClick={() => setShowAddForm(true)}
-              icon={<Plus size={14} />}
-            >
+            <Button size="sm" onClick={() => setShowAddForm(true)} icon={<Plus size={14} />}>
               Add
             </Button>
           )}
@@ -153,10 +149,14 @@ export function LeadContactsSection({ leadId, readOnly = false }: LeadContactsSe
                 if (!contact) return null;
 
                 const isEditing = editingLcId === lc.id;
-                const displayRole = lc.role === 'Other' && lc.custom_role ? lc.custom_role : lc.role;
+                const displayRole =
+                  lc.role === 'Other' && lc.custom_role ? lc.custom_role : lc.role;
 
                 return (
-                  <div key={lc.id} className="px-3 py-2.5 rounded-lg bg-white/[0.03] hover:bg-white/[0.06] transition-colors group">
+                  <div
+                    key={lc.id}
+                    className="px-3 py-2.5 rounded-lg bg-white/[0.03] hover:bg-white/[0.06] transition-colors group"
+                  >
                     <div className="flex items-center gap-3">
                       <Avatar name={contact.name} src={contact.avatar_url || undefined} size="md" />
 
@@ -186,18 +186,22 @@ export function LeadContactsSection({ leadId, readOnly = false }: LeadContactsSe
                       {!isEditing && (
                         <div className="flex items-center gap-2 flex-shrink-0">
                           <Badge variant="default">{displayRole}</Badge>
-                          {!readOnly && <button
-                            onClick={() => handleStartEdit(lc)}
-                            className="p-1.5 text-zinc-600 hover:text-brand-500 transition-all sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
-                          >
-                            <Edit size={14} />
-                          </button>}
-                          {!readOnly && <button
-                            onClick={() => handleRemove(lc.id)}
-                            className="p-1.5 text-zinc-600 hover:text-red-500 transition-all sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
-                          >
-                            <Trash2 size={14} />
-                          </button>}
+                          {!readOnly && (
+                            <button
+                              onClick={() => handleStartEdit(lc)}
+                              className="p-1.5 text-zinc-600 hover:text-brand-500 transition-all sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
+                            >
+                              <Edit size={14} />
+                            </button>
+                          )}
+                          {!readOnly && (
+                            <button
+                              onClick={() => handleRemove(lc.id)}
+                              className="p-1.5 text-zinc-600 hover:text-red-500 transition-all sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          )}
                         </div>
                       )}
                     </div>
@@ -227,9 +231,15 @@ export function LeadContactsSection({ leadId, readOnly = false }: LeadContactsSe
                               onClick={() => setEditIsPrimary(!editIsPrimary)}
                               className={`relative inline-flex w-8 h-[18px] rounded-full transition-colors flex-shrink-0 ${editIsPrimary ? 'bg-amber-500' : 'bg-zinc-300'}`}
                             >
-                              <span className={`absolute top-[2px] left-[2px] w-[14px] h-[14px] rounded-full bg-surface-raised shadow-sm transition-transform ${editIsPrimary ? 'translate-x-[14px]' : 'translate-x-0'}`} />
+                              <span
+                                className={`absolute top-[2px] left-[2px] w-[14px] h-[14px] rounded-full bg-surface-raised shadow-sm transition-transform ${editIsPrimary ? 'translate-x-[14px]' : 'translate-x-0'}`}
+                              />
                             </button>
-                            <span className={`text-xs whitespace-nowrap ${editIsPrimary ? 'text-amber-300' : 'text-zinc-300'}`}>Primary</span>
+                            <span
+                              className={`text-xs whitespace-nowrap ${editIsPrimary ? 'text-amber-300' : 'text-zinc-300'}`}
+                            >
+                              Primary
+                            </span>
                           </label>
                         )}
                         <div className="flex items-center gap-1 ml-auto">
@@ -282,10 +292,12 @@ export function LeadContactsSection({ leadId, readOnly = false }: LeadContactsSe
               <div className="max-h-36 overflow-y-auto border border-white/[0.08] rounded-lg bg-surface-raised">
                 {availableContacts.length === 0 ? (
                   <div className="p-3 text-sm text-zinc-400 text-center">
-                    {addSearch ? 'No contacts match your search' : 'All contacts are already linked'}
+                    {addSearch
+                      ? 'No contacts match your search'
+                      : 'All contacts are already linked'}
                   </div>
                 ) : (
-                  availableContacts.map(c => (
+                  availableContacts.map((c) => (
                     <button
                       key={c.id}
                       type="button"
@@ -349,9 +361,15 @@ export function LeadContactsSection({ leadId, readOnly = false }: LeadContactsSe
                       onClick={() => setAddIsPrimary(!addIsPrimary)}
                       className={`relative inline-flex w-9 h-5 rounded-full transition-colors flex-shrink-0 ${addIsPrimary ? 'bg-amber-500' : 'bg-zinc-300'}`}
                     >
-                      <span className={`absolute top-[2px] left-[2px] w-4 h-4 rounded-full bg-surface-raised shadow-sm transition-transform ${addIsPrimary ? 'translate-x-4' : 'translate-x-0'}`} />
+                      <span
+                        className={`absolute top-[2px] left-[2px] w-4 h-4 rounded-full bg-surface-raised shadow-sm transition-transform ${addIsPrimary ? 'translate-x-4' : 'translate-x-0'}`}
+                      />
                     </button>
-                    <span className={`text-sm whitespace-nowrap ${addIsPrimary ? 'text-amber-300' : 'text-zinc-300'}`}>Primary</span>
+                    <span
+                      className={`text-sm whitespace-nowrap ${addIsPrimary ? 'text-amber-300' : 'text-zinc-300'}`}
+                    >
+                      Primary
+                    </span>
                   </label>
                 )}
               </div>
@@ -367,10 +385,9 @@ export function LeadContactsSection({ leadId, readOnly = false }: LeadContactsSe
       </div>
 
       {/* Create new contact form */}
-      {!readOnly && <ContactForm
-        isOpen={showNewContactForm}
-        onClose={() => setShowNewContactForm(false)}
-      />}
+      {!readOnly && (
+        <ContactForm isOpen={showNewContactForm} onClose={() => setShowNewContactForm(false)} />
+      )}
 
       <ConfirmDialog
         isOpen={!!removingLcId}

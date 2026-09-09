@@ -8,7 +8,7 @@ import { toLocalDatetimeString } from '@/lib/date-utils';
 import Modal from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import { Select } from '@/components/ui/Select';
+import { Select } from '@/components/ui/inputs/Select';
 import { Textarea } from '@/components/ui/inputs/Textarea';
 import { DateInput } from '@/components/ui/inputs/DateInput';
 import { TimeInput } from '@/components/ui/inputs/TimeInput';
@@ -28,10 +28,15 @@ const typeOptions = [
   { value: 'follow_up', label: 'Follow-up' },
 ];
 
-export function LeadInteractionForm({ isOpen, onClose, leadId, interaction }: LeadInteractionFormProps) {
+export function LeadInteractionForm({
+  isOpen,
+  onClose,
+  leadId,
+  interaction,
+}: LeadInteractionFormProps) {
   const { addLeadInteraction, updateLeadInteraction, team } = useApp();
   const { teamMemberId } = useAuth();
-  const tz = team.find(m => m.id === teamMemberId)?.timezone;
+  const tz = team.find((m) => m.id === teamMemberId)?.timezone;
 
   const [type, setType] = useState<LeadInteraction['type']>('note');
   const [title, setTitle] = useState('');
@@ -82,7 +87,8 @@ export function LeadInteractionForm({ isOpen, onClose, leadId, interaction }: Le
   const validate = () => {
     const errs: Record<string, string> = {};
     if (!title.trim()) errs.title = 'Title is required';
-    if (type === 'follow_up' && !scheduledDate) errs.scheduledAt = 'Scheduled date is required for follow-ups';
+    if (type === 'follow_up' && !scheduledDate)
+      errs.scheduledAt = 'Scheduled date is required for follow-ups';
     setErrors(errs);
     return Object.keys(errs).length === 0;
   };
@@ -147,35 +153,23 @@ export function LeadInteractionForm({ isOpen, onClose, leadId, interaction }: Le
         />
 
         <div>
-          <label className="block text-sm font-medium text-input-text-label mb-1.5">Occurred At</label>
+          <label className="block text-sm font-medium text-input-text-label mb-1.5">
+            Occurred At
+          </label>
           <div className="grid grid-cols-2 gap-2">
-            <DateInput
-              value={occurredDate}
-              onChange={setOccurredDate}
-              clearable
-            />
-            <TimeInput
-              value={occurredTime}
-              onChange={setOccurredTime}
-              minuteStep={5}
-            />
+            <DateInput value={occurredDate} onChange={setOccurredDate} clearable />
+            <TimeInput value={occurredTime} onChange={setOccurredTime} minuteStep={5} />
           </div>
         </div>
 
         {type === 'follow_up' && (
           <div>
-            <label className="block text-sm font-medium text-input-text-label mb-1.5">Scheduled For</label>
+            <label className="block text-sm font-medium text-input-text-label mb-1.5">
+              Scheduled For
+            </label>
             <div className="grid grid-cols-2 gap-2">
-              <DateInput
-                value={scheduledDate}
-                onChange={setScheduledDate}
-                clearable
-              />
-              <TimeInput
-                value={scheduledTime}
-                onChange={setScheduledTime}
-                minuteStep={5}
-              />
+              <DateInput value={scheduledDate} onChange={setScheduledDate} clearable />
+              <TimeInput value={scheduledTime} onChange={setScheduledTime} minuteStep={5} />
             </div>
             {errors.scheduledAt && (
               <p className="text-xs text-red-500 mt-1">{errors.scheduledAt}</p>

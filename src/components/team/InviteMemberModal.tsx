@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Modal from '@/components/ui/Modal';
 import { Input } from '@/components/ui/Input';
-import { Select } from '@/components/ui/Select';
+import { Select } from '@/components/ui/inputs/Select';
 import { Button } from '@/components/ui/Button';
 import { PasswordInput } from '@/components/ui/inputs/PasswordInput';
 import { TextInput } from '@/components/ui/inputs/TextInput';
@@ -16,7 +16,12 @@ interface InviteMemberModalProps {
   canAssignOwner?: boolean;
 }
 
-export default function InviteMemberModal({ isOpen, onClose, onSuccess, canAssignOwner = false }: InviteMemberModalProps) {
+export default function InviteMemberModal({
+  isOpen,
+  onClose,
+  onSuccess,
+  canAssignOwner = false,
+}: InviteMemberModalProps) {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -61,7 +66,12 @@ export default function InviteMemberModal({ isOpen, onClose, onSuccess, canAssig
       const res = await fetch('/api/team-members/invite', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: name.trim(), email: email.trim().toLowerCase(), password, role }),
+        body: JSON.stringify({
+          name: name.trim(),
+          email: email.trim().toLowerCase(),
+          password,
+          role,
+        }),
       });
 
       const data = await res.json();
@@ -88,7 +98,7 @@ export default function InviteMemberModal({ isOpen, onClose, onSuccess, canAssig
       onSuccess(data as TeamMember);
       handleClose();
     } catch {
-      setErrors({ form: 'Network error — please try again' });
+      setErrors({ form: 'Network error ; please try again' });
     } finally {
       setLoading(false);
     }
@@ -128,7 +138,8 @@ export default function InviteMemberModal({ isOpen, onClose, onSuccess, canAssig
             <button
               type="button"
               onClick={() => {
-                const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%&*';
+                const chars =
+                  'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%&*';
                 let pw = '';
                 const array = new Uint32Array(16);
                 crypto.getRandomValues(array);
@@ -145,7 +156,10 @@ export default function InviteMemberModal({ isOpen, onClose, onSuccess, canAssig
           {generatedPassword ? (
             <TextInput
               value={password}
-              onChange={(v) => { setPassword(v); if (!v) setGeneratedPassword(false); }}
+              onChange={(v) => {
+                setPassword(v);
+                if (!v) setGeneratedPassword(false);
+              }}
               placeholder="Min 6 characters"
               disabled={loading}
               error={errors.password}
@@ -176,7 +190,8 @@ export default function InviteMemberModal({ isOpen, onClose, onSuccess, canAssig
 
         {role === 'owner' && (
           <div className="rounded-lg border border-amber-500/30 bg-amber-500/15 px-3 py-2 text-xs leading-5 text-amber-300">
-            Owners have unrestricted access to billing, credentials, permissions, API scopes, and team management.
+            Owners have unrestricted access to billing, credentials, permissions, API scopes, and
+            team management.
           </div>
         )}
 

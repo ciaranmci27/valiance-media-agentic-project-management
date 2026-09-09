@@ -2,14 +2,24 @@
 
 import { useEffect, useState } from 'react';
 import {
-  Mail, Send, Bell, BellOff, DollarSign,
-  ShieldCheck, ShieldAlert, X as XIcon, Plus, AlertCircle,
-  FileText, Sparkles, RotateCcw,
+  Mail,
+  Send,
+  Bell,
+  BellOff,
+  DollarSign,
+  ShieldCheck,
+  ShieldAlert,
+  X as XIcon,
+  Plus,
+  AlertCircle,
+  FileText,
+  Sparkles,
+  RotateCcw,
 } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { useDemo } from '@/lib/demo-context';
 import { toast } from '@/components/ui/Toast';
-import { Select } from '@/components/ui/Select';
+import { Select } from '@/components/ui/inputs/Select';
 import ClientEmailPreviewModal from './ClientEmailPreviewModal';
 import type { ClientCommType, AlertMode } from '@/lib/types';
 
@@ -18,7 +28,12 @@ interface ClientCommunicationsPanelProps {
   onSent?: () => void;
 }
 
-const MANUAL_ACTIONS: { type: ClientCommType; label: string; description: string; icon: typeof Mail }[] = [
+const MANUAL_ACTIONS: {
+  type: ClientCommType;
+  label: string;
+  description: string;
+  icon: typeof Mail;
+}[] = [
   {
     type: 'portal_welcome',
     label: 'Portal Welcome',
@@ -64,7 +79,9 @@ export function ClientCommunicationsPanel({ projectId, onSent }: ClientCommunica
   );
 
   useEffect(() => {
-    setDollarIntervalInput(settings?.dollar_interval != null ? String(settings.dollar_interval) : '');
+    setDollarIntervalInput(
+      settings?.dollar_interval != null ? String(settings.dollar_interval) : '',
+    );
   }, [settings?.dollar_interval]);
 
   const alertMode: AlertMode = settings?.alert_mode ?? 'percentage';
@@ -117,7 +134,7 @@ export function ClientCommunicationsPanel({ projectId, onSent }: ClientCommunica
 
   const handleRemoveThreshold = (val: number) => {
     upsertPortalSettings(projectId, {
-      notification_thresholds: thresholds.filter(t => t !== val),
+      notification_thresholds: thresholds.filter((t) => t !== val),
     });
   };
 
@@ -131,7 +148,9 @@ export function ClientCommunicationsPanel({ projectId, onSent }: ClientCommunica
     }
     const val = parseFloat(raw);
     if (isNaN(val) || val <= 0) {
-      setDollarIntervalInput(settings?.dollar_interval != null ? String(settings.dollar_interval) : '');
+      setDollarIntervalInput(
+        settings?.dollar_interval != null ? String(settings.dollar_interval) : '',
+      );
       toast('error', 'Enter a positive dollar amount');
       return;
     }
@@ -180,7 +199,9 @@ export function ClientCommunicationsPanel({ projectId, onSent }: ClientCommunica
           <section className="space-y-4">
             <div className="flex items-center gap-1.5">
               <Bell size={13} className="text-zinc-500" />
-              <h3 className="text-xs font-medium text-zinc-400 uppercase tracking-wide">Automation</h3>
+              <h3 className="text-xs font-medium text-zinc-400 uppercase tracking-wide">
+                Automation
+              </h3>
             </div>
 
             <div className="space-y-2">
@@ -200,7 +221,7 @@ export function ClientCommunicationsPanel({ projectId, onSent }: ClientCommunica
                 </p>
                 {hasBudget ? (
                   <div className="flex flex-wrap items-center gap-1.5">
-                    {thresholds.map(t => (
+                    {thresholds.map((t) => (
                       <span
                         key={t}
                         className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-brand-500/15 border border-brand-500/30 text-brand-300 text-xs font-medium"
@@ -222,8 +243,8 @@ export function ClientCommunicationsPanel({ projectId, onSent }: ClientCommunica
                         min={1}
                         max={100}
                         value={newThreshold}
-                        onChange={e => setNewThreshold(e.target.value)}
-                        onKeyDown={e => e.key === 'Enter' && handleAddThreshold()}
+                        onChange={(e) => setNewThreshold(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && handleAddThreshold()}
                         placeholder="%"
                         className="w-14 px-1.5 text-xs leading-none border border-white/[0.08] rounded-l-md focus:outline-none focus:ring-1 focus:ring-brand-500 focus:border-brand-500 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                       />
@@ -253,7 +274,9 @@ export function ClientCommunicationsPanel({ projectId, onSent }: ClientCommunica
                       }`}
                     />
                     <div className="min-w-0">
-                      <div className="text-sm text-zinc-100">Rearm thresholds after budget changes</div>
+                      <div className="text-sm text-zinc-100">
+                        Rearm thresholds after budget changes
+                      </div>
                       <div className="text-xs text-zinc-400 mt-0.5">
                         {rearmOnBudgetChange
                           ? 'Each budget change starts a new tracking period. Thresholds can fire again as usage crosses them in the new period.'
@@ -282,7 +305,8 @@ export function ClientCommunicationsPanel({ projectId, onSent }: ClientCommunica
             {alertMode === 'dollar_interval' && (
               <div className="space-y-2">
                 <p className="text-xs text-zinc-400">
-                  Send an alert every time tracked work crosses another milestone of this dollar amount.
+                  Send an alert every time tracked work crosses another milestone of this dollar
+                  amount.
                 </p>
                 <div className="flex items-center gap-2">
                   <div className="relative">
@@ -295,9 +319,9 @@ export function ClientCommunicationsPanel({ projectId, onSent }: ClientCommunica
                       min={1}
                       step="any"
                       value={dollarIntervalInput}
-                      onChange={e => setDollarIntervalInput(e.target.value)}
+                      onChange={(e) => setDollarIntervalInput(e.target.value)}
                       onBlur={handleDollarIntervalBlur}
-                      onKeyDown={e => {
+                      onKeyDown={(e) => {
                         if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
                       }}
                       placeholder="500"
@@ -312,7 +336,8 @@ export function ClientCommunicationsPanel({ projectId, onSent }: ClientCommunica
             {alertMode === 'none' && (
               <div className="flex items-start gap-2 px-3 py-2 rounded-md bg-white/[0.03] border border-white/[0.08] text-xs text-zinc-300">
                 <BellOff size={12} className="mt-0.5 flex-shrink-0" />
-                Automated budget alerts are off. Use the Send Now actions above when you want to reach out.
+                Automated budget alerts are off. Use the Send Now actions above when you want to
+                reach out.
               </div>
             )}
 

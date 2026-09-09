@@ -1,16 +1,35 @@
 'use client';
+import { ColorInput } from '@/components/ui/inputs/ColorInput';
+import { FileInput } from '@/components/ui/inputs/FileInput';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import {
-  Globe, Link2, Copy, Check, Eye, EyeOff, Lock, Pencil,
-  Trash2, Camera, Loader2, X, GripVertical, Activity,
+  Globe,
+  Link2,
+  Copy,
+  Check,
+  Eye,
+  EyeOff,
+  Lock,
+  Pencil,
+  Trash2,
+  Camera,
+  Loader2,
+  X,
+  GripVertical,
+  Activity,
 } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { DEFAULT_SECTION_ORDER, PORTAL_SECTION_LABELS, type PortalSectionKey } from '@/lib/types';
 
 // The portal is two columns on desktop: these fill the main column, the rest sit
 // in the sidebar. The drag order applies within each column, and top to bottom on phones.
-const PORTAL_MAIN_COLUMN = new Set<PortalSectionKey>(['show_progress', 'show_invoices', 'show_hours', 'show_updates']);
+const PORTAL_MAIN_COLUMN = new Set<PortalSectionKey>([
+  'show_progress',
+  'show_invoices',
+  'show_hours',
+  'show_updates',
+]);
 import { useDemo } from '@/lib/demo-context';
 import { toast } from '@/components/ui/Toast';
 import { TextInput } from '@/components/ui/inputs/TextInput';
@@ -28,12 +47,7 @@ interface PortalSettingsPanelProps {
 }
 
 export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
-  const {
-    getPortalSettings,
-    upsertPortalSettings,
-    updatePortalSlug,
-    getProject,
-  } = useApp();
+  const { getPortalSettings, upsertPortalSettings, updatePortalSlug, getProject } = useApp();
   const { isDemoMode } = useDemo();
 
   const settings = getPortalSettings(projectId);
@@ -54,9 +68,13 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
   const [editingSlug, setEditingSlug] = useState(false);
   const slugInputRef = useRef<HTMLInputElement>(null);
   const [localPin, setLocalPin] = useState(settings?.pin || '');
-  const [localAccentColor, setLocalAccentColor] = useState(settings?.accent_color || siteConfig.colors.brand[500]);
+  const [localAccentColor, setLocalAccentColor] = useState(
+    settings?.accent_color || siteConfig.colors.brand[500],
+  );
   const [localWelcomeMessage, setLocalWelcomeMessage] = useState(settings?.welcome_message || '');
-  const [sectionOrder, setSectionOrder] = useState<PortalSectionKey[]>(settings?.section_order ?? [...DEFAULT_SECTION_ORDER]);
+  const [sectionOrder, setSectionOrder] = useState<PortalSectionKey[]>(
+    settings?.section_order ?? [...DEFAULT_SECTION_ORDER],
+  );
   const [draggedKey, setDraggedKey] = useState<PortalSectionKey | null>(null);
   const dragKeyRef = useRef<PortalSectionKey | null>(null);
   const lastTargetRef = useRef<PortalSectionKey | null>(null);
@@ -70,61 +88,72 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
     setLocalAccentColor(settings?.accent_color || siteConfig.colors.brand[500]);
     setLocalWelcomeMessage(settings?.welcome_message || '');
     setSectionOrder(settings?.section_order ?? [...DEFAULT_SECTION_ORDER]);
-  }, [settings?.token, settings?.pin, settings?.accent_color, settings?.welcome_message, settings?.section_order]);
+  }, [
+    settings?.token,
+    settings?.pin,
+    settings?.accent_color,
+    settings?.welcome_message,
+    settings?.section_order,
+  ]);
 
   // Pointer-event based drag for section reordering
-  const handleSectionDragStart = useCallback((key: PortalSectionKey, e: React.PointerEvent) => {
-    e.preventDefault();
-    dragKeyRef.current = key;
-    lastTargetRef.current = null;
-    setDraggedKey(key);
-
-    const handleMove = (moveEvent: PointerEvent) => {
-      const el = document.elementFromPoint(moveEvent.clientX, moveEvent.clientY);
-      const target = el?.closest('[data-section-key]');
-      const targetKey = target?.getAttribute('data-section-key') as PortalSectionKey | null;
-      if (!targetKey || targetKey === dragKeyRef.current || targetKey === lastTargetRef.current) return;
-      lastTargetRef.current = targetKey;
-
-      setSectionOrder(prev => {
-        const dragged = dragKeyRef.current!;
-        const fromIdx = prev.indexOf(dragged);
-        const toIdx = prev.indexOf(targetKey);
-        if (fromIdx === -1 || toIdx === -1 || fromIdx === toIdx) return prev;
-        const next = [...prev];
-        next.splice(fromIdx, 1);
-        next.splice(toIdx, 0, dragged);
-        return next;
-      });
-    };
-
-    const handleUp = () => {
-      document.removeEventListener('pointermove', handleMove);
-      document.removeEventListener('pointerup', handleUp);
-      setDraggedKey(null);
-      dragKeyRef.current = null;
+  const handleSectionDragStart = useCallback(
+    (key: PortalSectionKey, e: React.PointerEvent) => {
+      e.preventDefault();
+      dragKeyRef.current = key;
       lastTargetRef.current = null;
-      upsertPortalSettings(projectId, { section_order: sectionOrderRef.current });
-    };
+      setDraggedKey(key);
 
-    document.addEventListener('pointermove', handleMove);
-    document.addEventListener('pointerup', handleUp);
-  }, [projectId, upsertPortalSettings]);
+      const handleMove = (moveEvent: PointerEvent) => {
+        const el = document.elementFromPoint(moveEvent.clientX, moveEvent.clientY);
+        const target = el?.closest('[data-section-key]');
+        const targetKey = target?.getAttribute('data-section-key') as PortalSectionKey | null;
+        if (!targetKey || targetKey === dragKeyRef.current || targetKey === lastTargetRef.current)
+          return;
+        lastTargetRef.current = targetKey;
+
+        setSectionOrder((prev) => {
+          const dragged = dragKeyRef.current!;
+          const fromIdx = prev.indexOf(dragged);
+          const toIdx = prev.indexOf(targetKey);
+          if (fromIdx === -1 || toIdx === -1 || fromIdx === toIdx) return prev;
+          const next = [...prev];
+          next.splice(fromIdx, 1);
+          next.splice(toIdx, 0, dragged);
+          return next;
+        });
+      };
+
+      const handleUp = () => {
+        document.removeEventListener('pointermove', handleMove);
+        document.removeEventListener('pointerup', handleUp);
+        setDraggedKey(null);
+        dragKeyRef.current = null;
+        lastTargetRef.current = null;
+        upsertPortalSettings(projectId, { section_order: sectionOrderRef.current });
+      };
+
+      document.addEventListener('pointermove', handleMove);
+      document.addEventListener('pointerup', handleUp);
+    },
+    [projectId, upsertPortalSettings],
+  );
 
   // Debounced save helper
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const debouncedSettingChange = useCallback((key: string, value: any) => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
-      upsertPortalSettings(projectId, { [key]: value });
-    }, 500);
-  }, [projectId, upsertPortalSettings]);
+  const debouncedSettingChange = useCallback(
+    (key: string, value: any) => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      debounceRef.current = setTimeout(() => {
+        upsertPortalSettings(projectId, { [key]: value });
+      }, 500);
+    },
+    [projectId, upsertPortalSettings],
+  );
 
   const isEnabled = settings?.enabled ?? false;
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
-  const portalUrl = settings?.token
-    ? `${origin}/portal/${settings.token}`
-    : '';
+  const portalUrl = settings?.token ? `${origin}/portal/${settings.token}` : '';
 
   const handleSlugSave = () => {
     const trimmed = localSlug
@@ -191,9 +220,9 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
 
       if (uploadError) throw uploadError;
 
-      const { data: { publicUrl } } = supabase.storage
-        .from('avatars')
-        .getPublicUrl(path);
+      const {
+        data: { publicUrl },
+      } = supabase.storage.from('avatars').getPublicUrl(path);
 
       const url = `${publicUrl}?t=${Date.now()}`;
       handleSettingChange('logo_url', url);
@@ -246,7 +275,9 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
                 ) : (
                   <div
                     className="w-full h-full flex items-center justify-center text-white text-lg font-bold"
-                    style={{ backgroundColor: settings.accent_color || siteConfig.colors.brand[500] }}
+                    style={{
+                      backgroundColor: settings.accent_color || siteConfig.colors.brand[500],
+                    }}
                   >
                     {project?.name?.charAt(0) || 'P'}
                   </div>
@@ -258,7 +289,10 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
                   onClick={() => logoInputRef.current?.click()}
                   className="absolute inset-0 rounded-xl bg-black/30 sm:bg-black/0 sm:group-hover:bg-black/40 sm:focus-visible:bg-black/40 flex items-center justify-center transition-all cursor-pointer"
                 >
-                  <Camera size={16} className="text-white sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 transition-opacity" />
+                  <Camera
+                    size={16}
+                    className="text-white sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 transition-opacity"
+                  />
                 </button>
               )}
               {uploadingLogo && (
@@ -275,9 +309,8 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
                   <X size={12} />
                 </button>
               )}
-              <input
+              <FileInput
                 ref={logoInputRef}
-                type="file"
                 accept="image/jpeg,image/png,image/webp"
                 onChange={(e) => {
                   const file = e.target.files?.[0];
@@ -303,10 +336,15 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
                         ref={slugInputRef}
                         type="text"
                         value={localSlug}
-                        onChange={e => setLocalSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
-                        onKeyDown={e => {
+                        onChange={(e) =>
+                          setLocalSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))
+                        }
+                        onKeyDown={(e) => {
                           if (e.key === 'Enter') handleSlugSave();
-                          if (e.key === 'Escape') { setLocalSlug(settings?.token || ''); setEditingSlug(false); }
+                          if (e.key === 'Escape') {
+                            setLocalSlug(settings?.token || '');
+                            setEditingSlug(false);
+                          }
                         }}
                         className="flex-1 min-w-0 bg-transparent text-zinc-100 outline-none placeholder:text-zinc-600"
                         placeholder="project-slug"
@@ -345,7 +383,9 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
                 </Tooltip>
                 <Tooltip content="View portal">
                   <button
-                    onClick={() => portalUrl && window.open(portalUrl, '_blank', 'noopener,noreferrer')}
+                    onClick={() =>
+                      portalUrl && window.open(portalUrl, '_blank', 'noopener,noreferrer')
+                    }
                     className="p-2 text-zinc-400 hover:text-brand-300 hover:bg-brand-500/15 rounded-lg transition-colors"
                   >
                     <Eye size={16} />
@@ -363,19 +403,18 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
 
               {/* Accent Color + PIN */}
               <div className="flex items-center gap-3">
-                <input
-                  type="color"
+                <ColorInput
+                  ariaLabel="Portal accent color"
                   value={localAccentColor}
-                  onChange={e => {
-                    setLocalAccentColor(e.target.value);
-                    debouncedSettingChange('accent_color', e.target.value);
+                  onChange={(nextValue) => {
+                    setLocalAccentColor(nextValue);
+                    debouncedSettingChange('accent_color', nextValue);
                   }}
-                  className="w-[38px] h-[38px] rounded-lg border border-white/[0.08] cursor-pointer p-0.5 flex-shrink-0"
                 />
                 <div className="w-24">
                   <TextInput
                     value={localAccentColor}
-                    onChange={v => {
+                    onChange={(v) => {
                       setLocalAccentColor(v);
                       debouncedSettingChange('accent_color', v);
                     }}
@@ -418,7 +457,13 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
                     className="inline-flex items-center gap-1.5 px-3 py-2 text-sm bg-surface-raised border border-white/[0.08] rounded-lg hover:border-white/[0.12] transition-colors flex-shrink-0"
                   >
                     <Lock size={13} className="text-zinc-500" />
-                    <span className={localPin ? 'text-zinc-300 font-medium tracking-wider' : 'text-zinc-500'}>{localPin ? '••••' : 'Set PIN'}</span>
+                    <span
+                      className={
+                        localPin ? 'text-zinc-300 font-medium tracking-wider' : 'text-zinc-500'
+                      }
+                    >
+                      {localPin ? '••••' : 'Set PIN'}
+                    </span>
                   </button>
                 )}
                 {localPin && !pinConfirmed && (
@@ -441,7 +486,7 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
             <Textarea
               label="Welcome Message"
               value={localWelcomeMessage}
-              onChange={v => {
+              onChange={(v) => {
                 setLocalWelcomeMessage(v);
                 debouncedSettingChange('welcome_message', v);
               }}
@@ -453,10 +498,12 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
 
           {/* Visibility Toggles (drag to reorder) */}
           <div className="space-y-2">
-            <label className="block text-xs font-medium text-zinc-400 uppercase tracking-wide">Visible Sections</label>
+            <label className="block text-xs font-medium text-zinc-400 uppercase tracking-wide">
+              Visible Sections
+            </label>
             <div className="flex flex-wrap gap-2">
               {sectionOrder
-                .filter(key => key !== 'show_hours' || project?.hourly_tracking)
+                .filter((key) => key !== 'show_hours' || project?.hourly_tracking)
                 .map((key) => {
                   const isActive = (settings as any)[key];
                   const isDragging = draggedKey === key;
@@ -474,7 +521,10 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
                         onPointerDown={(e) => handleSectionDragStart(key, e)}
                         className="pl-2 pr-0.5 py-1.5 cursor-grab active:cursor-grabbing touch-none select-none"
                       >
-                        <GripVertical size={12} className={isActive ? 'text-brand-300' : 'text-zinc-600'} />
+                        <GripVertical
+                          size={12}
+                          className={isActive ? 'text-brand-300' : 'text-zinc-600'}
+                        />
                       </span>
                       <button
                         onClick={() => handleSettingChange(key, !isActive)}
@@ -491,10 +541,11 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
                 })}
             </div>
             <p className="mt-2 text-[11px] leading-relaxed text-zinc-500">
-              On desktop the portal is two columns: Progress, Invoices, Hours, and Updates fill the main column, and Files and Credentials sit in the sidebar. The order above applies within each column, and top to bottom on phones.
+              On desktop the portal is two columns: Progress, Invoices, Hours, and Updates fill the
+              main column, and Files and Credentials sit in the sidebar. The order above applies
+              within each column, and top to bottom on phones.
             </p>
           </div>
-
         </div>
       )}
       <AvatarCropModal

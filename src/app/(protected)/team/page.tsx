@@ -8,11 +8,24 @@ import { Avatar } from '@/components/ui/Avatar';
 import { AvatarUpload } from '@/components/ui/AvatarUpload';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import { Select } from '@/components/ui/Select';
+import { Select } from '@/components/ui/inputs/Select';
 import { NumberInput } from '@/components/ui/inputs/NumberInput';
 import Modal from '@/components/ui/Modal';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import { Edit, Shield, User, UserMinus, Bot, UserPlus, Globe, Check, Crown, SlidersHorizontal, DollarSign, type LucideIcon } from 'lucide-react';
+import {
+  Edit,
+  Shield,
+  User,
+  UserMinus,
+  Bot,
+  UserPlus,
+  Globe,
+  Check,
+  Crown,
+  SlidersHorizontal,
+  DollarSign,
+  type LucideIcon,
+} from 'lucide-react';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { RowActionsMenu, type RowAction } from '@/components/ui/RowActionsMenu';
 import { TeamMember } from '@/lib/types';
@@ -44,7 +57,9 @@ export default function TeamPage() {
   const canManageCompensation = hasPermission(access, 'compensation.manage');
   const canManageBilling = hasPermission(access, 'billing.manage');
 
-  useEffect(() => { setFilters(defaultFilters); }, [setFilters]);
+  useEffect(() => {
+    setFilters(defaultFilters);
+  }, [setFilters]);
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -56,34 +71,63 @@ export default function TeamPage() {
   const [memberTz, setMemberTz] = useState('UTC');
   const [tzSearch, setTzSearch] = useState('');
   const [tzOpen, setTzOpen] = useState(false);
-  const [tzDropdownPos, setTzDropdownPos] = useState({ top: 0, left: 0, width: 0, maxHeight: 240, openAbove: false });
+  const [tzDropdownPos, setTzDropdownPos] = useState({
+    top: 0,
+    left: 0,
+    width: 0,
+    maxHeight: 240,
+    openAbove: false,
+  });
   const [formLoading, setFormLoading] = useState(false);
   const tzTriggerRef = useRef<HTMLDivElement>(null);
   const tzDropdownRef = useRef<HTMLDivElement>(null);
 
   const tzEntries = useMemo(() => {
     let zones: string[];
-    try { zones = Intl.supportedValuesOf('timeZone'); } catch { zones = ['UTC']; }
+    try {
+      zones = Intl.supportedValuesOf('timeZone');
+    } catch {
+      zones = ['UTC'];
+    }
     const now = Date.now();
-    return zones.map(tz => {
-      try {
-        const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'shortOffset' }).formatToParts(now);
-        const raw = parts.find(p => p.type === 'timeZoneName')?.value || 'GMT';
-        const label = raw === 'GMT' ? 'UTC+0' : raw.replace('GMT', 'UTC');
-        const match = label.match(/UTC([+-])(\d+)(?::(\d+))?/);
-        const offsetMin = match ? (match[1] === '+' ? 1 : -1) * (parseInt(match[2]) * 60 + parseInt(match[3] || '0')) : 0;
-        return { id: tz, label, offsetMin };
-      } catch { return { id: tz, label: 'UTC+0', offsetMin: 0 }; }
-    }).sort((a, b) => a.offsetMin - b.offsetMin || a.id.localeCompare(b.id));
+    return zones
+      .map((tz) => {
+        try {
+          const parts = new Intl.DateTimeFormat('en-US', {
+            timeZone: tz,
+            timeZoneName: 'shortOffset',
+          }).formatToParts(now);
+          const raw = parts.find((p) => p.type === 'timeZoneName')?.value || 'GMT';
+          const label = raw === 'GMT' ? 'UTC+0' : raw.replace('GMT', 'UTC');
+          const match = label.match(/UTC([+-])(\d+)(?::(\d+))?/);
+          const offsetMin = match
+            ? (match[1] === '+' ? 1 : -1) * (parseInt(match[2]) * 60 + parseInt(match[3] || '0'))
+            : 0;
+          return { id: tz, label, offsetMin };
+        } catch {
+          return { id: tz, label: 'UTC+0', offsetMin: 0 };
+        }
+      })
+      .sort((a, b) => a.offsetMin - b.offsetMin || a.id.localeCompare(b.id));
   }, []);
 
   const filteredTz = useMemo(() => {
     const list = tzSearch
-      ? tzEntries.filter(e => e.id.toLowerCase().includes(tzSearch.toLowerCase()) || e.label.toLowerCase().includes(tzSearch.toLowerCase()))
+      ? tzEntries.filter(
+          (e) =>
+            e.id.toLowerCase().includes(tzSearch.toLowerCase()) ||
+            e.label.toLowerCase().includes(tzSearch.toLowerCase()),
+        )
       : tzEntries;
     const groups: { label: string; items: typeof list }[] = [];
     let cur = '';
-    for (const e of list) { if (e.label !== cur) { cur = e.label; groups.push({ label: cur, items: [] }); } groups[groups.length - 1].items.push(e); }
+    for (const e of list) {
+      if (e.label !== cur) {
+        cur = e.label;
+        groups.push({ label: cur, items: [] });
+      }
+      groups[groups.length - 1].items.push(e);
+    }
     return groups;
   }, [tzEntries, tzSearch]);
 
@@ -163,20 +207,22 @@ export default function TeamPage() {
       if (isDemoMode) {
         const blobUrl = URL.createObjectURL(blob);
         updateTeamMember(editingMember.id, { avatar: blobUrl });
-        setEditingMember(prev => prev ? { ...prev, avatar: blobUrl } : null);
+        setEditingMember((prev) => (prev ? { ...prev, avatar: blobUrl } : null));
         toast('success', 'Avatar updated');
       } else {
-        // Fixed path per member — upsert replaces previous file, no storage bloat
+        // Fixed path per member ; upsert replaces previous file, no storage bloat
         const path = `team/${editingMember.id}.jpg`;
         const { error: uploadError } = await supabase.storage
           .from('avatars')
           .upload(path, blob, { upsert: true, contentType: 'image/jpeg' });
         if (uploadError) throw uploadError;
 
-        const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(path);
+        const {
+          data: { publicUrl },
+        } = supabase.storage.from('avatars').getPublicUrl(path);
         const url = `${publicUrl}?t=${Date.now()}`;
         updateTeamMember(editingMember.id, { avatar: url });
-        setEditingMember(prev => prev ? { ...prev, avatar: url } : null);
+        setEditingMember((prev) => (prev ? { ...prev, avatar: url } : null));
         toast('success', 'Avatar updated');
       }
     } catch {
@@ -190,7 +236,8 @@ export default function TeamPage() {
   // billing permission) and valid; the API enforces the same rules again.
   const multiplierUpdate = (): { billing_multiplier?: number } => {
     if (role !== 'agent' || !canManageBilling || billingMultiplier === '') return {};
-    if (!Number.isFinite(billingMultiplier) || billingMultiplier < 0.1 || billingMultiplier > 10) return {};
+    if (!Number.isFinite(billingMultiplier) || billingMultiplier < 0.1 || billingMultiplier > 10)
+      return {};
     return { billing_multiplier: billingMultiplier };
   };
 
@@ -205,7 +252,14 @@ export default function TeamPage() {
       return;
     }
 
-    updateTeamMember(editingMember.id, { name: name.trim(), title: title.trim() || null, role, status: memberStatus, timezone: memberTz, ...multiplierUpdate() });
+    updateTeamMember(editingMember.id, {
+      name: name.trim(),
+      title: title.trim() || null,
+      role,
+      status: memberStatus,
+      timezone: memberTz,
+      ...multiplierUpdate(),
+    });
     toast('success', 'Team member updated');
     handleCloseForm();
   };
@@ -220,7 +274,10 @@ export default function TeamPage() {
       const res = await fetch('/api/team-members/update-email', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ team_member_id: editingMember.id, new_email: email.trim().toLowerCase() }),
+        body: JSON.stringify({
+          team_member_id: editingMember.id,
+          new_email: email.trim().toLowerCase(),
+        }),
       });
 
       if (!res.ok) {
@@ -229,7 +286,14 @@ export default function TeamPage() {
         return;
       }
 
-      updateTeamMember(editingMember.id, { name: name.trim(), role, status: memberStatus, timezone: memberTz, email: email.trim().toLowerCase(), ...multiplierUpdate() });
+      updateTeamMember(editingMember.id, {
+        name: name.trim(),
+        role,
+        status: memberStatus,
+        timezone: memberTz,
+        email: email.trim().toLowerCase(),
+        ...multiplierUpdate(),
+      });
       toast('success', 'Team member updated');
       handleCloseForm();
     } catch {
@@ -256,7 +320,7 @@ export default function TeamPage() {
   };
 
   const getTaskCount = (memberId: string) => {
-    return tasks.filter(t => t.assignee_ids.includes(memberId)).length;
+    return tasks.filter((t) => t.assignee_ids.includes(memberId)).length;
   };
 
   const searchLower = filters.search.toLowerCase();
@@ -267,23 +331,41 @@ export default function TeamPage() {
     agent: 3,
     guest: 4,
   };
-  const filtered = (filters.search
-    ? team.filter(m =>
-        m.name.toLowerCase().includes(searchLower) ||
-        m.email.toLowerCase().includes(searchLower))
-    : [...team])
-    .sort((a, b) => roleRank[a.role] - roleRank[b.role] || a.name.localeCompare(b.name));
+  const filtered = (
+    filters.search
+      ? team.filter(
+          (m) =>
+            m.name.toLowerCase().includes(searchLower) ||
+            m.email.toLowerCase().includes(searchLower),
+        )
+      : [...team]
+  ).sort((a, b) => roleRank[a.role] - roleRank[b.role] || a.name.localeCompare(b.name));
 
   const buildActions = (member: TeamMember): RowAction[] => {
     const actions: RowAction[] = [];
     if (canManageTeam || member.id === currentTeamMemberId) {
-      actions.push({ label: 'Edit', icon: <Edit size={14} />, onClick: () => handleOpenForm(member) });
+      actions.push({
+        label: 'Edit',
+        icon: <Edit size={14} />,
+        onClick: () => handleOpenForm(member),
+      });
     }
     if (isOwner && member.role !== 'owner') {
-      actions.push({ label: 'Permissions', icon: <SlidersHorizontal size={14} />, onClick: () => { setAccessMemberId(member.id); setIsAccessOpen(true); } });
+      actions.push({
+        label: 'Permissions',
+        icon: <SlidersHorizontal size={14} />,
+        onClick: () => {
+          setAccessMemberId(member.id);
+          setIsAccessOpen(true);
+        },
+      });
     }
     if (canManageCompensation && member.role !== 'owner') {
-      actions.push({ label: 'Compensation', icon: <DollarSign size={14} />, onClick: () => setCompensationMember(member) });
+      actions.push({
+        label: 'Compensation',
+        icon: <DollarSign size={14} />,
+        onClick: () => setCompensationMember(member),
+      });
     }
     return actions;
   };
@@ -303,14 +385,22 @@ export default function TeamPage() {
               <p className="text-sm text-zinc-500 truncate">{m.email}</p>
             </div>
           </div>
-          {actions.length > 0 && <RowActionsMenu actions={actions} label={`Actions for ${m.name}`} />}
+          {actions.length > 0 && (
+            <RowActionsMenu actions={actions} label={`Actions for ${m.name}`} />
+          )}
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-2">
-          <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${roleColors[m.role]}`}>
+          <span
+            className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${roleColors[m.role]}`}
+          >
             <RoleIcon size={12} />
             {m.role.charAt(0).toUpperCase() + m.role.slice(1)}
           </span>
-          {m.status === 'suspended' && <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-500/15 text-red-300">Suspended</span>}
+          {m.status === 'suspended' && (
+            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-500/15 text-red-300">
+              Suspended
+            </span>
+          )}
           <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-white/[0.06] text-zinc-300">
             {count} task{count !== 1 ? 's' : ''}
           </span>
@@ -336,9 +426,10 @@ export default function TeamPage() {
       header: 'Title',
       className: 'hidden md:table-cell',
       sortValue: (m) => (m.title ?? '').toLowerCase(),
-      render: (m) => m.title?.trim()
-        ? <span className="text-zinc-300 truncate block max-w-[160px]">{m.title}</span>
-        : null,
+      render: (m) =>
+        m.title?.trim() ? (
+          <span className="text-zinc-300 truncate block max-w-[160px]">{m.title}</span>
+        ) : null,
     },
     {
       key: 'email',
@@ -353,7 +444,9 @@ export default function TeamPage() {
       render: (m) => {
         const RoleIcon = roleIcons[m.role];
         return (
-          <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium whitespace-nowrap ${roleColors[m.role]}`}>
+          <span
+            className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium whitespace-nowrap ${roleColors[m.role]}`}
+          >
             <RoleIcon size={12} />
             {m.role.charAt(0).toUpperCase() + m.role.slice(1)}
           </span>
@@ -364,9 +457,16 @@ export default function TeamPage() {
       key: 'status',
       header: 'Status',
       className: 'hidden md:table-cell',
-      render: (m) => m.status === 'suspended'
-        ? <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-500/15 text-red-300">Suspended</span>
-        : <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-500/15 text-emerald-300">Active</span>,
+      render: (m) =>
+        m.status === 'suspended' ? (
+          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-500/15 text-red-300">
+            Suspended
+          </span>
+        ) : (
+          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-500/15 text-emerald-300">
+            Active
+          </span>
+        ),
     },
     {
       key: 'tasks',
@@ -397,7 +497,27 @@ export default function TeamPage() {
         title="Team"
         subtitle={<span className="hidden sm:inline">{team.length} team members</span>}
         searchPlaceholder="Search team members..."
-        actions={canManageTeam && !isDemoMode ? <div className="flex gap-2">{isOwner && <Button variant="secondary" icon={<SlidersHorizontal size={16} />} onClick={() => { setAccessMemberId(null); setIsAccessOpen(true); }}>Roles & permissions</Button>}<Button icon={<UserPlus size={16} />} onClick={() => setIsInviteOpen(true)}>Invite</Button></div> : undefined}
+        actions={
+          canManageTeam && !isDemoMode ? (
+            <div className="flex gap-2">
+              {isOwner && (
+                <Button
+                  variant="secondary"
+                  icon={<SlidersHorizontal size={16} />}
+                  onClick={() => {
+                    setAccessMemberId(null);
+                    setIsAccessOpen(true);
+                  }}
+                >
+                  Roles & permissions
+                </Button>
+              )}
+              <Button icon={<UserPlus size={16} />} onClick={() => setIsInviteOpen(true)}>
+                Invite
+              </Button>
+            </div>
+          ) : undefined
+        }
       />
 
       <div className="p-4 lg:p-6 space-y-4">
@@ -430,27 +550,34 @@ export default function TeamPage() {
       />
 
       {/* Edit Member Modal */}
-      <Modal
-        isOpen={isFormOpen}
-        onClose={handleCloseForm}
-        title="Edit Team Member"
-        size="md"
-      >
+      <Modal isOpen={isFormOpen} onClose={handleCloseForm} title="Edit Team Member" size="md">
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="flex justify-center">
             <AvatarUpload
               name={editingMember?.name || ''}
-              currentSrc={editingMember?.avatar && (editingMember.avatar.startsWith('http') || editingMember.avatar.startsWith('blob:')) ? editingMember.avatar : undefined}
+              currentSrc={
+                editingMember?.avatar &&
+                (editingMember.avatar.startsWith('http') ||
+                  editingMember.avatar.startsWith('blob:'))
+                  ? editingMember.avatar
+                  : undefined
+              }
               size="lg"
               onCropped={handleAvatarCropped}
               uploading={avatarUploading}
-              onRemove={editingMember?.avatar && (editingMember.avatar.startsWith('http') || editingMember.avatar.startsWith('blob:')) ? () => {
-                if (editingMember) {
-                  updateTeamMember(editingMember.id, { avatar: '' });
-                  setEditingMember(prev => prev ? { ...prev, avatar: '' } : null);
-                  toast('success', 'Avatar removed');
-                }
-              } : undefined}
+              onRemove={
+                editingMember?.avatar &&
+                (editingMember.avatar.startsWith('http') ||
+                  editingMember.avatar.startsWith('blob:'))
+                  ? () => {
+                      if (editingMember) {
+                        updateTeamMember(editingMember.id, { avatar: '' });
+                        setEditingMember((prev) => (prev ? { ...prev, avatar: '' } : null));
+                        toast('success', 'Avatar removed');
+                      }
+                    }
+                  : undefined
+              }
             />
           </div>
 
@@ -473,7 +600,10 @@ export default function TeamPage() {
             label="Email"
             type="email"
             value={email}
-            onChange={(e) => { setEmail(e.target.value); setEmailError(''); }}
+            onChange={(e) => {
+              setEmail(e.target.value);
+              setEmailError('');
+            }}
             placeholder="name@example.com"
             error={emailError}
             disabled={formLoading}
@@ -494,7 +624,15 @@ export default function TeamPage() {
           />
 
           {canManageTeam && editingMember?.id !== currentTeamMemberId && (
-            <Select label="Account status" value={memberStatus} onChange={(value) => setMemberStatus(value as 'active' | 'suspended')} options={[{ value: 'active', label: 'Active' }, { value: 'suspended', label: 'Suspended' }]} />
+            <Select
+              label="Account status"
+              value={memberStatus}
+              onChange={(value) => setMemberStatus(value as 'active' | 'suspended')}
+              options={[
+                { value: 'active', label: 'Active' },
+                { value: 'suspended', label: 'Suspended' },
+              ]}
+            />
           )}
 
           {role === 'agent' && canManageBilling && (
@@ -527,60 +665,71 @@ export default function TeamPage() {
                   {memberTz.replace(/_/g, ' ')}
                 </span>
                 <span className="text-zinc-500 text-xs font-mono">
-                  {tzEntries.find(e => e.id === memberTz)?.label || 'UTC+0'}
+                  {tzEntries.find((e) => e.id === memberTz)?.label || 'UTC+0'}
                 </span>
               </button>
-              {tzOpen && createPortal(
-                <div
-                  ref={tzDropdownRef}
-                  role="dialog"
-                  aria-label="Choose timezone"
-                  className="fixed z-[9999] flex flex-col overflow-hidden bg-surface-raised border border-white/[0.08] rounded-lg shadow-lg"
-                  style={{
-                    top: tzDropdownPos.top,
-                    left: tzDropdownPos.left,
-                    width: tzDropdownPos.width,
-                    maxHeight: tzDropdownPos.maxHeight,
-                    transform: tzDropdownPos.openAbove ? 'translateY(-100%)' : undefined,
-                  }}
-                >
-                  <div className="p-2 border-b border-white/[0.06]">
-                    <Input
-                      type="text"
-                      value={tzSearch}
-                      onChange={e => setTzSearch(e.target.value)}
-                      placeholder="Search timezones..."
-                      className="bg-white/[0.03] py-1.5 rounded-md"
-                      autoFocus
-                    />
-                  </div>
-                  <div className="min-h-0 flex-1 overflow-y-auto">
-                    {filteredTz.length === 0 ? (
-                      <p className="px-3 py-2 text-sm text-zinc-500">No matching timezones</p>
-                    ) : filteredTz.map(group => (
-                      <div key={group.label}>
-                        <div className="sticky top-0 bg-white/[0.03] px-3 py-1 text-[11px] font-semibold text-zinc-500 uppercase tracking-wide font-mono border-b border-white/[0.06]">
-                          {group.label}
-                        </div>
-                        {group.items.map(entry => (
-                          <button
-                            key={entry.id}
-                            type="button"
-                            onClick={() => { setMemberTz(entry.id); setTzOpen(false); setTzSearch(''); }}
-                            className={`w-full text-left px-3 py-1.5 text-sm hover:bg-white/[0.03] transition-colors flex items-center justify-between ${
-                              entry.id === memberTz ? 'text-brand-300 font-medium bg-brand-500/15' : 'text-zinc-300'
-                            }`}
-                          >
-                            <span>{entry.id.replace(/_/g, ' ')}</span>
-                            {entry.id === memberTz && <Check size={14} className="text-brand-300 flex-shrink-0" />}
-                          </button>
-                        ))}
-                      </div>
-                    ))}
-                  </div>
-                </div>,
-                document.body,
-              )}
+              {tzOpen &&
+                createPortal(
+                  <div
+                    ref={tzDropdownRef}
+                    role="dialog"
+                    aria-label="Choose timezone"
+                    className="fixed z-[9999] flex flex-col overflow-hidden bg-surface-raised border border-white/[0.08] rounded-lg shadow-lg"
+                    style={{
+                      top: tzDropdownPos.top,
+                      left: tzDropdownPos.left,
+                      width: tzDropdownPos.width,
+                      maxHeight: tzDropdownPos.maxHeight,
+                      transform: tzDropdownPos.openAbove ? 'translateY(-100%)' : undefined,
+                    }}
+                  >
+                    <div className="p-2 border-b border-white/[0.06]">
+                      <Input
+                        type="text"
+                        value={tzSearch}
+                        onChange={(e) => setTzSearch(e.target.value)}
+                        placeholder="Search timezones..."
+                        className="bg-white/[0.03] py-1.5 rounded-md"
+                        autoFocus
+                      />
+                    </div>
+                    <div className="min-h-0 flex-1 overflow-y-auto">
+                      {filteredTz.length === 0 ? (
+                        <p className="px-3 py-2 text-sm text-zinc-500">No matching timezones</p>
+                      ) : (
+                        filteredTz.map((group) => (
+                          <div key={group.label}>
+                            <div className="sticky top-0 bg-white/[0.03] px-3 py-1 text-[11px] font-semibold text-zinc-500 uppercase tracking-wide font-mono border-b border-white/[0.06]">
+                              {group.label}
+                            </div>
+                            {group.items.map((entry) => (
+                              <button
+                                key={entry.id}
+                                type="button"
+                                onClick={() => {
+                                  setMemberTz(entry.id);
+                                  setTzOpen(false);
+                                  setTzSearch('');
+                                }}
+                                className={`w-full text-left px-3 py-1.5 text-sm hover:bg-white/[0.03] transition-colors flex items-center justify-between ${
+                                  entry.id === memberTz
+                                    ? 'text-brand-300 font-medium bg-brand-500/15'
+                                    : 'text-zinc-300'
+                                }`}
+                              >
+                                <span>{entry.id.replace(/_/g, ' ')}</span>
+                                {entry.id === memberTz && (
+                                  <Check size={14} className="text-brand-300 flex-shrink-0" />
+                                )}
+                              </button>
+                            ))}
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>,
+                  document.body,
+                )}
             </div>
           </div>
 
@@ -605,8 +754,17 @@ export default function TeamPage() {
         variant="default"
         doubleConfirm={false}
       />
-      <AccessControlModal isOpen={isAccessOpen} onClose={() => setIsAccessOpen(false)} team={team} initialMemberId={accessMemberId} />
-      <CompensationRateModal isOpen={Boolean(compensationMember)} onClose={() => setCompensationMember(null)} member={compensationMember} />
+      <AccessControlModal
+        isOpen={isAccessOpen}
+        onClose={() => setIsAccessOpen(false)}
+        team={team}
+        initialMemberId={accessMemberId}
+      />
+      <CompensationRateModal
+        isOpen={Boolean(compensationMember)}
+        onClose={() => setCompensationMember(null)}
+        member={compensationMember}
+      />
     </div>
   );
 }

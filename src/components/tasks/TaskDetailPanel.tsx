@@ -9,9 +9,22 @@ import { StatusBadge, PriorityBadge } from '@/components/ui/Badge';
 import { Avatar, AvatarGroup } from '@/components/ui/Avatar';
 import { TextInput } from '@/components/ui/inputs/TextInput';
 import { Textarea } from '@/components/ui/inputs/Textarea';
-import { Toggle } from '@/components/ui/Toggle';
+import { Toggle } from '@/components/ui/inputs/Toggle';
 import {
-  X, Edit, Trash2, Calendar, CheckSquare, MessageSquare, Plus, Tag, Users, Clock, GripVertical, Bot, ListChecks, Lock,
+  X,
+  Edit,
+  Trash2,
+  Calendar,
+  CheckSquare,
+  MessageSquare,
+  Plus,
+  Tag,
+  Users,
+  Clock,
+  GripVertical,
+  Bot,
+  ListChecks,
+  Lock,
 } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Tooltip } from '@/components/ui/Tooltip';
@@ -41,7 +54,25 @@ const PRIORITY_OPTIONS: { value: Task['priority']; label: string; color: string 
 ];
 
 export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailPanelProps) {
-  const { team, tasks, getTeamMember, getProject, updateTask, toggleSubtask, addSubtask, updateSubtask, reorderSubtasks, deleteSubtask, addCriterion, toggleCriterion, updateCriterion, deleteCriterion, addComment, updateComment, deleteComment } = useApp();
+  const {
+    team,
+    tasks,
+    getTeamMember,
+    getProject,
+    updateTask,
+    toggleSubtask,
+    addSubtask,
+    updateSubtask,
+    reorderSubtasks,
+    deleteSubtask,
+    addCriterion,
+    toggleCriterion,
+    updateCriterion,
+    deleteCriterion,
+    addComment,
+    updateComment,
+    deleteComment,
+  } = useApp();
   const { teamMemberId, access } = useAuth();
   const backdropRef = useRef<HTMLDivElement>(null);
   const [newSubtask, setNewSubtask] = useState('');
@@ -89,20 +120,24 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
   }, [task, onClose]);
 
   if (!task) return null;
-  const canEdit = hasPermission(access, 'tasks.manage_all') || (hasPermission(access, 'tasks.manage_assigned') && task.assignee_ids.includes(teamMemberId || ''));
+  const canEdit =
+    hasPermission(access, 'tasks.manage_all') ||
+    (hasPermission(access, 'tasks.manage_assigned') &&
+      task.assignee_ids.includes(teamMemberId || ''));
   const canDelete = hasPermission(access, 'tasks.manage_all');
 
   const isAgentsEnabled = process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true';
   const project = getProject(task.project_id);
-  const showAiToggle = isAgentsEnabled && hasPermission(access, 'agents.manage') && project?.autonomous_enabled;
+  const showAiToggle =
+    isAgentsEnabled && hasPermission(access, 'agents.manage') && project?.autonomous_enabled;
 
-  const assignees = team.filter(m => task.assignee_ids.includes(m.id));
-  const completedSubtasks = task.subtasks.filter(s => s.completed).length;
-  const satisfiedCriteria = task.acceptance_criteria.filter(c => c.satisfied).length;
+  const assignees = team.filter((m) => task.assignee_ids.includes(m.id));
+  const completedSubtasks = task.subtasks.filter((s) => s.completed).length;
+  const satisfiedCriteria = task.acceptance_criteria.filter((c) => c.satisfied).length;
   const blockers = (task.blocked_by_ids || [])
-    .map(id => tasks.find(t => t.id === id))
+    .map((id) => tasks.find((t) => t.id === id))
     .filter((t): t is Task => !!t);
-  const openBlockers = blockers.filter(b => b.status !== 'done');
+  const openBlockers = blockers.filter((b) => b.status !== 'done');
 
   const formatDate = (date: string | null) => {
     if (!date) return null;
@@ -116,7 +151,9 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
 
   const dueInfo = formatDate(task.due_date);
   const createdDate = new Date(task.created_at).toLocaleDateString('en-US', {
-    month: 'short', day: 'numeric', year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
   });
 
   const handleAddSubtask = (e: React.FormEvent) => {
@@ -161,22 +198,26 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
         <div className="flex items-center justify-between px-5 py-4 border-b border-white/[0.08] flex-shrink-0">
           <h2 className="text-lg font-semibold text-white truncate pr-3">{task.title}</h2>
           <div className="flex items-center gap-1.5 flex-shrink-0">
-            {canEdit && <Tooltip content="Edit task">
-              <button
-                onClick={() => onEdit(task)}
-                className="p-1.5 rounded-lg text-zinc-400 hover:text-brand-300 hover:bg-brand-500/15 transition-colors"
-              >
-                <Edit size={16} />
-              </button>
-            </Tooltip>}
-            {canDelete && <Tooltip content="Delete task">
-              <button
-                onClick={handleDelete}
-                className="p-1.5 rounded-lg text-zinc-400 hover:text-red-400 hover:bg-red-500/15 transition-colors"
-              >
-                <Trash2 size={16} />
-              </button>
-            </Tooltip>}
+            {canEdit && (
+              <Tooltip content="Edit task">
+                <button
+                  onClick={() => onEdit(task)}
+                  className="p-1.5 rounded-lg text-zinc-400 hover:text-brand-300 hover:bg-brand-500/15 transition-colors"
+                >
+                  <Edit size={16} />
+                </button>
+              </Tooltip>
+            )}
+            {canDelete && (
+              <Tooltip content="Delete task">
+                <button
+                  onClick={handleDelete}
+                  className="p-1.5 rounded-lg text-zinc-400 hover:text-red-400 hover:bg-red-500/15 transition-colors"
+                >
+                  <Trash2 size={16} />
+                </button>
+              </Tooltip>
+            )}
             <button
               onClick={onClose}
               className="p-1.5 rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.06] transition-colors"
@@ -195,7 +236,11 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
               <div ref={statusMenuRef} className="relative">
                 <button
                   onClick={() => canEdit && setShowStatusMenu(!showStatusMenu)}
-                  className={canEdit ? 'hover:ring-2 hover:ring-brand-500/30 rounded-full transition-all' : 'cursor-default'}
+                  className={
+                    canEdit
+                      ? 'hover:ring-2 hover:ring-brand-500/30 rounded-full transition-all'
+                      : 'cursor-default'
+                  }
                 >
                   <StatusBadge status={task.status} />
                 </button>
@@ -216,7 +261,9 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
                           setShowStatusMenu(false);
                         }}
                         className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-white/[0.03] transition-colors ${
-                          task.status === opt.value ? 'bg-white/[0.03] font-medium' : 'text-zinc-300'
+                          task.status === opt.value
+                            ? 'bg-white/[0.03] font-medium'
+                            : 'text-zinc-300'
                         }`}
                       >
                         <div className={`w-2 h-2 rounded-full ${opt.color}`} />
@@ -231,7 +278,11 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
               <div ref={priorityMenuRef} className="relative">
                 <button
                   onClick={() => canEdit && setShowPriorityMenu(!showPriorityMenu)}
-                  className={canEdit ? 'hover:ring-2 hover:ring-brand-500/30 rounded-full transition-all' : 'cursor-default'}
+                  className={
+                    canEdit
+                      ? 'hover:ring-2 hover:ring-brand-500/30 rounded-full transition-all'
+                      : 'cursor-default'
+                  }
                 >
                   <PriorityBadge priority={task.priority} />
                 </button>
@@ -252,7 +303,9 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
                           setShowPriorityMenu(false);
                         }}
                         className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-white/[0.03] transition-colors ${
-                          task.priority === opt.value ? 'bg-white/[0.03] font-medium' : 'text-zinc-300'
+                          task.priority === opt.value
+                            ? 'bg-white/[0.03] font-medium'
+                            : 'text-zinc-300'
                         }`}
                       >
                         <div className={`w-2 h-2 rounded-full ${opt.color}`} />
@@ -263,11 +316,13 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
                 )}
               </div>
               {dueInfo && (
-                <div className={`flex items-center gap-1.5 text-xs px-2 py-0.5 rounded-full ${
-                  dueInfo.isOverdue
-                    ? 'bg-red-500/15 text-red-300 font-medium'
-                    : 'bg-white/[0.06] text-zinc-300'
-                }`}>
+                <div
+                  className={`flex items-center gap-1.5 text-xs px-2 py-0.5 rounded-full ${
+                    dueInfo.isOverdue
+                      ? 'bg-red-500/15 text-red-300 font-medium'
+                      : 'bg-white/[0.06] text-zinc-300'
+                  }`}
+                >
                   <Calendar size={12} />
                   <span>{dueInfo.text}</span>
                 </div>
@@ -285,7 +340,10 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
                   </div>
                   <div className="flex items-center gap-2 flex-wrap">
                     {assignees.map((member) => (
-                      <div key={member.id} className="flex items-center gap-1.5 px-2 py-1 bg-white/[0.06] rounded-full">
+                      <div
+                        key={member.id}
+                        className="flex items-center gap-1.5 px-2 py-1 bg-white/[0.06] rounded-full"
+                      >
                         <Avatar name={member.name} src={member.avatar || undefined} size="xs" />
                         <span className="text-xs text-zinc-300">{member.name}</span>
                       </div>
@@ -334,7 +392,9 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
                   <Bot size={14} className="text-zinc-400" />
                   <div>
                     <p className="text-sm font-medium text-zinc-300">AI Ready</p>
-                    <p className="text-xs text-zinc-500">The dev agent may pick this task up on its own</p>
+                    <p className="text-xs text-zinc-500">
+                      The dev agent may pick this task up on its own
+                    </p>
                   </div>
                 </div>
                 <Toggle
@@ -356,7 +416,9 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
             {task.description && (
               <div className="space-y-2">
                 <h3 className="text-sm font-medium text-zinc-300">Description</h3>
-                <p className="text-sm text-zinc-300 whitespace-pre-wrap leading-relaxed">{task.description}</p>
+                <p className="text-sm text-zinc-300 whitespace-pre-wrap leading-relaxed">
+                  {task.description}
+                </p>
               </div>
             )}
 
@@ -369,13 +431,19 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
                 </h3>
                 {openBlockers.length > 0 && (
                   <p className="text-xs text-amber-400">
-                    Waiting on {openBlockers.length} {openBlockers.length === 1 ? 'task' : 'tasks'} to finish
+                    Waiting on {openBlockers.length} {openBlockers.length === 1 ? 'task' : 'tasks'}{' '}
+                    to finish
                   </p>
                 )}
                 <div className="space-y-1">
-                  {blockers.map(blocker => (
-                    <div key={blocker.id} className="flex items-center justify-between gap-2 p-2 rounded-lg bg-white/[0.03]">
-                      <span className={`text-sm truncate ${blocker.status === 'done' ? 'text-zinc-500 line-through' : 'text-zinc-300'}`}>
+                  {blockers.map((blocker) => (
+                    <div
+                      key={blocker.id}
+                      className="flex items-center justify-between gap-2 p-2 rounded-lg bg-white/[0.03]"
+                    >
+                      <span
+                        className={`text-sm truncate ${blocker.status === 'done' ? 'text-zinc-500 line-through' : 'text-zinc-300'}`}
+                      >
                         {blocker.title}
                       </span>
                       <StatusBadge status={blocker.status} />
@@ -407,7 +475,9 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
                   >
                     <button
                       onClick={() => canEdit && toggleCriterion(task.id, criterion.id)}
-                      aria-label={criterion.satisfied ? 'Mark criterion unmet' : 'Mark criterion met'}
+                      aria-label={
+                        criterion.satisfied ? 'Mark criterion unmet' : 'Mark criterion met'
+                      }
                       className={`flex-shrink-0 w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
                         criterion.satisfied
                           ? 'bg-brand-500 border-brand-500'
@@ -525,7 +595,7 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
               <div className="space-y-1">
                 {(dragSubtaskOrder
                   ? dragSubtaskOrder
-                      .map(id => task.subtasks.find(s => s.id === id))
+                      .map((id) => task.subtasks.find((s) => s.id === id))
                       .filter((s): s is NonNullable<typeof s> => !!s)
                   : task.subtasks
                 ).map((subtask) => (
@@ -534,12 +604,12 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
                     draggable
                     onDragStart={() => {
                       setDraggedSubtaskId(subtask.id);
-                      setDragSubtaskOrder(task.subtasks.map(s => s.id));
+                      setDragSubtaskOrder(task.subtasks.map((s) => s.id));
                     }}
                     onDragEnd={() => {
                       // Persist the final order once, only if it changed
                       if (dragSubtaskOrder) {
-                        const original = task.subtasks.map(s => s.id);
+                        const original = task.subtasks.map((s) => s.id);
                         if (dragSubtaskOrder.join() !== original.join()) {
                           reorderSubtasks(task.id, dragSubtaskOrder);
                         }
@@ -550,8 +620,8 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
                     onDragOver={(e) => {
                       e.preventDefault();
                       if (draggedSubtaskId && draggedSubtaskId !== subtask.id) {
-                        setDragSubtaskOrder(order => {
-                          const ids = [...(order ?? task.subtasks.map(s => s.id))];
+                        setDragSubtaskOrder((order) => {
+                          const ids = [...(order ?? task.subtasks.map((s) => s.id))];
                           const fromIdx = ids.indexOf(draggedSubtaskId);
                           const toIdx = ids.indexOf(subtask.id);
                           if (fromIdx === -1 || toIdx === -1 || fromIdx === toIdx) return order;
@@ -628,7 +698,10 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
                       >
                         <X size={14} />
                       </button>
-                      <GripVertical size={14} className="text-zinc-600 flex-shrink-0 cursor-grab active:cursor-grabbing" />
+                      <GripVertical
+                        size={14}
+                        className="text-zinc-600 flex-shrink-0 cursor-grab active:cursor-grabbing"
+                      />
                     </div>
                   </div>
                 ))}
@@ -671,14 +744,23 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
                   const isOwn = comment.user_id === teamMemberId;
                   return (
                     <div key={comment.id} className="flex gap-3 group">
-                      <Avatar name={author?.name || '?'} src={author?.avatar || undefined} size="sm" />
+                      <Avatar
+                        name={author?.name || '?'}
+                        src={author?.avatar || undefined}
+                        size="sm"
+                      />
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2">
-                            <p className="text-sm font-medium text-white">{author?.name || 'Unknown'}</p>
+                            <p className="text-sm font-medium text-white">
+                              {author?.name || 'Unknown'}
+                            </p>
                             <p className="text-xs text-zinc-500">
                               {new Date(comment.created_at).toLocaleDateString('en-US', {
-                                month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+                                month: 'short',
+                                day: 'numeric',
+                                hour: 'numeric',
+                                minute: '2-digit',
                               })}
                             </p>
                           </div>
@@ -778,7 +860,9 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
       <ConfirmDialog
         isOpen={!!deleteSubtaskTarget}
         onClose={() => setDeleteSubtaskTarget(null)}
-        onConfirm={() => { if (deleteSubtaskTarget) deleteSubtask(task.id, deleteSubtaskTarget); }}
+        onConfirm={() => {
+          if (deleteSubtaskTarget) deleteSubtask(task.id, deleteSubtaskTarget);
+        }}
         title="Delete Subtask"
         message="Are you sure you want to delete this subtask?"
         confirmLabel="Delete"
@@ -788,7 +872,9 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
       <ConfirmDialog
         isOpen={!!deleteCriterionTarget}
         onClose={() => setDeleteCriterionTarget(null)}
-        onConfirm={() => { if (deleteCriterionTarget) deleteCriterion(task.id, deleteCriterionTarget); }}
+        onConfirm={() => {
+          if (deleteCriterionTarget) deleteCriterion(task.id, deleteCriterionTarget);
+        }}
         title="Delete Acceptance Criterion"
         message="Are you sure you want to delete this acceptance criterion?"
         confirmLabel="Delete"
@@ -798,7 +884,9 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
       <ConfirmDialog
         isOpen={!!deleteCommentTarget}
         onClose={() => setDeleteCommentTarget(null)}
-        onConfirm={() => { if (deleteCommentTarget) deleteComment(task.id, deleteCommentTarget); }}
+        onConfirm={() => {
+          if (deleteCommentTarget) deleteComment(task.id, deleteCommentTarget);
+        }}
         title="Delete Comment"
         message="Are you sure you want to delete this comment?"
         confirmLabel="Delete"
@@ -807,12 +895,20 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
 
       <style jsx>{`
         @keyframes fadeIn {
-          from { opacity: 0; }
-          to { opacity: 1; }
+          from {
+            opacity: 0;
+          }
+          to {
+            opacity: 1;
+          }
         }
         @keyframes slideIn {
-          from { transform: translateX(100%); }
-          to { transform: translateX(0); }
+          from {
+            transform: translateX(100%);
+          }
+          to {
+            transform: translateX(0);
+          }
         }
         .animate-fadeIn {
           animation: fadeIn 0.2s ease-out;

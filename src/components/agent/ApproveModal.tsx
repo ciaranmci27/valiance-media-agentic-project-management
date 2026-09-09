@@ -7,10 +7,17 @@ import Modal from '@/components/ui/Modal';
 import { toast } from '@/components/ui/Toast';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import { Select } from '@/components/ui/Select';
+import { Select } from '@/components/ui/inputs/Select';
 import { DateInput } from '@/components/ui/inputs/DateInput';
 
-type ApproveOverrides = { priority?: string; assigned_to?: string | null; due_date?: string | null; project_id?: string; task_type?: string | null; ai_readiness?: 'ai_ready' | 'human_only' | null };
+type ApproveOverrides = {
+  priority?: string;
+  assigned_to?: string | null;
+  due_date?: string | null;
+  project_id?: string;
+  task_type?: string | null;
+  ai_readiness?: 'ai_ready' | 'human_only' | null;
+};
 
 interface ApproveModalProps {
   suggestion: TaskSuggestion;
@@ -22,18 +29,22 @@ export function ApproveModal({ suggestion, onClose, onApprove }: ApproveModalPro
   const { team } = useApp();
 
   const meta = (suggestion.metadata || {}) as Record<string, any>;
-  const criteriaCount = Array.isArray(meta.acceptance_criteria) ? meta.acceptance_criteria.length : 0;
+  const criteriaCount = Array.isArray(meta.acceptance_criteria)
+    ? meta.acceptance_criteria.length
+    : 0;
   const recommended = meta.ai_readiness_recommendation;
   const initialMode: 'ai_ready' | 'human_only' | 'needs_spec' =
-    recommended === 'ai_ready' && criteriaCount > 0 ? 'ai_ready'
-      : recommended === 'human_only' ? 'human_only'
-      : 'needs_spec';
+    recommended === 'ai_ready' && criteriaCount > 0
+      ? 'ai_ready'
+      : recommended === 'human_only'
+        ? 'human_only'
+        : 'needs_spec';
   // The dev agent, found by role plus title, never by a hardcoded name:
   // which team member builds approved work is deployment DATA. A lone agent
   // is the dev agent by elimination.
-  const agents = team.filter(m => m.role === 'agent');
+  const agents = team.filter((m) => m.role === 'agent');
   const devAgent =
-    agents.find(m => /develop|engineer/i.test(m.title || '')) ??
+    agents.find((m) => /develop|engineer/i.test(m.title || '')) ??
     (agents.length === 1 ? agents[0] : undefined);
 
   const [priority, setPriority] = useState(suggestion.priority);
@@ -42,7 +53,7 @@ export function ApproveModal({ suggestion, onClose, onApprove }: ApproveModalPro
   // "Unassigned" while the task silently goes to the dev agent is how a review
   // screen stops being trustworthy.
   const [assignedTo, setAssignedTo] = useState(
-    suggestion.assigned_to || (initialMode === 'ai_ready' ? devAgent?.id ?? '' : '')
+    suggestion.assigned_to || (initialMode === 'ai_ready' ? (devAgent?.id ?? '') : ''),
   );
   const [dueDate, setDueDate] = useState('');
   const [taskType, setTaskType] = useState<TaskType | ''>(suggestion.task_type || '');
@@ -62,7 +73,7 @@ export function ApproveModal({ suggestion, onClose, onApprove }: ApproveModalPro
   // wanting a different person picks one afterwards, and that choice sticks.
   const selectMode = (next: typeof mode) => {
     setMode(next);
-    setAssignedTo(next === 'ai_ready' ? devAgent?.id ?? '' : '');
+    setAssignedTo(next === 'ai_ready' ? (devAgent?.id ?? '') : '');
   };
 
   const getOverrides = (): ApproveOverrides => ({
@@ -80,7 +91,10 @@ export function ApproveModal({ suggestion, onClose, onApprove }: ApproveModalPro
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (mode === 'ai_ready' && criteriaCount === 0) {
-      toast('error', 'No acceptance criteria on this suggestion. Choose "Needs spec" to start a spec interview, or edit criteria in first.');
+      toast(
+        'error',
+        'No acceptance criteria on this suggestion. Choose "Needs spec" to start a spec interview, or edit criteria in first.',
+      );
       return;
     }
     onApprove(getOverrides());
@@ -91,12 +105,16 @@ export function ApproveModal({ suggestion, onClose, onApprove }: ApproveModalPro
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
           <label className="block text-sm font-medium text-zinc-300 mb-1">Title</label>
-          <p className="px-3 py-2 text-sm text-white bg-white/[0.03] border border-white/[0.08] rounded-lg">{suggestion.title}</p>
+          <p className="px-3 py-2 text-sm text-white bg-white/[0.03] border border-white/[0.08] rounded-lg">
+            {suggestion.title}
+          </p>
         </div>
 
         <div>
           <label className="block text-sm font-medium text-zinc-300 mb-1">Description</label>
-          <p className="px-3 py-2 text-sm text-zinc-300 bg-white/[0.03] border border-white/[0.08] rounded-lg max-h-24 overflow-y-auto">{suggestion.description}</p>
+          <p className="px-3 py-2 text-sm text-zinc-300 bg-white/[0.03] border border-white/[0.08] rounded-lg max-h-24 overflow-y-auto">
+            {suggestion.description}
+          </p>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -118,7 +136,10 @@ export function ApproveModal({ suggestion, onClose, onApprove }: ApproveModalPro
             onChange={setAssignedTo}
             options={[
               { value: '', label: 'Unassigned' },
-              ...team.map(m => ({ value: m.id, label: m.role === 'agent' ? `${m.name} (agent)` : m.name })),
+              ...team.map((m) => ({
+                value: m.id,
+                label: m.role === 'agent' ? `${m.name} (agent)` : m.name,
+              })),
             ]}
           />
 
@@ -128,26 +149,38 @@ export function ApproveModal({ suggestion, onClose, onApprove }: ApproveModalPro
             onChange={(v) => setTaskType(v as TaskType | '')}
             options={[
               { value: '', label: 'None' },
-              ...TASK_TYPES.map(t => ({ value: t, label: t.charAt(0).toUpperCase() + t.slice(1) })),
+              ...TASK_TYPES.map((t) => ({
+                value: t,
+                label: t.charAt(0).toUpperCase() + t.slice(1),
+              })),
             ]}
           />
 
-          <DateInput
-            label="Due Date"
-            value={dueDate}
-            onChange={setDueDate}
-            clearable
-          />
+          <DateInput label="Due Date" value={dueDate} onChange={setDueDate} clearable />
         </div>
 
         <div className="pt-2">
-          <label className="block text-sm font-medium text-zinc-300 mb-1.5">What happens after approval</label>
+          <label className="block text-sm font-medium text-zinc-300 mb-1.5">
+            What happens after approval
+          </label>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-            {([
-              { key: 'ai_ready', label: 'AI Ready', hint: devAgent ? `${devAgent.name} starts automatically` : 'Dev agent starts automatically' },
-              { key: 'human_only', label: 'Human task', hint: 'Assigned manually, no agent involved' },
-              { key: 'needs_spec', label: 'Needs spec', hint: 'Spec agent interviews you first' },
-            ] as const).map(opt => (
+            {(
+              [
+                {
+                  key: 'ai_ready',
+                  label: 'AI Ready',
+                  hint: devAgent
+                    ? `${devAgent.name} starts automatically`
+                    : 'Dev agent starts automatically',
+                },
+                {
+                  key: 'human_only',
+                  label: 'Human task',
+                  hint: 'Assigned manually, no agent involved',
+                },
+                { key: 'needs_spec', label: 'Needs spec', hint: 'Spec agent interviews you first' },
+              ] as const
+            ).map((opt) => (
               <button
                 key={opt.key}
                 type="button"
@@ -165,7 +198,9 @@ export function ApproveModal({ suggestion, onClose, onApprove }: ApproveModalPro
             ))}
           </div>
           {criteriaCount === 0 && mode === 'ai_ready' && (
-            <p className="mt-1.5 text-xs text-amber-400">This suggestion has no acceptance criteria; the dev agent will refuse it.</p>
+            <p className="mt-1.5 text-xs text-amber-400">
+              This suggestion has no acceptance criteria; the dev agent will refuse it.
+            </p>
           )}
         </div>
 
@@ -173,9 +208,7 @@ export function ApproveModal({ suggestion, onClose, onApprove }: ApproveModalPro
           <Button type="button" variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit">
-            Approve
-          </Button>
+          <Button type="submit">Approve</Button>
         </div>
       </form>
     </Modal>

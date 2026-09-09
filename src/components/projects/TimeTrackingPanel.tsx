@@ -1,12 +1,24 @@
 'use client';
 
 import { useState, useMemo, useEffect, useRef, Fragment } from 'react';
-import { Clock, Plus, Trash2, Pencil, X, Check, Play, Pause, Square, Timer, CircleDollarSign } from 'lucide-react';
+import {
+  Clock,
+  Plus,
+  Trash2,
+  Pencil,
+  X,
+  Check,
+  Play,
+  Pause,
+  Square,
+  Timer,
+  CircleDollarSign,
+} from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { toast } from '@/components/ui/Toast';
 import { Avatar, AvatarGroup } from '@/components/ui/Avatar';
-import { Select } from '@/components/ui/Select';
+import { Select } from '@/components/ui/inputs/Select';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { TextInput } from '@/components/ui/inputs/TextInput';
@@ -17,8 +29,18 @@ import { NumberInput } from '@/components/ui/inputs/NumberInput';
 import { TimeEntry, TimeSegment } from '@/lib/types';
 import { siteConfig } from '@/site-config';
 import { toLocalTimeString, toLocalDateString } from '@/lib/date-utils';
-import { getWorkedHours, getWorkedMs, resegmentEntry, isPaused, isStalePause } from '@/lib/time-entry-utils';
-import { paidHourlyLineItemTotal, fifoPaymentBreakdowns, type PaymentBreakdown } from '@/lib/invoice-utils';
+import {
+  getWorkedHours,
+  getWorkedMs,
+  resegmentEntry,
+  isPaused,
+  isStalePause,
+} from '@/lib/time-entry-utils';
+import {
+  paidHourlyLineItemTotal,
+  fifoPaymentBreakdowns,
+  type PaymentBreakdown,
+} from '@/lib/invoice-utils';
 import { hasPermission } from '@/lib/access-control';
 
 /* ── Types ── */
@@ -56,14 +78,18 @@ function liveSegMs(startIso: string): number {
 }
 
 function formatTime(iso: string, timezone?: string): string {
-  return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', ...(timezone ? { timeZone: timezone } : {}) });
+  return new Date(iso).toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    ...(timezone ? { timeZone: timezone } : {}),
+  });
 }
 
 function formatElapsed(seconds: number): string {
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
   const s = seconds % 60;
-  return [h, m, s].map(v => String(v).padStart(2, '0')).join(':');
+  return [h, m, s].map((v) => String(v).padStart(2, '0')).join(':');
 }
 
 function getDateKey(iso: string, timezone?: string): string {
@@ -97,33 +123,54 @@ function getStorageKey(projectId: string) {
 export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTrackingPanelProps) {
   const projectColor = rawColor || '#A1A1AA';
   const {
-    getTimeEntriesByProject, team, tasks, getProject, getInvoicesByProject,
-    addTimeEntry, updateTimeEntry, deleteTimeEntry,
-    startTimer, pauseTimer, resumeTimer, stopTimer, resumeStoppedTimer, getRunningTimer,
+    getTimeEntriesByProject,
+    team,
+    tasks,
+    getProject,
+    getInvoicesByProject,
+    addTimeEntry,
+    updateTimeEntry,
+    deleteTimeEntry,
+    startTimer,
+    pauseTimer,
+    resumeTimer,
+    stopTimer,
+    resumeStoppedTimer,
+    getRunningTimer,
   } = useApp();
   const { teamMemberId, access } = useAuth();
 
-  const tz = team.find(m => m.id === teamMemberId)?.timezone;
+  const tz = team.find((m) => m.id === teamMemberId)?.timezone;
   const entries = getTimeEntriesByProject(projectId);
   const project = getProject(projectId);
-  const projectMembers = team.filter(m => project?.member_ids?.includes(m.id));
+  const projectMembers = team.filter((m) => project?.member_ids?.includes(m.id));
   const canManageAllTime = hasPermission(access, 'time.manage_all');
   const canManageOwnTime = hasPermission(access, 'time.manage_own');
-  const canSeeClientBilling = hasPermission(access, 'billing.manage') || hasPermission(access, 'invoices.read');
+  const canSeeClientBilling =
+    hasPermission(access, 'billing.manage') || hasPermission(access, 'invoices.read');
   const currentMember = team.find((member) => member.id === teamMemberId);
-  const availableMembers = projectMembers.length > 0
-    ? [...projectMembers, ...(currentMember && !projectMembers.some((member) => member.id === currentMember.id) ? [currentMember] : [])]
-    : team;
-  const memberOptions = canManageAllTime ? availableMembers : availableMembers.filter((member) => member.id === teamMemberId);
+  const availableMembers =
+    projectMembers.length > 0
+      ? [
+          ...projectMembers,
+          ...(currentMember && !projectMembers.some((member) => member.id === currentMember.id)
+            ? [currentMember]
+            : []),
+        ]
+      : team;
+  const memberOptions = canManageAllTime
+    ? availableMembers
+    : availableMembers.filter((member) => member.id === teamMemberId);
   // Current user's own running timer (may be null even when teammates are tracking).
   const runningTimer = getRunningTimer(projectId, teamMemberId || undefined);
-  // Other members' running timers on this same project — rendered as read-only cards.
+  // Other members' running timers on this same project ; rendered as read-only cards.
   // Guard on teamMemberId so an unauthenticated render doesn't misclassify the
   // user's own entry as a "teammate" one.
   const teammateTimers = useMemo(
-    () => (teamMemberId
-      ? entries.filter(e => e.end_time === null && e.member_id !== teamMemberId)
-      : []),
+    () =>
+      teamMemberId
+        ? entries.filter((e) => e.end_time === null && e.member_id !== teamMemberId)
+        : [],
     [entries, teamMemberId],
   );
 
@@ -132,16 +179,19 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
   const hourlyRate = project?.hourly_rate ?? 0;
   const isHourly = project?.client_time_billing
     ? project.client_time_billing === 'hourly'
-    : project?.hourly_tracking ?? false;
+    : (project?.hourly_tracking ?? false);
 
   const paymentBreakdownMap = useMemo<Map<string, PaymentBreakdown>>(() => {
     if (!isHourly) return new Map();
     const finalized = entries
-      .filter(e => e.end_time !== null
-        && e.work_type !== 'internal'
-        && (e.approval_status === undefined || e.approval_status === 'approved'))
+      .filter(
+        (e) =>
+          e.end_time !== null &&
+          e.work_type !== 'internal' &&
+          (e.approval_status === undefined || e.approval_status === 'approved'),
+      )
       .sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime())
-      .map(e => ({ id: e.id, hours: getWorkedHours(e), hourly_rate: e.hourly_rate }));
+      .map((e) => ({ id: e.id, hours: getWorkedHours(e), hourly_rate: e.hourly_rate }));
     return fifoPaymentBreakdowns(finalized, paidHourlyLineItemTotal(invoices), hourlyRate);
   }, [isHourly, hourlyRate, invoices, entries]);
 
@@ -181,7 +231,7 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
   const [, setTick] = useState(0);
   const hasAnyActiveSegment = useMemo(() => {
     const all = runningTimer ? [runningTimer, ...teammateTimers] : teammateTimers;
-    return all.some(e => {
+    return all.some((e) => {
       const last = e.segments[e.segments.length - 1];
       return last && last.end === null;
     });
@@ -189,7 +239,7 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
 
   useEffect(() => {
     if (!hasAnyActiveSegment) return;
-    const id = setInterval(() => setTick(t => t + 1), 1000);
+    const id = setInterval(() => setTick((t) => t + 1), 1000);
     return () => clearInterval(id);
   }, [hasAnyActiveSegment]);
 
@@ -242,8 +292,13 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
   // ── Edit state ──
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editState, setEditState] = useState<{
-    date: string; startTime: string; endTime: string; description: string; memberId: string;
-    workType: 'client' | 'internal'; taskIds: string[];
+    date: string;
+    startTime: string;
+    endTime: string;
+    description: string;
+    memberId: string;
+    workType: 'client' | 'internal';
+    taskIds: string[];
     // What the end field was seeded with. For a RUNNING entry the seed is
     // "now", so recomputing "now" again at save time to detect changes would
     // drift across a minute boundary and spuriously finalize a live timer on
@@ -255,14 +310,18 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
 
   // ── Segment edit/delete state ──
   const [editingSegment, setEditingSegment] = useState<{
-    entryId: string; index: number; startTime: string; endTime: string;
+    entryId: string;
+    index: number;
+    startTime: string;
+    endTime: string;
   } | null>(null);
   const [deleteSegmentTarget, setDeleteSegmentTarget] = useState<{
-    entryId: string; index: number;
+    entryId: string;
+    index: number;
   } | null>(null);
 
   // ── Computed ──
-  const completedEntries = useMemo(() => entries.filter(e => e.end_time !== null), [entries]);
+  const completedEntries = useMemo(() => entries.filter((e) => e.end_time !== null), [entries]);
 
   const totalHours = useMemo(
     () => completedEntries.reduce((sum, e) => sum + getWorkedHours(e), 0),
@@ -286,10 +345,11 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
   // everyone else gets a 409.
   const resumableEntryId = useMemo(() => {
     if (!teamMemberId || runningTimer) return null;
-    const own = completedEntries.filter(e => e.member_id === teamMemberId && e.end_time !== null);
+    const own = completedEntries.filter((e) => e.member_id === teamMemberId && e.end_time !== null);
     if (own.length === 0) return null;
     const latest = own.reduce((a, b) =>
-      new Date(a.end_time!).getTime() >= new Date(b.end_time!).getTime() ? a : b);
+      new Date(a.end_time!).getTime() >= new Date(b.end_time!).getTime() ? a : b,
+    );
     if (isStalePause(latest.end_time!)) return null;
     return latest.id;
   }, [completedEntries, teamMemberId, runningTimer]);
@@ -309,13 +369,18 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
     sunday.setDate(monday.getDate() + 6);
     sunday.setHours(23, 59, 59, 999);
     return completedEntries
-      .filter(e => { const d = new Date(e.start_time); return d >= monday && d <= sunday; })
+      .filter((e) => {
+        const d = new Date(e.start_time);
+        return d >= monday && d <= sunday;
+      })
       .reduce((sum, e) => sum + getWorkedHours(e), 0);
   }, [completedEntries]);
 
   const uniqueMembers = useMemo(() => {
-    const ids = new Set(entries.map(e => e.member_id));
-    return Array.from(ids).map(id => team.find(m => m.id === id)).filter(Boolean) as typeof team;
+    const ids = new Set(entries.map((e) => e.member_id));
+    return Array.from(ids)
+      .map((id) => team.find((m) => m.id === id))
+      .filter(Boolean) as typeof team;
   }, [entries, team]);
 
   const groupedByDate = useMemo(() => {
@@ -331,12 +396,14 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
     return groups;
   }, [completedEntries, tz]);
 
-  const getMember = (id: string) => team.find(m => m.id === id);
-  const getTaskTitle = (id: string | null | undefined) => (id ? tasks.find(t => t.id === id)?.title : undefined);
+  const getMember = (id: string) => team.find((m) => m.id === id);
+  const getTaskTitle = (id: string | null | undefined) =>
+    id ? tasks.find((t) => t.id === id)?.title : undefined;
   const projectTaskOptions = useMemo(
-    () => tasks
-      .filter(t => t.project_id === projectId && t.status !== 'done')
-      .map(t => ({ value: t.id, label: t.title })),
+    () =>
+      tasks
+        .filter((t) => t.project_id === projectId && t.status !== 'done')
+        .map((t) => ({ value: t.id, label: t.title })),
     [tasks, projectId],
   );
 
@@ -344,7 +411,10 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
 
   const handleStartTimer = () => {
     const memberId = timerMemberId || teamMemberId;
-    if (!memberId) { toast('error', 'Please select a team member'); return; }
+    if (!memberId) {
+      toast('error', 'Please select a team member');
+      return;
+    }
     startTimer(projectId, memberId, timerDescription, undefined, timerWorkType, timerTaskIds);
     setTimerDescription('');
     setTimerTaskIds([]);
@@ -368,9 +438,10 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
       return;
     }
     const adjustedIso = adjusted.toISOString();
-    const newSegments = runningTimer.segments.length > 0
-      ? runningTimer.segments.map((seg, i) => (i === 0 ? { ...seg, start: adjustedIso } : seg))
-      : [{ start: adjustedIso, end: null }];
+    const newSegments =
+      runningTimer.segments.length > 0
+        ? runningTimer.segments.map((seg, i) => (i === 0 ? { ...seg, start: adjustedIso } : seg))
+        : [{ start: adjustedIso, end: null }];
     updateTimeEntry(runningTimer.id, { start_time: adjustedIso, segments: newSegments });
     setAdjustingStart(false);
     setAdjustStartTime('');
@@ -420,8 +491,14 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
 
   const handleManualAdd = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!manualMemberId) { toast('error', 'Please select a team member'); return; }
-    if (!manualStartTime) { toast('error', 'Please select a start time'); return; }
+    if (!manualMemberId) {
+      toast('error', 'Please select a team member');
+      return;
+    }
+    if (!manualStartTime) {
+      toast('error', 'Please select a start time');
+      return;
+    }
 
     const start = new Date(`${manualDate}T${manualStartTime}`);
     let end: Date;
@@ -430,16 +507,21 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
       const hrs = typeof manualDurationHours === 'number' ? manualDurationHours : 0;
       const mins = typeof manualDurationMinutes === 'number' ? manualDurationMinutes : 0;
       if (hrs === 0 && mins === 0) {
-        toast('error', 'Please enter a duration'); return;
+        toast('error', 'Please enter a duration');
+        return;
       }
-      end = new Date(start.getTime() + (hrs * 3_600_000) + (mins * 60_000));
+      end = new Date(start.getTime() + hrs * 3_600_000 + mins * 60_000);
     } else {
-      if (!manualEndTime) { toast('error', 'Please select an end time'); return; }
+      if (!manualEndTime) {
+        toast('error', 'Please select an end time');
+        return;
+      }
       end = new Date(`${manualDate}T${manualEndTime}`);
       if (end < start) {
         end.setDate(end.getDate() + 1);
       } else if (end.getTime() === start.getTime()) {
-        toast('error', 'End time must be after start time'); return;
+        toast('error', 'End time must be after start time');
+        return;
       }
     }
 
@@ -480,7 +562,10 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
     });
   };
 
-  const cancelEdit = () => { setEditingId(null); setEditState(null); };
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditState(null);
+  };
 
   // ── Segment handlers ──
   const startEditSegment = (entry: TimeEntry, index: number) => {
@@ -501,7 +586,7 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
 
   const saveEditSegment = () => {
     if (!editingSegment) return;
-    const entry = entries.find(e => e.id === editingSegment.entryId);
+    const entry = entries.find((e) => e.id === editingSegment.entryId);
     if (!entry) return;
     const origSeg = entry.segments[editingSegment.index];
     if (!origSeg) return;
@@ -512,19 +597,22 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
     const dateKey = getDateKey(origSeg.start, tz);
     const newStart = new Date(`${dateKey}T${editingSegment.startTime}`);
     if (Number.isNaN(newStart.getTime())) {
-      toast('error', 'Invalid time'); return;
+      toast('error', 'Invalid time');
+      return;
     }
     let newSeg: TimeSegment;
     if (origSeg.end === null) {
       // The live segment: only its start moves, and never into the future.
       if (newStart.getTime() > Date.now()) {
-        toast('error', 'Start time cannot be in the future'); return;
+        toast('error', 'Start time cannot be in the future');
+        return;
       }
       newSeg = { start: newStart.toISOString(), end: null };
     } else {
       const newEnd = new Date(`${dateKey}T${editingSegment.endTime}`);
       if (Number.isNaN(newEnd.getTime())) {
-        toast('error', 'Invalid time'); return;
+        toast('error', 'Invalid time');
+        return;
       }
       // Resolve which day the end lands on. HH:MM alone cannot say, and
       // parsing it onto the start's date made an overnight segment's editor
@@ -541,7 +629,8 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
         newEnd.setDate(newEnd.getDate() + 1);
       }
       if (newEnd <= newStart) {
-        toast('error', 'End time must be after start time'); return;
+        toast('error', 'End time must be after start time');
+        return;
       }
       newSeg = { start: newStart.toISOString(), end: newEnd.toISOString() };
     }
@@ -551,10 +640,12 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
     const before = newSegments[editingSegment.index - 1];
     const after = newSegments[editingSegment.index + 1];
     if (before && before.end && new Date(before.end).getTime() > newStart.getTime()) {
-      toast('error', 'Segment cannot overlap the previous one'); return;
+      toast('error', 'Segment cannot overlap the previous one');
+      return;
     }
     if (after && newSeg.end && new Date(after.start).getTime() < new Date(newSeg.end).getTime()) {
-      toast('error', 'Segment cannot overlap the next one'); return;
+      toast('error', 'Segment cannot overlap the next one');
+      return;
     }
 
     // Keep denormalized start_time / end_time mirrored on the first/last
@@ -574,10 +665,13 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
 
   const executeDeleteSegment = () => {
     if (!deleteSegmentTarget) return;
-    const entry = entries.find(e => e.id === deleteSegmentTarget.entryId);
-    if (!entry) { setDeleteSegmentTarget(null); return; }
+    const entry = entries.find((e) => e.id === deleteSegmentTarget.entryId);
+    if (!entry) {
+      setDeleteSegmentTarget(null);
+      return;
+    }
     if (entry.segments.length <= 1) {
-      toast('error', 'Cannot delete the only segment — delete the entry instead');
+      toast('error', 'Cannot delete the only segment ; delete the entry instead');
       setDeleteSegmentTarget(null);
       return;
     }
@@ -597,7 +691,7 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
 
   const saveEdit = () => {
     if (!editingId || !editState) return;
-    const original = entries.find(e => e.id === editingId);
+    const original = entries.find((e) => e.id === editingId);
     if (!original) return;
 
     // Detect time-field changes by comparing the editState values against
@@ -613,7 +707,18 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
       editState.startTime !== originalStartTime ||
       editState.endTime !== originalEndTime;
 
-    const patch: Partial<Pick<TimeEntry, 'member_id' | 'start_time' | 'end_time' | 'segments' | 'description' | 'work_type' | 'task_ids'>> = {
+    const patch: Partial<
+      Pick<
+        TimeEntry,
+        | 'member_id'
+        | 'start_time'
+        | 'end_time'
+        | 'segments'
+        | 'description'
+        | 'work_type'
+        | 'task_ids'
+      >
+    > = {
       description: editState.description,
       member_id: editState.memberId,
       work_type: editState.workType,
@@ -644,7 +749,8 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
         end.setDate(end.getDate() + 1);
       }
       if (end.getTime() <= start.getTime()) {
-        toast('error', 'End time must be after start time'); return;
+        toast('error', 'End time must be after start time');
+        return;
       }
       // Segments are re-derived rather than flattened. resegmentEntry owns
       // every case (start or end landing mid-segment or inside a pause, the
@@ -672,12 +778,13 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
 
   const executeDelete = async () => {
     if (!deleteTarget) return;
-    const entry = entries.find(item => item.id === deleteTarget);
+    const entry = entries.find((item) => item.id === deleteTarget);
     const canModifyEntry = Boolean(
-      entry && (
-        canManageAllTime
-        || (canManageOwnTime && entry.member_id === teamMemberId && entry.approval_status !== 'approved')
-      ),
+      entry &&
+        (canManageAllTime ||
+          (canManageOwnTime &&
+            entry.member_id === teamMemberId &&
+            entry.approval_status !== 'approved')),
     );
     if (!canModifyEntry) {
       setDeleteTarget(null);
@@ -696,7 +803,9 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
   // History rows keep their own margins; the live card's space-y already
   // provides spacing, so it passes marginClass ''.
   const renderSegmentList = (entry: TimeEntry, canModify: boolean, marginClass = 'mt-2 mb-1') => (
-    <ul className={`seg-zone ${marginClass} rounded-lg bg-white/[0.03] border border-white/[0.06] px-2.5 py-1.5 space-y-1`}>
+    <ul
+      className={`seg-zone ${marginClass} rounded-lg bg-white/[0.03] border border-white/[0.06] px-2.5 py-1.5 space-y-1`}
+    >
       {entry.segments.map((seg, i) => {
         const isEditingThisSegment =
           editingSegment?.entryId === entry.id && editingSegment.index === i;
@@ -707,19 +816,13 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
         // segment has an end (otherwise it's still running and there's no
         // "pause" yet) and a next segment exists.
         const nextSeg = entry.segments[i + 1];
-        const gapMs = seg.end && nextSeg
-          ? new Date(nextSeg.start).getTime() - new Date(seg.end).getTime()
-          : 0;
+        const gapMs =
+          seg.end && nextSeg ? new Date(nextSeg.start).getTime() - new Date(seg.end).getTime() : 0;
         const showGap = gapMs > 0;
         const gapLabel = showGap ? (
-          <li
-            key={`gap-${i}`}
-            className="flex items-center gap-1.5 pl-[3px] select-none"
-          >
+          <li key={`gap-${i}`} className="flex items-center gap-1.5 pl-[3px] select-none">
             <span className="w-px h-2.5 bg-white/[0.08] ml-[2px]" />
-            <span className="text-[10px] italic text-zinc-500">
-              Paused for {formatGap(gapMs)}
-            </span>
+            <span className="text-[10px] italic text-zinc-500">Paused for {formatGap(gapMs)}</span>
           </li>
         ) : null;
         if (isEditingThisSegment && editingSegment) {
@@ -734,7 +837,7 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                   <TimeInput
                     size="sm"
                     value={editingSegment.startTime}
-                    onChange={v => setEditingSegment({ ...editingSegment, startTime: v })}
+                    onChange={(v) => setEditingSegment({ ...editingSegment, startTime: v })}
                   />
                 </div>
                 {seg.end !== null ? (
@@ -744,7 +847,7 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                       <TimeInput
                         size="sm"
                         value={editingSegment.endTime}
-                        onChange={v => setEditingSegment({ ...editingSegment, endTime: v })}
+                        onChange={(v) => setEditingSegment({ ...editingSegment, endTime: v })}
                       />
                     </div>
                   </>
@@ -828,14 +931,18 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
         </div>
         <div className="seg-track seg-sm">
           <button
-            onClick={() => { if (effectiveMode !== 'timer') toggleMode(); }}
+            onClick={() => {
+              if (effectiveMode !== 'timer') toggleMode();
+            }}
             className={`seg-item flex items-center gap-1.5 ${effectiveMode === 'timer' ? 'is-active' : ''}`}
           >
             <Timer size={12} />
             Timer
           </button>
           <button
-            onClick={() => { if (effectiveMode !== 'manual') toggleMode(); }}
+            onClick={() => {
+              if (effectiveMode !== 'manual') toggleMode();
+            }}
             className={`seg-item flex items-center gap-1.5 ${effectiveMode === 'manual' ? 'is-active' : ''}`}
           >
             <Clock size={12} />
@@ -866,7 +973,7 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
               <div>
                 <p className="text-xs text-zinc-400 font-medium mb-1.5">Contributors</p>
                 <AvatarGroup
-                  users={uniqueMembers.map(m => ({ id: m.id, name: m.name, avatar: m.avatar }))}
+                  users={uniqueMembers.map((m) => ({ id: m.id, name: m.name, avatar: m.avatar }))}
                   max={3}
                   size="xs"
                 />
@@ -884,17 +991,29 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
               <div
                 className="rounded-xl border p-4 space-y-3"
                 style={{
-                  borderColor: runningTimerIsPaused ? 'var(--color-surface-border)' : projectColor + '30',
-                  backgroundColor: runningTimerIsPaused ? 'rgba(var(--ink), 0.04)' : projectColor + '06',
+                  borderColor: runningTimerIsPaused
+                    ? 'var(--color-surface-border)'
+                    : projectColor + '30',
+                  backgroundColor: runningTimerIsPaused
+                    ? 'rgba(var(--ink), 0.04)'
+                    : projectColor + '06',
                 }}
               >
                 {/* Top row: avatar, info, elapsed badge */}
                 <div className="flex items-center gap-3">
                   <div className="flex-shrink-0 relative">
-                    <Avatar name={getMember(runningTimer.member_id)?.name || '?'} src={getMember(runningTimer.member_id)?.avatar} size="md" />
+                    <Avatar
+                      name={getMember(runningTimer.member_id)?.name || '?'}
+                      src={getMember(runningTimer.member_id)?.avatar}
+                      size="md"
+                    />
                     <span
                       className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ring-2 ring-surface-raised ${runningTimerIsPaused ? '' : 'animate-pulse'}`}
-                      style={{ backgroundColor: runningTimerIsPaused ? 'var(--color-zinc-400)' : projectColor }}
+                      style={{
+                        backgroundColor: runningTimerIsPaused
+                          ? 'var(--color-zinc-400)'
+                          : projectColor,
+                      }}
                     />
                   </div>
                   <div className="flex-1 min-w-0">
@@ -927,7 +1046,10 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                         </button>
                         <button
                           type="button"
-                          onClick={() => { setAdjustingStart(false); setAdjustStartTime(''); }}
+                          onClick={() => {
+                            setAdjustingStart(false);
+                            setAdjustStartTime('');
+                          }}
                           className="p-1 text-zinc-500 hover:bg-white/[0.06] rounded transition-colors flex-shrink-0"
                         >
                           <X size={13} />
@@ -963,7 +1085,7 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                   <div className="flex-1">
                     <TextInput
                       value={timerDescription}
-                      onChange={val => {
+                      onChange={(val) => {
                         setTimerDescription(val);
                         if (descDebounceRef.current) clearTimeout(descDebounceRef.current);
                         descDebounceRef.current = setTimeout(() => {
@@ -1017,11 +1139,11 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                     options={[
                       ...projectTaskOptions,
                       ...(runningTimer.task_ids || [])
-                        .filter(id => !projectTaskOptions.some(o => o.value === id))
-                        .map(id => ({ value: id, label: getTaskTitle(id) || 'Removed task' })),
+                        .filter((id) => !projectTaskOptions.some((o) => o.value === id))
+                        .map((id) => ({ value: id, label: getTaskTitle(id) || 'Removed task' })),
                     ]}
                     value={runningTimer.task_ids || []}
-                    onChange={v => updateTimeEntry(runningTimer.id, { task_ids: v })}
+                    onChange={(v) => updateTimeEntry(runningTimer.id, { task_ids: v })}
                     placeholder="Link tasks (optional)"
                     searchable={projectTaskOptions.length > 4}
                   />
@@ -1029,13 +1151,19 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
               </div>
             ) : (
               <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-4 space-y-3">
-                <div className={`grid grid-cols-1 gap-2 ${canManageAllTime ? 'sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]' : 'sm:grid-cols-[minmax(0,1fr)_auto]'}`}>
+                <div
+                  className={`grid grid-cols-1 gap-2 ${canManageAllTime ? 'sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]' : 'sm:grid-cols-[minmax(0,1fr)_auto]'}`}
+                >
                   {canManageAllTime && (
                     <div className="min-w-0">
                       <Select
                         value={timerMemberId || teamMemberId || ''}
                         onChange={setTimerMemberId}
-                        options={memberOptions.map(m => ({ value: m.id, label: m.name, icon: <Avatar name={m.name} src={m.avatar} size="xs" /> }))}
+                        options={memberOptions.map((m) => ({
+                          value: m.id,
+                          label: m.name,
+                          icon: <Avatar name={m.name} src={m.avatar} size="xs" />,
+                        }))}
                         placeholder="Select member"
                       />
                     </div>
@@ -1043,7 +1171,10 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                   <Select
                     value={timerWorkType}
                     onChange={(value) => setTimerWorkType(value as 'client' | 'internal')}
-                    options={[{ value: 'client', label: 'Client work' }, { value: 'internal', label: 'Internal work' }]}
+                    options={[
+                      { value: 'client', label: 'Client work' },
+                      { value: 'internal', label: 'Internal work' },
+                    ]}
                   />
                   <button
                     onClick={handleStartTimer}
@@ -1080,7 +1211,7 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
             <p className="text-[10px] uppercase tracking-wide font-medium text-zinc-500 px-1">
               Also tracking
             </p>
-            {teammateTimers.map(entry => {
+            {teammateTimers.map((entry) => {
               const member = getMember(entry.member_id);
               const paused = isPaused(entry);
               const elapsedSec = Math.floor(getWorkedMs(entry) / 1000);
@@ -1104,7 +1235,9 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                       )}
                     </p>
                     <p className="text-[11px] text-zinc-500 truncate">
-                      {entry.description || <span className="italic text-zinc-600">No description</span>}
+                      {entry.description || (
+                        <span className="italic text-zinc-600">No description</span>
+                      )}
                     </p>
                   </div>
                   <span
@@ -1123,22 +1256,25 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
              MANUAL ENTRY MODE
            ═══════════════════════════════════════════════════════ */}
         {effectiveMode === 'manual' && (
-          <form onSubmit={handleManualAdd} className="mx-4 mt-3 mb-2 rounded-xl bg-white/[0.03] border border-white/[0.06] p-4 space-y-3">
+          <form
+            onSubmit={handleManualAdd}
+            className="mx-4 mt-3 mb-2 rounded-xl bg-white/[0.03] border border-white/[0.06] p-4 space-y-3"
+          >
             {/* Date and, for time managers only, the team member */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
               <div className={canManageAllTime ? 'md:col-span-2' : 'md:col-span-4'}>
-                <DateInput
-                  value={manualDate}
-                  onChange={setManualDate}
-                  placeholder="Date"
-                />
+                <DateInput value={manualDate} onChange={setManualDate} placeholder="Date" />
               </div>
               {canManageAllTime && (
                 <div className="md:col-span-2">
                   <Select
                     value={manualMemberId}
                     onChange={setManualMemberId}
-                    options={memberOptions.map(m => ({ value: m.id, label: m.name, icon: <Avatar name={m.name} src={m.avatar} size="xs" /> }))}
+                    options={memberOptions.map((m) => ({
+                      value: m.id,
+                      label: m.name,
+                      icon: <Avatar name={m.name} src={m.avatar} size="xs" />,
+                    }))}
                     placeholder="Team member"
                   />
                 </div>
@@ -1228,7 +1364,14 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                 <Plus size={18} strokeWidth={2.5} />
               </button>
             </div>
-            <Select value={manualWorkType} onChange={(value) => setManualWorkType(value as 'client' | 'internal')} options={[{ value: 'client', label: 'Client work' }, { value: 'internal', label: 'Internal work' }]} />
+            <Select
+              value={manualWorkType}
+              onChange={(value) => setManualWorkType(value as 'client' | 'internal')}
+              options={[
+                { value: 'client', label: 'Client work' },
+                { value: 'internal', label: 'Internal work' },
+              ]}
+            />
             {projectTaskOptions.length > 0 && (
               <MultiSelect
                 options={projectTaskOptions}
@@ -1252,42 +1395,50 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                   {formatDateHeader(date)}
                 </p>
                 <div className="divide-y divide-white/[0.06]">
-                  {dateEntries.map(entry => {
+                  {dateEntries.map((entry) => {
                     const member = getMember(entry.member_id);
-                    const canModifyEntry = canManageAllTime
-                      || (canManageOwnTime && entry.member_id === teamMemberId && entry.approval_status !== 'approved');
+                    const canModifyEntry =
+                      canManageAllTime ||
+                      (canManageOwnTime &&
+                        entry.member_id === teamMemberId &&
+                        entry.approval_status !== 'approved');
                     const isEditing = canModifyEntry && editingId === entry.id;
                     const hours = getWorkedHours(entry);
                     const hasMultipleSegments = entry.segments && entry.segments.length > 1;
 
                     if (isEditing && editState) {
                       return (
-                        <div key={entry.id} className="py-3 space-y-2 rounded-lg bg-white/[0.03] -mx-1 px-3 border border-white/[0.06]">
+                        <div
+                          key={entry.id}
+                          className="py-3 space-y-2 rounded-lg bg-white/[0.03] -mx-1 px-3 border border-white/[0.06]"
+                        >
                           {/* Date + time range. On mobile: date full width, then start/end
                               inputs share a row (no "to" label since they're adjacent).
                               On sm+: everything on one row via sm:contents trick. */}
                           <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto_1fr] gap-2 sm:items-center pt-1">
                             <DateInput
                               value={editState.date}
-                              onChange={v => setEditState({ ...editState, date: v })}
+                              onChange={(v) => setEditState({ ...editState, date: v })}
                             />
                             <div className="grid grid-cols-2 gap-2 items-center sm:contents">
                               <TimeInput
                                 value={editState.startTime}
-                                onChange={v => setEditState({ ...editState, startTime: v })}
+                                onChange={(v) => setEditState({ ...editState, startTime: v })}
                                 placeholder="Start"
                               />
-                              <span className="hidden sm:inline text-xs text-zinc-600 font-medium select-none">to</span>
+                              <span className="hidden sm:inline text-xs text-zinc-600 font-medium select-none">
+                                to
+                              </span>
                               <TimeInput
                                 value={editState.endTime}
-                                onChange={v => setEditState({ ...editState, endTime: v })}
+                                onChange={(v) => setEditState({ ...editState, endTime: v })}
                                 placeholder="End"
                               />
                             </div>
                           </div>
                           <TextInput
                             value={editState.description}
-                            onChange={v => setEditState({ ...editState, description: v })}
+                            onChange={(v) => setEditState({ ...editState, description: v })}
                             placeholder="Description"
                           />
                           {/* Task links are editable like every other field. Options
@@ -1299,29 +1450,46 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                               options={[
                                 ...projectTaskOptions,
                                 ...editState.taskIds
-                                  .filter(id => !projectTaskOptions.some(o => o.value === id))
-                                  .map(id => ({ value: id, label: getTaskTitle(id) || 'Removed task' })),
+                                  .filter((id) => !projectTaskOptions.some((o) => o.value === id))
+                                  .map((id) => ({
+                                    value: id,
+                                    label: getTaskTitle(id) || 'Removed task',
+                                  })),
                               ]}
                               value={editState.taskIds}
-                              onChange={v => setEditState({ ...editState, taskIds: v })}
+                              onChange={(v) => setEditState({ ...editState, taskIds: v })}
                               placeholder="Link tasks (optional)"
                               searchable={projectTaskOptions.length > 4}
                             />
                           )}
                           <div className="flex flex-col gap-2 pb-1 sm:flex-row sm:items-center">
-                            <div className={`grid min-w-0 flex-1 gap-2 ${canManageAllTime ? 'grid-cols-2' : 'grid-cols-1'}`}>
+                            <div
+                              className={`grid min-w-0 flex-1 gap-2 ${canManageAllTime ? 'grid-cols-2' : 'grid-cols-1'}`}
+                            >
                               {canManageAllTime && (
                                 <Select
                                   value={editState.memberId}
-                                  onChange={v => setEditState({ ...editState, memberId: v })}
-                                  options={memberOptions.map(m => ({ value: m.id, label: m.name, icon: <Avatar name={m.name} src={m.avatar} size="xs" /> }))}
+                                  onChange={(v) => setEditState({ ...editState, memberId: v })}
+                                  options={memberOptions.map((m) => ({
+                                    value: m.id,
+                                    label: m.name,
+                                    icon: <Avatar name={m.name} src={m.avatar} size="xs" />,
+                                  }))}
                                   placeholder="Team member"
                                 />
                               )}
                               <Select
                                 value={editState.workType}
-                                onChange={v => setEditState({ ...editState, workType: v as 'client' | 'internal' })}
-                                options={[{ value: 'client', label: 'Client work' }, { value: 'internal', label: 'Internal work' }]}
+                                onChange={(v) =>
+                                  setEditState({
+                                    ...editState,
+                                    workType: v as 'client' | 'internal',
+                                  })
+                                }
+                                options={[
+                                  { value: 'client', label: 'Client work' },
+                                  { value: 'internal', label: 'Internal work' },
+                                ]}
                               />
                             </div>
                             <div className="flex items-center justify-end gap-0.5">
@@ -1352,11 +1520,14 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                         </div>
                         <div className="flex-1 min-w-0">
                           <p className="text-sm text-zinc-300 truncate">
-                            {entry.description || <span className="text-zinc-500 italic">No description</span>}
+                            {entry.description || (
+                              <span className="text-zinc-500 italic">No description</span>
+                            )}
                           </p>
                           <div className="flex items-center gap-1.5 text-xs text-zinc-500">
                             <span className="truncate">
-                              {member?.name} &middot; {formatTime(entry.start_time, tz)} – {entry.end_time ? formatTime(entry.end_time, tz) : '...'}
+                              {member?.name} &middot; {formatTime(entry.start_time, tz)} –{' '}
+                              {entry.end_time ? formatTime(entry.end_time, tz) : '...'}
                             </span>
                             <span
                               className="font-semibold tabular-nums px-1.5 py-0.5 rounded-md flex-shrink-0"
@@ -1369,66 +1540,95 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                                 ${formatRate(entry.hourly_rate ?? hourlyRate)}/hr
                               </span>
                             ) : null}
-                            {canSeeClientBilling && (() => {
-                              const breakdown = paymentBreakdownMap.get(entry.id);
-                              if (!breakdown) return null;
-                              const cfg = breakdown.status === 'paid'
-                                ? { color: 'text-emerald-500', label: 'Paid' }
-                                : breakdown.status === 'partial'
-                                ? { color: 'text-amber-500', label: 'Partially paid' }
-                                : { color: 'text-zinc-600', label: 'Unpaid' };
-                              const amountParts = [
-                                breakdown.paidAmount > 0 ? `$${formatRate(breakdown.paidAmount)} paid` : null,
-                                breakdown.unpaidAmount > 0 ? `$${formatRate(breakdown.unpaidAmount)} unpaid` : null,
-                              ].filter((part): part is string => Boolean(part));
-                              const amountLabel = amountParts.join(' · ');
-                              return (
-                                <Tooltip content={(
-                                  <div className="space-y-0.5">
-                                    <p>{cfg.label}</p>
-                                    <p className="font-normal text-zinc-400 tabular-nums">
-                                      {amountLabel}
-                                    </p>
-                                  </div>
-                                )}>
-                                  <CircleDollarSign
-                                    size={11}
-                                    className={`flex-shrink-0 ${cfg.color}`}
-                                    aria-label={`${cfg.label}: ${amountParts.join(', ')}`}
-                                  />
-                                </Tooltip>
-                              );
-                            })()}
+                            {canSeeClientBilling &&
+                              (() => {
+                                const breakdown = paymentBreakdownMap.get(entry.id);
+                                if (!breakdown) return null;
+                                const cfg =
+                                  breakdown.status === 'paid'
+                                    ? { color: 'text-emerald-500', label: 'Paid' }
+                                    : breakdown.status === 'partial'
+                                      ? { color: 'text-amber-500', label: 'Partially paid' }
+                                      : { color: 'text-zinc-600', label: 'Unpaid' };
+                                const amountParts = [
+                                  breakdown.paidAmount > 0
+                                    ? `$${formatRate(breakdown.paidAmount)} paid`
+                                    : null,
+                                  breakdown.unpaidAmount > 0
+                                    ? `$${formatRate(breakdown.unpaidAmount)} unpaid`
+                                    : null,
+                                ].filter((part): part is string => Boolean(part));
+                                const amountLabel = amountParts.join(' · ');
+                                return (
+                                  <Tooltip
+                                    content={
+                                      <div className="space-y-0.5">
+                                        <p>{cfg.label}</p>
+                                        <p className="font-normal text-zinc-400 tabular-nums">
+                                          {amountLabel}
+                                        </p>
+                                      </div>
+                                    }
+                                  >
+                                    <CircleDollarSign
+                                      size={11}
+                                      className={`flex-shrink-0 ${cfg.color}`}
+                                      aria-label={`${cfg.label}: ${amountParts.join(', ')}`}
+                                    />
+                                  </Tooltip>
+                                );
+                              })()}
                             {(() => {
                               // Linked tasks live inline after the paid marker so
                               // every entry stays a two-line row; one truncating
                               // chip plus a +N tooltip carries any overflow.
                               const linkedTasks = (entry.task_ids || [])
-                                .map(linkedTaskId => ({ id: linkedTaskId, title: getTaskTitle(linkedTaskId) }))
-                                .filter((linked): linked is { id: string; title: string } => !!linked.title);
+                                .map((linkedTaskId) => ({
+                                  id: linkedTaskId,
+                                  title: getTaskTitle(linkedTaskId),
+                                }))
+                                .filter(
+                                  (linked): linked is { id: string; title: string } =>
+                                    !!linked.title,
+                                );
                               if (linkedTasks.length === 0) return null;
                               const [firstTask, ...restTasks] = linkedTasks;
                               return (
                                 <span className="flex min-w-0 items-center gap-1">
                                   <Tooltip content={firstTask.title} className="min-w-0">
                                     <span className="inline-flex min-w-0 max-w-[200px] items-center gap-1 rounded-full border border-white/[0.06] bg-white/[0.04] px-1 py-0 text-[10px] font-medium text-zinc-400">
-                                      <span className="h-1 w-1 flex-shrink-0 rounded-full" style={{ backgroundColor: projectColor }} aria-hidden="true" />
+                                      <span
+                                        className="h-1 w-1 flex-shrink-0 rounded-full"
+                                        style={{ backgroundColor: projectColor }}
+                                        aria-hidden="true"
+                                      />
                                       <span className="truncate">{firstTask.title}</span>
                                     </span>
                                   </Tooltip>
                                   {restTasks.length > 0 && (
                                     <Tooltip
-                                      content={(
+                                      content={
                                         <div className="space-y-1 py-0.5">
-                                          <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Also on</p>
-                                          {restTasks.map(linked => (
-                                            <p key={linked.id} className="flex items-center gap-1.5">
-                                              <span className="h-1 w-1 flex-shrink-0 rounded-full" style={{ backgroundColor: projectColor }} aria-hidden="true" />
-                                              <span className="max-w-[240px] truncate font-normal text-zinc-200">{linked.title}</span>
+                                          <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+                                            Also on
+                                          </p>
+                                          {restTasks.map((linked) => (
+                                            <p
+                                              key={linked.id}
+                                              className="flex items-center gap-1.5"
+                                            >
+                                              <span
+                                                className="h-1 w-1 flex-shrink-0 rounded-full"
+                                                style={{ backgroundColor: projectColor }}
+                                                aria-hidden="true"
+                                              />
+                                              <span className="max-w-[240px] truncate font-normal text-zinc-200">
+                                                {linked.title}
+                                              </span>
                                             </p>
                                           ))}
                                         </div>
-                                      )}
+                                      }
                                     >
                                       <span className="inline-flex flex-shrink-0 items-center rounded-full border border-white/[0.06] bg-white/[0.04] px-1 py-0 text-[10px] font-medium text-zinc-400">
                                         +{restTasks.length}
@@ -1438,8 +1638,20 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                                 </span>
                               );
                             })()}
-                            {entry.work_type === 'internal' && <span className="flex-shrink-0 rounded bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-medium text-sky-300">Internal</span>}
-                            {entry.approval_status && entry.approval_status !== 'approved' && <span className={`flex-shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${entry.approval_status === 'rejected' ? 'bg-red-500/15 text-red-300' : 'bg-amber-500/15 text-amber-300'}`}>{entry.approval_status === 'pending' ? 'Awaiting approval' : entry.approval_status}</span>}
+                            {entry.work_type === 'internal' && (
+                              <span className="flex-shrink-0 rounded bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-medium text-sky-300">
+                                Internal
+                              </span>
+                            )}
+                            {entry.approval_status && entry.approval_status !== 'approved' && (
+                              <span
+                                className={`flex-shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${entry.approval_status === 'rejected' ? 'bg-red-500/15 text-red-300' : 'bg-amber-500/15 text-amber-300'}`}
+                              >
+                                {entry.approval_status === 'pending'
+                                  ? 'Awaiting approval'
+                                  : entry.approval_status}
+                              </span>
+                            )}
                             {canModifyEntry ? (
                               <div className="flex items-center gap-0.5 sm:opacity-0 sm:group-hover/entry:opacity-100 sm:group-has-[.seg-zone:hover]/entry:!opacity-0 transition-opacity flex-shrink-0">
                                 {entry.id === resumableEntryId && (
@@ -1488,7 +1700,9 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
             </div>
             <p className="text-sm font-medium text-zinc-400">No hours logged yet</p>
             <p className="text-xs text-zinc-500 mt-1">
-              {effectiveMode === 'timer' ? 'Start a timer to begin tracking' : 'Use the form above to log your first entry'}
+              {effectiveMode === 'timer'
+                ? 'Start a timer to begin tracking'
+                : 'Use the form above to log your first entry'}
             </p>
           </div>
         ) : null}

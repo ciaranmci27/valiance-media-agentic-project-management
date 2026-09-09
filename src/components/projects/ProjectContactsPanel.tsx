@@ -8,7 +8,7 @@ import { Avatar } from '@/components/ui/Avatar';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import { Select } from '@/components/ui/Select';
+import { Select } from '@/components/ui/inputs/Select';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { ContactForm } from '@/components/contacts/ContactForm';
 import Modal from '@/components/ui/Modal';
@@ -24,7 +24,14 @@ interface ProjectContactsPanelProps {
 }
 
 export function ProjectContactsPanel({ isOpen, onClose, projectId }: ProjectContactsPanelProps) {
-  const { contacts, getContactsByProject, getPrimaryClient, addProjectContact, updateProjectContact, removeProjectContact } = useApp();
+  const {
+    contacts,
+    getContactsByProject,
+    getPrimaryClient,
+    addProjectContact,
+    updateProjectContact,
+    removeProjectContact,
+  } = useApp();
   const { access } = useAuth();
   const canManageContacts = hasPermission(access, 'contacts.manage');
 
@@ -46,21 +53,23 @@ export function ProjectContactsPanel({ isOpen, onClose, projectId }: ProjectCont
   const [showNewContactForm, setShowNewContactForm] = useState(false);
 
   const projectContactsList = getContactsByProject(projectId);
-  const existingContactIds = projectContactsList.map(pc => pc.contact_id);
+  const existingContactIds = projectContactsList.map((pc) => pc.contact_id);
   const hasPrimaryClient = !!getPrimaryClient(projectId);
 
   const availableContacts = useMemo(() => {
-    return contacts.filter(c => {
+    return contacts.filter((c) => {
       if (existingContactIds.includes(c.id)) return false;
       if (!addSearch) return true;
       const s = addSearch.toLowerCase();
-      return c.name.toLowerCase().includes(s) ||
+      return (
+        c.name.toLowerCase().includes(s) ||
         c.email.toLowerCase().includes(s) ||
-        c.company.toLowerCase().includes(s);
+        c.company.toLowerCase().includes(s)
+      );
     });
   }, [contacts, existingContactIds, addSearch]);
 
-  const roleOptions = CONTACT_ROLES.map(r => ({ value: r, label: r }));
+  const roleOptions = CONTACT_ROLES.map((r) => ({ value: r, label: r }));
 
   // Edit handlers
   const handleStartEdit = (pc: ProjectContact) => {
@@ -107,7 +116,7 @@ export function ProjectContactsPanel({ isOpen, onClose, projectId }: ProjectCont
       addContactId,
       addRole,
       addRole === 'Other' ? addCustomRole : null,
-      addIsPrimary
+      addIsPrimary,
     );
 
     resetAddForm();
@@ -126,7 +135,11 @@ export function ProjectContactsPanel({ isOpen, onClose, projectId }: ProjectCont
     <>
       <Modal
         isOpen={isOpen}
-        onClose={() => { onClose(); resetAddForm(); setEditingPcId(null); }}
+        onClose={() => {
+          onClose();
+          resetAddForm();
+          setEditingPcId(null);
+        }}
         title={`Project Contacts (${projectContactsList.length})`}
         size="lg"
       >
@@ -139,7 +152,8 @@ export function ProjectContactsPanel({ isOpen, onClose, projectId }: ProjectCont
                 if (!contact) return null;
 
                 const isEditing = editingPcId === pc.id;
-                const displayRole = pc.role === 'Other' && pc.custom_role ? pc.custom_role : pc.role;
+                const displayRole =
+                  pc.role === 'Other' && pc.custom_role ? pc.custom_role : pc.role;
 
                 return (
                   <div key={pc.id} className="p-3 lg:p-4">
@@ -172,18 +186,22 @@ export function ProjectContactsPanel({ isOpen, onClose, projectId }: ProjectCont
                       {!isEditing && (
                         <div className="flex items-center gap-2 flex-shrink-0">
                           <Badge variant="default">{displayRole}</Badge>
-                          {canManageContacts && <button
-                            onClick={() => handleStartEdit(pc)}
-                            className="p-1 rounded text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.06] transition-all"
-                          >
-                            <Edit size={14} />
-                          </button>}
-                          {canManageContacts && <button
-                            onClick={() => handleRemove(pc.id)}
-                            className="p-1 rounded text-zinc-500 hover:text-red-400 hover:bg-red-500/15 transition-all"
-                          >
-                            <Trash2 size={14} />
-                          </button>}
+                          {canManageContacts && (
+                            <button
+                              onClick={() => handleStartEdit(pc)}
+                              className="p-1 rounded text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.06] transition-all"
+                            >
+                              <Edit size={14} />
+                            </button>
+                          )}
+                          {canManageContacts && (
+                            <button
+                              onClick={() => handleRemove(pc.id)}
+                              className="p-1 rounded text-zinc-500 hover:text-red-400 hover:bg-red-500/15 transition-all"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          )}
                         </div>
                       )}
                     </div>
@@ -213,9 +231,15 @@ export function ProjectContactsPanel({ isOpen, onClose, projectId }: ProjectCont
                               onClick={() => setEditIsPrimary(!editIsPrimary)}
                               className={`relative inline-flex w-8 h-[18px] rounded-full transition-colors flex-shrink-0 ${editIsPrimary ? 'bg-amber-500' : 'bg-zinc-300'}`}
                             >
-                              <span className={`absolute top-[2px] left-[2px] w-[14px] h-[14px] rounded-full bg-surface-raised shadow-sm transition-transform ${editIsPrimary ? 'translate-x-[14px]' : 'translate-x-0'}`} />
+                              <span
+                                className={`absolute top-[2px] left-[2px] w-[14px] h-[14px] rounded-full bg-surface-raised shadow-sm transition-transform ${editIsPrimary ? 'translate-x-[14px]' : 'translate-x-0'}`}
+                              />
                             </button>
-                            <span className={`text-xs whitespace-nowrap ${editIsPrimary ? 'text-amber-300' : 'text-zinc-300'}`}>Primary</span>
+                            <span
+                              className={`text-xs whitespace-nowrap ${editIsPrimary ? 'text-amber-300' : 'text-zinc-300'}`}
+                            >
+                              Primary
+                            </span>
                           </label>
                         )}
                         <div className="flex items-center gap-1 ml-auto">
@@ -238,7 +262,11 @@ export function ProjectContactsPanel({ isOpen, onClose, projectId }: ProjectCont
                 <UserCircle size={18} className="text-zinc-500" />
               </div>
               <p className="text-sm font-medium text-zinc-400">No contacts linked yet</p>
-              <p className="text-xs text-zinc-500 mt-1">{canManageContacts ? 'Add contacts to this project' : 'No contacts are linked to this project'}</p>
+              <p className="text-xs text-zinc-500 mt-1">
+                {canManageContacts
+                  ? 'Add contacts to this project'
+                  : 'No contacts are linked to this project'}
+              </p>
             </div>
           ) : null}
 
@@ -268,10 +296,12 @@ export function ProjectContactsPanel({ isOpen, onClose, projectId }: ProjectCont
               <div className="max-h-36 overflow-y-auto border border-white/[0.08] rounded-lg bg-surface-raised">
                 {availableContacts.length === 0 ? (
                   <div className="p-3 text-sm text-zinc-400 text-center">
-                    {addSearch ? 'No contacts match your search' : 'All contacts are already linked'}
+                    {addSearch
+                      ? 'No contacts match your search'
+                      : 'All contacts are already linked'}
                   </div>
                 ) : (
-                  availableContacts.map(c => (
+                  availableContacts.map((c) => (
                     <button
                       key={c.id}
                       type="button"
@@ -335,9 +365,15 @@ export function ProjectContactsPanel({ isOpen, onClose, projectId }: ProjectCont
                       onClick={() => setAddIsPrimary(!addIsPrimary)}
                       className={`relative inline-flex w-9 h-5 rounded-full transition-colors flex-shrink-0 ${addIsPrimary ? 'bg-amber-500' : 'bg-zinc-300'}`}
                     >
-                      <span className={`absolute top-[2px] left-[2px] w-4 h-4 rounded-full bg-surface-raised shadow-sm transition-transform ${addIsPrimary ? 'translate-x-4' : 'translate-x-0'}`} />
+                      <span
+                        className={`absolute top-[2px] left-[2px] w-4 h-4 rounded-full bg-surface-raised shadow-sm transition-transform ${addIsPrimary ? 'translate-x-4' : 'translate-x-0'}`}
+                      />
                     </button>
-                    <span className={`text-sm whitespace-nowrap ${addIsPrimary ? 'text-amber-300' : 'text-zinc-300'}`}>Primary</span>
+                    <span
+                      className={`text-sm whitespace-nowrap ${addIsPrimary ? 'text-amber-300' : 'text-zinc-300'}`}
+                    >
+                      Primary
+                    </span>
                   </label>
                 )}
               </div>
@@ -362,20 +398,21 @@ export function ProjectContactsPanel({ isOpen, onClose, projectId }: ProjectCont
       </Modal>
 
       {/* Create new contact form (only extra modal needed) */}
-      {canManageContacts && <ContactForm
-        isOpen={showNewContactForm}
-        onClose={() => setShowNewContactForm(false)}
-      />}
+      {canManageContacts && (
+        <ContactForm isOpen={showNewContactForm} onClose={() => setShowNewContactForm(false)} />
+      )}
 
-      {canManageContacts && <ConfirmDialog
-        isOpen={!!removeTarget}
-        onClose={() => setRemoveTarget(null)}
-        onConfirm={executeRemove}
-        title="Remove Contact"
-        message="Remove this contact from the project?"
-        confirmLabel="Remove"
-        variant="danger"
-      />}
+      {canManageContacts && (
+        <ConfirmDialog
+          isOpen={!!removeTarget}
+          onClose={() => setRemoveTarget(null)}
+          onConfirm={executeRemove}
+          title="Remove Contact"
+          message="Remove this contact from the project?"
+          confirmLabel="Remove"
+          variant="danger"
+        />
+      )}
     </>
   );
 }

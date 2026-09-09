@@ -6,8 +6,9 @@ import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import Modal from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
+import { TagsInput } from '@/components/ui/inputs/TagsInput';
 import { Input } from '@/components/ui/Input';
-import { Select } from '@/components/ui/Select';
+import { Select } from '@/components/ui/inputs/Select';
 import { Textarea } from '@/components/ui/inputs/Textarea';
 import { MultiSelect } from '@/components/ui/inputs/MultiSelect';
 import { DateInput } from '@/components/ui/inputs/DateInput';
@@ -80,10 +81,15 @@ export function TaskForm({ isOpen, onClose, projectId, task, initialDueDate }: T
       description: description.trim(),
       status,
       priority,
-      ...((canAssignOthers || !task) ? { assignee_ids: assigneeIds } : {}),
+      ...(canAssignOthers || !task ? { assignee_ids: assigneeIds } : {}),
       due_date: dueDate || null,
-      tags: tags.split(',').map(t => t.trim()).filter(Boolean),
-      ...(canManageAgents ? { task_type: taskType || null, ai_readiness: aiReadiness || null } : {}),
+      tags: tags
+        .split(',')
+        .map((t) => t.trim())
+        .filter(Boolean),
+      ...(canManageAgents
+        ? { task_type: taskType || null, ai_readiness: aiReadiness || null }
+        : {}),
       blocked_by_ids: blockedByIds,
       subtasks: task?.subtasks || [],
       comments: task?.comments || [],
@@ -99,7 +105,6 @@ export function TaskForm({ isOpen, onClose, projectId, task, initialDueDate }: T
     setSaving(false);
     onClose();
   };
-
 
   const statusOptions = [
     { value: 'todo', label: 'To Do' },
@@ -118,16 +123,11 @@ export function TaskForm({ isOpen, onClose, projectId, task, initialDueDate }: T
   const isEditing = !!task;
 
   const projectTaskOptions = tasks
-    .filter(t => t.project_id === projectId && t.id !== task?.id)
-    .map(t => ({ value: t.id, label: t.title }));
+    .filter((t) => t.project_id === projectId && t.id !== task?.id)
+    .map((t) => ({ value: t.id, label: t.title }));
 
   return (
-    <Modal
-      isOpen={isOpen}
-      onClose={onClose}
-      title={isEditing ? 'Edit Task' : 'New Task'}
-      size="lg"
-    >
+    <Modal isOpen={isOpen} onClose={onClose} title={isEditing ? 'Edit Task' : 'New Task'} size="lg">
       <form onSubmit={handleSubmit} className="space-y-4">
         <Input
           label="Task Title"
@@ -160,16 +160,14 @@ export function TaskForm({ isOpen, onClose, projectId, task, initialDueDate }: T
           />
         </div>
 
-        <DateInput
-          label="Due Date"
-          value={dueDate}
-          onChange={setDueDate}
-          clearable
-        />
+        <DateInput label="Due Date" value={dueDate} onChange={setDueDate} clearable />
 
         <MultiSelect
           label="Team Members"
-          options={(canAssignOthers ? team : team.filter((member) => member.id === teamMemberId)).map(m => ({ value: m.id, label: m.name }))}
+          options={(canAssignOthers
+            ? team
+            : team.filter((member) => member.id === teamMemberId)
+          ).map((m) => ({ value: m.id, label: m.name }))}
           value={assigneeIds}
           onChange={setAssigneeIds}
           placeholder="Select team members..."
@@ -185,7 +183,10 @@ export function TaskForm({ isOpen, onClose, projectId, task, initialDueDate }: T
               onChange={(value) => setTaskType(value as TaskType | '')}
               options={[
                 { value: '', label: 'None' },
-                ...TASK_TYPES.map(t => ({ value: t, label: t.charAt(0).toUpperCase() + t.slice(1) })),
+                ...TASK_TYPES.map((t) => ({
+                  value: t,
+                  label: t.charAt(0).toUpperCase() + t.slice(1),
+                })),
               ]}
             />
             <Select
@@ -212,10 +213,10 @@ export function TaskForm({ isOpen, onClose, projectId, task, initialDueDate }: T
           />
         )}
 
-        <Input
-          label="Tags (comma-separated)"
+        <TagsInput
+          label="Tags"
           value={tags}
-          onChange={(e) => setTags(e.target.value)}
+          onChange={setTags}
           placeholder="design, frontend, urgent"
         />
 

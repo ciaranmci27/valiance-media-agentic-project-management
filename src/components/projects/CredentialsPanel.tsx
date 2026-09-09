@@ -2,12 +2,28 @@
 
 import { useState, useEffect, useRef } from 'react';
 import {
-  ShieldCheck, Plus, Eye, EyeOff, Pencil, Trash2, Copy, Check,
-  Loader2, Code, Terminal, Database, CreditCard, Landmark, Hash,
-  KeyRound, RefreshCw, Lock, User as UserIcon,
+  ShieldCheck,
+  Plus,
+  Eye,
+  EyeOff,
+  Pencil,
+  Trash2,
+  Copy,
+  Check,
+  Loader2,
+  Code,
+  Terminal,
+  Database,
+  CreditCard,
+  Landmark,
+  Hash,
+  KeyRound,
+  RefreshCw,
+  Lock,
+  User as UserIcon,
   Users,
 } from 'lucide-react';
-import { Select } from '@/components/ui/Select';
+import { Select } from '@/components/ui/inputs/Select';
 import { TextInput } from '@/components/ui/inputs/TextInput';
 import { PasswordInput } from '@/components/ui/inputs/PasswordInput';
 import { Textarea } from '@/components/ui/inputs/Textarea';
@@ -17,8 +33,18 @@ import { useAuth } from '@/lib/auth-context';
 import { toast } from '@/components/ui/Toast';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Tooltip } from '@/components/ui/Tooltip';
-import { CREDENTIAL_FIELDS, isSensitiveKey, credentialFieldLabel, type CredentialFieldDef } from '@/lib/credential-fields';
-import { CREDENTIAL_CATEGORIES, type CredentialCategory, type CredentialPayload, type ProjectCredentialListItem } from '@/lib/types';
+import {
+  CREDENTIAL_FIELDS,
+  isSensitiveKey,
+  credentialFieldLabel,
+  type CredentialFieldDef,
+} from '@/lib/credential-fields';
+import {
+  CREDENTIAL_CATEGORIES,
+  type CredentialCategory,
+  type CredentialPayload,
+  type ProjectCredentialListItem,
+} from '@/lib/types';
 import Modal from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { hasPermission } from '@/lib/access-control';
@@ -28,24 +54,76 @@ interface CredentialsPanelProps {
 }
 
 // ── Category config ─────────────────────────────────
-type CategoryStyle = { label: string; icon: typeof KeyRound; bg: string; text: string; iconColor: string };
+type CategoryStyle = {
+  label: string;
+  icon: typeof KeyRound;
+  bg: string;
+  text: string;
+  iconColor: string;
+};
 
 const CATEGORY_CONFIG: Record<CredentialCategory, CategoryStyle> = {
-  login:       { label: 'Login',       icon: KeyRound,   bg: 'bg-white/[0.06]', text: 'text-zinc-300', iconColor: 'text-zinc-400' },
-  api_key:     { label: 'API Key',     icon: Code,       bg: 'bg-white/[0.06]', text: 'text-zinc-300', iconColor: 'text-zinc-400' },
-  ssh_key:     { label: 'SSH Key',     icon: Terminal,   bg: 'bg-white/[0.06]', text: 'text-zinc-300', iconColor: 'text-zinc-400' },
-  database:    { label: 'Database',    icon: Database,   bg: 'bg-white/[0.06]', text: 'text-zinc-300', iconColor: 'text-zinc-400' },
-  credit_card: { label: 'Credit Card', icon: CreditCard, bg: 'bg-white/[0.06]', text: 'text-zinc-300', iconColor: 'text-zinc-400' },
-  ach:         { label: 'ACH / Bank',  icon: Landmark,   bg: 'bg-white/[0.06]', text: 'text-zinc-300', iconColor: 'text-zinc-400' },
+  login: {
+    label: 'Login',
+    icon: KeyRound,
+    bg: 'bg-white/[0.06]',
+    text: 'text-zinc-300',
+    iconColor: 'text-zinc-400',
+  },
+  api_key: {
+    label: 'API Key',
+    icon: Code,
+    bg: 'bg-white/[0.06]',
+    text: 'text-zinc-300',
+    iconColor: 'text-zinc-400',
+  },
+  ssh_key: {
+    label: 'SSH Key',
+    icon: Terminal,
+    bg: 'bg-white/[0.06]',
+    text: 'text-zinc-300',
+    iconColor: 'text-zinc-400',
+  },
+  database: {
+    label: 'Database',
+    icon: Database,
+    bg: 'bg-white/[0.06]',
+    text: 'text-zinc-300',
+    iconColor: 'text-zinc-400',
+  },
+  credit_card: {
+    label: 'Credit Card',
+    icon: CreditCard,
+    bg: 'bg-white/[0.06]',
+    text: 'text-zinc-300',
+    iconColor: 'text-zinc-400',
+  },
+  ach: {
+    label: 'ACH / Bank',
+    icon: Landmark,
+    bg: 'bg-white/[0.06]',
+    text: 'text-zinc-300',
+    iconColor: 'text-zinc-400',
+  },
 };
 
 // Rows created before the category consolidation migration may still carry a
 // legacy category (hosting, cms, ftp, dns, email, other)
-const LEGACY_CATEGORY_STYLE: CategoryStyle = { label: 'Other', icon: Hash, bg: 'bg-white/[0.06]', text: 'text-zinc-300', iconColor: 'text-zinc-500' };
+const LEGACY_CATEGORY_STYLE: CategoryStyle = {
+  label: 'Other',
+  icon: Hash,
+  bg: 'bg-white/[0.06]',
+  text: 'text-zinc-300',
+  iconColor: 'text-zinc-500',
+};
 
 function categoryConfig(category: string): CategoryStyle {
-  return CATEGORY_CONFIG[category as CredentialCategory]
-    ?? { ...LEGACY_CATEGORY_STYLE, label: category.charAt(0).toUpperCase() + category.slice(1) };
+  return (
+    CATEGORY_CONFIG[category as CredentialCategory] ?? {
+      ...LEGACY_CATEGORY_STYLE,
+      label: category.charAt(0).toUpperCase() + category.slice(1),
+    }
+  );
 }
 
 function fieldsForCategory(category: string): CredentialFieldDef[] {
@@ -66,7 +144,15 @@ function timeAgo(dateStr: string): string {
 }
 
 // ── Revealed field row ──────────────────────────────
-function RevealedField({ label, value, isSensitive }: { label: string; value: string; isSensitive?: boolean }) {
+function RevealedField({
+  label,
+  value,
+  isSensitive,
+}: {
+  label: string;
+  value: string;
+  isSensitive?: boolean;
+}) {
   const [visible, setVisible] = useState(!isSensitive);
   const [copied, setCopied] = useState(false);
   if (!value) return null;
@@ -95,7 +181,7 @@ function RevealedField({ label, value, isSensitive }: { label: string; value: st
         {isSensitive && (
           <Tooltip content={visible ? 'Hide' : 'Show'}>
             <button
-              onClick={() => setVisible(v => !v)}
+              onClick={() => setVisible((v) => !v)}
               className="p-1 text-zinc-500 hover:text-brand-300 transition-colors"
             >
               {visible ? <EyeOff size={13} /> : <Eye size={13} />}
@@ -117,11 +203,22 @@ function RevealedField({ label, value, isSensitive }: { label: string; value: st
 
 // ── Main Component ──────────────────────────────────
 export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
-  const { addCredential, updateCredential, deleteCredential, revealCredential, getCredentialsByProject, team, getProject } = useApp();
+  const {
+    addCredential,
+    updateCredential,
+    deleteCredential,
+    revealCredential,
+    getCredentialsByProject,
+    team,
+    getProject,
+  } = useApp();
   const { teamMemberId, access } = useAuth();
   const canManageCredentials = hasPermission(access, 'credentials.manage');
   const projectMemberIds = new Set(getProject(projectId)?.member_ids || []);
-  const shareableMembers = team.filter((member) => member.id !== teamMemberId && member.role !== 'owner' && projectMemberIds.has(member.id));
+  const shareableMembers = team.filter(
+    (member) =>
+      member.id !== teamMemberId && member.role !== 'owner' && projectMemberIds.has(member.id),
+  );
   const categoryOrder = Object.keys(CATEGORY_CONFIG) as CredentialCategory[];
   const credentials = [...getCredentialsByProject(projectId)].sort((a, b) => {
     const catDiff = categoryOrder.indexOf(a.category) - categoryOrder.indexOf(b.category);
@@ -130,7 +227,9 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
   });
 
   // Encryption status
-  const [encryptionStatus, setEncryptionStatus] = useState<'loading' | 'configured' | 'not_configured'>('loading');
+  const [encryptionStatus, setEncryptionStatus] = useState<
+    'loading' | 'configured' | 'not_configured'
+  >('loading');
   const [generatedKey, setGeneratedKey] = useState('');
   const [keyCopied, setKeyCopied] = useState(false);
   const [generating, setGenerating] = useState(false);
@@ -156,8 +255,7 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
   const [fields, setFields] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
 
-  const setField = (key: string, value: string) =>
-    setFields(prev => ({ ...prev, [key]: value }));
+  const setField = (key: string, value: string) => setFields((prev) => ({ ...prev, [key]: value }));
 
   // Only submit values belonging to the active category (plus notes), so
   // leftovers from switching type mid-form never get saved. In edit mode,
@@ -176,8 +274,8 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
   // Check encryption on mount
   useEffect(() => {
     fetch('/api/encryption/status')
-      .then(res => res.json())
-      .then(data => setEncryptionStatus(data.configured ? 'configured' : 'not_configured'))
+      .then((res) => res.json())
+      .then((data) => setEncryptionStatus(data.configured ? 'configured' : 'not_configured'))
       .catch(() => setEncryptionStatus('not_configured'));
   }, []);
 
@@ -216,7 +314,10 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
         setEncryptionStatus('configured');
         toast('success', 'Encryption configured successfully');
       } else {
-        toast('error', 'Key not detected. Make sure you\'ve restarted your dev server after adding the env var.');
+        toast(
+          'error',
+          "Key not detected. Make sure you've restarted your dev server after adding the env var.",
+        );
       }
     } catch {
       toast('error', 'Failed to verify');
@@ -289,7 +390,7 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
     if (ok) {
       // Clear revealed data for this credential since it was re-encrypted
       const savedId = editingId;
-      setRevealedData(prev => {
+      setRevealedData((prev) => {
         const next = { ...prev };
         delete next[savedId];
         return next;
@@ -311,7 +412,7 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
   const handleReveal = async (id: string) => {
     if (revealedData[id]) {
       // Toggle off
-      setRevealedData(prev => {
+      setRevealedData((prev) => {
         const next = { ...prev };
         delete next[id];
         return next;
@@ -321,7 +422,7 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
     setRevealingId(id);
     const payload = await revealCredential(id);
     if (payload) {
-      setRevealedData(prev => ({ ...prev, [id]: payload }));
+      setRevealedData((prev) => ({ ...prev, [id]: payload }));
     }
     setRevealingId(null);
   };
@@ -329,7 +430,7 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
   const executeDelete = () => {
     if (deleteTarget) {
       deleteCredential(deleteTarget);
-      setRevealedData(prev => {
+      setRevealedData((prev) => {
         const next = { ...prev };
         delete next[deleteTarget];
         return next;
@@ -347,14 +448,21 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
     if (!shareTarget) return;
     setSharing(true);
     try {
-      const response = await fetch('/api/workspace/credentials', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ credential_id: shareTarget.id, member_ids: [...shareMemberIds] }) });
+      const response = await fetch('/api/workspace/credentials', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ credential_id: shareTarget.id, member_ids: [...shareMemberIds] }),
+      });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || 'Failed to update credential access');
       shareTarget.shared_member_ids = [...shareMemberIds];
       setShareTarget(null);
       toast('success', 'Credential access updated');
-    } catch (error) { toast('error', error instanceof Error ? error.message : 'Failed to update credential access'); }
-    finally { setSharing(false); }
+    } catch (error) {
+      toast('error', error instanceof Error ? error.message : 'Failed to update credential access');
+    } finally {
+      setSharing(false);
+    }
   };
 
   // ── Loading state ───────────────────────────
@@ -377,8 +485,13 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
     if (!canManageCredentials) {
       return (
         <div className="glass-card rounded-xl p-5">
-          <div className="flex items-center gap-2"><Lock size={18} className="text-zinc-400" /><h2 className="font-semibold text-white">Credentials unavailable</h2></div>
-          <p className="mt-2 text-sm text-zinc-400">Credential encryption has not been configured by an authorized manager.</p>
+          <div className="flex items-center gap-2">
+            <Lock size={18} className="text-zinc-400" />
+            <h2 className="font-semibold text-white">Credentials unavailable</h2>
+          </div>
+          <p className="mt-2 text-sm text-zinc-400">
+            Credential encryption has not been configured by an authorized manager.
+          </p>
         </div>
       );
     }
@@ -391,8 +504,12 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
 
         <div className="p-5 space-y-4">
           <div className="text-sm text-zinc-300 leading-relaxed">
-            Generate an encryption key and add it to your <code className="px-1.5 py-0.5 bg-white/[0.06] rounded text-xs font-mono text-zinc-300">.env.local</code> file.
-            This key encrypts all stored credentials with AES-256-GCM. Keep it safe — if lost, stored credentials cannot be recovered.
+            Generate an encryption key and add it to your{' '}
+            <code className="px-1.5 py-0.5 bg-white/[0.06] rounded text-xs font-mono text-zinc-300">
+              .env.local
+            </code>{' '}
+            file. This key encrypts all stored credentials with AES-256-GCM. Keep it safe ; if lost,
+            stored credentials cannot be recovered.
           </div>
 
           {!generatedKey ? (
@@ -417,7 +534,11 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
                       onClick={handleCopyKey}
                       className="flex-shrink-0 p-1.5 text-zinc-500 hover:text-brand-300 transition-colors"
                     >
-                      {keyCopied ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
+                      {keyCopied ? (
+                        <Check size={14} className="text-emerald-500" />
+                      ) : (
+                        <Copy size={14} />
+                      )}
                     </button>
                   </Tooltip>
                 </div>
@@ -428,7 +549,13 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
                 <p className="font-medium text-zinc-300">Next steps:</p>
                 <ol className="list-decimal list-inside space-y-1 pl-1">
                   <li>Copy the line above</li>
-                  <li>Paste it into your <code className="px-1 py-0.5 bg-white/[0.06] rounded font-mono">.env.local</code> file</li>
+                  <li>
+                    Paste it into your{' '}
+                    <code className="px-1 py-0.5 bg-white/[0.06] rounded font-mono">
+                      .env.local
+                    </code>{' '}
+                    file
+                  </li>
                   <li>Restart your dev server</li>
                   <li>Click &quot;Verify Setup&quot; below</li>
                 </ol>
@@ -440,7 +567,11 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
                 disabled={verifying}
                 className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition-colors disabled:opacity-50"
               >
-                {verifying ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+                {verifying ? (
+                  <Loader2 size={14} className="animate-spin" />
+                ) : (
+                  <RefreshCw size={14} />
+                )}
                 Verify Setup
               </button>
             </div>
@@ -453,15 +584,16 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
   // ── Credential Manager ──────────────────────
   const renderFieldInput = (def: CredentialFieldDef, mode: 'add' | 'edit') => {
     const value = fields[def.key] ?? '';
-    const placeholder = mode === 'edit' && def.sensitive
-      ? `${def.label} (leave blank to keep current)`
-      : def.placeholder;
+    const placeholder =
+      mode === 'edit' && def.sensitive
+        ? `${def.label} (leave blank to keep current)`
+        : def.placeholder;
     if (def.options) {
       return (
         <Select
           value={value}
-          onChange={v => setField(def.key, v)}
-          options={def.options.map(o => ({ value: o, label: o }))}
+          onChange={(v) => setField(def.key, v)}
+          options={def.options.map((o) => ({ value: o, label: o }))}
           placeholder={def.placeholder}
           size="sm"
         />
@@ -471,7 +603,7 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
       return (
         <Textarea
           value={value}
-          onChange={v => setField(def.key, v)}
+          onChange={(v) => setField(def.key, v)}
           placeholder={placeholder}
           rows={3}
           size="sm"
@@ -482,7 +614,7 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
       return (
         <PasswordInput
           value={value}
-          onChange={v => setField(def.key, v)}
+          onChange={(v) => setField(def.key, v)}
           placeholder={placeholder}
           autoComplete="new-password"
           size="sm"
@@ -493,7 +625,7 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
     return (
       <TextInput
         value={value}
-        onChange={v => setField(def.key, v)}
+        onChange={(v) => setField(def.key, v)}
         placeholder={def.placeholder}
         autoComplete="off"
         size="sm"
@@ -504,11 +636,17 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
   const renderForm = (mode: 'add' | 'edit') => {
     const defs = fieldsForCategory(category);
     return (
-      <div className={mode === 'add' ? 'border border-brand-500/30 bg-brand-500/15 rounded-xl p-4 space-y-3' : 'space-y-3'}>
+      <div
+        className={
+          mode === 'add'
+            ? 'border border-brand-500/30 bg-brand-500/15 rounded-xl p-4 space-y-3'
+            : 'space-y-3'
+        }
+      >
         {/* Type selector; each type has its own set of fields. Edit renders
             inside a narrow card, so drop to two columns there. */}
         <div className={`grid gap-1.5 ${mode === 'add' ? 'grid-cols-3' : 'grid-cols-2'}`}>
-          {CREDENTIAL_CATEGORIES.map(cat => {
+          {CREDENTIAL_CATEGORIES.map((cat) => {
             const cfg = CATEGORY_CONFIG[cat];
             const TypeIcon = cfg.icon;
             const selected = category === cat;
@@ -541,7 +679,7 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
 
         {/* Type-specific fields; half-width fields pair up in a 2-col grid */}
         <div className="grid grid-cols-2 gap-2">
-          {defs.map(def => (
+          {defs.map((def) => (
             <div key={def.key} className={def.half ? 'col-span-1' : 'col-span-2'}>
               {renderFieldInput(def, mode)}
             </div>
@@ -550,7 +688,7 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
 
         <Textarea
           value={fields.notes ?? ''}
-          onChange={v => setField('notes', v)}
+          onChange={(v) => setField('notes', v)}
           placeholder="Notes (optional)"
           rows={2}
           size="sm"
@@ -585,37 +723,39 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
           <h2 className="font-semibold text-white">
             Credentials
             {credentials.length > 0 && (
-              <span className="ml-1.5 text-xs font-medium text-zinc-500">({credentials.length})</span>
+              <span className="ml-1.5 text-xs font-medium text-zinc-500">
+                ({credentials.length})
+              </span>
             )}
           </h2>
         </div>
-        {canManageCredentials && <button
-          onClick={() => {
-            editTargetRef.current = null;
-            resetForm();
-            setEditingId(null);
-            setEditLoading(false);
-            setIsAdding(true);
-          }}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition-colors"
-        >
-          <Plus size={14} />
-          Add
-        </button>}
+        {canManageCredentials && (
+          <button
+            onClick={() => {
+              editTargetRef.current = null;
+              resetForm();
+              setEditingId(null);
+              setEditLoading(false);
+              setIsAdding(true);
+            }}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition-colors"
+          >
+            <Plus size={14} />
+            Add
+          </button>
+        )}
       </div>
 
       <div className="flex-1 flex flex-col overflow-y-auto">
         {/* Add form */}
         {canManageCredentials && isAdding && !editingId && (
-          <div className="mx-5 mt-5">
-            {renderForm('add')}
-          </div>
+          <div className="mx-5 mt-5">{renderForm('add')}</div>
         )}
 
         {/* Credentials grid */}
         {credentials.length > 0 ? (
           <div className="p-5 grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {credentials.map(cred => {
+            {credentials.map((cred) => {
               const config = categoryConfig(cred.category);
               const CategoryIcon = config.icon;
               const isEditing = editingId === cred.id;
@@ -629,9 +769,11 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
                     className="relative rounded-xl border border-brand-500/30 bg-surface-raised overflow-hidden"
                   >
                     <div className="p-4">
-                      {/* Card header — matches normal cards */}
+                      {/* Card header ; matches normal cards */}
                       <div className="flex items-start gap-3 mb-3">
-                        <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${config.bg}`}>
+                        <div
+                          className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${config.bg}`}
+                        >
                           <CategoryIcon size={16} className={config.iconColor} />
                         </div>
                         <div className="flex-1 min-w-0">
@@ -660,7 +802,9 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
                   <div className="p-4 min-w-0">
                     {/* Header */}
                     <div className="flex items-center gap-3 mb-3">
-                      <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${config.bg}`}>
+                      <div
+                        className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${config.bg}`}
+                      >
                         {isRevealing ? (
                           <Loader2 size={16} className={`animate-spin ${config.iconColor}`} />
                         ) : (
@@ -670,7 +814,9 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-semibold text-white truncate">{cred.label}</p>
                         <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-                          <span className={`inline-flex items-center px-1.5 py-0.5 text-[10px] font-semibold rounded ${config.bg} ${config.text}`}>
+                          <span
+                            className={`inline-flex items-center px-1.5 py-0.5 text-[10px] font-semibold rounded ${config.bg} ${config.text}`}
+                          >
                             {config.label}
                           </span>
                           {cred.submitted_by_client && (
@@ -679,68 +825,88 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
                               {cred.submitted_by_name || 'Client'}
                             </span>
                           )}
-                          <span className="text-[10px] text-zinc-500">{timeAgo(cred.created_at)}</span>
+                          <span className="text-[10px] text-zinc-500">
+                            {timeAgo(cred.created_at)}
+                          </span>
                         </div>
                       </div>
-                      <div className="flex items-center gap-0.5 flex-shrink-0 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
-                        {canManageCredentials && <Tooltip content="Share with team">
-                          <button onClick={() => openSharing(cred)} className="p-1.5 text-zinc-500 hover:text-brand-300 transition-colors rounded-md hover:bg-white/[0.03]"><Users size={14} /></button>
-                        </Tooltip>}
-                        {canManageCredentials && <>
-                        <Tooltip content="Edit">
-                          <button
-                            onClick={() => handleStartEdit(cred)}
-                            className="p-1.5 text-zinc-500 hover:text-brand-300 transition-colors rounded-md hover:bg-white/[0.03]"
-                          >
-                            <Pencil size={14} />
-                          </button>
-                        </Tooltip>
-                        <Tooltip content="Delete">
-                          <button
-                            onClick={() => setDeleteTarget(cred.id)}
-                            className="p-1.5 text-zinc-500 hover:text-red-500 transition-colors rounded-md hover:bg-white/[0.03]"
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        </Tooltip>
-                        </>}
+                      <div
+                        className="flex items-center gap-0.5 flex-shrink-0 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-opacity"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {canManageCredentials && (
+                          <Tooltip content="Share with team">
+                            <button
+                              onClick={() => openSharing(cred)}
+                              className="p-1.5 text-zinc-500 hover:text-brand-300 transition-colors rounded-md hover:bg-white/[0.03]"
+                            >
+                              <Users size={14} />
+                            </button>
+                          </Tooltip>
+                        )}
+                        {canManageCredentials && (
+                          <>
+                            <Tooltip content="Edit">
+                              <button
+                                onClick={() => handleStartEdit(cred)}
+                                className="p-1.5 text-zinc-500 hover:text-brand-300 transition-colors rounded-md hover:bg-white/[0.03]"
+                              >
+                                <Pencil size={14} />
+                              </button>
+                            </Tooltip>
+                            <Tooltip content="Delete">
+                              <button
+                                onClick={() => setDeleteTarget(cred.id)}
+                                className="p-1.5 text-zinc-500 hover:text-red-500 transition-colors rounded-md hover:bg-white/[0.03]"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </Tooltip>
+                          </>
+                        )}
                       </div>
                     </div>
 
                     {/* Revealed data: field order follows the category's
                         definitions; legacy keys from older rows render after */}
-                    {isRevealed && revealedData[cred.id] && (() => {
-                      const payload = revealedData[cred.id];
-                      const defs = fieldsForCategory(cred.category);
-                      const defKeys = new Set(defs.map(d => d.key));
-                      const extraKeys = Object.keys(payload).filter(k => k !== 'notes' && !defKeys.has(k) && payload[k]);
-                      const hasAnyValue = Object.values(payload).some(Boolean);
-                      return (
-                        <div className="mb-3 px-3 py-2.5 bg-white/[0.03] border border-white/[0.06] rounded-lg space-y-0.5 overflow-hidden" onClick={e => e.stopPropagation()}>
-                          {defs.map(def => (
-                            <RevealedField
-                              key={def.key}
-                              label={def.label}
-                              value={payload[def.key] ?? ''}
-                              isSensitive={def.sensitive}
-                            />
-                          ))}
-                          {extraKeys.map(key => (
-                            <RevealedField
-                              key={key}
-                              label={credentialFieldLabel(cred.category, key)}
-                              value={payload[key]}
-                              isSensitive={isSensitiveKey(key)}
-                            />
-                          ))}
-                          <RevealedField label="Notes" value={payload.notes ?? ''} />
-                          {!hasAnyValue && (
-                            <p className="text-xs text-zinc-500 italic">No fields stored</p>
-                          )}
-                        </div>
-                      );
-                    })()}
-
+                    {isRevealed &&
+                      revealedData[cred.id] &&
+                      (() => {
+                        const payload = revealedData[cred.id];
+                        const defs = fieldsForCategory(cred.category);
+                        const defKeys = new Set(defs.map((d) => d.key));
+                        const extraKeys = Object.keys(payload).filter(
+                          (k) => k !== 'notes' && !defKeys.has(k) && payload[k],
+                        );
+                        const hasAnyValue = Object.values(payload).some(Boolean);
+                        return (
+                          <div
+                            className="mb-3 px-3 py-2.5 bg-white/[0.03] border border-white/[0.06] rounded-lg space-y-0.5 overflow-hidden"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {defs.map((def) => (
+                              <RevealedField
+                                key={def.key}
+                                label={def.label}
+                                value={payload[def.key] ?? ''}
+                                isSensitive={def.sensitive}
+                              />
+                            ))}
+                            {extraKeys.map((key) => (
+                              <RevealedField
+                                key={key}
+                                label={credentialFieldLabel(cred.category, key)}
+                                value={payload[key]}
+                                isSensitive={isSensitiveKey(key)}
+                              />
+                            ))}
+                            <RevealedField label="Notes" value={payload.notes ?? ''} />
+                            {!hasAnyValue && (
+                              <p className="text-xs text-zinc-500 italic">No fields stored</p>
+                            )}
+                          </div>
+                        );
+                      })()}
                   </div>
                 </div>
               );
@@ -752,7 +918,9 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
               <ShieldCheck size={18} className="text-zinc-500" />
             </div>
             <p className="text-sm font-medium text-zinc-400">No credentials stored yet</p>
-            <p className="text-xs text-zinc-500 mt-1">Add client logins, API keys, and other credentials</p>
+            <p className="text-xs text-zinc-500 mt-1">
+              Add client logins, API keys, and other credentials
+            </p>
           </div>
         ) : null}
       </div>
@@ -766,27 +934,55 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
         confirmLabel="Delete"
         variant="danger"
       />
-      <Modal isOpen={Boolean(shareTarget)} onClose={() => setShareTarget(null)} title="Share credential" size="sm">
+      <Modal
+        isOpen={Boolean(shareTarget)}
+        onClose={() => setShareTarget(null)}
+        title="Share credential"
+        size="sm"
+      >
         <div className="space-y-4">
-          <p className="text-sm text-zinc-300">Choose assigned project members who can reveal <span className="font-medium text-white">{shareTarget?.label}</span>.</p>
+          <p className="text-sm text-zinc-300">
+            Choose assigned project members who can reveal{' '}
+            <span className="font-medium text-white">{shareTarget?.label}</span>.
+          </p>
           <div className="rounded-lg border border-white/[0.08] divide-y divide-white/[0.06] max-h-64 overflow-y-auto">
             {shareableMembers.map((member) => (
               <Checkbox
                 key={member.id}
                 checked={shareMemberIds.has(member.id)}
-                onChange={(checked) => setShareMemberIds((current) => {
-                  const next = new Set(current);
-                  if (checked) next.add(member.id);
-                  else next.delete(member.id);
-                  return next;
-                })}
-                label={<span className="flex w-full items-center justify-between gap-3"><span className="text-zinc-100">{member.name}</span><span className="text-xs font-normal capitalize text-zinc-500">{member.role}</span></span>}
+                onChange={(checked) =>
+                  setShareMemberIds((current) => {
+                    const next = new Set(current);
+                    if (checked) next.add(member.id);
+                    else next.delete(member.id);
+                    return next;
+                  })
+                }
+                label={
+                  <span className="flex w-full items-center justify-between gap-3">
+                    <span className="text-zinc-100">{member.name}</span>
+                    <span className="text-xs font-normal capitalize text-zinc-500">
+                      {member.role}
+                    </span>
+                  </span>
+                }
                 className="w-full px-3 py-2.5"
               />
             ))}
-            {shareableMembers.length === 0 && <p className="px-3 py-4 text-sm text-zinc-400">Assign another team member to this project before sharing credentials.</p>}
+            {shareableMembers.length === 0 && (
+              <p className="px-3 py-4 text-sm text-zinc-400">
+                Assign another team member to this project before sharing credentials.
+              </p>
+            )}
           </div>
-          <div className="flex justify-end gap-2"><Button variant="ghost" onClick={() => setShareTarget(null)}>Cancel</Button><Button onClick={saveSharing} disabled={sharing}>{sharing ? 'Saving...' : 'Save access'}</Button></div>
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setShareTarget(null)}>
+              Cancel
+            </Button>
+            <Button onClick={saveSharing} disabled={sharing}>
+              {sharing ? 'Saving...' : 'Save access'}
+            </Button>
+          </div>
         </div>
       </Modal>
     </div>

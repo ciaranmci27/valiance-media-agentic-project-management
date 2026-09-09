@@ -2,12 +2,22 @@
 
 import { useState } from 'react';
 import { Input } from '@/components/ui/Input';
-import { Select } from '@/components/ui/Select';
+import { Select } from '@/components/ui/inputs/Select';
 import { Textarea } from '@/components/ui/inputs/Textarea';
 import { DateInput } from '@/components/ui/inputs/DateInput';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import { Target, Plus, Pencil, Trash2, X, CalendarDays, Lightbulb, Zap, CheckCircle2 } from 'lucide-react';
+import {
+  Target,
+  Plus,
+  Pencil,
+  Trash2,
+  X,
+  CalendarDays,
+  Lightbulb,
+  Zap,
+  CheckCircle2,
+} from 'lucide-react';
 import { toast } from '@/components/ui/Toast';
 import { ProjectGoal, TaskSuggestion, Task } from '@/lib/types';
 
@@ -16,7 +26,13 @@ interface AgentGoalsCardProps {
   goals: ProjectGoal[];
   taskSuggestions: TaskSuggestion[];
   tasks: Task[];
-  onAdd: (goal: { project_id: string; title: string; description?: string; target_date?: string | null; status?: string }) => Promise<ProjectGoal | undefined>;
+  onAdd: (goal: {
+    project_id: string;
+    title: string;
+    description?: string;
+    target_date?: string | null;
+    status?: string;
+  }) => Promise<ProjectGoal | undefined>;
   onUpdate: (id: string, updates: Partial<ProjectGoal>) => void;
   onArchive: (id: string) => void;
 }
@@ -46,7 +62,15 @@ function getDaysUntil(dateStr: string): { label: string; urgent: boolean } {
   return { label: formatDate(dateStr), urgent: false };
 }
 
-export function AgentGoalsCard({ projectId, goals, taskSuggestions, tasks, onAdd, onUpdate, onArchive }: AgentGoalsCardProps) {
+export function AgentGoalsCard({
+  projectId,
+  goals,
+  taskSuggestions,
+  tasks,
+  onAdd,
+  onUpdate,
+  onArchive,
+}: AgentGoalsCardProps) {
   const [showForm, setShowForm] = useState(false);
   const [editingGoal, setEditingGoal] = useState<ProjectGoal | null>(null);
   const [archiveTarget, setArchiveTarget] = useState<string | null>(null);
@@ -110,20 +134,34 @@ export function AgentGoalsCard({ projectId, goals, taskSuggestions, tasks, onAdd
     }
   };
 
-  const activeGoals = goals.filter(g => !g.archived_at);
+  const activeGoals = goals.filter((g) => !g.archived_at);
   const isFormValid = title.trim() && description.trim();
 
   return (
-    <div className={`glass-card rounded-xl overflow-hidden flex flex-col ${showForm ? '' : 'max-h-[420px]'}`}>
+    <div
+      className={`glass-card rounded-xl overflow-hidden flex flex-col ${showForm ? '' : 'max-h-[420px]'}`}
+    >
       {/* Header */}
       <div className="px-5 py-4 flex items-center justify-between flex-shrink-0 border-b border-white/[0.06]">
         <div className="flex items-center gap-2">
           <Target size={18} className="text-zinc-400" />
           <h2 className="font-semibold text-white">
-            {showForm
-              ? (editingGoal ? 'Edit Goal' : 'New Goal')
-              : <>Goals{activeGoals.length > 0 && <span className="ml-1.5 text-xs font-medium text-zinc-500">({activeGoals.length})</span>}</>
-            }
+            {showForm ? (
+              editingGoal ? (
+                'Edit Goal'
+              ) : (
+                'New Goal'
+              )
+            ) : (
+              <>
+                Goals
+                {activeGoals.length > 0 && (
+                  <span className="ml-1.5 text-xs font-medium text-zinc-500">
+                    ({activeGoals.length})
+                  </span>
+                )}
+              </>
+            )}
           </h2>
         </div>
         {showForm ? (
@@ -208,9 +246,17 @@ export function AgentGoalsCard({ projectId, goals, taskSuggestions, tasks, onAdd
               {activeGoals.map((goal) => {
                 const cfg = STATUS_CONFIG[goal.status];
                 const dateInfo = goal.target_date ? getDaysUntil(goal.target_date) : null;
-                const pendingSuggestions = taskSuggestions.filter(s => s.goal_id === goal.id && s.status === 'pending').length;
-                const activeTasks = tasks.filter(t => t.project_goal_id === goal.id && (t.status === 'in_progress' || t.status === 'in_review')).length;
-                const completedTasks = tasks.filter(t => t.project_goal_id === goal.id && t.status === 'done').length;
+                const pendingSuggestions = taskSuggestions.filter(
+                  (s) => s.goal_id === goal.id && s.status === 'pending',
+                ).length;
+                const activeTasks = tasks.filter(
+                  (t) =>
+                    t.project_goal_id === goal.id &&
+                    (t.status === 'in_progress' || t.status === 'in_review'),
+                ).length;
+                const completedTasks = tasks.filter(
+                  (t) => t.project_goal_id === goal.id && t.status === 'done',
+                ).length;
 
                 return (
                   <div
@@ -222,13 +268,17 @@ export function AgentGoalsCard({ projectId, goals, taskSuggestions, tasks, onAdd
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
                             <p className="text-sm font-medium text-white">{goal.title}</p>
-                            <span className={`inline-flex items-center px-1.5 py-0.5 text-[10px] font-semibold rounded ${cfg.bg} ${cfg.text}`}>
+                            <span
+                              className={`inline-flex items-center px-1.5 py-0.5 text-[10px] font-semibold rounded ${cfg.bg} ${cfg.text}`}
+                            >
                               {cfg.label}
                             </span>
                           </div>
 
                           {goal.description && (
-                            <p className="text-xs text-zinc-400 mt-1.5 leading-relaxed line-clamp-2">{goal.description}</p>
+                            <p className="text-xs text-zinc-400 mt-1.5 leading-relaxed line-clamp-2">
+                              {goal.description}
+                            </p>
                           )}
 
                           {/* Stats + date row */}
@@ -252,14 +302,19 @@ export function AgentGoalsCard({ projectId, goals, taskSuggestions, tasks, onAdd
                               </div>
                             )}
                             {dateInfo && (
-                              <div className={`flex items-center gap-1 text-[11px] ${dateInfo.urgent ? 'text-amber-400 font-medium' : 'text-zinc-500'}`}>
+                              <div
+                                className={`flex items-center gap-1 text-[11px] ${dateInfo.urgent ? 'text-amber-400 font-medium' : 'text-zinc-500'}`}
+                              >
                                 <CalendarDays size={12} />
                                 <span>{dateInfo.label}</span>
                               </div>
                             )}
-                            {pendingSuggestions === 0 && activeTasks === 0 && completedTasks === 0 && !dateInfo && (
-                              <span className="text-[11px] text-zinc-500">No activity yet</span>
-                            )}
+                            {pendingSuggestions === 0 &&
+                              activeTasks === 0 &&
+                              completedTasks === 0 &&
+                              !dateInfo && (
+                                <span className="text-[11px] text-zinc-500">No activity yet</span>
+                              )}
                           </div>
                         </div>
 
@@ -294,7 +349,9 @@ export function AgentGoalsCard({ projectId, goals, taskSuggestions, tasks, onAdd
                 <Target size={18} className="text-zinc-500" />
               </div>
               <p className="text-sm font-medium text-zinc-400">No goals yet</p>
-              <p className="text-xs text-zinc-500 mt-1">Add a goal to start receiving agent suggestions</p>
+              <p className="text-xs text-zinc-500 mt-1">
+                Add a goal to start receiving agent suggestions
+              </p>
             </div>
           )}
         </div>

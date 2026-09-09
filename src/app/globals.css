@@ -2,7 +2,7 @@
    variable + DM Mono), exposed as --font-dm-sans / --font-dm-mono on <html>.
    Do NOT use a Google Fonts @import url() here: Turbopack (Next 16's default
    production bundler) drops external @import rules from bundled CSS. */
-@import "tailwindcss";
+@import 'tailwindcss';
 
 /* Bind the `dark:` variant to our data-theme system (default v4 uses the OS
    prefers-color-scheme, which is decoupled from the app's theme toggle). This keeps
@@ -11,7 +11,7 @@
 
 /*
   ─────────────────────────────────────────────────────────────
-  VALIANCE — DARK GLASS DESIGN SYSTEM
+  VALIANCE ; DARK GLASS DESIGN SYSTEM
   A refined, near-black interface with subtle frosted-glass
   surfaces and a quiet brand-teal glow reserved for interactive
   and active states. All glow/tint colors derive from the brand
@@ -24,49 +24,49 @@
   --font-sans: var(--font-dm-sans), 'DM Sans', system-ui, sans-serif;
   --font-mono: var(--font-dm-mono), 'DM Mono', monospace;
 
-  /* Brand color scale — defaults match site-config.ts (teal); ThemeProvider overrides at runtime */
-  --color-brand-50:  #F0F5F5;
-  --color-brand-100: #D9E6E6;
-  --color-brand-200: #B3CCCC;
-  --color-brand-300: #8DB3B3;
-  --color-brand-400: #749E9E;
-  --color-brand-500: #5B8A8A;
-  --color-brand-600: #4A7171;
-  --color-brand-700: #3A5959;
-  --color-accent:    #8DB3B3;
+  /* Brand color scale ; defaults match site-config.ts (teal); ThemeProvider overrides at runtime */
+  --color-brand-50: #f0f5f5;
+  --color-brand-100: #d9e6e6;
+  --color-brand-200: #b3cccc;
+  --color-brand-300: #8db3b3;
+  --color-brand-400: #749e9e;
+  --color-brand-500: #5b8a8a;
+  --color-brand-600: #4a7171;
+  --color-brand-700: #3a5959;
+  --color-accent: #8db3b3;
 
   /* Sidebar palette (dark chrome) */
-  --color-sidebar: #0B0C0F;
-  --color-sidebar-hover: #16171C;
-  --color-sidebar-active: #1D1F26;
+  --color-sidebar: #0b0c0f;
+  --color-sidebar-hover: #16171c;
+  --color-sidebar-active: #1d1f26;
   --color-sidebar-border: rgba(255, 255, 255, 0.06);
 
   /* Surfaces (near-black, slight cool undertone). These are the theme's base
-     palette — NOT brand-configurable. A future light mode redefines these tokens.
+     palette ; NOT brand-configurable. A future light mode redefines these tokens.
      Every component references them via bg-surface / bg-surface-raised / etc. */
-  --color-surface: #08090C;          /* app base background (deeper, so glass pops) */
-  --color-surface-raised: #14151A;   /* solid raised panels, cards, modals */
-  --color-surface-overlay: #16171D;  /* dropdowns, menus, popovers, tooltips */
+  --color-surface: #08090c; /* app base background (deeper, so glass pops) */
+  --color-surface-raised: #14151a; /* solid raised panels, cards, modals */
+  --color-surface-overlay: #16171d; /* dropdowns, menus, popovers, tooltips */
   --color-surface-border: rgba(255, 255, 255, 0.08);
 
-  /* Warm accent (brand copper) — used only in the ambient back-light for balance */
-  --color-copper: #C5A68F;
+  /* Warm accent (brand copper) ; used only in the ambient back-light for balance */
+  --color-copper: #c5a68f;
 
-  /* On-surface "ink" — the RGB triplet behind every white-alpha tint/border/rim in
+  /* On-surface "ink" ; the RGB triplet behind every white-alpha tint/border/rim in
      the design (glass fills, hairlines, seg control, scrollbars). Dark theme inks in
      white; light theme flips it to near-black so all those alphas invert in one place.
      Use as rgba(var(--ink), <alpha>). */
   --ink: 255, 255, 255;
   /* Text that always sits on a saturated brand/status fill (primary buttons, count
-     pills). Stays white in both themes — never remapped. */
-  --color-on-accent: #FFFFFF;
+     pills). Stays white in both themes ; never remapped. */
+  --color-on-accent: #ffffff;
 
   /* Text */
-  --color-text-primary: #F4F4F5;
-  --color-text-secondary: #A1A1AA;
-  --color-text-muted: #71717A;
+  --color-text-primary: #f4f4f5;
+  --color-text-secondary: #a1a1aa;
+  --color-text-muted: #71717a;
 
-  /* Glass system — panels sit LIGHTER than the base so they read as floating
+  /* Glass system ; panels sit LIGHTER than the base so they read as floating
      frosted surfaces, with a crisp bright top edge (the glass rim). */
   --glass-bg: rgba(26, 28, 35, 0.55);
   --glass-bg-strong: rgba(17, 19, 25, 0.66);
@@ -87,28 +87,28 @@
   --color-input-bg-disabled: rgba(255, 255, 255, 0.02);
   --color-input-bg-inset: rgba(0, 0, 0, 0.25);
 
-  --color-input-border: rgba(255, 255, 255, 0.10);
+  --color-input-border: rgba(255, 255, 255, 0.1);
   --color-input-border-hover: rgba(255, 255, 255, 0.18);
   --color-input-border-focus: var(--color-brand-500);
-  --color-input-border-error: #F87171;
+  --color-input-border-error: #f87171;
   --color-input-border-divider: rgba(255, 255, 255, 0.06);
 
-  --color-input-text: #F4F4F5;
-  --color-input-text-label: #D4D4D8;
-  --color-input-text-placeholder: #71717A;
-  --color-input-text-subtle: #A1A1AA;
-  --color-input-text-disabled: #52525B;
+  --color-input-text: #f4f4f5;
+  --color-input-text-label: #d4d4d8;
+  --color-input-text-placeholder: #71717a;
+  --color-input-text-subtle: #a1a1aa;
+  --color-input-text-disabled: #52525b;
 
   --color-input-accent: var(--color-brand-500);
-  --color-input-accent-fg: #FFFFFF;
+  --color-input-accent-fg: #ffffff;
   --color-input-accent-subtle: color-mix(in srgb, var(--color-brand-500) 14%, transparent);
   --color-input-accent-subtle-fg: var(--color-brand-300);
 
   --color-input-ring: color-mix(in srgb, var(--color-brand-500) 30%, transparent);
   --color-input-ring-error: rgba(248, 113, 113, 0.25);
 
-  --color-input-error: #F87171;
-  --color-input-warning: #FBBF24;
+  --color-input-error: #f87171;
+  --color-input-warning: #fbbf24;
 
   --radius-input: 0.5rem;
   --radius-input-sm: 0.375rem;
@@ -118,46 +118,68 @@
    THEME SCOPES
    The @theme block above holds the dark defaults (so the app renders dark even
    before JS). These two blocks make the theme switchable at runtime via
-   data-theme on <html>, and — crucially — re-declaring the DARK values under
+   data-theme on <html>, and ; crucially ; re-declaring the DARK values under
    [data-theme="dark"] lets a subtree opt back into dark inside a light page
    (the sidebar carries data-theme="dark" so it stays dark chrome in both themes).
 
    Only the theme-flipping tokens live here. Brand scale, fonts, radii, sidebar
    chrome, and copper are theme-independent and stay in @theme.
    ───────────────────────────────────────────────────────────── */
-[data-theme="dark"] {
+[data-theme='dark'] {
   color-scheme: dark;
   --ink: 255, 255, 255;
-  --color-white: #FFFFFF;
+  --color-white: #ffffff;
 
   /* Re-assert every neutral + semantic shade the light block remaps, so none of it
      leaks into a nested dark subtree (the sidebar stays dark chrome in light mode). */
-  --color-zinc-100: #F4F4F5;
-  --color-zinc-200: #E4E4E7;
-  --color-zinc-300: #D4D4D8;
-  --color-zinc-400: #A1A1AA;
-  --color-zinc-600: #52525B;
+  --color-zinc-100: #f4f4f5;
+  --color-zinc-200: #e4e4e7;
+  --color-zinc-300: #d4d4d8;
+  --color-zinc-400: #a1a1aa;
+  --color-zinc-600: #52525b;
 
-  --color-emerald-300: #6EE7B7; --color-emerald-400: #34D399; --color-emerald-500: #10B981;
-  --color-green-300: #86EFAC;   --color-green-400: #4ADE80;   --color-green-500: #22C55E;
-  --color-amber-300: #FCD34D;   --color-amber-400: #FBBF24;   --color-amber-500: #F59E0B;
-  --color-red-300: #FCA5A5;     --color-red-400: #F87171;     --color-red-500: #EF4444;
-  --color-rose-300: #FDA4AF;    --color-rose-400: #FB7185;    --color-rose-500: #F43F5E;
-  --color-orange-300: #FDBA74;  --color-orange-400: #FB923C;  --color-orange-500: #F97316;
-  --color-blue-300: #93C5FD;    --color-blue-400: #60A5FA;    --color-blue-500: #3B82F6;
-  --color-sky-300: #7DD3FC;     --color-sky-400: #38BDF8;     --color-sky-500: #0EA5E9;
-  --color-violet-300: #C4B5FD;  --color-violet-400: #A78BFA;  --color-violet-500: #8B5CF6;
-  --color-purple-300: #D8B4FE;  --color-purple-400: #C084FC;  --color-purple-500: #A855F7;
-  --color-teal-300: #5EEAD4;    --color-teal-400: #2DD4BF;    --color-teal-500: #14B8A6;
+  --color-emerald-300: #6ee7b7;
+  --color-emerald-400: #34d399;
+  --color-emerald-500: #10b981;
+  --color-green-300: #86efac;
+  --color-green-400: #4ade80;
+  --color-green-500: #22c55e;
+  --color-amber-300: #fcd34d;
+  --color-amber-400: #fbbf24;
+  --color-amber-500: #f59e0b;
+  --color-red-300: #fca5a5;
+  --color-red-400: #f87171;
+  --color-red-500: #ef4444;
+  --color-rose-300: #fda4af;
+  --color-rose-400: #fb7185;
+  --color-rose-500: #f43f5e;
+  --color-orange-300: #fdba74;
+  --color-orange-400: #fb923c;
+  --color-orange-500: #f97316;
+  --color-blue-300: #93c5fd;
+  --color-blue-400: #60a5fa;
+  --color-blue-500: #3b82f6;
+  --color-sky-300: #7dd3fc;
+  --color-sky-400: #38bdf8;
+  --color-sky-500: #0ea5e9;
+  --color-violet-300: #c4b5fd;
+  --color-violet-400: #a78bfa;
+  --color-violet-500: #8b5cf6;
+  --color-purple-300: #d8b4fe;
+  --color-purple-400: #c084fc;
+  --color-purple-500: #a855f7;
+  --color-teal-300: #5eead4;
+  --color-teal-400: #2dd4bf;
+  --color-teal-500: #14b8a6;
 
-  --color-surface: #08090C;
-  --color-surface-raised: #14151A;
-  --color-surface-overlay: #16171D;
+  --color-surface: #08090c;
+  --color-surface-raised: #14151a;
+  --color-surface-overlay: #16171d;
   --color-surface-border: rgba(255, 255, 255, 0.08);
 
-  --color-text-primary: #F4F4F5;
-  --color-text-secondary: #A1A1AA;
-  --color-text-muted: #71717A;
+  --color-text-primary: #f4f4f5;
+  --color-text-secondary: #a1a1aa;
+  --color-text-muted: #71717a;
 
   --glass-bg: rgba(26, 28, 35, 0.55);
   --glass-bg-strong: rgba(17, 19, 25, 0.66);
@@ -172,78 +194,102 @@
   --color-input-bg-active: rgba(255, 255, 255, 0.06);
   --color-input-bg-disabled: rgba(255, 255, 255, 0.02);
   --color-input-bg-inset: rgba(0, 0, 0, 0.25);
-  --color-input-border: rgba(255, 255, 255, 0.10);
+  --color-input-border: rgba(255, 255, 255, 0.1);
   --color-input-border-hover: rgba(255, 255, 255, 0.18);
   --color-input-border-divider: rgba(255, 255, 255, 0.06);
-  --color-input-text: #F4F4F5;
-  --color-input-text-label: #D4D4D8;
-  --color-input-text-placeholder: #71717A;
-  --color-input-text-subtle: #A1A1AA;
-  --color-input-text-disabled: #52525B;
+  --color-input-text: #f4f4f5;
+  --color-input-text-label: #d4d4d8;
+  --color-input-text-placeholder: #71717a;
+  --color-input-text-subtle: #a1a1aa;
+  --color-input-text-disabled: #52525b;
 }
 
-html[data-theme="light"] {
+html[data-theme='light'] {
   color-scheme: light;
 
   /* Neutral ink → near-black. Flips every white-alpha tint/border/text utility
      (text-white, bg-white/[…], border-white/[…], divide-white/[…]) at once. */
   --ink: 24, 24, 27;
-  --color-white: #18181B;
+  --color-white: #18181b;
 
-  /* Zinc text ramp — symmetric inversion around zinc-500 so the text hierarchy that
+  /* Zinc text ramp ; symmetric inversion around zinc-500 so the text hierarchy that
      reads light-on-dark now reads dark-on-light (text-zinc-100 = strongest → darkest).
      Small `bg-zinc-300/400` status/toggle dots flip along with it, which is correct. */
-  --color-zinc-100: #18181B;
-  --color-zinc-200: #27272A;
-  --color-zinc-300: #3F3F46;
-  --color-zinc-400: #52525B;
-  --color-zinc-600: #A1A1AA;
+  --color-zinc-100: #18181b;
+  --color-zinc-200: #27272a;
+  --color-zinc-300: #3f3f46;
+  --color-zinc-400: #52525b;
+  --color-zinc-600: #a1a1aa;
 
   /* Semantic status colors: the light shades (300–500) used for badge/delta/label
      TEXT are tuned for dark backgrounds and wash out on white, so remap them to the
      readable -700 value. Small status dots that use the same shades just render a
      touch deeper, which reads fine (often better) on a light ground. -600/-700 text
      shades are already dark and untouched. Brand teal is handled separately. */
-  --color-emerald-300: #047857; --color-emerald-400: #047857; --color-emerald-500: #047857;
-  --color-green-300: #15803D;   --color-green-400: #15803D;   --color-green-500: #15803D;
-  --color-amber-300: #B45309;   --color-amber-400: #B45309;   --color-amber-500: #B45309;
-  --color-red-300: #B91C1C;     --color-red-400: #B91C1C;     --color-red-500: #B91C1C;
-  --color-rose-300: #BE123C;    --color-rose-400: #BE123C;    --color-rose-500: #BE123C;
-  --color-orange-300: #C2410C;  --color-orange-400: #C2410C;  --color-orange-500: #C2410C;
-  --color-blue-300: #1D4ED8;    --color-blue-400: #1D4ED8;    --color-blue-500: #1D4ED8;
-  --color-sky-300: #0369A1;     --color-sky-400: #0369A1;     --color-sky-500: #0369A1;
-  --color-violet-300: #6D28D9;  --color-violet-400: #6D28D9;  --color-violet-500: #6D28D9;
-  --color-cyan-300: #0E7490;    --color-cyan-400: #0E7490;    --color-cyan-500: #0E7490;
-  --color-purple-300: #7E22CE;  --color-purple-400: #7E22CE;  --color-purple-500: #7E22CE;
-  --color-teal-300: #0F766E;    --color-teal-400: #0F766E;    --color-teal-500: #0F766E;
+  --color-emerald-300: #047857;
+  --color-emerald-400: #047857;
+  --color-emerald-500: #047857;
+  --color-green-300: #15803d;
+  --color-green-400: #15803d;
+  --color-green-500: #15803d;
+  --color-amber-300: #b45309;
+  --color-amber-400: #b45309;
+  --color-amber-500: #b45309;
+  --color-red-300: #b91c1c;
+  --color-red-400: #b91c1c;
+  --color-red-500: #b91c1c;
+  --color-rose-300: #be123c;
+  --color-rose-400: #be123c;
+  --color-rose-500: #be123c;
+  --color-orange-300: #c2410c;
+  --color-orange-400: #c2410c;
+  --color-orange-500: #c2410c;
+  --color-blue-300: #1d4ed8;
+  --color-blue-400: #1d4ed8;
+  --color-blue-500: #1d4ed8;
+  --color-sky-300: #0369a1;
+  --color-sky-400: #0369a1;
+  --color-sky-500: #0369a1;
+  --color-violet-300: #6d28d9;
+  --color-violet-400: #6d28d9;
+  --color-violet-500: #6d28d9;
+  --color-cyan-300: #0e7490;
+  --color-cyan-400: #0e7490;
+  --color-cyan-500: #0e7490;
+  --color-purple-300: #7e22ce;
+  --color-purple-400: #7e22ce;
+  --color-purple-500: #7e22ce;
+  --color-teal-300: #0f766e;
+  --color-teal-400: #0f766e;
+  --color-teal-500: #0f766e;
 
   /* Brand accent TEXT (links, active states, badges use text-brand-300) reads light
-     on light — point the light brand-text shades at the darker configured brand so
+     on light ; point the light brand-text shades at the darker configured brand so
      they stay legible. Brand fills/tints keep the true scale. The dark sidebar
      re-asserts the real shades via ThemeProvider's [data-theme="dark"] injection. */
   --color-brand-200: var(--color-brand-700);
   --color-brand-300: var(--color-brand-700);
   --color-brand-400: var(--color-brand-600);
 
-  /* Surfaces — soft off-white base, clean white panels. */
-  --color-surface: #F4F5F7;
-  --color-surface-raised: #FFFFFF;
-  --color-surface-overlay: #FFFFFF;
-  --color-surface-border: rgba(0, 0, 0, 0.10);
+  /* Surfaces ; soft off-white base, clean white panels. */
+  --color-surface: #f4f5f7;
+  --color-surface-raised: #ffffff;
+  --color-surface-overlay: #ffffff;
+  --color-surface-border: rgba(0, 0, 0, 0.1);
 
-  --color-text-primary: #18181B;
-  --color-text-secondary: #52525B;
-  --color-text-muted: #71717A;
+  --color-text-primary: #18181b;
+  --color-text-secondary: #52525b;
+  --color-text-muted: #71717a;
 
-  /* Glass — frosted white over the light base. */
+  /* Glass ; frosted white over the light base. */
   --glass-bg: rgba(255, 255, 255, 0.72);
   --glass-bg-strong: rgba(255, 255, 255, 0.82);
-  --glass-highlight: rgba(255, 255, 255, 0.70);
+  --glass-highlight: rgba(255, 255, 255, 0.7);
 
-  /* Elevation — soft, light-appropriate shadows. */
+  /* Elevation ; soft, light-appropriate shadows. */
   --shadow-card: 0 1px 2px rgba(16, 24, 40, 0.04), 0 6px 20px -8px rgba(16, 24, 40, 0.12);
   --shadow-card-hover: 0 10px 32px -10px rgba(16, 24, 40, 0.18);
-  --shadow-overlay: 0 16px 48px -12px rgba(16, 24, 40, 0.20);
+  --shadow-overlay: 0 16px 48px -12px rgba(16, 24, 40, 0.2);
 
   /* Inputs. */
   --color-input-bg: rgba(0, 0, 0, 0.02);
@@ -254,24 +300,24 @@ html[data-theme="light"] {
   --color-input-border: rgba(0, 0, 0, 0.14);
   --color-input-border-hover: rgba(0, 0, 0, 0.26);
   --color-input-border-divider: rgba(0, 0, 0, 0.08);
-  --color-input-text: #18181B;
-  --color-input-text-label: #3F3F46;
-  --color-input-text-placeholder: #A1A1AA;
-  --color-input-text-subtle: #52525B;
-  --color-input-text-disabled: #A1A1AA;
+  --color-input-text: #18181b;
+  --color-input-text-label: #3f3f46;
+  --color-input-text-placeholder: #71717a;
+  --color-input-text-subtle: #52525b;
+  --color-input-text-disabled: #a1a1aa;
 }
 
 /* Elements painted with a saturated brand/status fill keep white ink in BOTH themes.
    Without this, the light-mode ink remap would darken `text-white` labels/pills to
    near-black on a teal/red button. The `~=` word match targets only the solid fill
-   class token — never `hover:bg-*` variants or alpha tints like `bg-brand-500/15`. */
+   class token ; never `hover:bg-*` variants or alpha tints like `bg-brand-500/15`. */
 [class~="bg-brand-500"], [class~="bg-brand-600"], [class~="bg-brand-700"],
 [class~="bg-red-500"], [class~="bg-red-600"], [class~="bg-red-600/90"],
 [class~="bg-emerald-500"], [class~="bg-emerald-600"], [class~="bg-amber-500"],
 [class~="bg-blue-600"],
 /* Intentionally-dark chrome that stays dark in both themes (e.g. the avatar crop area). */
 [class~="bg-zinc-900"], [class~="bg-zinc-800"] {
-  --color-white: #FFFFFF;
+  --color-white: #ffffff;
   --ink: 255, 255, 255;
 }
 
@@ -279,23 +325,41 @@ html[data-theme="light"] {
    themes. The light-mode text remap darkens semantic shades for contrast; inside a
    chart we re-assert the true bright values (bars/legend dots are fills, not text). */
 .chart-vivid {
-  --color-emerald-300: #6EE7B7; --color-emerald-400: #34D399; --color-emerald-500: #10B981;
-  --color-green-300: #86EFAC;   --color-green-400: #4ADE80;   --color-green-500: #22C55E;
-  --color-sky-300: #7DD3FC;     --color-sky-400: #38BDF8;     --color-sky-500: #0EA5E9;
-  --color-amber-300: #FCD34D;   --color-amber-400: #FBBF24;   --color-amber-500: #F59E0B;
-  --color-violet-300: #C4B5FD;  --color-violet-400: #A78BFA;  --color-violet-500: #8B5CF6;
-  --color-teal-300: #5EEAD4;    --color-teal-400: #2DD4BF;    --color-teal-500: #14B8A6;
-  --color-rose-300: #FDA4AF;    --color-rose-400: #FB7185;    --color-rose-500: #F43F5E;
-  --color-red-300: #FCA5A5;     --color-red-400: #F87171;     --color-red-500: #EF4444;
-  --color-blue-300: #93C5FD;    --color-blue-400: #60A5FA;    --color-blue-500: #3B82F6;
+  --color-emerald-300: #6ee7b7;
+  --color-emerald-400: #34d399;
+  --color-emerald-500: #10b981;
+  --color-green-300: #86efac;
+  --color-green-400: #4ade80;
+  --color-green-500: #22c55e;
+  --color-sky-300: #7dd3fc;
+  --color-sky-400: #38bdf8;
+  --color-sky-500: #0ea5e9;
+  --color-amber-300: #fcd34d;
+  --color-amber-400: #fbbf24;
+  --color-amber-500: #f59e0b;
+  --color-violet-300: #c4b5fd;
+  --color-violet-400: #a78bfa;
+  --color-violet-500: #8b5cf6;
+  --color-teal-300: #5eead4;
+  --color-teal-400: #2dd4bf;
+  --color-teal-500: #14b8a6;
+  --color-rose-300: #fda4af;
+  --color-rose-400: #fb7185;
+  --color-rose-500: #f43f5e;
+  --color-red-300: #fca5a5;
+  --color-red-400: #f87171;
+  --color-red-500: #ef4444;
+  --color-blue-300: #93c5fd;
+  --color-blue-400: #60a5fa;
+  --color-blue-500: #3b82f6;
 }
 
-/* Chart bars: a real glass sheen — a bright top gloss that fades, a crisp specular
+/* Chart bars: a real glass sheen ; a bright top gloss that fades, a crisp specular
    rim, and a touch of bottom depth. No outer glow. Shared by the dashboard Activity
    chart and the Finances earnings bars so they read as the same family. The host must
    be positioned (the Finances bar is `absolute`; the Activity bar adds `relative`). */
 .chart-bar::after {
-  content: "";
+  content: '';
   position: absolute;
   inset: 0;
   border-radius: inherit;
@@ -328,23 +392,35 @@ body {
   font-family: var(--font-sans);
 }
 
-/* Ambient back-light — teal-forward with a copper whisper and a soft bottom glow.
+/* Ambient back-light ; teal-forward with a copper whisper and a soft bottom glow.
    Kept very restrained (only a whisper) in both themes. */
 body::before {
-  content: "";
+  content: '';
   position: fixed;
   inset: 0;
   z-index: -2;
   pointer-events: none;
   background:
-    radial-gradient(58% 48% at 12% -6%, color-mix(in srgb, var(--color-brand-500) 11%, transparent), transparent 60%),
-    radial-gradient(46% 42% at 96% 4%, color-mix(in srgb, var(--color-copper) 6%, transparent), transparent 55%),
-    radial-gradient(70% 55% at 50% 116%, color-mix(in srgb, var(--color-brand-500) 7%, transparent), transparent 62%);
+    radial-gradient(
+      58% 48% at 12% -6%,
+      color-mix(in srgb, var(--color-brand-500) 11%, transparent),
+      transparent 60%
+    ),
+    radial-gradient(
+      46% 42% at 96% 4%,
+      color-mix(in srgb, var(--color-copper) 6%, transparent),
+      transparent 55%
+    ),
+    radial-gradient(
+      70% 55% at 50% 116%,
+      color-mix(in srgb, var(--color-brand-500) 7%, transparent),
+      transparent 62%
+    );
 }
 
 /* Fine grain overlay so the frost reads as premium glass, not flat plastic. */
 body::after {
-  content: "";
+  content: '';
   position: fixed;
   inset: 0;
   z-index: -1;
@@ -372,7 +448,7 @@ body::after {
 }
 
 /* The signature card: a uniform frosted panel with a consistent thin bezel
-   (1px border on all sides) and a soft shadow for float. No top rim — the border
+   (1px border on all sides) and a soft shadow for float. No top rim ; the border
    reads the same on every edge, matching the rest of the UI. */
 .glass-card {
   background: var(--glass-bg);
@@ -382,14 +458,17 @@ body::after {
   box-shadow: var(--shadow-card);
 }
 
-/* Interactive card: a clean lift — border brightens uniformly, panel rises. */
+/* Interactive card: a clean lift ; border brightens uniformly, panel rises. */
 .glass-card-interactive {
   background: var(--glass-bg);
   backdrop-filter: blur(var(--glass-blur)) saturate(150%);
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(150%);
   border: 1px solid var(--color-surface-border);
   box-shadow: var(--shadow-card);
-  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s cubic-bezier(0.2, 1, 0.3, 1);
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.2s cubic-bezier(0.2, 1, 0.3, 1);
 }
 .glass-card-interactive:hover {
   transform: translateY(-1px);
@@ -405,7 +484,7 @@ body::after {
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-brand-500) 28%, transparent);
 }
 
-/* Sidebar glass — the SAME fill as .glass-card (var(--glass-bg)), but composited over a
+/* Sidebar glass ; the SAME fill as .glass-card (var(--glass-bg)), but composited over a
    solid var(--color-surface) base. The sidebar is fixed chrome over the page, so using
    the translucent fill alone would let the light-mode page bleed through and wash it out
    to grey. Painting the glass over an opaque surface reproduces the exact glass-card
@@ -419,16 +498,16 @@ body::after {
 }
 
 /* ── Buttons ───────────────────────────────────────────────
-   Primary: a clean satin teal — solid brand fill + one subtle top highlight,
+   Primary: a clean satin teal ; solid brand fill + one subtle top highlight,
    no gloss, no glow. The SAME treatment is applied to every inline `bg-brand`
    button below, so component buttons and hand-rolled ones look identical. */
 .liquid-primary {
   background-color: var(--color-brand-600);
   color: #fff;
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.30),   /* crisp rim light (the glass edge) */
-    inset 0 -1px 1px rgba(0, 0, 0, 0.22),        /* subtle bottom depth */
-    0 1px 2px rgba(0, 0, 0, 0.3);
+    inset 0 1px 0 rgba(255, 255, 255, 0.3),
+    /* crisp rim light (the glass edge) */ inset 0 -1px 1px rgba(0, 0, 0, 0.22),
+    /* subtle bottom depth */ 0 1px 2px rgba(0, 0, 0, 0.3);
 }
 .liquid-primary:hover {
   box-shadow:
@@ -438,10 +517,12 @@ body::after {
 }
 
 /* Unify every inline solid-teal button with the component's primary look. */
-button.bg-brand-600, a.bg-brand-600,
-button.bg-brand-500, a.bg-brand-500 {
+button.bg-brand-600,
+a.bg-brand-600,
+button.bg-brand-500,
+a.bg-brand-500 {
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.30),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3),
     inset 0 -1px 1px rgba(0, 0, 0, 0.22),
     0 1px 2px rgba(0, 0, 0, 0.3);
 }
@@ -470,19 +551,23 @@ button.bg-brand-500, a.bg-brand-500 {
    as a BASE class (the leading space / start-of-string guards against matching
    `hover:bg-white/...` on ghost buttons). Cards, rows, and chips are div/span/tr,
    so they're never touched. Low specificity so explicit styles still win. */
-:is(button, a)[class*=" bg-white/[0.0"],
-:is(button, a)[class^="bg-white/[0.0"],
-:is(button, a)[class*=" bg-white/5"] {
+:is(button, a)[class*=' bg-white/[0.0'],
+:is(button, a)[class^='bg-white/[0.0'],
+:is(button, a)[class*=' bg-white/5'] {
   backdrop-filter: blur(14px) saturate(140%);
   -webkit-backdrop-filter: blur(14px) saturate(140%);
-  box-shadow: inset 0 1px 0 rgba(var(--ink), 0.10), inset 0 0 0 1px rgba(var(--ink), 0.06);
+  box-shadow:
+    inset 0 1px 0 rgba(var(--ink), 0.1),
+    inset 0 0 0 1px rgba(var(--ink), 0.06);
 }
-:is(button, a)[class*=" bg-[#14151A]"],
-:is(button, a)[class^="bg-[#14151A]"] {
+:is(button, a)[class*=' bg-[#14151A]'],
+:is(button, a)[class^='bg-[#14151A]'] {
   background-color: rgba(var(--ink), 0.05);
   backdrop-filter: blur(14px) saturate(140%);
   -webkit-backdrop-filter: blur(14px) saturate(140%);
-  box-shadow: inset 0 1px 0 rgba(var(--ink), 0.10), inset 0 0 0 1px rgba(var(--ink), 0.06);
+  box-shadow:
+    inset 0 1px 0 rgba(var(--ink), 0.1),
+    inset 0 0 0 1px rgba(var(--ink), 0.06);
 }
 
 /* ── iOS-style segmented control ───────────────────────────
@@ -501,8 +586,14 @@ button.bg-brand-500, a.bg-brand-500 {
   background: rgba(var(--ink), 0.045);
   box-shadow: inset 0 0 0 1px rgba(var(--ink), 0.06);
 }
-.seg-track.seg-sm { height: 32px; border-radius: 10px; }
-.seg-track.seg-lg { height: 44px; border-radius: 13px; }
+.seg-track.seg-sm {
+  height: 32px;
+  border-radius: 10px;
+}
+.seg-track.seg-lg {
+  height: 44px;
+  border-radius: 13px;
+}
 
 .seg-item {
   height: 100%;
@@ -519,93 +610,198 @@ button.bg-brand-500, a.bg-brand-500 {
   border-radius: 8px;
   background: transparent;
   white-space: nowrap;
-  transition: color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+  transition:
+    color 0.15s ease,
+    background 0.15s ease,
+    box-shadow 0.15s ease;
 }
-.seg-item:hover { color: var(--color-text-primary); }
+.seg-item:hover {
+  color: var(--color-text-primary);
+}
 .seg-item.is-active {
   color: var(--color-text-primary);
   background: rgba(var(--ink), 0.09);
-  box-shadow: inset 0 1px 0 rgba(var(--ink), 0.16), 0 1px 2px rgba(0, 0, 0, 0.35);
+  box-shadow:
+    inset 0 1px 0 rgba(var(--ink), 0.16),
+    0 1px 2px rgba(0, 0, 0, 0.35);
 }
 
 /* Hairline separators that read on dark */
-.divide-app > * + * { border-color: var(--color-surface-border); }
+.divide-app > * + * {
+  border-color: var(--color-surface-border);
+}
 
 /* ── Scrollbar ─────────────────────────────────────────── */
-::-webkit-scrollbar { width: 4px; height: 4px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(var(--ink), 0.12); border-radius: 2px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(var(--ink), 0.22); }
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(var(--ink), 0.12);
+  border-radius: 2px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(var(--ink), 0.22);
+}
 
 /* Sidebar stays dark chrome in both themes, so keep its scrollbar white-alpha. */
-.sidebar-scroll::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.10); }
-.sidebar-scroll::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.18); }
+.sidebar-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+}
+.sidebar-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
 
-.board-column-scroll::-webkit-scrollbar { width: 3px; }
-.board-column-scroll::-webkit-scrollbar-thumb { background: transparent; border-radius: 2px; }
-.board-column-scroll:hover::-webkit-scrollbar-thumb { background: rgba(var(--ink), 0.12); }
-.board-column-scroll:hover::-webkit-scrollbar-thumb:hover { background: rgba(var(--ink), 0.22); }
+.board-column-scroll::-webkit-scrollbar {
+  width: 3px;
+}
+.board-column-scroll::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 2px;
+}
+.board-column-scroll:hover::-webkit-scrollbar-thumb {
+  background: rgba(var(--ink), 0.12);
+}
+.board-column-scroll:hover::-webkit-scrollbar-thumb:hover {
+  background: rgba(var(--ink), 0.22);
+}
 
-.scrollbar-none { -ms-overflow-style: none; scrollbar-width: none; }
-.scrollbar-none::-webkit-scrollbar { display: none; }
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
 
 /* ── Keyframes ─────────────────────────────────────────── */
 @keyframes fadeIn {
-  from { opacity: 0; }
-  to   { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 @keyframes scaleIn {
-  from { opacity: 0; transform: scale(0.96) translateY(4px); }
-  to   { opacity: 1; transform: scale(1)    translateY(0);   }
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
 }
 
 @keyframes slideInLeft {
-  from { opacity: 0; transform: translateX(-10px); }
-  to   { opacity: 1; transform: translateX(0);      }
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
 }
 
 @keyframes slideInUp {
-  from { opacity: 0; transform: translateY(8px); }
-  to   { opacity: 1; transform: translateY(0);   }
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 @keyframes shimmer {
-  0%   { background-position: -400px 0; }
-  100% { background-position:  400px 0; }
+  0% {
+    background-position: -400px 0;
+  }
+  100% {
+    background-position: 400px 0;
+  }
 }
 
 @keyframes slideDown {
-  from { opacity: 0; transform: translateY(-8px); }
-  to   { opacity: 1; transform: translateY(0);   }
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
-.animate-fadeIn     { animation: fadeIn 0.15s ease; }
-.animate-scaleIn    { animation: scaleIn 0.2s cubic-bezier(0.16,1,0.3,1); }
-.animate-slideInLeft { animation: slideInLeft 0.22s cubic-bezier(0.16,1,0.3,1); }
-.animate-slideInUp  { animation: slideInUp 0.2s cubic-bezier(0.16,1,0.3,1); }
-.animate-slideDown  { animation: slideDown 0.2s cubic-bezier(0.16,1,0.3,1); }
+.animate-fadeIn {
+  animation: fadeIn 0.15s ease;
+}
+.animate-scaleIn {
+  animation: scaleIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.animate-slideInLeft {
+  animation: slideInLeft 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.animate-slideInUp {
+  animation: slideInUp 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.animate-slideDown {
+  animation: slideDown 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
 
 /* Staggered list children */
-.stagger > * { animation: slideInUp 0.28s cubic-bezier(0.16,1,0.3,1) both; }
-.stagger > *:nth-child(1)  { animation-delay:   0ms; }
-.stagger > *:nth-child(2)  { animation-delay:  45ms; }
-.stagger > *:nth-child(3)  { animation-delay:  90ms; }
-.stagger > *:nth-child(4)  { animation-delay: 135ms; }
-.stagger > *:nth-child(5)  { animation-delay: 180ms; }
-.stagger > *:nth-child(6)  { animation-delay: 225ms; }
-.stagger > *:nth-child(7)  { animation-delay: 270ms; }
-.stagger > *:nth-child(8)  { animation-delay: 315ms; }
-.stagger > *:nth-child(9)  { animation-delay: 360ms; }
-.stagger > *:nth-child(10) { animation-delay: 405ms; }
+.stagger > * {
+  animation: slideInUp 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.stagger > *:nth-child(1) {
+  animation-delay: 0ms;
+}
+.stagger > *:nth-child(2) {
+  animation-delay: 45ms;
+}
+.stagger > *:nth-child(3) {
+  animation-delay: 90ms;
+}
+.stagger > *:nth-child(4) {
+  animation-delay: 135ms;
+}
+.stagger > *:nth-child(5) {
+  animation-delay: 180ms;
+}
+.stagger > *:nth-child(6) {
+  animation-delay: 225ms;
+}
+.stagger > *:nth-child(7) {
+  animation-delay: 270ms;
+}
+.stagger > *:nth-child(8) {
+  animation-delay: 315ms;
+}
+.stagger > *:nth-child(9) {
+  animation-delay: 360ms;
+}
+.stagger > *:nth-child(10) {
+  animation-delay: 405ms;
+}
 
 /* Card lift on hover (dark depth) */
 .card-lift {
-  transition: box-shadow 0.18s ease, transform 0.18s ease, border-color 0.18s ease;
+  transition:
+    box-shadow 0.18s ease,
+    transform 0.18s ease,
+    border-color 0.18s ease;
 }
 .card-lift:hover {
-  box-shadow: var(--shadow-card-hover),
-              0 0 24px -10px color-mix(in srgb, var(--color-brand-500) 45%, transparent);
+  box-shadow:
+    var(--shadow-card-hover),
+    0 0 24px -10px color-mix(in srgb, var(--color-brand-500) 45%, transparent);
   transform: translateY(-1px);
 }
 
@@ -616,14 +812,38 @@ button.bg-brand-500, a.bg-brand-500 {
    line beneath that advances through a short sequence. Which lockup shows
    follows the nearest data-theme through inherited variables, so a portal
    pinned dark inside a light-themed document still gets the dark mark. */
-:root, [data-theme="dark"] { --loader-mark-dark: block; --loader-mark-light: none; }
-[data-theme="light"]       { --loader-mark-dark: none;  --loader-mark-light: block; }
+:root,
+[data-theme='dark'] {
+  --loader-mark-dark: block;
+  --loader-mark-light: none;
+}
+[data-theme='light'] {
+  --loader-mark-dark: none;
+  --loader-mark-light: block;
+}
 
-.brand-loader { display: flex; align-items: center; justify-content: center; }
-.brand-loader-stage { display: flex; flex-direction: column; align-items: center; transform-origin: center; }
+.brand-loader {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.brand-loader-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transform-origin: center;
+}
 /* The page is ready: the stage dissolves before the content takes over. */
-.brand-loader.is-leaving .brand-loader-stage { animation: brand-loader-out 0.32s cubic-bezier(0.22, 1, 0.36, 1) forwards; }
-@keyframes brand-loader-out { to { opacity: 0; transform: scale(0.96); filter: blur(4px); } }
+.brand-loader.is-leaving .brand-loader-stage {
+  animation: brand-loader-out 0.32s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+@keyframes brand-loader-out {
+  to {
+    opacity: 0;
+    transform: scale(0.96);
+    filter: blur(4px);
+  }
+}
 
 /* Orbit and mark share one cell so they stay concentric. */
 .brand-splash {
@@ -634,11 +854,26 @@ button.bg-brand-500, a.bg-brand-500 {
   height: 7.5rem;
   animation: brand-splash-in 1s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
-.brand-splash > * { grid-area: 1 / 1; }
-@keyframes brand-splash-in { from { opacity: 0; transform: scale(0.9); } }
+.brand-splash > * {
+  grid-area: 1 / 1;
+}
+@keyframes brand-splash-in {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+}
 
-.brand-splash-orbit { width: 100%; height: 100%; overflow: visible; }
-.brand-splash-track { fill: none; stroke: rgba(var(--ink), 0.14); stroke-width: 1.5; }
+.brand-splash-orbit {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.brand-splash-track {
+  fill: none;
+  stroke: rgba(var(--ink), 0.14);
+  stroke-width: 1.5;
+}
 .brand-splash-arc {
   fill: none;
   stroke: var(--color-brand-300);
@@ -648,14 +883,31 @@ button.bg-brand-500, a.bg-brand-500 {
   filter: drop-shadow(0 0 6px color-mix(in srgb, var(--color-brand-500) 85%, transparent));
   animation: brand-splash-spin 1.4s linear infinite;
 }
-@keyframes brand-splash-spin { to { transform: rotate(360deg); } }
+@keyframes brand-splash-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
 
 /* The round window the emblem is cropped through; the image inside is
    positioned by the component from the emblem's measured place in the file. */
-.brand-splash-mark { position: relative; width: 5.25rem; height: 5.25rem; border-radius: 50%; overflow: hidden; }
-.brand-splash-mark-img { position: absolute; max-width: none; }
-.brand-splash-mark-img.is-dark  { display: var(--loader-mark-dark, block); }
-.brand-splash-mark-img.is-light { display: var(--loader-mark-light, none); }
+.brand-splash-mark {
+  position: relative;
+  width: 5.25rem;
+  height: 5.25rem;
+  border-radius: 50%;
+  overflow: hidden;
+}
+.brand-splash-mark-img {
+  position: absolute;
+  max-width: none;
+}
+.brand-splash-mark-img.is-dark {
+  display: var(--loader-mark-dark, block);
+}
+.brand-splash-mark-img.is-light {
+  display: var(--loader-mark-light, none);
+}
 
 /* The status sequence: outgoing and incoming lines in one grid cell. */
 .brand-loader-steps {
@@ -668,23 +920,60 @@ button.bg-brand-500, a.bg-brand-500 {
   opacity: 0;
   animation: fadeIn 0.8s ease 0.4s forwards;
 }
-.brand-step { grid-area: 1 / 1; white-space: nowrap; }
-.brand-step-in  { animation: brand-step-in 0.45s cubic-bezier(0.22, 1, 0.36, 1) both; }
-.brand-step-out { animation: brand-step-out 0.35s cubic-bezier(0.22, 1, 0.36, 1) forwards; pointer-events: none; }
-@keyframes brand-step-in  { from { opacity: 0; transform: translateY(8px); } }
-@keyframes brand-step-out { to   { opacity: 0; transform: translateY(-8px); } }
+.brand-step {
+  grid-area: 1 / 1;
+  white-space: nowrap;
+}
+.brand-step-in {
+  animation: brand-step-in 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.brand-step-out {
+  animation: brand-step-out 0.35s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  pointer-events: none;
+}
+@keyframes brand-step-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+@keyframes brand-step-out {
+  to {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+}
 
 /* Respect reduced motion */
 @media (prefers-reduced-motion: reduce) {
-  .animate-fadeIn, .animate-scaleIn, .animate-slideInLeft, .animate-slideInUp,
-  .animate-slideDown, .stagger > * { animation: none !important; }
-  .card-lift:hover, .glass-card-interactive:hover { transform: none; }
+  .animate-fadeIn,
+  .animate-scaleIn,
+  .animate-slideInLeft,
+  .animate-slideInUp,
+  .animate-slideDown,
+  .stagger > * {
+    animation: none !important;
+  }
+  .card-lift:hover,
+  .glass-card-interactive:hover {
+    transform: none;
+  }
   /* The loader keeps its shape and its dissolve, without motion: lines swap in
      place, the arc stands still, and the dissolve still ends so the page can
      take over. */
-  .brand-splash, .brand-splash-arc, .brand-step-in, .brand-loader-steps { animation: none !important; opacity: 1; }
-  .brand-step-out { display: none; }
-  .brand-loader.is-leaving .brand-loader-stage { animation-duration: 0.001ms !important; }
+  .brand-splash,
+  .brand-splash-arc,
+  .brand-step-in,
+  .brand-loader-steps {
+    animation: none !important;
+    opacity: 1;
+  }
+  .brand-step-out {
+    display: none;
+  }
+  .brand-loader.is-leaving .brand-loader-stage {
+    animation-duration: 0.001ms !important;
+  }
 }
 
 /* Default border color. Tailwind v4 defaults bare `border` utilities to currentColor,
@@ -699,7 +988,7 @@ button.bg-brand-500, a.bg-brand-500 {
   }
 }
 
-/* Focus ring — inside @layer base so Tailwind utilities (outline-none) can override it */
+/* Focus ring ; inside @layer base so Tailwind utilities (outline-none) can override it */
 @layer base {
   *:focus-visible {
     outline: 2px solid var(--color-brand-400);
@@ -743,4 +1032,3 @@ button.bg-brand-500, a.bg-brand-500 {
 .no-scrollbar::-webkit-scrollbar {
   display: none;
 }
-

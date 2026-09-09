@@ -2,12 +2,22 @@
 
 import { useEffect, useId, useState, type CSSProperties, type FormEvent } from 'react';
 import {
-  ArrowLeft, Code, CreditCard, Database, Eye, EyeOff, KeyRound, Landmark,
-  Loader2, Pencil, Plus, Terminal,
+  ArrowLeft,
+  Code,
+  CreditCard,
+  Database,
+  Eye,
+  EyeOff,
+  KeyRound,
+  Landmark,
+  Loader2,
+  Pencil,
+  Plus,
+  Terminal,
 } from 'lucide-react';
 import type { CredentialCategory, PortalData } from '@/lib/types';
 import { CREDENTIAL_FIELDS, type CredentialFieldDef } from '@/lib/credential-fields';
-import { Select } from '@/components/ui/Select';
+import { Select } from '@/components/ui/inputs/Select';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { toast } from '@/components/ui/Toast';
 import { SectionCard, SectionHeader } from './SectionHeader';
@@ -57,11 +67,10 @@ function CredentialForm({
   const fieldDefs: CredentialFieldDef[] =
     CREDENTIAL_FIELDS[category as CredentialCategory] ?? CREDENTIAL_FIELDS.login;
 
-  const setField = (key: string, value: string) =>
-    setFields(prev => ({ ...prev, [key]: value }));
+  const setField = (key: string, value: string) => setFields((prev) => ({ ...prev, [key]: value }));
 
   const toggleSecret = (key: string) =>
-    setVisibleSecrets(prev => {
+    setVisibleSecrets((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
       else next.add(key);
@@ -90,7 +99,9 @@ function CredentialForm({
         if (!cancelled) setLoadingFields(false);
       }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [isEditing, editingId, token, pin]);
 
   // Only submit values for the active category (plus notes). In edit mode,
@@ -118,7 +129,7 @@ function CredentialForm({
       if (isEditing) {
         // Rows still on a pre-migration category keep it unless the client
         // picks one of the current types
-        const categoryIsCurrent = CREDENTIAL_CATEGORIES.some(c => c.value === category);
+        const categoryIsCurrent = CREDENTIAL_CATEGORIES.some((c) => c.value === category);
         const res = await fetch(`/api/portal/${token}/credentials/${editingCredential.id}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json', ...pinHeaders() },
@@ -144,13 +155,16 @@ function CredentialForm({
         });
         if (!res.ok) throw new Error();
         const json = await res.json();
-        onDone({
-          id: json.data.id,
-          label: json.data.label ?? label.trim(),
-          category: (json.data.category ?? category) as SubmittedCredential['category'],
-          created_at: json.data.created_at ?? new Date().toISOString(),
-          updated_at: json.data.updated_at ?? new Date().toISOString(),
-        }, 'add');
+        onDone(
+          {
+            id: json.data.id,
+            label: json.data.label ?? label.trim(),
+            category: (json.data.category ?? category) as SubmittedCredential['category'],
+            created_at: json.data.created_at ?? new Date().toISOString(),
+            updated_at: json.data.updated_at ?? new Date().toISOString(),
+          },
+          'add',
+        );
       }
     } catch {
       toast('error', 'Could not save the credential. Please try again.');
@@ -168,8 +182,8 @@ function CredentialForm({
       control = (
         <Select
           value={value}
-          onChange={v => setField(def.key, v)}
-          options={def.options.map(o => ({ value: o, label: o }))}
+          onChange={(v) => setField(def.key, v)}
+          options={def.options.map((o) => ({ value: o, label: o }))}
           placeholder={def.placeholder}
           ariaLabel={def.label}
         />
@@ -179,7 +193,7 @@ function CredentialForm({
         <textarea
           id={id}
           value={value}
-          onChange={e => setField(def.key, e.target.value)}
+          onChange={(e) => setField(def.key, e.target.value)}
           placeholder={def.placeholder}
           rows={4}
           autoComplete="off"
@@ -196,12 +210,12 @@ function CredentialForm({
             id={id}
             type="text"
             value={value}
-            onChange={e => setField(def.key, e.target.value)}
+            onChange={(e) => setField(def.key, e.target.value)}
             placeholder={isEditing ? 'Leave blank to keep current' : def.placeholder}
             autoComplete="off"
             data-1p-ignore
             data-lpignore="true"
-            style={visible ? undefined : { WebkitTextSecurity: 'disc' } as CSSProperties}
+            style={visible ? undefined : ({ WebkitTextSecurity: 'disc' } as CSSProperties)}
             className="vm-input pr-12"
           />
           <button
@@ -211,7 +225,11 @@ function CredentialForm({
             aria-pressed={visible}
             className="vm-icon-btn absolute right-1 top-1/2 h-9 w-9 -translate-y-1/2"
           >
-            {visible ? <EyeOff size={15} aria-hidden="true" /> : <Eye size={15} aria-hidden="true" />}
+            {visible ? (
+              <EyeOff size={15} aria-hidden="true" />
+            ) : (
+              <Eye size={15} aria-hidden="true" />
+            )}
           </button>
         </div>
       );
@@ -221,7 +239,7 @@ function CredentialForm({
           id={id}
           type="text"
           value={value}
-          onChange={e => setField(def.key, e.target.value)}
+          onChange={(e) => setField(def.key, e.target.value)}
           placeholder={def.placeholder}
           autoComplete="off"
           data-1p-ignore
@@ -236,7 +254,9 @@ function CredentialForm({
         {def.options ? (
           <span className="vm-label mb-2">{def.label}</span>
         ) : (
-          <label htmlFor={id} className="vm-label mb-2">{def.label}</label>
+          <label htmlFor={id} className="vm-label mb-2">
+            {def.label}
+          </label>
         )}
         {control}
       </div>
@@ -246,10 +266,17 @@ function CredentialForm({
   return (
     <div>
       <div className="mb-6 flex items-center gap-2">
-        <button type="button" onClick={onCancel} aria-label="Back to credentials" className="vm-icon-btn -ml-2">
+        <button
+          type="button"
+          onClick={onCancel}
+          aria-label="Back to credentials"
+          className="vm-icon-btn -ml-2"
+        >
           <ArrowLeft size={17} aria-hidden="true" />
         </button>
-        <h2 className="vm-h2 text-[1.35rem] sm:text-[1.6rem]">{isEditing ? 'Update credential' : 'New credential'}</h2>
+        <h2 className="vm-h2 text-[1.35rem] sm:text-[1.6rem]">
+          {isEditing ? 'Update credential' : 'New credential'}
+        </h2>
       </div>
 
       {loadingFields ? (
@@ -259,9 +286,11 @@ function CredentialForm({
       ) : (
         <form onSubmit={handleSubmit} className="space-y-5">
           <div role="group" aria-labelledby={`${uid}-type`}>
-            <span id={`${uid}-type`} className="vm-label mb-2">Type</span>
+            <span id={`${uid}-type`} className="vm-label mb-2">
+              Type
+            </span>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-              {CREDENTIAL_CATEGORIES.map(cat => {
+              {CREDENTIAL_CATEGORIES.map((cat) => {
                 const TypeIcon = cat.icon;
                 const selected = category === cat.value;
                 return (
@@ -274,7 +303,12 @@ function CredentialForm({
                       selected ? 'vm-tile-teal' : 'vm-soft hover:bg-white/[0.05]'
                     }`}
                   >
-                    <TypeIcon size={15} strokeWidth={1.75} aria-hidden="true" className={selected ? 'text-(--vm-teal-200)' : ''} />
+                    <TypeIcon
+                      size={15}
+                      strokeWidth={1.75}
+                      aria-hidden="true"
+                      className={selected ? 'text-(--vm-teal-200)' : ''}
+                    />
                     <span className="truncate">{cat.label}</span>
                   </button>
                 );
@@ -283,12 +317,14 @@ function CredentialForm({
           </div>
 
           <div>
-            <label htmlFor={`${uid}-label`} className="vm-label mb-2">Name</label>
+            <label htmlFor={`${uid}-label`} className="vm-label mb-2">
+              Name
+            </label>
             <input
               id={`${uid}-label`}
               type="text"
               value={label}
-              onChange={e => setLabel(e.target.value)}
+              onChange={(e) => setLabel(e.target.value)}
               placeholder="e.g. Email login"
               required
               autoFocus={!isEditing}
@@ -297,21 +333,21 @@ function CredentialForm({
           </div>
 
           {/* Type-specific fields; half-width fields pair up from sm */}
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            {fieldDefs.map(renderField)}
-          </div>
-          {isEditing && fieldDefs.some(d => d.sensitive) && (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">{fieldDefs.map(renderField)}</div>
+          {isEditing && fieldDefs.some((d) => d.sensitive) && (
             <p className="vm-faint text-[13px]">
               Secret fields stay hidden. Leave them blank to keep the current values.
             </p>
           )}
 
           <div>
-            <label htmlFor={`${uid}-notes`} className="vm-label mb-2">Notes</label>
+            <label htmlFor={`${uid}-notes`} className="vm-label mb-2">
+              Notes
+            </label>
             <textarea
               id={`${uid}-notes`}
               value={fields.notes ?? ''}
-              onChange={e => setField('notes', e.target.value)}
+              onChange={(e) => setField('notes', e.target.value)}
               placeholder="Optional"
               rows={2}
               className="vm-input"
@@ -319,7 +355,11 @@ function CredentialForm({
           </div>
 
           <div className="flex flex-col-reverse gap-2.5 pt-1 sm:flex-row sm:justify-end">
-            <button type="button" onClick={onCancel} className="vm-btn vm-btn-ghost w-full sm:w-auto">
+            <button
+              type="button"
+              onClick={onCancel}
+              className="vm-btn vm-btn-ghost w-full sm:w-auto"
+            >
               Cancel
             </button>
             <button
@@ -327,9 +367,11 @@ function CredentialForm({
               disabled={!label.trim() || submitting}
               className="vm-btn vm-btn-primary w-full sm:w-auto"
             >
-              {submitting
-                ? <Loader2 size={15} className="animate-spin" aria-hidden="true" />
-                : <KeyRound size={15} aria-hidden="true" />}
+              {submitting ? (
+                <Loader2 size={15} className="animate-spin" aria-hidden="true" />
+              ) : (
+                <KeyRound size={15} aria-hidden="true" />
+              )}
               {isEditing ? 'Update credential' : 'Submit securely'}
             </button>
           </div>
@@ -349,16 +391,17 @@ export function CredentialsSection({
   pin?: string;
   credentialsSubmitted: SubmittedCredential[];
 }) {
-  const [localCredentials, setLocalCredentials] = useState<SubmittedCredential[]>(credentialsSubmitted);
+  const [localCredentials, setLocalCredentials] =
+    useState<SubmittedCredential[]>(credentialsSubmitted);
   const [view, setView] = useState<'list' | 'add' | 'edit'>('list');
   const [editTarget, setEditTarget] = useState<SubmittedCredential | null>(null);
 
   const handleDone = (cred: SubmittedCredential, mode: 'add' | 'edit') => {
     if (mode === 'add') {
-      setLocalCredentials(prev => [cred, ...prev]);
+      setLocalCredentials((prev) => [cred, ...prev]);
       toast('success', 'Credentials submitted securely');
     } else {
-      setLocalCredentials(prev => prev.map(c => (c.id === cred.id ? cred : c)));
+      setLocalCredentials((prev) => prev.map((c) => (c.id === cred.id ? cred : c)));
       toast('success', 'Credential updated');
     }
     setView('list');
@@ -377,7 +420,11 @@ export function CredentialsSection({
           <SectionHeader
             title="Credentials"
             right={
-              <button type="button" onClick={() => setView('add')} className="vm-btn vm-btn-ghost vm-btn-sm">
+              <button
+                type="button"
+                onClick={() => setView('add')}
+                className="vm-btn vm-btn-ghost vm-btn-sm"
+              >
                 <Plus size={14} aria-hidden="true" />
                 Add
               </button>
@@ -386,11 +433,14 @@ export function CredentialsSection({
 
           {localCredentials.length > 0 ? (
             <ul>
-              {localCredentials.map(cred => {
-                const catMeta = CREDENTIAL_CATEGORIES.find(c => c.value === cred.category);
+              {localCredentials.map((cred) => {
+                const catMeta = CREDENTIAL_CATEGORIES.find((c) => c.value === cred.category);
                 const CatIcon = catMeta?.icon || KeyRound;
                 return (
-                  <li key={cred.id} className="vm-row flex items-center gap-3.5 py-3.5 first:pt-0 last:pb-0">
+                  <li
+                    key={cred.id}
+                    className="vm-row flex items-center gap-3.5 py-3.5 first:pt-0 last:pb-0"
+                  >
                     <span className={ICON_TILE} aria-hidden="true">
                       <CatIcon size={17} strokeWidth={1.75} />
                     </span>
@@ -398,14 +448,19 @@ export function CredentialsSection({
                       <p className="truncate text-[15px] font-medium">{cred.label}</p>
                       <div className="vm-faint mt-1 flex flex-wrap items-center gap-x-2 text-[13px]">
                         <span>{catMeta?.label || cred.category}</span>
-                        <span className="opacity-50" aria-hidden="true">/</span>
+                        <span className="opacity-50" aria-hidden="true">
+                          /
+                        </span>
                         <span>{relativeTime(cred.updated_at || cred.created_at)}</span>
                       </div>
                     </div>
                     <Tooltip content="Edit">
                       <button
                         type="button"
-                        onClick={() => { setEditTarget(cred); setView('edit'); }}
+                        onClick={() => {
+                          setEditTarget(cred);
+                          setView('edit');
+                        }}
                         aria-label={`Edit ${cred.label}`}
                         className="vm-icon-btn shrink-0"
                       >
@@ -417,7 +472,9 @@ export function CredentialsSection({
               })}
             </ul>
           ) : (
-            <p className="vm-muted text-[15px]">Nothing shared yet. Use Add to hand us access securely.</p>
+            <p className="vm-muted text-[15px]">
+              Nothing shared yet. Use Add to hand us access securely.
+            </p>
           )}
         </>
       ) : (

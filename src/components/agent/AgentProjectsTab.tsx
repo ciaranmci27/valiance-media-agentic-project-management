@@ -7,7 +7,7 @@ import { ProjectGoal } from '@/lib/types';
 import Modal from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import { Select } from '@/components/ui/Select';
+import { Select } from '@/components/ui/inputs/Select';
 import { Textarea } from '@/components/ui/inputs/Textarea';
 import { DateInput } from '@/components/ui/inputs/DateInput';
 import { Tooltip } from '@/components/ui/Tooltip';
@@ -16,8 +16,14 @@ import { toast } from '@/components/ui/Toast';
 
 export function AgentProjectsTab() {
   const {
-    projects, projectGoals, taskSuggestions, tasks,
-    addGoal, updateGoal, archiveGoal, updateProject,
+    projects,
+    projectGoals,
+    taskSuggestions,
+    tasks,
+    addGoal,
+    updateGoal,
+    archiveGoal,
+    updateProject,
   } = useApp();
   const { teamMemberId } = useAuth();
 
@@ -102,7 +108,7 @@ export function AgentProjectsTab() {
 
   // Show all active (non-archived) projects, sorted: autonomous first, then alphabetically
   const activeProjects = projects
-    .filter(p => p.status !== 'archived')
+    .filter((p) => p.status !== 'archived')
     .sort((a, b) => {
       if (a.autonomous_enabled !== b.autonomous_enabled) {
         return a.autonomous_enabled ? -1 : 1;
@@ -113,25 +119,40 @@ export function AgentProjectsTab() {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
       {activeProjects.map((project) => {
-        const goals = projectGoals.filter(g => g.project_id === project.id);
-        const projectSuggestions = taskSuggestions.filter(s => s.project_id === project.id && s.status === 'pending');
-        const projectActiveTasks = tasks.filter(t => t.project_id === project.id && (t.status === 'todo' || t.status === 'in_progress'));
+        const goals = projectGoals.filter((g) => g.project_id === project.id);
+        const projectSuggestions = taskSuggestions.filter(
+          (s) => s.project_id === project.id && s.status === 'pending',
+        );
+        const projectActiveTasks = tasks.filter(
+          (t) => t.project_id === project.id && (t.status === 'todo' || t.status === 'in_progress'),
+        );
 
         return (
-          <div
-            key={project.id}
-            className="glass-card rounded-xl p-4 lg:p-5"
-          >
+          <div key={project.id} className="glass-card rounded-xl p-4 lg:p-5">
             {/* Project header */}
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2 min-w-0 flex-1">
-                {project.color && <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: project.color }} />}
+                {project.color && (
+                  <div
+                    className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                    style={{ backgroundColor: project.color }}
+                  />
+                )}
                 <h3 className="font-semibold text-white truncate">{project.name}</h3>
               </div>
 
               <div className="flex items-center gap-2 flex-shrink-0">
-                <Bot size={14} className={project.autonomous_enabled ? 'text-brand-300' : 'text-zinc-500'} />
-                <Tooltip content={project.autonomous_enabled ? 'Disable autonomous agents' : 'Enable autonomous agents'}>
+                <Bot
+                  size={14}
+                  className={project.autonomous_enabled ? 'text-brand-300' : 'text-zinc-500'}
+                />
+                <Tooltip
+                  content={
+                    project.autonomous_enabled
+                      ? 'Disable autonomous agents'
+                      : 'Enable autonomous agents'
+                  }
+                >
                   <button
                     type="button"
                     onClick={() => handleToggleAutonomous(project.id, project.autonomous_enabled)}
@@ -160,9 +181,15 @@ export function AgentProjectsTab() {
               )}
 
               {goals.map((goal) => {
-                const pendingSuggestions = taskSuggestions.filter(s => s.goal_id === goal.id && s.status === 'pending').length;
-                const inProgressTasks = tasks.filter(t => t.project_goal_id === goal.id && t.status === 'in_progress').length;
-                const completedTasks = tasks.filter(t => t.project_goal_id === goal.id && t.status === 'done').length;
+                const pendingSuggestions = taskSuggestions.filter(
+                  (s) => s.goal_id === goal.id && s.status === 'pending',
+                ).length;
+                const inProgressTasks = tasks.filter(
+                  (t) => t.project_goal_id === goal.id && t.status === 'in_progress',
+                ).length;
+                const completedTasks = tasks.filter(
+                  (t) => t.project_goal_id === goal.id && t.status === 'done',
+                ).length;
 
                 return (
                   <div
@@ -173,15 +200,21 @@ export function AgentProjectsTab() {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
                           <h4 className="font-medium text-sm text-white">{goal.title}</h4>
-                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${statusColors[goal.status]}`}>
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${statusColors[goal.status]}`}
+                          >
                             {goal.status}
                           </span>
                         </div>
                         {goal.description && (
-                          <p className="text-xs text-zinc-400 mt-1 line-clamp-1">{goal.description}</p>
+                          <p className="text-xs text-zinc-400 mt-1 line-clamp-1">
+                            {goal.description}
+                          </p>
                         )}
                         {goal.target_date && (
-                          <p className="text-[10px] text-zinc-500 mt-1">Target: {goal.target_date}</p>
+                          <p className="text-[10px] text-zinc-500 mt-1">
+                            Target: {goal.target_date}
+                          </p>
                         )}
                       </div>
 
@@ -221,9 +254,13 @@ export function AgentProjectsTab() {
                           {completedTasks} done
                         </span>
                       )}
-                      {pendingSuggestions === 0 && inProgressTasks === 0 && completedTasks === 0 && (
-                        <span className="text-[10px] text-zinc-500">No suggestions or tasks yet</span>
-                      )}
+                      {pendingSuggestions === 0 &&
+                        inProgressTasks === 0 &&
+                        completedTasks === 0 && (
+                          <span className="text-[10px] text-zinc-500">
+                            No suggestions or tasks yet
+                          </span>
+                        )}
                     </div>
                   </div>
                 );
@@ -231,7 +268,7 @@ export function AgentProjectsTab() {
 
               {goals.length === 0 && (
                 <p className="text-sm text-zinc-500 py-2">
-                  No goals yet — add one to start receiving agent suggestions
+                  No goals yet ; add one to start receiving agent suggestions
                 </p>
               )}
 
@@ -247,10 +284,16 @@ export function AgentProjectsTab() {
             {/* Project-level stats */}
             <div className="flex items-center gap-3 mt-4 pt-3 border-t border-white/[0.06] text-xs text-zinc-400">
               {projectSuggestions.length > 0 && (
-                <span>{projectSuggestions.length} pending suggestion{projectSuggestions.length !== 1 ? 's' : ''}</span>
+                <span>
+                  {projectSuggestions.length} pending suggestion
+                  {projectSuggestions.length !== 1 ? 's' : ''}
+                </span>
               )}
               {projectActiveTasks.length > 0 && (
-                <span>{projectActiveTasks.length} active task{projectActiveTasks.length !== 1 ? 's' : ''}</span>
+                <span>
+                  {projectActiveTasks.length} active task
+                  {projectActiveTasks.length !== 1 ? 's' : ''}
+                </span>
               )}
               {projectSuggestions.length === 0 && projectActiveTasks.length === 0 && (
                 <span>No active suggestions or tasks</span>
@@ -266,14 +309,19 @@ export function AgentProjectsTab() {
             <FolderKanban size={18} className="text-zinc-500" />
           </div>
           <p className="text-sm font-medium text-zinc-400">No projects</p>
-          <p className="text-xs text-zinc-500 mt-1">Create projects and add goals to start using agent workflows</p>
+          <p className="text-xs text-zinc-500 mt-1">
+            Create projects and add goals to start using agent workflows
+          </p>
         </div>
       )}
 
       {/* Create/Edit Goal Modal */}
       <Modal
         isOpen={isFormOpen}
-        onClose={() => { setIsFormOpen(false); resetForm(); }}
+        onClose={() => {
+          setIsFormOpen(false);
+          resetForm();
+        }}
         title={editingGoal ? 'Edit Goal' : 'New Goal'}
         size="md"
       >
@@ -282,7 +330,7 @@ export function AgentProjectsTab() {
             label="Project"
             value={formProjectId}
             onChange={setFormProjectId}
-            options={projects.map(p => ({ value: p.id, label: p.name }))}
+            options={projects.map((p) => ({ value: p.id, label: p.name }))}
           />
 
           <Input
@@ -321,12 +369,17 @@ export function AgentProjectsTab() {
           />
 
           <div className="flex justify-end gap-3 pt-4">
-            <Button type="button" variant="ghost" onClick={() => { setIsFormOpen(false); resetForm(); }}>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => {
+                setIsFormOpen(false);
+                resetForm();
+              }}
+            >
               Cancel
             </Button>
-            <Button type="submit">
-              {editingGoal ? 'Save Changes' : 'Create Goal'}
-            </Button>
+            <Button type="submit">{editingGoal ? 'Save Changes' : 'Create Goal'}</Button>
           </div>
         </form>
       </Modal>

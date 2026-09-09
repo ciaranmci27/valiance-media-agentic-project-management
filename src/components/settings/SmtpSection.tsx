@@ -1,11 +1,22 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { Mail, Plus, Copy, Check, Pencil, Trash2, Send, Loader2, RefreshCw, BookOpen } from 'lucide-react';
+import {
+  Mail,
+  Plus,
+  Copy,
+  Check,
+  Pencil,
+  Trash2,
+  Send,
+  Loader2,
+  RefreshCw,
+  BookOpen,
+} from 'lucide-react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import { Select } from '@/components/ui/Select';
+import { Select } from '@/components/ui/inputs/Select';
 import { TextInput } from '@/components/ui/inputs/TextInput';
 import { NumberInput } from '@/components/ui/inputs/NumberInput';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
@@ -71,7 +82,7 @@ export function SmtpSection() {
   }, []);
 
   const verifyAccount = useCallback(async (id: string) => {
-    setStatuses(s => ({ ...s, [id]: { online: null } }));
+    setStatuses((s) => ({ ...s, [id]: { online: null } }));
     try {
       const res = await fetch('/api/smtp/verify', {
         method: 'POST',
@@ -79,9 +90,9 @@ export function SmtpSection() {
         body: JSON.stringify({ id }),
       });
       const data = await res.json();
-      setStatuses(s => ({ ...s, [id]: { online: data.online, reason: data.reason } }));
+      setStatuses((s) => ({ ...s, [id]: { online: data.online, reason: data.reason } }));
     } catch {
-      setStatuses(s => ({ ...s, [id]: { online: false, reason: 'Network error' } }));
+      setStatuses((s) => ({ ...s, [id]: { online: false, reason: 'Network error' } }));
     }
   }, []);
 
@@ -126,7 +137,10 @@ export function SmtpSection() {
         setEncryptionConfigured(true);
         toast('success', 'SMTP encryption verified');
       } else {
-        toast('error', 'SMTP_ENCRYPTION_KEY not detected. Restart your dev server after adding it to .env.local.');
+        toast(
+          'error',
+          'SMTP_ENCRYPTION_KEY not detected. Restart your dev server after adding it to .env.local.',
+        );
       }
     } catch {
       toast('error', 'Failed to check status');
@@ -138,7 +152,18 @@ export function SmtpSection() {
   // ─── Form handlers ─────────────────────────────────────────────────────────
 
   const resetForm = () => {
-    setForm({ label: '', host: '', port: 465, secure: true, username: '', password: '', from_name: '', from_email: '', reply_to: '', is_default: false });
+    setForm({
+      label: '',
+      host: '',
+      port: 465,
+      secure: true,
+      username: '',
+      password: '',
+      from_name: '',
+      from_email: '',
+      reply_to: '',
+      is_default: false,
+    });
     setShowForm(false);
     setEditingId(null);
   };
@@ -298,7 +323,9 @@ export function SmtpSection() {
           </div>
           <div>
             <h2 className="font-semibold text-white">Set Up SMTP Encryption</h2>
-            <p className="text-sm text-zinc-400">An encryption key is required to securely store SMTP passwords</p>
+            <p className="text-sm text-zinc-400">
+              An encryption key is required to securely store SMTP passwords
+            </p>
           </div>
         </div>
 
@@ -309,7 +336,11 @@ export function SmtpSection() {
         ) : (
           <div className="space-y-4">
             <div>
-              <p className="text-sm font-medium text-zinc-300 mb-2">Add this to your <code className="px-1.5 py-0.5 bg-white/[0.06] rounded text-xs">.env.local</code> file:</p>
+              <p className="text-sm font-medium text-zinc-300 mb-2">
+                Add this to your{' '}
+                <code className="px-1.5 py-0.5 bg-white/[0.06] rounded text-xs">.env.local</code>{' '}
+                file:
+              </p>
               <div className="flex items-center gap-2">
                 <code className="flex-1 px-3 py-2 bg-white/[0.03] border border-white/[0.08] rounded-lg text-sm font-mono text-zinc-100 break-all select-all">
                   SMTP_ENCRYPTION_KEY={generatedKey}
@@ -324,7 +355,8 @@ export function SmtpSection() {
             </div>
 
             <p className="text-xs text-zinc-400">
-              After adding the key, restart your dev server, then click &ldquo;Verify Setup&rdquo; to confirm.
+              After adding the key, restart your dev server, then click &ldquo;Verify Setup&rdquo;
+              to confirm.
             </p>
 
             <Button onClick={handleVerifySetup} disabled={verifying}>
@@ -336,7 +368,7 @@ export function SmtpSection() {
     );
   }
 
-  // ─── Configured — Account management ────────────────────────────────────────
+  // ─── Configured ; Account management ────────────────────────────────────────
 
   return (
     <>
@@ -348,7 +380,9 @@ export function SmtpSection() {
             </div>
             <div>
               <h2 className="font-semibold text-white">SMTP Email</h2>
-              <p className="text-sm text-zinc-400 hidden sm:block">Manage outgoing email accounts</p>
+              <p className="text-sm text-zinc-400 hidden sm:block">
+                Manage outgoing email accounts
+              </p>
             </div>
           </div>
           {!showForm && (
@@ -358,7 +392,14 @@ export function SmtpSection() {
                   Docs
                 </Button>
               </Link>
-              <Button size="sm" onClick={() => { resetForm(); setShowForm(true); }} icon={<Plus size={14} />}>
+              <Button
+                size="sm"
+                onClick={() => {
+                  resetForm();
+                  setShowForm(true);
+                }}
+                icon={<Plus size={14} />}
+              >
                 <span className="sm:hidden">Add</span>
                 <span className="hidden sm:inline">Add Account</span>
               </Button>
@@ -378,13 +419,13 @@ export function SmtpSection() {
               <Input
                 label="Account Name"
                 value={form.label}
-                onChange={e => setForm(f => ({ ...f, label: e.target.value }))}
+                onChange={(e) => setForm((f) => ({ ...f, label: e.target.value }))}
                 placeholder="e.g. No-Reply"
               />
               <Input
                 label="Host"
                 value={form.host}
-                onChange={e => setForm(f => ({ ...f, host: e.target.value }))}
+                onChange={(e) => setForm((f) => ({ ...f, host: e.target.value }))}
                 placeholder="e.g. mail.yourdomain.com"
               />
 
@@ -392,9 +433,9 @@ export function SmtpSection() {
               <Input
                 label="Username"
                 value={form.username}
-                onChange={e => {
+                onChange={(e) => {
                   const val = e.target.value;
-                  setForm(f => {
+                  setForm((f) => {
                     const updated = { ...f, username: val };
                     if (val.includes('@') && (!f.from_email || f.from_email === f.username)) {
                       updated.from_email = val;
@@ -408,24 +449,26 @@ export function SmtpSection() {
               <Input
                 label={editingId ? 'Password (blank = keep existing)' : 'Password'}
                 value={form.password}
-                onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
+                onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
                 placeholder={editingId ? '••••••••' : 'SMTP password'}
                 autoComplete="new-password"
-                style={{ WebkitTextSecurity: form.password ? 'disc' : undefined } as React.CSSProperties}
+                style={
+                  { WebkitTextSecurity: form.password ? 'disc' : undefined } as React.CSSProperties
+                }
               />
 
               {/* Row 3: From Name | From Email */}
               <Input
                 label="From Name"
                 value={form.from_name}
-                onChange={e => setForm(f => ({ ...f, from_name: e.target.value }))}
+                onChange={(e) => setForm((f) => ({ ...f, from_name: e.target.value }))}
                 placeholder="e.g. Your Company"
               />
               <Input
                 label="From Email"
                 type="email"
                 value={form.from_email}
-                onChange={e => setForm(f => ({ ...f, from_email: e.target.value }))}
+                onChange={(e) => setForm((f) => ({ ...f, from_email: e.target.value }))}
                 placeholder="e.g. noreply@yourdomain.com"
               />
 
@@ -434,12 +477,12 @@ export function SmtpSection() {
                 <Select
                   label="Port"
                   value={form.port === 465 ? '465' : form.port === 587 ? '587' : 'custom'}
-                  onChange={v => {
+                  onChange={(v) => {
                     if (v === 'custom') {
-                      setForm(f => ({ ...f, port: 0, secure: false }));
+                      setForm((f) => ({ ...f, port: 0, secure: false }));
                     } else {
                       const port = parseInt(v);
-                      setForm(f => ({ ...f, port, secure: port === 465 }));
+                      setForm((f) => ({ ...f, port, secure: port === 465 }));
                     }
                   }}
                   options={[
@@ -453,9 +496,9 @@ export function SmtpSection() {
                     <NumberInput
                       placeholder="Enter custom port"
                       value={form.port || ''}
-                      onChange={v => {
+                      onChange={(v) => {
                         const port = typeof v === 'number' ? v : 0;
-                        setForm(f => ({ ...f, port, secure: false }));
+                        setForm((f) => ({ ...f, port, secure: false }));
                       }}
                       autoFocus
                       min={0}
@@ -468,7 +511,7 @@ export function SmtpSection() {
                 label="Reply-To (optional)"
                 type="email"
                 value={form.reply_to}
-                onChange={e => setForm(f => ({ ...f, reply_to: e.target.value }))}
+                onChange={(e) => setForm((f) => ({ ...f, reply_to: e.target.value }))}
                 placeholder="e.g. hello@yourdomain.com"
               />
 
@@ -478,15 +521,19 @@ export function SmtpSection() {
                   type="button"
                   role="switch"
                   aria-checked={accounts.length === 0 && !editingId ? true : form.is_default}
-                  onClick={() => setForm(f => ({ ...f, is_default: !f.is_default }))}
+                  onClick={() => setForm((f) => ({ ...f, is_default: !f.is_default }))}
                   disabled={accounts.length === 0 && !editingId}
                   className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                    (accounts.length === 0 && !editingId) || form.is_default ? 'bg-brand-500' : 'bg-white/[0.08]'
+                    (accounts.length === 0 && !editingId) || form.is_default
+                      ? 'bg-brand-500'
+                      : 'bg-white/[0.08]'
                   }`}
                 >
                   <span
                     className={`inline-block h-4 w-4 transform rounded-full bg-surface-raised transition-transform ${
-                      (accounts.length === 0 && !editingId) || form.is_default ? 'translate-x-6' : 'translate-x-1'
+                      (accounts.length === 0 && !editingId) || form.is_default
+                        ? 'translate-x-6'
+                        : 'translate-x-1'
                     }`}
                   />
                 </button>
@@ -508,25 +555,31 @@ export function SmtpSection() {
         {/* Account list */}
         {accounts.length > 0 ? (
           <div className="border border-white/[0.08] rounded-lg divide-y divide-white/[0.06]">
-            {accounts.map(account => {
+            {accounts.map((account) => {
               const status = statuses[account.id];
               return (
                 <div key={account.id}>
                   <div className="px-4 py-3">
                     <div className="flex items-start gap-3">
                       {/* Status dot */}
-                      <Tooltip content={
-                        status?.online === null ? 'Checking...' :
-                        status?.online ? 'Connected' :
-                        status?.reason || 'Offline'
-                      }>
+                      <Tooltip
+                        content={
+                          status?.online === null
+                            ? 'Checking...'
+                            : status?.online
+                              ? 'Connected'
+                              : status?.reason || 'Offline'
+                        }
+                      >
                         <div className="flex-shrink-0 mt-1">
                           {status?.online === null ? (
                             <Loader2 className="animate-spin text-zinc-500" size={14} />
                           ) : (
-                            <div className={`w-2.5 h-2.5 rounded-full ${
-                              status?.online ? 'bg-emerald-500' : 'bg-red-400'
-                            }`} />
+                            <div
+                              className={`w-2.5 h-2.5 rounded-full ${
+                                status?.online ? 'bg-emerald-500' : 'bg-red-400'
+                              }`}
+                            />
                           )}
                         </div>
                       </Tooltip>
@@ -541,8 +594,12 @@ export function SmtpSection() {
                             </span>
                           )}
                         </div>
-                        <p className="text-xs text-zinc-400 truncate mt-0.5">{account.from_email}</p>
-                        <p className="text-xs text-zinc-500 font-mono truncate mt-0.5">{account.host}:{account.port} ({account.secure ? 'SSL' : 'STARTTLS'})</p>
+                        <p className="text-xs text-zinc-400 truncate mt-0.5">
+                          {account.from_email}
+                        </p>
+                        <p className="text-xs text-zinc-500 font-mono truncate mt-0.5">
+                          {account.host}:{account.port} ({account.secure ? 'SSL' : 'STARTTLS'})
+                        </p>
                       </div>
 
                       {/* Actions */}
@@ -595,7 +652,7 @@ export function SmtpSection() {
                         onChange={setTestTo}
                         placeholder="Recipient email..."
                         size="sm"
-                        onKeyDown={e => e.key === 'Enter' && handleSendTest(account.id)}
+                        onKeyDown={(e) => e.key === 'Enter' && handleSendTest(account.id)}
                       />
                       <Button
                         size="sm"

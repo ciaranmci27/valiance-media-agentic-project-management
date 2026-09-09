@@ -1,9 +1,24 @@
 'use client';
+import { FileInput } from '@/components/ui/inputs/FileInput';
 
 import { useState, useRef, useEffect, useMemo } from 'react';
 import {
-  Receipt, Plus, Edit2, Trash2, FileDown, X, Upload, File,
-  Loader2, ChevronDown, Copy, Clock, Eye, AlertTriangle, ListChecks, Send,
+  Receipt,
+  Plus,
+  Edit2,
+  Trash2,
+  FileDown,
+  X,
+  Upload,
+  File,
+  Loader2,
+  ChevronDown,
+  Copy,
+  Clock,
+  Eye,
+  AlertTriangle,
+  ListChecks,
+  Send,
 } from 'lucide-react';
 import { InvoicePreviewModal } from '@/components/projects/InvoicePreviewModal';
 import ClientEmailPreviewModal from '@/components/projects/ClientEmailPreviewModal';
@@ -15,22 +30,35 @@ import { toast } from '@/components/ui/Toast';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import Modal from '@/components/ui/Modal';
 import { useDemo } from '@/lib/demo-context';
-import { Select } from '@/components/ui/Select';
+import { Select } from '@/components/ui/inputs/Select';
 import { TextInput } from '@/components/ui/inputs/TextInput';
 import { DateInput } from '@/components/ui/inputs/DateInput';
 import { Textarea } from '@/components/ui/inputs/Textarea';
 import { toLocalDateKey, toLocalDateString } from '@/lib/date-utils';
 import {
-  INVOICE_STATUSES, INVOICE_LINE_ITEM_TYPES, RECURRENCE_FREQUENCIES,
-  type InvoiceStatus, type InvoiceLineItemType, type InvoiceLineItem, type RecurrenceFrequency,
+  INVOICE_STATUSES,
+  INVOICE_LINE_ITEM_TYPES,
+  RECURRENCE_FREQUENCIES,
+  type InvoiceStatus,
+  type InvoiceLineItemType,
+  type InvoiceLineItem,
+  type RecurrenceFrequency,
   type InvoiceTimeEntryAllocation,
 } from '@/lib/types';
 import { getWorkedHours } from '@/lib/time-entry-utils';
 import { HourlyRateSchedule } from './HourlyRateSchedule';
 import {
-  ensureLineItems, lineItemsTotal, dominantInvoiceType, newLineItemId, suggestServiceEnd,
-  paidHourlyLineItemTotal, buildUnpaidHoursLineItem, buildPartialUnpaidHoursLineItem,
-  buildPartialUnpaidHoursLineItemByAmount, formatUnpaidHoursDescription, totalBillableAmount,
+  ensureLineItems,
+  lineItemsTotal,
+  dominantInvoiceType,
+  newLineItemId,
+  suggestServiceEnd,
+  paidHourlyLineItemTotal,
+  buildUnpaidHoursLineItem,
+  buildPartialUnpaidHoursLineItem,
+  buildPartialUnpaidHoursLineItemByAmount,
+  formatUnpaidHoursDescription,
+  totalBillableAmount,
   type UnpaidHoursLineItemDraft,
 } from '@/lib/invoice-utils';
 
@@ -48,7 +76,9 @@ const statusColors: Record<string, string> = {
 };
 
 function formatCurrency(value: number): string {
-  return value % 1 === 0 ? value.toLocaleString('en-US') : value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return value % 1 === 0
+    ? value.toLocaleString('en-US')
+    : value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 function formatHours(value: number): string {
@@ -76,10 +106,12 @@ function removeExcludedAllocations(
   entryById: ReadonlyMap<string, { start_time: string; end_time: string | null }>,
 ): UnpaidHoursLineItemDraft | null {
   if (!draft || excludedIds.size === 0) return draft;
-  const allocations = draft.allocations.filter(allocation => !excludedIds.has(allocation.time_entry_id));
+  const allocations = draft.allocations.filter(
+    (allocation) => !excludedIds.has(allocation.time_entry_id),
+  );
   if (allocations.length === 0) return null;
   const entries = allocations
-    .map(allocation => entryById.get(allocation.time_entry_id))
+    .map((allocation) => entryById.get(allocation.time_entry_id))
     .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
     .sort((a, b) => a.start_time.localeCompare(b.start_time));
   if (entries.length === 0) return null;
@@ -132,15 +164,23 @@ function makeLineItem(defaultType: InvoiceLineItemType, position = 0): InvoiceLi
 
 export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanelProps) {
   const {
-    addInvoice, updateInvoice, deleteInvoice, getInvoicesByProject,
-    getProject, updateProject, getTimeEntriesByProject, getPrimaryClient, team,
+    addInvoice,
+    updateInvoice,
+    deleteInvoice,
+    getInvoicesByProject,
+    getProject,
+    updateProject,
+    getTimeEntriesByProject,
+    getPrimaryClient,
+    team,
   } = useApp();
   const { teamMemberId, access } = useAuth();
   const { isDemoMode } = useDemo();
-  const currentMember = team.find(m => m.id === teamMemberId);
-  const preferredTimezone = currentMember?.timezone && currentMember.timezone !== 'UTC'
-    ? currentMember.timezone
-    : undefined;
+  const currentMember = team.find((m) => m.id === teamMemberId);
+  const preferredTimezone =
+    currentMember?.timezone && currentMember.timezone !== 'UTC'
+      ? currentMember.timezone
+      : undefined;
   // YYYY-MM-DD for "today" in the user's preferred zone. If the stored zone is
   // still the unset default, fall back to the browser's local day.
   const todayLocalDate = toLocalDateString(preferredTimezone);
@@ -148,8 +188,8 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
   const project = getProject(projectId);
   const primaryClient = getPrimaryClient(projectId);
   const hasPrimaryClientEmail = !!primaryClient?.contact?.email;
-  const canEmailInvoices = hasPermission(access, 'communications.manage')
-    && hasPermission(access, 'invoices.manage');
+  const canEmailInvoices =
+    hasPermission(access, 'communications.manage') && hasPermission(access, 'invoices.manage');
 
   // UI state
   const [isAdding, setIsAdding] = useState(false);
@@ -159,11 +199,14 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
   const [emailInvoiceId, setEmailInvoiceId] = useState<string | null>(null);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const emailManual = useMemo(
-    () => (emailInvoiceId ? { type: 'invoice' as const, context: { invoiceId: emailInvoiceId } } : undefined),
+    () =>
+      emailInvoiceId
+        ? { type: 'invoice' as const, context: { invoiceId: emailInvoiceId } }
+        : undefined,
     [emailInvoiceId],
   );
 
-  // Unpaid-hours partial picker — lets the user invoice less than the full
+  // Unpaid-hours partial picker ; lets the user invoice less than the full
   // outstanding balance with auto-synced amount/hours fields.
   const [unpaidPickerOpen, setUnpaidPickerOpen] = useState(false);
   const [unpaidPickerAmount, setUnpaidPickerAmount] = useState('');
@@ -176,7 +219,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
   const [excludedTimeEntryIds, setExcludedTimeEntryIds] = useState<Set<string>>(new Set());
 
   const toggleExpanded = (id: string) => {
-    setExpandedIds(prev => {
+    setExpandedIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
@@ -223,7 +266,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   // Tracks recurring line items whose service dates were auto-seeded from the
-  // invoice's due/issue date — used to cascade updates if those dates change
+  // invoice's due/issue date ; used to cascade updates if those dates change
   // later. A user editing a service date removes that line item from the set.
   const autoSeededRef = useRef<Set<string>>(new Set());
 
@@ -231,14 +274,17 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
   const timeEntries = getTimeEntriesByProject(projectId);
   const isHourly = project?.client_time_billing
     ? project.client_time_billing === 'hourly'
-    : project?.hourly_tracking ?? false;
+    : (project?.hourly_tracking ?? false);
   const hourlyRate = project?.hourly_rate ?? 0;
   const finalizedHourEntries = isHourly
     ? timeEntries
-        .filter(te => te.end_time !== null
-          && te.work_type !== 'internal'
-          && (te.approval_status === undefined || te.approval_status === 'approved'))
-        .map(te => ({
+        .filter(
+          (te) =>
+            te.end_time !== null &&
+            te.work_type !== 'internal' &&
+            (te.approval_status === undefined || te.approval_status === 'approved'),
+        )
+        .map((te) => ({
           id: te.id,
           start_time: te.start_time,
           end_time: te.end_time,
@@ -255,9 +301,11 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
 
   // Aggregate totals across all active invoices' line items.
   // Outstanding preserves the hourly-vs-non-hourly formula from lessons.md.
-  const activeInvoices = invoices.filter(inv => inv.status !== 'cancelled');
+  const activeInvoices = invoices.filter((inv) => inv.status !== 'cancelled');
   const totalInvoiced = activeInvoices.reduce((sum, inv) => sum + inv.amount, 0);
-  const totalPaid = invoices.filter(inv => inv.status === 'paid').reduce((sum, inv) => sum + inv.amount, 0);
+  const totalPaid = invoices
+    .filter((inv) => inv.status === 'paid')
+    .reduce((sum, inv) => sum + inv.amount, 0);
   let hourlyInvoiced = 0;
   let serviceInvoiced = 0;
   let reimbursementInvoiced = 0;
@@ -270,7 +318,8 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
   }
   const serviceLineTotal = hourlyInvoiced + serviceInvoiced;
   // Billable = service work plus reimbursable charges the client still owes.
-  const billableTotal = Math.max(accruedHourlyTotal, hourlyInvoiced) + serviceInvoiced + reimbursementInvoiced;
+  const billableTotal =
+    Math.max(accruedHourlyTotal, hourlyInvoiced) + serviceInvoiced + reimbursementInvoiced;
   const outstanding = isHourly
     ? Math.max(0, billableTotal - totalPaid)
     : Math.max(0, totalInvoiced - totalPaid);
@@ -284,12 +333,16 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
       budgetUsed = isHourly ? accruedHourlyTotal : serviceLineTotal;
     }
   }
-  const budgetPct = hasBudget && budgetValue > 0 ? Math.min(100, (budgetUsed / budgetValue) * 100) : 0;
+  const budgetPct =
+    hasBudget && budgetValue > 0 ? Math.min(100, (budgetUsed / budgetValue) * 100) : 0;
 
   // Type options: non-hourly projects can't create hourly line items.
   const typeOptions = isHourly
-    ? INVOICE_LINE_ITEM_TYPES.map(t => ({ value: t, label: lineItemTypeLabel(t) }))
-    : INVOICE_LINE_ITEM_TYPES.filter(t => t !== 'hourly').map(t => ({ value: t, label: lineItemTypeLabel(t) }));
+    ? INVOICE_LINE_ITEM_TYPES.map((t) => ({ value: t, label: lineItemTypeLabel(t) }))
+    : INVOICE_LINE_ITEM_TYPES.filter((t) => t !== 'hourly').map((t) => ({
+        value: t,
+        label: lineItemTypeLabel(t),
+      }));
   const defaultType: InvoiceLineItemType = isHourly ? 'hourly' : 'fixed';
 
   // Roll up unpaid hours into a draft hourly line item. Computed from finalized
@@ -300,30 +353,41 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
   // so the partial-amount picker can re-walk FIFO at commit time to find
   // the right end-date cutoff for less-than-full invoices.
   const paidHourlyPool = isHourly
-    ? paidHourlyLineItemTotal(editingId ? invoices.filter(invoice => invoice.id !== editingId) : invoices)
+    ? paidHourlyLineItemTotal(
+        editingId ? invoices.filter((invoice) => invoice.id !== editingId) : invoices,
+      )
     : 0;
   const allUnpaidHoursDraft = isHourly
     ? buildUnpaidHoursLineItem(finalizedHourEntries, paidHourlyPool, hourlyRate)
     : null;
-  const customPeriodIsValid = unpaidPeriodMode === 'all'
-    || (Boolean(unpaidPeriodStart) && Boolean(unpaidPeriodEnd) && unpaidPeriodStart <= unpaidPeriodEnd);
+  const customPeriodIsValid =
+    unpaidPeriodMode === 'all' ||
+    (Boolean(unpaidPeriodStart) &&
+      Boolean(unpaidPeriodEnd) &&
+      unpaidPeriodStart <= unpaidPeriodEnd);
   const periodEligibleEntryIds = new Set(
     finalizedHourEntries
-      .filter(entry => {
+      .filter((entry) => {
         if (unpaidPeriodMode === 'all') return true;
         if (!customPeriodIsValid) return false;
         const dateKey = toLocalDateKey(entry.start_time, preferredTimezone);
         return dateKey >= unpaidPeriodStart && dateKey <= unpaidPeriodEnd;
       })
-      .map(entry => entry.id),
+      .map((entry) => entry.id),
   );
   const unpaidHoursDraft = isHourly
-    ? buildUnpaidHoursLineItem(finalizedHourEntries, paidHourlyPool, hourlyRate, periodEligibleEntryIds)
+    ? buildUnpaidHoursLineItem(
+        finalizedHourEntries,
+        paidHourlyPool,
+        hourlyRate,
+        periodEligibleEntryIds,
+      )
     : null;
   const parsedPickerAmount = parseFloat(unpaidPickerAmount);
   const parsedPickerHours = parseFloat(unpaidPickerHours);
-  const baseSelectedUnpaidDraft = unpaidPickerMode === 'amount'
-    ? (Number.isFinite(parsedPickerAmount) && parsedPickerAmount > 0
+  const baseSelectedUnpaidDraft =
+    unpaidPickerMode === 'amount'
+      ? Number.isFinite(parsedPickerAmount) && parsedPickerAmount > 0
         ? buildPartialUnpaidHoursLineItemByAmount(
             finalizedHourEntries,
             paidHourlyPool,
@@ -331,8 +395,8 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
             parsedPickerAmount,
             periodEligibleEntryIds,
           )
-        : null)
-    : (Number.isFinite(parsedPickerHours) && parsedPickerHours > 0
+        : null
+      : Number.isFinite(parsedPickerHours) && parsedPickerHours > 0
         ? buildPartialUnpaidHoursLineItem(
             finalizedHourEntries,
             paidHourlyPool,
@@ -340,40 +404,51 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
             parsedPickerHours,
             periodEligibleEntryIds,
           )
-        : null);
-  const timeEntryById = new Map(finalizedHourEntries.map(entry => [entry.id, entry] as const));
+        : null;
+  const timeEntryById = new Map(finalizedHourEntries.map((entry) => [entry.id, entry] as const));
   const selectedUnpaidDraft = removeExcludedAllocations(
     baseSelectedUnpaidDraft,
     excludedTimeEntryIds,
     timeEntryById,
   );
   const selectedSessionIds = new Set(
-    selectedUnpaidDraft?.allocations.map(allocation => allocation.time_entry_id) ?? [],
+    selectedUnpaidDraft?.allocations.map((allocation) => allocation.time_entry_id) ?? [],
   );
-  const conflictingInvoiceNumbers = [...new Set(
-    invoices
-      .filter(invoice => (
-        invoice.id !== editingId
-        && (invoice.status === 'draft' || invoice.status === 'sent' || invoice.status === 'overdue')
-      ))
-      .filter(invoice => (invoice.time_allocations ?? []).some(allocation => selectedSessionIds.has(allocation.time_entry_id)))
-      .map(invoice => invoice.invoice_number),
-  )];
+  const conflictingInvoiceNumbers = [
+    ...new Set(
+      invoices
+        .filter(
+          (invoice) =>
+            invoice.id !== editingId &&
+            (invoice.status === 'draft' ||
+              invoice.status === 'sent' ||
+              invoice.status === 'overdue'),
+        )
+        .filter((invoice) =>
+          (invoice.time_allocations ?? []).some((allocation) =>
+            selectedSessionIds.has(allocation.time_entry_id),
+          ),
+        )
+        .map((invoice) => invoice.invoice_number),
+    ),
+  ];
   const lastSelectedAllocation = selectedUnpaidDraft?.allocations.at(-1) ?? null;
   const lastSelectedEntry = lastSelectedAllocation
     ? timeEntryById.get(lastSelectedAllocation.time_entry_id)
     : null;
   const lastSessionIsPartial = Boolean(
-    lastSelectedAllocation
-    && lastSelectedEntry
-    && (
-      lastSelectedAllocation.start_offset_hours > 0.000001
-      || lastSelectedAllocation.start_offset_hours + lastSelectedAllocation.allocated_hours < lastSelectedEntry.hours - 0.000001
-    )
+    lastSelectedAllocation &&
+      lastSelectedEntry &&
+      (lastSelectedAllocation.start_offset_hours > 0.000001 ||
+        lastSelectedAllocation.start_offset_hours + lastSelectedAllocation.allocated_hours <
+          lastSelectedEntry.hours - 0.000001),
   );
-  const pickerExceedsAvailable = unpaidPickerMode === 'amount'
-    ? Number.isFinite(parsedPickerAmount) && parsedPickerAmount > (unpaidHoursDraft?.amount ?? 0) + 0.005
-    : Number.isFinite(parsedPickerHours) && parsedPickerHours > (unpaidHoursDraft?.hours ?? 0) + 0.000001;
+  const pickerExceedsAvailable =
+    unpaidPickerMode === 'amount'
+      ? Number.isFinite(parsedPickerAmount) &&
+        parsedPickerAmount > (unpaidHoursDraft?.amount ?? 0) + 0.005
+      : Number.isFinite(parsedPickerHours) &&
+        parsedPickerHours > (unpaidHoursDraft?.hours ?? 0) + 0.000001;
   const pickerSelectionIsValid = Boolean(selectedUnpaidDraft && !pickerExceedsAvailable);
   const availableTrackedAmount = unpaidHoursDraft?.amount;
   const availableTrackedHours = unpaidHoursDraft?.hours;
@@ -436,9 +511,9 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
 
   // Line item mutators
   const addLineItem = () => {
-    setFormLineItems(items => {
+    setFormLineItems((items) => {
       const fresh = makeLineItem(defaultType, items.length);
-      setAmountDrafts(d => ({ ...d, [fresh.id]: '' }));
+      setAmountDrafts((d) => ({ ...d, [fresh.id]: '' }));
       return [...items, fresh];
     });
   };
@@ -451,9 +526,11 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
     allocations: Array<Omit<InvoiceTimeEntryAllocation, 'line_item_id'>>,
   ) => {
     const lineItemId = newLineItemId();
-    const mappedLineItemIds = new Set(formTimeAllocations.map(allocation => allocation.line_item_id));
-    setFormLineItems(items => {
-      const filtered = items.filter(li => !mappedLineItemIds.has(li.id));
+    const mappedLineItemIds = new Set(
+      formTimeAllocations.map((allocation) => allocation.line_item_id),
+    );
+    setFormLineItems((items) => {
+      const filtered = items.filter((li) => !mappedLineItemIds.has(li.id));
       const fresh: InvoiceLineItem = {
         id: lineItemId,
         position: filtered.length,
@@ -464,14 +541,22 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
         service_end_date: null,
         recurrence_frequency: null,
       };
-      setAmountDrafts(d => ({ ...d, [fresh.id]: String(amount) }));
+      setAmountDrafts((d) => ({ ...d, [fresh.id]: String(amount) }));
       // If the form started with the default empty placeholder line, drop it.
-      const trimmed = filtered.filter(li => !(li.amount === 0 && li.description === '' && li.item_type === defaultType && filtered.length === 1));
+      const trimmed = filtered.filter(
+        (li) =>
+          !(
+            li.amount === 0 &&
+            li.description === '' &&
+            li.item_type === defaultType &&
+            filtered.length === 1
+          ),
+      );
       return [...trimmed, fresh].map((li, i) => ({ ...li, position: i }));
     });
-    setFormTimeAllocations(previous => [
-      ...previous.filter(allocation => !mappedLineItemIds.has(allocation.line_item_id)),
-      ...allocations.map(allocation => ({ ...allocation, line_item_id: lineItemId })),
+    setFormTimeAllocations((previous) => [
+      ...previous.filter((allocation) => !mappedLineItemIds.has(allocation.line_item_id)),
+      ...allocations.map((allocation) => ({ ...allocation, line_item_id: lineItemId })),
     ]);
   };
 
@@ -535,7 +620,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
     }
   };
 
-  // Final commit — runs the FIFO walk against unpaid entries so the line
+  // Final commit ; runs the FIFO walk against unpaid entries so the line
   // item's date range reflects which actual sessions are being invoiced
   // (earliest unpaid through the entry where the cutoff lands), not the
   // full unpaid range as if everything were being paid.
@@ -551,16 +636,18 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
   };
   const removeLineItem = (id: string) => {
     autoSeededRef.current.delete(id);
-    setFormTimeAllocations(previous => previous.filter(allocation => allocation.line_item_id !== id));
-    setAmountDrafts(d => {
+    setFormTimeAllocations((previous) =>
+      previous.filter((allocation) => allocation.line_item_id !== id),
+    );
+    setAmountDrafts((d) => {
       const { [id]: _drop, ...rest } = d;
       return rest;
     });
-    setFormLineItems(items => {
-      const next = items.filter(li => li.id !== id).map((li, i) => ({ ...li, position: i }));
+    setFormLineItems((items) => {
+      const next = items.filter((li) => li.id !== id).map((li, i) => ({ ...li, position: i }));
       if (next.length === 0) {
         const fresh = makeLineItem(defaultType, 0);
-        setAmountDrafts(d => ({ ...d, [fresh.id]: '' }));
+        setAmountDrafts((d) => ({ ...d, [fresh.id]: '' }));
         return [fresh];
       }
       return next;
@@ -572,14 +659,18 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
   const updateAmountDraft = (id: string, raw: string) => {
     // A manual amount edit intentionally detaches the generated session
     // mapping. The user can reopen "Add unpaid hours" to regenerate it.
-    setFormTimeAllocations(previous => previous.filter(allocation => allocation.line_item_id !== id));
-    setAmountDrafts(d => ({ ...d, [id]: raw }));
+    setFormTimeAllocations((previous) =>
+      previous.filter((allocation) => allocation.line_item_id !== id),
+    );
+    setAmountDrafts((d) => ({ ...d, [id]: raw }));
     const parsed = parseFloat(raw);
-    setFormLineItems(items => items.map(li => {
-      if (li.id !== id) return li;
-      if (raw.trim() === '') return { ...li, amount: 0 };
-      return Number.isFinite(parsed) ? { ...li, amount: parsed } : li;
-    }));
+    setFormLineItems((items) =>
+      items.map((li) => {
+        if (li.id !== id) return li;
+        if (raw.trim() === '') return { ...li, amount: 0 };
+        return Number.isFinite(parsed) ? { ...li, amount: parsed } : li;
+      }),
+    );
   };
   const patchLineItem = (id: string, patch: Partial<InvoiceLineItem>) => {
     // A direct user edit of a service date unlinks this item from auto-seeding.
@@ -591,37 +682,49 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
       autoSeededRef.current.delete(id);
     }
     if (patch.item_type && patch.item_type !== 'hourly') {
-      setFormTimeAllocations(previous => previous.filter(allocation => allocation.line_item_id !== id));
+      setFormTimeAllocations((previous) =>
+        previous.filter((allocation) => allocation.line_item_id !== id),
+      );
     }
-    setFormLineItems(items => items.map(li => {
-      if (li.id !== id) return li;
-      const next: InvoiceLineItem = { ...li, ...patch };
-      // If item_type changed away from recurring, drop the frequency.
-      if (patch.item_type && patch.item_type !== 'recurring' && li.item_type === 'recurring') {
-        next.recurrence_frequency = null;
-      }
-      // Hourly and reimbursement line items don't carry a service window.
-      if (patch.item_type === 'hourly' || patch.item_type === 'reimbursement') {
-        next.service_start_date = null;
-        next.service_end_date = null;
-      }
-      // Flipping to recurring: default frequency to monthly and seed service_start
-      // from due date (falling back to invoice date) if not already set. Register
-      // the item so cascading due/invoice date edits keep it in sync.
-      if (patch.item_type === 'recurring' && li.item_type !== 'recurring') {
-        next.recurrence_frequency = next.recurrence_frequency ?? 'monthly';
-        if (!next.service_start_date) {
-          autoSeededRef.current.add(id);
-          const seed = formDueDate || formDate;
-          if (seed) next.service_start_date = seed;
+    setFormLineItems((items) =>
+      items.map((li) => {
+        if (li.id !== id) return li;
+        const next: InvoiceLineItem = { ...li, ...patch };
+        // If item_type changed away from recurring, drop the frequency.
+        if (patch.item_type && patch.item_type !== 'recurring' && li.item_type === 'recurring') {
+          next.recurrence_frequency = null;
         }
-      }
-      // Auto-suggest service_end when recurring + start + frequency are known and end is empty.
-      if (next.item_type === 'recurring' && next.service_start_date && next.recurrence_frequency && !next.service_end_date) {
-        next.service_end_date = suggestServiceEnd(next.service_start_date, next.recurrence_frequency);
-      }
-      return next;
-    }));
+        // Hourly and reimbursement line items don't carry a service window.
+        if (patch.item_type === 'hourly' || patch.item_type === 'reimbursement') {
+          next.service_start_date = null;
+          next.service_end_date = null;
+        }
+        // Flipping to recurring: default frequency to monthly and seed service_start
+        // from due date (falling back to invoice date) if not already set. Register
+        // the item so cascading due/invoice date edits keep it in sync.
+        if (patch.item_type === 'recurring' && li.item_type !== 'recurring') {
+          next.recurrence_frequency = next.recurrence_frequency ?? 'monthly';
+          if (!next.service_start_date) {
+            autoSeededRef.current.add(id);
+            const seed = formDueDate || formDate;
+            if (seed) next.service_start_date = seed;
+          }
+        }
+        // Auto-suggest service_end when recurring + start + frequency are known and end is empty.
+        if (
+          next.item_type === 'recurring' &&
+          next.service_start_date &&
+          next.recurrence_frequency &&
+          !next.service_end_date
+        ) {
+          next.service_end_date = suggestServiceEnd(
+            next.service_start_date,
+            next.recurrence_frequency,
+          );
+        }
+        return next;
+      }),
+    );
   };
 
   // Cascade due/invoice date changes into auto-seeded recurring line items.
@@ -629,19 +732,28 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
     const seed = formDueDate || formDate;
     if (!seed) return;
     if (autoSeededRef.current.size === 0) return;
-    setFormLineItems(items => items.map(li => {
-      if (li.item_type !== 'recurring') return li;
-      if (!autoSeededRef.current.has(li.id)) return li;
-      const freq = li.recurrence_frequency || 'monthly';
-      return {
-        ...li,
-        service_start_date: seed,
-        service_end_date: suggestServiceEnd(seed, freq),
-      };
-    }));
+    setFormLineItems((items) =>
+      items.map((li) => {
+        if (li.item_type !== 'recurring') return li;
+        if (!autoSeededRef.current.has(li.id)) return li;
+        const freq = li.recurrence_frequency || 'monthly';
+        return {
+          ...li,
+          service_start_date: seed,
+          service_end_date: suggestServiceEnd(seed, freq),
+        };
+      }),
+    );
   }, [formDueDate, formDate]);
 
-  const handleFileUpload = async (file: File): Promise<{ file_url: string; file_name: string; file_size: number; mime_type: string } | null> => {
+  const handleFileUpload = async (
+    file: File,
+  ): Promise<{
+    file_url: string;
+    file_name: string;
+    file_size: number;
+    mime_type: string;
+  } | null> => {
     const supabase = createClient();
     const path = `invoices/${projectId}/${Date.now()}-${file.name}`;
     const { error } = await supabase.storage.from('entity-files').upload(path, file);
@@ -649,12 +761,19 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
       toast('error', 'Failed to upload file');
       return null;
     }
-    const { data: { publicUrl } } = supabase.storage.from('entity-files').getPublicUrl(path);
-    return { file_url: publicUrl, file_name: file.name, file_size: file.size, mime_type: file.type };
+    const {
+      data: { publicUrl },
+    } = supabase.storage.from('entity-files').getPublicUrl(path);
+    return {
+      file_url: publicUrl,
+      file_name: file.name,
+      file_size: file.size,
+      mime_type: file.type,
+    };
   };
 
   const validLineItems = (items: InvoiceLineItem[]) =>
-    items.filter(li => (Number(li.amount) || 0) > 0 || li.description.trim().length > 0);
+    items.filter((li) => (Number(li.amount) || 0) > 0 || li.description.trim().length > 0);
 
   const formTotal = lineItemsTotal(formLineItems);
 
@@ -665,7 +784,12 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
     if (items.length === 0) return false;
     for (const li of items) {
       if ((Number(li.amount) || 0) < 0) return false;
-      if (li.service_start_date && li.service_end_date && li.service_start_date > li.service_end_date) return false;
+      if (
+        li.service_start_date &&
+        li.service_end_date &&
+        li.service_start_date > li.service_end_date
+      )
+        return false;
     }
     return true;
   };
@@ -675,14 +799,26 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
     setSaving(true);
 
     try {
-      let fileData: { file_url: string; file_name: string; file_size: number; mime_type: string } | null = null;
+      let fileData: {
+        file_url: string;
+        file_name: string;
+        file_size: number;
+        mime_type: string;
+      } | null = null;
       if (formFile) {
         fileData = await handleFileUpload(formFile);
-        if (!fileData) { setSaving(false); return; }
+        if (!fileData) {
+          setSaving(false);
+          return;
+        }
       }
 
-      const items = validLineItems(formLineItems).map((li, i) => ({ ...li, position: i, amount: Number(li.amount) || 0 }));
-      const validIds = new Set(items.map(item => item.id));
+      const items = validLineItems(formLineItems).map((li, i) => ({
+        ...li,
+        position: i,
+        amount: Number(li.amount) || 0,
+      }));
+      const validIds = new Set(items.map((item) => item.id));
 
       const created = await addInvoice({
         project_id: projectId,
@@ -691,12 +827,13 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
         status: formStatus,
         invoice_type: dominantInvoiceType(items),
         line_items: items,
-        time_allocations: formTimeAllocations.filter(allocation => (
-          validIds.has(allocation.line_item_id) && isMeaningfulTimeAllocation(allocation)
-        )),
+        time_allocations: formTimeAllocations.filter(
+          (allocation) =>
+            validIds.has(allocation.line_item_id) && isMeaningfulTimeAllocation(allocation),
+        ),
         date: formDate,
         due_date: formDueDate || null,
-        paid_date: formStatus === 'paid' ? (formPaidDate || null) : null,
+        paid_date: formStatus === 'paid' ? formPaidDate || null : null,
         description: formDescription.trim(),
         file_url: fileData?.file_url ?? null,
         file_name: fileData?.file_name ?? null,
@@ -714,7 +851,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
     }
   };
 
-  const startDuplicating = (invoice: typeof invoices[number]) => {
+  const startDuplicating = (invoice: (typeof invoices)[number]) => {
     resetForm();
     setEditingId(null);
     const maxNum = invoices.reduce((max, inv) => {
@@ -735,11 +872,13 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
     }));
     setFormLineItems(cloned);
     setFormTimeAllocations([]);
-    setAmountDrafts(Object.fromEntries(cloned.map(li => [li.id, li.amount === 0 ? '' : String(li.amount)])));
+    setAmountDrafts(
+      Object.fromEntries(cloned.map((li) => [li.id, li.amount === 0 ? '' : String(li.amount)])),
+    );
     setIsAdding(true);
   };
 
-  const startEditing = (invoice: typeof invoices[number]) => {
+  const startEditing = (invoice: (typeof invoices)[number]) => {
     setIsAdding(false);
     setUnpaidPickerOpen(false);
     setUnpaidReviewOpen(false);
@@ -753,11 +892,13 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
     const loaded = ensureLineItems(invoice).map((li, i) => ({ ...li, position: i }));
     setFormLineItems(loaded);
     setFormTimeAllocations((invoice.time_allocations ?? []).filter(isMeaningfulTimeAllocation));
-    setAmountDrafts(Object.fromEntries(loaded.map(li => [li.id, li.amount === 0 ? '' : String(li.amount)])));
+    setAmountDrafts(
+      Object.fromEntries(loaded.map((li) => [li.id, li.amount === 0 ? '' : String(li.amount)])),
+    );
     setFormFile(null);
     setExistingFileUrl(invoice.file_url);
     setExistingFileName(invoice.file_name);
-    // Clear stale auto-seed tracking from any prior edit — the IDs from a
+    // Clear stale auto-seed tracking from any prior edit ; the IDs from a
     // different invoice must not leak into the cascade effect.
     autoSeededRef.current.clear();
   };
@@ -767,14 +908,26 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
     setSaving(true);
 
     try {
-      let fileData: { file_url: string; file_name: string; file_size: number; mime_type: string } | null = null;
+      let fileData: {
+        file_url: string;
+        file_name: string;
+        file_size: number;
+        mime_type: string;
+      } | null = null;
       if (formFile) {
         fileData = await handleFileUpload(formFile);
-        if (!fileData) { setSaving(false); return; }
+        if (!fileData) {
+          setSaving(false);
+          return;
+        }
       }
 
-      const items = validLineItems(formLineItems).map((li, i) => ({ ...li, position: i, amount: Number(li.amount) || 0 }));
-      const validIds = new Set(items.map(item => item.id));
+      const items = validLineItems(formLineItems).map((li, i) => ({
+        ...li,
+        position: i,
+        amount: Number(li.amount) || 0,
+      }));
+      const validIds = new Set(items.map((item) => item.id));
 
       const updates: Record<string, unknown> = {
         invoice_number: formNumber.trim(),
@@ -782,12 +935,13 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
         status: formStatus,
         invoice_type: dominantInvoiceType(items),
         line_items: items,
-        time_allocations: formTimeAllocations.filter(allocation => (
-          validIds.has(allocation.line_item_id) && isMeaningfulTimeAllocation(allocation)
-        )),
+        time_allocations: formTimeAllocations.filter(
+          (allocation) =>
+            validIds.has(allocation.line_item_id) && isMeaningfulTimeAllocation(allocation),
+        ),
         date: formDate,
         due_date: formDueDate || null,
-        paid_date: formStatus === 'paid' ? (formPaidDate || null) : null,
+        paid_date: formStatus === 'paid' ? formPaidDate || null : null,
         description: formDescription.trim(),
       };
 
@@ -823,8 +977,13 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
   };
 
   const reviewTrackedLineItem = (lineItem: InvoiceLineItem) => {
-    const allocations = formTimeAllocations.filter(allocation => allocation.line_item_id === lineItem.id);
-    const hours = allocations.reduce((sum, allocation) => sum + Number(allocation.allocated_hours), 0);
+    const allocations = formTimeAllocations.filter(
+      (allocation) => allocation.line_item_id === lineItem.id,
+    );
+    const hours = allocations.reduce(
+      (sum, allocation) => sum + Number(allocation.allocated_hours),
+      0,
+    );
     setUnpaidPickerAmount(String(lineItem.amount));
     setUnpaidPickerHours(hours.toFixed(4).replace(/\.?0+$/, ''));
     setUnpaidPickerMode('amount');
@@ -840,7 +999,9 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
   const renderLineItem = (li: InvoiceLineItem, canDelete: boolean) => {
     const showFrequency = li.item_type === 'recurring';
     const showServiceDates = li.item_type === 'fixed' || li.item_type === 'recurring';
-    const linkedAllocations = formTimeAllocations.filter(allocation => allocation.line_item_id === li.id);
+    const linkedAllocations = formTimeAllocations.filter(
+      (allocation) => allocation.line_item_id === li.id,
+    );
     const isTrackedTimeLine = li.item_type === 'hourly' && linkedAllocations.length > 0;
     if (isTrackedTimeLine) {
       const linkedHours = linkedAllocations.reduce(
@@ -848,15 +1009,19 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
         0,
       );
       const linkedEntries = linkedAllocations
-        .map(allocation => timeEntryById.get(allocation.time_entry_id))
+        .map((allocation) => timeEntryById.get(allocation.time_entry_id))
         .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
         .sort((a, b) => a.start_time.localeCompare(b.start_time));
-      const linkedPeriod = linkedEntries.length > 0
-        ? `${fmtTrackedDate(linkedEntries[0].start_time)} – ${fmtTrackedDate(linkedEntries[linkedEntries.length - 1].start_time)}`
-        : null;
+      const linkedPeriod =
+        linkedEntries.length > 0
+          ? `${fmtTrackedDate(linkedEntries[0].start_time)} – ${fmtTrackedDate(linkedEntries[linkedEntries.length - 1].start_time)}`
+          : null;
 
       return (
-        <div key={li.id} className="rounded-md border border-brand-500/30 bg-brand-500/15 p-3 space-y-3">
+        <div
+          key={li.id}
+          className="rounded-md border border-brand-500/30 bg-brand-500/15 p-3 space-y-3"
+        >
           <div className="flex items-start gap-3">
             <div className="mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md border border-brand-500/30 bg-surface-raised text-brand-300">
               <ListChecks size={14} aria-hidden="true" />
@@ -864,10 +1029,13 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
                 <p className="text-xs font-semibold text-white">Tracked time</p>
-                <p className="text-sm font-semibold tabular-nums text-white">${formatCurrency(li.amount)}</p>
+                <p className="text-sm font-semibold tabular-nums text-white">
+                  ${formatCurrency(li.amount)}
+                </p>
               </div>
               <p className="mt-0.5 text-[11px] text-zinc-400">
-                {formatHours(linkedHours)} hrs · {linkedAllocations.length} {linkedAllocations.length === 1 ? 'session' : 'sessions'}
+                {formatHours(linkedHours)} hrs · {linkedAllocations.length}{' '}
+                {linkedAllocations.length === 1 ? 'session' : 'sessions'}
                 {linkedPeriod ? ` · ${linkedPeriod}` : ''}
               </p>
             </div>
@@ -885,7 +1053,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
               size="sm"
               label="Invoice description"
               value={li.description}
-              onChange={value => patchLineItem(li.id, { description: value })}
+              onChange={(value) => patchLineItem(li.id, { description: value })}
               placeholder="Describe the work billed…"
               name={`invoice-description-${li.id}`}
               autoComplete="off"
@@ -904,13 +1072,16 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
     }
 
     return (
-      <div key={li.id} className="rounded-md border border-white/[0.08] bg-surface-raised p-2.5 space-y-2">
+      <div
+        key={li.id}
+        className="rounded-md border border-white/[0.08] bg-surface-raised p-2.5 space-y-2"
+      >
         <div className="flex flex-wrap items-start gap-2">
           <div className="w-28 flex-shrink-0">
             <Select
               size="sm"
               value={li.item_type}
-              onChange={v => patchLineItem(li.id, { item_type: v as InvoiceLineItemType })}
+              onChange={(v) => patchLineItem(li.id, { item_type: v as InvoiceLineItemType })}
               options={typeOptions}
             />
           </div>
@@ -918,7 +1089,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
             <TextInput
               size="sm"
               value={amountDrafts[li.id] ?? (li.amount === 0 ? '' : String(li.amount))}
-              onChange={v => updateAmountDraft(li.id, v)}
+              onChange={(v) => updateAmountDraft(li.id, v)}
               placeholder="0.00"
               prefix="$"
             />
@@ -927,7 +1098,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
             <TextInput
               size="sm"
               value={li.description}
-              onChange={v => patchLineItem(li.id, { description: v })}
+              onChange={(v) => patchLineItem(li.id, { description: v })}
               placeholder="Line description"
             />
           </div>
@@ -942,26 +1113,33 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
           </button>
         </div>
         {showServiceDates && (
-          <div className={`grid gap-2 grid-cols-1 ${showFrequency ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
+          <div
+            className={`grid gap-2 grid-cols-1 ${showFrequency ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}
+          >
             {showFrequency && (
               <Select
                 size="sm"
                 label="Frequency"
                 value={li.recurrence_frequency || 'monthly'}
-                onChange={v => patchLineItem(li.id, { recurrence_frequency: v as RecurrenceFrequency })}
-                options={RECURRENCE_FREQUENCIES.map(f => ({ value: f, label: f.charAt(0).toUpperCase() + f.slice(1) }))}
+                onChange={(v) =>
+                  patchLineItem(li.id, { recurrence_frequency: v as RecurrenceFrequency })
+                }
+                options={RECURRENCE_FREQUENCIES.map((f) => ({
+                  value: f,
+                  label: f.charAt(0).toUpperCase() + f.slice(1),
+                }))}
               />
             )}
             <DateInput
               label="Service Start"
               value={li.service_start_date || ''}
-              onChange={v => patchLineItem(li.id, { service_start_date: v || null })}
+              onChange={(v) => patchLineItem(li.id, { service_start_date: v || null })}
               size="sm"
             />
             <DateInput
               label="Service End"
               value={li.service_end_date || ''}
-              onChange={v => patchLineItem(li.id, { service_end_date: v || null })}
+              onChange={(v) => patchLineItem(li.id, { service_end_date: v || null })}
               size="sm"
             />
           </div>
@@ -985,32 +1163,20 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
         <Select
           label="Status"
           value={formStatus}
-          onChange={v => setFormStatus(v as InvoiceStatus)}
-          options={INVOICE_STATUSES.map(s => ({ value: s, label: s.charAt(0).toUpperCase() + s.slice(1) }))}
+          onChange={(v) => setFormStatus(v as InvoiceStatus)}
+          options={INVOICE_STATUSES.map((s) => ({
+            value: s,
+            label: s.charAt(0).toUpperCase() + s.slice(1),
+          }))}
           size="sm"
         />
       </div>
 
       <div className={`grid gap-2 grid-cols-2 ${formStatus === 'paid' ? 'sm:grid-cols-3' : ''}`}>
-        <DateInput
-          label="Invoice Date"
-          value={formDate}
-          onChange={setFormDate}
-          size="sm"
-        />
-        <DateInput
-          label="Due Date"
-          value={formDueDate}
-          onChange={setFormDueDate}
-          size="sm"
-        />
+        <DateInput label="Invoice Date" value={formDate} onChange={setFormDate} size="sm" />
+        <DateInput label="Due Date" value={formDueDate} onChange={setFormDueDate} size="sm" />
         {formStatus === 'paid' && (
-          <DateInput
-            label="Paid Date"
-            value={formPaidDate}
-            onChange={setFormPaidDate}
-            size="sm"
-          />
+          <DateInput label="Paid Date" value={formPaidDate} onChange={setFormPaidDate} size="sm" />
         )}
       </div>
 
@@ -1023,7 +1189,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
           </span>
         </div>
         <div className="space-y-2">
-          {formLineItems.map(li => renderLineItem(li, formLineItems.length > 1))}
+          {formLineItems.map((li) => renderLineItem(li, formLineItems.length > 1))}
         </div>
         <div className="flex items-center gap-3 flex-wrap">
           <button
@@ -1053,11 +1219,19 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div>
                   <p className="text-sm font-semibold text-white">Add tracked time</p>
-                  <p className="mt-0.5 text-[11px] text-zinc-400">FIFO automatically selects the oldest outstanding time.</p>
+                  <p className="mt-0.5 text-[11px] text-zinc-400">
+                    FIFO automatically selects the oldest outstanding time.
+                  </p>
                 </div>
                 <p className="text-[11px] text-zinc-400">
-                  Available <span className="font-semibold tabular-nums text-white">${formatCurrency(unpaidHoursDraft?.amount ?? 0)}</span>
-                  <span className="text-zinc-500"> · {formatHours(unpaidHoursDraft?.hours ?? 0)} hrs</span>
+                  Available{' '}
+                  <span className="font-semibold tabular-nums text-white">
+                    ${formatCurrency(unpaidHoursDraft?.amount ?? 0)}
+                  </span>
+                  <span className="text-zinc-500">
+                    {' '}
+                    · {formatHours(unpaidHoursDraft?.hours ?? 0)} hrs
+                  </span>
                 </p>
               </div>
             </div>
@@ -1066,7 +1240,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
               <div className="flex items-center justify-between gap-3">
                 <span className="text-xs font-medium text-zinc-300">Time period</span>
                 <div className="seg-track seg-sm" role="group" aria-label="Tracked time period">
-                  {(['all', 'custom'] as const).map(mode => (
+                  {(['all', 'custom'] as const).map((mode) => (
                     <button
                       key={mode}
                       type="button"
@@ -1085,7 +1259,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
                   <DateInput
                     label="From"
                     value={unpaidPeriodStart}
-                    onChange={value => {
+                    onChange={(value) => {
                       setUnpaidPeriodStart(value);
                       setExcludedTimeEntryIds(new Set());
                     }}
@@ -1094,7 +1268,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
                   <DateInput
                     label="Through"
                     value={unpaidPeriodEnd}
-                    onChange={value => {
+                    onChange={(value) => {
                       setUnpaidPeriodEnd(value);
                       setExcludedTimeEntryIds(new Set());
                     }}
@@ -1104,11 +1278,16 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
               )}
 
               {!customPeriodIsValid && (
-                <p className="text-[11px] text-red-400" role="alert">Choose a valid start and end date.</p>
+                <p className="text-[11px] text-red-400" role="alert">
+                  Choose a valid start and end date.
+                </p>
               )}
 
               {customPeriodIsValid && !unpaidHoursDraft && (
-                <p className="rounded-md border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-[11px] text-zinc-300" role="status">
+                <p
+                  className="rounded-md border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-[11px] text-zinc-300"
+                  role="status"
+                >
                   No outstanding sessions start inside this period.
                 </p>
               )}
@@ -1116,7 +1295,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
               <div className="flex items-center justify-between gap-3">
                 <span className="text-xs font-medium text-zinc-300">Invoice by</span>
                 <div className="seg-track seg-sm" role="group" aria-label="Invoice tracked time by">
-                  {(['amount', 'hours'] as const).map(mode => (
+                  {(['amount', 'hours'] as const).map((mode) => (
                     <button
                       key={mode}
                       type="button"
@@ -1158,35 +1337,48 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
 
               {pickerExceedsAvailable && (
                 <p className="text-[11px] text-red-400" role="alert">
-                  {unpaidPickerMode === 'amount' ? 'Amount' : 'Hours'} exceeds the available tracked-time balance.
+                  {unpaidPickerMode === 'amount' ? 'Amount' : 'Hours'} exceeds the available
+                  tracked-time balance.
                 </p>
               )}
 
               {baseSelectedUnpaidDraft && (
-                <div className="rounded-md border border-white/[0.08] bg-white/[0.03]" aria-live="polite">
+                <div
+                  className="rounded-md border border-white/[0.08] bg-white/[0.03]"
+                  aria-live="polite"
+                >
                   <div className="flex flex-wrap items-start justify-between gap-3 px-3 py-2.5">
                     <div className="min-w-0">
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-zinc-400">Calculated selection</p>
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-zinc-400">
+                        Calculated selection
+                      </p>
                       {selectedUnpaidDraft ? (
                         <>
                           <p className="mt-1 text-xs font-medium text-white">
-                            {formatHours(selectedUnpaidDraft.hours)} hrs · {selectedUnpaidDraft.allocations.length} {selectedUnpaidDraft.allocations.length === 1 ? 'session' : 'sessions'}
+                            {formatHours(selectedUnpaidDraft.hours)} hrs ·{' '}
+                            {selectedUnpaidDraft.allocations.length}{' '}
+                            {selectedUnpaidDraft.allocations.length === 1 ? 'session' : 'sessions'}
                           </p>
                           <p className="mt-0.5 text-[11px] text-zinc-400">
-                            {fmtTrackedDate(selectedUnpaidDraft.startDate)} – {fmtTrackedDate(selectedUnpaidDraft.endDate)}
+                            {fmtTrackedDate(selectedUnpaidDraft.startDate)} –{' '}
+                            {fmtTrackedDate(selectedUnpaidDraft.endDate)}
                           </p>
                         </>
                       ) : (
                         <p className="mt-1 text-xs font-medium text-white">No sessions selected</p>
                       )}
                     </div>
-                    <p className="text-sm font-semibold tabular-nums text-white">${formatCurrency(selectedUnpaidDraft?.amount ?? 0)}</p>
+                    <p className="text-sm font-semibold tabular-nums text-white">
+                      ${formatCurrency(selectedUnpaidDraft?.amount ?? 0)}
+                    </p>
                   </div>
 
                   {excludedTimeEntryIds.size > 0 && (
                     <div className="flex flex-wrap items-center justify-between gap-2 border-t border-white/[0.08] px-3 py-2 text-[11px] text-zinc-300">
                       <p>
-                        {excludedTimeEntryIds.size} {excludedTimeEntryIds.size === 1 ? 'session' : 'sessions'} excluded. The total was reduced without adding replacement time.
+                        {excludedTimeEntryIds.size}{' '}
+                        {excludedTimeEntryIds.size === 1 ? 'session' : 'sessions'} excluded. The
+                        total was reduced without adding replacement time.
                       </p>
                       <button
                         type="button"
@@ -1200,15 +1392,24 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
 
                   {lastSessionIsPartial && lastSelectedAllocation && lastSelectedEntry && (
                     <div className="border-t border-white/[0.08] px-3 py-2 text-[11px] text-zinc-300">
-                      This invoice includes <span className="font-medium text-white">{formatHours(lastSelectedAllocation.allocated_hours)} hrs</span> from the final {formatHours(lastSelectedEntry.hours)}-hr session.
+                      This invoice includes{' '}
+                      <span className="font-medium text-white">
+                        {formatHours(lastSelectedAllocation.allocated_hours)} hrs
+                      </span>{' '}
+                      from the final {formatHours(lastSelectedEntry.hours)}-hr session.
                     </div>
                   )}
 
                   {conflictingInvoiceNumbers.length > 0 && (
                     <div className="flex gap-2 border-t border-amber-500/30 bg-amber-500/15 px-3 py-2 text-[11px] text-amber-300">
-                      <AlertTriangle size={13} className="mt-0.5 flex-shrink-0" aria-hidden="true" />
+                      <AlertTriangle
+                        size={13}
+                        className="mt-0.5 flex-shrink-0"
+                        aria-hidden="true"
+                      />
                       <p>
-                        Some selected sessions are already attached to {conflictingInvoiceNumbers.join(', ')}. Review before adding them again.
+                        Some selected sessions are already attached to{' '}
+                        {conflictingInvoiceNumbers.join(', ')}. Review before adding them again.
                       </p>
                     </div>
                   )}
@@ -1216,12 +1417,16 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
                   {selectedUnpaidDraft && (
                     <button
                       type="button"
-                      onClick={() => setUnpaidReviewOpen(open => !open)}
+                      onClick={() => setUnpaidReviewOpen((open) => !open)}
                       aria-expanded={unpaidReviewOpen}
                       className="flex w-full items-center justify-between border-t border-white/[0.08] px-3 py-2 text-left text-[11px] font-medium text-brand-300 transition-colors hover:bg-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-500"
                     >
                       <span>Review included time</span>
-                      <ChevronDown size={13} className={`transition-transform ${unpaidReviewOpen ? 'rotate-180' : ''}`} aria-hidden="true" />
+                      <ChevronDown
+                        size={13}
+                        className={`transition-transform ${unpaidReviewOpen ? 'rotate-180' : ''}`}
+                        aria-hidden="true"
+                      />
                     </button>
                   )}
 
@@ -1235,20 +1440,31 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
                             className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto] items-start gap-3 border-b border-white/[0.06] px-3 py-2.5 last:border-b-0"
                           >
                             <div className="min-w-0">
-                              <p className="text-[11px] font-medium text-zinc-100">{entry ? fmtTrackedDate(entry.start_time) : 'Tracked session'}</p>
-                              <p className="mt-0.5 truncate text-[11px] text-zinc-400" title={entry?.description || undefined}>
+                              <p className="text-[11px] font-medium text-zinc-100">
+                                {entry ? fmtTrackedDate(entry.start_time) : 'Tracked session'}
+                              </p>
+                              <p
+                                className="mt-0.5 truncate text-[11px] text-zinc-400"
+                                title={entry?.description || undefined}
+                              >
                                 {entry?.description || 'No description'}
                               </p>
                             </div>
-                            <p className="whitespace-nowrap text-[11px] tabular-nums text-zinc-300">{formatHours(allocation.allocated_hours)} hrs</p>
-                            <p className="whitespace-nowrap text-[11px] font-medium tabular-nums text-white">${formatCurrency(allocation.allocated_amount)}</p>
+                            <p className="whitespace-nowrap text-[11px] tabular-nums text-zinc-300">
+                              {formatHours(allocation.allocated_hours)} hrs
+                            </p>
+                            <p className="whitespace-nowrap text-[11px] font-medium tabular-nums text-white">
+                              ${formatCurrency(allocation.allocated_amount)}
+                            </p>
                             <button
                               type="button"
-                              onClick={() => setExcludedTimeEntryIds(previous => {
-                                const next = new Set(previous);
-                                next.add(allocation.time_entry_id);
-                                return next;
-                              })}
+                              onClick={() =>
+                                setExcludedTimeEntryIds((previous) => {
+                                  const next = new Set(previous);
+                                  next.add(allocation.time_entry_id);
+                                  return next;
+                                })
+                              }
                               aria-label={`Remove ${entry?.description || 'tracked session'} from invoice`}
                               title="Remove from invoice"
                               className="-m-1 rounded p-1 text-zinc-500 transition-colors hover:bg-red-500/15 hover:text-red-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500"
@@ -1297,11 +1513,10 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
 
       {/* File upload */}
       <div>
-        <input
+        <FileInput
           ref={fileInputRef}
-          type="file"
           className="hidden"
-          onChange={e => {
+          onChange={(e) => {
             const file = e.target.files?.[0];
             if (file) {
               setFormFile(file);
@@ -1324,9 +1539,14 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
         ) : existingFileUrl ? (
           <div className="flex items-center gap-2 px-3 py-2 bg-white/[0.03] border border-white/[0.08] rounded-lg">
             <File size={14} className="text-zinc-500 flex-shrink-0" />
-            <span className="text-sm text-zinc-300 truncate flex-1">{existingFileName || 'Attached file'}</span>
+            <span className="text-sm text-zinc-300 truncate flex-1">
+              {existingFileName || 'Attached file'}
+            </span>
             <button
-              onClick={() => { setExistingFileUrl(null); setExistingFileName(null); }}
+              onClick={() => {
+                setExistingFileUrl(null);
+                setExistingFileName(null);
+              }}
               className="p-0.5 text-zinc-500 hover:text-red-500 transition-colors"
             >
               <X size={14} />
@@ -1365,318 +1585,416 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
   return (
     <>
       <div className="glass-card rounded-xl overflow-hidden flex flex-col max-h-[600px]">
-      {/* Header */}
-      <div className="px-5 py-4 flex items-center justify-between flex-shrink-0 border-b border-white/[0.06]">
-        <div className="flex items-center gap-2">
-          <Receipt size={18} className="text-zinc-400" />
-          <h2 className="font-semibold text-white">
-            Invoices
-            {invoices.length > 0 && (
-              <span className="ml-1.5 text-xs font-medium text-zinc-500">({invoices.length})</span>
-            )}
-          </h2>
+        {/* Header */}
+        <div className="px-5 py-4 flex items-center justify-between flex-shrink-0 border-b border-white/[0.06]">
+          <div className="flex items-center gap-2">
+            <Receipt size={18} className="text-zinc-400" />
+            <h2 className="font-semibold text-white">
+              Invoices
+              {invoices.length > 0 && (
+                <span className="ml-1.5 text-xs font-medium text-zinc-500">
+                  ({invoices.length})
+                </span>
+              )}
+            </h2>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={openAddForm}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition-colors"
+            >
+              <Plus size={14} />
+              Add
+            </button>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={openAddForm}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition-colors"
-          >
-            <Plus size={14} />
-            Add
-          </button>
-        </div>
-      </div>
 
-      <div className="flex-1 flex flex-col overflow-y-auto">
-        {/* Balance Summary */}
-        <div className="px-5 py-3 border-b border-white/[0.06] bg-white/[0.03] flex-shrink-0 overflow-x-auto">
-          <div className="flex gap-4 min-w-max">
-            {/* Budget (read-only, configured in project settings) */}
-            {hasBudget && (
-              <div className="shrink-0 min-w-[5.5rem]">
-                <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">Budget</p>
-                <div className="flex items-center gap-1.5">
-                  <p className="text-sm font-semibold text-white">
-                    {budgetType === 'hours' ? `${formatCurrency(budgetValue)} hrs` : `$${formatCurrency(budgetValue)}`}
+        <div className="flex-1 flex flex-col overflow-y-auto">
+          {/* Balance Summary */}
+          <div className="px-5 py-3 border-b border-white/[0.06] bg-white/[0.03] flex-shrink-0 overflow-x-auto">
+            <div className="flex gap-4 min-w-max">
+              {/* Budget (read-only, configured in project settings) */}
+              {hasBudget && (
+                <div className="shrink-0 min-w-[5.5rem]">
+                  <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">
+                    Budget
                   </p>
-                  {budgetValue > 0 && (
-                    <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${
-                      budgetPct >= 100 ? 'bg-red-500/15 text-red-300'
-                        : budgetPct >= 90 ? 'bg-red-500/15 text-red-400'
-                        : budgetPct >= 75 ? 'bg-orange-500/15 text-orange-400'
-                        : budgetPct >= 50 ? 'bg-amber-500/15 text-amber-400'
-                        : budgetPct >= 25 ? 'bg-emerald-500/15 text-emerald-400'
-                        : 'bg-emerald-500/15 text-emerald-500'
-                    }`}>
-                      {Math.round(budgetPct)}%
-                    </span>
-                  )}
-                </div>
-              </div>
-            )}
-            {isHourly && (
-              <div className="shrink-0 min-w-[5.5rem]">
-                <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">Billable</p>
-                <p className="text-sm font-semibold text-white">${formatCurrency(billableTotal)}</p>
-              </div>
-            )}
-            <div className="shrink-0 min-w-[5.5rem]">
-              <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">Invoiced</p>
-              <p className="text-sm font-semibold text-white">${formatCurrency(totalInvoiced)}</p>
-            </div>
-            <div className="shrink-0 min-w-[5.5rem]">
-              <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">Paid</p>
-              <p className="text-sm font-semibold text-emerald-400">${formatCurrency(totalPaid)}</p>
-            </div>
-            <div className="shrink-0 min-w-[5.5rem]">
-              <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">Outstanding</p>
-              <p className={`text-sm font-semibold ${outstanding > 0 ? 'text-amber-400' : 'text-zinc-500'}`}>${formatCurrency(outstanding)}</p>
-            </div>
-            {isHourly && (
-              <>
-                <div className="shrink-0 min-w-[5.5rem]">
-                  <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">Total Hours</p>
-                  <p className="text-sm font-semibold text-white">{Math.round(totalHours)}</p>
-                </div>
-                <div className="shrink-0 min-w-[5.5rem]">
-                  <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">Hourly Rate</p>
                   <div className="flex items-center gap-1.5">
-                    <p className="text-sm font-semibold text-white">${Math.round(hourlyRate)}</p>
-                    <button
-                      onClick={() => setEditingRate(open => !open)}
-                      className="p-0.5 text-zinc-500 hover:text-brand-300 transition-colors"
-                      aria-label="Manage hourly rate schedule"
-                    >
-                      <Clock size={12} />
-                    </button>
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
-          {isHourly && editingRate ? (
-            <HourlyRateSchedule
-              projectId={projectId}
-              fallbackRate={hourlyRate}
-              today={todayLocalDate}
-              timezone={currentMember?.timezone && currentMember.timezone !== 'UTC' ? currentMember.timezone : undefined}
-              isDemoMode={isDemoMode}
-              onCurrentRateChange={rate => updateProject(projectId, { hourly_rate: rate })}
-            />
-          ) : null}
-        </div>
-
-        {/* Invoice list */}
-        {invoices.length > 0 ? (
-          <div className="flex-1 overflow-y-auto p-5 space-y-3">
-            {invoices.sort((a, b) => b.date.localeCompare(a.date)).map(invoice => {
-              const items = ensureLineItems(invoice);
-              const hasMultipleLines = items.length > 1;
-              const singleItemType = items[0]?.item_type;
-              const isExpanded = expandedIds.has(invoice.id);
-              const hasDetails = items.length > 0 || !!invoice.description || !!invoice.file_url;
-
-              return (
-                <div
-                  key={invoice.id}
-                  className="group rounded-lg border border-white/[0.08] hover:border-white/[0.12] transition-colors"
-                >
-                  <div
-                    className={`p-3 ${hasDetails ? 'cursor-pointer' : ''} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 rounded-lg`}
-                    {...(hasDetails && {
-                      role: 'button',
-                      tabIndex: 0,
-                      'aria-expanded': isExpanded,
-                      'aria-label': isExpanded ? 'Hide invoice details' : 'Show invoice details',
-                      onClick: () => toggleExpanded(invoice.id),
-                      onKeyDown: (e: React.KeyboardEvent) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.preventDefault();
-                          toggleExpanded(invoice.id);
-                        }
-                      },
-                    })}
-                  >
-                    <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
-                      <div className="flex items-center gap-2 flex-wrap min-w-0">
-                        <div
-                          className="relative inline-flex items-center"
-                          onClick={e => e.stopPropagation()}
-                          onKeyDown={e => e.stopPropagation()}
-                        >
-                          <span className={`pointer-events-none absolute inset-0 z-10 flex items-center justify-center px-2 py-0.5 text-xs font-medium rounded-full ${statusColors[invoice.status]}`}>
-                            {invoice.status.charAt(0).toUpperCase() + invoice.status.slice(1)}
-                          </span>
-                          <div className="[&_button]:!bg-transparent [&_button]:!border-transparent [&_button]:!shadow-none [&_button]:!ring-0 [&_button]:!text-transparent [&_button]:!px-2 [&_button]:!py-0.5 [&_button]:!text-xs [&_svg]:!text-transparent [&_span]:!text-transparent">
-                            <Select
-                              size="sm"
-                              value={invoice.status}
-                              onChange={v => { void updateInvoice(invoice.id, { status: v as InvoiceStatus }); }}
-                              options={INVOICE_STATUSES.map(s => ({ value: s, label: s.charAt(0).toUpperCase() + s.slice(1) }))}
-                            />
-                          </div>
-                        </div>
-                        <span className="text-sm font-semibold text-white">{invoice.invoice_number}</span>
-                        {hasMultipleLines ? (
-                          <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium rounded bg-white/[0.06] text-zinc-400">
-                            {items.length} items
-                          </span>
-                        ) : singleItemType && singleItemType !== 'hourly' && (
-                          <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium rounded bg-white/[0.06] text-zinc-400 capitalize">
-                            {singleItemType}
-                          </span>
-                        )}
-                      </div>
-                      <span className="text-sm font-semibold text-white">
-                        ${formatCurrency(invoice.amount)}
+                    <p className="text-sm font-semibold text-white">
+                      {budgetType === 'hours'
+                        ? `${formatCurrency(budgetValue)} hrs`
+                        : `$${formatCurrency(budgetValue)}`}
+                    </p>
+                    {budgetValue > 0 && (
+                      <span
+                        className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${
+                          budgetPct >= 100
+                            ? 'bg-red-500/15 text-red-300'
+                            : budgetPct >= 90
+                              ? 'bg-red-500/15 text-red-400'
+                              : budgetPct >= 75
+                                ? 'bg-orange-500/15 text-orange-400'
+                                : budgetPct >= 50
+                                  ? 'bg-amber-500/15 text-amber-400'
+                                  : budgetPct >= 25
+                                    ? 'bg-emerald-500/15 text-emerald-400'
+                                    : 'bg-emerald-500/15 text-emerald-500'
+                        }`}
+                      >
+                        {Math.round(budgetPct)}%
                       </span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3 text-xs text-zinc-400 min-w-0 flex-wrap">
-                        <span>Issued: {fmtDate(invoice.date)}</span>
-                        {invoice.due_date && invoice.due_date !== invoice.date && <span>Due: {fmtDate(invoice.due_date)}</span>}
-                        {invoice.paid_date && <span className="text-emerald-400">Paid: {fmtDate(invoice.paid_date)}</span>}
-                      </div>
-                      <div className="flex items-center gap-0.5 flex-shrink-0">
-                        <div className="flex items-center gap-0.5 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-opacity">
-                          <button
-                            onClick={e => { e.stopPropagation(); setPreviewInvoiceId(invoice.id); }}
-                            aria-label="Preview invoice PDF"
-                            className="p-1.5 text-zinc-500 hover:text-brand-300 transition-colors rounded-md hover:bg-white/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
-                          >
-                            <Eye size={13} />
-                          </button>
-                          {canEmailInvoices ? (
-                            <button
-                              onClick={e => { e.stopPropagation(); openInvoiceEmailPreview(invoice.id); }}
-                              aria-label="Email invoice"
-                              className="p-1.5 text-zinc-500 hover:text-brand-300 transition-colors rounded-md hover:bg-white/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
-                            >
-                              <Send size={13} />
-                            </button>
-                          ) : null}
-                          <button
-                            onClick={e => { e.stopPropagation(); startEditing(invoice); }}
-                            aria-label="Edit invoice"
-                            className="p-1.5 text-zinc-500 hover:text-brand-300 transition-colors rounded-md hover:bg-white/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
-                          >
-                            <Edit2 size={13} />
-                          </button>
-                          <button
-                            onClick={e => { e.stopPropagation(); startDuplicating(invoice); }}
-                            aria-label="Duplicate invoice"
-                            className="p-1.5 text-zinc-500 hover:text-brand-300 transition-colors rounded-md hover:bg-white/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
-                          >
-                            <Copy size={13} />
-                          </button>
-                          <button
-                            onClick={e => { e.stopPropagation(); setDeleteTarget(invoice.id); }}
-                            aria-label="Delete invoice"
-                            className="p-1.5 text-zinc-500 hover:text-red-500 transition-colors rounded-md hover:bg-white/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300"
-                          >
-                            <Trash2 size={13} />
-                          </button>
-                        </div>
-                        {hasDetails && (
-                          <ChevronDown
-                            size={14}
-                            aria-hidden="true"
-                            className={`hidden sm:block text-zinc-500 transition-transform duration-150 ${isExpanded ? 'rotate-180' : ''}`}
-                          />
-                        )}
-                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+              {isHourly && (
+                <div className="shrink-0 min-w-[5.5rem]">
+                  <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">
+                    Billable
+                  </p>
+                  <p className="text-sm font-semibold text-white">
+                    ${formatCurrency(billableTotal)}
+                  </p>
+                </div>
+              )}
+              <div className="shrink-0 min-w-[5.5rem]">
+                <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">
+                  Invoiced
+                </p>
+                <p className="text-sm font-semibold text-white">${formatCurrency(totalInvoiced)}</p>
+              </div>
+              <div className="shrink-0 min-w-[5.5rem]">
+                <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">
+                  Paid
+                </p>
+                <p className="text-sm font-semibold text-emerald-400">
+                  ${formatCurrency(totalPaid)}
+                </p>
+              </div>
+              <div className="shrink-0 min-w-[5.5rem]">
+                <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">
+                  Outstanding
+                </p>
+                <p
+                  className={`text-sm font-semibold ${outstanding > 0 ? 'text-amber-400' : 'text-zinc-500'}`}
+                >
+                  ${formatCurrency(outstanding)}
+                </p>
+              </div>
+              {isHourly && (
+                <>
+                  <div className="shrink-0 min-w-[5.5rem]">
+                    <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">
+                      Total Hours
+                    </p>
+                    <p className="text-sm font-semibold text-white">{Math.round(totalHours)}</p>
+                  </div>
+                  <div className="shrink-0 min-w-[5.5rem]">
+                    <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">
+                      Hourly Rate
+                    </p>
+                    <div className="flex items-center gap-1.5">
+                      <p className="text-sm font-semibold text-white">${Math.round(hourlyRate)}</p>
+                      <button
+                        onClick={() => setEditingRate((open) => !open)}
+                        className="p-0.5 text-zinc-500 hover:text-brand-300 transition-colors"
+                        aria-label="Manage hourly rate schedule"
+                      >
+                        <Clock size={12} />
+                      </button>
                     </div>
                   </div>
+                </>
+              )}
+            </div>
+            {isHourly && editingRate ? (
+              <HourlyRateSchedule
+                projectId={projectId}
+                fallbackRate={hourlyRate}
+                today={todayLocalDate}
+                timezone={
+                  currentMember?.timezone && currentMember.timezone !== 'UTC'
+                    ? currentMember.timezone
+                    : undefined
+                }
+                isDemoMode={isDemoMode}
+                onCurrentRateChange={(rate) => updateProject(projectId, { hourly_rate: rate })}
+              />
+            ) : null}
+          </div>
 
-                  {isExpanded && hasDetails && (
-                    <div className="px-3 pb-3 pt-0 space-y-3 border-t border-white/[0.06] bg-white/[0.03] rounded-b-lg">
-                      {items.length > 0 && (
-                        <div className="pt-3">
-                          <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-1.5">
-                            {hasMultipleLines ? 'Line items' : 'Line item'}
-                          </p>
-                          <div className="space-y-1.5">
-                            {items.map(li => {
-                              const period = fmtServicePeriod(li.service_start_date, li.service_end_date);
-                              return (
-                                <div key={li.id} className="flex items-start justify-between gap-3 text-xs bg-surface-raised border border-white/[0.06] rounded-md px-2.5 py-2">
-                                  <div className="flex-1 min-w-0 space-y-1">
-                                    <div className="flex items-center gap-1.5 flex-wrap">
-                                      <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium rounded bg-white/[0.06] text-zinc-300 capitalize">
-                                        {lineItemTypeLabel(li.item_type)}
-                                      </span>
-                                      {li.item_type === 'recurring' && li.recurrence_frequency && (
-                                        <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium rounded bg-amber-500/15 text-amber-300 capitalize">
-                                          {li.recurrence_frequency}
-                                        </span>
-                                      )}
-                                      {period && (
-                                        <span className="text-[10px] text-zinc-400">{period}</span>
-                                      )}
-                                    </div>
-                                    {li.description && (
-                                      <p className="text-xs text-zinc-300 break-words">{li.description}</p>
-                                    )}
-                                  </div>
-                                  <span className="text-xs font-semibold text-white flex-shrink-0 pt-0.5">
-                                    ${formatCurrency(li.amount)}
-                                  </span>
-                                </div>
-                              );
-                            })}
+          {/* Invoice list */}
+          {invoices.length > 0 ? (
+            <div className="flex-1 overflow-y-auto p-5 space-y-3">
+              {invoices
+                .sort((a, b) => b.date.localeCompare(a.date))
+                .map((invoice) => {
+                  const items = ensureLineItems(invoice);
+                  const hasMultipleLines = items.length > 1;
+                  const singleItemType = items[0]?.item_type;
+                  const isExpanded = expandedIds.has(invoice.id);
+                  const hasDetails =
+                    items.length > 0 || !!invoice.description || !!invoice.file_url;
+
+                  return (
+                    <div
+                      key={invoice.id}
+                      className="group rounded-lg border border-white/[0.08] hover:border-white/[0.12] transition-colors"
+                    >
+                      <div
+                        className={`p-3 ${hasDetails ? 'cursor-pointer' : ''} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 rounded-lg`}
+                        {...(hasDetails && {
+                          role: 'button',
+                          tabIndex: 0,
+                          'aria-expanded': isExpanded,
+                          'aria-label': isExpanded
+                            ? 'Hide invoice details'
+                            : 'Show invoice details',
+                          onClick: () => toggleExpanded(invoice.id),
+                          onKeyDown: (e: React.KeyboardEvent) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              toggleExpanded(invoice.id);
+                            }
+                          },
+                        })}
+                      >
+                        <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
+                          <div className="flex items-center gap-2 flex-wrap min-w-0">
+                            <div
+                              className="relative inline-flex items-center"
+                              onClick={(e) => e.stopPropagation()}
+                              onKeyDown={(e) => e.stopPropagation()}
+                            >
+                              <span
+                                className={`pointer-events-none absolute inset-0 z-10 flex items-center justify-center px-2 py-0.5 text-xs font-medium rounded-full ${statusColors[invoice.status]}`}
+                              >
+                                {invoice.status.charAt(0).toUpperCase() + invoice.status.slice(1)}
+                              </span>
+                              <div className="[&_button]:!bg-transparent [&_button]:!border-transparent [&_button]:!shadow-none [&_button]:!ring-0 [&_button]:!text-transparent [&_button]:!px-2 [&_button]:!py-0.5 [&_button]:!text-xs [&_svg]:!text-transparent [&_span]:!text-transparent">
+                                <Select
+                                  size="sm"
+                                  value={invoice.status}
+                                  onChange={(v) => {
+                                    void updateInvoice(invoice.id, { status: v as InvoiceStatus });
+                                  }}
+                                  options={INVOICE_STATUSES.map((s) => ({
+                                    value: s,
+                                    label: s.charAt(0).toUpperCase() + s.slice(1),
+                                  }))}
+                                />
+                              </div>
+                            </div>
+                            <span className="text-sm font-semibold text-white">
+                              {invoice.invoice_number}
+                            </span>
+                            {hasMultipleLines ? (
+                              <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium rounded bg-white/[0.06] text-zinc-400">
+                                {items.length} items
+                              </span>
+                            ) : (
+                              singleItemType &&
+                              singleItemType !== 'hourly' && (
+                                <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium rounded bg-white/[0.06] text-zinc-400 capitalize">
+                                  {singleItemType}
+                                </span>
+                              )
+                            )}
+                          </div>
+                          <span className="text-sm font-semibold text-white">
+                            ${formatCurrency(invoice.amount)}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3 text-xs text-zinc-400 min-w-0 flex-wrap">
+                            <span>Issued: {fmtDate(invoice.date)}</span>
+                            {invoice.due_date && invoice.due_date !== invoice.date && (
+                              <span>Due: {fmtDate(invoice.due_date)}</span>
+                            )}
+                            {invoice.paid_date && (
+                              <span className="text-emerald-400">
+                                Paid: {fmtDate(invoice.paid_date)}
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-0.5 flex-shrink-0">
+                            <div className="flex items-center gap-0.5 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-opacity">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setPreviewInvoiceId(invoice.id);
+                                }}
+                                aria-label="Preview invoice PDF"
+                                className="p-1.5 text-zinc-500 hover:text-brand-300 transition-colors rounded-md hover:bg-white/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
+                              >
+                                <Eye size={13} />
+                              </button>
+                              {canEmailInvoices ? (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    openInvoiceEmailPreview(invoice.id);
+                                  }}
+                                  aria-label="Email invoice"
+                                  className="p-1.5 text-zinc-500 hover:text-brand-300 transition-colors rounded-md hover:bg-white/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
+                                >
+                                  <Send size={13} />
+                                </button>
+                              ) : null}
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  startEditing(invoice);
+                                }}
+                                aria-label="Edit invoice"
+                                className="p-1.5 text-zinc-500 hover:text-brand-300 transition-colors rounded-md hover:bg-white/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
+                              >
+                                <Edit2 size={13} />
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  startDuplicating(invoice);
+                                }}
+                                aria-label="Duplicate invoice"
+                                className="p-1.5 text-zinc-500 hover:text-brand-300 transition-colors rounded-md hover:bg-white/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
+                              >
+                                <Copy size={13} />
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setDeleteTarget(invoice.id);
+                                }}
+                                aria-label="Delete invoice"
+                                className="p-1.5 text-zinc-500 hover:text-red-500 transition-colors rounded-md hover:bg-white/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300"
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            </div>
+                            {hasDetails && (
+                              <ChevronDown
+                                size={14}
+                                aria-hidden="true"
+                                className={`hidden sm:block text-zinc-500 transition-transform duration-150 ${isExpanded ? 'rotate-180' : ''}`}
+                              />
+                            )}
                           </div>
                         </div>
-                      )}
+                      </div>
 
-                      {(invoice.description || hasMultipleLines) && (
-                        <div className="flex items-start justify-between gap-4">
-                          {invoice.description ? (
-                            <div className="min-w-0 flex-1">
-                              <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-1">Notes</p>
-                              <p className="text-xs text-zinc-300 whitespace-pre-wrap break-words">{invoice.description}</p>
+                      {isExpanded && hasDetails && (
+                        <div className="px-3 pb-3 pt-0 space-y-3 border-t border-white/[0.06] bg-white/[0.03] rounded-b-lg">
+                          {items.length > 0 && (
+                            <div className="pt-3">
+                              <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-1.5">
+                                {hasMultipleLines ? 'Line items' : 'Line item'}
+                              </p>
+                              <div className="space-y-1.5">
+                                {items.map((li) => {
+                                  const period = fmtServicePeriod(
+                                    li.service_start_date,
+                                    li.service_end_date,
+                                  );
+                                  return (
+                                    <div
+                                      key={li.id}
+                                      className="flex items-start justify-between gap-3 text-xs bg-surface-raised border border-white/[0.06] rounded-md px-2.5 py-2"
+                                    >
+                                      <div className="flex-1 min-w-0 space-y-1">
+                                        <div className="flex items-center gap-1.5 flex-wrap">
+                                          <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium rounded bg-white/[0.06] text-zinc-300 capitalize">
+                                            {lineItemTypeLabel(li.item_type)}
+                                          </span>
+                                          {li.item_type === 'recurring' &&
+                                            li.recurrence_frequency && (
+                                              <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium rounded bg-amber-500/15 text-amber-300 capitalize">
+                                                {li.recurrence_frequency}
+                                              </span>
+                                            )}
+                                          {period && (
+                                            <span className="text-[10px] text-zinc-400">
+                                              {period}
+                                            </span>
+                                          )}
+                                        </div>
+                                        {li.description && (
+                                          <p className="text-xs text-zinc-300 break-words">
+                                            {li.description}
+                                          </p>
+                                        )}
+                                      </div>
+                                      <span className="text-xs font-semibold text-white flex-shrink-0 pt-0.5">
+                                        ${formatCurrency(li.amount)}
+                                      </span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
                             </div>
-                          ) : (
-                            <div aria-hidden="true" />
                           )}
-                          {hasMultipleLines && (
-                            <div className="flex-shrink-0 text-right">
-                              <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-1">Total</p>
-                              <p className="text-sm font-semibold text-white">${formatCurrency(invoice.amount)}</p>
-                            </div>
-                          )}
-                        </div>
-                      )}
 
-                      {invoice.file_url && (
-                        <div>
-                          <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-1">Attachment</p>
-                          <a
-                            href={invoice.file_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1.5 text-xs text-brand-300 hover:text-brand-300 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 rounded"
-                          >
-                            <FileDown size={12} />
-                            {invoice.file_name || 'Download'}
-                          </a>
+                          {(invoice.description || hasMultipleLines) && (
+                            <div className="flex items-start justify-between gap-4">
+                              {invoice.description ? (
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-1">
+                                    Notes
+                                  </p>
+                                  <p className="text-xs text-zinc-300 whitespace-pre-wrap break-words">
+                                    {invoice.description}
+                                  </p>
+                                </div>
+                              ) : (
+                                <div aria-hidden="true" />
+                              )}
+                              {hasMultipleLines && (
+                                <div className="flex-shrink-0 text-right">
+                                  <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-1">
+                                    Total
+                                  </p>
+                                  <p className="text-sm font-semibold text-white">
+                                    ${formatCurrency(invoice.amount)}
+                                  </p>
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {invoice.file_url && (
+                            <div>
+                              <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-1">
+                                Attachment
+                              </p>
+                              <a
+                                href={invoice.file_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1.5 text-xs text-brand-300 hover:text-brand-300 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 rounded"
+                              >
+                                <FileDown size={12} />
+                                {invoice.file_name || 'Download'}
+                              </a>
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        ) : (
-          <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
-            <div className="w-10 h-10 rounded-full bg-white/[0.06] flex items-center justify-center mb-3">
-              <Receipt size={18} className="text-zinc-500" />
+                  );
+                })}
             </div>
-            <p className="text-sm font-medium text-zinc-400">No invoices yet</p>
-            <p className="text-xs text-zinc-500 mt-1">Create invoices to track billing for this project</p>
-          </div>
-        )}
-      </div>
+          ) : (
+            <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
+              <div className="w-10 h-10 rounded-full bg-white/[0.06] flex items-center justify-center mb-3">
+                <Receipt size={18} className="text-zinc-500" />
+              </div>
+              <p className="text-sm font-medium text-zinc-400">No invoices yet</p>
+              <p className="text-xs text-zinc-500 mt-1">
+                Create invoices to track billing for this project
+              </p>
+            </div>
+          )}
+        </div>
       </div>
 
       <Modal
@@ -1700,10 +2018,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
         variant="danger"
       />
 
-      <InvoicePreviewModal
-        invoiceId={previewInvoiceId}
-        onClose={() => setPreviewInvoiceId(null)}
-      />
+      <InvoicePreviewModal invoiceId={previewInvoiceId} onClose={() => setPreviewInvoiceId(null)} />
 
       <ClientEmailPreviewModal
         open={Boolean(emailInvoiceId)}

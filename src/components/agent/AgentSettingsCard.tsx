@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Input } from '@/components/ui/Input';
 import { TextInput } from '@/components/ui/inputs/TextInput';
 import { NumberInput } from '@/components/ui/inputs/NumberInput';
-import { Toggle } from '@/components/ui/Toggle';
+import { Toggle } from '@/components/ui/inputs/Toggle';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { toast } from '@/components/ui/Toast';
 import { Settings } from 'lucide-react';
@@ -44,7 +44,9 @@ interface AgentSettingsCardProps {
  */
 export function AgentSettingsCard({ project, onUpdate }: AgentSettingsCardProps) {
   const [repoPathDraft, setRepoPathDraft] = useState(project.repo_path ?? '');
-  const [sensitiveDraft, setSensitiveDraft] = useState(project.sensitive_paths ?? DEFAULT_SENSITIVE_PATHS);
+  const [sensitiveDraft, setSensitiveDraft] = useState(
+    project.sensitive_paths ?? DEFAULT_SENSITIVE_PATHS,
+  );
   const [integrationDraft, setIntegrationDraft] = useState(project.integration_branch ?? 'dev');
   const [productionDraft, setProductionDraft] = useState(project.production_branch ?? 'main');
   // The numbers are DRAFTS committed once, debounced, never a write per stepper
@@ -71,24 +73,36 @@ export function AgentSettingsCard({ project, onUpdate }: AgentSettingsCardProps)
   // One write carrying the whole coherent trio, 600ms after the last change.
   // Clamping happens here, at commit time, so mid-typing states are never
   // "corrected" under the user's cursor.
-  const commitNumbers = useCallback((per: number, cap: number, interval: number) => {
-    const safeCap = Math.max(1, Math.floor(cap) || 1);
-    const safePer = Math.min(safeCap, Math.max(1, Math.floor(per) || 1));
-    const safeInterval = Math.max(1, Math.floor(interval) || 1);
-    if (safePer !== per) setPerCycleDraft(safePer);
-    if (safeCap !== cap) setQueueCapDraft(safeCap);
-    if (safeInterval !== interval) setIntervalDraft(safeInterval);
-    const updates: Partial<Project> = {};
-    if (safePer !== (project.suggestions_per_cycle ?? 3)) updates.suggestions_per_cycle = safePer;
-    if (safeCap !== (project.suggestion_queue_cap ?? 10)) updates.suggestion_queue_cap = safeCap;
-    if (safeInterval !== (project.audit_interval_hours ?? 4)) updates.audit_interval_hours = safeInterval;
-    if (Object.keys(updates).length > 0) onUpdate(updates);
-  }, [project.suggestions_per_cycle, project.suggestion_queue_cap, project.audit_interval_hours, onUpdate]);
+  const commitNumbers = useCallback(
+    (per: number, cap: number, interval: number) => {
+      const safeCap = Math.max(1, Math.floor(cap) || 1);
+      const safePer = Math.min(safeCap, Math.max(1, Math.floor(per) || 1));
+      const safeInterval = Math.max(1, Math.floor(interval) || 1);
+      if (safePer !== per) setPerCycleDraft(safePer);
+      if (safeCap !== cap) setQueueCapDraft(safeCap);
+      if (safeInterval !== interval) setIntervalDraft(safeInterval);
+      const updates: Partial<Project> = {};
+      if (safePer !== (project.suggestions_per_cycle ?? 3)) updates.suggestions_per_cycle = safePer;
+      if (safeCap !== (project.suggestion_queue_cap ?? 10)) updates.suggestion_queue_cap = safeCap;
+      if (safeInterval !== (project.audit_interval_hours ?? 4))
+        updates.audit_interval_hours = safeInterval;
+      if (Object.keys(updates).length > 0) onUpdate(updates);
+    },
+    [
+      project.suggestions_per_cycle,
+      project.suggestion_queue_cap,
+      project.audit_interval_hours,
+      onUpdate,
+    ],
+  );
 
-  const scheduleCommit = useCallback((per: number, cap: number, interval: number) => {
-    if (commitTimer.current) clearTimeout(commitTimer.current);
-    commitTimer.current = setTimeout(() => commitNumbers(per, cap, interval), 600);
-  }, [commitNumbers]);
+  const scheduleCommit = useCallback(
+    (per: number, cap: number, interval: number) => {
+      if (commitTimer.current) clearTimeout(commitTimer.current);
+      commitTimer.current = setTimeout(() => commitNumbers(per, cap, interval), 600);
+    },
+    [commitNumbers],
+  );
 
   const flushCommit = useCallback(() => {
     if (commitTimer.current) {
@@ -98,7 +112,12 @@ export function AgentSettingsCard({ project, onUpdate }: AgentSettingsCardProps)
     commitNumbers(perCycleDraft, queueCapDraft, intervalDraft);
   }, [commitNumbers, perCycleDraft, queueCapDraft, intervalDraft]);
 
-  useEffect(() => () => { if (commitTimer.current) clearTimeout(commitTimer.current); }, []);
+  useEffect(
+    () => () => {
+      if (commitTimer.current) clearTimeout(commitTimer.current);
+    },
+    [],
+  );
 
   // A single-branch repo cannot auto-merge: the only merge target IS the
   // branch that ships to users. The toggle disables rather than pretending.
@@ -136,9 +155,10 @@ export function AgentSettingsCard({ project, onUpdate }: AgentSettingsCardProps)
       const updates: Partial<Project> = { [field]: value };
       // Colliding branches make auto-merge structurally impossible; reflect
       // that in the stored flag rather than leaving a toggle that lies.
-      const other = field === 'integration_branch'
-        ? (project.production_branch ?? 'main').trim()
-        : (project.integration_branch ?? 'dev').trim();
+      const other =
+        field === 'integration_branch'
+          ? (project.production_branch ?? 'main').trim()
+          : (project.integration_branch ?? 'dev').trim();
       if (value === other && project.auto_merge_enabled) {
         updates.auto_merge_enabled = false;
         toast('info', 'Auto-merge disabled: integration and production are the same branch');
@@ -163,8 +183,8 @@ export function AgentSettingsCard({ project, onUpdate }: AgentSettingsCardProps)
             <div className="min-w-0">
               <p className="text-sm font-medium text-white">Autonomous agents</p>
               <p className="text-xs text-zinc-500 mt-0.5 leading-relaxed">
-                Agents audit this project, spec approved work, and build it unprompted.
-                Off hides existing suggestions and stops everything new.
+                Agents audit this project, spec approved work, and build it unprompted. Off hides
+                existing suggestions and stops everything new.
               </p>
             </div>
             <Toggle
@@ -184,9 +204,22 @@ export function AgentSettingsCard({ project, onUpdate }: AgentSettingsCardProps)
             <div className="min-w-0">
               <p className="text-sm font-medium text-white">Auto-merge</p>
               <p className="text-xs text-zinc-500 mt-0.5 leading-relaxed">
-                {branchesCollide
-                  ? 'Unavailable: integration and production are the same branch, so every merge would ship to users.'
-                  : <>Green, contained PRs merge into <span className="font-mono text-zinc-400">{project.integration_branch ?? 'dev'}</span> without you. Sensitive paths, failing checks, and unverified criteria always hold for review. Nothing ever auto-merges into <span className="font-mono text-zinc-400">{project.production_branch ?? 'main'}</span>.</>}
+                {branchesCollide ? (
+                  'Unavailable: integration and production are the same branch, so every merge would ship to users.'
+                ) : (
+                  <>
+                    Green, contained PRs merge into{' '}
+                    <span className="font-mono text-zinc-400">
+                      {project.integration_branch ?? 'dev'}
+                    </span>{' '}
+                    without you. Sensitive paths, failing checks, and unverified criteria always
+                    hold for review. Nothing ever auto-merges into{' '}
+                    <span className="font-mono text-zinc-400">
+                      {project.production_branch ?? 'main'}
+                    </span>
+                    .
+                  </>
+                )}
               </p>
             </div>
             <Toggle
@@ -234,8 +267,8 @@ export function AgentSettingsCard({ project, onUpdate }: AgentSettingsCardProps)
             />
           </div>
           <p className="text-[11px] text-zinc-500 leading-relaxed">
-            The dev agent branches from and PRs into the integration branch. The production
-            branch is a declaration that it ships to users: the merge gate refuses it, always.
+            The dev agent branches from and PRs into the integration branch. The production branch
+            is a declaration that it ships to users: the merge gate refuses it, always.
           </p>
           <TextInput
             label="Sensitive paths"
@@ -302,8 +335,8 @@ export function AgentSettingsCard({ project, onUpdate }: AgentSettingsCardProps)
           </div>
           <p className="text-[11px] text-zinc-500 leading-relaxed">
             Per cycle limits one run&apos;s burst. The queue cap pauses discovery while that many
-            suggestions await your review; a full queue is an instruction, not a fault. The
-            interval is the minimum gap between audits of this project.
+            suggestions await your review; a full queue is an instruction, not a fault. The interval
+            is the minimum gap between audits of this project.
           </p>
         </div>
       </div>

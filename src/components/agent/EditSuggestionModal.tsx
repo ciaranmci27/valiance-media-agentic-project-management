@@ -5,7 +5,7 @@ import { TaskSuggestion, TASK_TYPES, TaskType } from '@/lib/types';
 import Modal from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import { Select } from '@/components/ui/Select';
+import { Select } from '@/components/ui/inputs/Select';
 import { Textarea } from '@/components/ui/inputs/Textarea';
 
 interface EditSuggestionModalProps {
@@ -27,17 +27,22 @@ export function EditSuggestionModal({ suggestion, onClose, onSave }: EditSuggest
   // without being able to edit these would let a reviewer change the intent of
   // a suggestion while the contract the developer is held to stayed untouched.
   const meta = (suggestion.metadata || {}) as Record<string, any>;
-  const [proposedFix, setProposedFix] = useState<string>(typeof meta.proposed_fix === 'string' ? meta.proposed_fix : '');
+  const [proposedFix, setProposedFix] = useState<string>(
+    typeof meta.proposed_fix === 'string' ? meta.proposed_fix : '',
+  );
   const [criteriaText, setCriteriaText] = useState<string>(
-    Array.isArray(meta.acceptance_criteria) ? meta.acceptance_criteria.join('\n') : ''
+    Array.isArray(meta.acceptance_criteria) ? meta.acceptance_criteria.join('\n') : '',
   );
   const [readiness, setReadiness] = useState<string>(
-    typeof meta.ai_readiness_recommendation === 'string' ? meta.ai_readiness_recommendation : ''
+    typeof meta.ai_readiness_recommendation === 'string' ? meta.ai_readiness_recommendation : '',
   );
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const criteria = criteriaText.split('\n').map(c => c.trim()).filter(Boolean);
+    const criteria = criteriaText
+      .split('\n')
+      .map((c) => c.trim())
+      .filter(Boolean);
     onSave({
       title,
       description,
@@ -60,26 +65,11 @@ export function EditSuggestionModal({ suggestion, onClose, onSave }: EditSuggest
   return (
     <Modal isOpen onClose={onClose} title="Edit Suggestion" size="md">
       <form onSubmit={handleSubmit} className="space-y-4">
-        <Input
-          label="Title"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          required
-        />
+        <Input label="Title" value={title} onChange={(e) => setTitle(e.target.value)} required />
 
-        <Textarea
-          label="Description"
-          value={description}
-          onChange={setDescription}
-          rows={4}
-        />
+        <Textarea label="Description" value={description} onChange={setDescription} rows={4} />
 
-        <Textarea
-          label="Reasoning"
-          value={reasoning}
-          onChange={setReasoning}
-          rows={3}
-        />
+        <Textarea label="Reasoning" value={reasoning} onChange={setReasoning} rows={3} />
 
         <Textarea
           label="Proposed fix"
@@ -94,7 +84,9 @@ export function EditSuggestionModal({ suggestion, onClose, onSave }: EditSuggest
           value={criteriaText}
           onChange={setCriteriaText}
           rows={4}
-          placeholder={'Observable behavior, one per line. These become the task criteria and gate the dev agent.'}
+          placeholder={
+            'Observable behavior, one per line. These become the task criteria and gate the dev agent.'
+          }
         />
 
         <Select
@@ -139,7 +131,7 @@ export function EditSuggestionModal({ suggestion, onClose, onSave }: EditSuggest
           onChange={(v) => setTaskType(v as TaskType | '')}
           options={[
             { value: '', label: 'None' },
-            ...TASK_TYPES.map(t => ({ value: t, label: t.charAt(0).toUpperCase() + t.slice(1) })),
+            ...TASK_TYPES.map((t) => ({ value: t, label: t.charAt(0).toUpperCase() + t.slice(1) })),
           ]}
         />
 
@@ -147,9 +139,7 @@ export function EditSuggestionModal({ suggestion, onClose, onSave }: EditSuggest
           <Button type="button" variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit">
-            Save Changes
-          </Button>
+          <Button type="submit">Save Changes</Button>
         </div>
       </form>
     </Modal>

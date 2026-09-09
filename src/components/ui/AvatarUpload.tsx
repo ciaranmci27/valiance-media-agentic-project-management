@@ -1,4 +1,5 @@
 'use client';
+import { FileInput } from '@/components/ui/inputs/FileInput';
 
 import { useRef, useState } from 'react';
 import { Avatar } from './Avatar';
@@ -82,27 +83,25 @@ export function AvatarUpload({
         {currentSrc && onRemove && !uploading && (
           <button
             type="button"
-            onClick={(e) => { e.stopPropagation(); onRemove(); }}
+            onClick={(e) => {
+              e.stopPropagation();
+              onRemove();
+            }}
             className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-red-500 text-white flex items-center justify-center sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 transition-opacity hover:bg-red-600"
           >
             <X size={12} />
           </button>
         )}
 
-        <input
+        <FileInput
           ref={inputRef}
-          type="file"
           accept="image/jpeg,image/png,image/webp"
           onChange={handleChange}
           className="hidden"
         />
       </div>
 
-      <AvatarCropModal
-        file={cropFile}
-        onCrop={handleCrop}
-        onCancel={() => setCropFile(null)}
-      />
+      <AvatarCropModal file={cropFile} onCrop={handleCrop} onCancel={() => setCropFile(null)} />
     </>
   );
 }

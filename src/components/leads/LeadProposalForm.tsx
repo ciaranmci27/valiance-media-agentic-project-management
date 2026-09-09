@@ -6,7 +6,7 @@ import { useApp } from '@/lib/store';
 import Modal from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import { Select } from '@/components/ui/Select';
+import { Select } from '@/components/ui/inputs/Select';
 import { Textarea } from '@/components/ui/inputs/Textarea';
 
 interface LeadProposalFormProps {
@@ -67,7 +67,10 @@ export function LeadProposalForm({ isOpen, onClose, leadId, proposal }: LeadProp
       description: description.trim(),
       estimated_value: estimatedValue ? parseFloat(estimatedValue) : null,
       status,
-      sent_at: status === 'sent' && !proposal?.sent_at ? new Date().toISOString() : proposal?.sent_at || null,
+      sent_at:
+        status === 'sent' && !proposal?.sent_at
+          ? new Date().toISOString()
+          : proposal?.sent_at || null,
     };
 
     if (proposal) {
