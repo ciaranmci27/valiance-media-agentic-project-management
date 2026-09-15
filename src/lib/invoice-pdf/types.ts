@@ -33,6 +33,8 @@ export interface InvoicePdfOptions {
   /** Retired: the page no longer draws a top bar. Kept because the key is
    *  persisted in projects.invoice_pdf_options and older rows carry it. */
   showTopAccent: boolean;
+  /** Retired: the diagonal PAID / OVERDUE / CANCELLED stamp is gone; the
+   *  chip in the amount tile is the status mark. Kept for the same reason. */
   showStatusStamp: boolean;
   showSenderName: boolean;
   showLineCaptions: boolean;

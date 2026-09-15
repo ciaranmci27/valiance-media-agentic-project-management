@@ -6,11 +6,6 @@ import {
   Image,
   Link,
   StyleSheet,
-  Svg,
-  Defs,
-  LinearGradient,
-  Stop,
-  Rect,
 } from '@react-pdf/renderer';
 import type { InvoiceStatus } from '@/lib/types';
 import { EMAIL, accentPalette } from '@/lib/email/templates/shared';
@@ -64,7 +59,6 @@ interface Palette {
   /** A neutral chip has to stand off the tile it sits on. */
   chipNeutralTile: string;
   chipNeutralBorder: string;
-  stampOpacity: number;
 }
 
 const PAPER: Palette = {
@@ -88,7 +82,6 @@ const PAPER: Palette = {
   roseBorder: '#E6C6C6',
   chipNeutralTile: '#FFFFFF',
   chipNeutralBorder: '#D9D6CF',
-  stampOpacity: 0.28,
 };
 
 function paletteFor(theme: InvoicePdfTheme): Palette {
@@ -115,12 +108,8 @@ function paletteFor(theme: InvoicePdfTheme): Palette {
     roseBorder: EMAIL.errorBorder,
     chipNeutralTile: EMAIL.border,
     chipNeutralBorder: EMAIL.borderStrong,
-    stampOpacity: 0.55,
   };
 }
-
-// The website button: the same teal gradient on either canvas, dark text.
-const BUTTON = { top: '#A3C4C4', bottom: '#5B8A8A', text: '#08090C', width: 100, height: 26 };
 
 type Tone = 'teal' | 'copper' | 'rose' | 'neutral';
 type Tones = Record<Tone, { text: string; tile: string; border: string }>;
@@ -137,8 +126,8 @@ function tonesFor(p: Palette): Tones {
 /**
  * How each status presents, mirroring the invoice email (statusDetails in
  * lib/email/templates/client/invoice.ts) so the PDF and the mail it travels
- * with say the same thing. Only the statuses with `stamp` get the diagonal
- * stamp, in their tone's colour.
+ * with say the same thing. The chip in the amount tile is the one status
+ * mark: the headline and the amount label already carry the state in words.
  */
 const STATUS: Record<InvoiceStatus, {
   amountLabel: string;
@@ -146,13 +135,12 @@ const STATUS: Record<InvoiceStatus, {
   tail: string;
   chip: string;
   tone: Tone;
-  stamp?: boolean;
 }> = {
   draft: { amountLabel: 'Draft total', title: 'Draft invoice for', tail: 'review.', chip: 'Draft', tone: 'neutral' },
   sent: { amountLabel: 'Amount due', title: 'Your invoice is', tail: 'ready.', chip: 'Sent', tone: 'teal' },
-  paid: { amountLabel: 'Amount paid', title: 'Payment', tail: 'received.', chip: 'Paid', tone: 'teal', stamp: true },
-  overdue: { amountLabel: 'Past due', title: 'This invoice is', tail: 'past due.', chip: 'Overdue', tone: 'copper', stamp: true },
-  cancelled: { amountLabel: 'Cancelled total', title: 'Invoice', tail: 'cancelled.', chip: 'Cancelled', tone: 'rose', stamp: true },
+  paid: { amountLabel: 'Amount paid', title: 'Payment', tail: 'received.', chip: 'Paid', tone: 'teal' },
+  overdue: { amountLabel: 'Past due', title: 'This invoice is', tail: 'past due.', chip: 'Overdue', tone: 'copper' },
+  cancelled: { amountLabel: 'Cancelled total', title: 'Invoice', tail: 'cancelled.', chip: 'Cancelled', tone: 'rose' },
 };
 
 const PAGE_MARGIN_X = 48;
@@ -261,22 +249,20 @@ function Heading({ title, tail, meta, kit }: { title: string; tail: string; meta
 }
 
 /** The website button as a PDF: gradient pill, dark text, an arrow. */
-function PillLink({ href, label, kit }: { href: string; label: string; kit: Kit }) {
-  const { styles } = kit;
+/**
+ * A link drawn as a chip: the same teal chip the amount tile wears for its
+ * status, a size up and with an arrow, so the callout's action speaks the
+ * tile's language instead of a solid button's.
+ */
+function ChipLink({ href, label, kit }: { href: string; label: string; kit: Kit }) {
+  const { styles, tones } = kit;
+  const c = tones.teal;
   return (
     <Link src={href} style={styles.plainLink}>
-      <View style={styles.pill}>
-        <Svg style={styles.pillBg} width={BUTTON.width} height={BUTTON.height} viewBox={`0 0 ${BUTTON.width} ${BUTTON.height}`}>
-          <Defs>
-            <LinearGradient id="pill" x1="0" y1="0" x2="0" y2="1">
-              <Stop offset="0" stopColor={BUTTON.top} />
-              <Stop offset="1" stopColor={BUTTON.bottom} />
-            </LinearGradient>
-          </Defs>
-          <Rect x={0} y={0} width={BUTTON.width} height={BUTTON.height} rx={BUTTON.height / 2} ry={BUTTON.height / 2} fill="url(#pill)" />
-        </Svg>
-        <Text style={styles.pillText}>{label}</Text>
-        <Text style={styles.pillText}>→</Text>
+      <View style={[styles.chipLink, { backgroundColor: c.tile, borderColor: c.border }]}>
+        <Text style={[styles.chipLinkText, { color: c.text }]}>{label}</Text>
+        {/* DM Mono has no arrow glyph; the sans does. */}
+        <Text style={[styles.chipLinkArrow, { color: c.text }]}>→</Text>
       </View>
     </Link>
   );
@@ -306,8 +292,10 @@ export function InvoiceDocument({ data, theme = 'dark' }: { data: InvoicePdfData
   const logoSrc = theme === 'dark' ? (data.logoDarkUrl ?? data.logoUrl) : data.logoUrl;
   const kit: Kit = { data, styles, tones, logoSrc };
   const status = STATUS[data.status] ?? STATUS.sent;
-  const stampColor = status.stamp ? tones[status.tone].text : null;
   const opts = data.options;
+  const showPortal = opts.showPortalLink && Boolean(data.portalUrl);
+  const showNotes = opts.showNotes && Boolean(data.notes);
+  const showPayment = opts.showPaymentInstructions && Boolean(data.paymentInstructions);
 
   // One mono line of facts under the headline, the way the emails do it.
   const meta = [
@@ -337,13 +325,6 @@ export function InvoiceDocument({ data, theme = 'dark' }: { data: InvoicePdfData
             </View>
             <Chip label={status.chip} tone={status.tone} kit={kit} />
           </View>
-          {/* Diagonal status stamp (paid / overdue / cancelled) in the tile's
-              empty right half, drawn after the fill so it sits on top. */}
-          {opts.showStatusStamp && stampColor && (
-            <View style={[styles.stamp, { borderColor: stampColor }]}>
-              <Text style={[styles.stampText, { color: stampColor }]}>{status.chip}</Text>
-            </View>
-          )}
         </View>
 
         {/* ── Parties ─────────────────────────────────────────────── */}
@@ -431,8 +412,29 @@ export function InvoiceDocument({ data, theme = 'dark' }: { data: InvoicePdfData
           );
         })}
 
-        {/* ── Totals ──────────────────────────────────────────────── */}
+        {/* ── Totals, with notes and payment instructions beside them ── */}
+        {/* The totals box is right-aligned and 260pt wide, which leaves half
+            the content width empty beside it on every invoice. Notes and
+            instructions take that space (memo left, money right, the way
+            clients already read invoices) instead of a block of their own
+            below, which used to spill onto a page of its own. */}
         <View style={styles.totalsWrap} wrap={false}>
+          {(showNotes || showPayment) && (
+            <View style={styles.totalsAside}>
+              {showNotes && (
+                <View>
+                  <Text style={[styles.monoLabel, styles.sectionLabel]}>Notes</Text>
+                  <Text style={styles.asideBody}>{data.notes}</Text>
+                </View>
+              )}
+              {showPayment && (
+                <View>
+                  <Text style={[styles.monoLabel, styles.sectionLabel]}>Payment instructions</Text>
+                  <Text style={styles.asideBody}>{data.paymentInstructions}</Text>
+                </View>
+              )}
+            </View>
+          )}
           <View style={styles.totalsBox}>
             <View style={styles.totalsRow}>
               <Text style={styles.monoLabel}>Subtotal</Text>
@@ -453,35 +455,17 @@ export function InvoiceDocument({ data, theme = 'dark' }: { data: InvoicePdfData
         </View>
 
         {/* ── Client portal ───────────────────────────────────────── */}
-        {opts.showPortalLink && data.portalUrl && (
+        {showPortal && (
           <View style={styles.callout} wrap={false}>
             <View style={styles.calloutText}>
               <Text style={styles.calloutTitle}>View this invoice in your client portal</Text>
               <Text style={styles.calloutBody}>Track payment status, attachments and project updates.</Text>
               {/* react-pdf gives every Link a blue underline by default; each one here sets its own look. */}
-              <Link src={data.portalUrl} style={styles.plainLink}>
+              <Link src={data.portalUrl!} style={styles.plainLink}>
                 <Text style={styles.calloutUrl}>{data.portalUrl}</Text>
               </Link>
             </View>
-            <PillLink href={data.portalUrl} label="Open portal" kit={kit} />
-          </View>
-        )}
-
-        {/* ── Notes and payment instructions ──────────────────────── */}
-        {((opts.showNotes && data.notes) || (opts.showPaymentInstructions && data.paymentInstructions)) && (
-          <View style={styles.bottomBlocks} wrap={false}>
-            {opts.showNotes && data.notes ? (
-              <View style={styles.bottomCol}>
-                <Text style={[styles.monoLabel, styles.sectionLabel]}>Notes</Text>
-                <Text style={styles.bottomBody}>{data.notes}</Text>
-              </View>
-            ) : <View style={styles.bottomCol} />}
-            {opts.showPaymentInstructions && data.paymentInstructions ? (
-              <View style={styles.bottomCol}>
-                <Text style={[styles.monoLabel, styles.sectionLabel]}>Payment instructions</Text>
-                <Text style={styles.bottomBody}>{data.paymentInstructions}</Text>
-              </View>
-            ) : <View style={styles.bottomCol} />}
+            <ChipLink href={data.portalUrl!} label="Open portal" kit={kit} />
           </View>
         )}
 
@@ -617,7 +601,7 @@ function createStyles(p: Palette) {
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'flex-start',
-      marginBottom: 34,
+      marginBottom: 22,
     },
     logo: { width: 120, height: 34, objectFit: 'contain' },
     logoFallback: { fontSize: 13, fontWeight: 600, color: p.ink, letterSpacing: -0.2 },
@@ -631,7 +615,7 @@ function createStyles(p: Palette) {
     },
 
     // ── Heading ────────────────────────────────
-    headingBlock: { marginBottom: 20 },
+    headingBlock: { marginBottom: 16 },
     heading: {
       fontSize: 25,
       fontWeight: 500,
@@ -648,7 +632,7 @@ function createStyles(p: Palette) {
       color: p.copper,
     },
     meta: {
-      marginTop: 7,
+      marginTop: 6,
       fontFamily: INVOICE_FONT_MONO,
       fontSize: 8,
       fontWeight: 400,
@@ -664,19 +648,19 @@ function createStyles(p: Palette) {
       borderColor: p.hairline,
       borderTopColor: p.tileRim,
       borderRadius: 12,
-      paddingVertical: 18,
+      paddingVertical: 14,
       paddingHorizontal: 20,
-      marginBottom: 28,
+      marginBottom: 20,
     },
     heroTop: {
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'flex-start',
     },
-    heroLabel: { marginBottom: 7 },
+    heroLabel: { marginBottom: 6 },
     heroAmount: {
       fontFamily: INVOICE_FONT_MONO,
-      fontSize: 30,
+      fontSize: 28,
       fontWeight: 300,
       letterSpacing: -0.6,
       lineHeight: 1,
@@ -702,7 +686,7 @@ function createStyles(p: Palette) {
     parties: {
       flexDirection: 'row',
       gap: 36,
-      marginBottom: 24,
+      marginBottom: 18,
     },
     party: { flex: 1 },
     partyHeading: { fontSize: 10.5, fontWeight: 600, color: p.ink, marginBottom: 4, letterSpacing: -0.1 },
@@ -755,7 +739,17 @@ function createStyles(p: Palette) {
     },
 
     // ── Totals ─────────────────────────────────
-    totalsWrap: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 20 },
+    totalsWrap: {
+      flexDirection: 'row',
+      justifyContent: 'flex-end',
+      alignItems: 'flex-start',
+      gap: 36,
+      marginTop: 20,
+    },
+    // The notes label sits on the subtotal's baseline: the totals row's own
+    // vertical padding, plus a hair for the mono label's cap height.
+    totalsAside: { flex: 1, paddingTop: 8, gap: 14 },
+    asideBody: { fontSize: 9, color: p.body, lineHeight: 1.45 },
     totalsBox: { width: 260 },
     totalsRow: {
       flexDirection: 'row',
@@ -795,16 +789,20 @@ function createStyles(p: Palette) {
     },
 
     // ── Client portal callout ──────────────────
+    // The same surface as the amount tile: neutral glass with the lighter
+    // rim, and one teal chip as the action. Teal stays a detail (the URL and
+    // the chip), never the whole box, so the two tiles read as one family.
     callout: {
-      marginTop: 22,
+      marginTop: 16,
       flexDirection: 'row',
       alignItems: 'center',
       gap: 16,
-      paddingVertical: 14,
-      paddingHorizontal: 16,
-      backgroundColor: p.accentTile,
+      paddingVertical: 12,
+      paddingHorizontal: 20,
+      backgroundColor: p.tile,
       borderWidth: 0.75,
-      borderColor: p.accentBorder,
+      borderColor: p.hairline,
+      borderTopColor: p.tileRim,
       borderRadius: 12,
     },
     calloutText: { flex: 1 },
@@ -817,29 +815,23 @@ function createStyles(p: Palette) {
       fontWeight: 400,
       color: p.accent,
     },
-    pill: {
-      position: 'relative',
-      width: BUTTON.width,
-      height: BUTTON.height,
+    chipLink: {
       flexDirection: 'row',
       alignItems: 'center',
-      justifyContent: 'center',
       gap: 6,
+      paddingVertical: 6,
+      paddingHorizontal: 12,
+      borderRadius: 999,
+      borderWidth: 0.75,
     },
-    pillBg: { position: 'absolute', top: 0, left: 0 },
-    pillText: { fontSize: 8.5, fontWeight: 600, color: BUTTON.text, letterSpacing: -0.05 },
-
-    // ── Notes and instructions ─────────────────
-    bottomBlocks: {
-      flexDirection: 'row',
-      gap: 36,
-      marginTop: 32,
-      paddingTop: 18,
-      borderTopWidth: 0.5,
-      borderTopColor: p.hairline,
+    chipLinkText: {
+      fontFamily: INVOICE_FONT_MONO,
+      fontSize: 7.5,
+      fontWeight: 500,
+      letterSpacing: 0.55,
+      textTransform: 'uppercase',
     },
-    bottomCol: { flex: 1 },
-    bottomBody: { fontSize: 9, color: p.body, lineHeight: 1.55 },
+    chipLinkArrow: { fontFamily: INVOICE_FONT_FAMILY, fontSize: 8.5, fontWeight: 600 },
 
     // ── Footer ─────────────────────────────────
     footerRule: {
@@ -867,26 +859,6 @@ function createStyles(p: Palette) {
       color: p.muted,
     },
     footerCenter: { textAlign: 'center', flex: 1 },
-
-    // ── Status stamp (inside the amount tile) ──
-    stamp: {
-      position: 'absolute',
-      top: 40,
-      right: 22,
-      paddingVertical: 6,
-      paddingHorizontal: 14,
-      borderWidth: 1,
-      borderRadius: 4,
-      transform: 'rotate(-6deg)',
-      opacity: p.stampOpacity,
-    },
-    stampText: {
-      fontFamily: INVOICE_FONT_MONO,
-      fontSize: 14,
-      fontWeight: 500,
-      letterSpacing: 4,
-      textTransform: 'uppercase',
-    },
 
     // ── Time logs page ─────────────────────────
     statRow: {

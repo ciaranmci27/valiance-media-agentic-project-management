@@ -357,6 +357,27 @@ function workedSliceRange(
   };
 }
 
+/**
+ * Longest description the time log prints per entry, in characters. Roughly
+ * ten lines of the description column. Entries are logged with the full
+ * write-up (some run to several paragraphs) but on the invoice a row is a
+ * receipt line, not a report: past this the rest is cut at a word boundary
+ * and the record stays intact in the database. The cap also keeps a row
+ * shorter than a page, which the unbreakable table rows depend on: a row
+ * taller than the page forces react-pdf to squeeze everything else on that
+ * page and drops whatever runs past the bottom.
+ */
+export const TIME_LOG_DESCRIPTION_MAX_CHARS = 320;
+
+export function clampTimeLogDescription(description: string): string {
+  const text = description.trim();
+  if (text.length <= TIME_LOG_DESCRIPTION_MAX_CHARS) return text;
+  const head = text.slice(0, TIME_LOG_DESCRIPTION_MAX_CHARS);
+  const lastBreak = Math.max(head.lastIndexOf(' '), head.lastIndexOf('\n'));
+  const cut = lastBreak > TIME_LOG_DESCRIPTION_MAX_CHARS / 2 ? head.slice(0, lastBreak) : head;
+  return `${cut.replace(/[\s,;:.-]+$/, '')}…`;
+}
+
 function buildTimeLogEntries({
   allocations,
   team,
@@ -384,7 +405,7 @@ function buildTimeLogEntries({
         hours: allocation.hours,
         hourlyRate: allocation.hourlyRate,
         amount: allocation.amount,
-        description: allocation.timeEntry.description ?? '',
+        description: clampTimeLogDescription(allocation.timeEntry.description ?? ''),
         memberName: memberById.get(allocation.timeEntry.member_id) ?? '',
       };
     });

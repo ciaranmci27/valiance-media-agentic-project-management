@@ -503,7 +503,7 @@ function invoicePdfRenderError(error: unknown): RenderError {
   return { error: message };
 }
 
-/** Everything the invoice PDF needs, loaded once so both editions share it. */
+/** Everything the invoice PDF needs, loaded once per render. */
 async function loadInvoicePdfData(
   projectId: string,
   invoiceId: string,
@@ -597,20 +597,18 @@ export async function buildInvoicePdfAttachment(
 }
 
 /**
- * Both editions for an email: the dark one that matches the mail it rides
- * in, and the print version on white for whoever files a paper copy.
+ * The one attachment an invoice email carries: the dark edition, the same
+ * canvas as the mail it rides in, the portal and the preview. Two files
+ * that differ only in color read as a duplicate to whoever files them; the
+ * paper edition stays a download from the app for the rare print case.
  */
-export async function buildInvoicePdfAttachments(
+export async function buildInvoiceEmailAttachments(
   projectId: string,
   invoiceId: string,
   triggeredBy?: string | null,
 ): Promise<EmailAttachment[] | RenderError> {
-  const data = await loadInvoicePdfData(projectId, invoiceId, triggeredBy ?? null);
-  if ('error' in data) return data;
-  const [dark, paper] = await Promise.all([renderInvoicePdf(data, 'dark'), renderInvoicePdf(data, 'paper')]);
-  if ('error' in dark) return dark;
-  if ('error' in paper) return paper;
-  return [dark, paper];
+  const built = await buildInvoicePdfAttachment(projectId, invoiceId, triggeredBy, 'dark');
+  return 'error' in built ? built : [built];
 }
 
 interface BudgetUsage {
@@ -859,18 +857,13 @@ export async function renderCommunication(
         paidDate: invoice.paid_date,
         attachmentFilename,
       },
-      // Both editions ride along: the dark one that matches the mail, and the
-      // print version on white.
+      // One attachment, the dark edition that matches the mail. The paper
+      // edition is a download from the app, never a second file here.
       attachments: [
         {
           filename: attachmentFilename,
           contentType: 'application/pdf',
           previewUrl: `/api/projects/${projectId}/invoices/${invoice.id}/pdf`,
-        },
-        {
-          filename: invoicePdfFilename(invoice.invoice_number, 'paper'),
-          contentType: 'application/pdf',
-          previewUrl: `/api/projects/${projectId}/invoices/${invoice.id}/pdf?theme=paper`,
         },
       ],
     };
@@ -1206,7 +1199,7 @@ export async function sendCommunication(
       await markCommunicationFailed(commId, 'Invoice metadata is missing invoiceId');
       return { success: false, error: 'Invoice metadata is missing invoiceId' };
     }
-    const built = await buildInvoicePdfAttachments(projectId, invoiceId, opts.triggeredBy ?? null);
+    const built = await buildInvoiceEmailAttachments(projectId, invoiceId, opts.triggeredBy ?? null);
     if ('error' in built) {
       await markCommunicationFailed(commId, built.error);
       return { success: false, error: built.error };
@@ -1407,7 +1400,7 @@ export async function approveCommunication(
         .eq('status', 'sent');
       return { success: false, error: 'Invoice metadata is missing invoiceId' };
     }
-    const built = await buildInvoicePdfAttachments(row.project_id, invoiceId, triggeredBy);
+    const built = await buildInvoiceEmailAttachments(row.project_id, invoiceId, triggeredBy);
     if ('error' in built) {
       await supabase
         .from('client_communications')

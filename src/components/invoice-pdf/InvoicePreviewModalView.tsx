@@ -4,6 +4,13 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { X, Download, Loader2, FileText, Settings, RotateCcw } from 'lucide-react';
 import type { InvoicePdfData, InvoicePdfOptions, InvoicePdfTheme } from '@/lib/invoice-pdf/types';
 import { DEFAULT_INVOICE_PDF_OPTIONS } from '@/lib/invoice-pdf/types';
+import { useContentStable } from './useContentStable';
+
+/** Everything the reader sees; the build timestamp is not part of it. */
+function contentKey(data: InvoicePdfData | null): string {
+  if (!data) return 'null';
+  return JSON.stringify({ ...data, generatedAt: null });
+}
 
 // React-PDF and pdfjs are heavy. Load them on demand so callers don't pay
 // the cost until someone actually opens a preview.
@@ -115,7 +122,6 @@ interface InvoicePreviewModalViewProps {
 
 const TOGGLE_DEFINITIONS: { key: keyof InvoicePdfOptions; label: string; description: string }[] = [
   { key: 'showLogo',                label: 'Logo',                 description: 'Show the brand logo in the header.' },
-  { key: 'showStatusStamp',         label: 'Status stamp',         description: 'Letter-spaced PAID / OVERDUE / CANCELLED stamp.' },
   { key: 'showSenderName',          label: 'Sender name',          description: 'Your name underneath the business in “From”.' },
   { key: 'showLineCaptions',        label: 'Line item captions',   description: 'Service period and frequency under each line item.' },
   { key: 'showPortalLink',          label: 'Client portal link',   description: 'Callout linking to the project portal (only shown when enabled).' },
@@ -148,7 +154,7 @@ function saveBlobUrl(url: string, filename: string) {
 export function InvoicePreviewModalView({
   isOpen,
   onClose,
-  pdfData,
+  pdfData: pdfDataProp,
   integrityError,
   invoiceNumber,
   clientLabel,
@@ -158,6 +164,12 @@ export function InvoicePreviewModalView({
   appearance = 'themed',
 }: InvoicePreviewModalViewProps) {
   const chrome = CHROME[appearance];
+  // The caller rebuilds this object whenever the store moves (an optimistic
+  // write, then the server's echo of the same row). Only a change in content
+  // should cost a PDF rebuild, so the identity is pinned to the content, and
+  // the build timestamp is left out of "content": every build stamps a new
+  // one, but the footer prints only its date.
+  const pdfData = useContentStable(pdfDataProp, contentKey);
   const overlayRef = useRef<HTMLDivElement>(null);
   const customizeButtonRef = useRef<HTMLDivElement>(null);
   const settingsPanelRef = useRef<HTMLDivElement>(null);
@@ -168,6 +180,8 @@ export function InvoicePreviewModalView({
   const [docLib, setDocLib] = useState<DocModule | null>(null);
   const [previewLib, setPreviewLib] = useState<PreviewModule | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  /** True from a document change until its blob is ready. */
+  const [generating, setGenerating] = useState(false);
   /** Which edition is being generated for download, or null when idle. */
   const [downloading, setDownloading] = useState<InvoicePdfTheme | null>(null);
   const [downloadMenuOpen, setDownloadMenuOpen] = useState(false);
@@ -199,17 +213,21 @@ export function InvoicePreviewModalView({
 
   // Render the document to a blob URL so the canvas-based PdfPagesPreview can
   // load it. Regenerates whenever documentNode changes (e.g. user toggles a
-  // customizer option). The previous URL is kept alive until the new blob is
-  // ready so the on-screen pages don't flash to a loading state mid-toggle.
-  // We deliberately don't revoke the in-flight URL on cleanup: pdfjs may still
-  // be loading the blob, and we'd rather leak briefly until it gets replaced
-  // (next blob ready) or the modal unmounts than break a mid-load fetch.
+  // customizer option). While a rebuild is in flight the preview shows its
+  // loading screen rather than the stale pages: one steady "Generating
+  // preview" from the toggle until the new pages have painted reads better
+  // than old pages that jump to new ones. The previous URL is only revoked
+  // once the new blob is ready so nothing mid-load loses its source; we
+  // deliberately don't revoke the in-flight URL on cleanup either, since
+  // pdfjs may still be loading it and a brief leak beats a broken fetch.
   useEffect(() => {
     if (!pdfLib || !documentNode) {
       setPreviewUrl(null);
+      setGenerating(false);
       return;
     }
     let cancelled = false;
+    setGenerating(true);
 
     pdfLib.pdf(documentNode).toBlob().then((blob: Blob) => {
       if (cancelled) return;
@@ -218,6 +236,7 @@ export function InvoicePreviewModalView({
         if (prev) URL.revokeObjectURL(prev);
         return newUrl;
       });
+      setGenerating(false);
     });
 
     return () => { cancelled = true; };
@@ -378,7 +397,7 @@ export function InvoicePreviewModalView({
             <div ref={downloadButtonRef}>
               <button
                 onClick={() => { setSettingsOpen(false); setDownloadMenuOpen(o => !o); }}
-                disabled={!pdfData || !pdfLib || !docLib || downloading !== null}
+                disabled={!pdfData || !pdfLib || !docLib || generating || downloading !== null}
                 aria-haspopup="menu"
                 aria-expanded={downloadMenuOpen}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
@@ -495,7 +514,7 @@ export function InvoicePreviewModalView({
               </div>
             </div>
           ) : previewLib ? (
-            <previewLib.PdfPagesPreview file={previewUrl} appearance={appearance} />
+            <previewLib.PdfPagesPreview file={generating ? null : previewUrl} appearance={appearance} />
           ) : (
             <div className="w-full h-full flex flex-col items-center justify-center text-zinc-400">
               <Loader2 size={28} className="animate-spin mb-3" />
