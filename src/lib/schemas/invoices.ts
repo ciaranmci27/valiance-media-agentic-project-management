@@ -14,6 +14,9 @@ export const invoiceLineItemSchema = z.object({
   service_start_date: z.string().nullable().default(null),
   service_end_date: z.string().nullable().default(null),
   recurrence_frequency: recurrenceFrequencyEnum.nullable().default(null),
+  // Links the line to a project retainer. Kept optional so a PATCH that
+  // round-trips line items does not strip the link (unknown keys are dropped).
+  retainer_id: z.string().uuid().nullable().optional(),
 });
 
 export const invoiceTimeAllocationSchema = z.object({

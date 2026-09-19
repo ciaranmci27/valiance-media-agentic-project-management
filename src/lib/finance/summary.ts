@@ -5,7 +5,7 @@
 // never disagree. The Finances page owns only presentation on top of this (bucketing
 // days into bars, axis labels, drilldown), never the money rules.
 
-import type { Project, ProjectInvoice, TimeEntry, TeamMember, EmployeeEarningsData } from '@/lib/types';
+import type { Project, ProjectInvoice, TimeEntry, TeamMember, EmployeeEarningsData, InvoiceLineItem } from '@/lib/types';
 import { getWorkedHours, getWorkedHoursByDay } from '@/lib/time-entry-utils';
 import { ensureLineItems, spreadLineItem, invoicedTotalsByItemType, totalBillableAmount } from '@/lib/invoice-utils';
 import { dayVestingRatio } from '@/lib/finance/vesting';
@@ -22,6 +22,78 @@ export interface FinanceEngineInput {
   timezone?: string;
   range: DateRange;
   selectedProjectIds?: Set<string>;
+  /** Total revenue-split percent per invoice line (see lineShareKey). Empty for
+   *  callers who cannot see compensation, which leaves every line at 100%. */
+  lineSharePercent?: ReadonlyMap<string, number>;
+  /** Retainer months covering today that have no invoice line yet. */
+  accruingRetainerLines?: AccruingRetainerLine[];
+}
+
+/** One row of the retainer_accruing_lines() RPC. */
+export interface AccruingRetainerLine {
+  project_id: string;
+  retainer_id: string;
+  period_start: string;
+  period_end: string;
+  amount: number;
+  share_percent: number;
+}
+
+export const lineShareKey = (invoiceId: string, lineItemId: string) => `${invoiceId}:${lineItemId}`;
+
+/** A fixed or recurring line that accrues revenue, with the part owed to split members. */
+export interface ServiceAccrualLine {
+  projectId: string;
+  item: InvoiceLineItem;
+  fallbackDate: string;
+  /** 0..1 of the line that belongs to split members, not the company. */
+  shareRatio: number;
+}
+
+/**
+ * Every line that vests day by day: real fixed and recurring invoice lines,
+ * plus a stand-in for a retainer month that has not been invoiced yet, so an
+ * arrears retainer (or a late draft) still ticks during the month it covers.
+ */
+export function serviceAccrualLines(
+  invoices: ProjectInvoice[],
+  input: Pick<FinanceEngineInput, 'lineSharePercent' | 'accruingRetainerLines'>,
+  projectIncluded: (projectId: string) => boolean = () => true,
+): ServiceAccrualLine[] {
+  const lines: ServiceAccrualLine[] = [];
+  const ratio = (percent: number) => Math.min(1, Math.max(0, percent / 100));
+  for (const invoice of invoices) {
+    if (invoice.status === 'cancelled' || !projectIncluded(invoice.project_id)) continue;
+    for (const item of ensureLineItems(invoice)) {
+      if (item.item_type !== 'fixed' && item.item_type !== 'recurring') continue;
+      lines.push({
+        projectId: invoice.project_id,
+        item,
+        fallbackDate: invoice.date,
+        shareRatio: ratio(input.lineSharePercent?.get(lineShareKey(invoice.id, item.id)) ?? 0),
+      });
+    }
+  }
+  for (const accruing of input.accruingRetainerLines ?? []) {
+    if (!projectIncluded(accruing.project_id)) continue;
+    lines.push({
+      projectId: accruing.project_id,
+      item: {
+        id: `accruing:${accruing.retainer_id}:${accruing.period_start}`,
+        position: 0,
+        item_type: 'recurring',
+        amount: accruing.amount,
+        description: '',
+        service_start_date: accruing.period_start,
+        service_end_date: accruing.period_end,
+        recurrence_frequency: 'monthly',
+        retainer_id: accruing.retainer_id,
+      },
+      fallbackDate: accruing.period_start,
+      shareRatio: ratio(accruing.share_percent),
+    });
+  }
+  return lines;
 }
 
 export interface ProjectFinanceRow {
@@ -178,19 +250,17 @@ export function computeFinanceData(input: FinanceEngineInput): FinanceData {
   // Amortized fixed/recurring revenue per day, broken down by project, vested to `now`.
   const fixedByDayProject = new Map<string, Map<string, number>>();
   const recurringByDayProject = new Map<string, Map<string, number>>();
-  for (const inv of fInvoices) {
-    if (inv.status === 'cancelled') continue;
-    for (const li of ensureLineItems(inv)) {
-      if (li.item_type === 'hourly' || li.item_type === 'reimbursement') continue;
-      const bucket = li.item_type === 'recurring' ? recurringByDayProject : fixedByDayProject;
-      for (const [dk, dollars] of spreadLineItem(li, inv.date)) {
-        if (dk < startKey || dk > endKey) continue;
-        const vested = dollars * dayVestingRatio(dk, now, timezone);
-        if (vested <= 0) continue;
-        if (!bucket.has(dk)) bucket.set(dk, new Map());
-        const pmap = bucket.get(dk)!;
-        pmap.set(inv.project_id, (pmap.get(inv.project_id) ?? 0) + vested);
-      }
+  // A split line counts for the company's part only, the same way employee
+  // hours count for their margin (teamContribution) and not their full value.
+  for (const line of serviceAccrualLines(fInvoices, input, pid => !filterActive || sel!.has(pid))) {
+    const bucket = line.item.item_type === 'recurring' ? recurringByDayProject : fixedByDayProject;
+    for (const [dk, dollars] of spreadLineItem(line.item, line.fallbackDate)) {
+      if (dk < startKey || dk > endKey) continue;
+      const vested = dollars * (1 - line.shareRatio) * dayVestingRatio(dk, now, timezone);
+      if (vested <= 0) continue;
+      if (!bucket.has(dk)) bucket.set(dk, new Map());
+      const pmap = bucket.get(dk)!;
+      pmap.set(line.projectId, (pmap.get(line.projectId) ?? 0) + vested);
     }
   }
 
@@ -392,14 +462,14 @@ export function computeFinanceAttribution(input: FinanceAttributionInput): Finan
 
   if (sourceIncluded('business') && !input.selectedMemberIds?.size) {
     let businessRevenue = 0;
-    for (const invoice of input.invoices) {
-      if (invoice.status === 'cancelled' || !projectIncluded(invoice.project_id)) continue;
-      for (const item of ensureLineItems(invoice)) {
-        if (item.item_type !== 'fixed' && item.item_type !== 'recurring') continue;
-        for (const [dateKey, dollars] of spreadLineItem(item, invoice.date)) {
-          if (dateKey < startKey || dateKey > endKey) continue;
-          businessRevenue += dollars * dayVestingRatio(dateKey, input.now, input.timezone);
-        }
+    // What split members earn out of this revenue: cost of revenue, not margin.
+    let businessShareCost = 0;
+    for (const line of serviceAccrualLines(input.invoices, input, projectIncluded)) {
+      for (const [dateKey, dollars] of spreadLineItem(line.item, line.fallbackDate)) {
+        if (dateKey < startKey || dateKey > endKey) continue;
+        const vested = dollars * dayVestingRatio(dateKey, input.now, input.timezone);
+        businessRevenue += vested;
+        businessShareCost += vested * line.shareRatio;
       }
     }
     mutableRows.set('business', {
@@ -408,8 +478,8 @@ export function computeFinanceAttribution(input: FinanceAttributionInput): Finan
       source: 'business',
       memberId: null,
       grossRevenue: businessRevenue,
-      recordedCost: 0,
-      contribution: businessRevenue,
+      recordedCost: businessShareCost,
+      contribution: businessRevenue - businessShareCost,
       hours: 0,
       costTracking: 'tracked',
     });
@@ -451,12 +521,20 @@ export function computeMemberEarningsSummary(data: EmployeeEarningsData, range: 
     if (adjustment.voided_at || adjustment.effective_date < startKey || adjustment.effective_date > endKey) continue;
     earned += Number(adjustment.amount) * (adjustment.adjustment_type === 'deduction' ? -1 : 1);
   }
+  // Revenue-split earnings land on the day the client paid. A reversed one
+  // still counts; its clawback is the deduction written alongside it.
+  const shareEarnings = (data.shareEarnings ?? []).filter(item => !item.voided_at);
+  for (const earning of shareEarnings) {
+    if (earning.earned_date < startKey || earning.earned_date > endKey) continue;
+    earned += Number(earning.amount);
+  }
   const allApproved = data.entries
     .filter(entry => entry.approval_status === 'approved')
     .reduce((sum, entry) => sum + [...getWorkedHoursByDay(entry).values()].reduce((s, v) => s + v, 0) * Number(entry.compensation_rate || 0), 0)
     + data.adjustments
       .filter(item => !item.voided_at)
-      .reduce((sum, item) => sum + Number(item.amount) * (item.adjustment_type === 'deduction' ? -1 : 1), 0);
+      .reduce((sum, item) => sum + Number(item.amount) * (item.adjustment_type === 'deduction' ? -1 : 1), 0)
+    + shareEarnings.reduce((sum, item) => sum + Number(item.amount), 0);
   const allocated = data.allocations.reduce((sum, allocation) => sum + Number(allocation.allocated_amount), 0);
   return { earned, owed: Math.max(0, allApproved - allocated) };
 }

@@ -27,6 +27,7 @@ import type {
   TeamMemberHourlyRate,
   TeamMemberPayout,
   TeamMemberPayoutAllocation,
+  TeamMemberShareEarning,
   TimeEntry,
 } from '@/lib/types';
 import { Checkbox } from '@/components/ui/inputs/Checkbox';
@@ -44,6 +45,7 @@ type PayrollData = {
   adjustments: TeamMemberEarningAdjustment[];
   payouts: TeamMemberPayout[];
   allocations: TeamMemberPayoutAllocation[];
+  shareEarnings: TeamMemberShareEarning[];
 };
 
 const EMPTY: PayrollData = {
@@ -52,6 +54,7 @@ const EMPTY: PayrollData = {
   adjustments: [],
   payouts: [],
   allocations: [],
+  shareEarnings: [],
 };
 const money = (value: number) =>
   value.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
@@ -66,7 +69,7 @@ const ROLE_BADGE_CLASSES: Record<TeamMember['role'], string> = {
 type EarningsFilter = 'all' | 'pending' | 'approved' | 'unpaid';
 type EarningsRow = {
   id: string;
-  kind: 'time' | 'adjustment';
+  kind: 'time' | 'adjustment' | 'share';
   date: string;
   description: string;
   projectName: string;
@@ -103,7 +106,7 @@ export function PayrollPanel({ team, projects }: { team: TeamMember[]; projects:
   const [paymentMethod, setPaymentMethod] = useState('');
   const [paymentReference, setPaymentReference] = useState('');
   const [menuMemberId, setMenuMemberId] = useState<string | null>(null);
-  const compMenuRef = useRef<HTMLDivElement>(null);
+  const compMenuRef = useRef<HTMLElement | null>(null);
   const [ledgerMemberId, setLedgerMemberId] = useState<string | null>(null);
   const [earningsFilter, setEarningsFilter] = useState<EarningsFilter>('all');
   const [sessionEntryId, setSessionEntryId] = useState<string | null>(null);
@@ -153,7 +156,7 @@ export function PayrollPanel({ team, projects }: { team: TeamMember[]; projects:
   const load = useCallback(async () => {
     if (!hasPanelIdentity) return;
     if (isDemoMode) {
-      setData(demoPayrollData);
+      setData({ ...EMPTY, ...demoPayrollData });
       setLoading(false);
       return;
     }
@@ -162,7 +165,7 @@ export function PayrollPanel({ team, projects }: { team: TeamMember[]; projects:
       const response = await fetch('/api/workspace/payroll', { cache: 'no-store' });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || 'Failed to load payroll');
-      setData(payload.data);
+      setData({ ...EMPTY, ...payload.data });
     } catch (error) {
       toast('error', error instanceof Error ? error.message : 'Failed to load payroll');
     } finally {
@@ -221,6 +224,17 @@ export function PayrollPanel({ team, projects }: { team: TeamMember[]; projects:
     return map;
   }, [data.allocations]);
 
+  const allocatedByShareEarning = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const row of data.allocations)
+      if (row.share_earning_id)
+        map.set(
+          row.share_earning_id,
+          (map.get(row.share_earning_id) || 0) + Number(row.allocated_amount),
+        );
+    return map;
+  }, [data.allocations]);
+
   const balances = useMemo(() => {
     const map = new Map<string, { earned: number; paid: number; owed: number }>();
     const ensure = (id: string) => map.get(id) || { earned: 0, paid: 0, owed: 0 };
@@ -241,6 +255,16 @@ export function PayrollPanel({ team, projects }: { team: TeamMember[]; projects:
       current.owed += amount - (allocatedByAdjustment.get(adjustment.id) || 0);
       map.set(adjustment.member_id, current);
     }
+    // Revenue-split earnings. A reversed one still counts: the deduction
+    // written with the reversal is what takes it back.
+    for (const earning of data.shareEarnings) {
+      if (earning.voided_at) continue;
+      const amount = Number(earning.amount);
+      const current = ensure(earning.member_id);
+      current.earned += amount;
+      current.owed += amount - (allocatedByShareEarning.get(earning.id) || 0);
+      map.set(earning.member_id, current);
+    }
     for (const payout of data.payouts) {
       if (payout.voided_at) continue;
       const current = ensure(payout.member_id);
@@ -248,7 +272,15 @@ export function PayrollPanel({ team, projects }: { team: TeamMember[]; projects:
       map.set(payout.member_id, current);
     }
     return map;
-  }, [allocatedByAdjustment, allocatedByEntry, data.adjustments, data.entries, data.payouts]);
+  }, [
+    allocatedByAdjustment,
+    allocatedByEntry,
+    allocatedByShareEarning,
+    data.adjustments,
+    data.entries,
+    data.payouts,
+    data.shareEarnings,
+  ]);
   const projectNames = useMemo(
     () => new Map(projects.map((project) => [project.id, project.name])),
     [projects],
@@ -301,12 +333,32 @@ export function PayrollPanel({ team, projects }: { team: TeamMember[]; projects:
         remaining: amount - (allocatedByAdjustment.get(adjustment.id) || 0),
       });
     }
+    for (const earning of data.shareEarnings) {
+      if (earning.member_id !== ledgerMemberId || earning.voided_at) continue;
+      const amount = Number(earning.amount);
+      rows.push({
+        id: earning.id,
+        kind: 'share',
+        date: `${earning.earned_date}T00:00:00`,
+        description: [earning.invoice_number, earning.description, `${Number(earning.percent)}% share`]
+          .filter(Boolean)
+          .join(' - '),
+        projectName: earning.project_id
+          ? projectNames.get(earning.project_id) || 'Unknown project'
+          : 'Deleted project',
+        status: 'approved',
+        amount,
+        remaining: amount - (allocatedByShareEarning.get(earning.id) || 0),
+      });
+    }
     return rows.sort((a, b) => b.date.localeCompare(a.date));
   }, [
     allocatedByAdjustment,
     allocatedByEntry,
+    allocatedByShareEarning,
     data.adjustments,
     data.entries,
+    data.shareEarnings,
     ledgerMemberId,
     projectNames,
   ]);
@@ -604,6 +656,7 @@ export function PayrollPanel({ team, projects }: { team: TeamMember[]; projects:
       const allocations: Array<{
         time_entry_id?: string;
         adjustment_id?: string;
+        share_earning_id?: string;
         allocated_amount: number;
       }> = [];
       const negativeAdjustments = data.adjustments
@@ -627,6 +680,7 @@ export function PayrollPanel({ team, projects }: { team: TeamMember[]; projects:
         date: string;
         time_entry_id?: string;
         adjustment_id?: string;
+        share_earning_id?: string;
         remaining: number;
       }> = [
         ...data.entries
@@ -650,6 +704,13 @@ export function PayrollPanel({ team, projects }: { team: TeamMember[]; projects:
             adjustment_id: item.id,
             remaining: Number(item.amount) - (allocatedByAdjustment.get(item.id) || 0),
           })),
+        ...data.shareEarnings
+          .filter((item) => item.member_id === payMemberId && !item.voided_at)
+          .map((item) => ({
+            date: item.earned_date,
+            share_earning_id: item.id,
+            remaining: Number(item.amount) - (allocatedByShareEarning.get(item.id) || 0),
+          })),
       ]
         .filter((claim) => claim.remaining > 0.005)
         .sort((a, b) => a.date.localeCompare(b.date));
@@ -659,6 +720,7 @@ export function PayrollPanel({ team, projects }: { team: TeamMember[]; projects:
         allocations.push({
           time_entry_id: claim.time_entry_id,
           adjustment_id: claim.adjustment_id,
+          share_earning_id: claim.share_earning_id,
           allocated_amount: Number(applied.toFixed(2)),
         });
         target -= applied;
@@ -1065,19 +1127,21 @@ export function PayrollPanel({ team, projects }: { team: TeamMember[]; projects:
                         <CheckCircle2 size={18} className="text-emerald-500" />
                       )}
                       {canManage && (
-                        <div
-                          ref={menuMemberId === member.id ? compMenuRef : null}
-                          className="relative"
-                        >
+                        <div className="relative">
                           <button
                             type="button"
                             aria-label={`Compensation actions for ${member.name}`}
                             aria-expanded={menuMemberId === member.id}
-                            onClick={() =>
+                            onClick={(event) => {
+                              // Anchor before the state change. A ref prop that only
+                              // attaches once this row's menu is open lands after the
+                              // Popover's layout effect has measured, so it found no
+                              // anchor and never rendered.
+                              compMenuRef.current = event.currentTarget;
                               setMenuMemberId((current) =>
                                 current === member.id ? null : member.id,
-                              )
-                            }
+                              );
+                            }}
                             className="rounded-md p-1 text-zinc-500 transition-colors hover:bg-white/[0.06] hover:text-zinc-300"
                           >
                             <MoreVertical size={16} />
@@ -1251,6 +1315,11 @@ export function PayrollPanel({ team, projects }: { team: TeamMember[]; projects:
                           {row.kind === 'adjustment' && (
                             <span className="rounded-full bg-white/[0.06] px-1.5 py-0.5 text-[10px] font-medium text-zinc-400">
                               Adjustment
+                            </span>
+                          )}
+                          {row.kind === 'share' && (
+                            <span className="rounded-full bg-brand-500/15 px-1.5 py-0.5 text-[10px] font-medium text-brand-300">
+                              Revenue share
                             </span>
                           )}
                         </div>

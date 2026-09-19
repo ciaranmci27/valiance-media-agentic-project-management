@@ -15,6 +15,7 @@ import { Sparkline } from '@/components/ui/Sparkline';
 import { parseDateOnly, toLocalDateKey } from '@/lib/date-utils';
 import { hasPermission } from '@/lib/access-control';
 import { computeCompanyFinanceSummary, computeMemberEarningsSummary } from '@/lib/finance/summary';
+import { useRetainerFinanceInputs } from '@/lib/finance/use-retainer-finance';
 import { toDateKey } from '@/lib/finance/vesting';
 import { isRunning } from '@/lib/time-entry-utils';
 
@@ -69,26 +70,33 @@ export default function DashboardPage() {
   }, [canReadCompanyFinance, runningTimerCount]);
 
   const activeProjects = projects.filter(p => p.status === 'active');
-  const inProgressTasks = tasks.filter(t => t.status === 'in_progress');
-  const doneTasks = tasks.filter(t => t.status === 'done');
+  // Whoever runs the whole board sees the whole board. Everyone else sees their
+  // own work: `tasks` holds every task on the projects they can open, so without
+  // this a member's Activity chart counted tasks other people finished.
+  const seesAllTasks = hasPermission(access, 'tasks.manage_all');
+  const scopedTasks = seesAllTasks || !teamMemberId
+    ? tasks
+    : tasks.filter(t => t.assignee_ids?.includes(teamMemberId));
+  const inProgressTasks = scopedTasks.filter(t => t.status === 'in_progress');
+  const doneTasks = scopedTasks.filter(t => t.status === 'done');
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const thisWeekEnd = new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000);
   const weekAgo = new Date(today.getTime() - 6 * 24 * 60 * 60 * 1000);
 
-  const dueThisWeek = tasks.filter(t => {
+  const dueThisWeek = scopedTasks.filter(t => {
     if (!t.due_date || t.status === 'done') return false;
     const due = parseDateOnly(t.due_date);
     return due >= today && due <= thisWeekEnd;
   });
 
-  const overdue = tasks.filter(t => {
+  const overdue = scopedTasks.filter(t => {
     if (!t.due_date || t.status === 'done') return false;
     return parseDateOnly(t.due_date) < today;
   });
 
-  const recentTasks = [...tasks]
+  const recentTasks = [...scopedTasks]
     .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
     .slice(0, 6);
 
@@ -119,6 +127,15 @@ export default function DashboardPage() {
   // Permission-aware money cards. Company-finance users see workspace Earned/Outstanding;
   // members with only own-earnings access see their own Earned/Owed. Figures come from the
   // shared finance summary so they match the Finances page exactly. Last-30-days window.
+  const retainerFinanceKey = useMemo(
+    () => projectInvoices.map((inv) => `${inv.id}:${inv.updated_at}`).join(','),
+    [projectInvoices],
+  );
+  const { lineSharePercent, accruingRetainerLines } = useRetainerFinanceInputs(
+    canReadCompanyFinance,
+    retainerFinanceKey,
+  );
+
   const financeCards = useMemo<Kpi[]>(() => {
     const tz = currentMember?.timezone && currentMember.timezone !== 'UTC' ? currentMember.timezone : undefined;
     const nowMs = financeNow;
@@ -130,7 +147,7 @@ export default function DashboardPage() {
 
     if (canReadCompanyFinance) {
       const rateByProject = new Map(projects.map(p => [p.id, p.hourly_tracking && p.hourly_rate ? p.hourly_rate : 0]));
-      const base = { projects, invoices: projectInvoices, timeEntries, team, rateByProject, now: nowMs, timezone: tz };
+      const base = { projects, invoices: projectInvoices, timeEntries, team, rateByProject, now: nowMs, timezone: tz, lineSharePercent, accruingRetainerLines };
       const s = computeCompanyFinanceSummary({ ...base, range });
       const prev = computeCompanyFinanceSummary({ ...base, range: prevRange });
       const trend = trendChip(s.earned, prev.earned, `${Math.round(s.hours)}h logged`);
@@ -149,7 +166,7 @@ export default function DashboardPage() {
       ];
     }
     return [];
-  }, [canReadCompanyFinance, canReadOwnEarnings, employeeEarnings, projects, projectInvoices, timeEntries, team, currentMember?.timezone, financeNow]);
+  }, [canReadCompanyFinance, canReadOwnEarnings, employeeEarnings, projects, projectInvoices, timeEntries, team, currentMember?.timezone, financeNow, lineSharePercent, accruingRetainerLines]);
 
   const kpis: Kpi[] = financeCards.length
     ? [
@@ -263,7 +280,7 @@ export default function DashboardPage() {
             <div className="flex items-start justify-between">
               <div>
                 <h2 className="font-semibold text-white">Activity</h2>
-                <p className="text-xs text-zinc-500 mt-0.5">Tasks completed &mdash; last 7 days</p>
+                <p className="text-xs text-zinc-500 mt-0.5">{seesAllTasks ? 'Tasks completed' : 'Your tasks completed'}, last 7 days</p>
               </div>
               <p className="font-mono text-xl font-bold text-white tabular-nums">{completedThisWeek}<span className="text-xs text-zinc-500 font-medium font-sans"> total</span></p>
             </div>

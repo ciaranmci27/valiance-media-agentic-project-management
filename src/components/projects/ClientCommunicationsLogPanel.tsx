@@ -163,6 +163,11 @@ function CommRow({
   const timestamp = comm.sent_at ?? comm.dismissed_at ?? comm.created_at;
   const relTime = formatRelative(timestamp);
 
+  // Show who the email actually went to. The linked contact is only the
+  // fallback for rows written before recipients were stored.
+  const toList = comm.recipients?.to ?? [];
+  const recipientLabel = toList.length ? toList.join(', ') : comm.contact?.email || 'unknown recipient';
+
   return (
     <li className="rounded-lg border border-white/[0.08] sm:rounded-none sm:border-0 p-3 sm:px-3 sm:py-2.5 bg-surface-raised flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3 hover:bg-white/[0.03] transition-colors">
       <div className="flex items-start gap-3 sm:items-center min-w-0 flex-1">
@@ -180,7 +185,7 @@ function CommRow({
             </div>
           </div>
           <div className="text-[11px] text-zinc-400 mt-0.5 flex items-center gap-2 min-w-0">
-            <span className="truncate">{comm.contact?.email || 'unknown recipient'}</span>
+            <span className="truncate" title={recipientLabel}>{recipientLabel}</span>
             <span className="text-zinc-600 flex-shrink-0">·</span>
             <span className="flex-shrink-0 whitespace-nowrap">{relTime}</span>
           </div>

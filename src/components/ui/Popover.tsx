@@ -23,7 +23,8 @@ interface PopoverProps {
   children: ReactNode;
 }
 
-interface Pos { top: number; left: number; width: number; maxHeight: number }
+/** Opens below the anchor (`top`) or, when it would not fit there, above it (`bottom`). */
+interface Pos { top?: number; bottom?: number; left: number; width: number; maxHeight: number }
 
 /**
  * A menu/dropdown surface rendered through a portal to `document.body` with
@@ -58,8 +59,17 @@ export function Popover({
     const w = Math.min(matchAnchorWidth ? rect.width : width, vw - 16);
     let left = align === 'end' ? rect.right - w : rect.left;
     left = Math.max(8, Math.min(left, vw - w - 8));
-    const top = rect.bottom + gap;
-    setPos({ top, left, width: w, maxHeight: Math.max(120, vh - top - 8) });
+    const spaceBelow = vh - rect.bottom - gap - 8;
+    const spaceAbove = rect.top - gap - 8;
+    // The menu's natural height is only known once it has rendered; the first
+    // pass places it below and the pass right after mount (still before paint)
+    // flips it up when it would be cut off and there is more room above.
+    const menuHeight = menuRef.current?.scrollHeight ?? 0;
+    if (menuHeight > spaceBelow && spaceAbove > spaceBelow) {
+      setPos({ bottom: vh - rect.top + gap, left, width: w, maxHeight: Math.max(120, spaceAbove) });
+    } else {
+      setPos({ top: rect.bottom + gap, left, width: w, maxHeight: Math.max(120, spaceBelow) });
+    }
   }, [anchorRef, align, width, matchAnchorWidth, gap]);
 
   useLayoutEffect(() => {
@@ -73,6 +83,12 @@ export function Popover({
       window.removeEventListener('scroll', place, true);
     };
   }, [open, place]);
+
+  // Second pass: the menu now exists, so its height can decide the direction.
+  const mounted = open && pos !== null;
+  useLayoutEffect(() => {
+    if (mounted) place();
+  }, [mounted, place]);
 
   useEffect(() => {
     if (!open) return;
@@ -103,7 +119,15 @@ export function Popover({
       ref={menuRef}
       role="menu"
       className={`fixed z-[9999] overflow-y-auto animate-scaleIn ${className}`}
-      style={{ top: pos.top, left: pos.left, width: pos.width, maxHeight: pos.maxHeight }}
+      style={{
+        top: pos.top,
+        bottom: pos.bottom,
+        left: pos.left,
+        width: pos.width,
+        maxHeight: pos.maxHeight,
+        // Grow out of the anchor in whichever direction it opened.
+        transformOrigin: `${pos.bottom !== undefined ? 'bottom' : 'top'} ${align === 'end' ? 'right' : 'left'}`,
+      }}
     >
       {children}
     </div>,

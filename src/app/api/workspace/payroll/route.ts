@@ -17,6 +17,9 @@ export async function GET() {
   let ratesQuery = service.from('team_member_hourly_rates').select('*');
   let adjustmentsQuery = service.from('team_member_earning_adjustments').select('*');
   let payoutsQuery = service.from('team_member_payouts').select('*');
+  // Revenue-split earnings. A voided one never counted; a reversed one stays,
+  // offset by the deduction that carries its clawback.
+  let shareEarningsQuery = service.from('team_member_share_earnings').select('*').is('voided_at', null);
   if (entryTargetMember) entriesQuery = entriesQuery.eq('member_id', entryTargetMember);
   if (!accessAllows(access, 'projects.read_all', 'app')) {
     entriesQuery = access.project_ids.length > 0
@@ -27,20 +30,23 @@ export async function GET() {
     ratesQuery = ratesQuery.eq('member_id', financialTargetMember);
     adjustmentsQuery = adjustmentsQuery.eq('member_id', financialTargetMember);
     payoutsQuery = payoutsQuery.eq('member_id', financialTargetMember);
+    shareEarningsQuery = shareEarningsQuery.eq('member_id', financialTargetMember);
   }
   if (!canManage && !canReadOwn) {
     ratesQuery = ratesQuery.eq('id', '00000000-0000-0000-0000-000000000000');
     adjustmentsQuery = adjustmentsQuery.eq('id', '00000000-0000-0000-0000-000000000000');
     payoutsQuery = payoutsQuery.eq('id', '00000000-0000-0000-0000-000000000000');
+    shareEarningsQuery = shareEarningsQuery.eq('id', '00000000-0000-0000-0000-000000000000');
   }
-  const [entries, rates, adjustments, payouts, allocations] = await Promise.all([
+  const [entries, rates, adjustments, payouts, allocations, shareEarnings] = await Promise.all([
     entriesQuery.order('start_time', { ascending: false }),
     ratesQuery.order('effective_at', { ascending: false }),
     adjustmentsQuery.order('effective_date', { ascending: false }),
     payoutsQuery.order('payment_date', { ascending: false }),
     service.from('team_member_payout_allocations').select('*'),
+    shareEarningsQuery.order('earned_date', { ascending: false }),
   ]);
-  const error = entries.error || rates.error || adjustments.error || payouts.error || allocations.error;
+  const error = entries.error || rates.error || adjustments.error || payouts.error || allocations.error || shareEarnings.error;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   const payoutIds = new Set((payouts.data || []).map((row) => row.id));
   return NextResponse.json({
@@ -52,6 +58,7 @@ export async function GET() {
       adjustments: adjustments.data || [],
       payouts: payouts.data || [],
       allocations: (allocations.data || []).filter((row) => payoutIds.has(row.payout_id)),
+      shareEarnings: shareEarnings.data || [],
     },
   });
 }

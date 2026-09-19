@@ -12,7 +12,9 @@ import {
   computeFinanceData,
   computeFinanceAttribution,
   projectTimeEntryForBilling,
+  serviceAccrualLines,
 } from '@/lib/finance/summary';
+import { useRetainerFinanceInputs } from '@/lib/finance/use-retainer-finance';
 import { computeAgentAnalytics, trackedAgentUsageCostByMember } from '@/lib/agent-analytics';
 import { toDateKey, localNextDayStartMs, hourVestingRatio } from '@/lib/finance/vesting';
 import Link from 'next/link';
@@ -582,24 +584,33 @@ export default function FinancesPage() {
   const chartBarsScrollRef = useRef<HTMLDivElement>(null);
   const chartLabelsScrollRef = useRef<HTMLDivElement>(null);
 
+  // Invoice line splits and not-yet-invoiced retainer months, so the counter
+  // shows the company's real take and keeps ticking for arrears retainers.
+  const retainerFinanceKey = useMemo(
+    () => `${nowDayKey}|${projectInvoices.map((inv) => `${inv.id}:${inv.updated_at}`).join(',')}`,
+    [nowDayKey, projectInvoices],
+  );
+  const { lineSharePercent, accruingRetainerLines } = useRetainerFinanceInputs(
+    canReadCompanyFinance,
+    retainerFinanceKey,
+  );
+
   const liveServiceRevenue = useMemo(() => {
     const sources = { fixed: false, recurring: false };
+    const lines = serviceAccrualLines(
+      projectInvoices,
+      { accruingRetainerLines },
+      (projectId) => selectedProjectIds.size === 0 || selectedProjectIds.has(projectId),
+    );
 
-    for (const inv of projectInvoices) {
-      if (inv.status === 'cancelled') continue;
-      if (selectedProjectIds.size > 0 && !selectedProjectIds.has(inv.project_id)) continue;
-
-      for (const li of ensureLineItems(inv)) {
-        if (li.item_type !== 'fixed' && li.item_type !== 'recurring') continue;
-        if ((spreadLineItem(li, inv.date).get(nowDayKey) ?? 0) <= 0) continue;
-
-        sources[li.item_type] = true;
-        if (sources.fixed && sources.recurring) return sources;
-      }
+    for (const line of lines) {
+      if ((spreadLineItem(line.item, line.fallbackDate).get(nowDayKey) ?? 0) <= 0) continue;
+      sources[line.item.item_type as 'fixed' | 'recurring'] = true;
+      if (sources.fixed && sources.recurring) return sources;
     }
 
     return sources;
-  }, [projectInvoices, selectedProjectIds, nowDayKey]);
+  }, [projectInvoices, selectedProjectIds, nowDayKey, accruingRetainerLines]);
 
   const hasLiveServiceRevenue = liveServiceRevenue.fixed || liveServiceRevenue.recurring;
   const shouldLiveTick = runningCount > 0 || hasLiveServiceRevenue;
@@ -654,6 +665,7 @@ export default function FinancesPage() {
     const engine = computeFinanceData({
       projects, invoices: projectInvoices, timeEntries, team, rateByProject,
       now, timezone: preferredTimezone, range, selectedProjectIds,
+      lineSharePercent, accruingRetainerLines,
     });
 
     // ── Invoices in range (sorted newest first) ─────────────
@@ -682,7 +694,7 @@ export default function FinancesPage() {
       paymentsByDay: engine.paymentsByDay,
       projectLookup: engine.projectLookup,
     };
-  }, [projects, projectInvoices, timeEntries, team, rateByProject, range, now, nowDayKey, preferredTimezone, selectedProjectIds]);
+  }, [projects, projectInvoices, timeEntries, team, rateByProject, range, now, nowDayKey, preferredTimezone, selectedProjectIds, lineSharePercent, accruingRetainerLines]);
 
   // ── Earnings-source scoping ─────────────────────────────────
   // The source filter re-scopes the chart and the Overview strip through a
@@ -714,12 +726,17 @@ export default function FinancesPage() {
     () => (isPeopleSource ? [] : projectInvoices),
     [isPeopleSource, projectInvoices],
   );
+  const effectiveAccruingLines = useMemo(
+    () => (isPeopleSource ? [] : accruingRetainerLines),
+    [isPeopleSource, accruingRetainerLines],
+  );
 
   const sourceData = useMemo(() => {
     if (sourceFilter === 'company') return null;
     const engine = computeFinanceData({
       projects, invoices: effectiveInvoices, timeEntries: effectiveTimeEntries, team, rateByProject,
       now, timezone: preferredTimezone, range, selectedProjectIds,
+      lineSharePercent, accruingRetainerLines: effectiveAccruingLines,
     });
     return {
       totalEarned: engine.earned,
@@ -731,7 +748,7 @@ export default function FinancesPage() {
       paymentsByDay: engine.paymentsByDay,
       projectLookup: engine.projectLookup,
     };
-  }, [sourceFilter, projects, effectiveInvoices, effectiveTimeEntries, team, rateByProject, now, nowDayKey, preferredTimezone, range, selectedProjectIds]);
+  }, [sourceFilter, projects, effectiveInvoices, effectiveTimeEntries, team, rateByProject, now, nowDayKey, preferredTimezone, range, selectedProjectIds, lineSharePercent, effectiveAccruingLines]);
 
   // What the chart and drilldowns read from: the source-scoped pass when a
   // source is active, the company-wide pass otherwise.
@@ -757,11 +774,12 @@ export default function FinancesPage() {
     return computeFinanceAttribution({
       projects, invoices: projectInvoices, timeEntries, team, rateByProject,
       now, timezone: preferredTimezone, range, selectedProjectIds,
+      lineSharePercent, accruingRetainerLines,
       agentUsageCostByMember,
       selectedMemberIds: sourceFilter === 'member' && sourceMemberId ? new Set([sourceMemberId]) : undefined,
       selectedSources: sourceFilter !== 'member' ? new Set([sourceFilter]) : undefined,
     });
-  }, [projects, projectInvoices, timeEntries, team, rateByProject, now, preferredTimezone, range, selectedProjectIds, agentUsageCostByMember, sourceFilter, sourceMemberId]);
+  }, [projects, projectInvoices, timeEntries, team, rateByProject, now, preferredTimezone, range, selectedProjectIds, lineSharePercent, accruingRetainerLines, agentUsageCostByMember, sourceFilter, sourceMemberId]);
 
   // Label for the active source, shown as a pill in the Overview header and
   // as a suffix on the chart heading.
@@ -1001,22 +1019,24 @@ export default function FinancesPage() {
 
     // Fixed and recurring line items vest across the service day. Past hours
     // count fully, the current hour counts partially, and future hours are zero.
-    for (const inv of effectiveInvoices) {
-      if (inv.status === 'cancelled') continue;
-      if (!includeProject(inv.project_id)) continue;
-      for (const li of ensureLineItems(inv)) {
-        if (li.item_type === 'hourly' || li.item_type === 'reimbursement') continue;
-        const dollarsThatDay = spreadLineItem(li, inv.date).get(drilldownDay) ?? 0;
-        if (dollarsThatDay <= 0) continue;
-        const perHourDollars = dollarsThatDay / 24;
-        const isRecurring = li.item_type === 'recurring';
-        for (let h = 0; h < 24; h++) {
-          const vestedDollars = perHourDollars * hourVestingRatio(drilldownDay, h, now, preferredTimezone);
-          if (vestedDollars <= 0) continue;
-          if (isRecurring) buckets[h].recurring += vestedDollars;
-          else buckets[h].fixed += vestedDollars;
-          bumpProject(buckets[h], inv.project_id, isRecurring ? { recurring: vestedDollars } : { fixed: vestedDollars });
-        }
+    // Same lines and the same company-share rule as the engine, so the day
+    // view adds up to the bar it was opened from.
+    for (const line of serviceAccrualLines(
+      effectiveInvoices,
+      { lineSharePercent, accruingRetainerLines: effectiveAccruingLines },
+      includeProject,
+    )) {
+      const dollarsThatDay =
+        (spreadLineItem(line.item, line.fallbackDate).get(drilldownDay) ?? 0) * (1 - line.shareRatio);
+      if (dollarsThatDay <= 0) continue;
+      const perHourDollars = dollarsThatDay / 24;
+      const isRecurring = line.item.item_type === 'recurring';
+      for (let h = 0; h < 24; h++) {
+        const vestedDollars = perHourDollars * hourVestingRatio(drilldownDay, h, now, preferredTimezone);
+        if (vestedDollars <= 0) continue;
+        if (isRecurring) buckets[h].recurring += vestedDollars;
+        else buckets[h].fixed += vestedDollars;
+        bumpProject(buckets[h], line.projectId, isRecurring ? { recurring: vestedDollars } : { fixed: vestedDollars });
       }
     }
 
@@ -1066,7 +1086,7 @@ export default function FinancesPage() {
         projectWork,
       };
     });
-  }, [drilldownDay, effectiveTimeEntries, team, rateByProject, effectiveInvoices, projects, now, preferredTimezone, selectedProjectIds]);
+  }, [drilldownDay, effectiveTimeEntries, team, rateByProject, effectiveInvoices, projects, now, preferredTimezone, selectedProjectIds, lineSharePercent, effectiveAccruingLines]);
 
   // What the chart actually renders, in priority order:
   //   hour drilldown → bucket drilldown → main range.

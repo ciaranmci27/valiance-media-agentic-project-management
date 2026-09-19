@@ -467,6 +467,9 @@ export interface InvoiceLineItem {
   service_end_date: string | null;
   /** Informational; the actual revenue spread uses service_start/end. */
   recurrence_frequency: RecurrenceFrequency | null;
+  /** Set when a retainer produced (or was linked to) this line. Never a split:
+   *  this JSON reaches the portal, webhooks and the API. */
+  retainer_id?: string | null;
 }
 
 export interface ProjectInvoice {
@@ -488,9 +491,102 @@ export interface ProjectInvoice {
   file_name: string | null;
   file_size: number | null;
   mime_type: string | null;
+  /** True for drafts the retainer job created. */
+  auto_generated?: boolean;
   created_by: string | null;
   created_at: string;
   updated_at: string;
+}
+
+// ============================================================
+// PROJECT RETAINERS
+// ============================================================
+
+export const RETAINER_BILLING_TIMINGS = ['advance', 'arrears'] as const;
+export type RetainerBillingTiming = typeof RETAINER_BILLING_TIMINGS[number];
+export type RetainerStatus = 'active' | 'paused';
+
+export interface ProjectRetainer {
+  id: string;
+  project_id: string;
+  name: string;
+  billing_timing: RetainerBillingTiming;
+  start_date: string;
+  end_date: string | null;
+  status: RetainerStatus;
+  lead_days: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProjectRetainerAmount {
+  id: string;
+  retainer_id: string;
+  amount: number;
+  effective_date: string;
+}
+
+/** Compensation data: only loaded for compensation.manage holders. */
+export interface ProjectRetainerShare {
+  id: string;
+  retainer_id: string;
+  member_id: string;
+  percent: number;
+  effective_from: string;
+  effective_to: string | null;
+}
+
+export interface ProjectRetainerPeriod {
+  id: string;
+  retainer_id: string;
+  period_start: string;
+  period_end: string;
+  status: 'invoiced' | 'skipped';
+  invoice_id: string | null;
+  line_item_id: string | null;
+}
+
+/** A period the invoice form can add as a ready line. */
+export interface RetainerDuePeriod {
+  retainer_id: string;
+  retainer_name: string;
+  billing_timing: RetainerBillingTiming;
+  period_start: string;
+  period_end: string;
+  bill_date: string;
+  amount: number;
+  full_amount: number;
+  prorated: boolean;
+  description: string;
+  skipped: boolean;
+}
+
+/** The split frozen onto one invoice line. Compensation data. */
+export interface InvoiceLineShare {
+  id?: string;
+  invoice_id?: string;
+  line_item_id: string;
+  member_id: string;
+  percent: number;
+}
+
+/** What a member earned from a paid, split invoice line. */
+export interface TeamMemberShareEarning {
+  id: string;
+  member_id: string;
+  project_id: string | null;
+  retainer_id: string | null;
+  invoice_id: string | null;
+  line_item_id: string;
+  invoice_number: string;
+  description: string;
+  percent: number;
+  basis_amount: number;
+  amount: number;
+  earned_date: string;
+  voided_at: string | null;
+  reversed_at: string | null;
+  created_at: string;
 }
 
 // ============================================================
@@ -898,6 +994,7 @@ export interface TeamMemberPayoutAllocation {
   payout_id: string;
   time_entry_id: string | null;
   adjustment_id: string | null;
+  share_earning_id?: string | null;
   allocated_amount: number;
   created_at: string;
 }
@@ -908,6 +1005,8 @@ export interface EmployeeEarningsData {
   adjustments: TeamMemberEarningAdjustment[];
   payouts: TeamMemberPayout[];
   allocations: TeamMemberPayoutAllocation[];
+  /** Revenue-split earnings, voided ones excluded. Absent on older payloads. */
+  shareEarnings?: TeamMemberShareEarning[];
 }
 
 // ============================================================

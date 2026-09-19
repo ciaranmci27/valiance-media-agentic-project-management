@@ -19,9 +19,17 @@ import {
   AlertTriangle,
   ListChecks,
   Send,
+  Repeat,
 } from 'lucide-react';
 import { InvoicePreviewModal } from '@/components/projects/InvoicePreviewModal';
 import ClientEmailPreviewModal from '@/components/projects/ClientEmailPreviewModal';
+import RetainersModal from '@/components/projects/RetainersModal';
+import { InvoiceLineSplit, type LineSplit } from '@/components/projects/InvoiceLineSplit';
+import {
+  fetchInvoiceLineShares,
+  fetchRetainerDuePeriods,
+  setInvoiceLineShares,
+} from '@/lib/supabase/queries';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { hasPermission } from '@/lib/access-control';
@@ -44,6 +52,7 @@ import {
   type InvoiceLineItem,
   type RecurrenceFrequency,
   type InvoiceTimeEntryAllocation,
+  type RetainerDuePeriod,
 } from '@/lib/types';
 import { getWorkedHours } from '@/lib/time-entry-utils';
 import { HourlyRateSchedule } from './HourlyRateSchedule';
@@ -130,6 +139,11 @@ function removeExcludedAllocations(
 }
 
 /** Format YYYY-MM-DD to "Mon D" or "Mon D, YYYY" if year differs from current */
+function fmtRetainerMonth(dateStr: string): string {
+  const [year, month] = dateStr.split('-').map(Number);
+  return new Date(year, month - 1, 1).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+}
+
 function fmtDate(dateStr: string): string {
   const [y, m, d] = dateStr.split('-').map(Number);
   const date = new Date(y, m - 1, d);
@@ -190,9 +204,20 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
   const hasPrimaryClientEmail = !!primaryClient?.contact?.email;
   const canEmailInvoices =
     hasPermission(access, 'communications.manage') && hasPermission(access, 'invoices.manage');
+  const canManageInvoices = hasPermission(access, 'invoices.manage');
+  // Splits are compensation: invoices.manage alone never sees or sends them.
+  const canManageSplits = canManageInvoices && hasPermission(access, 'compensation.manage');
 
   // UI state
   const [isAdding, setIsAdding] = useState(false);
+  const [retainersOpen, setRetainersOpen] = useState(false);
+  const retainerClient = useMemo(() => createClient(), []);
+  // Retainer periods that are due (or were skipped) and can be added as ready lines.
+  const [dueRetainerPeriods, setDueRetainerPeriods] = useState<RetainerDuePeriod[]>([]);
+  // Revenue splits per line. Only lines touched in this form are written on
+  // save, so a split inherited from a retainer is never wiped by accident.
+  const [formLineShares, setFormLineShares] = useState<Record<string, LineSplit[]>>({});
+  const touchedShareLinesRef = useRef<Set<string>>(new Set());
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [previewInvoiceId, setPreviewInvoiceId] = useState<string | null>(null);
@@ -494,6 +519,8 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
     setExistingFileUrl(null);
     setExistingFileName(null);
     autoSeededRef.current.clear();
+    setFormLineShares({});
+    touchedShareLinesRef.current.clear();
   };
 
   const openAddForm = () => {
@@ -507,6 +534,96 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
     setFormNumber(`INV-${nextNum}`);
     setFormDate(todayLocalDate);
     setIsAdding(true);
+  };
+
+  const formOpen = isAdding || Boolean(editingId);
+  useEffect(() => {
+    if (!formOpen || !canManageInvoices || isDemoMode) return;
+    let cancelled = false;
+    fetchRetainerDuePeriods(retainerClient, projectId)
+      .then((periods) => { if (!cancelled) setDueRetainerPeriods(periods); })
+      .catch(() => { if (!cancelled) setDueRetainerPeriods([]); });
+    return () => { cancelled = true; };
+  }, [formOpen, canManageInvoices, isDemoMode, projectId, retainerClient]);
+
+  useEffect(() => {
+    if (!editingId || !canManageSplits || isDemoMode) return;
+    let cancelled = false;
+    fetchInvoiceLineShares(retainerClient, editingId)
+      .then((rows) => {
+        if (cancelled) return;
+        const grouped: Record<string, LineSplit[]> = {};
+        for (const row of rows) {
+          (grouped[row.line_item_id] ??= []).push({ member_id: row.member_id, percent: row.percent });
+        }
+        setFormLineShares(grouped);
+      })
+      .catch(() => toast('error', 'Failed to load the revenue split'));
+    return () => { cancelled = true; };
+  }, [editingId, canManageSplits, isDemoMode, retainerClient]);
+
+  const splitMembers = useMemo(
+    () => team.filter((member) => member.role !== 'owner' && member.role !== 'agent'),
+    [team],
+  );
+
+  const offeredRetainerPeriods = dueRetainerPeriods.filter(
+    (period) =>
+      !formLineItems.some(
+        (li) =>
+          li.retainer_id === period.retainer_id &&
+          li.service_start_date?.slice(0, 7) === period.period_start.slice(0, 7),
+      ),
+  );
+
+  const insertRetainerLine = (period: RetainerDuePeriod) => {
+    const id = newLineItemId();
+    setFormLineItems((items) => {
+      const onlyBlank =
+        items.length === 1 && !(Number(items[0].amount) > 0) && !items[0].description.trim();
+      const base = onlyBlank ? [] : items;
+      return [
+        ...base,
+        {
+          id,
+          position: base.length,
+          item_type: 'recurring',
+          amount: period.amount,
+          description: period.description,
+          service_start_date: period.period_start,
+          service_end_date: period.period_end,
+          recurrence_frequency: 'monthly',
+          retainer_id: period.retainer_id,
+        },
+      ];
+    });
+    setAmountDrafts((drafts) => ({ ...drafts, [id]: String(period.amount) }));
+  };
+
+  // Written after the invoice itself: the save RPC needs invoices.manage, the
+  // split needs compensation.manage, and the line JSON must never carry it.
+  const persistLineShares = async (invoiceId: string, items: InvoiceLineItem[]) => {
+    const touched = touchedShareLinesRef.current;
+    if (!canManageSplits || isDemoMode || touched.size === 0) return;
+    try {
+      const splittable = new Set(
+        items.filter((li) => li.item_type === 'fixed' || li.item_type === 'recurring').map((li) => li.id),
+      );
+      const existing = await fetchInvoiceLineShares(retainerClient, invoiceId);
+      const next = existing
+        .filter((row) => splittable.has(row.line_item_id) && !touched.has(row.line_item_id))
+        .map((row) => ({ line_item_id: row.line_item_id, member_id: row.member_id, percent: row.percent }));
+      for (const lineId of touched) {
+        if (!splittable.has(lineId)) continue;
+        for (const row of formLineShares[lineId] ?? []) {
+          if (row.member_id && row.percent > 0) next.push({ line_item_id: lineId, ...row });
+        }
+      }
+      await setInvoiceLineShares(retainerClient, invoiceId, next);
+    } catch (error) {
+      const message = (error as { message?: string } | null)?.message;
+      toast('error', message && message.length < 140 ? message : 'Invoice saved, but the split could not be saved');
+    }
   };
 
   // Line item mutators
@@ -842,6 +959,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
         created_by: teamMemberId,
       });
       if (!created) return;
+      await persistLineShares(created.id, items);
 
       resetForm();
       setIsAdding(false);
@@ -954,6 +1072,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
 
       const updated = await updateInvoice(editingId, updates);
       if (!updated) return;
+      await persistLineShares(editingId, items);
 
       resetForm();
       setEditingId(null);
@@ -1144,6 +1263,18 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
             />
           </div>
         )}
+        {canManageSplits && showServiceDates && (
+          <InvoiceLineSplit
+            lineAmount={Number(li.amount) || 0}
+            splits={formLineShares[li.id]}
+            inheritsOnSave={Boolean(li.retainer_id)}
+            members={splitMembers}
+            onChange={(splits) => {
+              touchedShareLinesRef.current.add(li.id);
+              setFormLineShares((current) => ({ ...current, [li.id]: splits }));
+            }}
+          />
+        )}
       </div>
     );
   };
@@ -1211,6 +1342,18 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
               Add tracked time (${formatCurrency(allUnpaidHoursDraft.amount)})
             </button>
           )}
+          {offeredRetainerPeriods.map((period) => (
+            <button
+              key={`${period.retainer_id}:${period.period_start}`}
+              type="button"
+              onClick={() => insertRetainerLine(period)}
+              title={`${fmtServicePeriod(period.period_start, period.period_end) ?? ''}${period.skipped ? ' (skipped earlier)' : ''}`}
+              className="inline-flex items-center gap-1 text-xs font-medium text-brand-300 hover:text-brand-300 transition-colors"
+            >
+              <Repeat size={12} strokeWidth={2.5} aria-hidden="true" />
+              Add {period.retainer_name}, {fmtRetainerMonth(period.period_start)} (${formatCurrency(period.amount)})
+            </button>
+          ))}
         </div>
 
         {allUnpaidHoursDraft && unpaidPickerOpen && (
@@ -1600,6 +1743,14 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
           </div>
           <div className="flex items-center gap-2">
             <button
+              type="button"
+              onClick={() => setRetainersOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-zinc-300 border border-white/[0.08] bg-surface-raised hover:bg-white/[0.03] hover:text-white rounded-lg transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-400"
+            >
+              <Repeat size={14} aria-hidden="true" />
+              Retainers
+            </button>
+            <button
               onClick={openAddForm}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition-colors"
             >
@@ -1788,6 +1939,15 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
                             <span className="text-sm font-semibold text-white">
                               {invoice.invoice_number}
                             </span>
+                            {invoice.auto_generated && invoice.status === 'draft' && (
+                              <span
+                                className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium rounded bg-brand-500/15 text-brand-300"
+                                title="Drafted from a retainer. Review and send it."
+                              >
+                                <Repeat size={10} aria-hidden="true" />
+                                Auto draft
+                              </span>
+                            )}
                             {hasMultipleLines ? (
                               <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium rounded bg-white/[0.06] text-zinc-400">
                                 {items.length} items
@@ -2019,6 +2179,18 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
       />
 
       <InvoicePreviewModal invoiceId={previewInvoiceId} onClose={() => setPreviewInvoiceId(null)} />
+
+      <RetainersModal
+        isOpen={retainersOpen}
+        onClose={() => setRetainersOpen(false)}
+        projectId={projectId}
+        invoices={invoices}
+        team={team}
+        today={todayLocalDate}
+        canManage={canManageInvoices}
+        canManageSplits={canManageSplits}
+        isDemoMode={isDemoMode}
+      />
 
       <ClientEmailPreviewModal
         open={Boolean(emailInvoiceId)}

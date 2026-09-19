@@ -65,6 +65,7 @@ export function EmployeeEarningsDashboard({
     const earliestKeys = [
       ...data.entries.map((entry) => toDateKey(new Date(entry.start_time))),
       ...data.adjustments.filter((item) => !item.voided_at).map((item) => item.effective_date),
+      ...(data.shareEarnings ?? []).filter((item) => !item.voided_at).map((item) => item.earned_date),
     ].sort();
     const daysBack = preset === '7d' ? 6 : preset === '30d' ? 29 : preset === '90d' ? 89 : null;
     const startDate = new Date(today);
@@ -134,6 +135,19 @@ export function EmployeeEarningsDashboard({
         const row = projectRows.get(adjustment.project_id) || { approved: 0, pending: 0, hours: 0 };
         row.approved += amount;
         projectRows.set(adjustment.project_id, row);
+      }
+    }
+
+    // Revenue-split earnings: settled money only, on the day the client paid.
+    for (const earning of data.shareEarnings ?? []) {
+      if (earning.voided_at || earning.earned_date < startKey || earning.earned_date > todayKey) continue;
+      const amount = Number(earning.amount);
+      const bar = barByDate.get(earning.earned_date);
+      if (bar) bar.approved += amount;
+      if (earning.project_id) {
+        const row = projectRows.get(earning.project_id) || { approved: 0, pending: 0, hours: 0 };
+        row.approved += amount;
+        projectRows.set(earning.project_id, row);
       }
     }
 

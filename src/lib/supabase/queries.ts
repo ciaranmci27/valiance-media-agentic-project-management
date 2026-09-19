@@ -1,5 +1,5 @@
 import { SupabaseClient } from '@supabase/supabase-js';
-import type { Project, Task, TeamMember, Subtask, AcceptanceCriterion, Comment, Activity, Contact, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, ApiKey, ProjectGoal, TaskSuggestion, AgentActivity, ApiAuditEntry, TimeEntry, ProjectCredential, ProjectCredentialListItem, ProjectInvoice, BusinessSettings, InvoiceTimeEntryAllocation, WebhookEndpoint, WebhookDelivery } from '@/lib/types';
+import type { Project, Task, TeamMember, Subtask, AcceptanceCriterion, Comment, Activity, Contact, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, ApiKey, ProjectGoal, TaskSuggestion, AgentActivity, ApiAuditEntry, TimeEntry, ProjectCredential, ProjectCredentialListItem, ProjectInvoice, BusinessSettings, InvoiceTimeEntryAllocation, WebhookEndpoint, WebhookDelivery, ProjectRetainer, ProjectRetainerAmount, ProjectRetainerShare, ProjectRetainerPeriod, RetainerDuePeriod, InvoiceLineShare } from '@/lib/types';
 import { notFound } from '@/lib/api/errors';
 import { siteConfig } from '@/site-config';
 import { generatePortalSlug } from '@/lib/portal-slug';
@@ -2578,6 +2578,163 @@ export async function patchProjectInvoice(
 
 export async function removeProjectInvoice(supabase: SupabaseClient, id: string) {
   const { error } = await supabase.from('project_invoices').delete().eq('id', id);
+  if (error) throw error;
+}
+
+// ============================================================
+// PROJECT RETAINERS
+// All period math lives in SQL (20260919050750_create_project_retainers.sql);
+// these only read rows and call the RPCs.
+// ============================================================
+
+export interface ProjectRetainerBundle {
+  retainers: ProjectRetainer[];
+  amounts: ProjectRetainerAmount[];
+  periods: ProjectRetainerPeriod[];
+  /** Empty unless the caller holds compensation.manage (RLS). */
+  shares: ProjectRetainerShare[];
+}
+
+export async function fetchProjectRetainers(
+  supabase: SupabaseClient,
+  projectId: string,
+  includeShares: boolean,
+): Promise<ProjectRetainerBundle> {
+  const { data: retainers, error } = await supabase
+    .from('project_retainers')
+    .select('*')
+    .eq('project_id', projectId)
+    .order('created_at');
+  if (error) throw error;
+  const ids = (retainers || []).map((retainer) => retainer.id);
+  if (ids.length === 0) return { retainers: [], amounts: [], periods: [], shares: [] };
+
+  const [amounts, periods, shares] = await Promise.all([
+    supabase.from('project_retainer_amounts').select('*').in('retainer_id', ids).order('effective_date'),
+    supabase.from('project_retainer_periods').select('*').in('retainer_id', ids).order('period_start'),
+    includeShares
+      ? supabase.from('project_retainer_shares').select('*').in('retainer_id', ids).order('effective_from')
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+  if (amounts.error) throw amounts.error;
+  if (periods.error) throw periods.error;
+  if (shares.error) throw shares.error;
+
+  return {
+    retainers: (retainers || []) as ProjectRetainer[],
+    amounts: ((amounts.data || []) as ProjectRetainerAmount[]).map((row) => ({ ...row, amount: Number(row.amount) })),
+    periods: (periods.data || []) as ProjectRetainerPeriod[],
+    shares: ((shares.data || []) as ProjectRetainerShare[]).map((row) => ({ ...row, percent: Number(row.percent) })),
+  };
+}
+
+export interface SaveRetainerInput {
+  project_id?: string;
+  name?: string;
+  billing_timing?: ProjectRetainer['billing_timing'];
+  start_date?: string;
+  end_date?: string | null;
+  status?: ProjectRetainer['status'];
+  lead_days?: number;
+  /** Create only. */
+  amount?: number;
+  /** Create only; needs compensation.manage. */
+  shares?: Array<{ member_id: string; percent: number }>;
+  /** Create only: lines invoiced by hand before the retainer existed. */
+  link_lines?: Array<{ invoice_id: string; line_item_id: string }>;
+}
+
+export async function saveProjectRetainer(
+  supabase: SupabaseClient,
+  retainerId: string | null,
+  input: SaveRetainerInput,
+) {
+  const { data, error } = await supabase
+    .rpc('save_project_retainer', { p_retainer_id: retainerId, p_retainer: input })
+    .single();
+  if (error) throw error;
+  return data as ProjectRetainer;
+}
+
+export async function removeProjectRetainer(supabase: SupabaseClient, retainerId: string) {
+  const { error } = await supabase.from('project_retainers').delete().eq('id', retainerId);
+  if (error) throw error;
+}
+
+export async function scheduleRetainerAmount(
+  supabase: SupabaseClient,
+  retainerId: string,
+  amount: number,
+  effectiveDate: string,
+) {
+  const { error } = await supabase.rpc('schedule_retainer_amount', {
+    p_retainer_id: retainerId,
+    p_amount: amount,
+    p_effective_date: effectiveDate,
+  });
+  if (error) throw error;
+}
+
+export async function removeRetainerAmount(supabase: SupabaseClient, amountId: string) {
+  const { error } = await supabase.from('project_retainer_amounts').delete().eq('id', amountId);
+  if (error) throw error;
+}
+
+export async function setRetainerShares(
+  supabase: SupabaseClient,
+  retainerId: string,
+  shares: Array<{ member_id: string; percent: number }>,
+  effectiveFrom: string,
+) {
+  const { error } = await supabase.rpc('set_retainer_shares', {
+    p_retainer_id: retainerId,
+    p_shares: shares,
+    p_effective_from: effectiveFrom,
+  });
+  if (error) throw error;
+}
+
+export async function generateRetainerPeriod(
+  supabase: SupabaseClient,
+  retainerId: string,
+  periodStart: string,
+) {
+  const { data, error } = await supabase
+    .rpc('generate_retainer_period', { p_retainer_id: retainerId, p_period_start: periodStart })
+    .single();
+  if (error) throw error;
+  const invoice = data as ProjectInvoice;
+  return { ...invoice, line_items: ensureLineItems(invoice), time_allocations: [] };
+}
+
+export async function fetchRetainerDuePeriods(supabase: SupabaseClient, projectId: string) {
+  const { data, error } = await supabase.rpc('retainer_due_periods', { p_project_id: projectId });
+  if (error) throw error;
+  return ((data || []) as RetainerDuePeriod[]).map((row) => ({
+    ...row,
+    amount: Number(row.amount),
+    full_amount: Number(row.full_amount),
+  }));
+}
+
+export async function fetchInvoiceLineShares(supabase: SupabaseClient, invoiceId: string) {
+  const { data, error } = await supabase
+    .from('invoice_line_shares')
+    .select('*')
+    .eq('invoice_id', invoiceId);
+  if (error) throw error;
+  return ((data || []) as InvoiceLineShare[]).map((row) => ({ ...row, percent: Number(row.percent) }));
+}
+
+export async function setInvoiceLineShares(
+  supabase: SupabaseClient,
+  invoiceId: string,
+  shares: Array<Pick<InvoiceLineShare, 'line_item_id' | 'member_id' | 'percent'>>,
+) {
+  const { error } = await supabase.rpc('set_invoice_line_shares', {
+    p_invoice_id: invoiceId,
+    p_shares: shares,
+  });
   if (error) throw error;
 }
 
