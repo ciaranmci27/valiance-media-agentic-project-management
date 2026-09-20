@@ -14,7 +14,9 @@ async function main(){
  const service=async(id:string,cursor:number|null=null)=>{await db.exec('SET ROLE service_role');try{return(await db.query<{r:any}>('SELECT invoice_accounting_snapshot($1,$2) r',[id,cursor])).rows[0].r}finally{await db.exec('RESET ROLE')}};
  try{
   await db.exec('CREATE ROLE anon;CREATE ROLE authenticated;CREATE ROLE service_role BYPASSRLS;CREATE SCHEMA auth;CREATE TABLE auth.users(id uuid PRIMARY KEY);CREATE SEQUENCE public.webhook_event_seq;');
-  for(const name of ['team_members','contacts','projects','project_contacts','project_invoices','webhook_endpoints','webhook_events','webhook_deliveries'])await db.exec(table(name));
+  for(const name of ['team_members','contacts','projects','project_contacts','project_invoices','invoice_line_shares','webhook_endpoints','webhook_events','webhook_deliveries'])await db.exec(table(name));
+  // emit_invoice_webhook delegates to the event writer, which snapshots net-of-split amounts.
+  for(const name of ['invoice_net_amounts','emit_invoice_webhook_event','webhook_payload_for_endpoint'])await db.exec(fn(name));
   await db.exec(fn('emit_invoice_webhook'));await db.exec(fn('claim_webhook_deliveries'));await db.exec('CREATE TRIGGER emit_invoice_webhook AFTER INSERT OR UPDATE OR DELETE ON project_invoices FOR EACH ROW EXECUTE FUNCTION emit_invoice_webhook()');
   await db.exec("CREATE FUNCTION has_permission(text) RETURNS boolean LANGUAGE sql AS $$ SELECT current_setting('test.webhook_permission',true)='yes' $$");
   await db.query('INSERT INTO projects(id,name,tax_rate) VALUES($1,$2,10)',[project,'Synthetic client project']);await db.query('INSERT INTO contacts(id,name,company) VALUES($1,$2,$3)',[contact,'Synthetic client','Synthetic LLC']);await db.query('INSERT INTO project_contacts(project_id,contact_id,is_primary_client) VALUES($1,$2,true)',[project,contact]);

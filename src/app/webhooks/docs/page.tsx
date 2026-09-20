@@ -175,6 +175,7 @@ export default function WebhooksDocsPage() {
       "updated_at": "2026-07-25T15:41:28.000Z"
     },
     "project": { "id": "3ab2...", "name": "Plan for the Future" },
+    "amount_basis": "gross",
     "line_items": [
       { "id": "li_1", "item_type": "recurring", "amount": 2000.00, "description": "Monthly retainer" },
       { "id": "li_2", "item_type": "reimbursement", "amount": 500.00, "description": "Domain renewal" }
@@ -195,6 +196,16 @@ export default function WebhooksDocsPage() {
                   <code className="text-brand-600 font-mono text-xs">item_type</code> (hourly, fixed, recurring,
                   reimbursement); it falls back to <code className="text-brand-600 font-mono text-xs">{'{ <invoice_type>: <amount> }'}</code>{' '}
                   when there are no line items.
+                </p>
+                <p>
+                  <code className="text-brand-600 font-mono text-xs">amount_basis</code> is set per endpoint.
+                  With <code className="text-brand-600 font-mono text-xs">gross</code> (the default) every amount
+                  is what the client was billed. With{' '}
+                  <code className="text-brand-600 font-mono text-xs">net</code>,{' '}
+                  <code className="text-brand-600 font-mono text-xs">invoice.amount</code>, each line amount and{' '}
+                  <code className="text-brand-600 font-mono text-xs">totals_by_type</code> are what is left after
+                  revenue splits. The split itself is never sent, and a change to a split on a paid invoice
+                  arrives as <code className="text-brand-600 font-mono text-xs">invoice.updated</code>.
                 </p>
                 <p>
                   <code className="text-brand-600 font-mono text-xs">paid</code> is a convenience boolean; it is{' '}

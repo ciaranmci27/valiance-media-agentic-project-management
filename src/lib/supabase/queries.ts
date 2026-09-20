@@ -1555,7 +1555,7 @@ export async function revokeApiKey(supabase: SupabaseClient, id: string) {
 // ============================================================
 
 const WEBHOOK_ENDPOINT_COLUMNS =
-  'id, name, url, secret, events, is_active, description, created_by, last_delivery_at, created_at, updated_at';
+  'id, name, url, secret, events, is_active, description, amount_basis, created_by, last_delivery_at, created_at, updated_at';
 
 export async function fetchWebhookEndpoints(supabase: SupabaseClient) {
   const { data, error } = await supabase
@@ -1568,7 +1568,7 @@ export async function fetchWebhookEndpoints(supabase: SupabaseClient) {
 
 export async function insertWebhookEndpoint(
   supabase: SupabaseClient,
-  endpoint: { name: string; url: string; secret: string; events: string[]; description?: string; created_by: string | null },
+  endpoint: { name: string; url: string; secret: string; events: string[]; description?: string; amount_basis?: WebhookEndpoint['amount_basis']; created_by: string | null },
 ) {
   const { data, error } = await supabase
     .from('webhook_endpoints')
@@ -1578,6 +1578,7 @@ export async function insertWebhookEndpoint(
       secret: endpoint.secret,
       events: endpoint.events,
       description: endpoint.description || '',
+      amount_basis: endpoint.amount_basis ?? 'gross',
       created_by: endpoint.created_by,
     })
     .select(WEBHOOK_ENDPOINT_COLUMNS)
@@ -1589,7 +1590,7 @@ export async function insertWebhookEndpoint(
 export async function updateWebhookEndpoint(
   supabase: SupabaseClient,
   id: string,
-  patch: Partial<Pick<WebhookEndpoint, 'name' | 'url' | 'events' | 'is_active' | 'description'>>,
+  patch: Partial<Pick<WebhookEndpoint, 'name' | 'url' | 'events' | 'is_active' | 'description' | 'amount_basis'>>,
 ) {
   const { data, error } = await supabase
     .from('webhook_endpoints')

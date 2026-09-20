@@ -105,6 +105,7 @@ import { isTelemetryEvent } from '@/lib/agent-events';
 import { siteConfig } from '@/site-config';
 import { findStalePausedEntries, isStalePause } from '@/lib/time-entry-utils';
 import { hasPermission } from '@/lib/access-control';
+import { loadRetainerFinanceInputs } from '@/lib/finance/use-retainer-finance';
 import { rollbackScope } from '@/lib/optimistic';
 
 // Best-effort nudge so the webhook dispatcher runs right after an invoice
@@ -613,6 +614,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
           canReadCredentials ? safeLoad('credentials', workspaceData<ProjectCredentialListItem[]>('/api/workspace/credentials'), []) : Promise.resolve([]),
           canReadInvoices ? safeLoad('invoices', fetchAllProjectInvoices(supabase), []) : Promise.resolve([]),
           canReadSettings ? safeLoad('business settings', fetchBusinessSettings(supabase), null) : Promise.resolve(null),
+          // Primes the retainer finance cache inside the boot load, so the money
+          // figures paint net of revenue splits the first time instead of
+          // painting gross and dropping a moment later.
+          hasPermission(access, 'finance.company.read')
+            ? safeLoad('retainer finance', loadRetainerFinanceInputs(supabase), null)
+            : Promise.resolve(null),
         ]);
 
         setProjects(projectsData);

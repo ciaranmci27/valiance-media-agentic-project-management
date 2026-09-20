@@ -907,6 +907,9 @@ export type WebhookEventType = typeof WEBHOOK_EVENT_TYPES[number];
 export const WEBHOOK_DELIVERY_STATUSES = ['pending', 'delivering', 'succeeded', 'failed'] as const;
 export type WebhookDeliveryStatus = typeof WEBHOOK_DELIVERY_STATUSES[number];
 
+export const WEBHOOK_AMOUNT_BASES = ['gross', 'net'] as const;
+export type WebhookAmountBasis = typeof WEBHOOK_AMOUNT_BASES[number];
+
 export interface WebhookEndpoint {
   id: string;
   name: string;
@@ -916,6 +919,8 @@ export interface WebhookEndpoint {
   events: string[];
   is_active: boolean;
   description: string;
+  /** Which amounts this endpoint receives: billed (gross) or after revenue splits (net). */
+  amount_basis: WebhookAmountBasis;
   created_by: string | null;
   last_delivery_at: string | null;
   created_at: string;

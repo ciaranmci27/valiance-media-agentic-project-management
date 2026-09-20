@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { PGlite } from '@electric-sql/pglite';
 
 const MIGRATION = '../supabase/migrations/20260919050750_create_project_retainers.sql';
+const WEBHOOK_MIGRATION = '../supabase/migrations/20260919213826_webhook_amount_basis.sql';
 
 async function main() {
   const db = new PGlite();
@@ -81,6 +82,32 @@ async function main() {
     await db.exec(migration);
     await db.exec(migration); // safe to re-run
 
+    // Webhooks as they stood before the amount-basis migration, then the migration.
+    await db.exec('CREATE SEQUENCE public.webhook_event_seq;');
+    for (const name of ['webhook_endpoints', 'webhook_events', 'webhook_deliveries']) {
+      await db.exec(table(name).replace(/^\s*amount_basis[^\n]*\n/m, '').replace(/^\s*net_amounts[^\n]*\n/m, ''));
+    }
+    const webhookMigration = await readFile(new URL(WEBHOOK_MIGRATION, import.meta.url), 'utf8');
+    await db.exec(webhookMigration);
+    await db.exec(webhookMigration); // safe to re-run
+    await db.exec(`CREATE TRIGGER emit_invoice_webhook AFTER INSERT OR UPDATE OR DELETE ON public.project_invoices
+      FOR EACH ROW EXECUTE FUNCTION public.emit_invoice_webhook()`);
+    await db.query(
+      `INSERT INTO webhook_endpoints(name, url, secret, events, amount_basis) VALUES
+        ('Gross', 'https://synthetic.invalid/gross', 's', ARRAY['invoice.paid','invoice.updated','invoice.deleted'], 'gross'),
+        ('Net', 'https://synthetic.invalid/net', 's', ARRAY['invoice.paid','invoice.updated','invoice.deleted'], 'net')`);
+    // The newest body each endpoint would receive for one invoice.
+    const latestBodies = async (invoiceId: string) => {
+      const claimed = await rows<{ endpoint_url: string; payload: any }>('SELECT endpoint_url, payload FROM claim_webhook_deliveries(200)');
+      const newest = new Map<string, any>();
+      for (const row of claimed) {
+        if (row.payload.data.invoice.id !== invoiceId) continue;
+        const kind = row.endpoint_url.endsWith('/net') ? 'net' : 'gross';
+        if (!newest.has(kind) || newest.get(kind).sequence < row.payload.sequence) newest.set(kind, row.payload);
+      }
+      return { gross: newest.get('gross'), net: newest.get('net') };
+    };
+
     // -- The month 1 invoice exists before the retainer does (the backfill case).
     const monthOne = randomUUID();
     await db.query(
@@ -120,6 +147,31 @@ async function main() {
        FROM team_member_share_earnings e WHERE member_id = $1 ORDER BY e.created_at, e.amount`, [partner]);
     check(await earnings(), [{ amount: '500.00', earned_date: '2026-09-17', voided: false, reversed: false, invoice_number: 'INV-017' }], 'backfilled earning');
     check((await one<{ n: number }>("SELECT count(*)::int n FROM invoice_line_shares WHERE line_item_id = 'hours'")).n, 0, 'hourly never split');
+
+    // -- Webhooks: one event, shaped per endpoint. Gross is what was billed; net is after the split.
+    const bodies = await latestBodies(monthOne);
+    check([bodies.gross.data.amount_basis, bodies.gross.data.invoice.amount, bodies.gross.data.totals_by_type],
+      ['gross', 1450, { hourly: 450, recurring: 1000 }], 'gross endpoint gets billed amounts');
+    check([bodies.net.data.amount_basis, bodies.net.data.invoice.amount, bodies.net.data.totals_by_type],
+      ['net', 950, { hourly: 450, recurring: 500 }], 'net endpoint gets the company part');
+    check(bodies.net.data.line_items.map((li: any) => [li.id, li.amount]), [['hours', 450], ['li2', 500]], 'net line amounts');
+    check(bodies.gross.data.line_items.map((li: any) => [li.id, li.amount]), [['hours', 450], ['li2', 1000]], 'gross line amounts');
+    check(JSON.stringify(bodies.gross).includes('500'), false, 'a gross endpoint never sees a net figure');
+    check((await one<{ n: number }>("SELECT count(*)::int n FROM webhook_events WHERE payload::text LIKE '%percent%' OR payload::text LIKE '%net%'")).n, 0, 'the split never enters the stored payload');
+
+    // A split change on a paid invoice announces itself, once per statement.
+    const bystander = randomUUID();
+    const fixedInvoice = randomUUID();
+    await db.query("INSERT INTO team_members(id, name, role) VALUES ($1, 'Bystander', 'member')", [bystander]);
+    await db.query(
+      `INSERT INTO project_invoices(id, project_id, invoice_number, amount, status, invoice_type, date, paid_date, line_items)
+       VALUES ($1, $2, 'INV-F1', 800, 'paid', 'fixed', '2026-09-10', '2026-09-11', $3::jsonb)`,
+      [fixedInvoice, project, JSON.stringify([{ id: 'f1', position: 0, item_type: 'fixed', amount: 800, description: 'Build' }])]);
+    const eventsBefore = (await one<{ n: number }>('SELECT count(*)::int n FROM webhook_events')).n;
+    await db.query('SELECT set_invoice_line_shares($1, $2::jsonb)', [fixedInvoice, JSON.stringify([{ line_item_id: 'f1', member_id: bystander, percent: 25 }])]);
+    check((await one<{ n: number }>('SELECT count(*)::int n FROM webhook_events')).n, eventsBefore + 1, 'one event for a split change');
+    const fixedBodies = await latestBodies(fixedInvoice);
+    check([fixedBodies.net.data.totals_by_type, fixedBodies.gross.data.totals_by_type], [{ fixed: 600 }, { fixed: 800 }], 'net follows the split, gross does not');
 
     // -- The job: nothing due mid September, October drafts the day before the 1st.
     check((await one<{ n: number }>("SELECT generate_retainer_drafts('2026-09-20') n")).n, 0, 'nothing due');
@@ -167,9 +219,9 @@ async function main() {
       [{ adjustment_type: 'deduction', amount: '1000.00' }], 'deduction written');
     // Net position: earned 500 + 1000 - 1000 = 500, paid 1500, so he owes 1000 back.
     const net = await one<{ n: string }>(
-      `SELECT ((SELECT COALESCE(SUM(amount), 0) FROM team_member_share_earnings WHERE voided_at IS NULL)
-             - (SELECT COALESCE(SUM(amount), 0) FROM team_member_earning_adjustments WHERE adjustment_type = 'deduction')
-             - (SELECT COALESCE(SUM(amount), 0) FROM team_member_payouts))::text n`);
+      `SELECT ((SELECT COALESCE(SUM(amount), 0) FROM team_member_share_earnings WHERE voided_at IS NULL AND member_id = $1)
+             - (SELECT COALESCE(SUM(amount), 0) FROM team_member_earning_adjustments WHERE adjustment_type = 'deduction' AND member_id = $1)
+             - (SELECT COALESCE(SUM(amount), 0) FROM team_member_payouts WHERE member_id = $1))::text n`, [partner]);
     check(net.n, '-1000.00', 'negative balance carried');
 
     // -- Re-saving an identical split must not churn a paid-out earning.

@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Toggle } from '@/components/ui/inputs/Toggle';
 import { Checkbox } from '@/components/ui/inputs/Checkbox';
+import { Select } from '@/components/ui/inputs/Select';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { toast } from '@/components/ui/Toast';
 import Link from 'next/link';
@@ -32,6 +33,7 @@ import {
 } from '@/lib/supabase/queries';
 import {
   WEBHOOK_EVENT_TYPES,
+  type WebhookAmountBasis,
   type WebhookEndpoint,
   type WebhookDelivery,
   type WebhookDeliveryStatus,
@@ -42,6 +44,12 @@ const EVENT_LABELS: Record<string, string> = {
   'invoice.updated': 'Invoice updated',
   'invoice.deleted': 'Invoice deleted',
 };
+
+// What an endpoint is sent for invoice.amount, each line amount and totals_by_type.
+const AMOUNT_BASIS_OPTIONS: Array<{ value: WebhookAmountBasis; label: string; detail: string }> = [
+  { value: 'gross', label: 'Gross', detail: 'What the client was billed' },
+  { value: 'net', label: 'Net of splits', detail: 'What is left after revenue splits' },
+];
 
 const STATUS_STYLES: Record<WebhookDeliveryStatus, string> = {
   pending: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
@@ -75,6 +83,7 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
   // Default to the full invoice lifecycle: a receiver that reconciles needs
   // un-pay/edit/delete too, not just invoice.paid.
   const [events, setEvents] = useState<string[]>([...WEBHOOK_EVENT_TYPES]);
+  const [amountBasis, setAmountBasis] = useState<WebhookAmountBasis>('gross');
   const [saving, setSaving] = useState(false);
 
   // One-time secret reveal after creation
@@ -118,6 +127,7 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
     setUrl('');
     setDescription('');
     setEvents([...WEBHOOK_EVENT_TYPES]);
+    setAmountBasis('gross');
     setShowForm(false);
   }
 
@@ -155,6 +165,7 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
         secret,
         events,
         description: description.trim(),
+        amount_basis: amountBasis,
         created_by: teamMemberId,
       });
       setEndpoints((prev) => [created, ...prev]);
@@ -177,6 +188,21 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
       console.error(e);
       setEndpoints((prev) =>
         prev.map((el) => (el.id === endpoint.id ? { ...el, is_active: endpoint.is_active } : el)),
+      );
+      toast('error', 'Failed to update endpoint');
+    }
+  }
+
+  async function handleAmountBasis(endpoint: WebhookEndpoint, next: WebhookAmountBasis) {
+    if (next === endpoint.amount_basis) return;
+    setEndpoints((prev) => prev.map((e) => (e.id === endpoint.id ? { ...e, amount_basis: next } : e)));
+    try {
+      await updateWebhookEndpoint(supabase, endpoint.id, { amount_basis: next });
+      toast('success', next === 'net' ? 'Sending amounts net of splits' : 'Sending gross amounts');
+    } catch (e) {
+      console.error(e);
+      setEndpoints((prev) =>
+        prev.map((el) => (el.id === endpoint.id ? { ...el, amount_basis: endpoint.amount_basis } : el)),
       );
       toast('error', 'Failed to update endpoint');
     }
@@ -316,6 +342,13 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
             onChange={(e) => setDescription(e.target.value)}
             placeholder="What this endpoint is for"
           />
+          <Select
+            label="Amounts"
+            value={amountBasis}
+            onChange={(value) => setAmountBasis(value as WebhookAmountBasis)}
+            options={AMOUNT_BASIS_OPTIONS}
+            description="Net sends what is left after revenue splits. The split itself is never sent."
+          />
           <div>
             <label className="block text-sm font-medium text-zinc-300 mb-1.5">Events</label>
             <div className="rounded-lg border border-white/[0.08] bg-surface-raised divide-y divide-white/[0.06]">
@@ -381,6 +414,14 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
                   <p className="text-[11px] text-zinc-500 mt-2">
                     Last delivery: {formatWhen(endpoint.last_delivery_at)}
                   </p>
+                  <Select
+                    size="sm"
+                    label="Amounts"
+                    value={endpoint.amount_basis ?? 'gross'}
+                    onChange={(value) => handleAmountBasis(endpoint, value as WebhookAmountBasis)}
+                    options={AMOUNT_BASIS_OPTIONS}
+                    className="mt-3 max-w-[15rem]"
+                  />
                 </div>
                 <div className="flex items-center gap-1.5 flex-shrink-0">
                   <button
