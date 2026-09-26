@@ -12,7 +12,25 @@ import { Select } from '@/components/ui/inputs/Select';
 import { Textarea } from '@/components/ui/inputs/Textarea';
 import { MultiSelect } from '@/components/ui/inputs/MultiSelect';
 import { DateInput } from '@/components/ui/inputs/DateInput';
-import { hasPermission } from '@/lib/access-control';
+import { hasPermission, canBeAssignedInProject } from '@/lib/access-control';
+
+const sameSet = (a: string[], b: string[]) =>
+  a.length === b.length && a.every((value) => b.includes(value));
+
+/** The fields of `next` that differ from the task as the form first saw it. */
+export function changedTaskFields(original: Task, next: Partial<Task>): Partial<Task> {
+  const changes: Partial<Task> = {};
+  for (const [key, value] of Object.entries(next) as [keyof Task, unknown][]) {
+    const before = original[key];
+    const unchanged = key === 'tags'
+      ? JSON.stringify(before ?? []) === JSON.stringify(value)
+      : Array.isArray(value)
+        ? sameSet((before as string[] | undefined) ?? [], value as string[])
+        : (before ?? null) === (value ?? null);
+    if (!unchanged) (changes as Record<string, unknown>)[key] = value;
+  }
+  return changes;
+}
 
 interface TaskFormProps {
   isOpen: boolean;
@@ -24,7 +42,8 @@ interface TaskFormProps {
 }
 
 export function TaskForm({ isOpen, onClose, projectId, task, initialDueDate }: TaskFormProps) {
-  const { team, tasks, addTask, updateTask } = useApp();
+  const { team, tasks, addTask, updateTask, getProject } = useApp();
+  const project = getProject(projectId);
   const { teamMemberId, access } = useAuth();
 
   const isAgentsEnabled = process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true';
@@ -74,14 +93,11 @@ export function TaskForm({ isOpen, onClose, projectId, task, initialDueDate }: T
 
     if (!title.trim()) return;
 
-    setSaving(true);
-    const taskData: Partial<Task> & { project_id: string; title: string } = {
-      project_id: projectId,
+    const draft = {
       title: title.trim(),
       description: description.trim(),
       status,
       priority,
-      ...(canAssignOthers || !task ? { assignee_ids: assigneeIds } : {}),
       due_date: dueDate || null,
       tags: tags
         .split(',')
@@ -90,20 +106,36 @@ export function TaskForm({ isOpen, onClose, projectId, task, initialDueDate }: T
       ...(canManageAgents
         ? { task_type: taskType || null, ai_readiness: aiReadiness || null }
         : {}),
-      blocked_by_ids: blockedByIds,
-      subtasks: task?.subtasks || [],
-      comments: task?.comments || [],
-      acceptance_criteria: task?.acceptance_criteria || [],
     };
 
+    setSaving(true);
+    let saved: boolean;
     if (task) {
-      await updateTask(task.id, taskData);
+      // Only what this form changed. The form edits a snapshot taken when it
+      // opened; sending every field would put back a status (or blockers,
+      // assignees) that an agent or teammate has changed since.
+      const changes = changedTaskFields(task, {
+        ...draft,
+        ...(canAssignOthers ? { assignee_ids: assigneeIds } : {}),
+        blocked_by_ids: blockedByIds,
+      });
+      saved = Object.keys(changes).length === 0 || await updateTask(task.id, changes);
     } else {
-      await addTask(taskData as Omit<Task, 'id' | 'created_at' | 'updated_at'>);
+      saved = await addTask({
+        ...draft,
+        project_id: projectId,
+        assignee_ids: assigneeIds,
+        blocked_by_ids: blockedByIds,
+        subtasks: [],
+        comments: [],
+        acceptance_criteria: [],
+      } as Omit<Task, 'id' | 'created_at' | 'updated_at'>);
     }
 
     setSaving(false);
-    onClose();
+    // On failure the store has toasted and rolled back; the draft stays open
+    // so nothing typed is lost.
+    if (saved) onClose();
   };
 
   const statusOptions = [
@@ -165,12 +197,15 @@ export function TaskForm({ isOpen, onClose, projectId, task, initialDueDate }: T
         <MultiSelect
           label="Team Members"
           options={(canAssignOthers
-            ? team
+            ? team.filter((member) =>
+                // Keep anyone already assigned visible so they can be removed.
+                assigneeIds.includes(member.id) || !project || canBeAssignedInProject(member, project))
             : team.filter((member) => member.id === teamMemberId)
           ).map((m) => ({ value: m.id, label: m.name }))}
           value={assigneeIds}
           onChange={setAssigneeIds}
           placeholder="Select team members..."
+          description={canAssignOthers ? 'Only people who can open this project are listed.' : undefined}
           selectAll
           searchable={team.length > 4}
         />

@@ -4,8 +4,27 @@ import { updateTaskSchema } from '@/lib/schemas';
 import { forbidden, notFound } from '@/lib/api/errors';
 import { patchTask } from '@/lib/supabase/queries';
 import { logAudit } from '@/lib/api/audit';
-import { accessAllows } from '@/lib/api/access';
-import { assertBlockersInProject } from '@/lib/api/task-guards';
+import { accessAllows, accessAllowsProject } from '@/lib/api/access';
+import { assertAssigneesCanOpenProject, assertBlockersInProject, assertGoalInProject } from '@/lib/api/task-guards';
+import type { SupabaseClient } from '@supabase/supabase-js';
+
+async function currentAssigneeIds(supabase: SupabaseClient, taskId: string): Promise<string[]> {
+  const { data, error } = await supabase
+    .from('task_assignees')
+    .select('member_id')
+    .eq('task_id', taskId);
+  if (error) throw error;
+  return (data || []).map((row: { member_id: string }) => row.member_id);
+}
+
+async function currentBlockerIds(supabase: SupabaseClient, taskId: string): Promise<string[]> {
+  const { data, error } = await supabase
+    .from('task_dependencies')
+    .select('blocked_by_task_id')
+    .eq('task_id', taskId);
+  if (error) throw error;
+  return (data || []).map((row: { blocked_by_task_id: string }) => row.blocked_by_task_id);
+}
 
 export const GET = withApi(async ({ supabase, params }) => {
   const { data, error } = await supabase
@@ -73,12 +92,48 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
   const { data: before } = await supabase.from('tasks').select('*').eq('id', id).maybeSingle();
   if (!before) throw notFound('Task');
   const { assignee_ids, acceptance_criteria, blocked_by_ids, ...updates } = body as any;
-  if (assignee_ids !== undefined && !(scopes.includes('tasks.manage_all') && accessAllows(access, 'tasks.manage_all', 'api'))) {
+  const canManageAll = scopes.includes('tasks.manage_all') && accessAllows(access, 'tasks.manage_all', 'api');
+  if (assignee_ids !== undefined && !canManageAll) {
     throw forbidden('Changing task assignments requires the tasks.manage_all API scope');
   }
   const blockedByIds: string[] | undefined = Array.isArray(blocked_by_ids) ? blocked_by_ids : undefined;
-  if (blockedByIds !== undefined && blockedByIds.length > 0) {
-    await assertBlockersInProject(supabase, blockedByIds, before.project_id, id);
+
+  // The middleware only authorized the task's current project. Moving it
+  // must also be allowed on the destination, and whatever the task keeps
+  // (blockers, goal) has to live there too.
+  const targetProjectId: string = updates.project_id ?? before.project_id;
+  const isMove = targetProjectId !== before.project_id;
+  if (isMove) {
+    if (!canManageAll) {
+      throw forbidden('Moving a task to another project requires the tasks.manage_all API scope');
+    }
+    if (!accessAllowsProject(access, targetProjectId, 'api')) {
+      throw forbidden('Project scope denied', {
+        reason: 'project_scope',
+        grant_on: 'project_membership',
+        project_id: targetProjectId,
+        hint: 'Assign the linked member to the destination project, or grant projects.read_all.',
+      });
+    }
+  }
+
+  const effectiveBlockerIds = blockedByIds ?? (isMove ? await currentBlockerIds(supabase, id) : []);
+  if (effectiveBlockerIds.length > 0) {
+    await assertBlockersInProject(supabase, effectiveBlockerIds, targetProjectId, id);
+  }
+  const goalId: string | null | undefined = updates.project_goal_id !== undefined
+    ? updates.project_goal_id
+    : (isMove ? before.project_goal_id : null);
+  if (goalId) {
+    await assertGoalInProject(supabase, goalId, targetProjectId);
+  }
+  // New assignees, and on a move everyone who stays assigned, must be able
+  // to open the task where it will live.
+  const effectiveAssignees: string[] = Array.isArray(assignee_ids)
+    ? assignee_ids
+    : (isMove ? await currentAssigneeIds(supabase, id) : []);
+  if (effectiveAssignees.length > 0) {
+    await assertAssigneesCanOpenProject(supabase, effectiveAssignees, targetProjectId);
   }
   const criteria: string[] | undefined = Array.isArray(acceptance_criteria) ? acceptance_criteria : undefined;
   const data = await patchTask(supabase, id, updates, assignee_ids, criteria, blockedByIds);

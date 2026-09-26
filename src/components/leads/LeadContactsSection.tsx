@@ -3,7 +3,7 @@
 import { useState, useMemo } from 'react';
 import Link from 'next/link';
 import { TextInput } from '@/components/ui/inputs/TextInput';
-import { Plus, Edit, Trash2, Star, Users, ExternalLink, Search, X } from 'lucide-react';
+import { Plus, Edit, Trash2, Star, Users, ExternalLink, Search, X, Lock } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { Avatar } from '@/components/ui/Avatar';
 import { Badge } from '@/components/ui/Badge';
@@ -49,6 +49,11 @@ export function LeadContactsSection({ leadId, readOnly = false }: LeadContactsSe
 
   const leadContactsList = getContactsByLead(leadId);
   const existingContactIds = leadContactsList.map((lc) => lc.contact_id);
+  // A link row can be readable while its contact is not (contact access is
+  // scoped separately from lead access). Those are counted apart and named,
+  // rather than inflating the header over a list that never shows them.
+  const visibleContacts = leadContactsList.filter((lc) => lc.contact);
+  const hiddenContactCount = leadContactsList.length - visibleContacts.length;
   const hasPrimaryClient = !!getPrimaryLeadContact(leadId);
 
   const availableContacts = useMemo(() => {
@@ -131,7 +136,7 @@ export function LeadContactsSection({ leadId, readOnly = false }: LeadContactsSe
         <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.08] flex-shrink-0">
           <div className="flex items-center gap-2">
             <Users size={18} className="text-zinc-400" />
-            <h2 className="font-semibold text-white">Contacts ({leadContactsList.length})</h2>
+            <h2 className="font-semibold text-white">Contacts ({visibleContacts.length})</h2>
           </div>
           {!readOnly && !showAddForm && (
             <Button size="sm" onClick={() => setShowAddForm(true)} icon={<Plus size={14} />}>
@@ -142,9 +147,9 @@ export function LeadContactsSection({ leadId, readOnly = false }: LeadContactsSe
 
         <div className="flex-1 flex flex-col overflow-y-auto">
           {/* Existing contacts list */}
-          {leadContactsList.length > 0 ? (
+          {visibleContacts.length > 0 ? (
             <div className="p-3 space-y-1">
-              {leadContactsList.map((lc) => {
+              {visibleContacts.map((lc) => {
                 const contact = lc.contact;
                 if (!contact) return null;
 
@@ -256,7 +261,7 @@ export function LeadContactsSection({ leadId, readOnly = false }: LeadContactsSe
                 );
               })}
             </div>
-          ) : !showAddForm ? (
+          ) : !showAddForm && hiddenContactCount === 0 ? (
             <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
               <div className="w-10 h-10 rounded-full bg-white/[0.06] flex items-center justify-center mb-3">
                 <Users size={18} className="text-zinc-500" />
@@ -265,6 +270,15 @@ export function LeadContactsSection({ leadId, readOnly = false }: LeadContactsSe
               <p className="text-xs text-zinc-500 mt-1">Add contacts to this lead</p>
             </div>
           ) : null}
+
+          {hiddenContactCount > 0 && (
+            <p className="flex items-center gap-2 px-5 py-3 text-xs text-zinc-400">
+              <Lock size={12} className="flex-shrink-0" aria-hidden="true" />
+              {hiddenContactCount === 1
+                ? "1 linked contact is hidden because you don't have access to it."
+                : `${hiddenContactCount} linked contacts are hidden because you don't have access to them.`}
+            </p>
+          )}
 
           {/* Inline add contact form */}
           {showAddForm && (

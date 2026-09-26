@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
+import { checkPortalPin, pinFailureResponse } from '@/lib/portal-pin';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,7 +31,7 @@ export async function POST(
   // Verify portal
   const { data: settings } = await supabase
     .from('portal_settings')
-    .select('project_id, enabled, pin, show_files')
+    .select('id, project_id, enabled, pin, show_files')
     .eq('token', token)
     .maybeSingle();
 
@@ -42,13 +43,9 @@ export async function POST(
     return NextResponse.json({ error: 'File uploads are not enabled' }, { status: 403 });
   }
 
-  // Check PIN (accept via header to avoid leaking in server logs)
-  if (settings.pin) {
-    const pin = request.headers.get('x-portal-pin');
-    if (!pin || pin !== settings.pin) {
-      return NextResponse.json({ error: 'Invalid PIN' }, { status: 401 });
-    }
-  }
+  // PIN travels in a header to avoid leaking into server logs
+  const pinCheck = await checkPortalPin({ supabase, request, token, settings });
+  if (!pinCheck.ok) return pinFailureResponse(pinCheck);
 
   // Parse multipart form data
   let formData: FormData;

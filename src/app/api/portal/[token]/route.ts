@@ -10,11 +10,12 @@ import {
   demoTeam, demoProjectInvoices,
 } from '@/lib/demo-data';
 import { siteConfig } from '@/site-config';
-import { getWorkedHours, getWorkedMs } from '@/lib/time-entry-utils';
+import { getWorkedHours, getWorkedMs, isClientBillable } from '@/lib/time-entry-utils';
 import { fifoPaymentStatuses, paidHourlyLineItemTotal, totalBillableAmount } from '@/lib/invoice-utils';
 import { buildInvoiceData } from '@/lib/invoice-pdf/buildInvoiceData';
 import { InvoicePdfIntegrityError } from '@/lib/invoice-pdf/resolveInvoicePdfBilling';
 import { recordPortalEvent, getOrCreateSessionId } from '@/lib/portal-analytics';
+import { checkPortalPin, pinFailureResponse } from '@/lib/portal-pin';
 import { resolveProjectHourlyRate } from '@/lib/supabase/queries';
 
 /**
@@ -107,43 +108,23 @@ export async function GET(
     return NextResponse.json({ error: 'Portal is disabled' }, { status: 404 });
   }
 
-  // Check PIN if required (prefer header, fall back to query param)
-  if (settings.pin) {
-    const pin = request.headers.get('x-portal-pin');
-    if (!pin || pin !== settings.pin) {
-      // Fetch minimal branding for the PIN screen
-      const { data: proj } = await supabase
-        .from('projects')
-        .select('name')
-        .eq('id', settings.project_id)
-        .single();
+  const pinCheck = await checkPortalPin({ supabase, request, token, settings });
+  if (!pinCheck.ok) {
+    // Minimal branding for the PIN screen
+    const { data: proj } = await supabase
+      .from('projects')
+      .select('name')
+      .eq('id', settings.project_id)
+      .single();
 
-      // A submitted-but-wrong PIN is a security signal; "no PIN yet" is the
-      // normal first-load state and isn't worth logging.
-      if (pin) {
-        await recordPortalEvent({
-          supabase,
-          request,
-          token,
-          portalSettingsId: settings.id,
-          projectId: settings.project_id,
-          sessionId: getOrCreateSessionId(request),
-          eventType: 'pin_attempt',
-          metadata: { success: false },
-        });
-      }
-
-      return NextResponse.json({
-        error: pin ? 'Invalid PIN' : 'PIN required',
-        pin_required: true,
-        branding: {
-          logo_url: settings.logo_url || '',
-          accent_color: settings.accent_color || siteConfig.colors.brand[500],
-          project_name: proj?.name || '',
-          welcome_message: settings.welcome_message || '',
-        },
-      }, { status: 401 });
-    }
+    return pinFailureResponse(pinCheck, {
+      branding: {
+        logo_url: settings.logo_url || '',
+        accent_color: settings.accent_color || siteConfig.colors.brand[500],
+        project_name: proj?.name || '',
+        welcome_message: settings.welcome_message || '',
+      },
+    });
   }
 
   // Fetch project (include billing fields + per-project PDF options used by
@@ -209,20 +190,26 @@ export async function GET(
   const needsHours = settings.show_hours || (settings.show_invoices && project.hourly_tracking);
   let hours: PortalData['hours'] = { total_hours: 0, entries: [] };
   // Hoisted out of the `needsHours` block so the invoice-PDF builder below can
-  // attach the time-log page when the project enables it.
+  // attach the time-log page when the project enables it. The PDF resolves
+  // invoiced entries by allocation, so it keeps every stopped entry; the hours
+  // list and the balance only ever see client-billable time.
   let portalTimeEntries: TimeEntry[] = [];
+  let billableTimeEntries: TimeEntry[] = [];
   let portalTeam: { id: string; name: string }[] = [];
   if (needsHours) {
-    const { data: timeEntries } = await supabase
+    const { data: stoppedEntries } = await supabase
       .from('project_time_entries')
-      .select('id, start_time, end_time, segments, description, member_id, hourly_rate')
+      .select('id, start_time, end_time, segments, description, member_id, hourly_rate, work_type, approval_status')
       .eq('project_id', settings.project_id)
       .not('end_time', 'is', null)
       .order('start_time', { ascending: false });
 
-    if (timeEntries && timeEntries.length > 0) {
-      portalTimeEntries = timeEntries as unknown as TimeEntry[];
-      const memberIds = [...new Set(timeEntries.map((te: any) => te.member_id))];
+    portalTimeEntries = (stoppedEntries ?? []) as unknown as TimeEntry[];
+    billableTimeEntries = portalTimeEntries.filter(isClientBillable);
+    const timeEntries = billableTimeEntries;
+
+    if (portalTimeEntries.length > 0) {
+      const memberIds = [...new Set(portalTimeEntries.map(te => te.member_id))];
       const { data: members } = await supabase
         .from('team_members')
         .select('id, name')
@@ -431,7 +418,7 @@ export async function GET(
       hourly_rate: currentHourlyRate,
       total_hours: hours.total_hours,
       billable_total: totalBillableAmount(
-        portalTimeEntries.map(te => ({ id: te.id, hours: getWorkedHours(te), hourly_rate: te.hourly_rate })),
+        billableTimeEntries.map(te => ({ id: te.id, hours: getWorkedHours(te), hourly_rate: te.hourly_rate })),
         currentHourlyRate,
       ),
     } : null,
@@ -505,7 +492,7 @@ function handleDemoMode(token: string, request: NextRequest) {
   const demoNeedsHours = settings.show_hours || (settings.show_invoices && project.hourly_tracking);
   let hours: PortalData['hours'] = { total_hours: 0, entries: [] };
   if (demoNeedsHours) {
-    const projectEntries = demoTimeEntries.filter(te => te.project_id === settings.project_id && te.end_time !== null);
+    const projectEntries = demoTimeEntries.filter(te => te.project_id === settings.project_id && isClientBillable(te));
     const hourlyRate = project.hourly_rate ?? 0;
     const paymentMap = (project.hourly_tracking && hourlyRate > 0)
       ? fifoPaymentStatuses(
@@ -618,7 +605,7 @@ function handleDemoMode(token: string, request: NextRequest) {
       total_hours: hours.total_hours,
       billable_total: totalBillableAmount(
         demoTimeEntries
-          .filter(te => te.project_id === settings.project_id && te.end_time !== null)
+          .filter(te => te.project_id === settings.project_id && isClientBillable(te))
           .map(te => ({ id: te.id, hours: getWorkedHours(te), hourly_rate: te.hourly_rate })),
         project.hourly_rate ?? 0,
       ),

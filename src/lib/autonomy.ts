@@ -128,9 +128,16 @@ export function computeNeedsYou(input: {
   projects: Project[];
   teamMemberId: string | null;
   includeSuggestions: boolean;
+  /**
+   * The viewer oversees agent work (agents.manage): merges held agent PRs and
+   * reviews finished human work. Everyone else sees only their own actions;
+   * a merge row they cannot click, or their own finished task labelled as
+   * "waiting on your review", is noise that inflates the badge.
+   */
+  oversight: boolean;
   agentActivity?: { reference_type: string | null; reference_id: string | null; title: string; description: string; created_at: string }[];
 }): NeedsYouItem[] {
-  const { tasks, suggestions, projects, teamMemberId, includeSuggestions, agentActivity = [] } = input;
+  const { tasks, suggestions, projects, teamMemberId, includeSuggestions, oversight, agentActivity = [] } = input;
   const suggestionById = new Map(suggestions.map(s => [s.id, s]));
   const projectById = new Map(projects.map(p => [p.id, p]));
   const laneOf = (task: Task) =>
@@ -166,7 +173,7 @@ export function computeNeedsYou(input: {
   // so the row can say whether John has signed off yet; the item itself
   // always surfaces, because a reviewer outage must never bury a held merge.
   for (const task of tasks) {
-    if (task.status !== 'in_review') continue;
+    if (!oversight || task.status !== 'in_review') continue;
     const lane = laneOf(task);
     if (lane === 'needs_merge' || lane === 'merge_unknown') {
       items.push({ kind: 'merge', task, lane, reviewerVerdict: latestReview(task) });
@@ -175,7 +182,7 @@ export function computeNeedsYou(input: {
 
   // Human work waiting on your review.
   for (const task of tasks) {
-    if (task.status !== 'in_review' || !teamMemberId) continue;
+    if (!oversight || task.status !== 'in_review' || !teamMemberId) continue;
     const lane = laneOf(task);
     if (lane === 'manual' && task.assignee_ids.includes(teamMemberId)) {
       items.push({ kind: 'review', task, lane });
@@ -184,10 +191,12 @@ export function computeNeedsYou(input: {
 
   // Your own queued tasks that are urgent or due: the "start this today"
   // nudge. In-progress work is deliberately excluded; you are already on it.
+  // An unclassified task (needs_spec) is still a person's work: most tasks a
+  // member creates never get an AI readiness at all.
   for (const task of tasks) {
     if (!teamMemberId || task.status !== 'todo' || !task.assignee_ids.includes(teamMemberId)) continue;
     const lane = laneOf(task);
-    if (lane !== 'manual' && lane !== 'merge_unknown') continue;
+    if (lane !== 'manual' && lane !== 'merge_unknown' && lane !== 'needs_spec') continue;
     const due = task.due_date ? parseDateOnly(task.due_date) : null;
     if (task.priority === 'urgent' || (due && due <= today)) {
       items.push({ kind: 'due', task, lane });

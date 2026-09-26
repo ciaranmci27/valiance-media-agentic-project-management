@@ -149,6 +149,49 @@ export async function resolveMemberAccess(
   };
 }
 
+export type ProjectAccessLevel = 'all' | 'member' | 'none';
+
+const PROJECT_REACH_RANK: Record<ProjectAccessLevel, number> = { none: 0, member: 1, all: 2 };
+
+/**
+ * Project reach for many members in two reads, with the same precedence as
+ * resolveMemberAccess (owner is everything, role grants, then allow
+ * overrides, then deny overrides). Either channel counts: an agent often
+ * holds its project access on the API channel only and still works tasks.
+ * Suspended members reach nothing.
+ */
+export async function resolveProjectAccessLevels(
+  service: SupabaseClient,
+  members: { id: string; role: string; status?: string | null }[],
+): Promise<Map<string, ProjectAccessLevel>> {
+  const keys = ['projects.read', 'projects.read_all'];
+  const [roleResult, overrideResult] = await Promise.all([
+    service.from('role_permissions').select('role, permission_key, access_channel').in('permission_key', keys),
+    service.from('team_member_permissions').select('member_id, permission_key, access_channel, effect').in('permission_key', keys),
+  ]);
+  const levels = new Map<string, ProjectAccessLevel>();
+  for (const member of members) {
+    if (member.status === 'suspended') { levels.set(member.id, 'none'); continue; }
+    if (member.role === 'owner') { levels.set(member.id, 'all'); continue; }
+    let best: ProjectAccessLevel = 'none';
+    for (const channel of ['app', 'api']) {
+      const granted = new Set(
+        (roleResult.data || [])
+          .filter((row) => row.role === member.role && row.access_channel === channel)
+          .map((row) => row.permission_key),
+      );
+      const overrides = (overrideResult.data || [])
+        .filter((row) => row.member_id === member.id && row.access_channel === channel);
+      for (const row of overrides) if (row.effect === 'allow') granted.add(row.permission_key);
+      for (const row of overrides) if (row.effect !== 'allow') granted.delete(row.permission_key);
+      const level: ProjectAccessLevel = granted.has('projects.read_all') ? 'all' : granted.has('projects.read') ? 'member' : 'none';
+      if (PROJECT_REACH_RANK[level] > PROJECT_REACH_RANK[best]) best = level;
+    }
+    levels.set(member.id, best);
+  }
+  return levels;
+}
+
 export function accessAllows(
   access: AccessContext,
   permission: PermissionKey,
@@ -221,6 +264,11 @@ export async function accessAllowsEntity(
   return false;
 }
 
+/** Client rates are visible to whoever manages billing or reads company finance. */
+function canReadRevenueInputs(access: AccessContext, channel: 'app' | 'api'): boolean {
+  return accessAllows(access, 'billing.manage', channel) || accessAllows(access, 'finance.company.read', channel);
+}
+
 export function sanitizeProjectForAccess<T extends Record<string, unknown>>(
   project: T,
   access: AccessContext,
@@ -229,15 +277,19 @@ export function sanitizeProjectForAccess<T extends Record<string, unknown>>(
   const sanitized: Record<string, unknown> = { ...project };
   if (!accessAllows(access, 'billing.manage', channel)) {
     Object.assign(sanitized, {
-      hourly_rate: null,
       budget_type: null,
       budget_value: null,
       billing_address: null,
       billing_email: null,
       tax_rate: null,
       invoice_pdf_options: undefined,
-      client_time_billing: undefined,
     });
+    // The rate is an input to the revenue figures a company-finance reader is
+    // entitled to; withheld, the finance engine values their hours at $0.
+    // Reading it is not editing it: billing.manage still gates every write.
+    if (!canReadRevenueInputs(access, channel)) {
+      Object.assign(sanitized, { hourly_rate: null, client_time_billing: undefined });
+    }
   }
   // The agent block that used to live here is gone on purpose.
   //
@@ -268,7 +320,7 @@ export function sanitizeTimeEntryForAccess<T extends Record<string, unknown>>(
   channel: 'app' | 'api' = 'app',
 ): T {
   const sanitized: Record<string, unknown> = { ...entry };
-  if (!accessAllows(access, 'billing.manage', channel)) {
+  if (!canReadRevenueInputs(access, channel)) {
     sanitized.hourly_rate = undefined;
     sanitized.billing_multiplier = undefined;
   }

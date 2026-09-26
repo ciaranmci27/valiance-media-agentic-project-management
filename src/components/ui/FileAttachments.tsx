@@ -55,6 +55,7 @@ export function FileAttachments({ entityType, entityId }: FileAttachmentsProps) 
     getEntityFiles,
     addEntityFile,
     renameEntityFile,
+    replaceEntityFileContent,
     deleteEntityFile,
     updateEntityFileVisibility,
   } = useApp();
@@ -227,61 +228,50 @@ export function FileAttachments({ entityType, entityId }: FileAttachmentsProps) 
     }
   };
 
+  // Throws on failure so NewNoteModal stays open with the draft intact; every
+  // failure path has already told the user.
   const handleCreateNote = async (fileName: string, content: string, mimeType: string) => {
     const blob = new Blob([content], { type: mimeType });
-    const oldVisibility = noteEditMode
-      ? files.find((f) => f.id === noteEditMode.fileId)?.visibility
-      : undefined;
+    const editingId = noteEditMode?.fileId;
 
-    if (isDemoMode) {
-      // Demo mode: safe to delete first since addEntityFile can't fail
-      if (noteEditMode?.fileId) deleteEntityFile(noteEditMode.fileId);
-      addEntityFile({
-        entity_type: entityType,
-        entity_id: entityId,
-        name: fileName,
-        file_url: '#',
-        file_size: blob.size,
-        mime_type: mimeType,
-        visibility: oldVisibility || 'internal',
-        uploaded_by: teamMemberId,
-      });
-      toast('success', noteEditMode ? 'Note updated' : 'Note created');
-      setNoteEditMode(undefined);
-      return;
-    }
-
-    try {
-      const supabase = createClient();
-      const storagePath = `${entityType}/${entityId}/${Date.now()}-${fileName}`;
+    let fileUrl = '#';
+    let storagePath: string | null = null;
+    const supabase = isDemoMode ? null : createClient();
+    if (supabase) {
+      storagePath = `${entityType}/${entityId}/${Date.now()}-${fileName}`;
       const { error: uploadError } = await supabase.storage
         .from('entity-files')
         .upload(storagePath, blob, { contentType: mimeType });
-
-      if (uploadError) throw uploadError;
-
-      const { data: urlData } = supabase.storage.from('entity-files').getPublicUrl(storagePath);
-
-      // Delete old file only after new one is successfully uploaded
-      if (noteEditMode?.fileId) deleteEntityFile(noteEditMode.fileId);
-
-      addEntityFile({
-        entity_type: entityType,
-        entity_id: entityId,
-        name: fileName,
-        file_url: urlData.publicUrl,
-        file_size: blob.size,
-        mime_type: mimeType,
-        visibility: oldVisibility || 'internal',
-        uploaded_by: teamMemberId,
-      });
-      toast('success', noteEditMode ? 'Note updated' : 'Note created');
-    } catch {
-      toast('error', 'Failed to save note');
-      throw new Error('Failed to save note');
-    } finally {
-      setNoteEditMode(undefined);
+      if (uploadError) {
+        toast('error', 'Failed to save note');
+        throw uploadError;
+      }
+      fileUrl = supabase.storage.from('entity-files').getPublicUrl(storagePath).data.publicUrl;
     }
+
+    // An edit updates the existing row in place: nothing is removed until the
+    // new content is saved, and the note keeps its id and visibility.
+    const noteContent = { name: fileName, file_url: fileUrl, file_size: blob.size, mime_type: mimeType };
+    const saved = editingId
+      ? await replaceEntityFileContent(editingId, noteContent)
+      : await addEntityFile({
+          ...noteContent,
+          entity_type: entityType,
+          entity_id: entityId,
+          visibility: 'internal',
+          uploaded_by: teamMemberId,
+        });
+
+    if (!saved) {
+      // The row never pointed at this upload; do not leave it behind.
+      if (supabase && storagePath) {
+        supabase.storage.from('entity-files').remove([storagePath]).then(() => {}, () => {});
+      }
+      throw new Error('Failed to save note');
+    }
+
+    toast('success', editingId ? 'Note updated' : 'Note created');
+    setNoteEditMode(undefined);
   };
 
   const handleEditNote = async (file: { name: string; file_url: string; mime_type: string }) => {

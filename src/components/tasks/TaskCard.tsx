@@ -10,7 +10,7 @@ import { useState, useRef } from 'react';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { Popover } from '@/components/ui/Popover';
 import { parseDateOnly, isDateOverdue } from '@/lib/date-utils';
-import { hasPermission } from '@/lib/access-control';
+import { hasPermission, canEditTask, canManageAllTasks } from '@/lib/access-control';
 
 function timeAgo(dateStr: string): string {
   const now = Date.now();
@@ -42,8 +42,8 @@ export function TaskCard({ task, onView, onEdit, onDelete }: TaskCardProps) {
   const canManageAgents = hasPermission(access, 'agents.manage');
 
   const assignees = team.filter(m => task.assignee_ids.includes(m.id));
-  const canEdit = hasPermission(access, 'tasks.manage_all') || (hasPermission(access, 'tasks.manage_assigned') && task.assignee_ids.includes(teamMemberId || ''));
-  const canDelete = hasPermission(access, 'tasks.manage_all');
+  const canEdit = canEditTask(access, task, teamMemberId);
+  const canDelete = canManageAllTasks(access);
   const completedSubtasks = task.subtasks.filter(s => s.completed).length;
   const hasComments = task.comments.length > 0;
 

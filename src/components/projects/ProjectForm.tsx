@@ -73,6 +73,7 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
     useApp();
   const { access, teamMemberId } = useAuth();
   const canManageBilling = hasPermission(access, 'billing.manage');
+  const canManageProject = hasPermission(access, 'projects.manage');
   const canManageProjectMembers = hasPermission(access, 'project_members.manage');
   const canManageContacts = hasPermission(access, 'contacts.manage');
   const canManageAgents = hasPermission(access, 'agents.manage');
@@ -207,11 +208,12 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
         : {}),
     } as Omit<Project, 'id' | 'created_at' | 'updated_at'>;
 
+    let saved: boolean;
     if (project) {
       const updateData: Partial<Project> = { ...projectData };
       if (!canManageProjectMembers) delete updateData.member_ids;
-      await updateProject(project.id, updateData);
-      if (canManageContacts && selectedContactId) {
+      saved = await updateProject(project.id, updateData);
+      if (saved && canManageContacts && selectedContactId) {
         const currentPrimary = getPrimaryClient(project.id);
         if (currentPrimary?.contact_id !== selectedContactId) {
           await addProjectContact(project.id, selectedContactId, 'Client', null, true);
@@ -219,13 +221,16 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
       }
     } else {
       const newProject = await addProject(projectData);
+      saved = !!newProject;
       if (newProject && canManageContacts && selectedContactId) {
         await addProjectContact(newProject.id, selectedContactId, 'Client', null, true);
       }
     }
 
     setSaving(false);
-    onClose();
+    // On failure the store has toasted and rolled back; keep the form open
+    // so nothing typed is lost.
+    if (saved) onClose();
   };
 
   const handleToggleBudgetHistory = () => {
@@ -266,6 +271,42 @@ export function ProjectForm({ isOpen, onClose, project }: ProjectFormProps) {
     { value: 'completed', label: 'Completed' },
     { value: 'archived', label: 'Archived' },
   ];
+
+  // Someone who may change who is on the project, but not the project itself,
+  // gets only that: the server accepts a membership-only save from them and
+  // nothing else, so offering the other fields would only fail on save.
+  if (project && !canManageProject && canManageProjectMembers) {
+    const saveMembers = async (e: React.FormEvent) => {
+      e.preventDefault();
+      setSaving(true);
+      const saved = await updateProject(project.id, { member_ids: memberIds });
+      setSaving(false);
+      if (saved) onClose();
+    };
+    return (
+      <Modal isOpen={isOpen} onClose={onClose} title="Project Members" size="md">
+        <form onSubmit={saveMembers} className="space-y-4">
+          <MultiSelect
+            label="Team Members"
+            options={team.map((m) => ({ value: m.id, label: m.name }))}
+            value={memberIds}
+            onChange={setMemberIds}
+            placeholder="Select team members..."
+            selectAll
+            searchable={team.length > 4}
+          />
+          <div className="flex justify-end gap-3 pt-4">
+            <Button type="button" variant="ghost" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={saving}>
+              {saving ? 'Saving...' : 'Save Members'}
+            </Button>
+          </div>
+        </form>
+      </Modal>
+    );
+  }
 
   return (
     <Modal

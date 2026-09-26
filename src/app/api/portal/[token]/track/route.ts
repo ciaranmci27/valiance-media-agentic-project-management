@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { PORTAL_EVENT_TYPES, type PortalEventType } from '@/lib/types';
 import { recordPortalEvent, isValidUuid } from '@/lib/portal-analytics';
+import { checkPortalPin, pinFailureResponse } from '@/lib/portal-pin';
 
 export const dynamic = 'force-dynamic';
 
@@ -127,12 +128,8 @@ export async function POST(
   if (!settings || !settings.enabled) {
     return NextResponse.json({ error: 'Portal not found' }, { status: 404 });
   }
-  if (settings.pin) {
-    const pin = request.headers.get('x-portal-pin');
-    if (!pin || pin !== settings.pin) {
-      return NextResponse.json({ error: 'PIN required' }, { status: 401 });
-    }
-  }
+  const pinCheck = await checkPortalPin({ supabase, request, token, settings });
+  if (!pinCheck.ok) return pinFailureResponse(pinCheck);
 
   await recordPortalEvent({
     supabase,

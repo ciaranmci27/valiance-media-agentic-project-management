@@ -13,6 +13,7 @@ export function PinGate({
   onChange,
   onComplete,
   error,
+  lockMessage,
   submitting,
   pinRef,
 }: {
@@ -22,6 +23,8 @@ export function PinGate({
   onChange: (value: string) => void;
   onComplete: (value: string) => void;
   error: boolean;
+  /** Shown instead of the wrong-PIN line while attempts are locked out. */
+  lockMessage?: string | null;
   submitting: boolean;
   pinRef?: RefObject<PinInputRef | null>;
 }) {
@@ -60,7 +63,11 @@ export function PinGate({
             </div>
 
             <div className="mt-4 min-h-6" aria-live="polite">
-              {error && (
+              {lockMessage ? (
+                <p className="text-[14px]" style={{ color: 'var(--vm-error)' }}>
+                  {lockMessage}
+                </p>
+              ) : error && (
                 <p className="text-[14px]" style={{ color: 'var(--vm-error)' }}>
                   Incorrect PIN. Please try again.
                 </p>

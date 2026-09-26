@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { fetchAllRows } from '@/lib/supabase/fetch-all';
 import { getServiceClient } from '@/lib/api/supabase-service';
 import { accessAllows, accessAllowsProject, requireSessionAccess } from '@/lib/api/access';
 import { isLocalIp, stripCidrHostPrefix } from '@/lib/portal-analytics';
@@ -177,16 +178,21 @@ export async function GET(
   // Pull raw events and (when needed) the admin exclusion list in parallel.
   // Sessions are aggregated from the events array below; we no longer need
   // the portal_session_summary view to do that in SQL.
+  // Every event in the range: heartbeats alone pass the response cap on a
+  // busy portal, and a capped read would silently drop the oldest visits.
   const [
     { data: events, error: eventsErr },
     { data: bizSettings },
   ] = await Promise.all([
-    service
+    fetchAllRows((from, to) => service
       .from('portal_events')
       .select(EVENT_COLUMNS)
       .eq('project_id', projectId)
       .gte('created_at', rangeStart)
-      .order('created_at', { ascending: false }),
+      .order('created_at', { ascending: false })
+      .order('id')
+      .range(from, to))
+      .then((data) => ({ data, error: null }), (error: { message?: string }) => ({ data: null, error: { message: error?.message || 'Failed to load events' } })),
     hideTeam
       ? service.from('business_settings').select('excluded_ips').limit(1).maybeSingle()
       : Promise.resolve({ data: null as { excluded_ips: ExcludedIp[] } | null }),

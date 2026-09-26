@@ -8,6 +8,7 @@ import { DemoProvider } from '@/lib/demo-context';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { ThemeSync } from '@/components/layout/ThemeSync';
 import { DemoBanner } from '@/components/layout/DemoBanner';
+import { LoadErrorBanner } from '@/components/layout/LoadErrorBanner';
 import { KeyboardShortcuts } from '@/components/layout/KeyboardShortcuts';
 import { ToastContainer } from '@/components/ui/Toast';
 import { BrandLoader } from '@/components/ui/BrandLoader';
@@ -115,6 +116,7 @@ function StoreGate({ children }: { children: React.ReactNode }) {
           <Sidebar />
           <main className="lg:ml-60 min-h-screen">
             <DemoBanner />
+            <LoadErrorBanner />
             {children}
           </main>
           <KeyboardShortcuts />

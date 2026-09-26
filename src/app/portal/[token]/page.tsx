@@ -136,6 +136,7 @@ function PortalPageInner() {
         onChange={portal.changePin}
         onComplete={portal.submitPin}
         error={portal.pinError}
+        lockMessage={portal.pinLockMessage}
         submitting={portal.pinSubmitting}
         pinRef={portal.pinRef}
       />

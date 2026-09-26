@@ -41,6 +41,7 @@ export default function PortalFilePage() {
   const [pinRequired, setPinRequired] = useState(false);
   const [pin, setPin] = useState('');
   const [pinError, setPinError] = useState(false);
+  const [pinLockMessage, setPinLockMessage] = useState<string | null>(null);
   const [pinSubmitting, setPinSubmitting] = useState(false);
   const pinRef = useRef<PinInputRef>(null);
   const [branding, setBranding] = useState<FileBranding | null>(null);
@@ -61,15 +62,17 @@ export default function PortalFilePage() {
       if (effectivePin) headers['x-portal-pin'] = effectivePin;
       const res = await fetch(url, { headers });
 
-      if (res.status === 401) {
+      if (res.status === 401 || res.status === 429) {
         const body = await res.json();
         if (body.pin_required) {
-          // A stored PIN that no longer works is stale; drop it silently
-          if (!pinValue && effectivePin) sessionStorage.removeItem(`portal-pin-${token}`);
+          // A stored PIN that no longer works is stale; drop it silently.
+          // A lockout says nothing about the stored PIN, so it stays.
+          if (!pinValue && effectivePin && !body.locked) sessionStorage.removeItem(`portal-pin-${token}`);
           setPinRequired(true);
           if (body.branding) setBranding(body.branding);
-          if (pinValue) {
+          if (pinValue || body.locked) {
             setPinError(true);
+            setPinLockMessage(body.locked ? body.error : null);
             setPin('');
             setTimeout(() => pinRef.current?.focus(), 300);
           }
@@ -90,6 +93,7 @@ export default function PortalFilePage() {
       const data: FileInfo = await res.json();
       setFile(data);
       setPinRequired(false);
+      setPinLockMessage(null);
 
       if (effectivePin) {
         sessionStorage.setItem(`portal-pin-${token}`, effectivePin);
@@ -153,6 +157,7 @@ export default function PortalFilePage() {
         onChange={(value) => { setPin(value); setPinError(false); }}
         onComplete={submitPin}
         error={pinError}
+        lockMessage={pinLockMessage}
         submitting={pinSubmitting}
         pinRef={pinRef}
       />

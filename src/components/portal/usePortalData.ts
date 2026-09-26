@@ -89,6 +89,8 @@ export function usePortalData(token: string) {
   const [pinRequired, setPinRequired] = useState(false);
   const [pin, setPin] = useState('');
   const [pinError, setPinError] = useState(false);
+  // The server's lockout copy while too many wrong PINs are cooling off.
+  const [pinLockMessage, setPinLockMessage] = useState<string | null>(null);
   const [pinSubmitting, setPinSubmitting] = useState(false);
   const pinRef = useRef<PinInputRef>(null);
   const [branding, setBranding] = useState<PortalBranding | null>(null);
@@ -144,15 +146,17 @@ export function usePortalData(token: string) {
       if (sessionId.current) headers['x-portal-session-id'] = sessionId.current;
       const res = await fetch(`/api/portal/${token}${portalDemoQuery()}`, { headers });
 
-      if (res.status === 401) {
+      if (res.status === 401 || res.status === 429) {
         const body = await res.json();
         if (body.pin_required) {
-          // A stored PIN that no longer works is stale; drop it silently
-          if (!pinValue && effectivePin) sessionStorage.removeItem(`portal-pin-${token}`);
+          // A stored PIN that no longer works is stale; drop it silently.
+          // A lockout says nothing about the stored PIN, so it stays.
+          if (!pinValue && effectivePin && !body.locked) sessionStorage.removeItem(`portal-pin-${token}`);
           setPinRequired(true);
           if (body.branding) setBranding(body.branding);
-          if (pinValue) {
+          if (pinValue || body.locked) {
             setPinError(true);
+            setPinLockMessage(body.locked ? body.error : null);
             setPin('');
             setTimeout(() => pinRef.current?.focus(), 300);
           }
@@ -179,6 +183,7 @@ export function usePortalData(token: string) {
       const portalData: PortalData = await res.json();
       setData(portalData);
       setPinRequired(false);
+      setPinLockMessage(null);
 
       if (effectivePin) {
         sessionStorage.setItem(`portal-pin-${token}`, effectivePin);
@@ -296,6 +301,7 @@ export function usePortalData(token: string) {
     pinRequired,
     pin,
     pinError,
+    pinLockMessage,
     pinSubmitting,
     pinRef,
     changePin,

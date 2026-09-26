@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { demoPortalSettings, demoEntityFiles, demoProjects } from '@/lib/demo-data';
 import { siteConfig } from '@/site-config';
 import { recordPortalEvent, getOrCreateSessionId } from '@/lib/portal-analytics';
+import { checkPortalPin, pinFailureResponse } from '@/lib/portal-pin';
 
 function getServiceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -43,26 +44,21 @@ export async function GET(
     return NextResponse.json({ error: 'Portal is disabled' }, { status: 404 });
   }
 
-  // Check PIN if required (prefer header, fall back to query param)
-  if (settings.pin) {
-    const pin = request.headers.get('x-portal-pin');
-    if (!pin || pin !== settings.pin) {
-      const { data: proj } = await supabase
-        .from('projects')
-        .select('name')
-        .eq('id', settings.project_id)
-        .single();
+  const pinCheck = await checkPortalPin({ supabase, request, token, settings });
+  if (!pinCheck.ok) {
+    const { data: proj } = await supabase
+      .from('projects')
+      .select('name')
+      .eq('id', settings.project_id)
+      .single();
 
-      return NextResponse.json({
-        error: pin ? 'Invalid PIN' : 'PIN required',
-        pin_required: true,
-        branding: {
-          logo_url: settings.logo_url || '',
-          accent_color: settings.accent_color || siteConfig.colors.brand[500],
-          project_name: proj?.name || '',
-        },
-      }, { status: 401 });
-    }
+    return pinFailureResponse(pinCheck, {
+      branding: {
+        logo_url: settings.logo_url || '',
+        accent_color: settings.accent_color || siteConfig.colors.brand[500],
+        project_name: proj?.name || '',
+      },
+    });
   }
 
   // Fetch the file: must be an external entity file for this project

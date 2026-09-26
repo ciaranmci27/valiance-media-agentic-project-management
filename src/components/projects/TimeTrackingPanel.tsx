@@ -35,6 +35,7 @@ import {
   resegmentEntry,
   isPaused,
   isStalePause,
+  isClientBillable,
 } from '@/lib/time-entry-utils';
 import {
   paidHourlyLineItemTotal,
@@ -184,12 +185,7 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
   const paymentBreakdownMap = useMemo<Map<string, PaymentBreakdown>>(() => {
     if (!isHourly) return new Map();
     const finalized = entries
-      .filter(
-        (e) =>
-          e.end_time !== null &&
-          e.work_type !== 'internal' &&
-          (e.approval_status === undefined || e.approval_status === 'approved'),
-      )
+      .filter(isClientBillable)
       .sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime())
       .map((e) => ({ id: e.id, hours: getWorkedHours(e), hourly_rate: e.hourly_rate }));
     return fifoPaymentBreakdowns(finalized, paidHourlyLineItemTotal(invoices), hourlyRate);

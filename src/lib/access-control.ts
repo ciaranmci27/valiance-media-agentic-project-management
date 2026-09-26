@@ -20,6 +20,7 @@ export const PERMISSIONS = [
   'projects.manage',
   'project_members.manage',
   'tasks.read',
+  'tasks.read_assigned',
   'tasks.create',
   'tasks.manage_assigned',
   'tasks.manage_all',
@@ -101,6 +102,41 @@ export function hasPermission(
   return permissions.includes('*') || permissions.includes(permission);
 }
 
+/** Either task read grant: every task in accessible projects, or only your own (RLS decides which rows). */
+export function canReadTasks(access: AccessContext | null | undefined): boolean {
+  return hasPermission(access, 'tasks.read') || hasPermission(access, 'tasks.read_assigned');
+}
+
+/** Mirrors tasks_update RLS: any task with manage_all, or your own with manage_assigned. */
+export function canEditTask(
+  access: AccessContext | null | undefined,
+  task: { assignee_ids: string[] },
+  memberId: string | null | undefined,
+): boolean {
+  return hasPermission(access, 'tasks.manage_all')
+    || (hasPermission(access, 'tasks.manage_assigned') && !!memberId && task.assignee_ids.includes(memberId));
+}
+
+/**
+ * Whether a member could open a task in this project once assigned. A task
+ * assigned to someone who cannot see its project is invisible to them, and
+ * assigning never adds anyone to a project. Members without a reach level
+ * (demo data) are not filtered out.
+ */
+export function canBeAssignedInProject(
+  member: { id: string; status?: string | null; project_access?: 'all' | 'member' | 'none' },
+  project: { member_ids: string[] },
+): boolean {
+  if (member.status === 'suspended') return false;
+  if (member.project_access === undefined || member.project_access === 'all') return true;
+  return member.project_access === 'member' && project.member_ids.includes(member.id);
+}
+
+/** Deleting, and changing who a task is assigned to, need manage_all. */
+export function canManageAllTasks(access: AccessContext | null | undefined): boolean {
+  return hasPermission(access, 'tasks.manage_all');
+}
+
 export function canAccessProject(
   access: AccessContext | null | undefined,
   projectId: string,
@@ -140,6 +176,7 @@ export const PERMISSION_GROUPS: Array<{
       { key: 'projects.manage', label: 'Manage projects', description: 'Create, edit, archive, and delete projects.' },
       { key: 'project_members.manage', label: 'Assign project members', description: 'Change which people can access a project.' },
       { key: 'tasks.read', label: 'View tasks', description: 'View tasks inside accessible projects.' },
+      { key: 'tasks.read_assigned', label: 'View assigned tasks', description: 'Without View tasks, see only tasks assigned to (or created by) the member inside accessible projects. App only.' },
       { key: 'tasks.create', label: 'Create tasks', description: 'Create tasks inside accessible projects.' },
       { key: 'tasks.manage_assigned', label: 'Manage assigned tasks', description: 'Edit tasks assigned to the member.' },
       { key: 'tasks.manage_all', label: 'Manage all tasks', description: 'Edit any task in accessible projects.' },

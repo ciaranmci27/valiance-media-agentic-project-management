@@ -107,6 +107,7 @@ export function Sidebar() {
     projects,
     teamMemberId: teamMemberId || null,
     includeSuggestions: false,
+    oversight: canManageAgents,
     agentActivity,
   }).length;
 
@@ -121,7 +122,7 @@ export function Sidebar() {
       ? [{ href: '/contacts', icon: UserCircle, label: 'Contacts', badge: 0, overlay: false }] : []),
     ...(hasPermission(access, 'team.read') || hasPermission(access, 'team.manage')
       ? [{ href: '/team', icon: Users, label: 'Team', badge: 0, overlay: false }] : []),
-    ...(hasPermission(access, 'finance.company.read') || hasPermission(access, 'earnings.own.read')
+    ...(hasPermission(access, 'finance.company.read') || hasPermission(access, 'earnings.own.read') || hasPermission(access, 'time.approve')
       ? [{ href: '/finances', icon: DollarSign, label: 'Finances', badge: 0, overlay: false }] : []),
     ...(isAgentsEnabled && canManageAgents ? [{ href: '/agent', icon: Bot, label: 'Agent', badge: pendingSuggestionCount, overlay: true }] : []),
     { href: '/notifications', icon: Bell, label: 'Notifications', badge: unreadNotifications, overlay: true },

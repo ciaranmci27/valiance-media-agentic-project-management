@@ -11,7 +11,7 @@ import { TaskForm } from '@/components/tasks/TaskForm';
 import Link from 'next/link';
 import {
   ListTodo, Zap, Activity, Hourglass, GitMerge, Eye, CalendarClock,
-  Inbox, ChevronRight, Check, Hammer, MessageSquareWarning,
+  Inbox, ChevronRight, Check, Hammer, MessageSquareWarning, ClipboardList,
 } from 'lucide-react';
 import { Task } from '@/lib/types';
 import { parseDateOnly } from '@/lib/date-utils';
@@ -30,6 +30,11 @@ import { MergeReviewModal } from '@/components/tasks/MergeReviewModal';
  *                        in_progress is the owner's own "I'm on this"
  *   3. Coming your way — agent work in flight that will predictably ask
  *                        for one merge click later
+ *
+ * That is the owner's view, and anyone else who oversees agent work. A team
+ * member gets the same first two bands scoped to their own actions, and an
+ * "Assigned to you" band in place of the agent pipeline: without it their
+ * ordinary queued work appeared nowhere on a page called My Tasks.
  *
  * Design rules learned the hard way elsewhere in this app: every band uses
  * ONE shared row anatomy (icon square, title + context line, right-aligned
@@ -72,9 +77,10 @@ export default function RadarPage() {
       projects,
       teamMemberId,
       includeSuggestions: false,
+      oversight: canManageAgents,
       agentActivity,
     }),
-    [tasks, taskSuggestions, projects, teamMemberId, agentActivity],
+    [tasks, taskSuggestions, projects, teamMemberId, canManageAgents, agentActivity],
   );
 
   // Suggestions get their own band rather than a row inside "Needs you
@@ -92,7 +98,7 @@ export default function RadarPage() {
   );
 
   const comingYourWay = useMemo(
-    () => tasks
+    () => !(isAgentsEnabled && canManageAgents) ? [] : tasks
       .filter(t => {
         if (t.status !== 'todo' && t.status !== 'in_progress') return false;
         const lane = laneOf(t);
@@ -103,8 +109,29 @@ export default function RadarPage() {
         if (a.status !== b.status) return a.status === 'in_progress' ? -1 : 1;
         return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
       }),
-    [tasks, laneOf],
+    [tasks, laneOf, isAgentsEnabled, canManageAgents],
   );
+
+  // A member's full queue: everything assigned to them that is not done and
+  // not already on the page above. Soonest due first, undated last.
+  const assignedToYou = useMemo(() => {
+    if (canManageAgents || !teamMemberId) return [];
+    const shown = new Set(needsYou.map(item => item.task?.id).filter(Boolean));
+    const PRIORITY_RANK: Record<Task['priority'], number> = { urgent: 0, high: 1, medium: 2, low: 3 };
+    return tasks
+      .filter(t =>
+        t.assignee_ids.includes(teamMemberId)
+        && (t.status === 'todo' || t.status === 'in_review')
+        && !shown.has(t.id))
+      .sort((a, b) => {
+        if (a.due_date !== b.due_date) {
+          if (!a.due_date) return 1;
+          if (!b.due_date) return -1;
+          return a.due_date < b.due_date ? -1 : 1;
+        }
+        return PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority];
+      });
+  }, [tasks, needsYou, teamMemberId, canManageAgents]);
 
   // The latest milestone the agent logged for a building task: shows
   // "Verification started 14m ago" instead of a static "Building now".
@@ -128,7 +155,8 @@ export default function RadarPage() {
         timeEntries,
       )
     : null;
-  const allClear = needsYou.length === 0 && inProgress.length === 0 && comingYourWay.length === 0 && pendingSuggestions === 0;
+  const allClear = needsYou.length === 0 && inProgress.length === 0 && comingYourWay.length === 0
+    && assignedToYou.length === 0 && pendingSuggestions === 0;
 
   // ── The one row anatomy every band uses ────────────────────────────────
   //    [icon square] [title / project · context]        [meta] [affordance]
@@ -352,6 +380,25 @@ export default function RadarPage() {
                     context: task.subtasks.length > 0
                       ? `${task.subtasks.filter(s => s.completed).length} of ${task.subtasks.length} subtasks done`
                       : 'Started by you',
+                    task,
+                    showPriority: true,
+                  })),
+                })}
+
+              {assignedToYou.length > 0 &&
+                band({
+                  icon: ClipboardList,
+                  title: 'Assigned to you',
+                  hint: 'everything else in your queue',
+                  count: assignedToYou.length,
+                  children: assignedToYou.map(task => row({
+                    key: task.id,
+                    icon: task.status === 'in_review'
+                      ? iconSquare(Eye, 'bg-white/[0.06] text-zinc-400')
+                      : iconSquare(ClipboardList, 'bg-white/[0.06] text-zinc-400'),
+                    title: task.title,
+                    projectId: task.project_id,
+                    context: task.status === 'in_review' ? 'Waiting on review' : 'To do',
                     task,
                     showPriority: true,
                   })),

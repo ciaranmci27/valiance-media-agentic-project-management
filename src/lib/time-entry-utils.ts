@@ -10,6 +10,25 @@
 
 import { TimeEntry, TimeSegment } from './types';
 
+/**
+ * Approved time. A row loaded without the column predates approvals and was
+ * never gated, so it counts as approved.
+ */
+export function isApprovedTime(entry: Pick<TimeEntry, 'approval_status'>): boolean {
+  return entry.approval_status === undefined || entry.approval_status === 'approved';
+}
+
+/**
+ * The only time a client is ever billed for: stopped, client-facing, and
+ * approved. Pending, rejected and internal time never reaches an invoice, a
+ * balance, or the portal.
+ */
+export function isClientBillable(
+  entry: Pick<TimeEntry, 'end_time' | 'work_type' | 'approval_status'>,
+): boolean {
+  return entry.end_time !== null && entry.work_type !== 'internal' && isApprovedTime(entry);
+}
+
 /** True if the entry has an actively-ticking open segment. */
 export function isRunning(entry: TimeEntry): boolean {
   if (entry.end_time !== null) return false;

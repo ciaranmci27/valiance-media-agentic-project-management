@@ -92,11 +92,18 @@ export async function POST(request: Request) {
 }
 
 export async function PATCH(request: Request) {
-  const auth = await requireSessionAccess({ permission: 'projects.manage' });
+  const auth = await requireSessionAccess();
   if (auth.error) return auth.error;
   const { access, service } = auth.data;
   const body = await request.json().catch(() => null) as (Record<string, unknown> & { id?: string }) | null;
   if (!body?.id) return errorResponse('Project id is required');
+  // projects.manage edits the project. project_members.manage on its own is
+  // enough for a membership-only change, and for nothing else.
+  const membersOnly = Object.keys(body).every((key) => key === 'id' || key === 'member_ids');
+  const canManageProject = accessAllows(access, 'projects.manage', 'app');
+  if (!canManageProject && !(membersOnly && accessAllows(access, 'project_members.manage', 'app'))) {
+    return errorResponse('Forbidden', 403);
+  }
   if (!accessAllows(access, 'projects.read_all', 'app') && !access.project_ids.includes(body.id)) return errorResponse('Project access denied', 403);
 
   const updates = restrictProjectFields(body, accessAllows(access, 'billing.manage', 'app'), accessAllows(access, 'agents.manage', 'app'));

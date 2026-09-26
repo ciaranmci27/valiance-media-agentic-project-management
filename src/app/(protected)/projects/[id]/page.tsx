@@ -35,14 +35,29 @@ import { Task, ViewMode, TeamMember } from '@/lib/types';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { useAuth } from '@/lib/auth-context';
-import { hasPermission } from '@/lib/access-control';
+import { hasPermission, canEditTask, canManageAllTasks, canBeAssignedInProject } from '@/lib/access-control';
+import { parseDateOnly } from '@/lib/date-utils';
+
+function ReadOnlyDate({ value }: { value: string | null | undefined }) {
+  if (!value) return <p className="text-sm text-zinc-500 py-0.5">Not set</p>;
+  return (
+    <p className="text-sm text-zinc-200 py-0.5">
+      {parseDateOnly(value).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+    </p>
+  );
+}
 
 export default function ProjectDetailPage() {
   const params = useParams();
   const router = useRouter();
   const projectId = params.id as string;
-  const { access } = useAuth();
+  const { access, teamMemberId } = useAuth();
   const canManageProject = hasPermission(access, 'projects.manage');
+  // Membership has its own grant; either one opens the project form (members
+  // only mode when that is all the viewer holds).
+  const canManageMembers = hasPermission(access, 'project_members.manage');
+  const canOpenProjectForm = canManageProject || canManageMembers;
+  const canManageTasks = canManageAllTasks(access);
   const canCreateTasks = hasPermission(access, 'tasks.create');
   const canReadContacts = hasPermission(access, 'contacts.read') || hasPermission(access, 'contacts.read_all');
   const canReadFiles = hasPermission(access, 'files.read');
@@ -230,41 +245,46 @@ export default function ProjectDetailPage() {
     });
   };
 
+  const selectableTaskIds = projectTasks
+    .filter(t => canEditTask(access, t, teamMemberId))
+    .map(t => t.id);
+  const allSelectableSelected = selectableTaskIds.length > 0
+    && selectableTaskIds.every(id => selectedTaskIds.has(id));
+
   const selectAllTasks = () => {
-    if (selectedTaskIds.size === projectTasks.length) {
-      setSelectedTaskIds(new Set());
+    setSelectedTaskIds(allSelectableSelected ? new Set() : new Set(selectableTaskIds));
+  };
+
+  // Every write is awaited, so the toast reports what actually saved. Tasks
+  // that failed stay selected, ready for a retry on just those.
+  const runBulk = async (verb: 'Updated' | 'Deleted', write: (id: string) => Promise<boolean>) => {
+    const ids = [...selectedTaskIds];
+    setShowBulkMenu(false);
+    const results = await Promise.all(ids.map(write));
+    const failedIds = ids.filter((_, index) => !results[index]);
+    const saved = ids.length - failedIds.length;
+    const count = (n: number) => `${n} ${n === 1 ? 'task' : 'tasks'}`;
+    setSelectedTaskIds(new Set(failedIds));
+    if (failedIds.length === 0) {
+      toast('success', `${verb} ${count(saved)}`);
+    } else if (saved === 0) {
+      toast('error', `Couldn't ${verb === 'Deleted' ? 'delete' : 'update'} ${count(failedIds.length)}`);
     } else {
-      setSelectedTaskIds(new Set(projectTasks.map(t => t.id)));
+      toast('error', `${verb} ${count(saved)}. ${count(failedIds.length)} failed and ${failedIds.length === 1 ? 'is' : 'are'} still selected.`);
     }
   };
 
-  const bulkUpdateStatus = (status: Task['status']) => {
-    selectedTaskIds.forEach(id => updateTask(id, { status }));
-    toast('success', `Updated ${selectedTaskIds.size} tasks`);
-    setSelectedTaskIds(new Set());
-    setShowBulkMenu(false);
-  };
+  const bulkUpdateStatus = (status: Task['status']) =>
+    runBulk('Updated', id => updateTask(id, { status }, { silent: true }));
 
-  const bulkUpdatePriority = (priority: Task['priority']) => {
-    selectedTaskIds.forEach(id => updateTask(id, { priority }));
-    toast('success', `Updated ${selectedTaskIds.size} tasks`);
-    setSelectedTaskIds(new Set());
-    setShowBulkMenu(false);
-  };
+  const bulkUpdatePriority = (priority: Task['priority']) =>
+    runBulk('Updated', id => updateTask(id, { priority }, { silent: true }));
 
-  const bulkAssign = (memberId: string | null) => {
-    selectedTaskIds.forEach(id => updateTask(id, { assignee_ids: memberId ? [memberId] : [] }));
-    toast('success', `Updated ${selectedTaskIds.size} tasks`);
-    setSelectedTaskIds(new Set());
-    setShowBulkMenu(false);
-  };
+  const bulkAssign = (memberId: string | null) =>
+    runBulk('Updated', id => updateTask(id, { assignee_ids: memberId ? [memberId] : [] }, { silent: true }));
 
-  const bulkSetDueDate = (date: string | null) => {
-    selectedTaskIds.forEach(id => updateTask(id, { due_date: date }));
-    toast('success', `Updated ${selectedTaskIds.size} tasks`);
-    setSelectedTaskIds(new Set());
-    setShowBulkMenu(false);
-  };
+  const bulkSetDueDate = (date: string | null) =>
+    runBulk('Updated', id => updateTask(id, { due_date: date }, { silent: true }));
 
   const bulkDelete = () => {
     setConfirmDelete({ type: 'bulk', id: 'bulk' });
@@ -284,9 +304,7 @@ export default function ProjectDetailPage() {
     if (confirmDelete.type === 'task') {
       deleteTask(confirmDelete.id);
     } else if (confirmDelete.type === 'bulk') {
-      selectedTaskIds.forEach(id => deleteTask(id));
-      toast('success', `Deleted ${selectedTaskIds.size} tasks`);
-      setSelectedTaskIds(new Set());
+      void runBulk('Deleted', id => deleteTask(id, { silent: true }));
     } else {
       deleteProject(confirmDelete.id);
       toast('success', 'Project deleted');
@@ -345,14 +363,18 @@ export default function ProjectDetailPage() {
               </div>
               <div className="min-w-0 flex-1">
                 <p className="text-xs text-zinc-400 font-medium">Start Date</p>
-                <DateInput
-                  value={project.start_date || ''}
-                  onChange={(v) => updateProject(projectId, { start_date: v || null })}
-                  placeholder="Not set"
-                  size="sm"
-                  clearable
-                  inputClassName="!w-fit !justify-start !gap-1 !border-transparent !bg-transparent !shadow-none hover:!bg-white/[0.06] focus:!ring-0 focus:!border-transparent !px-1.5 !-mx-1.5 !py-0.5 !rounded-md"
-                />
+                {canManageProject ? (
+                  <DateInput
+                    value={project.start_date || ''}
+                    onChange={(v) => updateProject(projectId, { start_date: v || null })}
+                    placeholder="Not set"
+                    size="sm"
+                    clearable
+                    inputClassName="!w-fit !justify-start !gap-1 !border-transparent !bg-transparent !shadow-none hover:!bg-white/[0.06] focus:!ring-0 focus:!border-transparent !px-1.5 !-mx-1.5 !py-0.5 !rounded-md"
+                  />
+                ) : (
+                  <ReadOnlyDate value={project.start_date} />
+                )}
               </div>
             </div>
 
@@ -363,15 +385,19 @@ export default function ProjectDetailPage() {
               </div>
               <div className="min-w-0 flex-1">
                 <p className="text-xs text-zinc-400 font-medium">Due Date</p>
-                <DateInput
-                  value={project.due_date || ''}
-                  onChange={(v) => updateProject(projectId, { due_date: v || null })}
-                  placeholder="Not set"
-                  size="sm"
-                  minDate={project.start_date || undefined}
-                  clearable
-                  inputClassName="!w-fit !justify-start !gap-1 !border-transparent !bg-transparent !shadow-none hover:!bg-white/[0.06] focus:!ring-0 focus:!border-transparent !px-1.5 !-mx-1.5 !py-0.5 !rounded-md"
-                />
+                {canManageProject ? (
+                  <DateInput
+                    value={project.due_date || ''}
+                    onChange={(v) => updateProject(projectId, { due_date: v || null })}
+                    placeholder="Not set"
+                    size="sm"
+                    minDate={project.start_date || undefined}
+                    clearable
+                    inputClassName="!w-fit !justify-start !gap-1 !border-transparent !bg-transparent !shadow-none hover:!bg-white/[0.06] focus:!ring-0 focus:!border-transparent !px-1.5 !-mx-1.5 !py-0.5 !rounded-md"
+                  />
+                ) : (
+                  <ReadOnlyDate value={project.due_date} />
+                )}
               </div>
             </div>
 
@@ -383,20 +409,30 @@ export default function ProjectDetailPage() {
               <div>
                 <p className="text-xs text-zinc-400 font-medium">Team</p>
                 {projectMembers.length > 0 ? (
-                  <button onClick={() => setIsEditProjectOpen(true)} className="group">
+                  canOpenProjectForm ? (
+                    <button onClick={() => setIsEditProjectOpen(true)} className="group" aria-label="Edit project members">
+                      <AvatarGroup
+                        users={projectMembers.map(m => ({ id: m.id, name: m.name, avatar: m.avatar }))}
+                        max={4}
+                        size="xs"
+                      />
+                    </button>
+                  ) : (
                     <AvatarGroup
                       users={projectMembers.map(m => ({ id: m.id, name: m.name, avatar: m.avatar }))}
                       max={4}
                       size="xs"
                     />
-                  </button>
-                ) : (
+                  )
+                ) : canOpenProjectForm ? (
                   <button
                     onClick={() => setIsEditProjectOpen(true)}
                     className="text-sm text-zinc-500 hover:text-brand-300 transition-colors"
                   >
                     Add members...
                   </button>
+                ) : (
+                  <p className="text-sm text-zinc-500">No members</p>
                 )}
               </div>
             </div>
@@ -463,12 +499,12 @@ export default function ProjectDetailPage() {
             {/* Selection is a desktop-only gesture: the mobile cards have no
                 checkboxes, so offering Select all there would select rows the
                 user cannot see or unpick individually. */}
-            {projectTasks.length > 0 && viewMode === 'list' && (
+            {selectableTaskIds.length > 0 && viewMode === 'list' && (
               <button
                 onClick={selectAllTasks}
                 className="hidden lg:inline text-xs text-brand-300 hover:text-brand-300 transition-colors"
               >
-                {selectedTaskIds.size === projectTasks.length ? 'Deselect all' : 'Select all'}
+                {allSelectableSelected ? 'Deselect all' : 'Select all'}
               </button>
             )}
           </div>
@@ -519,17 +555,19 @@ export default function ProjectDetailPage() {
                       </button>
                     ))}
                   </div>
-                  <div className="border-t border-white/[0.06] my-1" />
-                  <p className="px-3 py-1.5 text-xs font-medium text-zinc-400 uppercase">Assign To</p>
-                  {team.filter(m => m.status !== 'suspended').map(member => (
-                    <button key={member.id} onClick={() => bulkAssign(member.id)} className="w-full flex items-center gap-2 text-left px-3 py-1.5 text-sm text-zinc-300 hover:bg-white/[0.03]">
-                      <Avatar name={member.name} src={member.avatar || undefined} size="xs" />
-                      {member.name}
+                  {canManageTasks && <>
+                    <div className="border-t border-white/[0.06] my-1" />
+                    <p className="px-3 py-1.5 text-xs font-medium text-zinc-400 uppercase">Assign To</p>
+                    {team.filter(m => canBeAssignedInProject(m, project)).map(member => (
+                      <button key={member.id} onClick={() => bulkAssign(member.id)} className="w-full flex items-center gap-2 text-left px-3 py-1.5 text-sm text-zinc-300 hover:bg-white/[0.03]">
+                        <Avatar name={member.name} src={member.avatar || undefined} size="xs" />
+                        {member.name}
+                      </button>
+                    ))}
+                    <button onClick={() => bulkAssign(null)} className="w-full text-left px-3 py-1.5 text-sm text-zinc-400 hover:bg-white/[0.03]">
+                      Unassign all
                     </button>
-                  ))}
-                  <button onClick={() => bulkAssign(null)} className="w-full text-left px-3 py-1.5 text-sm text-zinc-400 hover:bg-white/[0.03]">
-                    Unassign all
-                  </button>
+                  </>}
                   <div className="border-t border-white/[0.06] my-1" />
                   <p className="px-3 py-1.5 text-xs font-medium text-zinc-400 uppercase">Due Date</p>
                   <div className="px-3 pb-1.5">
@@ -538,10 +576,12 @@ export default function ProjectDetailPage() {
                   <button onClick={() => { setShowBulkMenu(false); setConfirmClearDueDates(true); }} className="w-full text-left px-3 py-1.5 text-sm text-zinc-400 hover:bg-white/[0.03]">
                     Clear due date
                   </button>
-                  <div className="border-t border-white/[0.06] my-1" />
-                  <button onClick={bulkDelete} className="w-full text-left px-3 py-1.5 text-sm text-red-400 hover:bg-red-500/15">
-                    Delete selected
-                  </button>
+                  {canManageTasks && <>
+                    <div className="border-t border-white/[0.06] my-1" />
+                    <button onClick={bulkDelete} className="w-full text-left px-3 py-1.5 text-sm text-red-400 hover:bg-red-500/15">
+                      Delete selected
+                    </button>
+                  </>}
                 </Popover>
               </div>
             )}
@@ -664,11 +704,11 @@ export default function ProjectDetailPage() {
       </div>}
 
       {/* Edit Project Modal */}
-      <ProjectForm
+      {canOpenProjectForm && <ProjectForm
         isOpen={isEditProjectOpen}
         onClose={() => setIsEditProjectOpen(false)}
         project={project}
-      />
+      />}
 
       {/* Task Form Modal */}
       <TaskForm

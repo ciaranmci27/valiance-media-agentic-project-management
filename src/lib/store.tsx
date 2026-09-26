@@ -76,6 +76,7 @@ import {
   fetchAllEntityFiles,
   insertEntityFile as insertEntityFileQuery,
   renameEntityFile as renameEntityFileQuery,
+  replaceEntityFileContent as replaceEntityFileContentQuery,
   removeEntityFile as removeEntityFileQuery,
   updateEntityFileVisibility as updateEntityFileVisibilityQuery,
   fetchApiKeys,
@@ -104,7 +105,7 @@ import { toast } from '@/components/ui/Toast';
 import { isTelemetryEvent } from '@/lib/agent-events';
 import { siteConfig } from '@/site-config';
 import { findStalePausedEntries, isStalePause } from '@/lib/time-entry-utils';
-import { hasPermission } from '@/lib/access-control';
+import { hasPermission, canReadTasks } from '@/lib/access-control';
 import { loadRetainerFinanceInputs } from '@/lib/finance/use-retainer-finance';
 import { rollbackScope } from '@/lib/optimistic';
 
@@ -126,6 +127,45 @@ type RealtimeSlice =
   | 'tasks' | 'projects' | 'team' | 'contacts' | 'leads' | 'activities'
   | 'agentActivity' | 'portal' | 'files' | 'timeEntries' | 'credentials'
   | 'invoices' | 'suggestions' | 'goals' | 'notifications' | 'comms';
+
+/** `silent` skips the per-task error toast, for bulk actions that report one summary. */
+export interface TaskWriteOptions {
+  silent?: boolean;
+}
+
+/** A dataset the boot load can fail to read. */
+export type LoadKey = RealtimeSlice | 'apiKeys' | 'businessSettings' | 'employeeEarnings' | 'retainerFinance';
+
+/** How a failed dataset is named to the user. */
+export const LOAD_KEY_LABELS: Record<LoadKey, string> = {
+  tasks: 'tasks',
+  projects: 'projects',
+  team: 'the team',
+  contacts: 'contacts',
+  leads: 'leads',
+  activities: 'activity',
+  agentActivity: 'agent activity',
+  portal: 'portal settings',
+  files: 'files',
+  timeEntries: 'time entries',
+  credentials: 'credentials',
+  invoices: 'invoices',
+  suggestions: 'suggestions',
+  goals: 'goals',
+  notifications: 'notifications',
+  comms: 'client emails',
+  apiKeys: 'API keys',
+  businessSettings: 'business settings',
+  employeeEarnings: 'your earnings',
+  retainerFinance: 'revenue splits',
+};
+
+async function fetchWorkspaceData<T>(path: string): Promise<T> {
+  const response = await fetch(path, { cache: 'no-store' });
+  const payload = await response.json();
+  if (!response.ok) throw new Error(payload.error || 'Workspace request failed');
+  return payload.data as T;
+}
 
 const REALTIME_TABLE_SLICES: Record<string, RealtimeSlice> = {
   tasks: 'tasks',
@@ -195,6 +235,10 @@ interface AppContextType {
   businessSettings: BusinessSettings | null;
   employeeEarnings: EmployeeEarningsData | null;
   loading: boolean;
+  /** Datasets that failed to load. Their lists and totals are incomplete until a retry succeeds. */
+  loadErrors: LoadKey[];
+  /** Re-reads only the failed datasets; data that loaded is never overwritten with a blank. */
+  retryFailedLoads: () => Promise<void>;
 
   // Filters
   filters: FilterState;
@@ -209,14 +253,18 @@ interface AppContextType {
 
   // Project CRUD
   addProject: (project: Omit<Project, 'id' | 'created_at' | 'updated_at'>) => Promise<Project | undefined>;
-  updateProject: (id: string, updates: Partial<Project>) => void;
+  /** Resolves true once saved; false after a failure (already toasted and rolled back). */
+  updateProject: (id: string, updates: Partial<Project>) => Promise<boolean>;
   deleteProject: (id: string) => void;
 
   // Task CRUD
-  addTask: (task: Omit<Task, 'id' | 'created_at' | 'updated_at'>) => void;
-  updateTask: (id: string, updates: Partial<Task>) => void;
+  /** Resolves true once the task is saved; false after a failure (already toasted and rolled back). */
+  addTask: (task: Omit<Task, 'id' | 'created_at' | 'updated_at'>) => Promise<boolean>;
+  /** Resolves true once the change is saved; false after a failure (already toasted and rolled back). */
+  updateTask: (id: string, updates: Partial<Task>, options?: TaskWriteOptions) => Promise<boolean>;
   reorderTasks: (orders: { id: string; sort_order: number }[]) => void;
-  deleteTask: (id: string) => void;
+  /** Resolves true once deleted; false after a failure (rolled back; toasted unless silent). */
+  deleteTask: (id: string, options?: TaskWriteOptions) => Promise<boolean>;
 
   // Subtasks
   addSubtask: (taskId: string, title: string) => void;
@@ -293,8 +341,11 @@ interface AppContextType {
   deletePortalUpdateAttachment: (id: string) => void;
 
   // Entity File CRUD
-  addEntityFile: (file: Omit<EntityFile, 'id' | 'created_at' | 'updated_at'>) => void;
+  /** Resolves true once the row is saved; false after a failure (already toasted and rolled back). */
+  addEntityFile: (file: Omit<EntityFile, 'id' | 'created_at' | 'updated_at'>) => Promise<boolean>;
   renameEntityFile: (id: string, name: string) => void;
+  /** Point an existing file at new content (a note edit). Resolves false after a toasted failure. */
+  replaceEntityFileContent: (id: string, content: Pick<EntityFile, 'name' | 'file_url' | 'file_size' | 'mime_type'>) => Promise<boolean>;
   deleteEntityFile: (id: string) => void;
   updateEntityFileVisibility: (id: string, visibility: 'internal' | 'external') => void;
   getEntityFiles: (entityType: EntityFileType, entityId: string) => EntityFile[];
@@ -414,6 +465,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [projectInvoices, setProjectInvoicesState] = useState<ProjectInvoice[]>([]);
   const [businessSettings, setBusinessSettings] = useState<BusinessSettings | null>(null);
   const [employeeEarnings, setEmployeeEarnings] = useState<EmployeeEarningsData | null>(null);
+  const [loadErrors, setLoadErrors] = useState<LoadKey[]>([]);
   const [projectGoals, setProjectGoalsState] = useState<ProjectGoal[]>([]);
   const [taskSuggestions, setTaskSuggestionsState] = useState<TaskSuggestion[]>([]);
   const [agentActivityList, setAgentActivityListState] = useState<AgentActivity[]>([]);
@@ -471,40 +523,32 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const supabase = createClient();
   const skipSupabase = isDemoMode;
 
-  // Fire-and-forget notification helper — uses upsert RPC for dedup
+  // Candidate audiences. The server narrows every notification to the members
+  // who can open the entity it is about, so "everyone" never reaches a member
+  // outside the project or lead.
   const allMemberIds = () => team.map(m => m.id);
   const adminMemberIds = () => team.filter(m => m.role === 'owner' || m.role === 'admin').map(m => m.id);
 
+  // Fire-and-forget: the server checks visibility and preferences, then writes
+  // the in-app notification (deduped) and sends any emails.
   const notify = (userIds: string[], title: string, message: string, link: string | null, entityType: string | null, entityId: string | null, category: NotificationCategory, emailOverrides?: { subject?: string; details?: Array<{ label: string; value: string }> }) => {
     if (skipSupabase) return;
     const candidateIds = userIds.filter(id => id !== teamMemberId);
-    const recipients = candidateIds.filter(id => {
-      const member = team.find(m => m.id === id);
-      if (member?.notification_prefs?.[category] === false) return false;
-      return true;
-    });
-    for (const userId of recipients) {
-      supabase.rpc('upsert_notification', {
-        p_user_id: userId,
-        p_title: title,
-        p_message: message || '',
-        p_link: link,
-        p_entity_type: entityType,
-        p_entity_id: entityId,
-      }).then(() => {}, () => {});
-    }
-
-    // Fire-and-forget email notifications (server filters by email prefs)
-    if (candidateIds.length > 0) {
-      fetch('/api/notifications/email', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          recipient_ids: candidateIds, title, message, link, category,
-          ...(emailOverrides && { email: emailOverrides }),
-        }),
-      }).catch(() => {});
-    }
+    if (candidateIds.length === 0) return;
+    fetch('/api/notifications', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        recipient_ids: candidateIds,
+        title,
+        message: message || '',
+        link,
+        entity_type: entityType,
+        entity_id: entityId,
+        category,
+        ...(emailOverrides && { email: emailOverrides }),
+      }),
+    }).catch(() => {});
   };
 
   // Helper: get actor name for notification messages
@@ -565,22 +609,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     const loadData = async () => {
       try {
-        const workspaceData = async <T,>(path: string): Promise<T> => {
-          const response = await fetch(path, { cache: 'no-store' });
-          const payload = await response.json();
-          if (!response.ok) throw new Error(payload.error || 'Workspace request failed');
-          return payload.data as T;
-        };
-        const safeLoad = async <T,>(label: string, request: Promise<T>, fallback: T): Promise<T> => {
+        const workspaceData = fetchWorkspaceData;
+        // One dataset failing must not take down the app, so it falls back to
+        // empty. But an empty that is really a failure is recorded, so the
+        // shell can say so instead of passing it off as "no data".
+        const failed = new Set<LoadKey>();
+        const safeLoad = async <T,>(key: LoadKey, label: string, request: Promise<T>, fallback: T): Promise<T> => {
           try {
             return await request;
           } catch (error) {
             console.error(`Failed to load ${label}:`, error);
+            failed.add(key);
             return fallback;
           }
         };
         const canReadProjects = hasPermission(access, 'projects.read') || hasPermission(access, 'projects.read_all');
-        const canReadTasks = hasPermission(access, 'tasks.read');
+        // RLS narrows the rows for an assigned-only reader; either grant loads.
+        const canReadTaskRows = canReadTasks(access);
         const canReadContacts = hasPermission(access, 'contacts.read') || hasPermission(access, 'contacts.read_all') || hasPermission(access, 'contacts.manage');
         const canReadLeads = hasPermission(access, 'leads.read') || hasPermission(access, 'leads.read_all') || hasPermission(access, 'leads.manage');
         const canReadPortal = hasPermission(access, 'portal.read') || hasPermission(access, 'portal.manage');
@@ -591,34 +636,34 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const canReadSettings = hasPermission(access, 'settings.manage') || hasPermission(access, 'billing.manage');
         const shouldLoadEmployeeEarnings = hasPermission(access, 'earnings.own.read') && !hasPermission(access, 'finance.company.read');
         const employeeEarningsRequest = shouldLoadEmployeeEarnings
-          ? safeLoad<EmployeeEarningsData>('employee earnings', workspaceData<EmployeeEarningsData>('/api/workspace/payroll'), { entries: [], rates: [], adjustments: [], payouts: [], allocations: [] })
+          ? safeLoad<EmployeeEarningsData>('employeeEarnings', 'employee earnings', workspaceData<EmployeeEarningsData>('/api/workspace/payroll'), { entries: [], rates: [], adjustments: [], payouts: [], allocations: [] })
           : Promise.resolve(null);
         const [projectsData, tasksData, teamData, contactsData, projectContactsData, leadsData, leadInteractionsData, leadProposalsData, leadFieldsData, leadContactsData, activitiesData, portalSettingsData, portalUpdatesData, portalUpdateAttachmentsData, entityFilesData, apiKeysData, timeEntriesData, projectCredentialsData, projectInvoicesData, businessSettingsData] = await Promise.all([
-          canReadProjects ? safeLoad('projects', workspaceData<Project[]>('/api/workspace/projects'), []) : Promise.resolve([]),
-          canReadTasks ? safeLoad('tasks', fetchTasks(supabase), []) : Promise.resolve([]),
-          safeLoad('team directory', workspaceData<TeamMember[]>('/api/workspace/team-directory'), []),
-          canReadContacts ? safeLoad('contacts', fetchContacts(supabase), []) : Promise.resolve([]),
-          canReadContacts ? safeLoad('project contacts', fetchAllProjectContacts(supabase), []) : Promise.resolve([]),
-          canReadLeads ? safeLoad('leads', fetchLeads(supabase), []) : Promise.resolve([]),
-          canReadLeads ? safeLoad('lead interactions', fetchLeadInteractions(supabase), []) : Promise.resolve([]),
-          canReadLeads ? safeLoad('lead proposals', fetchLeadProposals(supabase), []) : Promise.resolve([]),
-          canReadLeads ? safeLoad('lead fields', fetchLeadFields(supabase), []) : Promise.resolve([]),
-          canReadLeads ? safeLoad('lead contacts', fetchAllLeadContacts(supabase), []) : Promise.resolve([]),
-          safeLoad('activities', fetchActivities(supabase), []),
-          canReadPortal ? safeLoad('portal settings', fetchAllPortalSettings(supabase), []) : Promise.resolve([]),
-          canReadPortal ? safeLoad('portal updates', fetchAllPortalUpdates(supabase), []) : Promise.resolve([]),
-          canReadPortal ? safeLoad('portal update attachments', fetchAllPortalUpdateAttachments(supabase), []) : Promise.resolve([]),
-          canReadFiles ? safeLoad('files', fetchAllEntityFiles(supabase), []) : Promise.resolve([]),
-          safeLoad('API keys', fetchApiKeys(supabase), []),
-          canReadTime ? safeLoad('time entries', workspaceData<TimeEntry[]>('/api/workspace/time-entries'), []) : Promise.resolve([]),
-          canReadCredentials ? safeLoad('credentials', workspaceData<ProjectCredentialListItem[]>('/api/workspace/credentials'), []) : Promise.resolve([]),
-          canReadInvoices ? safeLoad('invoices', fetchAllProjectInvoices(supabase), []) : Promise.resolve([]),
-          canReadSettings ? safeLoad('business settings', fetchBusinessSettings(supabase), null) : Promise.resolve(null),
+          canReadProjects ? safeLoad('projects', 'projects', workspaceData<Project[]>('/api/workspace/projects'), []) : Promise.resolve([]),
+          canReadTaskRows ? safeLoad('tasks', 'tasks', fetchTasks(supabase), []) : Promise.resolve([]),
+          safeLoad('team', 'team directory', workspaceData<TeamMember[]>('/api/workspace/team-directory'), []),
+          canReadContacts ? safeLoad('contacts', 'contacts', fetchContacts(supabase), []) : Promise.resolve([]),
+          canReadContacts ? safeLoad('contacts', 'project contacts', fetchAllProjectContacts(supabase), []) : Promise.resolve([]),
+          canReadLeads ? safeLoad('leads', 'leads', fetchLeads(supabase), []) : Promise.resolve([]),
+          canReadLeads ? safeLoad('leads', 'lead interactions', fetchLeadInteractions(supabase), []) : Promise.resolve([]),
+          canReadLeads ? safeLoad('leads', 'lead proposals', fetchLeadProposals(supabase), []) : Promise.resolve([]),
+          canReadLeads ? safeLoad('leads', 'lead fields', fetchLeadFields(supabase), []) : Promise.resolve([]),
+          canReadLeads ? safeLoad('leads', 'lead contacts', fetchAllLeadContacts(supabase), []) : Promise.resolve([]),
+          safeLoad('activities', 'activities', fetchActivities(supabase), []),
+          canReadPortal ? safeLoad('portal', 'portal settings', fetchAllPortalSettings(supabase), []) : Promise.resolve([]),
+          canReadPortal ? safeLoad('portal', 'portal updates', fetchAllPortalUpdates(supabase), []) : Promise.resolve([]),
+          canReadPortal ? safeLoad('portal', 'portal update attachments', fetchAllPortalUpdateAttachments(supabase), []) : Promise.resolve([]),
+          canReadFiles ? safeLoad('files', 'files', fetchAllEntityFiles(supabase), []) : Promise.resolve([]),
+          safeLoad('apiKeys', 'API keys', fetchApiKeys(supabase), []),
+          canReadTime ? safeLoad('timeEntries', 'time entries', workspaceData<TimeEntry[]>('/api/workspace/time-entries'), []) : Promise.resolve([]),
+          canReadCredentials ? safeLoad('credentials', 'credentials', workspaceData<ProjectCredentialListItem[]>('/api/workspace/credentials'), []) : Promise.resolve([]),
+          canReadInvoices ? safeLoad('invoices', 'invoices', fetchAllProjectInvoices(supabase), []) : Promise.resolve([]),
+          canReadSettings ? safeLoad('businessSettings', 'business settings', fetchBusinessSettings(supabase), null) : Promise.resolve(null),
           // Primes the retainer finance cache inside the boot load, so the money
           // figures paint net of revenue splits the first time instead of
           // painting gross and dropping a moment later.
           hasPermission(access, 'finance.company.read')
-            ? safeLoad('retainer finance', loadRetainerFinanceInputs(supabase), null)
+            ? safeLoad('retainerFinance', 'retainer finance', loadRetainerFinanceInputs(supabase), null)
             : Promise.resolve(null),
         ]);
 
@@ -674,6 +719,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setProjectInvoices(projectInvoicesData);
         setBusinessSettings(businessSettingsData);
         setEmployeeEarnings(await employeeEarningsRequest);
+        setLoadErrors([...failed]);
 
         // Conditionally load agent data when feature is enabled
         if (process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true') {
@@ -704,22 +750,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // Refetch one slice using the same fetchers and permission gates as the
   // initial load. Kept in a ref so the realtime effect always calls the
   // freshest closure (access can change) without resubscribing the channel.
-  const refreshSlice = async (slice: RealtimeSlice): Promise<void> => {
-    if (!access) return;
+  const refreshSlice = async (slice: RealtimeSlice): Promise<boolean> => {
+    if (!access) return false;
     const issuedAt = Date.now();
     /** True when a local write landed while this refetch was in flight. */
     const superseded = () => (sliceMutatedAt.current[slice] ?? 0) >= issuedAt;
-    const workspaceData = async <T,>(path: string): Promise<T> => {
-      const response = await fetch(path, { cache: 'no-store' });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || 'Workspace request failed');
-      return payload.data as T;
-    };
+    const workspaceData = fetchWorkspaceData;
     const agentsEnabled = process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true';
     try {
       switch (slice) {
         case 'tasks':
-          if (hasPermission(access, 'tasks.read')) {
+          if (canReadTasks(access)) {
             const taskRows = await fetchTasks(supabase);
             if (!superseded()) setTasks(taskRows);
           }
@@ -835,9 +876,46 @@ export function AppProvider({ children }: { children: ReactNode }) {
           setCommsRefreshSignal(s => s + 1);
           break;
       }
+      // A slice that read cleanly is complete again, whatever the boot load said.
+      setLoadErrors(prev => prev.includes(slice) ? prev.filter(key => key !== slice) : prev);
+      return true;
     } catch (err) {
       console.error(`Live-sync refetch failed for ${slice}:`, err);
+      return false;
     }
+  };
+
+  const retryLoad = async (key: LoadKey): Promise<boolean> => {
+    try {
+      switch (key) {
+        case 'apiKeys':
+          setApiKeys(await fetchApiKeys(supabase));
+          return true;
+        case 'businessSettings':
+          setBusinessSettings(await fetchBusinessSettings(supabase));
+          return true;
+        case 'employeeEarnings':
+          setEmployeeEarnings(await fetchWorkspaceData<EmployeeEarningsData>('/api/workspace/payroll'));
+          return true;
+        case 'retainerFinance':
+          await loadRetainerFinanceInputs(supabase);
+          return true;
+        default:
+          return await refreshSlice(key);
+      }
+    } catch (err) {
+      console.error(`Retry failed for ${key}:`, err);
+      return false;
+    }
+  };
+
+  const retryFailedLoads = async () => {
+    const keys = loadErrors;
+    if (keys.length === 0) return;
+    const results = await Promise.all(keys.map(async key => ({ key, ok: await retryLoad(key) })));
+    const stillFailing = results.filter(result => !result.ok).map(result => result.key);
+    setLoadErrors(stillFailing);
+    if (stillFailing.length > 0) toast('error', 'Some data still could not be loaded');
   };
   const refreshSliceRef = useRef(refreshSlice);
   refreshSliceRef.current = refreshSlice;
@@ -986,13 +1064,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const updateProject = async (id: string, updates: Partial<Project>) => {
+  const updateProject = async (id: string, updates: Partial<Project>): Promise<boolean> => {
     const prev = projects;
     const projectBefore = projects.find(p => p.id === id);
     setProjects(p => p.map(proj =>
       proj.id === id ? { ...proj, ...updates, updated_at: new Date().toISOString() } : proj
     ));
-    if (skipSupabase) return;
+    if (skipSupabase) return true;
 
     try {
       const response = await fetch('/api/workspace/projects', {
@@ -1053,9 +1131,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
           setCommsRefreshSignal(s => s + 1);
         }
       }
-    } catch (err) {
+      return true;
+    } catch {
       setProjects(rollbackScope(prev, proj => proj.id === id));
       toast('error', 'Failed to update project');
+      return false;
     }
   };
 
@@ -1087,7 +1167,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   // Task CRUD
-  const addTask = async (task: Omit<Task, 'id' | 'created_at' | 'updated_at'>) => {
+  const addTask = async (task: Omit<Task, 'id' | 'created_at' | 'updated_at'>): Promise<boolean> => {
     const assigneeIds = task.assignee_ids || [];
     const optimisticId = crypto.randomUUID();
     const now = new Date().toISOString();
@@ -1104,7 +1184,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
 
     setTasks(prev => [optimistic, ...prev]);
-    if (skipSupabase) return;
+    if (skipSupabase) return true;
 
     try {
       const newTask = await insertTask(
@@ -1125,13 +1205,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
           { label: 'Created by', value: actorName() },
         ],
       });
-    } catch (err) {
+      return true;
+    } catch {
       setTasks(prev => prev.filter(t => t.id !== optimisticId));
       toast('error', 'Failed to create task');
+      return false;
     }
   };
 
-  const updateTask = async (id: string, updates: Partial<Task>) => {
+  const updateTask = async (id: string, updates: Partial<Task>, options?: TaskWriteOptions): Promise<boolean> => {
     const prev = tasks;
     const existingTask = tasks.find(t => t.id === id);
     // Reorder-only updates are cosmetic; keep updated_at meaningful
@@ -1148,7 +1230,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
       return next;
     }));
-    if (skipSupabase) return;
+    if (skipSupabase) return true;
 
     try {
       await patchTask(supabase, id, updates, updates.assignee_ids, undefined, updates.blocked_by_ids);
@@ -1187,9 +1269,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
           notify(allMemberIds(), `"${existingTask.title}" was updated`, `${actorName()} updated the task.`, projectLink, 'task', id, 'task_updates');
         }
       }
-    } catch (err) {
+      return true;
+    } catch {
       setTasks(rollbackScope(prev, task => task.id === id));
-      toast('error', 'Failed to update task');
+      if (!options?.silent) toast('error', 'Failed to update task');
+      return false;
     }
   };
 
@@ -1210,20 +1294,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const deleteTask = async (id: string) => {
+  const deleteTask = async (id: string, options?: TaskWriteOptions): Promise<boolean> => {
     const prev = tasks;
     const deletedTask = tasks.find(t => t.id === id);
     setTasks(t => t.filter(task => task.id !== id));
-    if (skipSupabase) return;
+    if (skipSupabase) return true;
 
     try {
       await removeTask(supabase, id);
       if (deletedTask) {
         notify(allMemberIds(), `Task "${deletedTask.title}" was deleted`, `${actorName()} deleted a task.`, deletedTask.project_id ? `/projects/${deletedTask.project_id}` : null, 'task', id, 'task_deleted');
       }
-    } catch (err) {
+      return true;
+    } catch {
       setTasks(rollbackScope(prev, task => task.id === id));
-      toast('error', 'Failed to delete task');
+      if (!options?.silent) toast('error', 'Failed to delete task');
+      return false;
     }
   };
 
@@ -2761,7 +2847,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   // Entity File CRUD
-  const addEntityFile = async (file: Omit<EntityFile, 'id' | 'created_at' | 'updated_at'>) => {
+  const addEntityFile = async (file: Omit<EntityFile, 'id' | 'created_at' | 'updated_at'>): Promise<boolean> => {
     const optimisticId = crypto.randomUUID();
     const now = new Date().toISOString();
     const optimistic: EntityFile = {
@@ -2773,16 +2859,42 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
 
     setEntityFiles(prev => [optimistic, ...prev]);
-    if (skipSupabase) return;
+    if (skipSupabase) return true;
 
     try {
       const created = await insertEntityFileQuery(supabase, file);
       setEntityFiles(prev => prev.map(f => f.id === optimisticId ? created : f));
       const link = file.entity_type === 'project' ? `/projects/${file.entity_id}` : file.entity_type === 'lead' ? `/leads/${file.entity_id}` : `/contacts/${file.entity_id}`;
       notify(allMemberIds(), `File attached to ${file.entity_type}`, `${actorName()} uploaded a file.`, link, file.entity_type, file.entity_id, 'entity_files');
-    } catch (err) {
+      return true;
+    } catch {
       setEntityFiles(prev => prev.filter(f => f.id !== optimisticId));
       toast('error', 'Failed to upload file');
+      return false;
+    }
+  };
+
+  const replaceEntityFileContent = async (
+    id: string,
+    content: Pick<EntityFile, 'name' | 'file_url' | 'file_size' | 'mime_type'>,
+  ): Promise<boolean> => {
+    const prev = entityFiles;
+    const existing = entityFiles.find(f => f.id === id);
+    setEntityFiles(f => f.map(file => file.id === id ? { ...file, ...content, updated_at: new Date().toISOString() } : file));
+    if (skipSupabase) return true;
+
+    try {
+      const updated = await replaceEntityFileContentQuery(supabase, id, content);
+      setEntityFiles(f => f.map(file => file.id === id ? updated : file));
+      if (existing) {
+        const link = existing.entity_type === 'project' ? `/projects/${existing.entity_id}` : existing.entity_type === 'lead' ? `/leads/${existing.entity_id}` : `/contacts/${existing.entity_id}`;
+        notify(allMemberIds(), `File updated on ${existing.entity_type}`, `${actorName()} edited "${content.name}".`, link, existing.entity_type, existing.entity_id, 'entity_files');
+      }
+      return true;
+    } catch {
+      setEntityFiles(rollbackScope(prev, file => file.id === id));
+      toast('error', 'Failed to save note');
+      return false;
     }
   };
 
@@ -3687,6 +3799,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       timeEntries,
       projectCredentials,
       loading,
+      loadErrors,
+      retryFailedLoads,
       filters,
       setFilters,
       viewMode,
@@ -3747,6 +3861,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       deletePortalUpdateAttachment,
       addEntityFile,
       renameEntityFile,
+      replaceEntityFileContent,
       deleteEntityFile,
       updateEntityFileVisibility,
       getEntityFiles,

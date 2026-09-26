@@ -9,6 +9,9 @@ import { ApiError, unauthorized, forbidden, tooManyRequests, badRequest } from '
 import { errorResponse } from './response';
 import { accessAllows, accessAllowsProject, resolveMemberAccess } from './access';
 
+/** Static routes under /api/v1/tasks/ that are not a task id. */
+export const TASK_COLLECTION_ACTIONS: ReadonlySet<string> = new Set(['reorder']);
+
 function applyRateLimitHeaders(
   response: Response,
   rateInfo: { remaining: number; resetAt: number } | null,
@@ -208,8 +211,12 @@ export function withApi<TBody = unknown, TParams = Record<string, string>>(
         });
       }
 
+      // `reorder` is a collection action, not a task id; its handler authorizes
+      // the body's task_id itself. Everything else stays fail-closed: matching
+      // "UUID-shaped" segments instead would let the other spellings Postgres
+      // accepts for a uuid (no hyphens, braces) skip this check.
       const taskMatch = request.nextUrl.pathname.match(/^\/api\/v1\/tasks\/([^/]+)/);
-      if (taskMatch) {
+      if (taskMatch && !TASK_COLLECTION_ACTIONS.has(taskMatch[1])) {
         const taskId = taskMatch[1];
         const { data: task } = await supabase
           .from('tasks')

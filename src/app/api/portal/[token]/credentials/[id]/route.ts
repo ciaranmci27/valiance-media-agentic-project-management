@@ -4,6 +4,7 @@ import { updateCredentialSchema, payloadFromBody } from '@/lib/schemas/credentia
 import { encrypt, decrypt, isEncryptionConfigured } from '@/lib/api/encryption';
 import { isSensitiveKey } from '@/lib/credential-fields';
 import type { CredentialPayload } from '@/lib/types';
+import { checkPortalPin, pinFailureResponse } from '@/lib/portal-pin';
 
 function getServiceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -30,7 +31,7 @@ export async function GET(
 
   const { data: settings } = await supabase
     .from('portal_settings')
-    .select('project_id, enabled, pin, show_credentials')
+    .select('id, project_id, enabled, pin, show_credentials')
     .eq('token', token)
     .maybeSingle();
 
@@ -38,12 +39,8 @@ export async function GET(
     return NextResponse.json({ error: 'Portal not found' }, { status: 404 });
   }
 
-  if (settings.pin) {
-    const pin = request.headers.get('x-portal-pin');
-    if (!pin || pin !== settings.pin) {
-      return NextResponse.json({ error: 'Invalid PIN' }, { status: 401 });
-    }
-  }
+  const pinCheck = await checkPortalPin({ supabase, request, token, settings });
+  if (!pinCheck.ok) return pinFailureResponse(pinCheck);
 
   const { data: credential, error: credError } = await supabase
     .from('project_credentials')
@@ -89,7 +86,7 @@ export async function PATCH(
   // Verify portal
   const { data: settings } = await supabase
     .from('portal_settings')
-    .select('project_id, enabled, pin, show_credentials')
+    .select('id, project_id, enabled, pin, show_credentials')
     .eq('token', token)
     .maybeSingle();
 
@@ -101,13 +98,8 @@ export async function PATCH(
     return NextResponse.json({ error: 'Credential submission is not enabled' }, { status: 403 });
   }
 
-  // Check PIN (prefer header, fall back to query param)
-  if (settings.pin) {
-    const pin = request.headers.get('x-portal-pin');
-    if (!pin || pin !== settings.pin) {
-      return NextResponse.json({ error: 'Invalid PIN' }, { status: 401 });
-    }
-  }
+  const pinCheck = await checkPortalPin({ supabase, request, token, settings });
+  if (!pinCheck.ok) return pinFailureResponse(pinCheck);
 
   // Verify credential exists, belongs to project, and was submitted by client
   const { data: credential, error: credError } = await supabase

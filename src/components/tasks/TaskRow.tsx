@@ -10,7 +10,7 @@ import { useState, useRef } from 'react';
 import { Popover } from '@/components/ui/Popover';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { parseDateOnly, isDateOverdue } from '@/lib/date-utils';
-import { hasPermission } from '@/lib/access-control';
+import { hasPermission, canEditTask, canManageAllTasks } from '@/lib/access-control';
 
 /**
  * The ONE column template the list header and every row share. The old
@@ -61,8 +61,8 @@ export function TaskRow({ task, onView, onEdit, onDelete }: TaskRowProps) {
   const canManageAgents = hasPermission(access, 'agents.manage');
 
   const assignees = team.filter(m => task.assignee_ids.includes(m.id));
-  const canEdit = hasPermission(access, 'tasks.manage_all') || (hasPermission(access, 'tasks.manage_assigned') && task.assignee_ids.includes(teamMemberId || ''));
-  const canDelete = hasPermission(access, 'tasks.manage_all');
+  const canEdit = canEditTask(access, task, teamMemberId);
+  const canDelete = canManageAllTasks(access);
 
   const formatDate = (date: string | null) => {
     if (!date) return null;
@@ -231,8 +231,8 @@ export function TaskRowDesktop({ task, onView, onEdit, onDelete, selected, onTog
   const canManageAgents = hasPermission(access, 'agents.manage');
 
   const assignees = team.filter(m => task.assignee_ids.includes(m.id));
-  const canEdit = hasPermission(access, 'tasks.manage_all') || (hasPermission(access, 'tasks.manage_assigned') && task.assignee_ids.includes(teamMemberId || ''));
-  const canDelete = hasPermission(access, 'tasks.manage_all');
+  const canEdit = canEditTask(access, task, teamMemberId);
+  const canDelete = canManageAllTasks(access);
 
   const formatDate = (date: string | null) => {
     if (!date) return null;
@@ -249,11 +249,15 @@ export function TaskRowDesktop({ task, onView, onEdit, onDelete, selected, onTog
   const isBlocked = task.status !== 'done' && (task.blocked_by_ids || []).some(id => tasks.find(t => t.id === id)?.status !== 'done');
   const showReadinessChip = isAgentsEnabled && canManageAgents && task.ai_readiness !== 'ai_ready' && getProject(task.project_id)?.autonomous_enabled;
 
+  // Every bulk action edits the task, so only rows the viewer can edit are
+  // selectable; a read-only row never joins a bulk edit it would fail.
+  const selectable = !!onToggleSelect && canEdit;
+
   // The row surface toggles SELECTION (the checkbox is a small target and
   // selection is the bulk-action gesture); the title alone opens the task.
   // Rows without selection keep click-to-open everywhere.
   const handleRowClick = () => {
-    if (onToggleSelect) onToggleSelect(task.id);
+    if (selectable) onToggleSelect?.(task.id);
     else onView?.(task);
   };
 
@@ -264,11 +268,11 @@ export function TaskRowDesktop({ task, onView, onEdit, onDelete, selected, onTog
     >
       {/* Select */}
       <div className="flex items-center">
-        {onToggleSelect && (
+        {selectable && (
           <input
             type="checkbox"
             checked={selected || false}
-            onChange={(e) => { e.stopPropagation(); onToggleSelect(task.id); }}
+            onChange={(e) => { e.stopPropagation(); onToggleSelect?.(task.id); }}
             onClick={(e) => e.stopPropagation()}
             className="w-4 h-4 rounded border-white/[0.12] text-brand-300 outline-none focus:ring-brand-500 cursor-pointer"
             aria-label={`Select ${task.title}`}

@@ -6,7 +6,7 @@
 // days into bars, axis labels, drilldown), never the money rules.
 
 import type { Project, ProjectInvoice, TimeEntry, TeamMember, EmployeeEarningsData, InvoiceLineItem } from '@/lib/types';
-import { getWorkedHours, getWorkedHoursByDay } from '@/lib/time-entry-utils';
+import { getWorkedHours, getWorkedHoursByDay, isApprovedTime } from '@/lib/time-entry-utils';
 import { ensureLineItems, spreadLineItem, invoicedTotalsByItemType, totalBillableAmount } from '@/lib/invoice-utils';
 import { dayVestingRatio } from '@/lib/finance/vesting';
 
@@ -285,7 +285,13 @@ export function computeFinanceData(input: FinanceEngineInput): FinanceData {
     const pPaidAll = fInvoices
       .filter(inv => inv.project_id === p.id && inv.status === 'paid')
       .reduce((s, i) => s + i.amount, 0);
-    const projectEntries = fTimeEntries.filter(te => te.project_id === p.id);
+    // Same eligibility as earned revenue: internal time is never owed, and
+    // anyone but the owner is owed for only once their time is approved.
+    const projectEntries = fTimeEntries.filter(te =>
+      te.project_id === p.id &&
+      te.work_type !== 'internal' &&
+      (ownerMemberIds.has(te.member_id) || isApprovedTime(te)),
+    );
     const isHourly = !!p.hourly_tracking;
     const rate = p.hourly_rate ?? 0;
     const pInvoicedByType = invoicedTotalsByItemType(pInvoicesAll);

@@ -54,7 +54,7 @@ import {
   type InvoiceTimeEntryAllocation,
   type RetainerDuePeriod,
 } from '@/lib/types';
-import { getWorkedHours } from '@/lib/time-entry-utils';
+import { getWorkedHours, isClientBillable } from '@/lib/time-entry-utils';
 import { HourlyRateSchedule } from './HourlyRateSchedule';
 import {
   ensureLineItems,
@@ -303,12 +303,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
   const hourlyRate = project?.hourly_rate ?? 0;
   const finalizedHourEntries = isHourly
     ? timeEntries
-        .filter(
-          (te) =>
-            te.end_time !== null &&
-            te.work_type !== 'internal' &&
-            (te.approval_status === undefined || te.approval_status === 'approved'),
-        )
+        .filter(isClientBillable)
         .map((te) => ({
           id: te.id,
           start_time: te.start_time,

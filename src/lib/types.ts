@@ -352,6 +352,12 @@ export interface TeamMember {
   scene_preferences?: ScenePreferences | null;
   /** Multiplier applied to this member's time-entry rate snapshots (1.00 = parity). */
   billing_multiplier?: number;
+  /**
+   * Which projects the member can open, derived by the team directory from
+   * their permissions: every project, the ones they are a member of, or none.
+   * Lets a picker offer only people who could see the work.
+   */
+  project_access?: 'all' | 'member' | 'none';
 }
 
 export interface FilterState {

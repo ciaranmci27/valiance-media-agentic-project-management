@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { fetchAllRows } from '@/lib/supabase/fetch-all';
 import { accessAllows, accessAllowsProject, requireSessionAccess, sanitizeTimeEntryForAccess } from '@/lib/api/access';
 import { fetchMemberBillingMultiplier, resolveProjectHourlyRate } from '@/lib/supabase/queries';
 
@@ -95,18 +96,24 @@ export async function GET(request: Request) {
   const canReadAll = accessAllows(access, 'time.read_all', 'app') || canManageAll;
   if (!canReadAll && !accessAllows(access, 'time.manage_own', 'app')) return responseError('Forbidden', 403);
 
-  let query = service.from('project_time_entries').select('*, time_entry_tasks ( task_id )').order('start_time', { ascending: false });
-  if (projectId) query = query.eq('project_id', projectId);
-  if (!canReadAll) query = query.eq('member_id', memberId);
-  if (!accessAllows(access, 'projects.read_all', 'app')) {
-    if (access.project_ids.length === 0) return NextResponse.json({ data: [] });
-    query = query.in('project_id', access.project_ids);
-  }
+  const scopedToProjects = !accessAllows(access, 'projects.read_all', 'app');
+  if (scopedToProjects && access.project_ids.length === 0) return NextResponse.json({ data: [] });
+  const entriesPage = (from: number, to: number) => {
+    let query = service.from('project_time_entries').select('*, time_entry_tasks ( task_id )');
+    if (projectId) query = query.eq('project_id', projectId);
+    if (!canReadAll) query = query.eq('member_id', memberId);
+    if (scopedToProjects) query = query.in('project_id', access.project_ids);
+    return query.order('start_time', { ascending: false }).order('id').range(from, to);
+  };
 
-  const { data, error } = await query;
-  if (error) return responseError(error.message, 500);
+  let data;
+  try {
+    data = await fetchAllRows(entriesPage);
+  } catch (error) {
+    return responseError(error instanceof Error ? error.message : 'Failed to load time entries', 500);
+  }
   return NextResponse.json({
-    data: (data || []).map((entry) => sanitizeTimeEntryForAccess(withTaskIds(entry), access)),
+    data: data.map((entry) => sanitizeTimeEntryForAccess(withTaskIds(entry), access)),
   });
 }
 

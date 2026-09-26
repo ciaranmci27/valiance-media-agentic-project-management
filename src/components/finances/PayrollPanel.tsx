@@ -80,7 +80,11 @@ type EarningsRow = {
   rate?: number;
 };
 
-export function PayrollPanel({ team, projects }: { team: TeamMember[]; projects: Project[] }) {
+/**
+ * `reviewOnly` renders just the time-review queue, for a reviewer who has no
+ * company-finance view: their own earnings already have a page of their own.
+ */
+export function PayrollPanel({ team, projects, reviewOnly = false }: { team: TeamMember[]; projects: Project[]; reviewOnly?: boolean }) {
   const { access, teamMemberId } = useAuth();
   const { isDemoMode } = useDemo();
   const canManageCompensation = hasPermission(access, 'compensation.manage');
@@ -814,11 +818,13 @@ export function PayrollPanel({ team, projects }: { team: TeamMember[]; projects:
       ]),
     [data.adjustments, data.entries, data.payouts, data.rates],
   );
-  const visibleMembers = canManage
-    ? payableMembers.filter(
-        (member) => member.status === 'active' || membersWithLedgerActivity.has(member.id),
-      )
-    : payableMembers.filter((member) => member.id === teamMemberId);
+  const visibleMembers = reviewOnly
+    ? []
+    : canManage
+      ? payableMembers.filter(
+          (member) => member.status === 'active' || membersWithLedgerActivity.has(member.id),
+        )
+      : payableMembers.filter((member) => member.id === teamMemberId);
   const ownBalance = teamMemberId ? balances.get(teamMemberId) : undefined;
   const rateMember = team.find((member) => member.id === rateMemberId);
   const adjustmentMember = team.find((member) => member.id === adjustmentMemberId);
@@ -830,8 +836,8 @@ export function PayrollPanel({ team, projects }: { team: TeamMember[]; projects:
   // nobody to pay, and the panel used to paint its header and a loading line
   // before discovering that and removing itself, which read as the page
   // breaking. Now it either appears once, complete, or never appears.
-  if (loading && !hasPayableIdentity) return null;
-  if (!loading && visibleMembers.length === 0 && pending.length === 0) return null;
+  if (loading && (reviewOnly || !hasPayableIdentity)) return null;
+  if (!reviewOnly && !loading && visibleMembers.length === 0 && pending.length === 0) return null;
 
   return (
     <section className="rounded-xl border border-white/[0.08] bg-surface-raised">
@@ -840,11 +846,13 @@ export function PayrollPanel({ team, projects }: { team: TeamMember[]; projects:
           <div className="flex items-center gap-2">
             <WalletCards size={18} className="text-brand-300" />
             <h2 className="font-semibold text-white">
-              {canManage ? 'Team compensation' : 'My earnings'}
+              {reviewOnly ? 'Time review' : canManage ? 'Team compensation' : 'My earnings'}
             </h2>
           </div>
           <p className="text-xs text-zinc-400 mt-1">
-            Approved work, adjustments, and recorded payments in one ledger.
+            {reviewOnly
+              ? 'Submitted hours from the projects you review.'
+              : 'Approved work, adjustments, and recorded payments in one ledger.'}
           </p>
         </div>
         {canApprove && reviewQueueCount > 0 && (
@@ -1099,6 +1107,13 @@ export function PayrollPanel({ team, projects }: { team: TeamMember[]; projects:
             </div>
           </Modal>
 
+          {reviewOnly && (
+            <p className="px-5 py-4 text-sm text-zinc-400">
+              {pending.length === 0
+                ? 'No hours are waiting for review.'
+                : `${pending.length} submitted ${pending.length === 1 ? 'entry is' : 'entries are'} waiting. Open Review hours to approve or reject.`}
+            </p>
+          )}
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-white/[0.06]">
             {(canManage ? visibleMembers : visibleMembers.slice(0, 1)).map((member) => {
               const balance = balances.get(member.id) || { earned: 0, paid: 0, owed: 0 };
@@ -1224,7 +1239,7 @@ export function PayrollPanel({ team, projects }: { team: TeamMember[]; projects:
               );
             })}
           </div>
-          {!canManage && ownBalance && data.payouts.length > 0 && (
+          {!canManage && !reviewOnly && ownBalance && data.payouts.length > 0 && (
             <div className="px-5 py-3 border-t border-white/[0.06] text-xs text-zinc-400">
               Latest payment: {money(Number(data.payouts[0].amount))} on{' '}
               {new Date(`${data.payouts[0].payment_date}T00:00:00`).toLocaleDateString()}

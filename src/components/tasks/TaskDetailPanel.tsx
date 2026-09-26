@@ -30,7 +30,7 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { Popover } from '@/components/ui/Popover';
 import { parseDateOnly, isDateOverdue } from '@/lib/date-utils';
-import { hasPermission } from '@/lib/access-control';
+import { hasPermission, canEditTask, canManageAllTasks } from '@/lib/access-control';
 
 interface TaskDetailPanelProps {
   task: Task | null;
@@ -120,11 +120,8 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
   }, [task, onClose]);
 
   if (!task) return null;
-  const canEdit =
-    hasPermission(access, 'tasks.manage_all') ||
-    (hasPermission(access, 'tasks.manage_assigned') &&
-      task.assignee_ids.includes(teamMemberId || ''));
-  const canDelete = hasPermission(access, 'tasks.manage_all');
+  const canEdit = canEditTask(access, task, teamMemberId);
+  const canDelete = canManageAllTasks(access);
 
   const isAgentsEnabled = process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true';
   const project = getProject(task.project_id);
@@ -601,8 +598,9 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
                 ).map((subtask) => (
                   <div
                     key={subtask.id}
-                    draggable
+                    draggable={canEdit}
                     onDragStart={() => {
+                      if (!canEdit) return;
                       setDraggedSubtaskId(subtask.id);
                       setDragSubtaskOrder(task.subtasks.map((s) => s.id));
                     }}
@@ -631,16 +629,19 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
                         });
                       }
                     }}
-                    className={`flex items-center gap-2 p-2 rounded-lg hover:bg-white/[0.03] group cursor-grab active:cursor-grabbing ${
+                    className={`flex items-center gap-2 p-2 rounded-lg hover:bg-white/[0.03] group ${canEdit ? 'cursor-grab active:cursor-grabbing' : ''} ${
                       draggedSubtaskId === subtask.id ? 'opacity-50' : ''
                     }`}
                   >
                     <button
                       onClick={() => toggleSubtask(task.id, subtask.id)}
-                      className={`flex-shrink-0 w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
+                      disabled={!canEdit}
+                      aria-label={subtask.completed ? `Mark "${subtask.title}" not done` : `Mark "${subtask.title}" done`}
+                      aria-pressed={subtask.completed}
+                      className={`flex-shrink-0 w-5 h-5 rounded border-2 flex items-center justify-center transition-colors disabled:cursor-default ${
                         subtask.completed
                           ? 'bg-emerald-500 border-emerald-500'
-                          : 'border-white/[0.12] hover:border-emerald-400'
+                          : `border-white/[0.12] ${canEdit ? 'hover:border-emerald-400' : ''}`
                       }`}
                     >
                       {subtask.completed && <CheckSquare size={12} className="text-white" />}
@@ -669,7 +670,7 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
                           size="sm"
                         />
                       </form>
-                    ) : (
+                    ) : canEdit ? (
                       <Tooltip content="Double-click to edit" delay={500}>
                         <span
                           className={`flex-1 text-sm cursor-pointer ${subtask.completed ? 'text-zinc-500 line-through' : 'text-zinc-300'}`}
@@ -681,34 +682,43 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
                           {subtask.title}
                         </span>
                       </Tooltip>
+                    ) : (
+                      <span className={`flex-1 text-sm ${subtask.completed ? 'text-zinc-500 line-through' : 'text-zinc-300'}`}>
+                        {subtask.title}
+                      </span>
                     )}
-                    <div className="flex items-center gap-0.5 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-all">
-                      <button
-                        onClick={() => {
-                          setEditingSubtaskId(subtask.id);
-                          setEditingSubtaskTitle(subtask.title);
-                        }}
-                        className="p-1 text-zinc-500 hover:text-brand-500"
-                      >
-                        <Edit size={12} />
-                      </button>
-                      <button
-                        onClick={() => setDeleteSubtaskTarget(subtask.id)}
-                        className="p-1 text-zinc-500 hover:text-red-500"
-                      >
-                        <X size={14} />
-                      </button>
-                      <GripVertical
-                        size={14}
-                        className="text-zinc-600 flex-shrink-0 cursor-grab active:cursor-grabbing"
-                      />
-                    </div>
+                    {canEdit && (
+                      <div className="flex items-center gap-0.5 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-all">
+                        <button
+                          onClick={() => {
+                            setEditingSubtaskId(subtask.id);
+                            setEditingSubtaskTitle(subtask.title);
+                          }}
+                          aria-label={`Edit "${subtask.title}"`}
+                          className="p-1 text-zinc-500 hover:text-brand-500"
+                        >
+                          <Edit size={12} aria-hidden="true" />
+                        </button>
+                        <button
+                          onClick={() => setDeleteSubtaskTarget(subtask.id)}
+                          aria-label={`Delete "${subtask.title}"`}
+                          className="p-1 text-zinc-500 hover:text-red-500"
+                        >
+                          <X size={14} aria-hidden="true" />
+                        </button>
+                        <GripVertical
+                          size={14}
+                          aria-hidden="true"
+                          className="text-zinc-600 flex-shrink-0 cursor-grab active:cursor-grabbing"
+                        />
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
 
               {/* Add subtask */}
-              <form onSubmit={handleAddSubtask} className="flex items-center gap-2 pl-[22px]">
+              {canEdit && <form onSubmit={handleAddSubtask} className="flex items-center gap-2 pl-[22px]">
                 <TextInput
                   value={newSubtask}
                   onChange={setNewSubtask}
@@ -718,11 +728,12 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
                 />
                 <button
                   type="submit"
+                  aria-label="Add subtask"
                   className="p-1 rounded text-zinc-500 hover:text-brand-300 hover:bg-brand-500/15 transition-colors flex-shrink-0"
                 >
-                  <Plus size={16} />
+                  <Plus size={16} aria-hidden="true" />
                 </button>
-              </form>
+              </form>}
             </div>
 
             {/* Comments Section */}

@@ -4,6 +4,7 @@ import { portalSubmitCredentialSchema, payloadFromBody } from '@/lib/schemas/cre
 import { encrypt, isEncryptionConfigured } from '@/lib/api/encryption';
 import type { CredentialPayload } from '@/lib/types';
 import { recordPortalEvent, getOrCreateSessionId } from '@/lib/portal-analytics';
+import { checkPortalPin, pinFailureResponse } from '@/lib/portal-pin';
 
 function getServiceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -42,13 +43,8 @@ export async function POST(
     return NextResponse.json({ error: 'Credential submission is not enabled' }, { status: 403 });
   }
 
-  // Check PIN (prefer header, fall back to query param)
-  if (settings.pin) {
-    const pin = request.headers.get('x-portal-pin');
-    if (!pin || pin !== settings.pin) {
-      return NextResponse.json({ error: 'Invalid PIN' }, { status: 401 });
-    }
-  }
+  const pinCheck = await checkPortalPin({ supabase, request, token, settings });
+  if (!pinCheck.ok) return pinFailureResponse(pinCheck);
 
   // Parse body
   let body: any;

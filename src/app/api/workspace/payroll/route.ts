@@ -1,5 +1,14 @@
 import { NextResponse } from 'next/server';
 import { accessAllows, accessAllowsProject, requireSessionAccess, sanitizeTimeEntryForAccess } from '@/lib/api/access';
+import { fetchAllRows } from '@/lib/supabase/fetch-all';
+
+/** fetchAllRows as a { data, error } result, to sit beside single queries. */
+function allRows<T>(page: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }>) {
+  return fetchAllRows(page).then(
+    (data) => ({ data, error: null }),
+    (error: { message?: string }) => ({ data: null, error: { message: error?.message || 'Failed to load payroll rows' } }),
+  );
+}
 
 export async function GET() {
   const auth = await requireSessionAccess();
@@ -13,19 +22,27 @@ export async function GET() {
   }
   const entryTargetMember = canManage || canReview ? null : memberId;
   const financialTargetMember = canManage ? null : memberId;
-  let entriesQuery = service.from('project_time_entries').select('id, project_id, member_id, start_time, end_time, segments, description, compensation_rate, work_type, approval_status, submitted_at, approved_at, billing_multiplier, billing_converted_at').not('end_time', 'is', null);
   let ratesQuery = service.from('team_member_hourly_rates').select('*');
   let adjustmentsQuery = service.from('team_member_earning_adjustments').select('*');
   let payoutsQuery = service.from('team_member_payouts').select('*');
   // Revenue-split earnings. A voided one never counted; a reversed one stays,
   // offset by the deduction that carries its clawback.
   let shareEarningsQuery = service.from('team_member_share_earnings').select('*').is('voided_at', null);
-  if (entryTargetMember) entriesQuery = entriesQuery.eq('member_id', entryTargetMember);
-  if (!accessAllows(access, 'projects.read_all', 'app')) {
-    entriesQuery = access.project_ids.length > 0
-      ? entriesQuery.in('project_id', access.project_ids)
-      : entriesQuery.eq('project_id', '00000000-0000-0000-0000-000000000000');
-  }
+  // Every entry, paged: this is all-time history behind Earned and Owed.
+  const entriesPage = (from: number, to: number) => {
+    let query = service.from('project_time_entries').select('id, project_id, member_id, start_time, end_time, segments, description, compensation_rate, work_type, approval_status, submitted_at, approved_at, billing_multiplier, billing_converted_at').not('end_time', 'is', null);
+    if (entryTargetMember) query = query.eq('member_id', entryTargetMember);
+    if (!accessAllows(access, 'projects.read_all', 'app')) {
+      // Other people's time is scoped to the projects the caller can open. The
+      // caller's own time is not: earnings belong to the person, and leaving a
+      // project must not erase earned history while its payouts still count,
+      // which showed a member $0 owed after being removed from a project.
+      query = access.project_ids.length > 0
+        ? query.or(`member_id.eq.${memberId},project_id.in.(${access.project_ids.join(',')})`)
+        : query.eq('member_id', memberId);
+    }
+    return query.order('start_time', { ascending: false }).order('id').range(from, to);
+  };
   if (financialTargetMember) {
     ratesQuery = ratesQuery.eq('member_id', financialTargetMember);
     adjustmentsQuery = adjustmentsQuery.eq('member_id', financialTargetMember);
@@ -38,17 +55,25 @@ export async function GET() {
     payoutsQuery = payoutsQuery.eq('id', '00000000-0000-0000-0000-000000000000');
     shareEarningsQuery = shareEarningsQuery.eq('id', '00000000-0000-0000-0000-000000000000');
   }
-  const [entries, rates, adjustments, payouts, allocations, shareEarnings] = await Promise.all([
-    entriesQuery.order('start_time', { ascending: false }),
+  const [entries, rates, adjustments, payouts, shareEarnings] = await Promise.all([
+    allRows(entriesPage),
     ratesQuery.order('effective_at', { ascending: false }),
     adjustmentsQuery.order('effective_date', { ascending: false }),
     payoutsQuery.order('payment_date', { ascending: false }),
-    service.from('team_member_payout_allocations').select('*'),
     shareEarningsQuery.order('earned_date', { ascending: false }),
   ]);
-  const error = entries.error || rates.error || adjustments.error || payouts.error || allocations.error || shareEarnings.error;
+  const error = entries.error || rates.error || adjustments.error || payouts.error || shareEarnings.error;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  const payoutIds = new Set((payouts.data || []).map((row) => row.id));
+  // A manager sees every payout, so every allocation. Anyone else gets only
+  // the allocations of their own payouts, filtered in the query rather than
+  // after reading every allocation in the workspace.
+  const payoutIds = (payouts.data || []).map((row) => row.id);
+  const allocations = !financialTargetMember
+    ? await allRows((from, to) => service.from('team_member_payout_allocations').select('*').order('id').range(from, to))
+    : payoutIds.length > 0
+      ? await service.from('team_member_payout_allocations').select('*').in('payout_id', payoutIds)
+      : { data: [], error: null };
+  if (allocations.error) return NextResponse.json({ error: allocations.error.message }, { status: 500 });
   return NextResponse.json({
     data: {
       // Mask compensation_rate on entries the caller is not entitled to see
@@ -57,7 +82,7 @@ export async function GET() {
       rates: rates.data || [],
       adjustments: adjustments.data || [],
       payouts: payouts.data || [],
-      allocations: (allocations.data || []).filter((row) => payoutIds.has(row.payout_id)),
+      allocations: allocations.data || [],
       shareEarnings: shareEarnings.data || [],
     },
   });

@@ -6,7 +6,7 @@ import { insertTask } from '@/lib/supabase/queries';
 import { logAudit } from '@/lib/api/audit';
 import { accessAllows, accessAllowsProject } from '@/lib/api/access';
 import { forbidden } from '@/lib/api/errors';
-import { assertBlockersInProject } from '@/lib/api/task-guards';
+import { assertAssigneesCanOpenProject, assertBlockersInProject, assertGoalInProject } from '@/lib/api/task-guards';
 
 export const GET = withApi(async ({ supabase, searchParams, access }) => {
   const { page, limit, offset } = parsePagination(searchParams);
@@ -84,9 +84,13 @@ export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId, acc
     throw forbidden('This API key can only assign newly created tasks to its own member');
   }
   const effectiveAssignees = canAssignOthers ? requestedAssignees : [teamMemberId];
+  await assertAssigneesCanOpenProject(supabase, effectiveAssignees.filter(Boolean), taskData.project_id);
   const blockedByIds: string[] = Array.isArray(blocked_by_ids) ? blocked_by_ids : [];
   if (blockedByIds.length > 0) {
     await assertBlockersInProject(supabase, blockedByIds, taskData.project_id);
+  }
+  if (taskData.project_goal_id) {
+    await assertGoalInProject(supabase, taskData.project_goal_id, taskData.project_id);
   }
   const criteria: string[] = Array.isArray(acceptance_criteria) ? acceptance_criteria : [];
   const task = await insertTask(

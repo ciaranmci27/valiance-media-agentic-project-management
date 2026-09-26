@@ -1,5 +1,6 @@
 import { SupabaseClient } from '@supabase/supabase-js';
 import type { Project, Task, TeamMember, Subtask, AcceptanceCriterion, Comment, Activity, Contact, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, ApiKey, ProjectGoal, TaskSuggestion, AgentActivity, ApiAuditEntry, TimeEntry, ProjectCredential, ProjectCredentialListItem, ProjectInvoice, BusinessSettings, InvoiceTimeEntryAllocation, WebhookEndpoint, WebhookDelivery, ProjectRetainer, ProjectRetainerAmount, ProjectRetainerShare, ProjectRetainerPeriod, RetainerDuePeriod, InvoiceLineShare } from '@/lib/types';
+import { fetchAllRows } from '@/lib/supabase/fetch-all';
 import { notFound } from '@/lib/api/errors';
 import { siteConfig } from '@/site-config';
 import { generatePortalSlug } from '@/lib/portal-slug';
@@ -147,7 +148,7 @@ export async function removeProject(supabase: SupabaseClient, id: string) {
 // ============================================================
 
 export async function fetchTasks(supabase: SupabaseClient) {
-  const { data: tasks, error } = await supabase
+  const tasks = await fetchAllRows((from, to) => supabase
     .from('tasks')
     .select(`
       *,
@@ -158,9 +159,9 @@ export async function fetchTasks(supabase: SupabaseClient) {
       reviews:task_reviews ( id, round, verdict, summary, pr_url, head_sha, reviewer_member_id, created_at ),
       task_dependencies!task_dependencies_task_id_fkey ( blocked_by_task_id )
     `)
-    .order('created_at', { ascending: false });
-
-  if (error) throw error;
+    .order('created_at', { ascending: false })
+    .order('id')
+    .range(from, to));
 
   return (tasks || []).map((t: any) => ({
     ...t,
@@ -202,46 +203,47 @@ export async function insertTask(
   if (task.task_type) insertPayload.task_type = task.task_type;
   if (task.ai_readiness !== undefined) insertPayload.ai_readiness = task.ai_readiness;
 
-  const { data, error } = await supabase
-    .from('tasks')
-    .insert(insertPayload)
-    .select()
-    .single();
-
-  if (error) throw error;
-
-  if (assigneeIds.length > 0) {
-    const { error: junctionError } = await supabase
-      .from('task_assignees')
-      .insert(assigneeIds.map(mid => ({ task_id: data.id, member_id: mid })));
-    if (junctionError) throw junctionError;
-  }
-
-  let insertedCriteria: AcceptanceCriterion[] = [];
-  if (criteria.length > 0) {
-    const { data: criteriaRows, error: criteriaError } = await supabase
-      .from('task_acceptance_criteria')
-      .insert(criteria.map((criterion, index) => ({ task_id: data.id, criterion, sort_order: index })))
-      .select();
-    if (criteriaError) throw criteriaError;
-    insertedCriteria = (criteriaRows || []) as AcceptanceCriterion[];
-  }
-
-  if (blockedByIds.length > 0) {
-    const { error: dependencyError } = await supabase
-      .from('task_dependencies')
-      .insert(blockedByIds.map(blockedById => ({ task_id: data.id, blocked_by_task_id: blockedById })));
-    if (dependencyError) throw dependencyError;
-  }
+  const saved = await saveTaskAtomically(supabase, null, insertPayload, assigneeIds, criteria, blockedByIds);
 
   return {
-    ...data,
+    ...saved.task,
     assignee_ids: assigneeIds,
     subtasks: [],
     comments: [],
-    acceptance_criteria: insertedCriteria,
+    acceptance_criteria: saved.criteria,
     blocked_by_ids: blockedByIds,
   } as Task;
+}
+
+/** The task row as stored (no joined lists) plus its criteria, as save_task returns them. */
+type SavedTask = {
+  task: Omit<Task, 'assignee_ids' | 'subtasks' | 'comments' | 'acceptance_criteria' | 'blocked_by_ids'>;
+  criteria: AcceptanceCriterion[];
+};
+
+/**
+ * One transaction for a task row and its assignees, criteria and blockers
+ * (the save_task RPC). Undefined lists are left as they are.
+ */
+async function saveTaskAtomically(
+  supabase: SupabaseClient,
+  id: string | null,
+  columns: Record<string, unknown>,
+  assigneeIds?: string[],
+  criteria?: string[],
+  blockedByIds?: string[],
+): Promise<SavedTask> {
+  const { data, error } = await supabase.rpc('save_task', {
+    p_task_id: id,
+    p_task: columns,
+    p_assignee_ids: assigneeIds ?? null,
+    p_criteria: criteria ?? null,
+    p_blocked_by: blockedByIds ?? null,
+  });
+  if (error) throw error;
+  const result = data as SavedTask | null;
+  if (!result?.task) throw new Error('Task save returned no task');
+  return result;
 }
 
 export async function patchTask(
@@ -261,70 +263,23 @@ export async function patchTask(
     blocked_by_ids,
     criteria: embeddedCriteria,
     task_dependencies,
+    reviews,
     ...dbUpdates
   } = updates as any;
 
-  // Assignment-only (or criteria-only) patches leave no column updates;
-  // Postgres rejects an empty UPDATE, so fetch the row instead.
-  let data: any;
-  if (Object.keys(dbUpdates).length > 0) {
-    const { data: updated, error } = await supabase
-      .from('tasks')
-      .update(dbUpdates)
-      .eq('id', id)
-      .select()
-      .single();
-    if (error) throw error;
-    data = updated;
-  } else {
-    const { data: current, error } = await supabase
-      .from('tasks')
-      .select()
-      .eq('id', id)
-      .single();
-    if (error) throw error;
-    data = current;
-  }
-
-  if (assigneeIds !== undefined) {
-    await supabase.from('task_assignees').delete().eq('task_id', id);
-    if (assigneeIds.length > 0) {
-      const { error: junctionError } = await supabase
-        .from('task_assignees')
-        .insert(assigneeIds.map(mid => ({ task_id: id, member_id: mid })));
-      if (junctionError) throw junctionError;
-    }
-  }
-
-  // Full replace: resets satisfied flags. Intended for retrofitting specs
-  // before work starts, not for editing individual criteria (use the
-  // acceptance-criteria endpoints for that).
-  if (criteria !== undefined) {
-    await supabase.from('task_acceptance_criteria').delete().eq('task_id', id);
-    if (criteria.length > 0) {
-      const { error: criteriaError } = await supabase
-        .from('task_acceptance_criteria')
-        .insert(criteria.map((criterion, index) => ({ task_id: id, criterion, sort_order: index })));
-      if (criteriaError) throw criteriaError;
-    }
-  }
-
-  if (blockedByIds !== undefined) {
-    await supabase.from('task_dependencies').delete().eq('task_id', id);
-    if (blockedByIds.length > 0) {
-      const { error: dependencyError } = await supabase
-        .from('task_dependencies')
-        .insert(blockedByIds.map(blockedById => ({ task_id: id, blocked_by_task_id: blockedById })));
-      if (dependencyError) throw dependencyError;
-    }
-  }
-
-  return data;
+  // Criteria are a full replace that resets satisfied flags. Intended for
+  // retrofitting specs before work starts, not for editing individual
+  // criteria (use the acceptance-criteria endpoints for that).
+  const saved = await saveTaskAtomically(supabase, id, dbUpdates, assigneeIds, criteria, blockedByIds);
+  return saved.task;
 }
 
 export async function removeTask(supabase: SupabaseClient, id: string) {
-  const { error } = await supabase.from('tasks').delete().eq('id', id);
+  // RLS turns a delete the caller may not make into zero rows and no error;
+  // that is a failure, or the task vanishes locally while it still exists.
+  const { data, error } = await supabase.from('tasks').delete().eq('id', id).select('id');
   if (error) throw error;
+  if (!data || data.length === 0) throw new Error('Task not deleted: not found or not permitted');
 }
 
 export async function reorderTasks(
@@ -1486,6 +1441,23 @@ export async function renameEntityFile(supabase: SupabaseClient, id: string, nam
   return data as EntityFile;
 }
 
+/** Point an existing file row at new content (a note edit), keeping its id,
+ *  visibility and history instead of deleting and re-adding it. */
+export async function replaceEntityFileContent(
+  supabase: SupabaseClient,
+  id: string,
+  content: Pick<EntityFile, 'name' | 'file_url' | 'file_size' | 'mime_type'>,
+) {
+  const { data, error } = await supabase
+    .from('entity_files')
+    .update(content)
+    .eq('id', id)
+    .select()
+    .single();
+  if (error) throw error;
+  return data as EntityFile;
+}
+
 export async function removeEntityFile(supabase: SupabaseClient, id: string) {
   const { error } = await supabase.from('entity_files').delete().eq('id', id);
   if (error) throw error;
@@ -2513,13 +2485,14 @@ export async function removeProjectCredential(supabase: SupabaseClient, id: stri
 // ============================================================
 
 export async function fetchAllProjectInvoices(supabase: SupabaseClient) {
-  const { data, error } = await supabase
+  const data = await fetchAllRows((from, to) => supabase
     .from('project_invoices')
     .select('*, invoice_time_entry_allocations(*)')
-    .order('date', { ascending: false });
-  if (error) throw error;
+    .order('date', { ascending: false })
+    .order('id')
+    .range(from, to));
   // Hydrate line_items via lazy synthesis so consumers always see a populated array.
-  return (data || []).map((row) => {
+  return data.map((row) => {
     const inv = row as ProjectInvoice;
     const allocations = ((row as ProjectInvoice & {
       invoice_time_entry_allocations?: InvoiceTimeEntryAllocation[];

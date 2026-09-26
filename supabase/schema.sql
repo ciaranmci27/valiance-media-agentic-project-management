@@ -987,7 +987,8 @@ create unique index idx_team_member_notifications_dedup
   on public.team_member_notifications (user_id, entity_type, entity_id) where is_read = false;
 
 -- ============================================================
--- UPSERT NOTIFICATION (SECURITY DEFINER — bypasses RLS for dedup check)
+-- UPSERT NOTIFICATION (SECURITY DEFINER, bypasses RLS for the dedup check).
+-- Server-side callers only: the service role and other definer functions.
 -- ============================================================
 create or replace function public.upsert_notification(
   p_user_id uuid,
@@ -1010,7 +1011,119 @@ begin
     values (p_user_id, p_title, p_message, p_link, p_entity_type, p_entity_id);
   end if;
 end;
-$$ language plpgsql security definer;
+$$ language plpgsql security definer set search_path = public;
+
+revoke all on function public.upsert_notification(uuid, text, text, text, text, text) from public, anon, authenticated;
+grant execute on function public.upsert_notification(uuid, text, text, text, text, text) to service_role;
+
+-- ============================================================
+-- SAVE TASK: a task row and its assignees, criteria and blockers in one
+-- transaction. SECURITY INVOKER, so every RLS policy still applies. p_task is
+-- a column patch; a NULL list is left unchanged, an empty list clears it.
+-- ============================================================
+CREATE OR REPLACE FUNCTION public.save_task(
+  p_task_id uuid,
+  p_task jsonb,
+  p_assignee_ids uuid[] DEFAULT NULL,
+  p_criteria text[] DEFAULT NULL,
+  p_blocked_by uuid[] DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = public
+AS $$
+DECLARE
+  v_task_id uuid := p_task_id;
+  v_payload jsonb := COALESCE(p_task, '{}'::jsonb);
+  v_unknown text;
+  v_cols text[];
+  v_rows integer;
+  v_task public.tasks;
+BEGIN
+  IF jsonb_typeof(v_payload) <> 'object' THEN
+    RAISE EXCEPTION 'save_task: p_task must be a JSON object' USING ERRCODE = '22023';
+  END IF;
+
+  -- Same contract as a PostgREST update: an unknown column is an error, not
+  -- a silently dropped field.
+  SELECT key INTO v_unknown
+  FROM jsonb_object_keys(v_payload) AS key
+  WHERE NOT EXISTS (
+    SELECT 1 FROM pg_attribute a
+    WHERE a.attrelid = 'public.tasks'::regclass
+      AND a.attnum > 0
+      AND NOT a.attisdropped
+      AND a.attname = key
+  )
+  LIMIT 1;
+  IF v_unknown IS NOT NULL THEN
+    RAISE EXCEPTION 'save_task: unknown task column "%"', v_unknown USING ERRCODE = '42703';
+  END IF;
+
+  SELECT array_agg(key ORDER BY key) INTO v_cols
+  FROM jsonb_object_keys(v_payload) AS key
+  WHERE key NOT IN ('id', 'created_at');
+
+  IF v_task_id IS NULL THEN
+    IF v_cols IS NULL THEN
+      RAISE EXCEPTION 'save_task: a new task needs its columns' USING ERRCODE = '22023';
+    END IF;
+    EXECUTE format(
+      'INSERT INTO public.tasks (%s) SELECT %s FROM jsonb_populate_record(NULL::public.tasks, $1) r RETURNING id',
+      (SELECT string_agg(format('%I', c), ', ') FROM unnest(v_cols) c),
+      (SELECT string_agg(format('r.%I', c), ', ') FROM unnest(v_cols) c)
+    ) INTO v_task_id USING v_payload;
+  ELSIF v_cols IS NOT NULL THEN
+    EXECUTE format(
+      'UPDATE public.tasks t SET %s FROM jsonb_populate_record(NULL::public.tasks, $1) r WHERE t.id = $2',
+      (SELECT string_agg(format('%I = r.%I', c, c), ', ') FROM unnest(v_cols) c)
+    ) USING v_payload, v_task_id;
+    GET DIAGNOSTICS v_rows = ROW_COUNT;
+    -- RLS turns a denied update into zero rows; that is a failure, not a save.
+    IF v_rows = 0 THEN
+      RAISE EXCEPTION 'save_task: task % not found or not permitted', v_task_id USING ERRCODE = 'P0002';
+    END IF;
+  ELSE
+    PERFORM 1 FROM public.tasks WHERE id = v_task_id;
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'save_task: task % not found or not permitted', v_task_id USING ERRCODE = 'P0002';
+    END IF;
+  END IF;
+
+  IF p_assignee_ids IS NOT NULL THEN
+    DELETE FROM public.task_assignees WHERE task_id = v_task_id;
+    INSERT INTO public.task_assignees (task_id, member_id)
+    SELECT DISTINCT v_task_id, member_id FROM unnest(p_assignee_ids) AS member_id;
+  END IF;
+
+  IF p_criteria IS NOT NULL THEN
+    DELETE FROM public.task_acceptance_criteria WHERE task_id = v_task_id;
+    INSERT INTO public.task_acceptance_criteria (task_id, criterion, sort_order)
+    SELECT v_task_id, c.criterion, (c.ordinality - 1)::int
+    FROM unnest(p_criteria) WITH ORDINALITY AS c(criterion, ordinality);
+  END IF;
+
+  IF p_blocked_by IS NOT NULL THEN
+    DELETE FROM public.task_dependencies WHERE task_id = v_task_id;
+    INSERT INTO public.task_dependencies (task_id, blocked_by_task_id)
+    SELECT DISTINCT v_task_id, blocked_by FROM unnest(p_blocked_by) AS blocked_by;
+  END IF;
+
+  SELECT * INTO v_task FROM public.tasks WHERE id = v_task_id;
+  RETURN jsonb_build_object(
+    'task', to_jsonb(v_task),
+    'criteria', COALESCE((
+      SELECT jsonb_agg(to_jsonb(c) ORDER BY c.sort_order)
+      FROM public.task_acceptance_criteria c
+      WHERE c.task_id = v_task_id
+    ), '[]'::jsonb)
+  );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.save_task(uuid, jsonb, uuid[], text[], uuid[]) FROM public, anon;
+GRANT EXECUTE ON FUNCTION public.save_task(uuid, jsonb, uuid[], text[], uuid[]) TO authenticated, service_role;
 
 -- ============================================================
 -- CONVERT LEAD (atomic conversion with double-convert guard)
@@ -2047,9 +2160,11 @@ create policy "Authenticated users can delete entity files"
   to authenticated
   using (bucket_id = 'entity-files');
 
-create policy "Public can read entity files"
+-- Object URLs on this public bucket skip policies, so shared links work;
+-- listing and API reads need a session.
+create policy "Authenticated users can read entity files"
   on storage.objects for select
-  to public
+  to authenticated
   using (bucket_id = 'entity-files');
 
 -- ============================================================
@@ -2624,6 +2739,32 @@ AS $$
     )
 $$;
 
+-- The one task visibility rule, for the tasks table and (through
+-- can_access_task) every child table. tasks.read sees every task in the
+-- projects the member can open; tasks.read_assigned only the ones assigned
+-- to them or created by them.
+CREATE OR REPLACE FUNCTION public.can_read_task_row(p_task_id uuid, p_project_id uuid, p_created_by uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT public.can_access_project(p_project_id) AND (
+    public.has_permission('tasks.read')
+    OR (
+      public.has_permission('tasks.read_assigned')
+      AND (
+        p_created_by = public.current_team_member_id()
+        OR EXISTS (
+          SELECT 1 FROM public.task_assignees ta
+          WHERE ta.task_id = p_task_id AND ta.member_id = public.current_team_member_id()
+        )
+      )
+    )
+  )
+$$;
+
 CREATE OR REPLACE FUNCTION public.can_access_task(p_task_id uuid)
 RETURNS boolean
 LANGUAGE sql
@@ -2633,7 +2774,7 @@ SET search_path = public
 AS $$
   SELECT EXISTS (
     SELECT 1 FROM public.tasks
-    WHERE id = p_task_id AND public.can_access_project(project_id)
+    WHERE id = p_task_id AND public.can_read_task_row(id, project_id, created_by)
   )
 $$;
 
@@ -4470,7 +4611,7 @@ CREATE POLICY project_contacts_manage ON public.project_contacts FOR ALL TO auth
   USING (public.has_permission('contacts.manage')) WITH CHECK (public.has_permission('contacts.manage'));
 
 CREATE POLICY tasks_select ON public.tasks FOR SELECT TO authenticated
-  USING (public.has_permission('tasks.read') AND public.can_access_project(project_id));
+  USING (public.can_read_task_row(id, project_id, created_by));
 CREATE POLICY tasks_insert ON public.tasks FOR INSERT TO authenticated
   WITH CHECK (public.has_permission('tasks.create') AND public.can_access_project(project_id)
     AND created_by = public.current_team_member_id());
@@ -4763,6 +4904,7 @@ REVOKE ALL ON FUNCTION public.has_permission(text, text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.can_access_project(uuid) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.can_access_lead(uuid) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.can_access_task(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.can_read_task_row(uuid, uuid, uuid) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.can_access_credential(uuid) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.get_my_access_context() FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.get_team_directory() FROM PUBLIC;
@@ -4781,6 +4923,7 @@ GRANT EXECUTE ON FUNCTION public.has_permission(text, text) TO authenticated, se
 GRANT EXECUTE ON FUNCTION public.can_access_project(uuid) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.can_access_lead(uuid) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.can_access_task(uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.can_read_task_row(uuid, uuid, uuid) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.can_access_credential(uuid) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.get_my_access_context() TO authenticated;
 GRANT EXECUTE ON FUNCTION public.get_team_directory() TO authenticated;
