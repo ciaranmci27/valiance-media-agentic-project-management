@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, ReactNode } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
 import type { User } from '@supabase/supabase-js';
@@ -20,6 +20,9 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+/** /me answered and refused: the message is shown, unlike a network failure. */
+class AccessRefusedError extends Error {}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [teamMemberId, setTeamMemberId] = useState<string | null>(null);
@@ -30,19 +33,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const supabase = useMemo(() => createClient(), []);
   const { isDemoMode, isEnvForcedDemo } = useDemo();
 
-  const loadWorkspaceIdentity = useCallback(async () => {
-    const response = await fetch('/api/workspace/me', { cache: 'no-store' });
-    const payload = await response.json();
-    if (!response.ok) {
-      const message = payload.error || 'Failed to load workspace access';
-      setAccessError(message);
-      throw new Error(message);
-    }
-    const resolvedAccess = payload.data.access as AccessContext;
+  // On every load the restored session's SIGNED_IN event and the startup
+  // check both ask for /me at once; a caller that asks while a read is in
+  // flight shares it instead of sending a second one.
+  const identityRequest = useRef<Promise<AccessContext> | null>(null);
+  const fetchWorkspaceIdentity = useCallback(() => {
+    identityRequest.current ??= (async () => {
+      try {
+        const response = await fetch('/api/workspace/me', { cache: 'no-store' });
+        const payload = await response.json();
+        if (!response.ok) throw new AccessRefusedError(payload.error || 'Failed to load workspace access');
+        return payload.data.access as AccessContext;
+      } finally {
+        identityRequest.current = null;
+      }
+    })();
+    return identityRequest.current;
+  }, []);
+
+  const applyWorkspaceIdentity = useCallback((resolvedAccess: AccessContext) => {
     setTeamMemberId(resolvedAccess.member_id);
     setAccess((current) => JSON.stringify(current) === JSON.stringify(resolvedAccess) ? current : resolvedAccess);
     setAccessError(null);
   }, []);
+
+  const loadWorkspaceIdentity = useCallback(async () => {
+    try {
+      applyWorkspaceIdentity(await fetchWorkspaceIdentity());
+    } catch (error) {
+      if (error instanceof AccessRefusedError) setAccessError(error.message);
+      throw error;
+    }
+  }, [applyWorkspaceIdentity, fetchWorkspaceIdentity]);
 
   useEffect(() => {
     if (isEnvForcedDemo) {
@@ -62,13 +84,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     const getUser = async () => {
+      // /me checks the session on the server itself, so it starts alongside
+      // the browser's own check instead of after it. Its answer is only used
+      // once that check confirms a user.
+      const identity = fetchWorkspaceIdentity();
+      identity.catch(() => {});
       try {
         const { data: { user } } = await supabase.auth.getUser();
         setUser(user);
 
         if (user) {
           try {
-            await loadWorkspaceIdentity();
+            applyWorkspaceIdentity(await identity);
           } catch (error) {
             setTeamMemberId(null);
             setAccess(null);
@@ -92,7 +119,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     getUser();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
+      (_event, session) => {
         const nextUser = session?.user ?? null;
         // Dedupe by id+updated_at so a no-op TOKEN_REFRESHED (Supabase
         // auto-refreshes the JWT every tab focus) doesn't propagate a new
@@ -114,19 +141,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setAccess(null);
           setAccessError(null);
         } else if (_event === 'SIGNED_IN' || _event === 'USER_UPDATED') {
-          try {
-            await loadWorkspaceIdentity();
-          } catch (error) {
+          // Not awaited: Supabase holds its auth lock while this callback
+          // runs, so awaiting /me here made every getUser() wait for it.
+          void loadWorkspaceIdentity().catch((error) => {
             setTeamMemberId(null);
             setAccess(null);
             setAccessError(error instanceof Error ? error.message : 'Failed to load workspace access');
-          }
+          });
         }
       }
     );
 
     return () => subscription.unsubscribe();
-  }, [isEnvForcedDemo, loadWorkspaceIdentity, supabase]);
+  }, [applyWorkspaceIdentity, fetchWorkspaceIdentity, isEnvForcedDemo, loadWorkspaceIdentity, supabase]);
 
   useEffect(() => {
     if (!user || isEnvForcedDemo) return;

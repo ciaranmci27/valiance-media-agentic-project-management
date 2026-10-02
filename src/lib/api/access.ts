@@ -1,12 +1,15 @@
-import type { SupabaseClient, User } from '@supabase/supabase-js';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 import type { AccessContext, PermissionKey, TeamRole } from '@/lib/access-control';
 import { createClient } from '@/lib/supabase/server';
+import { sessionUser, type SessionUser } from '@/lib/supabase/session-user';
 import { getServiceClient } from '@/lib/api/supabase-service';
 
 export interface SessionAccessResult {
-  user: User;
+  user: SessionUser;
   memberId: string;
+  /** The member's row with the columns asked for in `memberColumns`, when asked. */
+  memberRow: Record<string, unknown> | null;
   access: AccessContext;
   service: SupabaseClient;
   client: SupabaseClient;
@@ -74,6 +77,18 @@ export async function resolveMemberAccess(
 
   if (!member) return null;
 
+  return accessForMember(service, member);
+}
+
+/**
+ * The permission half of resolveMemberAccess, for a caller that has already
+ * read the member's id, role and status from the current schema.
+ */
+async function accessForMember(
+  service: SupabaseClient,
+  member: { id: string; role: string; status: string | null },
+): Promise<AccessContext | null> {
+  const memberId = member.id;
   const role = member.role as TeamRole;
   const [roleResult, overrideResult, projectResult] = await Promise.all([
     role === 'owner'
@@ -335,24 +350,52 @@ export function sanitizeTimeEntryForAccess<T extends Record<string, unknown>>(
 export async function requireSessionAccess(options?: {
   permission?: PermissionKey;
   projectId?: string;
+  /**
+   * More team_members columns to read in the same lookup, returned as
+   * `memberRow`, so a caller that needs the member's own row skips a read.
+   */
+  memberColumns?: string;
 }): Promise<SessionAccessResponse> {
   const sessionClient = await createClient();
-  const { data: { user }, error } = await sessionClient.auth.getUser();
-  if (error || !user) {
+  const user = await sessionUser(sessionClient);
+  if (!user) {
     return { data: null, error: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) };
   }
 
+  // One read of the member serves both the lookup and the permission
+  // resolution. Before the authorization migration the status column is
+  // missing, and the original two-step path (which carries the legacy
+  // fallback) answers instead.
   const service = getServiceClient();
-  const { data: member } = await service
+  const columns = [...new Set(
+    `id, role, status, ${options?.memberColumns ?? ''}`.split(',').map((c) => c.trim()).filter(Boolean),
+  )].join(', ');
+  const lookup = await service
     .from('team_members')
-    .select('id')
+    .select(columns)
     .eq('auth_user_id', user.id)
     .maybeSingle();
+  let member: { id: string } | null = null;
+  let memberRow: Record<string, unknown> | null = null;
+  let access: AccessContext | null = null;
+  if (lookup.error && isSchemaMissingError(lookup.error)) {
+    const { data: legacyMember } = await service
+      .from('team_members')
+      .select('id')
+      .eq('auth_user_id', user.id)
+      .maybeSingle();
+    member = legacyMember;
+    if (member) access = await resolveMemberAccess(service, member.id);
+  } else if (lookup.data) {
+    const row = lookup.data as unknown as { id: string; role: string; status: string | null } & Record<string, unknown>;
+    member = row;
+    memberRow = options?.memberColumns ? row : null;
+    access = await accessForMember(service, row);
+  }
   if (!member) {
     return { data: null, error: NextResponse.json({ error: 'Team member not found' }, { status: 403 }) };
   }
 
-  const access = await resolveMemberAccess(service, member.id);
   if (!access || access.status !== 'active') {
     return { data: null, error: NextResponse.json({ error: 'Account suspended' }, { status: 403 }) };
   }
@@ -364,7 +407,7 @@ export async function requireSessionAccess(options?: {
   }
 
   return {
-    data: { user, memberId: member.id, access, service, client: sessionClient },
+    data: { user, memberId: member.id, memberRow, access, service, client: sessionClient },
     error: null,
   };
 }

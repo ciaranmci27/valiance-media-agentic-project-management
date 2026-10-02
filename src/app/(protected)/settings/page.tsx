@@ -38,7 +38,6 @@ import { BusinessInfoSection } from '@/components/settings/BusinessInfoSection';
 import { AnalyticsExclusionsSection } from '@/components/settings/AnalyticsExclusionsSection';
 import { Tooltip } from '@/components/ui/Tooltip';
 import Link from 'next/link';
-import { hashApiKey, generateApiKey } from '@/lib/api/crypto';
 import type { ApiKey, NotificationCategory, NotificationPreferences } from '@/lib/types';
 import {
   API_ENDPOINT_PERMISSIONS,
@@ -517,13 +516,9 @@ export default function SettingsPage() {
 
     setGeneratingKey(true);
     try {
-      const fullKey = generateApiKey();
-      const keyHash = await hashApiKey(fullKey);
-      const keyPrefix = fullKey.slice(0, 15);
-
-      const result = await addApiKey(keyName.trim(), keyHash, keyPrefix, keyScopes, teamMemberId);
-      if (result) {
-        setRevealedKey(fullKey);
+      const secret = await addApiKey(keyName.trim(), keyScopes);
+      if (secret) {
+        setRevealedKey(secret);
         setKeyName('');
         setKeyScopes([]);
         setShowKeyForm(false);

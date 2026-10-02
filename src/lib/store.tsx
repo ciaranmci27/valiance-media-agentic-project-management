@@ -80,8 +80,6 @@ import {
   removeEntityFile as removeEntityFileQuery,
   updateEntityFileVisibility as updateEntityFileVisibilityQuery,
   fetchApiKeys,
-  insertApiKey as insertApiKeyQuery,
-  revokeApiKey as revokeApiKeyQuery,
   fetchGoals,
   insertGoal as insertGoalQuery,
   patchGoal as patchGoalQuery,
@@ -351,7 +349,8 @@ interface AppContextType {
   getEntityFiles: (entityType: EntityFileType, entityId: string) => EntityFile[];
 
   // API Key CRUD
-  addApiKey: (name: string, keyHash: string, keyPrefix: string, scopes: string[], teamMemberId?: string | null) => Promise<ApiKey | undefined>;
+  /** Creates a key on the server; resolves to the full key, shown once, or undefined on failure. */
+  addApiKey: (name: string, scopes: string[]) => Promise<string | undefined>;
   revokeApiKey: (id: string) => void;
 
   // Agent data (conditionally loaded when NEXT_PUBLIC_ENABLE_AGENTS=true)
@@ -638,6 +637,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const employeeEarningsRequest = shouldLoadEmployeeEarnings
           ? safeLoad<EmployeeEarningsData>('employeeEarnings', 'employee earnings', workspaceData<EmployeeEarningsData>('/api/workspace/payroll'), { entries: [], rates: [], adjustments: [], payouts: [], allocations: [] })
           : Promise.resolve(null);
+        // Agent data depends on nothing below, so it loads alongside the rest
+        // instead of after it. Its failure stays its own, as before.
+        const agentRequest = process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true'
+          ? Promise.all([
+              fetchGoals(supabase),
+              fetchTaskSuggestions(supabase),
+              fetchAgentActivity(supabase),
+            ]).then(
+              (data) => ({ data, error: null }),
+              (error: unknown) => ({ data: null, error }),
+            )
+          : null;
         const [projectsData, tasksData, teamData, contactsData, projectContactsData, leadsData, leadInteractionsData, leadProposalsData, leadFieldsData, leadContactsData, activitiesData, portalSettingsData, portalUpdatesData, portalUpdateAttachmentsData, entityFilesData, apiKeysData, timeEntriesData, projectCredentialsData, projectInvoicesData, businessSettingsData] = await Promise.all([
           canReadProjects ? safeLoad('projects', 'projects', workspaceData<Project[]>('/api/workspace/projects'), []) : Promise.resolve([]),
           canReadTaskRows ? safeLoad('tasks', 'tasks', fetchTasks(supabase), []) : Promise.resolve([]),
@@ -721,19 +732,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setEmployeeEarnings(await employeeEarningsRequest);
         setLoadErrors([...failed]);
 
-        // Conditionally load agent data when feature is enabled
-        if (process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true') {
-          try {
-            const [goalsData, suggestionsData, activityData] = await Promise.all([
-              fetchGoals(supabase),
-              fetchTaskSuggestions(supabase),
-              fetchAgentActivity(supabase),
-            ]);
+        // Agent data, when the feature is enabled (requested above).
+        if (agentRequest) {
+          const agent = await agentRequest;
+          if (agent.data) {
+            const [goalsData, suggestionsData, activityData] = agent.data;
             setProjectGoals(goalsData);
             setTaskSuggestions(suggestionsData);
             setAgentActivityList(activityData);
-          } catch (agentErr) {
-            console.error('Failed to load agent data:', agentErr);
+          } else {
+            console.error('Failed to load agent data:', agent.error);
           }
         }
       } catch (err) {
@@ -3226,24 +3234,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
     );
 
   // API Key CRUD
-  const addApiKeyAction = async (name: string, keyHash: string, keyPrefix: string, scopes: string[], linkedTeamMemberId?: string | null): Promise<ApiKey | undefined> => {
+  const addApiKeyAction = async (name: string, scopes: string[]): Promise<string | undefined> => {
     if (skipSupabase) return undefined;
 
     try {
-      const newKey = await insertApiKeyQuery(supabase, {
-        name,
-        key_prefix: keyPrefix,
-        key_hash: keyHash,
-        created_by: teamMemberId,
-        permissions: 'scoped',
-        scopes,
-        team_member_id: linkedTeamMemberId || null,
+      const response = await fetch('/api/workspace/api-keys', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, scopes }),
       });
-      setApiKeys(prev => [newKey, ...prev]);
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || 'Failed to create API key');
+      const { key, secret } = payload.data as { key: ApiKey; secret: string };
+      setApiKeys(prev => [key, ...prev]);
       notify(adminMemberIds(), `New API key created: "${name}"`, `${actorName()} generated an API key.`, '/settings', 'member', null, 'api_keys');
-      return newKey;
+      return secret;
     } catch (err) {
-      toast('error', 'Failed to create API key');
+      toast('error', err instanceof Error ? err.message : 'Failed to create API key');
       return undefined;
     }
   };
@@ -3255,7 +3262,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (skipSupabase) return;
 
     try {
-      await revokeApiKeyQuery(supabase, id);
+      const response = await fetch(`/api/workspace/api-keys/${encodeURIComponent(id)}/revoke`, { method: 'POST' });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || 'Failed to revoke API key');
+      const revoked = payload.data as ApiKey;
+      setApiKeys(keys => keys.map(k => k.id === id ? revoked : k));
       if (existing) {
         notify(adminMemberIds(), `API key revoked: "${existing.name}"`, `${actorName()} revoked an API key.`, '/settings', 'member', null, 'api_keys');
       }

@@ -98,8 +98,8 @@ export async function GET(request: Request) {
 
   const scopedToProjects = !accessAllows(access, 'projects.read_all', 'app');
   if (scopedToProjects && access.project_ids.length === 0) return NextResponse.json({ data: [] });
-  const entriesPage = (from: number, to: number) => {
-    let query = service.from('project_time_entries').select('*, time_entry_tasks ( task_id )');
+  const entriesPage = (from: number, to: number, count: 'exact' | undefined) => {
+    let query = service.from('project_time_entries').select('*, time_entry_tasks ( task_id )', { count });
     if (projectId) query = query.eq('project_id', projectId);
     if (!canReadAll) query = query.eq('member_id', memberId);
     if (scopedToProjects) query = query.in('project_id', access.project_ids);

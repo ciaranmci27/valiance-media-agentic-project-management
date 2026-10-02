@@ -148,7 +148,7 @@ export async function removeProject(supabase: SupabaseClient, id: string) {
 // ============================================================
 
 export async function fetchTasks(supabase: SupabaseClient) {
-  const tasks = await fetchAllRows((from, to) => supabase
+  const tasks = await fetchAllRows((from, to, count) => supabase
     .from('tasks')
     .select(`
       *,
@@ -158,7 +158,7 @@ export async function fetchTasks(supabase: SupabaseClient) {
       criteria:task_acceptance_criteria ( id, task_id, criterion, satisfied, sort_order ),
       reviews:task_reviews ( id, round, verdict, summary, pr_url, head_sha, reviewer_member_id, created_at ),
       task_dependencies!task_dependencies_task_id_fkey ( blocked_by_task_id )
-    `)
+    `, { count })
     .order('created_at', { ascending: false })
     .order('id')
     .range(from, to));
@@ -1478,48 +1478,17 @@ export async function updateEntityFileVisibility(supabase: SupabaseClient, id: s
 // API KEYS
 // ============================================================
 
+/** Every api_keys column except key_hash, which never leaves the server. */
+export const API_KEY_COLUMNS = 'id, name, key_prefix, permissions, scopes, expires_at, disabled_at, last_used_at, revoked_at, created_by, team_member_id, created_at, updated_at';
+
 export async function fetchApiKeys(supabase: SupabaseClient) {
   const { data, error } = await supabase
     .from('api_keys')
-    .select('id, name, key_prefix, permissions, scopes, expires_at, disabled_at, last_used_at, revoked_at, created_by, team_member_id, created_at, updated_at')
+    .select(API_KEY_COLUMNS)
     .order('created_at', { ascending: false });
 
   if (error) throw error;
   return (data || []) as ApiKey[];
-}
-
-export async function insertApiKey(
-  supabase: SupabaseClient,
-  apiKey: { name: string; key_prefix: string; key_hash: string; created_by: string | null; permissions?: string; scopes: string[]; team_member_id?: string | null }
-) {
-  const { data, error } = await supabase
-    .from('api_keys')
-    .insert({
-      name: apiKey.name,
-      key_prefix: apiKey.key_prefix,
-      key_hash: apiKey.key_hash,
-      created_by: apiKey.created_by,
-      permissions: apiKey.permissions || 'full',
-      scopes: apiKey.scopes,
-      team_member_id: apiKey.team_member_id || null,
-    })
-    .select('id, name, key_prefix, permissions, scopes, expires_at, disabled_at, last_used_at, revoked_at, created_by, team_member_id, created_at, updated_at')
-    .single();
-
-  if (error) throw error;
-  return data as ApiKey;
-}
-
-export async function revokeApiKey(supabase: SupabaseClient, id: string) {
-  const { data, error } = await supabase
-    .from('api_keys')
-    .update({ revoked_at: new Date().toISOString() })
-    .eq('id', id)
-    .select()
-    .single();
-
-  if (error) throw error;
-  return data as ApiKey;
 }
 
 // ============================================================
@@ -2485,9 +2454,9 @@ export async function removeProjectCredential(supabase: SupabaseClient, id: stri
 // ============================================================
 
 export async function fetchAllProjectInvoices(supabase: SupabaseClient) {
-  const data = await fetchAllRows((from, to) => supabase
+  const data = await fetchAllRows((from, to, count) => supabase
     .from('project_invoices')
-    .select('*, invoice_time_entry_allocations(*)')
+    .select('*, invoice_time_entry_allocations(*)', { count })
     .order('date', { ascending: false })
     .order('id')
     .range(from, to));

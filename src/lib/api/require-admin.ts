@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server';
-import type { SupabaseClient, User } from '@supabase/supabase-js';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { requireSessionAccess } from '@/lib/api/access';
+import type { SessionUser } from '@/lib/supabase/session-user';
 
 type AdminAuthResult =
   | { error: NextResponse; supabase?: undefined; user?: undefined }
-  | { error: null; supabase: SupabaseClient; user: User };
+  | { error: null; supabase: SupabaseClient; user: SessionUser };
 
 /**
  * Compatibility helper for SMTP routes. Access is determined by the effective

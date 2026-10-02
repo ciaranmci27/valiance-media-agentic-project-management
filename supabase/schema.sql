@@ -1292,6 +1292,42 @@ create trigger set_api_keys_updated_at
   before update on public.api_keys
   for each row execute function public.handle_updated_at();
 
+-- A revoke is final, the secret and creation time never change, and a key
+-- never moves to another member. team_member_id and created_by may still
+-- become NULL: their foreign keys are ON DELETE SET NULL, which runs as an
+-- UPDATE and fires this trigger. scopes, name, disabled_at (reversible, unlike
+-- a revoke) and last_used_at stay writable by the server.
+CREATE OR REPLACE FUNCTION public.api_keys_guard()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = ''
+AS $$
+BEGIN
+  IF OLD.revoked_at IS NOT NULL AND NEW.revoked_at IS DISTINCT FROM OLD.revoked_at THEN
+    RAISE EXCEPTION 'API key % is revoked; a revoke cannot be changed', OLD.id
+      USING ERRCODE = '42501';
+  END IF;
+  IF NEW.key_hash IS DISTINCT FROM OLD.key_hash
+    OR NEW.key_prefix IS DISTINCT FROM OLD.key_prefix
+    OR NEW.created_at IS DISTINCT FROM OLD.created_at THEN
+    RAISE EXCEPTION 'API key % secret and creation time cannot change', OLD.id
+      USING ERRCODE = '42501';
+  END IF;
+  IF (NEW.team_member_id IS DISTINCT FROM OLD.team_member_id AND NEW.team_member_id IS NOT NULL)
+    OR (NEW.created_by IS DISTINCT FROM OLD.created_by AND NEW.created_by IS NOT NULL) THEN
+    RAISE EXCEPTION 'API key % cannot move to another member', OLD.id
+      USING ERRCODE = '42501';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.api_keys_guard() FROM PUBLIC, anon, authenticated;
+
+CREATE OR REPLACE TRIGGER api_keys_guard
+  BEFORE UPDATE ON public.api_keys
+  FOR EACH ROW EXECUTE FUNCTION public.api_keys_guard();
+
 create trigger set_project_credentials_updated_at
   before update on public.project_credentials
   for each row execute function public.handle_updated_at();
@@ -3376,22 +3412,35 @@ CREATE CONSTRAINT TRIGGER trg_team_member_payout_allocation_integrity
 -- Period math
 -- ---------------------------------------------------------------------------
 
--- "Today" for billing is the owner's calendar day, not UTC.
+-- "Today" for billing is the owner's calendar day, not UTC: the first owner
+-- whose time zone Postgres recognizes, else UTC. A rejected name is caught and
+-- skipped rather than looked up in pg_timezone_names, which reads the whole
+-- time zone database on every call.
 CREATE OR REPLACE FUNCTION public.workspace_today()
 RETURNS date
-LANGUAGE sql
+LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
 SET search_path = public
 AS $$
-  SELECT (now() AT TIME ZONE COALESCE((
-    SELECT zone.name
+DECLARE
+  zone text;
+BEGIN
+  FOR zone IN
+    SELECT member.timezone
     FROM public.team_members member
-    JOIN pg_timezone_names zone ON zone.name = member.timezone
     WHERE member.role = 'owner'
+      AND member.timezone ~ '^[A-Za-z][A-Za-z0-9_-]*(/[A-Za-z0-9_+-]+)*$'
     ORDER BY member.created_at
-    LIMIT 1
-  ), 'UTC'))::date
+  LOOP
+    BEGIN
+      RETURN (now() AT TIME ZONE zone)::date;
+    EXCEPTION WHEN invalid_parameter_value THEN
+      NULL;
+    END;
+  END LOOP;
+  RETURN (now() AT TIME ZONE 'UTC')::date;
+END;
 $$;
 
 -- The calendar-month periods of one retainer whose month falls in the window,
@@ -4763,12 +4812,10 @@ CREATE POLICY api_keys_select ON public.api_keys FOR SELECT TO authenticated
   USING (team_member_id = public.current_team_member_id()
     OR created_by = public.current_team_member_id()
     OR public.has_permission('api_keys.manage_all'));
-CREATE POLICY api_keys_insert_own ON public.api_keys FOR INSERT TO authenticated
-  WITH CHECK (team_member_id = public.current_team_member_id()
-    AND created_by = public.current_team_member_id());
-CREATE POLICY api_keys_update_own ON public.api_keys FOR UPDATE TO authenticated
-  USING (team_member_id = public.current_team_member_id()
-    OR public.has_permission('api_keys.manage_all'));
+-- Keys are created and revoked by server routes (service role) only; members
+-- read the keys they own or created, holders of api_keys.manage_all read all.
+REVOKE ALL ON public.api_keys FROM anon, authenticated;
+GRANT SELECT ON public.api_keys TO authenticated;
 
 CREATE POLICY webhook_endpoints_manage ON public.webhook_endpoints FOR ALL TO authenticated
   USING (public.has_permission('webhooks.manage'))

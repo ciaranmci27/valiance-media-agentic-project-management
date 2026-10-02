@@ -184,9 +184,9 @@ export async function GET(
     { data: events, error: eventsErr },
     { data: bizSettings },
   ] = await Promise.all([
-    fetchAllRows((from, to) => service
+    fetchAllRows((from, to, count) => service
       .from('portal_events')
-      .select(EVENT_COLUMNS)
+      .select(EVENT_COLUMNS, { count })
       .eq('project_id', projectId)
       .gte('created_at', rangeStart)
       .order('created_at', { ascending: false })

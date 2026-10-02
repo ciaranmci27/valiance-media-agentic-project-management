@@ -3,7 +3,7 @@ import { accessAllows, accessAllowsProject, requireSessionAccess, sanitizeTimeEn
 import { fetchAllRows } from '@/lib/supabase/fetch-all';
 
 /** fetchAllRows as a { data, error } result, to sit beside single queries. */
-function allRows<T>(page: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }>) {
+function allRows<T>(page: Parameters<typeof fetchAllRows<T>>[0]) {
   return fetchAllRows(page).then(
     (data) => ({ data, error: null }),
     (error: { message?: string }) => ({ data: null, error: { message: error?.message || 'Failed to load payroll rows' } }),
@@ -29,8 +29,8 @@ export async function GET() {
   // offset by the deduction that carries its clawback.
   let shareEarningsQuery = service.from('team_member_share_earnings').select('*').is('voided_at', null);
   // Every entry, paged: this is all-time history behind Earned and Owed.
-  const entriesPage = (from: number, to: number) => {
-    let query = service.from('project_time_entries').select('id, project_id, member_id, start_time, end_time, segments, description, compensation_rate, work_type, approval_status, submitted_at, approved_at, billing_multiplier, billing_converted_at').not('end_time', 'is', null);
+  const entriesPage = (from: number, to: number, count: 'exact' | undefined) => {
+    let query = service.from('project_time_entries').select('id, project_id, member_id, start_time, end_time, segments, description, compensation_rate, work_type, approval_status, submitted_at, approved_at, billing_multiplier, billing_converted_at', { count }).not('end_time', 'is', null);
     if (entryTargetMember) query = query.eq('member_id', entryTargetMember);
     if (!accessAllows(access, 'projects.read_all', 'app')) {
       // Other people's time is scoped to the projects the caller can open. The
@@ -69,7 +69,7 @@ export async function GET() {
   // after reading every allocation in the workspace.
   const payoutIds = (payouts.data || []).map((row) => row.id);
   const allocations = !financialTargetMember
-    ? await allRows((from, to) => service.from('team_member_payout_allocations').select('*').order('id').range(from, to))
+    ? await allRows((from, to, count) => service.from('team_member_payout_allocations').select('*', { count }).order('id').range(from, to))
     : payoutIds.length > 0
       ? await service.from('team_member_payout_allocations').select('*').in('payout_id', payoutIds)
       : { data: [], error: null };

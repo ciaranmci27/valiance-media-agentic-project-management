@@ -1,5 +1,6 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
+import { sessionUser } from './session-user';
 
 function isPublicRoute(pathname: string) {
   return (
@@ -65,10 +66,12 @@ export async function updateSession(request: NextRequest) {
     }
   );
 
+  // Refreshes an expired session (writing the new cookies through setAll
+  // above), then verifies the token locally rather than asking Supabase Auth
+  // on every request.
   let user = null;
   try {
-    const { data } = await supabase.auth.getUser();
-    user = data.user;
+    user = await sessionUser(supabase);
   } catch {
     // If auth check fails, treat as unauthenticated
   }
