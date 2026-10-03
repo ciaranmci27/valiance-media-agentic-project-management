@@ -23,6 +23,8 @@ function isPublicRoute(pathname: string) {
     pathname.startsWith('/portal') ||
     pathname.startsWith('/api/portal') ||
     pathname.startsWith('/api/v1') ||
+    // The MCP server authenticates an API key, like /api/v1.
+    pathname === '/api/mcp' ||
     pathname.startsWith('/api/docs')
   );
 }

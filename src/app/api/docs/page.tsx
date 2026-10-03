@@ -16,10 +16,13 @@ import {
   FileText,
   ListFilter,
   Hash,
+  Bot,
 } from 'lucide-react';
 import { headers } from 'next/headers';
 import { endpoints, getEndpointScopes, groups, METHOD_COLORS } from './docs-data';
 import { DocsTocNav, type TocSection } from './DocsTocNav';
+import { AGENT_PROFILES } from '@/lib/mcp/profiles';
+import { PM_TOOLS } from '@/lib/mcp/tools';
 
 /* ── Helpers ───────────────────────────────────────────────── */
 
@@ -125,6 +128,12 @@ export default async function ApiDocsPage() {
       mobileLabel: 'Response',
       mobilePill: 'bg-blue-50 text-blue-700 hover:bg-blue-100',
     },
+    {
+      id: 'mcp',
+      label: 'Connect an Agent (MCP)',
+      mobileLabel: 'MCP',
+      mobilePill: 'bg-violet-50 text-violet-700 hover:bg-violet-100',
+    },
     ...grouped.map((g) => ({
       id: g.slug,
       label: g.name,
@@ -160,7 +169,7 @@ export default async function ApiDocsPage() {
       </header>
 
       {/* ── TOC navigation (client component) + grid layout ── */}
-      <DocsTocNav sections={tocSections} infoCutoff={2}>
+      <DocsTocNav sections={tocSections} infoCutoff={3}>
         <main className="space-y-6 min-w-0">
           {/* ── Authentication ── */}
           <section id="authentication" className="scroll-mt-16 lg:scroll-mt-6">
@@ -337,6 +346,85 @@ export default async function ApiDocsPage() {
                   <code className="rounded bg-zinc-100 px-1 py-0.5 text-[11px]">lead_assignment</code>.
                 </p>
               </div>
+            </div>
+          </section>
+
+          {/* ── MCP ── */}
+          <section id="mcp" className="scroll-mt-16 lg:scroll-mt-6">
+            <div className="bg-white rounded-xl border border-zinc-200 p-5 lg:p-6">
+              <div className="flex items-center gap-3 mb-5">
+                <div className="p-2 bg-violet-50 rounded-lg">
+                  <Bot className="text-violet-600" size={20} aria-hidden="true" />
+                </div>
+                <div>
+                  <h2 className="font-semibold text-zinc-900">Connect an Agent (MCP)</h2>
+                  <p className="text-sm text-zinc-500">The same API as tools, for Hermes, Claude Code and other MCP clients</p>
+                </div>
+              </div>
+
+              <p className="text-sm text-zinc-600 mb-4">
+                The MCP server at{' '}
+                <code className="px-1.5 py-0.5 bg-zinc-100 rounded text-xs font-mono break-all">{`https://${host}/api/mcp`}</code>{' '}
+                (Streamable HTTP, stateless) takes the same key in the same{' '}
+                <code className="px-1.5 py-0.5 bg-zinc-100 rounded text-xs font-mono">x-api-key</code> header. Every
+                tool call runs the v1 endpoints below as that key, so scopes, member permissions, project access and the
+                rate limit are the same, writes are audited (marked MCP), and revoking the key closes both. A key sees
+                only the tools its scopes and member allow; read-only keys see no write tools.
+              </p>
+
+              <div className="bg-zinc-900 rounded-lg p-4 mb-4">
+                <pre className="text-sm text-emerald-400 font-mono overflow-x-auto whitespace-pre">{`# Hermes: config.yaml (the key lives in the profile's .env as PM_API_KEY)
+mcp_servers:
+  pm:
+    url: "https://${host}/api/mcp"
+    headers: { x-api-key: "\${PM_API_KEY}" }
+    timeout: 55
+    connect_timeout: 20
+    tools: { resources: false, prompts: false }`}</pre>
+              </div>
+
+              <p className="text-sm text-zinc-600 mb-4">
+                Agents should call <code className="px-1.5 py-0.5 bg-zinc-100 rounded text-xs font-mono">pm_guide</code>{' '}
+                first. Refusals an agent can fix (a bad argument, a task outside its reach) come back as{' '}
+                <code className="px-1.5 py-0.5 bg-zinc-100 rounded text-xs font-mono">{'{ ok: false, error }'}</code>{' '}
+                results; a bad key, the rate limit or an outage are errors.
+              </p>
+
+              <div className="mb-4 rounded-lg border border-violet-200 bg-violet-50 p-3 text-xs text-violet-900">
+                Each agent member has a profile, set by the Owner in Team:{' '}
+                {AGENT_PROFILES.map((profile) => profile.label).join(', ')}. Today every profile sees the generic tool set;
+                each named profile gets its own tools as that agent moves to MCP.
+              </div>
+
+              <details className="group">
+                <summary className="cursor-pointer text-sm font-medium text-zinc-700 rounded focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500">
+                  All {PM_TOOLS.length} tools
+                </summary>
+                <div className="mt-3 overflow-x-auto rounded-lg border border-zinc-200">
+                  <table className="w-full text-sm">
+                    <caption className="sr-only">MCP tools with what each needs</caption>
+                    <thead className="bg-zinc-50">
+                      <tr>
+                        <th scope="col" className="text-left py-2 px-3 text-xs font-medium text-zinc-500">Tool</th>
+                        <th scope="col" className="text-left py-2 px-3 text-xs font-medium text-zinc-500">What it does</th>
+                        <th scope="col" className="text-left py-2 px-3 text-xs font-medium text-zinc-500">Needs</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {PM_TOOLS.map((tool) => (
+                        <tr key={tool.name} className="border-t border-zinc-100 align-top">
+                          <td className="py-2 px-3 font-mono text-xs text-zinc-800 whitespace-nowrap">{tool.name}</td>
+                          <td className="py-2 px-3 text-xs text-zinc-600">{tool.lead}</td>
+                          <td className="py-2 px-3 font-mono text-xs text-zinc-500">
+                            {(Array.isArray(tool.permission) ? tool.permission : [tool.permission]).join(' or ') || 'any key'}
+                            {tool.agentsOnly ? ' (agents)' : ''}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </details>
             </div>
           </section>
 

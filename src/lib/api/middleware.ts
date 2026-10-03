@@ -1,4 +1,4 @@
-import { after, NextRequest } from 'next/server';
+import { NextRequest } from 'next/server';
 import { ZodSchema, ZodError } from 'zod';
 import { SupabaseClient } from '@supabase/supabase-js';
 import type { AccessContext, PermissionKey } from '@/lib/access-control';
@@ -8,6 +8,8 @@ import { checkRateLimit } from './rate-limit';
 import { ApiError, unauthorized, forbidden, tooManyRequests, badRequest } from './errors';
 import { errorResponse } from './response';
 import { accessAllows, accessAllowsProject, resolveMemberAccess } from './access';
+import { apiRequestContext } from './request-context';
+import { afterResponse } from './after-response';
 
 /** Static routes under /api/v1/tasks/ that are not a task id. */
 export const TASK_COLLECTION_ACTIONS: ReadonlySet<string> = new Set(['reorder']);
@@ -80,7 +82,8 @@ function inferredPermission(pathname: string, method: string): PermissionKey {
   return write ? 'projects.manage' : 'projects.read';
 }
 
-function permissionAlternatives(permission: PermissionKey): PermissionKey[] {
+/** A permission plus the broader ones that imply it, as withApi accepts them. */
+export function permissionAlternatives(permission: PermissionKey): PermissionKey[] {
   const implications: Partial<Record<PermissionKey, PermissionKey[]>> = {
     'team.read': ['team.manage'],
     'projects.read': ['projects.read_all', 'projects.manage'],
@@ -99,6 +102,56 @@ function permissionAlternatives(permission: PermissionKey): PermissionKey[] {
   return [permission, ...(implications[permission] || [])];
 }
 
+export interface ApiKeyRow {
+  id: string;
+  permissions: string;
+  team_member_id: string;
+  scopes: string[] | null;
+  expires_at: string | null;
+  disabled_at: string | null;
+}
+
+export interface ResolvedApiKey {
+  supabase: SupabaseClient;
+  keyRow: ApiKeyRow;
+  access: AccessContext;
+}
+
+/**
+ * Who an API key acts as: the key must exist, be live and linked, the
+ * workspace API must be on and the member active. Throws the same ApiErrors
+ * every v1 route answers with. It does not count toward the rate limit and
+ * checks no permission; withApi does both per request. The MCP server uses it
+ * to decide which tools a key sees.
+ */
+export async function resolveApiKey(apiKey: string | null): Promise<ResolvedApiKey> {
+  if (!apiKey) throw unauthorized('Missing x-api-key header', { reason: 'missing_api_key' });
+
+  const keyHash = await hashApiKey(apiKey);
+  const supabase = getServiceClient();
+  const { data: keyRow, error: keyError } = await supabase
+    .from('api_keys')
+    .select('id, permissions, team_member_id, scopes, expires_at, disabled_at')
+    .eq('key_hash', keyHash)
+    .is('revoked_at', null)
+    .maybeSingle();
+
+  if (keyError || !keyRow) throw unauthorized('Invalid or revoked API key', { reason: 'invalid_api_key' });
+  if (keyRow.disabled_at) throw unauthorized('API key is disabled', { reason: 'api_key_disabled' });
+  if (keyRow.expires_at && new Date(keyRow.expires_at).getTime() <= Date.now()) {
+    throw unauthorized('API key is expired', { reason: 'api_key_expired' });
+  }
+  if (!keyRow.team_member_id) throw unauthorized('API key is not linked to a team member', { reason: 'api_key_not_linked' });
+
+  const [{ data: businessSettings }, access] = await Promise.all([
+    supabase.from('business_settings').select('api_enabled').limit(1).maybeSingle(),
+    resolveMemberAccess(supabase, keyRow.team_member_id),
+  ]);
+  if (businessSettings?.api_enabled === false) throw forbidden('Workspace API access is disabled', { reason: 'api_disabled' });
+  if (!access || access.status !== 'active') throw forbidden('Linked team member is suspended', { reason: 'member_suspended' });
+  return { supabase, keyRow: keyRow as ApiKeyRow, access };
+}
+
 export function withApi<TBody = unknown, TParams = Record<string, string>>(
   handler: HandlerFn<TBody, TParams>,
   options?: WithApiOptions<TBody>,
@@ -110,31 +163,7 @@ export function withApi<TBody = unknown, TParams = Record<string, string>>(
     let rateInfo: { remaining: number; resetAt: number } | null = null;
 
     try {
-      const apiKey = request.headers.get('x-api-key');
-      if (!apiKey) throw unauthorized('Missing x-api-key header', { reason: 'missing_api_key' });
-
-      const keyHash = await hashApiKey(apiKey);
-      const supabase = getServiceClient();
-      const { data: keyRow, error: keyError } = await supabase
-        .from('api_keys')
-        .select('id, permissions, team_member_id, scopes, expires_at, disabled_at')
-        .eq('key_hash', keyHash)
-        .is('revoked_at', null)
-        .maybeSingle();
-
-      if (keyError || !keyRow) throw unauthorized('Invalid or revoked API key', { reason: 'invalid_api_key' });
-      if (keyRow.disabled_at) throw unauthorized('API key is disabled', { reason: 'api_key_disabled' });
-      if (keyRow.expires_at && new Date(keyRow.expires_at).getTime() <= Date.now()) {
-        throw unauthorized('API key is expired', { reason: 'api_key_expired' });
-      }
-      if (!keyRow.team_member_id) throw unauthorized('API key is not linked to a team member', { reason: 'api_key_not_linked' });
-
-      const [{ data: businessSettings }, access] = await Promise.all([
-        supabase.from('business_settings').select('api_enabled').limit(1).maybeSingle(),
-        resolveMemberAccess(supabase, keyRow.team_member_id),
-      ]);
-      if (businessSettings?.api_enabled === false) throw forbidden('Workspace API access is disabled', { reason: 'api_disabled' });
-      if (!access || access.status !== 'active') throw forbidden('Linked team member is suspended', { reason: 'member_suspended' });
+      const { supabase, keyRow, access } = await resolveApiKey(request.headers.get('x-api-key'));
 
       const rateResult = await checkRateLimit(supabase, keyRow.id);
       rateInfo = { remaining: rateResult.remaining, resetAt: rateResult.resetAt };
@@ -290,14 +319,16 @@ export function withApi<TBody = unknown, TParams = Record<string, string>>(
         body = options.schema.parse(raw);
       }
 
-      after(async () => {
+      afterResponse('last_used_at update', async () => {
         await supabase
           .from('api_keys')
           .update({ last_used_at: new Date().toISOString() })
           .eq('id', keyRow.id);
       });
 
-      const response = await handler({
+      // The MCP server marks its in-process calls; a header could be sent by anyone.
+      const via = apiRequestContext.getStore()?.via ?? 'rest';
+      const response = await apiRequestContext.run({ via }, () => handler({
         supabase,
         params: resolvedParams,
         body,
@@ -307,7 +338,7 @@ export function withApi<TBody = unknown, TParams = Record<string, string>>(
         teamMemberId: keyRow.team_member_id,
         access,
         scopes,
-      });
+      }));
       return applyRateLimitHeaders(response, rateInfo);
     } catch (err) {
       if (err instanceof ZodError) {

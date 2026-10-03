@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { accessAllows, requireSessionAccess } from '@/lib/api/access';
 import { TEAM_ROLES } from '@/lib/access-control';
+import { isAgentProfile } from '@/lib/mcp/profiles';
 
 const PROFILE_FIELDS = ['name', 'title', 'avatar', 'timezone', 'notification_prefs', 'email_notifications_enabled', 'email_notification_prefs', 'theme_preference', 'scene_preferences'] as const;
 const MANAGEMENT_FIELDS = [...PROFILE_FIELDS, 'status'] as const;
@@ -103,6 +104,22 @@ export async function PATCH(
       return NextResponse.json({ error: 'Billing multiplier must be a number between 0.1 and 10' }, { status: 422 });
     }
     updates.billing_multiplier = multiplier;
+  }
+  // The agent profile decides which MCP tools an agent sees, so it is a
+  // capability lever: Owner only, and only for agent members.
+  if ('agent_profile' in body) {
+    if (!isOwner) {
+      return NextResponse.json({ error: 'Only the Owner can change an agent profile' }, { status: 403 });
+    }
+    // The role this save leaves them with, so one save can make someone an
+    // agent and pick their profile.
+    if ((updates.role ?? target.role) !== 'agent') {
+      return NextResponse.json({ error: 'Agent profiles apply only to agent members' }, { status: 422 });
+    }
+    if (!isAgentProfile(body.agent_profile)) {
+      return NextResponse.json({ error: 'Invalid agent profile' }, { status: 422 });
+    }
+    updates.agent_profile = body.agent_profile;
   }
   if (Object.keys(updates).length === 0) return NextResponse.json({ error: 'No permitted changes' }, { status: 400 });
   if (updates.status === 'suspended') {

@@ -1,4 +1,5 @@
 import type { InvoicePdfData, InvoicePdfOptions } from '@/lib/invoice-pdf/types';
+import type { AgentProfile } from '@/lib/mcp/profiles';
 // Type-only, so this is erased at build and adds no runtime dependency on the
 // scene. The settings live next to their defaults and ranges, which is the one
 // place that has to agree with them.
@@ -352,6 +353,8 @@ export interface TeamMember {
   scene_preferences?: ScenePreferences | null;
   /** Multiplier applied to this member's time-entry rate snapshots (1.00 = parity). */
   billing_multiplier?: number;
+  /** Agents only: which MCP tools the agent sees (see lib/mcp/profiles). */
+  agent_profile?: AgentProfile;
   /**
    * Which projects the member can open, derived by the team directory from
    * their permissions: every project, the ones they are a member of, or none.

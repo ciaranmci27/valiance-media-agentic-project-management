@@ -29,6 +29,10 @@ create table public.team_members (
   -- start. Agent sessions are converted at approval to one continuous slot
   -- of worked time times this. 1.00 = parity; humans are never converted.
   billing_multiplier numeric(4,2) not null default 1.00 check (billing_multiplier > 0),
+  -- Which MCP tools an agent sees; the owner sets it in Team. It only narrows
+  -- what the agent's key could do. See src/lib/mcp/profiles.ts.
+  agent_profile text not null default 'generic'
+    check (agent_profile in ('generic', 'coordinator', 'builder', 'auditor', 'reviewer')),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );

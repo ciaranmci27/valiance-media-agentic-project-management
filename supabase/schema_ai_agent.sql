@@ -161,7 +161,8 @@ CREATE TABLE public.api_audit_log (
   before_snapshot jsonb,
   after_snapshot jsonb,
   status_code integer NOT NULL,
-  error text
+  error text,
+  via text NOT NULL DEFAULT 'rest' CHECK (via IN ('rest', 'mcp'))
 );
 
 CREATE INDEX idx_api_audit_log_timestamp ON public.api_audit_log(timestamp DESC);

@@ -29,6 +29,7 @@ import {
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { RowActionsMenu, type RowAction } from '@/components/ui/RowActionsMenu';
 import { TeamMember } from '@/lib/types';
+import { AGENT_PROFILES, type AgentProfile } from '@/lib/mcp/profiles';
 import { toast } from '@/components/ui/Toast';
 import { createClient } from '@/lib/supabase/client';
 import { useDemo } from '@/lib/demo-context';
@@ -68,6 +69,7 @@ export default function TeamPage() {
   const [title, setTitle] = useState('');
   const [memberStatus, setMemberStatus] = useState<'active' | 'suspended'>('active');
   const [billingMultiplier, setBillingMultiplier] = useState<number | ''>('');
+  const [agentProfile, setAgentProfile] = useState<AgentProfile>('generic');
   const [memberTz, setMemberTz] = useState('UTC');
   const [tzSearch, setTzSearch] = useState('');
   const [tzOpen, setTzOpen] = useState(false);
@@ -175,6 +177,7 @@ export default function TeamPage() {
     setRole('member');
     setMemberStatus('active');
     setBillingMultiplier('');
+    setAgentProfile('generic');
     setMemberTz('UTC');
     setTzSearch('');
     setTzOpen(false);
@@ -191,6 +194,7 @@ export default function TeamPage() {
     setRole(member.role);
     setMemberStatus(member.status || 'active');
     setBillingMultiplier(member.role === 'agent' ? Number(member.billing_multiplier ?? 1) : '');
+    setAgentProfile(member.agent_profile ?? 'generic');
     setMemberTz(member.timezone || 'UTC');
     setIsFormOpen(true);
   };
@@ -241,6 +245,14 @@ export default function TeamPage() {
     return { billing_multiplier: billingMultiplier };
   };
 
+  // Sent only when it changed, by the Owner, for an agent; the API checks
+  // the same and only the Owner may change it.
+  const profileUpdate = (): { agent_profile?: AgentProfile } => {
+    if (role !== 'agent' || !isOwner || !editingMember) return {};
+    if (agentProfile === (editingMember.agent_profile ?? 'generic')) return {};
+    return { agent_profile: agentProfile };
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !editingMember) return;
@@ -259,6 +271,7 @@ export default function TeamPage() {
       status: memberStatus,
       timezone: memberTz,
       ...multiplierUpdate(),
+      ...profileUpdate(),
     });
     toast('success', 'Team member updated');
     handleCloseForm();
@@ -293,6 +306,7 @@ export default function TeamPage() {
         timezone: memberTz,
         email: email.trim().toLowerCase(),
         ...multiplierUpdate(),
+        ...profileUpdate(),
       });
       toast('success', 'Team member updated');
       handleCloseForm();
@@ -632,6 +646,20 @@ export default function TeamPage() {
                 { value: 'active', label: 'Active' },
                 { value: 'suspended', label: 'Suspended' },
               ]}
+            />
+          )}
+
+          {role === 'agent' && isOwner && (
+            <Select
+              label="Agent profile"
+              description="Which MCP tools this agent sees. Its key and permissions still decide what each tool may do."
+              value={agentProfile}
+              onChange={(value) => setAgentProfile(value as AgentProfile)}
+              options={AGENT_PROFILES.map((profile) => ({
+                value: profile.value,
+                label: profile.label,
+                detail: profile.description,
+              }))}
             />
           )}
 
