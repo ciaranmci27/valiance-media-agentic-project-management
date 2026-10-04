@@ -259,6 +259,12 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
   if ((runningTimer?.id ?? null) !== syncedTimerId) {
     setSyncedTimerId(runningTimer?.id ?? null);
     if (runningTimer) setTimerDescription(runningTimer.description || '');
+    // The timer ended (here, in another tab, or by an agent): the form is for
+    // the next timer, so it starts empty instead of echoing the saved entry.
+    else if (syncedTimerId) {
+      setTimerDescription('');
+      setTimerTaskIds([]);
+    }
     setAdjustingStart(false);
     setAdjustStartTime('');
   }
@@ -450,10 +456,12 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
       clearTimeout(descDebounceRef.current);
       descDebounceRef.current = null;
     }
-    if (timerDescription) {
-      updateTimeEntry(runningTimer.id, { description: timerDescription });
-    }
-    pauseTimer(runningTimer.id);
+    // One request: the description rides along with the pause, so there is
+    // no in-between answer that still shows the timer running.
+    pauseTimer(
+      runningTimer.id,
+      timerDescription && timerDescription !== runningTimer.description ? { description: timerDescription } : {},
+    );
   };
 
   const handleResumeTimer = () => {
@@ -477,11 +485,12 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
       clearTimeout(descDebounceRef.current);
       descDebounceRef.current = null;
     }
-    if (timerDescription) {
-      updateTimeEntry(runningTimer.id, { description: timerDescription });
-    }
-    stopTimer(runningTimer.id);
+    stopTimer(
+      runningTimer.id,
+      timerDescription && timerDescription !== runningTimer.description ? { description: timerDescription } : {},
+    );
     setTimerDescription('');
+    setTimerTaskIds([]);
     toast('success', 'Timer stopped');
   };
 

@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { withApi } from '@/lib/api/middleware';
 import { success } from '@/lib/api/response';
 import { notFound, badRequest } from '@/lib/api/errors';
@@ -36,7 +37,7 @@ export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMembe
   // The bounds make the abusable direction impossible: worked_until must lie
   // INSIDE the open segment, so a segment can only ever be trimmed, never
   // extended, and never into a previous segment. Billing can only go down.
-  const requestedRaw = (body as Record<string, unknown> | undefined)?.worked_until;
+  const requestedRaw = body?.worked_until;
   let pausedAt = new Date().toISOString();
   if (typeof requestedRaw === 'string' && requestedRaw.trim()) {
     const requested = new Date(requestedRaw);
@@ -73,4 +74,10 @@ export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMembe
   });
 
   return success(sanitizeTimeEntryForAccess(data, access, 'api'));
-}, { permission: ['time.manage_own', 'time.manage_all'] });
+}, {
+  // Without a schema the middleware never reads the body, which silently
+  // dropped worked_until and made every cut-off reconciliation a no-op.
+  schema: z.object({ worked_until: z.string().max(64).optional() }),
+  optionalBody: true,
+  permission: ['time.manage_own', 'time.manage_all'],
+});

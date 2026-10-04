@@ -41,7 +41,7 @@ export type TaskLane =
   | 'needs_spec';    // nobody can start it until it is specced
 
 export const DEFAULT_SENSITIVE_PATHS =
-  '(^|/)(migrations?|supabase/migrations)/|\\.sql$|auth|permission|role|access|middleware|session|credential|secret|token|rls|billing|payment|invoice|stripe|payout|revenue|pdf|docx|document-generation|(^|/)email/|mailer|smtp|resend|sendgrid|twilio|sms|outbound|webhook';
+  '(^|/)(migrations?|supabase/migrations)/|(^|/)\\.github/workflows/|\\.sql$|auth|permission|role|access|middleware|session|credential|secret|token|rls|billing|payment|invoice|stripe|payout|revenue|pdf|docx|document-generation|(^|/)email/|mailer|smtp|resend|sendgrid|twilio|sms|outbound|webhook';
 
 function sensitiveMatcher(project: Project | undefined): RegExp {
   const pattern = project?.sensitive_paths?.trim() || DEFAULT_SENSITIVE_PATHS;

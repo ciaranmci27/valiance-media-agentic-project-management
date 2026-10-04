@@ -390,9 +390,9 @@ interface AppContextType {
   deleteTimeEntry: (id: string) => Promise<boolean>;
   getTimeEntriesByProject: (projectId: string) => TimeEntry[];
   startTimer: (projectId: string, memberId: string, description?: string, customStartTime?: string, workType?: 'client' | 'internal', taskIds?: string[]) => void;
-  pauseTimer: (entryId: string) => void;
+  pauseTimer: (entryId: string, extra?: Partial<Pick<TimeEntry, 'description'>>) => void;
   resumeTimer: (entryId: string) => void;
-  stopTimer: (entryId: string) => void;
+  stopTimer: (entryId: string, extra?: Partial<Pick<TimeEntry, 'description'>>) => void;
   resumeStoppedTimer: (entryId: string) => Promise<boolean>;
   getRunningTimer: (projectId: string, memberId?: string) => TimeEntry | undefined;
 
@@ -848,7 +848,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
             // Timer buttons write far faster than a refetch round-trip, which
             // is why this slice is the one that visibly lost the race.
             if (superseded()) break;
-            setTimeEntries(rows);
+            // An entry with timer writes still in flight keeps its local
+            // state: the refetch can land between "describe" and "stop" and
+            // would flip a just-stopped timer back to running for a moment.
+            setTimeEntries(prev => rows.map(row =>
+              pendingEntryWrites.current.has(row.id) ? (prev.find(p => p.id === row.id) ?? row) : row));
           }
           break;
         case 'credentials':
@@ -3005,6 +3009,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // segments again. Chaining per entry keeps requests and their responses in
   // issue order; entries never contend with each other.
   const entryWriteChains = useRef(new Map<string, Promise<void>>());
+  // Writes queued per entry and not yet answered. Only the LAST answer is
+  // applied: an earlier response (the description save sent just before a
+  // Stop) still carries the old open timer, and applying it flashed the
+  // stopped timer back to running and refilled the form.
+  const pendingEntryWrites = useRef(new Map<string, number>());
 
   const updateTimeEntry = async (
     id: string,
@@ -3017,6 +3026,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     ));
     if (skipSupabase) return;
 
+    pendingEntryWrites.current.set(id, (pendingEntryWrites.current.get(id) ?? 0) + 1);
+    const settle = () => {
+      const left = (pendingEntryWrites.current.get(id) ?? 1) - 1;
+      if (left > 0) pendingEntryWrites.current.set(id, left);
+      else pendingEntryWrites.current.delete(id);
+      return left === 0;
+    };
     const send = async () => {
       try {
         // keepalive lets the request outlive the page. Without it, clicking
@@ -3032,7 +3048,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const payload = await response.json();
         if (!response.ok) throw new Error(payload.error || 'Failed to update time entry');
         const updated = payload.data as TimeEntry;
-        setTimeEntries(entries => entries.map(entry => entry.id === id ? updated : entry));
+        if (settle()) setTimeEntries(entries => entries.map(entry => entry.id === id ? updated : entry));
         if (!options.silent && existing) {
           const project = projects.find(p => p.id === existing.project_id);
           notify(allMemberIds(), `Time entry updated on "${project?.name || 'project'}"`, `${actorName()} updated a time entry.`, `/projects/${existing.project_id}`, 'project', existing.project_id, 'time_entries');
@@ -3045,7 +3061,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         // Restore just this entry. Reverting the whole array (what this used to
         // do) also discarded any other row that changed while the request was
         // in flight - a teammate's timer, or a second edit of your own.
-        if (existing) setTimeEntries(te => te.map(entry => (entry.id === id ? existing : entry)));
+        // A later queued write still owns the entry; its answer decides.
+        if (settle() && existing) setTimeEntries(te => te.map(entry => (entry.id === id ? existing : entry)));
         toast('error', err instanceof Error ? err.message : 'Failed to update time entry');
       }
     };
@@ -3125,7 +3142,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const pauseTimer = async (entryId: string) => {
+  const pauseTimer = async (entryId: string, extra: Partial<Pick<TimeEntry, 'description'>> = {}) => {
     const active = timeEntries.find(te => te.id === entryId);
     if (!active || active.end_time !== null) return;
     const last = active.segments[active.segments.length - 1];
@@ -3137,7 +3154,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       { ...last, end: pausedAt },
     ];
     // Silent: pause/resume are personal state transitions, not team-visible events.
-    await updateTimeEntry(active.id, { segments: newSegments }, { silent: true });
+    await updateTimeEntry(active.id, { ...extra, segments: newSegments }, { silent: true });
   };
 
   const resumeTimer = async (entryId: string) => {
@@ -3179,7 +3196,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     await updateTimeEntry(active.id, { segments: newSegments }, { silent: true });
   };
 
-  const stopTimer = async (entryId: string) => {
+  const stopTimer = async (entryId: string, extra: Partial<Pick<TimeEntry, 'description'>> = {}) => {
     const active = timeEntries.find(te => te.id === entryId);
     if (!active || active.end_time !== null) return;
     // Close any open segment before finalizing so `segments` stays consistent.
@@ -3192,7 +3209,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     // end_time mirrors the last segment's end (either the nowIso we just set,
     // or the already-present paused_at if stopping from a paused state).
     const finalEnd = segments[segments.length - 1]?.end ?? nowIso;
-    await updateTimeEntry(active.id, { segments, end_time: finalEnd });
+    await updateTimeEntry(active.id, { ...extra, segments, end_time: finalEnd });
   };
 
   // Reopen a recently stopped entry: the undo for an accidental Stop click.

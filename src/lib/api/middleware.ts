@@ -40,6 +40,8 @@ export interface ApiContext<TBody = unknown, TParams = Record<string, string>> {
 
 interface WithApiOptions<TBody> {
   schema?: ZodSchema<TBody>;
+  /** An empty request body is read as {} instead of refused (for optional fields). */
+  optionalBody?: boolean;
   permission?: PermissionKey | PermissionKey[];
 }
 
@@ -313,9 +315,15 @@ export function withApi<TBody = unknown, TParams = Record<string, string>>(
 
       let body = undefined as unknown as TBody;
       if (options?.schema && (method === 'POST' || method === 'PUT' || method === 'PATCH')) {
-        const raw = await request.json().catch(() => {
-          throw badRequest('Request body must be valid JSON');
-        });
+        const text = await request.text();
+        let raw: unknown = {};
+        if (text.trim() || !options.optionalBody) {
+          try {
+            raw = JSON.parse(text);
+          } catch {
+            throw badRequest('Request body must be valid JSON');
+          }
+        }
         body = options.schema.parse(raw);
       }
 
