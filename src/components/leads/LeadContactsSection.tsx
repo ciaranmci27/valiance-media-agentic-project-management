@@ -217,6 +217,7 @@ export function LeadContactsSection({ leadId, readOnly = false }: LeadContactsSe
                           value={editRole}
                           onChange={(value) => setEditRole(value)}
                           options={roleOptions}
+                          size="sm"
                         />
                         {editRole === 'Other' && (
                           <TextInput

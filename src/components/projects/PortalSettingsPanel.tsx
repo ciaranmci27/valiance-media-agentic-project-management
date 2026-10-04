@@ -418,7 +418,6 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
                       setLocalAccentColor(v);
                       debouncedSettingChange('accent_color', v);
                     }}
-                    size="sm"
                   />
                 </div>
                 <div className="h-5 w-px bg-white/[0.08] flex-shrink-0" />
@@ -454,7 +453,7 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
                   <button
                     type="button"
                     onClick={() => setShowPinConfirm(true)}
-                    className="inline-flex items-center gap-1.5 px-3 py-2 text-sm bg-surface-raised border border-white/[0.08] rounded-lg hover:border-white/[0.12] transition-colors flex-shrink-0"
+                    className="inline-flex h-9 items-center gap-1.5 px-3 text-sm bg-surface-raised border border-white/[0.08] rounded-lg hover:border-white/[0.12] transition-colors flex-shrink-0"
                   >
                     <Lock size={13} className="text-zinc-500" />
                     <span

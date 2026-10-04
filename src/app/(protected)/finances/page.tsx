@@ -1506,9 +1506,14 @@ export default function FinancesPage() {
                     into Earned, never make Earned fall. */}
                 {data.totalPendingEarned > 0.005 && (
                   <div className="min-w-0 sm:shrink-0 sm:min-w-[5.5rem]">
-                    <Tooltip content="Worked time awaiting your approval. It becomes Earned once approved.">
-                      <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5 cursor-help">Pending</p>
-                    </Tooltip>
+                    {/* Flex wrapper: the tooltip's trigger is inline-flex, which on
+                        its own sits on a 16px line box and drops this 10px label
+                        below the others in the row. */}
+                    <div className="flex mb-0.5">
+                      <Tooltip content="Worked time awaiting your approval. It becomes Earned once approved.">
+                        <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 cursor-help">Pending</p>
+                      </Tooltip>
+                    </div>
                     <p className="text-sm font-semibold text-zinc-400">{fmtCurrency(data.totalPendingEarned)}</p>
                   </div>
                 )}

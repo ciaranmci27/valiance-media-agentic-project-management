@@ -212,6 +212,7 @@ export function ProjectContactsPanel({ isOpen, onClose, projectId }: ProjectCont
                           value={editRole}
                           onChange={(value) => setEditRole(value)}
                           options={roleOptions}
+                          size="sm"
                         />
                         {editRole === 'Other' && (
                           <TextInput
