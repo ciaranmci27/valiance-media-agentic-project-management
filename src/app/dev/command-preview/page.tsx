@@ -10,21 +10,23 @@ import { PreviewClient } from './preview-client';
  * since there's no logged-in member to read a preference from here).
  * ?hour=<0-24> pins the day/night cycle to an exact fractional hour,
  * bypassing the real clock entirely — that's the actual lever for
- * screenshotting a specific time of day on demand.
+ * screenshotting a specific time of day on demand. ?camera=manual starts on
+ * walking, where `window.__setView` can then pin an exact frame.
  */
 export default async function CommandPreviewPage({
   searchParams,
 }: {
-  searchParams: Promise<{ mood?: string; tz?: string; hour?: string }>;
+  searchParams: Promise<{ mood?: string; tz?: string; hour?: string; camera?: string }>;
 }) {
   if (process.env.NODE_ENV !== 'development') notFound();
-  const { mood, tz, hour } = await searchParams;
+  const { mood, tz, hour, camera } = await searchParams;
   const parsedHour = hour !== undefined ? Number(hour) : undefined;
   return (
     <PreviewClient
       mood={mood}
       tz={tz}
       hour={parsedHour !== undefined && Number.isFinite(parsedHour) ? parsedHour : undefined}
+      camera={camera === 'manual' ? 'manual' : 'auto'}
     />
   );
 }

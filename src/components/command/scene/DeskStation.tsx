@@ -6,10 +6,11 @@ import { useFrame } from '@react-three/fiber';
 import { MOOD_LIGHT_HEX } from '@/lib/agent-status';
 import { PALETTE, DESK_TOP, type AgentSnapshot, type Mood, type ScreenKind, type StationDef } from './crew';
 import { screenModel } from './screenContent';
-import { Prop } from './Prop';
+import { OfficeProp } from './Prop';
 import { ScreenSurface } from './Screens';
 import { LED, SCREEN } from './monitorPanel';
-import { AgentCharacter } from './Character';
+import { Desk, DeskPad, Keyboard, KEYTOP_HEIGHT, KIT_KEYTOP_HEIGHT, MonitorBody, Mouse, useScreenCoating } from './OfficeDesk';
+import { AgentCharacter, CHAIR_FIT } from './Character';
 import { TaskChair } from './TaskChair';
 import { advanceWorker, createWorker, type WorkerState } from './behavior';
 
@@ -37,23 +38,31 @@ import { advanceWorker, createWorker, type WorkerState } from './behavior';
  * and travel depth are sized so the mouse BODY (7cm half-depth at prop scale)
  * stays a fingernail inside the edge at full cursor extent.
  */
-const MOUSE_MAT = { x: 0.42, z: 0.25, width: 0.17, depth: 0.11 };
+// x moved in from 0.42 when the 48cm kit keyboard became a 30cm one: the
+// mouse sits a hand's width off the keyboard's edge, not where the old one was.
+const MOUSE_MAT = { x: 0.32, z: 0.25, width: 0.17, depth: 0.11 };
 
 /**
- * Black granite desktop: glossier and darker than the shared charcoal
- * furniture tint, so it reads as stone rather than lacquer.
- *
- * Hoisted to module scope, and that matters more than it looks. `Prop` keys
- * its `useMemo` on the tint object's identity, so an inline literal here meant
- * a fresh identity on every render — and `DeskStation` re-renders on every
- * crew snapshot. Each of those re-cloned the whole `desk.glb` scene graph and
- * rebuilt its materials, four desks at a time, on the main thread. A stable
- * reference makes the clone happen once.
+ * How far the built keyboard's keytops sit below the kit model's. The key
+ * anchors were measured against the kit model, so they drop by exactly this.
  */
-const DESK_TINTS = {
-  wood: { color: '#101114', roughness: 0.2, metalness: 0.05 },
-  woodDark: { color: '#0a0b0d', roughness: 0.18, metalness: 0.05 },
-};
+const KEY_DROP = KIT_KEYTOP_HEIGHT - KEYTOP_HEIGHT;
+
+/**
+ * Where the chair stands, and with it the person: the body is placed on the
+ * chair's own origin (see `MODEL_OFFSET` in Character), so the two cannot
+ * drift apart. 0.65 rather than the old 0.73 because the Rocketbox bodies are
+ * full adult size, and at 0.73 a hand on the mouse needed a fully locked arm;
+ * people pull their chairs in.
+ */
+const CHAIR_Z = 0.65;
+
+/**
+ * The articulated lamps are scanned in signal orange, which shouts against a
+ * room built on teal and copper. Graphite takes the colour out and leaves the
+ * scan's wear and sheen.
+ */
+const LAMP_TINT = '#3a3c40';
 
 // The shared status palette (@/lib/agent-status), so a desk lamp and the
 // dashboard dot for the same agent can never disagree about colour.
@@ -102,7 +111,7 @@ function PaperStack({ position, rotationY }: { position: [number, number, number
 
 /**
  * Monitor whose screen faces +z (toward the seated character and the camera
- * behind them). The Kenney body provides the frame; the lit surface and the
+ * behind them). `MonitorBody` provides the frame; the lit surface and the
  * status LED are ours.
  */
 function Monitor({
@@ -125,6 +134,7 @@ function Monitor({
   label: string;
 }) {
   const ledRef = useRef<THREE.MeshStandardMaterial>(null);
+  const coating = useScreenCoating();
   const { w, h, rake, centreY, centreZ } = SCREEN;
 
   // What this panel is entitled to say, rebuilt only when the snapshot moves.
@@ -150,7 +160,7 @@ function Monitor({
     // Tilted back the way a real monitor is, which also turns the screen up
     // toward the raised camera and keeps it readable from that angle.
     <group position={position} rotation={[-0.16, yaw, 0]}>
-      <Prop file="computerScreen.glb" scale={1.9} center />
+      <MonitorBody />
       {/* One group laid onto the panel: raked to match its 8° lean, centred on
           it, and lifted along its normal. The glass and the status LED are
           both inside it, so they share the panel's plane by construction
@@ -166,6 +176,10 @@ function Monitor({
           brightness={2.1}
           label={label}
         />
+        {/* The glass over the panel: reflections only. See `useScreenCoating`. */}
+        <mesh position={[0, 0, 0.0012]} material={coating} renderOrder={3}>
+          <planeGeometry args={[w, h]} />
+        </mesh>
         {/* Status LED, sitting on the monitor's own chin below the glass where
             a real one lives — see `LED` for why it is measured off the frame
             rather than off the screen. */}
@@ -199,6 +213,7 @@ export function DeskStation({
   }, []);
 
   const mood = snapshot.mood;
+  const fit = CHAIR_FIT[station.key] ?? CHAIR_FIT.jeff;
   const busy = mood === 'working' || mood === 'reviewing';
   /** Whose desk this is, for the focus prompt. Falls back to the craft key. */
   const who = snapshot.member?.name ?? station.key;
@@ -249,14 +264,14 @@ export function DeskStation({
       // board's centre put fingertips past its far edge, hovering over bare
       // desk. Heights differ because each arm's IK settles with a different
       // bias (measured: right lands ~1cm high, left ~0.7cm low).
-      keyLeft: mk(-0.13, DESK_TOP + 0.07, 0.33),
-      keyRight: mk(0.13, DESK_TOP + 0.055, 0.33),
+      keyLeft: mk(-0.13, DESK_TOP + 0.07 - KEY_DROP, 0.31),
+      keyRight: mk(0.13, DESK_TOP + 0.055 - KEY_DROP, 0.31),
       mouse: mk(MOUSE_MAT.x, DESK_TOP + 0.04, MOUSE_MAT.z),
       // There are deliberately no desk-edge rest anchors any more: the desk
       // has no strip deep enough for a parked hand, so idle hands go to the
       // lap targets below, which is where real hands go between bursts.
-      lapLeft: mk(-0.16, 0.55, 0.5),
-      lapRight: mk(0.16, 0.55, 0.5),
+      lapLeft: mk(-0.15, 0.62, 0.42),
+      lapRight: mk(0.15, 0.62, 0.42),
       // Left of the keyboard: the right hand lives on the mouse, so the
       // coffee is a left-hand reach — and the mug used to share coordinates
       // with the mouse mat, floating past the edge besides.
@@ -372,35 +387,26 @@ export function DeskStation({
 
   return (
     <group position={station.position} rotation={[0, station.yaw, 0]}>
-      {/* Black granite desktop: glossier and darker than the shared
-          charcoal furniture tint, so it reads as stone rather than lacquer. */}
-      <Prop
-        file="desk.glb"
-        tints={DESK_TINTS}
-      />
-      {/* Built rather than imported, so the backrest sits below the occupant's
-          shoulders instead of hiding them from the camera — and placed at the
-          z that actually puts the cushion under them. It used to sit at 0.5,
-          20cm forward of the seated figure, which is what buried the backrest
-          inside their torso and put the caster ring under their feet. */}
-      <group position={[0, 0, 0.73]}>
-        <TaskChair />
+      {/* Oak top on a powder-coated sled frame. See `OfficeDesk`. */}
+      <Desk />
+      {/* The chair, set to its occupant (see `CHAIR_FIT`): cushion just under
+          their measured seat, backrest just behind their measured back, and
+          the body placed on the chair's own origin so the two move together. */}
+      <group position={[0, 0, CHAIR_Z - fit.pull]}>
+        <TaskChair seatTop={fit.seatTop} backZ={fit.backZ} />
       </group>
       {/* The keyboard and mouse sit at the same anchors the hands reach for,
           so the two can never drift apart. */}
       {/* 3cm closer to the monitors than strictly centred, buying a bare
           strip of desk in front of it for the resting hands. */}
-      <Prop file="computerKeyboard.glb" position={[0, DESK_TOP, 0.24]} scale={1.7} />
+      <Keyboard position={[0, DESK_TOP, 0.24]} />
       {/* The mat, so the mouse has somewhere to be rather than sliding on bare
           stone — and so the travel area is legible as an area. */}
-      <mesh position={[MOUSE_MAT.x, DESK_TOP + 0.001, MOUSE_MAT.z]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
-        <planeGeometry args={[MOUSE_MAT.width + 0.13, MOUSE_MAT.depth + 0.11]} />
-        <meshStandardMaterial color="#1b1e24" roughness={0.95} />
-      </mesh>
+      <DeskPad x={0.1} z={0.255} width={0.68} depth={0.26} />
       {/* Position is written every frame from `worker.cursor` — see the frame
           loop above. The literal here is only the pad's centre. */}
       <group ref={mouseRef} position={[MOUSE_MAT.x, DESK_TOP, MOUSE_MAT.z]}>
-        <Prop file="computerMouse.glb" scale={1.7} />
+        <Mouse />
       </group>
       <primitive object={anchors.keyLeft} />
       <primitive object={anchors.keyRight} />
@@ -460,24 +466,22 @@ export function DeskStation({
       )}
       {station.key === 'greg' && (
         <>
-          <Prop file="books.glb" position={[0.55, DESK_TOP, -0.08]} rotation={[0, -0.25, 0]} scale={1.8} />
-          <Prop file="lampSquareTable.glb" position={[-0.6, DESK_TOP, -0.1]} rotation={[0, 0.5, 0]} scale={1.6} />
-          <pointLight position={[-0.6, DESK_TOP + 0.5, 0]} color={PALETTE.warm} intensity={1} distance={2.8} decay={2} />
+          {/* An articulated lamp clamped to the back edge, reaching over the
+              work, and his notebook open beside the keyboard. */}
+          <OfficeProp file="desk_lamp_arm_01.glb" tint={LAMP_TINT} height={0.62} position={[-0.6, DESK_TOP, -0.28]} rotation={[0, 0.6, 0]} />
+          <OfficeProp file="binder_notebook.glb" height={0.03} position={[0.52, DESK_TOP, 0.05]} rotation={[0, -0.25, 0]} />
+          <pointLight position={[-0.45, DESK_TOP + 0.45, -0.05]} color={PALETTE.warm} intensity={1} distance={2.8} decay={2} />
         </>
       )}
       {station.key === 'ashley' && (
-        <Prop file="plantSmall1.glb" position={[-0.6, DESK_TOP, -0.12]} scale={1.7} />
+        <OfficeProp file="potted_plant_04.glb" height={0.27} position={[-0.6, DESK_TOP, -0.15]} />
       )}
       {station.key === 'john' && (
         <>
-          <Prop file="books.glb" position={[-0.55, DESK_TOP, -0.1]} rotation={[0, 0.2, 0]} scale={1.5} />
-          <Prop file="trashcan.glb" position={[-1.05, 0, 0.45]} scale={1.7} />
-          <Prop file="lampSquareTable.glb" position={[0.6, DESK_TOP, -0.1]} rotation={[0, -0.5, 0]} scale={1.6} />
-          <pointLight position={[0.6, DESK_TOP + 0.5, 0]} color={PALETTE.warm} intensity={1} distance={2.8} decay={2} />
-          {/* The exhibit he is marking up. It used to be a 62 × 84cm sheet
-              parented to his right palm, which at that size read as a slab
-              floating over his mouse rather than as paper. On the desk at
-              actual A4, it reads as what it is. */}
+          <OfficeProp file="desk_lamp_arm_01.glb" tint={LAMP_TINT} height={0.62} position={[0.6, DESK_TOP, -0.28]} rotation={[0, -0.6, 0]} />
+          <OfficeProp file="office_notepads.glb" scale={0.32} position={[-0.52, DESK_TOP, -0.02]} rotation={[0, 0.2, 0]} />
+          <pointLight position={[0.45, DESK_TOP + 0.45, -0.05]} color={PALETTE.warm} intensity={1} distance={2.8} decay={2} />
+          {/* The exhibit he is marking up, at actual A4 on the desk. */}
           <PaperStack position={[-0.3, DESK_TOP, 0.42]} rotationY={-0.22} />
         </>
       )}
@@ -501,9 +505,8 @@ export function DeskStation({
       />
       <primitive object={spillTarget} />
 
-      {/* The agent, seated in the chair, back to camera, facing their work.
-          The character component handles seat height itself. */}
-      <group position={[0, 0, 0.48]} rotation={[0, Math.PI, 0]}>
+      {/* The agent, seated in the chair, back to camera, facing their work. */}
+      <group position={[0, 0, CHAIR_Z - fit.pull]} rotation={[0, Math.PI, 0]}>
         <AgentCharacter agentKey={station.key} mood={mood} worker={worker} />
       </group>
     </group>

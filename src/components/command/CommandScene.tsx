@@ -3,11 +3,12 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { Canvas, useFrame, useStore, useThree } from '@react-three/fiber';
-import { Environment, Lightformer, Stats } from '@react-three/drei';
+import { Stats } from '@react-three/drei';
 import { EffectComposer, Bloom, Vignette, Noise, N8AO, SMAA } from '@react-three/postprocessing';
 import { STATIONS, PALETTE, type CrewState, type Mood } from './scene/crew';
 import { useCrewData } from './scene/useCrewData';
 import { Room } from './scene/Room';
+import { ReflectionProbe } from './scene/ReflectionProbe';
 import { DeskStation } from './scene/DeskStation';
 import { CameraRig } from './scene/CameraRig';
 import { FreeRoamControls } from './scene/FreeRoamControls';
@@ -29,7 +30,7 @@ import {
   type ScenePreferences,
 } from './scene/sceneSettings';
 import { ActivityHUD } from './scene/ActivityHUD';
-import { preloadProps } from './scene/Prop';
+import { preloadOfficeProps } from './scene/Prop';
 import { preloadCharacters } from './scene/Character';
 import { useTimeOfDay, blendColor, type TimeOfDay } from './scene/timeOfDay';
 import { directionFor } from './scene/celestial';
@@ -45,19 +46,14 @@ import { directionFor } from './scene/celestial';
  * times come from row timestamps.
  */
 
-// What the four workstations need on the first frame. `chairDesk.glb` and
-// `laptop.glb` used to be in here and are no longer rendered — the chair is
-// built (`TaskChair`) and the laptops are gone — so preloading them only cost
-// bandwidth before the scene could start.
-preloadProps([
-  'desk.glb',
-  'computerScreen.glb',
-  'computerKeyboard.glb',
-  'computerMouse.glb',
-  'books.glb',
-  'lampSquareTable.glb',
-  'trashcan.glb',
-  'plantSmall1.glb',
+// What the four workstations need on the first frame. The desks, monitors,
+// keyboards and chairs are built in code (`OfficeDesk`, `TaskChair`), so
+// what is left to fetch is the photographed furniture on and around them.
+preloadOfficeProps([
+  'desk_lamp_arm_01.glb',
+  'binder_notebook.glb',
+  'office_notepads.glb',
+  'potted_plant_04.glb',
 ]);
 preloadCharacters();
 
@@ -215,7 +211,9 @@ function SceneContent({
   // Ambient/window-bounce group: pushed further than last pass now that the
   // sun above carries the "obviously sunny" load on its own — these boosts
   // only need to lift the room's general fill, not fake a sun by themselves.
-  const hemiIntensity = 0.62 + dayT * 0.6;
+  // Halved again once the reflection probe arrived: the probe's capture of the
+  // lit room is now the bounce light, so this is only the floor under it.
+  const hemiIntensity = 0.3 + dayT * 0.3;
   const rimSkyColor = blendColor('#86b4d8', '#eaf3ff', '#ffb37a', dayT, twilightT);
   // Also pulled back from a day boost of 2.2. These stack with the sun above,
   // and three separate "make it feel sunny" multipliers all peaking together is
@@ -226,13 +224,13 @@ function SceneContent({
   // polished floor shows that first — its specular reflection of these is
   // view-dependent, so it survives the establishing shot and blows out at other
   // angles.
-  const rimSkyIntensity = 2.0 + dayT * 0.7 + twilightT * 1.0;
+  // And halved once more for the probe: the windows now light the room through
+  // the environment as well, and these are only what keeps a rim on the crew.
+  const rimSkyIntensity = 1.0 + dayT * 0.35 + twilightT * 0.5;
   // The left glazing. Roughly 60% of the back wall's cool rim — enough for the
   // second aspect to exist, not so much that the room is lit flat from both.
   const rimSideIntensity = rimSkyIntensity * 0.6;
-  const rimWarmIntensity = 1.1 + dayT * 0.4 + twilightT * 1.1;
-  const envSkyColor = blendColor('#8fa8bd', '#dfeeff', '#ffcfa0', dayT, twilightT);
-  const envSkyIntensity = 0.5 + dayT * 0.5 + twilightT * 0.3;
+  const rimWarmIntensity = 0.55 + dayT * 0.2 + twilightT * 0.55;
 
   return (
     <>
@@ -257,7 +255,7 @@ function SceneContent({
           simulation, so it holds steady across the day. No longer the
           shadow caster: the sun below took that job, and one crisp shadow
           set still reads better than two competing directions. */}
-      <directionalLight position={[2.5, 7, 5]} intensity={0.7} color="#cbd8e4" />
+      <directionalLight position={[2.5, 7, 5]} intensity={0.45} color="#cbd8e4" />
 
       {/* The sun: sweeps and strengthens with the day, the room's only
           shadow caster. Off (intensity 0) at night, so it never fights the
@@ -320,17 +318,8 @@ function SceneContent({
           so it rims what faces it without pooling on the floor. */}
       <directionalLight position={[-9, 1.1, 0]} intensity={rimSideIntensity} color={rimSkyColor} />
 
-      {/* Ceiling slots, as actual pools of light over the desks. These do the
-          real work: distinct pools keep shape in the room where a single flat
-          fill would erase it. Office practicals: constant across the day. */}
-      {/* Near-neutral, was #c8d6e2. These are the room's dominant practicals,
-          so their tint is what the white walls actually end up reading as —
-          at the old value the plaster measured ~19 points bluer in B than R
-          and looked light blue rather than white. Still a touch cool, because
-          office downlights are, just no longer enough to colour a wall. */}
-      {[-3.2, -0.6, 2.0].map((z) => (
-        <pointLight key={z} position={[0, 3.0, z]} intensity={5} distance={10} decay={1.7} color="#e6e7e4" />
-      ))}
+      {/* The ceiling slots are real area lights now and live with their
+          fittings in `Room` (see `CeilingSlots`). */}
       {/* Soft top-down so the desk row holds its tone. Narrowed from an
           earlier 1.15 rad / 14m reach: that cone was wide and long enough to
           graze the window glass behind the desks, and once the camera moved
@@ -354,32 +343,10 @@ function SceneContent({
           which moved the same 1.6 units inward as the rest of the lounge set. */}
       <pointLight position={[5.3, 1.2, 3.6]} intensity={2.2} distance={7} decay={1.8} color={PALETTE.warm} />
 
-      {/* Reflections only; no network HDRI. Lower intensity and a higher
-          resolution than the render actually needs: the window glass is
-          glossy enough to mirror these panels directly, and at the steeper
-          angle the raised camera now uses, the first pass values (intensity
-          2, 64px) produced a hard-edged bright wedge across the skyline
-          rather than a soft reflected gleam. The first panel stands in for
-          the window/sky, so it tracks the day; the brand and lounge panels
-          are practicals and hold steady. */}
-      <Environment resolution={256} frames={1}>
-        {/* Halved: this panel exists to fake the sky the window reflects, and
-            there is now a real lit city out there doing some of that job. At
-            full strength the two stack and the glass reads too bright. */}
-        <Lightformer intensity={envSkyIntensity * 0.5} position={[0, 3, -5]} scale={[14, 2, 1]} color={envSkyColor} />
-        {/* The left glazing's own reflection. Same halving as the back wall's
-            panel, and the same 0.6 ratio the side rim light uses, so what the
-            polished floor mirrors agrees with what actually lights the room. */}
-        <Lightformer
-          intensity={envSkyIntensity * 0.3}
-          position={[-5, 3, 0]}
-          rotation-y={Math.PI / 2}
-          scale={[14, 2, 1]}
-          color={envSkyColor}
-        />
-        <Lightformer intensity={0.35} position={[-4.4, 1.5, 0]} rotation-y={Math.PI / 2} scale={[8, 1.5, 1]} color={PALETTE.brand} />
-        <Lightformer intensity={0.3} position={[3.4, 2.5, 4]} scale={[3, 2, 1]} color={PALETTE.warm} />
-      </Environment>
+      {/* Reflections and bounce light, captured from the room itself. See
+          `ReflectionProbe`: it replaced four hand-placed lightformers that
+          every glossy surface used to mirror instead of the room. */}
+      <ReflectionProbe />
 
       <Room time={time} />
 

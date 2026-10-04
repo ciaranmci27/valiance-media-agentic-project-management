@@ -3,10 +3,13 @@
 import { useMemo } from 'react';
 import * as THREE from 'three';
 import { useGLTF } from '@react-three/drei';
+import { boxProject } from './ReflectionProbe';
 
 /**
- * Loader for the kit props (Kenney Furniture Kit, CC0; whiteboard by jeremy on
- * poly.pizza, CC-BY 3.0).
+ * Loader for the remaining kit props (Kenney Furniture Kit, CC0; whiteboard by
+ * jeremy on poly.pizza, CC-BY 3.0). Most of the room has moved to
+ * `OfficeProp` below; the radio and the whiteboard are what is left on this
+ * one.
  *
  * Two jobs beyond loading:
  *
@@ -102,6 +105,71 @@ export function Prop({
   return <primitive object={instance} position={position} rotation={rotation} scale={scale} />;
 }
 
-export function preloadProps(files: string[]) {
-  for (const f of files) useGLTF.preload(`${MODELS}/${f}`);
+const OFFICE = '/models/command/office';
+
+/**
+ * Loader for the photographed furniture (Poly Haven, CC0): real scans and
+ * archviz models with their own PBR maps, converted offline to compact GLBs.
+ *
+ * Unlike the kit, nothing is retinted: these carry their own materials, and
+ * the only change is box-projecting their reflections so a glossy table top
+ * mirrors the room where the room actually is.
+ *
+ * `height` scales the model to a real-world height instead of trusting its
+ * authored units, which vary between files (one shelf unit arrives ten times
+ * too large). The model is recentred on x/z with its base at y = 0.
+ */
+export function OfficeProp({
+  file,
+  position,
+  rotation,
+  height,
+  scale = 1,
+  castShadow = true,
+  tint,
+}: {
+  file: string;
+  position?: [number, number, number];
+  rotation?: [number, number, number];
+  /** Target height in metres. Overrides `scale` when given. */
+  height?: number;
+  scale?: number;
+  castShadow?: boolean;
+  /** Multiplies every material's colour, for a finish the scan was not shot in. */
+  tint?: string;
+}) {
+  const { scene } = useGLTF(`${OFFICE}/${file}`);
+  const instance = useMemo(() => {
+    const root = scene.clone(true);
+    const cache = new Map<THREE.Material, THREE.Material>();
+    root.traverse((obj) => {
+      if (!(obj instanceof THREE.Mesh)) return;
+      obj.castShadow = castShadow;
+      obj.receiveShadow = true;
+      const prep = (m: THREE.Material) => {
+        const hit = cache.get(m);
+        if (hit) return hit;
+        const c = boxProject((m as THREE.MeshStandardMaterial).clone());
+        if (tint) c.color.multiply(new THREE.Color(tint));
+        cache.set(m, c);
+        return c;
+      };
+      obj.material = Array.isArray(obj.material) ? obj.material.map(prep) : prep(obj.material);
+    });
+    const box = new THREE.Box3().setFromObject(root);
+    const size = box.getSize(new THREE.Vector3());
+    const s = height ? height / size.y : scale;
+    const mid = box.getCenter(new THREE.Vector3());
+    root.position.set(-mid.x, -box.min.y, -mid.z);
+    const holder = new THREE.Group();
+    holder.add(root);
+    holder.scale.setScalar(s);
+    return holder;
+  }, [scene, height, scale, castShadow, tint]);
+
+  return <primitive object={instance} position={position} rotation={rotation} />;
+}
+
+export function preloadOfficeProps(files: string[]) {
+  for (const f of files) useGLTF.preload(`${OFFICE}/${f}`);
 }

@@ -6,7 +6,7 @@ import { useTexture } from '@react-three/drei';
 import { blendColor, type TimeOfDay } from './timeOfDay';
 import { directionFor } from './celestial';
 import { GROUND_RADIUS, GROUND_Y, hazeAt } from './atmosphere';
-import { Sky } from './Sky';
+import { Sky, skyGradient } from './Sky';
 import { planCity, parkCentres, type Building, type CityPlan } from './cityLayout';
 import { ROOM_CENTER_Z } from './roomLayout';
 
@@ -49,15 +49,37 @@ type Facade = {
   slug: string;
   metersPerTile: number;
   tint: string;
+  /**
+   * Reflectance of the facade's glass at normal incidence. A curtain wall is
+   * coated glass and mirrors the sky; a concrete frame with punched windows
+   * barely does. The window map scales this per pixel, so piers and spandrels
+   * stay matte between bright panes.
+   */
+  glass: number;
+  /** The daytime facade: one panel's width and storey height, in metres. */
+  panel: [number, number];
+  /** Fraction of the panel width that is mullion. */
+  mullion: number;
+  /** Fraction of each storey that is opaque spandrel (0 for full-height glazing). */
+  spandrel: number;
+  frame: string;
+  spandrelColor: string;
+  glassTint: string;
 };
 
 const CITY_FACADES: Facade[] = [
-  { slug: 'facade002', metersPerTile: 30, tint: '#9fb0c4' }, // modern blue-grey glass
-  { slug: 'facade013', metersPerTile: 54, tint: '#b6a894' }, // tan curtain wall
-  { slug: 'facade015', metersPerTile: 50, tint: '#b9bfc6' }, // pale grey curtain wall
-  { slug: 'facade016', metersPerTile: 50, tint: '#ab9585' }, // warm brown curtain wall
-  { slug: 'facade017', metersPerTile: 34, tint: '#8f949c' }, // dark piers, warm bands
-  { slug: 'facade019b', metersPerTile: 13, tint: '#adb2b3' }, // grey concrete bands
+  // modern blue-grey glass: full-height glazing, slim dark frames
+  { slug: 'facade002', metersPerTile: 30, tint: '#9fb0c4', glass: 0.32, panel: [1.5, 3.8], mullion: 0.05, spandrel: 0.0, frame: '#3a4048', spandrelColor: '#3a4048', glassTint: '#6f8ea8' },
+  // tan curtain wall with ribbon windows
+  { slug: 'facade013', metersPerTile: 54, tint: '#b6a894', glass: 0.22, panel: [1.6, 3.6], mullion: 0.06, spandrel: 0.3, frame: '#9c8f7c', spandrelColor: '#b3a48c', glassTint: '#8a7a60' },
+  // pale grey curtain wall
+  { slug: 'facade015', metersPerTile: 50, tint: '#b9bfc6', glass: 0.26, panel: [1.25, 3.6], mullion: 0.07, spandrel: 0.22, frame: '#b8bcc0', spandrelColor: '#c5c8cb', glassTint: '#7f949a' },
+  // warm brown curtain wall
+  { slug: 'facade016', metersPerTile: 50, tint: '#ab9585', glass: 0.22, panel: [1.5, 3.8], mullion: 0.06, spandrel: 0.34, frame: '#5b4a3e', spandrelColor: '#6e5a4a', glassTint: '#7d6a55' },
+  // dark piers, warm bands
+  { slug: 'facade017', metersPerTile: 34, tint: '#8f949c', glass: 0.18, panel: [2.0, 3.6], mullion: 0.22, spandrel: 0.3, frame: '#4c4f55', spandrelColor: '#5a5d63', glassTint: '#5f6a73' },
+  // grey concrete bands, punched windows
+  { slug: 'facade019b', metersPerTile: 13, tint: '#adb2b3', glass: 0.1, panel: [1.8, 3.4], mullion: 0.18, spandrel: 0.45, frame: '#a9a7a1', spandrelColor: '#b6b3ab', glassTint: '#55606a' },
 ];
 
 /**
@@ -108,12 +130,25 @@ function lcg(seed: number) {
  * than the previous per-building tint, because that is what makes a near tower
  * read as being in front of a far one rather than merely darker than it.
  */
-function makeCityMaterial(map: THREE.Texture, emissive: THREE.Texture): THREE.ShaderMaterial {
+function makeCityMaterial(map: THREE.Texture, emissive: THREE.Texture, facade?: Facade): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     fog: false,
     uniforms: {
       uMap: { value: map },
       uEmissive: { value: emissive },
+      uGlass: { value: facade?.glass ?? 0 },
+      // No facade (roofs, the ground): the daytime drawing never applies.
+      uDayMix: { value: 0 },
+      uMetersPerTile: { value: facade?.metersPerTile ?? 1 },
+      uPanel: { value: new THREE.Vector2(...(facade?.panel ?? [1, 1])) },
+      uMullion: { value: facade?.mullion ?? 0 },
+      uSpandrel: { value: facade?.spandrel ?? 0 },
+      uFrameColor: { value: new THREE.Color(facade?.frame ?? '#808080') },
+      uSpandrelColor: { value: new THREE.Color(facade?.spandrelColor ?? '#808080') },
+      uGlassTint: { value: new THREE.Color(facade?.glassTint ?? '#808080') },
+      uSkyZenith: { value: new THREE.Color(0, 0, 0) },
+      uSkyHorizon: { value: new THREE.Color(0, 0, 0) },
+      uGroundY: { value: GROUND_Y },
       uSunDirection: { value: new THREE.Vector3(0, 1, 0) },
       uSunColor: { value: new THREE.Color(0, 0, 0) },
       uSkyColor: { value: new THREE.Color(0, 0, 0) },
@@ -177,6 +212,10 @@ function makeCityMaterial(map: THREE.Texture, emissive: THREE.Texture): THREE.Sh
     fragmentShader: /* glsl */ `
       uniform sampler2D uMap;
       uniform sampler2D uEmissive;
+      uniform float uGlass;
+      uniform vec3 uSkyZenith;
+      uniform vec3 uSkyHorizon;
+      uniform float uGroundY;
       uniform vec3 uSunDirection;
       uniform vec3 uSunColor;
       uniform vec3 uSkyColor;
@@ -186,6 +225,15 @@ function makeCityMaterial(map: THREE.Texture, emissive: THREE.Texture): THREE.Sh
       uniform float uHazeFar;
       uniform float uHazeCurve;
       uniform float uHazeMax;
+      // The daytime facade, drawn rather than photographed.
+      uniform float uDayMix;
+      uniform float uMetersPerTile;
+      uniform vec2 uPanel;
+      uniform float uMullion;
+      uniform float uSpandrel;
+      uniform vec3 uFrameColor;
+      uniform vec3 uSpandrelColor;
+      uniform vec3 uGlassTint;
 
       varying vec2 vCityUv;
       varying vec3 vCityNormal;
@@ -194,22 +242,84 @@ function makeCityMaterial(map: THREE.Texture, emissive: THREE.Texture): THREE.Sh
       varying vec3 vCityEmissive;
       varying float vCityRoof;
 
+      float cityHash(vec2 p) {
+        return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+      }
+
+      vec3 skyAlong(vec3 r) {
+        // Above the horizon a reflection shows sky; below it, the hazy city
+        // underneath, which is much darker.
+        vec3 sky = mix(uSkyHorizon, uSkyZenith, smoothstep(0.0, 0.55, r.y));
+        return mix(uHazeColor * 0.35, sky, smoothstep(-0.08, 0.04, r.y));
+      }
+
       void main() {
-        vec3 albedo = sRGBTransferEOTF(texture2D(uMap, vCityUv)).rgb * vCityTint;
-        vec3 windows = sRGBTransferEOTF(texture2D(uEmissive, vCityUv)).rgb * uWindowGain;
-
-        // Roofs are plant, gravel and ducting, not more wall. Flattening them
-        // to one dark tone is both truer and cheaper than wrapping a facade
-        // over the top of a building, and the near layer is all roof.
-        albedo = mix(albedo, vec3(0.055, 0.058, 0.062), vCityRoof);
-        windows *= 1.0 - vCityRoof;
-
         vec3 n = normalize(vCityNormal);
         float sun = max(dot(n, uSunDirection), 0.0);
         // Sky light falls mostly from above, so upward faces get more of it.
         float sky = 0.5 + 0.5 * n.y;
+        vec3 light = uSunColor * sun + uSkyColor * sky;
 
-        vec3 color = albedo * (uSunColor * sun + uSkyColor * sky) + windows + vCityEmissive;
+        // Street-level occlusion: the bottom storeys of a tower stand in its
+        // neighbours' shadow and the canyon's, so they read darker. A
+        // uniformly lit base is what makes a box look set down on a plane.
+        float canyon = mix(0.45, 1.0, smoothstep(0.0, 45.0, vCityWorld.y - uGroundY));
+
+        vec3 viewDir = normalize(vCityWorld - cameraPosition);
+        vec3 r = reflect(viewDir, n);
+        float cosV = clamp(dot(-viewDir, n), 0.0, 1.0);
+        float schlick = pow(1.0 - cosV, 5.0);
+
+        // ---- Night: the photographed facade, its own lit windows. ----
+        vec3 albedo = sRGBTransferEOTF(texture2D(uMap, vCityUv)).rgb * vCityTint;
+        vec3 windowTex = sRGBTransferEOTF(texture2D(uEmissive, vCityUv)).rgb;
+        // Roofs are plant, gravel and ducting, not more wall.
+        albedo = mix(albedo, vec3(0.055, 0.058, 0.062), vCityRoof);
+        vec3 night = albedo * light * canyon;
+        float nightF0 = uGlass * 0.5 * (1.0 - vCityRoof);
+        night = mix(night, skyAlong(r), clamp(nightF0 + (1.0 - nightF0) * schlick * step(0.001, nightF0), 0.0, 0.9));
+
+        // ---- Day: mullions, spandrels and glass. ----
+        //
+        // The scans are night photographs (dark glass, lit rooms), and by day
+        // they read as dark slabs speckled with lamps. A curtain wall by day
+        // is a grid of frames around panes that mirror the sky, each pane
+        // set at a fractionally different angle, so each catches the sky a
+        // little differently. That is drawn here, in metres on the face.
+        vec2 m = vCityUv * uMetersPerTile;
+        vec2 cellF = m / uPanel;
+        vec2 cell = floor(cellF);
+        vec2 f = fract(cellF);
+        vec2 w = fwidth(cellF);
+        float paneX = smoothstep(uMullion * 0.5 - w.x, uMullion * 0.5 + w.x, min(f.x, 1.0 - f.x));
+        float paneY = smoothstep(uSpandrel - w.y, uSpandrel + w.y, f.y) *
+                      smoothstep(0.02 - w.y, 0.02 + w.y, 1.0 - f.y);
+        float glassMask = paneX * paneY;
+        // Past a few pixels per panel the grid would only alias, so it fades
+        // to its own average coverage.
+        float detail = 1.0 - smoothstep(0.18, 0.45, max(w.x, w.y));
+        float coverage = (1.0 - uMullion) * (0.98 - uSpandrel);
+        glassMask = mix(coverage, glassMask, detail);
+        float spandrelMask = (1.0 - paneY) * paneX;
+        spandrelMask = mix(uSpandrel, spandrelMask, detail);
+
+        float h1 = cityHash(cell);
+        float h2 = cityHash(cell + 17.3);
+        // Each pane slightly out of plane.
+        vec3 rp = normalize(r + vec3(h1 - 0.5, (h2 - 0.5) * 0.6, h2 - 0.5) * 0.09 * detail);
+        float f0 = uGlass;
+        float fres = f0 + (1.0 - f0) * pow(1.0 - cosV, 5.0);
+        // Behind the glass: a dark room, some with blinds half down.
+        float blinds = step(0.72, h1) * 0.06;
+        vec3 interior = uGlassTint * (0.025 + blinds) * light;
+        vec3 paneColor = mix(interior, skyAlong(rp) * mix(0.85, 1.1, h2), clamp(fres, 0.0, 0.95));
+        paneColor += uSunColor * pow(max(dot(rp, uSunDirection), 0.0), 900.0) * 8.0 * f0;
+        vec3 frame = mix(uFrameColor, uSpandrelColor, clamp(spandrelMask / max(1.0 - glassMask, 1e-3), 0.0, 1.0)) * light * canyon;
+        vec3 day = mix(frame, paneColor, glassMask);
+        day = mix(day, night, vCityRoof);
+
+        vec3 color = mix(night, day, uDayMix * (1.0 - vCityRoof));
+        color += windowTex * uWindowGain * (1.0 - vCityRoof) + vCityEmissive;
 
         // Aerial perspective. Horizontal distance only: the vertical spread of
         // the city is 160m against a 780m haze range, and using the true 3D
@@ -691,7 +801,7 @@ export function CityView({ time }: { time: TimeOfDay }) {
   const { materials, roofMaterial, groundMaterial } = useMemo(() => {
     const ground = drawGround(plan);
     return {
-      materials: CITY_FACADES.map((_, i) => makeCityMaterial(maps[i * 2], maps[i * 2 + 1])),
+      materials: CITY_FACADES.map((f, i) => makeCityMaterial(maps[i * 2], maps[i * 2 + 1], f)),
       roofMaterial: makeCityMaterial(solidTexture(255), solidTexture(0)),
       groundMaterial: makeCityMaterial(ground.color, ground.emissive),
     };
@@ -726,8 +836,10 @@ export function CityView({ time }: { time: TimeOfDay }) {
     // it is the only thing lighting the faces the sun cannot reach. Too low and
     // those faces go black and then get hazed to flat grey, which is what made
     // the first pass read as cardboard.
-    const skyColor = hazeAt(dayT, twilightT).multiplyScalar(0.17 + dayT * 0.5);
+    const skyColor = hazeAt(dayT, twilightT).multiplyScalar(0.17 + dayT * 0.8);
     const haze = hazeAt(dayT, twilightT);
+    const gradient = skyGradient(dayT, twilightT);
+    const dayMix = Math.min(1, dayT + twilightT * 0.55);
     // Windows are on around the clock in a real tower, but against a sunlit
     // facade you cannot see them at all — and the emission maps are photographs
     // of fully lit windows, so even a small multiplier puts visible orange
@@ -741,6 +853,15 @@ export function CityView({ time }: { time: TimeOfDay }) {
       m.uniforms.uSunColor.value.copy(sunColor);
       m.uniforms.uSkyColor.value.copy(skyColor);
       m.uniforms.uHazeColor.value.copy(haze);
+      // Clear-day air carries less than a city night's glow and smog does;
+      // at the full night value, every tower past the first block went to
+      // a flat grey card in the afternoon.
+      m.uniforms.uHazeMax.value = HAZE_MAX - dayT * 0.22;
+      m.uniforms.uSkyZenith.value.copy(gradient.top);
+      m.uniforms.uSkyHorizon.value.copy(gradient.horizon);
+      // Facades are drawn by day and photographed by night; the ground and
+      // roofs are always their own textures.
+      m.uniforms.uDayMix.value = materials.includes(m) ? dayMix : 0;
       // Street lamps are not office windows. At the buildings' gain they clear
       // the bloom threshold hard and every lamp becomes a fuzzy blob, which
       // erases the grid they are supposed to be drawing. A third of it keeps

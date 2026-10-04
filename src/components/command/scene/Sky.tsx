@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { useTexture } from '@react-three/drei';
+import { useFrame } from '@react-three/fiber';
 import { blendColor, type TimeOfDay } from './timeOfDay';
 import { directionFor, domeUv } from './celestial';
 import {
@@ -48,6 +49,21 @@ function lcg(seed: number) {
 }
 
 /**
+ * The sky's three colour stops, zenith to horizon, for a time of day.
+ *
+ * One definition, used by the dome and by everything that reflects the sky
+ * (the city's glass), so a tower can never mirror a different sky from the
+ * one behind it.
+ */
+export function skyGradient(dayT: number, twilightT: number) {
+  return {
+    top: blendColor('#070b14', '#2f6cad', '#2b3a5c', dayT, twilightT),
+    mid: blendColor('#0b1220', '#7fb4e0', '#c96b4a', dayT, twilightT),
+    horizon: blendColor('#131a28', '#cfe6f5', '#ffd9a8', dayT, twilightT),
+  };
+}
+
+/**
  * The sky, as an equirectangular texture for a dome.
  *
  * `SphereGeometry` uv.y runs 0 at the bottom pole to 1 at the top, so the
@@ -75,9 +91,10 @@ function useSkyTexture(time: TimeOfDay): THREE.CanvasTexture {
 
     // --- Sky gradient. Zenith to horizon above; flat haze below, which the
     // ground disc is painted to match so the two meet without a seam. ---
-    const skyTop = blendColor('#070b14', '#2f6cad', '#2b3a5c', dayT, twilightT).getStyle();
-    const skyMid = blendColor('#0b1220', '#7fb4e0', '#c96b4a', dayT, twilightT).getStyle();
-    const skyHorizon = blendColor('#131a28', '#cfe6f5', '#ffd9a8', dayT, twilightT).getStyle();
+    const gradient = skyGradient(dayT, twilightT);
+    const skyTop = gradient.top.getStyle();
+    const skyMid = gradient.mid.getStyle();
+    const skyHorizon = gradient.horizon.getStyle();
     const haze = hazeAt(dayT, twilightT).getStyle();
 
     const sky = ctx.createLinearGradient(0, 0, 0, horizonY);
@@ -411,6 +428,141 @@ function Moon({ time, position, sunDirection }: { time: TimeOfDay; position: THR
 }
 
 /**
+ * Clouds: a drifting layer of fair-weather cumulus and stratocumulus.
+ *
+ * A cloudless gradient is the single most synthetic thing a sky can be, and
+ * from a corner office it is half of every frame by day. This is noise, not a
+ * photograph, because it has to be lit by the sun the scene actually has:
+ * bright on the sun side, grey-blue underneath, gold and rose at the ends of
+ * the day, and at night a dim overcast lit from below by the city.
+ *
+ * Drawn on a dome inside `CELESTIAL_DISTANCE` (so it passes in front of the
+ * sun and moon) and beyond the city (so towers stand in front of it). The
+ * pattern is a planar projection of the direction, which is what makes clouds
+ * crowd together and flatten toward the horizon the way a real cloud deck
+ * does in perspective.
+ */
+const CLOUD_RADIUS = CELESTIAL_DISTANCE - 60;
+
+const CLOUD_VERTEX = /* glsl */ `
+  varying vec3 vCloudDir;
+  void main() {
+    vCloudDir = normalize(position);
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`;
+
+const CLOUD_FRAGMENT = /* glsl */ `
+  uniform float uTime;
+  uniform vec3 uSunDir;
+  uniform vec3 uLit;
+  uniform vec3 uShade;
+  uniform float uCoverage;
+  uniform float uOpacity;
+  varying vec3 vCloudDir;
+
+  float hash(vec2 p) {
+    p = fract(p * vec2(123.34, 456.21));
+    p += dot(p, p + 45.32);
+    return fract(p.x * p.y);
+  }
+  float noise(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    vec2 u = f * f * (3.0 - 2.0 * f);
+    return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x),
+               mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x), u.y);
+  }
+  float fbm(vec2 p) {
+    float v = 0.0;
+    float a = 0.5;
+    mat2 rot = mat2(0.8, -0.6, 0.6, 0.8);
+    for (int i = 0; i < 6; i++) {
+      v += a * noise(p);
+      p = rot * p * 2.03 + 3.1;
+      a *= 0.5;
+    }
+    return v;
+  }
+
+  void main() {
+    vec3 d = normalize(vCloudDir);
+    if (d.y <= 0.0) discard;
+    // Planar projection onto a cloud deck: compresses toward the horizon.
+    vec2 uv = d.xz / (d.y + 0.12) * 1.6;
+    vec2 drift = vec2(uTime * 0.0035, uTime * 0.0012);
+    float shape = fbm(uv + drift);
+    // Billows: a second, finer field eroding the edges.
+    shape -= (1.0 - fbm(uv * 3.1 - drift * 2.0)) * 0.18;
+    float density = smoothstep(uCoverage, uCoverage + 0.22, shape);
+    if (density <= 0.003) discard;
+
+    // Self-shadowing, cheaply: sample toward the sun. Thicker cloud between
+    // here and the sun means this point sits in its own shade.
+    vec2 toSun = normalize(uSunDir.xz + 1e-4) * 0.06;
+    float occl = fbm(uv + drift + toSun) - shape;
+    float lit = clamp(0.62 - occl * 3.2, 0.0, 1.0);
+    // Silver lining where the sun is behind the cloud's edge.
+    float forward = pow(max(dot(d, uSunDir), 0.0), 8.0);
+    vec3 col = mix(uShade, uLit, lit) + uLit * forward * (1.0 - density) * 0.9;
+
+    // Thin out into the haze near the horizon.
+    float horizon = smoothstep(0.0, 0.16, d.y);
+    gl_FragColor = vec4(col, density * horizon * uOpacity);
+    #include <colorspace_fragment>
+  }
+`;
+
+function CloudLayer({ time }: { time: TimeOfDay }) {
+  const uniforms = useMemo(
+    () => ({
+      uTime: { value: 0 },
+      uSunDir: { value: new THREE.Vector3(0, 1, 0) },
+      uLit: { value: new THREE.Color() },
+      uShade: { value: new THREE.Color() },
+      uCoverage: { value: 0.43 },
+      uOpacity: { value: 1 },
+    }),
+    []
+  );
+
+  const { dayT, twilightT, nightT, sun } = time;
+  const sunDir = useMemo(() => directionFor(sun, time.bearingDeg, 1), [sun, time.bearingDeg]);
+  // Lit side: white in the day, gold-rose at the ends of it, and at night a
+  // dull sodium glow, which is the city's light reflected off the cloud base.
+  const lit = useMemo(() => blendColor('#3b3530', '#fbfbf8', '#ffb98a', dayT, twilightT), [dayT, twilightT]);
+  const shade = useMemo(() => blendColor('#1c1d22', '#a6b3c2', '#7d6273', dayT, twilightT), [dayT, twilightT]);
+  const opacity = 0.92 - nightT * 0.35;
+
+  // Through the material rather than the memoised uniforms object, which is
+  // React's to treat as immutable; the material is the three object we drive.
+  const material = useRef<THREE.ShaderMaterial>(null);
+  useFrame(({ clock }) => {
+    if (material.current) material.current.uniforms.uTime.value = clock.elapsedTime;
+  });
+
+  return (
+    <mesh position={[0, 0, ROOM_CENTER_Z]} renderOrder={-1}>
+      <sphereGeometry args={[CLOUD_RADIUS, 48, 24, 0, Math.PI * 2, 0, Math.PI / 2]} />
+      <shaderMaterial
+        ref={material}
+        vertexShader={CLOUD_VERTEX}
+        fragmentShader={CLOUD_FRAGMENT}
+        uniforms={uniforms}
+        uniforms-uSunDir-value={sunDir}
+        uniforms-uLit-value={lit}
+        uniforms-uShade-value={shade}
+        uniforms-uOpacity-value={opacity}
+        side={THREE.BackSide}
+        transparent
+        depthWrite={false}
+        fog={false}
+      />
+    </mesh>
+  );
+}
+
+/**
  * The dome, the sun and the moon, positioned for one instant.
  *
  * Everything is centred on the room rather than the origin so the horizon sits
@@ -441,6 +593,7 @@ export function Sky({ time }: { time: TimeOfDay }) {
         <meshBasicMaterial map={skyTexture} side={THREE.BackSide} fog={false} toneMapped={false} depthWrite={false} />
       </mesh>
 
+      <CloudLayer time={time} />
       <Sun time={time} position={sunPosition} />
       <Moon time={time} position={moonPosition} sunDirection={sunDirection} />
     </group>

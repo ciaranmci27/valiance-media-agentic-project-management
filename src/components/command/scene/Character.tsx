@@ -8,275 +8,121 @@ import { SkeletonUtils } from 'three-stdlib';
 import { type Mood } from './crew';
 import type { WorkerState } from './behavior';
 import { makeArmChain, orientBone, solveArm } from './armIk';
+import { boxProject } from './ReflectionProbe';
 
 /**
- * The people: Quaternius stylized humans (CC0), each a single self-contained
- * GLB carrying its own skeleton and clips. Chosen over the fancier rigs
- * because these ship dressed (Shirt / Jacket / Pants / Tie are separate
- * materials) and because Sitting and Clapping live in the same file as the
- * mesh, so nothing depends on cross-file animation binding.
+ * The people: Microsoft Rocketbox avatars (MIT), one per agent, dressed and
+ * groomed offline to match each agent's real portrait (see the asset notes in
+ * tasks/), with Rocketbox's own seated-at-a-table idle baked into each file.
  *
- * Craft is a two-layer performance:
- *  - Base: the authored 8-second Sitting loop, which supplies the weight and
- *    micro-motion that make a figure read as a person rather than a prop.
- *  - Craft layer: procedural bone offsets applied after the mixer samples, so
- *    Jeff's forearms reach the keyboard and his hands patter, Greg bows into
- *    what he is reading, John leans back with a page held up, Ashley looks
- *    between her screen and the board.
+ * They replaced Quaternius' stylised low-poly figures, which were 2,000 flat
+ * faces with no textures and no faces worth the name. These are photographed
+ * heads and clothing on a 3ds Max Biped, at about 7,000 faces each.
  *
- * Every performer runs at a slightly different tempo and phase, because four
- * people breathing in sync reads as machinery.
+ * Craft is still a two-layer performance:
+ *  - Base: the authored seated idle (20 seconds of a real capture), played
+ *    ping-pong so it never pops at a loop point, which supplies the weight
+ *    shifts and breathing that make a figure read as a person.
+ *  - Craft layer: procedural offsets after the mixer samples, so Jeff's
+ *    hands reach the keyboard and patter, Greg bows into what he is reading,
+ *    John sits back to think, Ashley looks between her screen and the board.
+ *
+ * The craft layer works in the CHARACTER's axes (lean about its right axis,
+ * turn the head about its up axis), not in bone-local Euler angles. A Biped's
+ * bones carry their own unrelated local frames, and the old rig's tuned
+ * per-bone angles meant nothing on it; stating the motion in body terms holds
+ * on any skeleton.
  */
 
-const DIR = '/models/command/characters';
+const DIR = '/models/command/crew';
+
+type Look = {
+  file: string;
+  /** The seated capture this person plays. Separate files, shared between avatars. */
+  clip: string;
+  /**
+   * Height multiplier. A few centimetres of difference is the cheapest thing
+   * that makes four people read as four people. Kept inside +/-4%: beyond that
+   * the seated pose stops matching the chair it was measured against.
+   */
+  build?: number;
+  /** A graphic worn on the back and chest. Just the one so far. */
+  print?: 'chrome-tee';
+};
+
+/** Wardrobe. Clothing and hair were graded into each file's own textures. */
+export const LOOKS: Record<string, Look> = {
+  greg: { file: 'greg.glb', clip: 'seated_m1.glb', build: 0.99 },
+  ashley: { file: 'ashley.glb', clip: 'seated_f1.glb', build: 0.98 },
+  jeff: { file: 'jeff.glb', clip: 'seated_m1.glb', build: 1.02, print: 'chrome-tee' },
+  john: { file: 'john.glb', clip: 'seated_m2.glb', build: 1.0 },
+};
+
+export type CraftBehavior = 'type' | 'read' | 'plan' | 'inspect';
 
 /**
- * Body scale, and the vertical offset that lands the figure on the floor.
- *
- * The offset used to be derived as `SEAT_Y - HIP_PER_SCALE * BODY_SCALE`,
- * which assumed the hip BONE should land exactly on the cushion. It shouldn't:
- * a hip bone sits inside the pelvis, several centimetres above the surface the
- * body actually rests on, so that derivation pushed everyone down until their
- * feet were 2cm through the floor and their rear was inside the seat pad.
- *
- * This is measured instead. With the offset at zero, the seated clip already
- * puts the lowest point of the feet at y ≈ +0.001 and the underside of the
- * buttocks at y ≈ 0.429 — the floor and the cushion respectively, which is
- * what the pose was authored for. `TaskChair`'s SEAT_TOP is then set just
- * under 0.429 rather than the other way round.
+ * Each person's chair, set to them: cushion just under the measured
+ * underside of the seated body, backrest just behind the measured back.
+ * Chair-local coordinates. Measured from
+ * the skinned vertices in the running scene, mid-capture, not from bones.
+ * `pull` moves chair and person together toward the desk.
  */
-const BODY_SCALE = 0.4;
-const SEAT_OFFSET_Y = 0;
+export const CHAIR_FIT: Record<string, { seatTop: number; backZ: number; pull: number }> = {
+  greg: { seatTop: 0.43, backZ: 0.227, pull: 0 },
+  // Ashley is the smallest of the four and her capture sits furthest back,
+  // so at the shared chair position the keyboard was 5-16cm out of her
+  // reach (measured hand-to-target). She pulls her chair in further.
+  ashley: { seatTop: 0.47, backZ: 0.3, pull: 0.11 },
+  jeff: { seatTop: 0.46, backZ: 0.235, pull: 0 },
+  john: { seatTop: 0.45, backZ: 0.211, pull: 0 },
+};
 
 /**
- * Jeff's reward: the Chrome Hearts tee. Horseshoe logo front and back.
+ * Jeff's reward: the Chrome Hearts horseshoe, front and back, riding the chest
+ * bone so it follows the breathing and lean.
  *
- * The logo (public/textures/command/ch_logo.png, recoloured to white-on-alpha)
- * rides the chest bone so it follows the seated animation's breathing and
- * lean. alphaTest rather than blending: a print wants hard edges and no
- * sorting concerns against the body it hugs.
- *
- * CURVED, not flat, and that is the load-bearing decision. The first version
- * was a plane, and the jacket's raised centre panel pushed through it, eating
- * the middle of the logo while the sides floated. Each print is now an
- * open-ended cylinder segment whose crest stands just proud of the ridge and
- * whose edges sweep back with the torso, which is how ink on fabric behaves.
- *
- * Mirroring was checked, not assumed: cylinder UVs run u=0 at thetaStart, and
- * with the front arc centred on +Z (bone-space chest-forward, probed earlier)
- * u=0 lands on the wearer's right, which is the viewer's left — unmirrored.
- * The back arc centred on -Z reverses both, so it also reads correctly to
- * someone standing behind him. Gothic lettering is unforgiving of getting
- * this wrong in either place.
- *
- * There was jewelry here for a day — a cross pattée on a chunky chain — and
- * it never survived contact with the eye: geometric pendants at this poly
- * count read as costume, whatever their proportions. The print is the fit.
- *
- * Dimensions are meters; the caller divides out the bone's composed scale.
+ * Curved, not flat: a flat plane on a torso either floats at the sides or
+ * sinks in the middle. Each print is an open cylinder segment whose crest sits
+ * just proud of the shirt and whose edges sweep back with the body.
  */
-function buildChromeTee(): THREE.Group {
+function buildChromeTee(front: number, back: number): THREE.Group {
   const logo = new THREE.TextureLoader().load('/textures/command/ch_logo.png');
   logo.colorSpace = THREE.SRGBColorSpace;
   logo.anisotropy = 8;
-  const ink = new THREE.MeshStandardMaterial({
-    map: logo,
-    alphaTest: 0.35,
-    roughness: 0.9,
-    metalness: 0,
-  });
+  const ink = new THREE.MeshStandardMaterial({ map: logo, alphaTest: 0.35, roughness: 0.9, metalness: 0 });
 
   const group = new THREE.Group();
   group.name = 'chromePrint';
-
-  /**
-   * One curved patch. `width` is arc length (what the print measures across
-   * the chest), `crest` how far the arc's proudest point sits from the bone,
-   * `facing` +1 for the chest, -1 for the back.
-   *
-   * The crest values were SOLVED, not styled: the jacket's raised placket
-   * strip reaches 0.128 ahead of the bone at the centerline (measured by
-   * posing every skinned vertex via applyBoneTransform), and the first,
-   * hand-guessed crest sat 3.5cm INSIDE it — which is why the logo's middle
-   * vanished into the shirt. Each value below holds its crest 5-10mm proud
-   * of the measured surface across the whole seated cycle: the breathing and
-   * lean wobble the skin a few millimetres relative to the bone (chest verts
-   * carry some shoulder weight), so the margin covers the worst phase, and
-   * that was verified by sampling the cycle rather than one instant.
-   */
-  const patch = (name: string, width: number, height: number, crest: number, y: number, facing: 1 | -1) => {
+  const patch = (width: number, height: number, crest: number, y: number, facing: 1 | -1) => {
     const radius = 0.16;
     const theta = width / radius;
     const thetaStart = facing === 1 ? -theta / 2 : Math.PI - theta / 2;
     const geo = new THREE.CylinderGeometry(radius, radius, height, 24, 1, true, thetaStart, theta);
     const m = new THREE.Mesh(geo, ink);
-    m.name = name;
-    // Place the cylinder's axis so the arc's crest lands at `crest` from the
-    // bone: crest sits at axisZ + radius (front) or axisZ - radius (back).
     m.position.set(0, y, facing === 1 ? crest - radius : crest + radius);
     group.add(m);
   };
-
-  patch('chromePrintFront', 0.115, 0.115, 0.13, 0.162, 1);
-  // The back one is the statement piece, the way theirs are: bigger, higher,
-  // across the shoulder blades.
-  patch('chromePrintBack', 0.17, 0.17, -0.143, 0.19, -1);
-
+  patch(0.11, 0.11, front, 0.05, 1);
+  patch(0.17, 0.17, -back, 0.07, -1);
   return group;
 }
 
-export type CraftBehavior = 'type' | 'read' | 'plan' | 'inspect';
-
-type Look = {
-  file: string;
-  /** Per-material colors. Keys are the GLB's own material names. */
-  colors: Record<string, string>;
-  /**
-   * Per-material surface finish, for the few garments that are not cotton.
-   * Everything not named here keeps the standard matte (0.82 / 0), which is
-   * what the whole crew wore before finishes existed at all.
-   */
-  finish?: Record<string, { roughness?: number; metalness?: number }>;
-  /** A graphic worn on the chest, parented to the skeleton. Just the one so far. */
-  print?: 'chrome-tee';
-  /**
-   * Multiplier on BODY_SCALE. Four people built from two meshes read as one
-   * mannequin repeated; a few centimetres of height difference is the cheapest
-   * thing that makes them read as four people. Kept inside ±4% — beyond that
-   * the seated pose stops matching the chair it was measured against.
-   */
-  build?: number;
-  /** Shoulder width multiplier, applied to the torso chain only. */
-  shoulders?: number;
-};
-
 /**
- * Wardrobe. Each look echoes that agent's real portrait: Greg's charcoal
- * blazer and silver hair, Ashley's gray jacket, Jeff in black, John's navy
- * knit and gray hair.
- *
- * Material names are the GLB's, and they do not mean what they sound like:
- * on the male body `Shirt` is the dark OUTER jacket and `Details` is the pale
- * inner shirt front, so dressing someone down means darkening `Details` until
- * no dress shirt shows through.
+ * The seated capture is about 20 seconds long. Played forward and back it
+ * never wraps, so there is no frame where the pose jumps: an idle is slow
+ * enough that the reversal reads as the same person settling.
  */
-export const LOOKS: Record<string, Look> = {
-  greg: {
-    file: 'BaseHuman_Man.glb',
-    colors: {
-      Shirt: '#3b414b', // charcoal blazer
-      Details: '#d7dade', // white shirt beneath
-      TieTexture: '#5d6b7a',
-      Pants: '#2b2f36',
-      Hair: '#bab7b2', // salt and pepper
-      Skin: '#c69a76',
-    },
-    // The oldest of the four, and the one who sits back: shorter, broader.
-    build: 0.985,
-    shoulders: 1.06,
-  },
-  ashley: {
-    // Woman_In_Dress rather than Woman: the jacket-and-trousers mesh has the
-    // same silhouette as the male body at this poly count and at the distance
-    // the camera usually sits, so she read as unisex. The dress mesh is
-    // unmistakable from across the room, which is the whole job. Its bone
-    // hierarchy is identical (same 45 nodes, same Female_* clips), so the IK
-    // and craft-pose layers are unaffected by the swap.
-    file: 'Woman_In_Dress.glb',
-    colors: {
-      Dress: '#6f7480', // slate, professional rather than occasion-wear
-      Shoes: '#1b1d22',
-      Hair: '#4a3527',
-      Skin: '#d2a684',
-    },
-    build: 0.965,
-  },
-  jeff: {
-    file: 'BaseHuman_Man.glb',
-    colors: {
-      // Black leather rather than black cotton — the reward fit. Slightly
-      // deeper than the old shirt so the sheen is what carries it.
-      Shirt: '#131418',
-      Details: '#1b1d22', // no dress shirt showing
-      TieTexture: '#1b1d22',
-      Pants: '#1c1e24',
-      Hair: '#2a211c',
-      Skin: '#9d7250', // the crew is not all one complexion
-    },
-    // The jacket is the one non-cotton garment on the floor: leather reads by
-    // its specular, not its color, so the sheen is the entire difference
-    // between "black jacket" and "black leather jacket" at this poly count.
-    finish: { Shirt: { roughness: 0.42 } },
-    print: 'chrome-tee',
-    // Tallest and leanest.
-    build: 1.035,
-    shoulders: 0.96,
-  },
-  john: {
-    file: 'BaseHuman_Man.glb',
-    colors: {
-      Shirt: '#2f3a52', // navy knit
-      Details: '#37425c',
-      TieTexture: '#37425c',
-      Pants: '#1f2229',
-      Hair: '#a8a5a0',
-      Skin: '#e0b48f',
-    },
-    build: 1.01,
-    shoulders: 1.03,
-  },
-};
-
-/**
- * The clip pack ships no seated idle. `*_Sitting` is a sit-DOWN transition:
- * frame 0 is a standing pose (`Body.translation.y` 0.0208, legs straight),
- * which reaches the seated hold (y 0.01272, knees at 90°) by frame ~10 of 200
- * and then holds for the remaining 7.9 seconds. Played on `LoopRepeat`, the
- * wrap snapped every character back to standing and re-seated them once per
- * loop — a 32cm vertical pop at this rig's effective 40x scale, staggered per
- * person by `hashPhase`, which is exactly the "they keep standing up and
- * sitting down" defect.
- *
- * The fix is to trim the transition off the front and keep only the hold. The
- * pop was never something the hold does — it is the loop wrapping back to
- * frame 0 — so removing frame 0 from the clip removes the defect at its
- * source.
- *
- * Do NOT also strip the translation tracks, which looks like a belt-and-braces
- * improvement and is actively wrong: `Body.position` is the track that holds
- * the figure DOWN in the chair (seated y 0.01272 against a bind pose of
- * 0.02093, which is standing), and `Foot.L/R` are IK targets parented to the
- * armature root whose translation is the only thing placing the feet at all.
- * Dropping them leaves every character standing through their desk with their
- * feet in the chair column — measured in the running scene, hips 32cm high,
- * after trying exactly that.
- */
-const SEATED_START_FRAME = 24;
-const SEATED_END_FRAME = 200;
-const CLIP_FPS = 24;
-
-function buildSeatedClip(clips: THREE.AnimationClip[]): THREE.AnimationClip | null {
-  const source = clips.find((c) => c.name.toLowerCase().endsWith('sitting')) ?? clips[0];
-  if (!source) return null;
-
-  const trimmed = THREE.AnimationUtils.subclip(
-    source,
-    `${source.name}__seated`,
-    SEATED_START_FRAME,
-    SEATED_END_FRAME,
-    CLIP_FPS
-  );
-  // subclip copies the source duration bookkeeping; recompute from what is
-  // actually left so the loop wraps at the end of the retained range.
-  trimmed.resetDuration();
-  return trimmed;
-}
-
 function hashPhase(seed: string): number {
   let h = 0;
   for (const c of seed) h = (h * 31 + c.charCodeAt(0)) | 0;
   return Math.abs(h % 1000) / 1000;
 }
+
+/** Names the Biped bones get once three has sanitised them (spaces become underscores). */
+const bone = (side: 'L' | 'R', name: string) => `Bip01_${side}_${name}`;
+
+/** Index through little finger; the thumb is Finger0. */
+const FINGERS = ['1', '2', '3', '4'] as const;
 
 export function AgentCharacter({
   agentKey,
@@ -290,8 +136,8 @@ export function AgentCharacter({
 }) {
   const look = LOOKS[agentKey] ?? LOOKS.jeff;
   const gltf = useGLTF(`${DIR}/${look.file}`);
+  const capture = useGLTF(`${DIR}/${look.clip}`);
   const phase = useMemo(() => hashPhase(agentKey), [agentKey]);
-  const seatedClip = useMemo(() => buildSeatedClip(gltf.animations), [gltf.animations]);
 
   const root = useMemo(() => {
     const clone = SkeletonUtils.clone(gltf.scene);
@@ -300,155 +146,210 @@ export function AgentCharacter({
       if (!(obj instanceof THREE.Mesh)) return;
       obj.castShadow = true;
       obj.receiveShadow = true;
-      // Skinned bounds are unreliable here and these are always on camera.
+      // Skinned bounds are unreliable and these are always on camera.
       obj.frustumCulled = false;
-      const paint = (m: THREE.Material) => {
+      const prepare = (m: THREE.Material) => {
         const cached = cache.get(m);
         if (cached) return cached;
         const c = (m as THREE.MeshStandardMaterial).clone();
-        const want = look.colors[m.name];
-        if (want) c.color.set(want);
-        const finish = look.finish?.[m.name];
-        c.roughness = finish?.roughness ?? 0.82;
-        c.metalness = finish?.metalness ?? 0;
+        c.metalness = 0;
+        if (c.name.endsWith('_hair')) {
+          // Hair cards. Alpha-tested rather than blended, so there is no
+          // sorting against the head they sit on, and double-sided because a
+          // card seen from behind is still hair.
+          c.alphaTest = 0.5;
+          c.transparent = false;
+          c.side = THREE.DoubleSide;
+          c.roughness = 0.6;
+        } else if (c.name.endsWith('_head')) {
+          c.roughness = 0.55;
+        } else {
+          c.roughness = 0.75;
+        }
+        c.envMapIntensity = 0.7;
+        boxProject(c);
         cache.set(m, c);
         return c;
       };
-      obj.material = Array.isArray(obj.material) ? obj.material.map(paint) : paint(obj.material);
+      obj.material = Array.isArray(obj.material) ? obj.material.map(prepare) : prepare(obj.material);
     });
-
-    // Frame size. Scaling the two shoulder bones laterally widens or narrows
-    // the upper body without touching height, which is the difference between
-    // four people and one mannequin printed four times.
-    //
-    // Done once here, on the clone's bind pose, rather than per frame in the
-    // craft layer: the seated clip animates shoulder ROTATION but never
-    // shoulder scale, so nothing downstream overwrites it, and a bone scale
-    // reapplied every frame would compound the way the rotations did.
-    const shoulders = look.shoulders ?? 1;
-    if (shoulders !== 1) {
-      for (const name of ['ShoulderL', 'ShoulderR']) {
-        const bone = clone.getObjectByName(name);
-        if (bone) bone.scale.x *= shoulders;
-      }
-    }
-
-    // The print rides the chest bone so it follows the seated animation's
-    // breathing and lean for free — the same parenting John's exhibit used.
-    //
-    // The bone is nowhere near unit scale: the armature carries a 100x
-    // internal scale (measured via getWorldScale, 41.4 in the scene = 100 x
-    // BODY_SCALE 0.4 x Jeff's 1.035 build), so a print authored in meters and
-    // parented naively renders billboard-sized. Dividing by the bone's
-    // composed world scale lets the builder speak meters.
-    if (look.print === 'chrome-tee') {
-      const torso = clone.getObjectByName('Torso');
-      if (torso) {
-        clone.updateMatrixWorld(true);
-        const s =
-          torso.getWorldScale(new THREE.Vector3()).x * BODY_SCALE * (look.build ?? 1);
-        const print = buildChromeTee();
-        // Only the scale lives here now. Each patch carries its own height on
-        // the chest and its own crest depth, since front and back differ in
-        // both; the group sits at the bone origin so those numbers stay plain
-        // meters. (+Y runs up the spine, +Z out of the chest — probed.)
-        print.scale.setScalar(1 / s);
-        torso.add(print);
-      }
-    }
     return clone;
-  }, [gltf.scene, look]);
+  }, [gltf.scene]);
 
   const mixer = useMemo(() => new THREE.AnimationMixer(root), [root]);
-  const actions = useRef<Record<string, THREE.AnimationAction>>({});
-  const currentName = useRef<string | null>(null);
 
   /**
-   * three.js strips dots from glTF node names, so the rig's `UpperArm.L` is
-   * `UpperArmL` here. Looking up the authored names silently returns
-   * undefined and the whole craft layer becomes a no-op, which is exactly
-   * what happened the first time.
+   * The capture, cut down to what should transfer between bodies.
+   *
+   * It was exported from its own skeleton (a Blender action is stored
+   * relative to its armature's rest pose, so moving one between armatures
+   * with different rests garbles it; glTF keys are absolute and do not have
+   * that problem). Rotations transfer as they are. Translations do not: they
+   * carry the capture actor's bone lengths, so only the root's, which is
+   * where the body sits, is kept, and every avatar keeps its own proportions.
+   * Tracks for bones this avatar lacks (Biped nubs, third finger joints) are
+   * dropped rather than left to warn on every bind.
    */
+  const clip = useMemo(() => {
+    const source = capture.animations[0];
+    if (!source) return null;
+    const names = new Set<string>();
+    root.traverse((o) => names.add(o.name));
+    const tracks = source.tracks.filter((t) => {
+      const [node, prop] = t.name.split('.');
+      if (!names.has(node)) return false;
+      if (prop === 'quaternion') return true;
+      return prop === 'position' && node === 'Rig';
+    });
+    return new THREE.AnimationClip(`${agentKey}-seated`, source.duration, tracks);
+  }, [capture.animations, root, agentKey]);
+
   const bones = useMemo(() => {
-    const get = (n: string) => root.getObjectByName(n);
+    const get = (n: string) => root.getObjectByName(n) ?? undefined;
+    const fingers = (side: 'L' | 'R') =>
+      FINGERS.map((f) => ({
+        proximal: get(bone(side, `Finger${f}`)),
+        middle: get(bone(side, `Finger${f}1`)),
+      }));
     return {
-      head: get('Head'),
-      neck: get('Neck'),
-      torso: get('Torso'),
-      abdomen: get('Abdomen'),
-      upperArmL: get('UpperArmL'),
-      upperArmR: get('UpperArmR'),
-      lowerArmL: get('LowerArmL'),
-      lowerArmR: get('LowerArmR'),
-      palmL: get('PalmL'),
-      palmR: get('PalmR'),
-      fingersL: get('FingersL'),
-      fingersR: get('FingersR'),
-      middleHandL: get('MiddleHandL'),
-      middleHandR: get('MiddleHandR'),
-      thumbL: get('Thumb1L'),
-      thumbR: get('Thumb1R'),
+      pelvis: get('Bip01_Pelvis'),
+      spine: get('Bip01_Spine1'),
+      chest: get('Bip01_Spine2'),
+      neck: get('Bip01_Neck'),
+      head: get('Bip01_Head'),
+      upperArmL: get(bone('L', 'UpperArm')),
+      upperArmR: get(bone('R', 'UpperArm')),
+      lowerArmL: get(bone('L', 'Forearm')),
+      lowerArmR: get(bone('R', 'Forearm')),
+      handL: get(bone('L', 'Hand')),
+      handR: get(bone('R', 'Hand')),
+      fingersL: fingers('L'),
+      fingersR: fingers('R'),
+      thumbL: get(bone('L', 'Finger0')),
+      thumbR: get(bone('R', 'Finger0')),
     };
   }, [root]);
 
   /**
-   * The craft layer's bones, and a per-frame snapshot of the pose the
-   * animation alone produced for them.
+   * Every bone the craft layer writes, and the pose the animation alone gave
+   * it this frame.
    *
-   * This exists because three's PropertyMixer only writes a bone to the scene
-   * graph when the sampled value CHANGES. Bones the clip holds still (in this
-   * seated idle, most of the arm) are written once and then never again, so
-   * anything added on top of them compounds every frame instead of being
-   * reset. Measured: the left forearm gaining 1.15 rad per frame while the
-   * right, whose keys do vary, stayed put.
-   *
-   * So each frame the pure animation pose is restored, advanced, snapshotted,
-   * and only then offset. Nothing accumulates, whatever the clip does.
+   * three's PropertyMixer only writes a bone when the sampled value changes,
+   * so a bone the clip holds still is written once and never again, and an
+   * offset added on top of it compounds every frame. Restoring, advancing and
+   * snapshotting each frame means nothing accumulates whatever the clip does.
    */
-  const craftBones = useMemo(() => Object.values(bones).filter(Boolean) as THREE.Object3D[], [bones]);
+  const craftBones = useMemo(() => {
+    const list: (THREE.Object3D | undefined)[] = [
+      bones.pelvis,
+      bones.spine,
+      bones.chest,
+      bones.neck,
+      bones.head,
+      bones.upperArmL,
+      bones.upperArmR,
+      bones.lowerArmL,
+      bones.lowerArmR,
+      bones.handL,
+      bones.handR,
+      bones.thumbL,
+      bones.thumbR,
+      ...bones.fingersL.flatMap((f) => [f.proximal, f.middle]),
+      ...bones.fingersR.flatMap((f) => [f.proximal, f.middle]),
+    ];
+    return list.filter(Boolean) as THREE.Object3D[];
+  }, [bones]);
   const animPose = useMemo(() => new Map<THREE.Object3D, THREE.Quaternion>(), []);
 
-  // Arm chains, and scratch vectors for the per-frame solve.
-  const armL = useMemo(() => makeArmChain(bones.upperArmL, bones.lowerArmL, bones.palmL), [bones]);
-  const armR = useMemo(() => makeArmChain(bones.upperArmR, bones.lowerArmR, bones.palmR), [bones]);
-  const target = useMemo(() => new THREE.Vector3(), []);
-  const pole = useMemo(() => new THREE.Vector3(), []);
-  /** Scratch for the palm orientation pass; see the solve block. */
-  const palmScratch = useMemo(
-    () => ({ shL: new THREE.Vector3(), shR: new THREE.Vector3(), fwd: new THREE.Vector3(), up: new THREE.Vector3(0, 1, 0) }),
-    []
+  /**
+   * The fingers' bind pose: open and straight. Working fingers start from
+   * this, not from the capture, whose hands are clasped on the table; curling
+   * on top of a clasp is what closed the typing hand into a fist.
+   */
+  const fingerBind = useMemo(() => {
+    const map = new Map<THREE.Object3D, THREE.Quaternion>();
+    for (const f of [...bones.fingersL, ...bones.fingersR]) {
+      for (const b of [f.proximal, f.middle]) if (b) map.set(b, b.quaternion.clone());
+    }
+    return map;
+  }, [bones]);
+  /** The arms' animated pose, kept so the IK can be blended in rather than switched on. */
+  const ikBlend = useRef(0);
+
+  const armL = useMemo(() => makeArmChain(bones.upperArmL, bones.lowerArmL, bones.handL), [bones]);
+  const armR = useMemo(() => makeArmChain(bones.upperArmR, bones.lowerArmR, bones.handR), [bones]);
+  const armBones = useMemo(
+    () => [bones.upperArmL, bones.lowerArmL, bones.handL, bones.upperArmR, bones.lowerArmR, bones.handR].filter(Boolean) as THREE.Object3D[],
+    [bones]
   );
+  const armAnim = useMemo(() => armBones.map(() => new THREE.Quaternion()), [armBones]);
 
   /**
-   * The palm bones' own frames, read off the rig instead of guessed: the
-   * finger axis is the direction to the middle-hand child, and the back-of-
-   * hand axis is the finger-thumb cross product (order flipped between hands
-   * because the rig mirrors — signs verified against measured palm normals).
-   * Constant in palm-local space, so computed once.
+   * The hands' own frames, read off the rig instead of guessed: the finger
+   * axis is the direction to the middle finger's base, and the back of the
+   * hand is perpendicular to the plane of finger and thumb. The sign of that
+   * cross product is fixed below by checking it against the measured rest
+   * pose, not assumed from handedness.
    */
-  const palmFrames = useMemo(() => {
-    const frame = (mid?: THREE.Object3D, thumb?: THREE.Object3D) => {
-      if (!mid || !thumb) return null;
-      const finger = mid.position.clone().normalize();
+  const handFrames = useMemo(() => {
+    const frame = (hand?: THREE.Object3D, middle?: THREE.Object3D, thumb?: THREE.Object3D, side = 1) => {
+      if (!hand || !middle || !thumb) return null;
+      const finger = middle.position.clone().normalize();
       const th = thumb.position.clone().normalize();
-      // finger x thumb for BOTH hands: the rig's left thumb binds with its
-      // y-component flipped relative to the right's, so the mirroring is
-      // already inside the thumb vector and flipping the cross order again
-      // (the obvious guess) turns the left hand upside down.
-      const back = new THREE.Vector3().crossVectors(finger, th).normalize();
-      return { finger, back };
+      const back = new THREE.Vector3().crossVectors(finger, th).normalize().multiplyScalar(side);
+      // Lateral axis, for curling the fingers.
+      const lateral = new THREE.Vector3().crossVectors(back, finger).normalize();
+      return { finger, back, lateral };
     };
     return {
-      L: frame(bones.middleHandL, bones.thumbL),
-      R: frame(bones.middleHandR, bones.thumbR),
+      L: frame(bones.handL, bones.fingersL[1].proximal, bones.thumbL, HAND_SIGN.L),
+      R: frame(bones.handR, bones.fingersR[1].proximal, bones.thumbR, HAND_SIGN.R),
     };
   }, [bones]);
 
-  // Scratch objects for the craft layer, allocated once rather than per frame.
-  const scratch = useMemo(() => ({ q: new THREE.Quaternion(), e: new THREE.Euler() }), []);
+  const scratch = useMemo(
+    () => ({
+      q: new THREE.Quaternion(),
+      parent: new THREE.Quaternion(),
+      axis: new THREE.Vector3(),
+      right: new THREE.Vector3(),
+      up: new THREE.Vector3(),
+      fwd: new THREE.Vector3(),
+      left: new THREE.Vector3(),
+      down: new THREE.Vector3(),
+      aim: new THREE.Vector3(),
+      target: new THREE.Vector3(),
+      pole: new THREE.Vector3(),
+      frame: new THREE.Quaternion(),
+    }),
+    []
+  );
+
+  const groupRef = useRef<THREE.Group>(null);
+
+  // Jeff's print, on the chest bone in body axes. Built once the clone exists
+  // and positioned against the bind pose; see `buildChromeTee`.
+  useEffect(() => {
+    if (look.print !== 'chrome-tee' || !bones.chest) return;
+    const chest = bones.chest;
+    root.updateMatrixWorld(true);
+    const print = buildChromeTee(PRINT.front, PRINT.back);
+    // Body axes in the chest's local frame: undo the bone's world rotation
+    // relative to the character root, so the patches' +Y is up the body and
+    // +Z out of the chest.
+    const chestQ = chest.getWorldQuaternion(new THREE.Quaternion());
+    const rootQ = root.getWorldQuaternion(new THREE.Quaternion());
+    print.quaternion.copy(chestQ.invert().multiply(rootQ));
+    const s = chest.getWorldScale(new THREE.Vector3()).x / root.getWorldScale(new THREE.Vector3()).x;
+    print.scale.setScalar(1 / s);
+    chest.add(print);
+    return () => {
+      chest.remove(print);
+    };
+  }, [look.print, bones.chest, root]);
 
   // Dev-only handle so the pose can be sampled over time from the browser.
-  // Motion defects (a spinning joint, a limb that drifts) are invisible in a
+  // Motion defects (a drifting limb, a palm that flips) are invisible in a
   // still frame and obvious in a series of numbers.
   useEffect(() => {
     if (process.env.NODE_ENV !== 'development') return;
@@ -458,93 +359,50 @@ export function AgentCharacter({
       root,
       mixer,
       worker,
-      clips: gltf.animations.map((a) => a.name),
-      // Live pose sample, so motion can be measured over time rather than
-      // guessed at from a still frame.
-      pose: (names: string[]) =>
-        names.map((n) => {
-          const b = root.getObjectByName(n);
-          if (!b) return { n, missing: true };
-          const q = b.quaternion;
-          // Local to the character, so lateral offset is meaningful whatever
-          // yaw the station sits at.
-          const p = root.worldToLocal(b.getWorldPosition(new THREE.Vector3()));
-          const w = b.getWorldPosition(new THREE.Vector3());
-          return {
-            n,
-            q: [q.x, q.y, q.z, q.w],
-            y: +w.y.toFixed(3),
-            z: +w.z.toFixed(3),
-            lx: +p.x.toFixed(3),
-            lz: +p.z.toFixed(3),
-          };
-        }),
-      state: () => ({
-        mixerTime: mixer.time,
-        current: currentName.current,
-        tracked: craftBones.map((b) => b.name),
-        actions: Object.entries(actions.current).map(([name, a]) => ({
-          name,
-          running: a.isRunning(),
-          weight: a.getEffectiveWeight(),
-          time: +a.time.toFixed(2),
-          paused: a.paused,
-          enabled: a.enabled,
-        })),
-      }),
+      bones,
+      group: groupRef,
+      world: (name: string) => {
+        const b = root.getObjectByName(name);
+        if (!b) return null;
+        const p = b.getWorldPosition(new THREE.Vector3());
+        return [+p.x.toFixed(3), +p.y.toFixed(3), +p.z.toFixed(3)];
+      },
+      /** A bone's position in the station's own frame (the character group's parent). */
+      local: (name: string) => {
+        const b = root.getObjectByName(name);
+        const station = groupRef.current?.parent?.parent;
+        if (!b || !station) return null;
+        const p = station.worldToLocal(b.getWorldPosition(new THREE.Vector3()));
+        return [+p.x.toFixed(3), +p.y.toFixed(3), +p.z.toFixed(3)];
+      },
     };
     return () => {
       delete w.__command?.[agentKey];
     };
-  }, [agentKey, root, mixer, gltf.animations, craftBones, worker]);
-
-  // John used to hold his exhibit: a 0.62 x 0.84m sheet parented to his right
-  // palm. At that size — four times a sheet of A4 — and with his right hand
-  // driven onto the mouse for most of his activity mix, it read as a slab
-  // hovering over his desk rather than as paper. The exhibit is now a stack of
-  // actual-size pages lying on the desk, in `DeskStation`, where a document
-  // being reviewed would be.
+  }, [agentKey, root, mixer, worker, bones]);
 
   useEffect(() => {
-    const clip = seatedClip;
     if (!clip) return;
-    let action = actions.current[clip.name];
-    if (!action) {
-      action = mixer.clipAction(clip);
-      actions.current[clip.name] = action;
-    }
-    // Compare by name and check isRunning: a StrictMode remount stops every
-    // action, and identity alone would then skip the restart forever.
-    if (currentName.current === clip.name && action.isRunning()) return;
-    const prev = currentName.current ? actions.current[currentName.current] : null;
+    const action = mixer.clipAction(clip);
     animPose.clear();
     action.reset();
-    action.setEffectiveTimeScale(0.9 + phase * 0.2);
+    action.setLoop(THREE.LoopPingPong, Infinity);
+    action.setEffectiveTimeScale(0.85 + phase * 0.3);
     action.time = phase * clip.duration;
-    action.fadeIn(0.4).play();
-    if (prev && prev !== action) prev.fadeOut(0.4);
-    currentName.current = clip.name;
-  }, [seatedClip, mixer, phase, animPose]);
-
-  useEffect(
-    () => () => {
-      mixer.stopAllAction();
-      currentName.current = null;
-    },
-    [mixer]
-  );
+    action.play();
+    return () => {
+      action.stop();
+    };
+  }, [clip, mixer, phase, animPose]);
 
   const busy = mood === 'working' || mood === 'reviewing';
 
   useFrame(({ clock }, delta) => {
-    // Restore last frame's pure animation pose, advance, then snapshot it
-    // again. See animPose above: the mixer cannot be relied on to reset a
-    // bone it considers unchanged.
     for (const b of craftBones) {
       const saved = animPose.get(b);
       if (saved) b.quaternion.copy(saved);
     }
-    mixer.update(delta);
+    mixer.update(Math.min(delta, 0.1));
     for (const b of craftBones) {
       let saved = animPose.get(b);
       if (!saved) {
@@ -555,176 +413,184 @@ export function AgentCharacter({
     }
 
     const t = clock.elapsedTime + phase * 17;
+    const s = scratch;
+
+    // The body's own axes in world space, from the character group. The
+    // model faces +Z in that group (see MODEL_YAW), so right is -X.
+    const group = groupRef.current;
+    if (!group) return;
+    group.getWorldQuaternion(s.frame);
+    s.right.set(-1, 0, 0).applyQuaternion(s.frame);
+    s.up.set(0, 1, 0).applyQuaternion(s.frame);
+    s.fwd.set(0, 0, 1).applyQuaternion(s.frame);
+    s.left.copy(s.right).negate();
 
     /**
-     * Craft layer. Positive local x swings a limb forward on this rig and the
-     * elbow bends on -z, both established by testing every axis in the
-     * character lab rather than assumed.
-     *
-     * The offset is composed as a quaternion rather than added to Euler
-     * angles. Adding to `.rotation` means decomposing the mixer's quaternion
-     * to Euler and back every frame, and that decomposition flips sign near
-     * gimbal lock, which made arms snap around the shoulder at random.
-     *
-     * Bones the clip drives get the offset on top of the sampled pose; bones
-     * it does not are rebuilt from rest first so nothing can accumulate.
+     * Rotate a bone about a WORLD axis, on top of whatever it holds. The
+     * bone's quaternion is parent-relative, so the axis is carried into
+     * parent space first.
      */
-    const add = (b: THREE.Object3D | undefined, x = 0, y = 0, z = 0) => {
-      if (!b) return;
-      scratch.e.set(x, y, z);
-      scratch.q.setFromEuler(scratch.e);
-      b.quaternion.multiply(scratch.q);
+    const turn = (b: THREE.Object3D | undefined, axisWorld: THREE.Vector3, angle: number) => {
+      if (!b || !b.parent || angle === 0) return;
+      b.parent.getWorldQuaternion(s.parent).invert();
+      s.axis.copy(axisWorld).applyQuaternion(s.parent).normalize();
+      s.q.setFromAxisAngle(s.axis, angle);
+      b.quaternion.premultiply(s.q);
+      b.updateMatrixWorld(true);
     };
+    // Positive pitch is forward and down; about the body's LEFT axis, which
+    // is -right, carries +up toward +forward.
+    const pitch = (b: THREE.Object3D | undefined, angle: number) => turn(b, s.left, angle);
+    const yaw = (b: THREE.Object3D | undefined, angle: number) => turn(b, s.up, angle);
 
-    // Arm angles are not set here: the two-bone IK at the end of this frame
-    // drives both arms to the hand targets the station computes, which is why
-    // the forward-kinematic `arms()` helper that used to live here was dead
-    // code — anything it wrote was overwritten in the same frame.
+    root.updateMatrixWorld(true);
 
     if (busy) {
-      // The eased pose from the behaviour schedule: leaning in to read,
-      // sitting back to think, reaching for the mouse, hands down to type.
       const p = worker.pose;
-      add(bones.torso, p.lean);
-      add(bones.abdomen, Math.sin(t * 0.5) * 0.035);
-      add(bones.neck, p.headPitch * 0.4);
-      // Eyes follow the pointer. While they're driving the mouse or reading,
-      // the head tracks where the cursor actually is on their screen rather
-      // than wandering on a timer — looking at the thing you are moving is
-      // most of what makes someone look like they mean it.
+      // Split the lean between two spine joints so the back curves rather
+      // than hinging at one vertebra.
+      pitch(bones.spine, p.lean * 0.5);
+      pitch(bones.chest, p.lean * 0.5 + Math.sin(t * 0.5) * 0.02);
+      pitch(bones.neck, p.headPitch * 0.35);
+      // Eyes follow the pointer while driving the mouse or reading.
       const tracking = worker.activity === 'mouse' || worker.activity === 'read' ? 1 : 0;
       const cursorYaw = (0.5 - worker.cursor.x) * 0.34 * tracking;
       const cursorPitch = (worker.cursor.y - 0.5) * 0.16 * tracking;
-      add(bones.head, p.headPitch + cursorPitch, p.headYaw + cursorYaw + Math.sin(t * 0.31) * 0.06);
-
-      // Lay the palms flat over the work. The IK only aims the upper and
-      // forearm; the palm inherits the forearm's roll, and in the raised desk
-      // poses that left hands hanging vertically off the wrist. These are
-      // measured constants, not taste: with them, the typing fingertip sits
-      // 0.045 below the palm bone (swept live against FingersX_end), which is
-      // what the key anchors' height is derived from. The rig mirrors, hence
-      // the sign flip; the smaller left value matches its flatter base pose.
-      // Tuned with a live grid sweep against fingertip direction AND the
-      // palm-plane normal (cross of finger and thumb vectors): the first
-      // attempt drove only the fingertip slope, which flattened the hands
-      // into horizontal planks. These land palms facing down with fingers
-      // descending ~20 degrees onto the work, which is what a hand over a
-      // keyboard or mouse actually does. The rig mirrors, hence the z signs.
-      // Finger arch, applied at the middle-hand joint: the sweep showed it
-      // owns most of the tip travel (the fingers bone beyond it is short).
-      // With the palm plane pinned flat by the orientation pass below, these
-      // are what carry the fingertips from the flat plane down onto the
-      // keytops - both were solved against the held typing pose, and both
-      // are +x because the rig's mirroring is already inside the chains.
-      const deskWork = worker.activity === 'type' || worker.activity === 'mouse' || worker.activity === 'read';
-      if (deskWork) add(bones.middleHandR, 0.75);
-      if (worker.activity === 'type') add(bones.middleHandL, 0.3);
-
-      // Fingers only move while keys are actually being struck, and the two
-      // hands are deliberately out of phase.
-      const key = worker.typing;
-      if (key > 0.01) {
-        add(bones.palmL, Math.sin(t * 17) * 0.12 * key);
-        add(bones.palmR, Math.sin(t * 17 + 2.1) * 0.12 * key);
-        add(bones.fingersL, Math.sin(t * 21 + 1.1) * 0.22 * key);
-        add(bones.fingersR, Math.sin(t * 21) * 0.22 * key);
-      }
-      // The mouse hand. The wrist pivots with lateral cursor travel — a mouse
-      // is steered from the wrist, not by moving the whole arm — and the index
-      // finger snaps down on a click. `sinceClick` has always been tracked in
-      // `behavior.ts` and drawn as a ripple on screen; this is the hand
-      // actually doing the clicking that the ripple claims happened.
-      if (worker.activity === 'mouse' || worker.activity === 'read') {
-        add(bones.palmR, Math.sin(t * 6) * 0.04, (0.5 - worker.cursor.x) * 0.22, (worker.cursor.y - 0.5) * 0.08);
-        if (worker.sinceClick < 0.11) {
-          // Fast down, slower release, which is how a click actually feels.
-          const press = worker.sinceClick < 0.045 ? worker.sinceClick / 0.045 : 1 - (worker.sinceClick - 0.045) / 0.065;
-          add(bones.fingersR, press * 0.42);
-        }
-      }
+      pitch(bones.head, p.headPitch * 0.65 + cursorPitch);
+      yaw(bones.head, p.headYaw + cursorYaw + Math.sin(t * 0.31) * 0.05);
     }
     if (mood === 'blocked') {
-      // Pushed back from the desk, hands off the keys, looking around.
-      add(bones.torso, -0.2);
-      add(bones.head, -0.08, Math.sin(t * 0.45) * 0.32);
+      // Pushed back from the desk, looking around.
+      pitch(bones.chest, -0.15);
+      yaw(bones.head, Math.sin(t * 0.45) * 0.32);
     }
     if (mood === 'celebrating') {
-      // Both arms thrown up, performed seated because the pack's only
-      // celebration clip is authored standing and would launch them out of
-      // their chairs.
       const punch = 0.5 + Math.abs(Math.sin(t * 3.2)) * 0.5;
-      add(bones.torso, -0.16);
-      add(bones.upperArmL, 1.55 + punch * 0.45);
-      add(bones.upperArmR, 1.55 + punch * 0.45);
-      add(bones.lowerArmL, 0, 0, 0.55);
-      add(bones.lowerArmR, 0, 0, -0.55);
-      add(bones.head, -0.18);
+      pitch(bones.chest, -0.12);
+      turn(bones.upperArmL, s.right, -(1.4 + punch * 0.4));
+      turn(bones.upperArmR, s.right, -(1.4 + punch * 0.4));
+      pitch(bones.head, -0.15);
     }
 
     /**
-     * Arms last, and by inverse kinematics rather than angles. The torso has
-     * already moved by this point, so the shoulders are where the lean put
-     * them and the hands still land on their targets.
+     * Arms, by inverse kinematics, blended in over the authored pose.
      *
-     * Celebration is the one case that keeps its authored angles, because
-     * there the arms are the gesture rather than a means of reaching a thing.
+     * Idle hands belong to the capture: Rocketbox's seated idle already rests
+     * them naturally, and nothing procedural beats a real person settling. At
+     * work the IK takes them to the keys, the mouse, the mug, eased in and out
+     * so a change of activity is a movement rather than a switch.
      */
-    if (mood !== 'celebrating' && armL && armR) {
+    const wantIk = busy ? 1 : 0;
+    ikBlend.current += (wantIk - ikBlend.current) * Math.min(1, delta * 2.5);
+    const w = ikBlend.current;
+    if (w > 0.001 && armL && armR) {
+      armBones.forEach((b, i) => armAnim[i].copy(b.quaternion));
       root.updateMatrixWorld(true);
       const h = worker.hands;
-      target.set(h.left.x, h.left.y, h.left.z);
-      // Poles sit out to the side and below, so elbows hang naturally rather
-      // than winging up or breaking through the ribs.
-      pole.set(h.left.x - 0.55, h.left.y - 0.55, h.left.z + 0.1);
-      solveArm(armL, target, pole);
-      target.set(h.right.x, h.right.y, h.right.z);
-      pole.set(h.right.x + 0.55, h.right.y - 0.55, h.right.z + 0.1);
-      solveArm(armR, target, pole);
+      s.target.set(h.left.x, h.left.y, h.left.z);
+      // Elbows out and down: the pole sits outside and below each hand.
+      s.pole.copy(s.target).addScaledVector(s.right, -0.55).addScaledVector(s.up, -0.55);
+      solveArm(armL, s.target, s.pole);
+      s.target.set(h.right.x, h.right.y, h.right.z);
+      s.pole.copy(s.target).addScaledVector(s.right, 0.55).addScaledVector(s.up, -0.55);
+      solveArm(armR, s.target, s.pole);
 
-      // ---- Palms, stated rather than nudged. ----
-      //
-      // The IK above only aims the upper arm and forearm; the palm inherits
-      // whatever roll the forearm ends up with, which is why every additive
-      // offset produced sideways blades at one target height and horizontal
-      // planks at another. So for hands that are ON the work, the palm's
-      // world orientation is SET after the solve: back of the hand up,
-      // fingers along the character's facing, pitched gently down toward the
-      // keys. Facing is derived from the shoulder line each frame, so it
-      // holds at any station yaw and through the torso's sway.
+      // Palms stated rather than nudged: for hands ON the work, the back of
+      // the hand faces up and the fingers point along the body's facing,
+      // pitched gently down toward the keys.
       const act = worker.activity;
-      const busyHands = mood === 'working' || mood === 'reviewing';
-      if (busyHands && (act === 'type' || act === 'mouse' || act === 'read')) {
-        const s = palmScratch;
-        bones.upperArmL?.getWorldPosition(s.shL);
-        bones.upperArmR?.getWorldPosition(s.shR);
-        s.fwd.crossVectors(s.up, s.shR.sub(s.shL)).normalize();
-        // A typing hand drops ~11 degrees from wrist to fingertip. sin/cos
-        // folded in by hand: fwd = fwd*cos(p) - up*sin(p).
-        const pitch = 0.19;
-        s.fwd.multiplyScalar(Math.cos(pitch)).addScaledVector(s.up, -Math.sin(pitch));
-        if (act === 'type' && palmFrames.L) {
-          orientBone(bones.palmL!, palmFrames.L.finger, palmFrames.L.back, s.fwd, s.up);
+      if (act === 'type' || act === 'mouse' || act === 'read') {
+        // A typing hand drops about 11 degrees from wrist to fingertip.
+        const fwd = s.down.copy(s.fwd).multiplyScalar(Math.cos(0.19)).addScaledVector(s.up, -Math.sin(0.19));
+        // The left hand is on the keys while typing AND while mousing.
+        if ((act === 'type' || act === 'mouse') && handFrames.L && bones.handL) {
+          orientBone(bones.handL, handFrames.L.finger, handFrames.L.back, fwd, s.up);
         }
-        if (palmFrames.R) {
-          // The mouse hand steers from the wrist: yaw the finger line with
-          // lateral cursor travel, the same signal the old wrist-add used.
-          if (act === 'mouse' || act === 'read') {
-            s.fwd.applyAxisAngle(s.up, (0.5 - worker.cursor.x) * 0.22);
+        if (handFrames.R && bones.handR) {
+          const f = s.aim.copy(fwd);
+          if (act === 'mouse' || act === 'read') f.applyAxisAngle(s.up, (0.5 - worker.cursor.x) * 0.22);
+          orientBone(bones.handR, handFrames.R.finger, handFrames.R.back, f, s.up);
+        }
+      }
+
+      // Blend: slerp each arm bone from the authored pose toward the solve.
+      if (w < 0.999) {
+        armBones.forEach((b, i) => {
+          s.q.copy(b.quaternion);
+          b.quaternion.copy(armAnim[i]).slerp(s.q, w);
+        });
+      }
+
+      // Fingers: curled onto the keys while typing, with the two hands out
+      // of phase, and the index snapping down on a click.
+      const curl = (fingers: typeof bones.fingersL, frame: typeof handFrames.L, base: number, tap: number, offset: number) => {
+        if (!frame) return;
+        fingers.forEach((f, i) => {
+          const tapAngle = tap * Math.max(0, Math.sin(t * 15 + offset + i * 1.7));
+          for (const [b, k] of [
+            [f.proximal, 1],
+            [f.middle, 0.8],
+          ] as const) {
+            const bind = b && fingerBind.get(b);
+            if (!b || !bind) continue;
+            // Bind pose, curled, then blended in with the arm IK.
+            s.q.setFromAxisAngle(frame.lateral, (base + tapAngle) * k * CURL_SIGN).multiply(bind);
+            b.quaternion.slerp(s.q, w);
           }
-          orientBone(bones.palmR!, palmFrames.R.finger, palmFrames.R.back, s.fwd, s.up);
+        });
+      };
+      const typing = worker.typing;
+      if (act === 'type') {
+        curl(bones.fingersL, handFrames.L, 0.35, 0.3 * typing, 0);
+        curl(bones.fingersR, handFrames.R, 0.35, 0.3 * typing, 2.1);
+      } else if (act === 'mouse' || act === 'read') {
+        if (act === 'mouse') curl(bones.fingersL, handFrames.L, 0.35, 0, 0);
+        curl(bones.fingersR, handFrames.R, 0.25, 0, 0);
+        if (worker.sinceClick < 0.11) {
+          const press = worker.sinceClick < 0.045 ? worker.sinceClick / 0.045 : 1 - (worker.sinceClick - 0.045) / 0.065;
+          const index = bones.fingersR[0];
+          if (index.proximal && handFrames.R) {
+            s.q.setFromAxisAngle(handFrames.R.lateral, press * 0.35 * CURL_SIGN);
+            index.proximal.quaternion.premultiply(s.q);
+          }
         }
       }
     }
   });
 
   return (
-    <group scale={BODY_SCALE * (look.build ?? 1)} position={[0, SEAT_OFFSET_Y, 0]}>
-      <primitive object={root} />
+    <group ref={groupRef} scale={look.build ?? 1}>
+      <group rotation={[0, MODEL_YAW, 0]} position={MODEL_OFFSET}>
+        <primitive object={root} />
+      </group>
     </group>
   );
 }
 
+/**
+ * Fit of the exported avatar to the station, all measured against the
+ * running scene through the dev hook:
+ *
+ *  - MODEL_YAW turns the file's own facing to +Z;
+ *  - MODEL_OFFSET puts the seated pelvis over the chair's cushion and the
+ *    feet on the floor;
+ *  - HAND_SIGN and CURL_SIGN fix the handedness of the hand frames, checked
+ *    against measured palm normals (back of the hand up) and fingertip travel
+ *    (a curl closes the hand).
+ */
+const MODEL_YAW = 0;
+const MODEL_OFFSET: [number, number, number] = [0, 0, -0.05];
+// The rig mirrors the thumb across the two hands (its local z flips sign), so
+// finger x thumb is the back of the right hand and the PALM of the left.
+// Measured: with +1 on both, the solved left hand typed palm-up.
+const HAND_SIGN = { L: -1, R: 1 };
+const CURL_SIGN = 1;
+/** Crest of the chest and back prints from the chest bone, in metres. */
+const PRINT = { front: 0.13, back: 0.14 };
+
 export function preloadCharacters() {
-  useGLTF.preload(`${DIR}/BaseHuman_Man.glb`);
-  useGLTF.preload(`${DIR}/Woman_In_Dress.glb`);
+  for (const look of Object.values(LOOKS)) {
+    useGLTF.preload(`${DIR}/${look.file}`);
+    useGLTF.preload(`${DIR}/${look.clip}`);
+  }
 }

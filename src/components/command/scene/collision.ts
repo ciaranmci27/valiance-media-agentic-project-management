@@ -1,4 +1,4 @@
-import { ROOM, ROOM_FRONT_Z } from './roomLayout';
+import { CREDENZA_X, ROOM, ROOM_FRONT_Z, SHELF_XS, SHELF_Z } from './roomLayout';
 import { STATIONS } from './crew';
 
 /**
@@ -99,13 +99,14 @@ export const OBSTACLES: Obstacle[] = [
     // is roughly half what the model's raw bounding box suggests, because the
     // box includes overhang the footprint doesn't.
     atStation(s.position, s.yaw, 0, 0, 0.734 + MARGIN, 0.392 + MARGIN),
-    // Chair and occupant, measured at z 0.457..1.095, x ±0.315.
-    atStation(s.position, s.yaw, 0, 0.776, 0.315 + MARGIN, 0.319 + MARGIN),
+    // Chair and occupant. The chair stands at z 0.65 (less a per-person
+    // pull toward the desk) and the seated body reaches from the knees at
+    // about 0.24 to the backrest at about 0.98.
+    atStation(s.position, s.yaw, 0, 0.64, 0.32 + MARGIN, 0.36 + MARGIN),
   ]),
 
-  // The bookcase run, now along the FRONT wall — the left wall is glass since
-  // the room became a corner suite. One continuous block spanning x -5.1..-1.4.
-  box(-3.25, 5.95, 1.85, 0.36),
+  // The shelf run along the FRONT wall: three 1.1m units, 0.5m deep.
+  box((SHELF_XS[0] + SHELF_XS[2]) / 2, SHELF_Z, (SHELF_XS[2] - SHELF_XS[0]) / 2 + 0.55, 0.25 + MARGIN),
 
   // Lounge corner, front right.
   //
@@ -114,15 +115,13 @@ export const OBSTACLES: Obstacle[] = [
   // (a·|cosθ| + b·|sinθ|, a·|sinθ| + b·|cosθ|), so the pair inverts cleanly.
   // Eyeballing these had the coffee table at barely half its real size and
   // the floor lamp at nearly double.
-  box(4.7, 2.0, 0.49 + MARGIN, 0.39 + MARGIN, -Math.PI / 2.4), // loungeChair
-  box(3.32, 2.38, 0.66 + MARGIN, 0.4 + MARGIN, 0.3), // tableCoffee — moved in front of the chair
-  box(5.5, 1.5, 0.18, 0.18), // lampRoundFloor — round, so yaw is moot
-  box(5.4, 0.6, 0.26, 0.26), // pottedPlant
+  box(4.7, 2.0, 0.5 + MARGIN, 0.6 + MARGIN, -Math.PI / 2.4), // lounge chair, 1.0 x 1.2
+  box(3.32, 2.38, 0.3 + MARGIN, 0.6 + MARGIN, 0.3), // coffee table, 0.6 x 1.2
+  box(5.45, 1.25, 0.28, 0.23), // side table
+  box(5.4, 0.45, 0.3, 0.3), // floor plant
 
   // Storage down the right wall.
-  box(5.5, -3.6, 0.53 + MARGIN, 0.22 + MARGIN, -Math.PI / 2), // sideTable + radio
-  box(5.5, -2.5, 0.3 + MARGIN, 0.21 + MARGIN, 0.4), // cardboardBoxOpen
-  box(5.6, 4.6, 0.28, 0.28), // coatRackStanding
+  box(CREDENZA_X, -3.0, 0.26 + MARGIN, 1.22 + MARGIN), // credenza, carrying the radio
 
   // The tall plant, moved out of the glazed corner into the front-left one.
   box(-5.5, 5.9, 0.28, 0.28),

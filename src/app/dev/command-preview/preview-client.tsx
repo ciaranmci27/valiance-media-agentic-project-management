@@ -2,6 +2,7 @@
 
 import dynamic from 'next/dynamic';
 import type { Mood } from '@/components/command/scene/crew';
+import type { CameraMode } from '@/components/command/scene/sceneSettings';
 
 const CommandScene = dynamic(() => import('@/components/command/CommandScene'), {
   ssr: false,
@@ -23,7 +24,17 @@ const MOODS: Mood[] = ['idle', 'working', 'reviewing', 'blocked', 'celebrating']
  * fill and collapses — which is exactly what a plain `min-h-screen p-6`
  * wrapper did.
  */
-export function PreviewClient({ mood, tz, hour }: { mood?: string; tz?: string; hour?: number }) {
+export function PreviewClient({
+  mood,
+  tz,
+  hour,
+  camera,
+}: {
+  mood?: string;
+  tz?: string;
+  hour?: number;
+  camera?: CameraMode;
+}) {
   const forced = MOODS.includes(mood as Mood) ? (mood as Mood) : undefined;
   const timezone = tz || 'America/Phoenix';
   return (
@@ -33,7 +44,7 @@ export function PreviewClient({ mood, tz, hour }: { mood?: string; tz?: string; 
         {hour !== undefined ? ` · hour=${hour}` : ''}
       </p>
       <div className="px-6 pb-6 flex-1 min-h-0 flex flex-col overflow-hidden">
-        <CommandScene mock={{ mood: forced }} timezone={timezone} hour={hour} />
+        <CommandScene mock={{ mood: forced }} timezone={timezone} hour={hour} defaultCameraMode={camera} />
       </div>
     </div>
   );

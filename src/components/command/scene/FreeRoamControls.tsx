@@ -262,6 +262,24 @@ export function FreeRoamControls({
   const before = useRef({ x: 0, z: 0 });
   const entered = useRef(false);
 
+  // Dev-only: stand somewhere exact and look somewhere exact. Visual review of
+  // the room needs the same frame before and after a change, and walking
+  // there by hand never lands on it twice.
+  useEffect(() => {
+    if (process.env.NODE_ENV !== 'development') return;
+    const w = window as unknown as { __setView?: (x: number, z: number, yawDeg: number, pitchDeg?: number) => void };
+    w.__setView = (x, z, yawDeg, pitchDeg = 0) => {
+      entered.current = true;
+      ground.current.x = x;
+      ground.current.z = z;
+      yaw.current = THREE.MathUtils.degToRad(yawDeg);
+      pitch.current = THREE.MathUtils.degToRad(pitchDeg);
+    };
+    return () => {
+      delete w.__setView;
+    };
+  }, []);
+
   const forward = useRef(new THREE.Vector3());
   const right = useRef(new THREE.Vector3());
 

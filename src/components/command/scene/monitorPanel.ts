@@ -14,7 +14,10 @@
  */
 
 /**
- * The display quad of `computerScreen.glb`, taken from the model's own
+ * The display quad of the Kenney `computerScreen.glb` (since retired: the
+ * monitor around it is built in `OfficeDesk`, but every screen, the focus
+ * prompt and the reading lean are sized to this quad, so it stays), taken
+ * from that model's own
  * geometry: the four corners of the single quad it uses for the screen,
  * sampled in the Monitor group's local frame at the render scale of 1.9.
  *
@@ -149,6 +152,11 @@ export const LED = {
   /** Centred in the chin, just below the bottom of the display quad. */
   offsetY: -slant / 2 - FRAME.chin / 2,
   height: FRAME.chin * 0.5,
-  /** Centred on the frame face, so it reads as set into the bezel. */
-  offsetZ: FRAME.standoff - LIFT,
+  /**
+   * Just proud of the built bezel's face (1mm behind the glass), so it reads
+   * as set into the chin. It used to sit on the kit model's frame face, which
+   * stood 8mm in front of its display quad; the built monitor's glass and
+   * bezel are flush.
+   */
+  offsetZ: 0.001,
 };

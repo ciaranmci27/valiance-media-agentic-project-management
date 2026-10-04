@@ -3,6 +3,7 @@
 import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { Prop } from './Prop';
+import { CREDENZA_X } from './roomLayout';
 import { registerScreen, unregisterScreen } from './screenRegistry';
 
 /**
@@ -26,8 +27,8 @@ import { registerScreen, unregisterScreen } from './screenRegistry';
  * effect of where you happen to be standing.
  */
 
-/** Where the radio sits on the side table. Matches the collision box in `collision.ts`. */
-export const RADIO_POSITION: [number, number, number] = [5.45, 0.769, -3.6];
+/** Where the radio sits: on the credenza, at its far end. Inside its collision box in `collision.ts`. */
+export const RADIO_POSITION: [number, number, number] = [CREDENZA_X, 0.68, -3.7];
 
 export function Jukebox() {
   const proxy = useRef<THREE.Mesh>(null);

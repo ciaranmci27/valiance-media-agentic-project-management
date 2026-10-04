@@ -1,7 +1,10 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import * as THREE from 'three';
+import { boxProject } from './ReflectionProbe';
+import { roundedMetricBox } from './metricGeometry';
+import { useSteelMaterial, useWoolMaterial } from './officeMaterials';
 
 /**
  * A modern task chair, built rather than imported so it can be fitted to the
@@ -43,100 +46,100 @@ const BACK_Z = 0.265;
 
 const BASE_RADIUS = 0.28;
 
-export function TaskChair({ tone = '#3d444e' }: { tone?: string }) {
-  const materials = useMemo(
-    () => ({
-      fabric: new THREE.MeshStandardMaterial({ color: tone, roughness: 0.95, metalness: 0 }),
-      mesh: new THREE.MeshStandardMaterial({ color: '#2f353e', roughness: 0.88, metalness: 0.05 }),
-      frame: new THREE.MeshStandardMaterial({ color: '#22262d', roughness: 0.45, metalness: 0.65 }),
-    }),
-    [tone]
+/**
+ * Materials and geometry are new (the dimensions above are not): herringbone
+ * wool over eased cushions, a knit back, and a polished aluminium five-star
+ * base. The first version was boxes in three flat greys, which read as a
+ * chair-shaped placeholder from anywhere closer than the far wall.
+ */
+export function TaskChair({
+  tone = '#3a3f47',
+  seatTop = SEAT_TOP,
+  backZ = BACK_Z,
+}: {
+  tone?: string;
+  /** Cushion height. A real task chair adjusts to whoever sits in it, and so does this one. */
+  seatTop?: number;
+  /** Depth of the backrest's front face, set just behind the occupant's back. */
+  backZ?: number;
+}) {
+  const backBottom = seatTop + (BACK_BOTTOM - SEAT_TOP);
+  const fabric = useWoolMaterial(tone, 0.22);
+  const knit = useWoolMaterial('#2a2e34', 0.12);
+  const aluminium = useSteelMaterial('#c8ccd2', 0.25, 0.45);
+  const black = useMemo(
+    () => boxProject(new THREE.MeshStandardMaterial({ color: '#17181b', roughness: 0.5, metalness: 0.1 })),
+    []
   );
+  useEffect(() => () => black.dispose(), [black]);
 
-  // Five spokes at 72°, with the gap — not a spoke — facing the occupant's
-  // feet. Real five-star bases are oriented this way for the same reason.
+  const geo = useMemo(
+    () => ({
+      cushion: roundedMetricBox(SEAT_W, SEAT_THICK, SEAT_D, 0.035, 4),
+      shell: roundedMetricBox(SEAT_W * 0.9, 0.03, SEAT_D * 0.88, 0.012, 2),
+      back: roundedMetricBox(0.45, BACK_HEIGHT, 0.045, 0.02, 3),
+      backFrame: roundedMetricBox(0.47, BACK_HEIGHT + 0.03, 0.02, 0.009, 2),
+      lumbar: roundedMetricBox(0.38, 0.07, 0.04, 0.018, 3),
+      arm: roundedMetricBox(0.07, 0.028, 0.23, 0.012, 3),
+      spoke: roundedMetricBox(0.046, 0.03, BASE_RADIUS * 0.95, 0.012, 2),
+    }),
+    []
+  );
+  useEffect(() => () => Object.values(geo).forEach((g) => g.dispose()), [geo]);
+
+  // Five spokes at 72 degrees, with the gap (not a spoke) facing the
+  // occupant's feet. Real five-star bases are oriented this way for the same
+  // reason.
   const spokes = useMemo(() => [0, 1, 2, 3, 4].map((i) => (i / 5) * Math.PI * 2), []);
 
   return (
     <group>
       {spokes.map((a) => (
         <group key={a} rotation={[0, a, 0]}>
-          {/* Tapered arm: thicker at the column, thinner at the caster. */}
-          <mesh position={[0, 0.062, BASE_RADIUS * 0.45]} material={materials.frame} castShadow>
-            <boxGeometry args={[0.052, 0.034, BASE_RADIUS * 0.9]} />
+          {/* Tapered spoke, rising slightly toward the column the way a cast base does. */}
+          <mesh geometry={geo.spoke} material={aluminium} position={[0, 0.064, BASE_RADIUS * 0.47]} rotation={[0.07, 0, 0]} castShadow />
+          {/* Twin-wheel caster. */}
+          <mesh position={[0, 0.028, BASE_RADIUS]} rotation={[0, 0, Math.PI / 2]} material={black} castShadow>
+            <cylinderGeometry args={[0.028, 0.028, 0.03, 16]} />
           </mesh>
-          <mesh position={[0, 0.05, BASE_RADIUS * 0.88]} material={materials.frame} castShadow>
-            <boxGeometry args={[0.036, 0.026, BASE_RADIUS * 0.3]} />
-          </mesh>
-          {/* Caster. */}
-          <mesh
-            position={[0, 0.028, BASE_RADIUS]}
-            rotation={[0, 0, Math.PI / 2]}
-            material={materials.frame}
-            castShadow
-          >
-            <cylinderGeometry args={[0.028, 0.028, 0.022, 12]} />
+          <mesh position={[0, 0.052, BASE_RADIUS - 0.012]} material={black}>
+            <boxGeometry args={[0.024, 0.026, 0.03]} />
           </mesh>
         </group>
       ))}
 
-      {/* Gas lift, with the telescoping sleeve that makes it read as one. */}
-      <mesh position={[0, 0.16, 0]} material={materials.frame} castShadow>
-        <cylinderGeometry args={[0.032, 0.042, 0.24, 16]} />
+      {/* Gas lift, with the shroud over the cylinder. */}
+      <mesh position={[0, 0.17, 0]} material={black} castShadow>
+        <cylinderGeometry args={[0.034, 0.044, 0.22, 20]} />
       </mesh>
-      <mesh position={[0, 0.33, 0]} material={materials.frame} castShadow>
-        <cylinderGeometry args={[0.026, 0.026, 0.16, 16]} />
-      </mesh>
-
-      {/* Seat: a cushion on a harder shell, with the front edge rolled off —
-          the waterfall front every office chair has, and the detail that stops
-          this reading as a box on a stick. */}
-      <mesh position={[0, SEAT_TOP - SEAT_THICK / 2, 0]} material={materials.fabric} castShadow receiveShadow>
-        <boxGeometry args={[SEAT_W, SEAT_THICK, SEAT_D]} />
-      </mesh>
-      <mesh
-        position={[0, SEAT_TOP - SEAT_THICK / 2, -SEAT_D / 2]}
-        rotation={[0, 0, Math.PI / 2]}
-        material={materials.fabric}
-        castShadow
-      >
-        <cylinderGeometry args={[SEAT_THICK / 2, SEAT_THICK / 2, SEAT_W, 12]} />
-      </mesh>
-      <mesh position={[0, SEAT_TOP - SEAT_THICK - 0.012, 0]} material={materials.frame} castShadow>
-        <boxGeometry args={[SEAT_W * 0.86, 0.03, SEAT_D * 0.86]} />
+      <mesh position={[0, 0.33, 0]} material={aluminium} castShadow>
+        <cylinderGeometry args={[0.025, 0.025, 0.14, 20]} />
       </mesh>
 
-      {/* Back: raked, with a lumbar bar across the base of it. */}
-      <group position={[0, BACK_BOTTOM, BACK_Z]} rotation={[BACK_RAKE, 0, 0]}>
-        <mesh position={[0, BACK_HEIGHT / 2, 0]} material={materials.mesh} castShadow receiveShadow>
-          <boxGeometry args={[0.44, BACK_HEIGHT, 0.05]} />
-        </mesh>
-        {/* Lumbar: proud of the panel, which is what makes a back look
-            contoured rather than flat from the side. */}
-        <mesh position={[0, 0.11, -0.038]} rotation={[0, 0, Math.PI / 2]} material={materials.fabric} castShadow>
-          <cylinderGeometry args={[0.035, 0.035, 0.4, 12]} />
-        </mesh>
-        {/* The frame the panel hangs in. */}
-        <mesh position={[0, BACK_HEIGHT / 2, 0.032]} material={materials.frame} castShadow>
-          <boxGeometry args={[0.47, BACK_HEIGHT + 0.04, 0.022]} />
-        </mesh>
+      {/* Seat: an eased cushion on a hard shell. */}
+      <mesh geometry={geo.cushion} position={[0, seatTop - SEAT_THICK / 2, 0]} material={fabric} castShadow receiveShadow />
+      <mesh geometry={geo.shell} position={[0, seatTop - SEAT_THICK - 0.012, 0]} material={black} castShadow />
+
+      {/* Back: a knit panel in a black frame, raked, with a lumbar pad. */}
+      <group position={[0, backBottom, backZ]} rotation={[BACK_RAKE, 0, 0]}>
+        <mesh geometry={geo.back} material={knit} position={[0, BACK_HEIGHT / 2, 0]} castShadow receiveShadow />
+        <mesh geometry={geo.lumbar} material={fabric} position={[0, 0.11, -0.03]} castShadow />
+        <mesh geometry={geo.backFrame} material={black} position={[0, BACK_HEIGHT / 2, 0.028]} castShadow />
       </group>
 
-      {/* The post that carries the back down to the seat shell. */}
-      <mesh position={[0, BACK_BOTTOM - 0.05, BACK_Z - 0.03]} rotation={[BACK_RAKE, 0, 0]} material={materials.frame} castShadow>
-        <boxGeometry args={[0.09, 0.14, 0.04]} />
+      {/* The spine that carries the back down to the seat shell. */}
+      <mesh position={[0, backBottom - 0.05, backZ - 0.01]} rotation={[BACK_RAKE, 0, 0]} material={black} castShadow>
+        <boxGeometry args={[0.07, 0.16, 0.035]} />
       </mesh>
 
-      {/* Armrests, set wide of the body (which is ~0.25 across) so they frame
-          the occupant instead of intersecting the arms the IK is driving. */}
+      {/* Armrests, set wide of the body so they frame the occupant instead of
+          intersecting the arms the IK is driving. */}
       {[-1, 1].map((side) => (
         <group key={side}>
-          <mesh position={[side * 0.285, SEAT_TOP + 0.075, 0.09]} material={materials.frame} castShadow>
-            <boxGeometry args={[0.028, 0.15, 0.032]} />
+          <mesh position={[side * 0.285, seatTop + 0.075, 0.09]} material={black} castShadow>
+            <boxGeometry args={[0.03, 0.15, 0.04]} />
           </mesh>
-          <mesh position={[side * 0.285, SEAT_TOP + 0.155, 0.015]} material={materials.fabric} castShadow>
-            <boxGeometry args={[0.06, 0.028, 0.21]} />
-          </mesh>
+          <mesh geometry={geo.arm} material={black} position={[side * 0.285, seatTop + 0.158, 0.02]} castShadow />
         </group>
       ))}
     </group>
