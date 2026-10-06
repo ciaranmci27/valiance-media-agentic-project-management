@@ -31,7 +31,15 @@ function isPublicRoute(pathname: string) {
 
 export async function updateSession(request: NextRequest) {
   // These exact server endpoints verify their own dedicated bearer secrets.
-  if (request.nextUrl.pathname === '/api/internal/accounting/invoices/snapshot' || request.nextUrl.pathname === '/api/internal/webhooks/scheduled') {
+  // The inbound email webhook verifies Resend's Svix signature; the inbound
+  // email crons verify Vercel's CRON_SECRET bearer.
+  if (
+    request.nextUrl.pathname === '/api/internal/accounting/invoices/snapshot'
+    || request.nextUrl.pathname === '/api/internal/webhooks/scheduled'
+    || request.nextUrl.pathname === '/api/inbound-email/resend'
+    || request.nextUrl.pathname === '/api/internal/inbound-email/retention'
+    || request.nextUrl.pathname === '/api/internal/inbound-email/orphan-sweep'
+  ) {
     return NextResponse.next();
   }
   // In env-forced demo mode, skip all auth checks. Requires the server-only

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
 import { Plus, Edit, Trash2, Star, UserCircle, ExternalLink, Search, X } from 'lucide-react';
 import { useApp } from '@/lib/store';
@@ -11,6 +11,8 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/inputs/Select';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { ContactForm } from '@/components/contacts/ContactForm';
+import { ExtraEmails } from '@/components/contacts/ContactCard';
+import { ClientEmailDomains } from '@/components/projects/ClientEmailDomains';
 import Modal from '@/components/ui/Modal';
 import { TextInput } from '@/components/ui/inputs/TextInput';
 import { ProjectContact, CONTACT_ROLES } from '@/lib/types';
@@ -56,18 +58,16 @@ export function ProjectContactsPanel({ isOpen, onClose, projectId }: ProjectCont
   const existingContactIds = projectContactsList.map((pc) => pc.contact_id);
   const hasPrimaryClient = !!getPrimaryClient(projectId);
 
-  const availableContacts = useMemo(() => {
-    return contacts.filter((c) => {
-      if (existingContactIds.includes(c.id)) return false;
-      if (!addSearch) return true;
-      const s = addSearch.toLowerCase();
-      return (
-        c.name.toLowerCase().includes(s) ||
-        c.email.toLowerCase().includes(s) ||
-        c.company.toLowerCase().includes(s)
-      );
-    });
-  }, [contacts, existingContactIds, addSearch]);
+  const availableContacts = contacts.filter((c) => {
+    if (existingContactIds.includes(c.id)) return false;
+    if (!addSearch) return true;
+    const s = addSearch.toLowerCase();
+    return (
+      c.name.toLowerCase().includes(s) ||
+      c.email.toLowerCase().includes(s) ||
+      c.company.toLowerCase().includes(s)
+    );
+  });
 
   const roleOptions = CONTACT_ROLES.map((r) => ({ value: r, label: r }));
 
@@ -176,8 +176,13 @@ export function ProjectContactsPanel({ isOpen, onClose, projectId }: ProjectCont
                             </span>
                           )}
                         </div>
-                        <div className="flex items-center gap-2 text-xs text-zinc-400">
-                          {contact.email && <span className="truncate">{contact.email}</span>}
+                        <div className="flex items-center gap-2 text-xs text-zinc-400 min-w-0">
+                          {contact.email && (
+                            <span className="flex items-center gap-1.5 min-w-0">
+                              <span className="truncate">{contact.email}</span>
+                              <ExtraEmails contactId={contact.id} primaryEmail={contact.email} />
+                            </span>
+                          )}
                           {contact.email && contact.company && <span>·</span>}
                           {contact.company && <span className="truncate">{contact.company}</span>}
                         </div>
@@ -189,6 +194,7 @@ export function ProjectContactsPanel({ isOpen, onClose, projectId }: ProjectCont
                           {canManageContacts && (
                             <button
                               onClick={() => handleStartEdit(pc)}
+                              aria-label={`Edit ${contact.name}'s role`}
                               className="p-1 rounded text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.06] transition-all"
                             >
                               <Edit size={14} />
@@ -197,6 +203,7 @@ export function ProjectContactsPanel({ isOpen, onClose, projectId }: ProjectCont
                           {canManageContacts && (
                             <button
                               onClick={() => handleRemove(pc.id)}
+                              aria-label={`Remove ${contact.name} from the project`}
                               className="p-1 rounded text-zinc-500 hover:text-red-400 hover:bg-red-500/15 transition-all"
                             >
                               <Trash2 size={14} />
@@ -395,6 +402,10 @@ export function ProjectContactsPanel({ isOpen, onClose, projectId }: ProjectCont
               Add Contact
             </Button>
           ) : null}
+
+          <div className="pt-4 mt-1 border-t border-white/[0.06]">
+            <ClientEmailDomains isOpen={isOpen} projectId={projectId} />
+          </div>
         </div>
       </Modal>
 

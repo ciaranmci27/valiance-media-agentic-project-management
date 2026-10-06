@@ -1,0 +1,12 @@
+From: Acme Supplies <news@acme-supplies.example>
+To: ashley@agency.example
+Subject: October deals
+Date: Mon, 05 Oct 2026 06:00:00 +0000
+Message-ID: <newsletter-6@acme-supplies.example>
+List-Id: Acme Supplies News <news.acme-supplies.example>
+List-Unsubscribe: <https://acme-supplies.example/unsubscribe?u=1>
+Precedence: bulk
+MIME-Version: 1.0
+Content-Type: text/plain; charset="UTF-8"
+
+Big savings on shingles this month.

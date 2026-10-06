@@ -91,6 +91,28 @@ export interface Contact {
   updated_at: string;
 }
 
+/**
+ * One of a contact's email addresses. The primary one is mirrored to
+ * contacts.email by the database, both ways.
+ */
+export interface ContactEmail {
+  id: string;
+  contact_id: string;
+  email: string;
+  is_primary: boolean;
+  label: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** An address row as the contact form edits it (no id = not saved yet). */
+export interface ContactEmailDraft {
+  id?: string;
+  email: string;
+  label: string | null;
+  is_primary: boolean;
+}
+
 export interface ProjectContact {
   id: string;
   project_id: string;

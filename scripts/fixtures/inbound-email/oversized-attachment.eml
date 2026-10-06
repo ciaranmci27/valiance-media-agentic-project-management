@@ -1,0 +1,28 @@
+From: Ben Ortiz <ben@birchpartners.example>
+To: "Ashley P." <ashley@agency.example>
+Subject: Drone footage for the site
+Date: Mon, 05 Oct 2026 15:00:00 +0000
+Message-ID: <oversized-10@birchpartners.example>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="mix10"
+
+--mix10
+Content-Type: text/plain; charset="UTF-8"
+
+Footage attached, plus a small still.
+
+--mix10
+Content-Type: video/mp4; name="footage.mp4"
+Content-Disposition: attachment; filename="footage.mp4"
+Content-Transfer-Encoding: base64
+
+{{BIG_BASE64}}
+
+--mix10
+Content-Type: image/png; name="still.png"
+Content-Disposition: attachment; filename="still.png"
+Content-Transfer-Encoding: base64
+
+iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==
+
+--mix10--

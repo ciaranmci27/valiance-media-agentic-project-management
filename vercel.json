@@ -1,0 +1,7 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "crons": [
+    { "path": "/api/internal/inbound-email/retention", "schedule": "17 3 * * *" },
+    { "path": "/api/internal/inbound-email/orphan-sweep", "schedule": "47 3 * * 0" }
+  ]
+}

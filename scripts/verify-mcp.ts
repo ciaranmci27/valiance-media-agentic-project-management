@@ -95,6 +95,8 @@ async function main() {
   check('catalog: no tool exposes notification audience', !('audience' in ((toolDefinition(PM_TOOLS.find((t) => t.name === 'notify_owner') as PmTool).inputSchema.properties as object) ?? {})));
   check('catalog: no tool offers free-text custom events', !JSON.stringify(toolDefinition(PM_TOOLS.find((t) => t.name === 'log_activity') as PmTool).inputSchema).includes('"custom"'));
   check('catalog: telemetry events stay with the host publishers', !JSON.stringify(toolDefinition(PM_TOOLS.find((t) => t.name === 'log_activity') as PmTool).inputSchema).includes('usage.recorded'));
+  check('catalog: the inbound email inbox is not exposed over MCP', PM_TOOLS.every((tool) => tool.routes.every((route) => !route.path.includes('inbound-email'))));
+  check('catalog: server-composed events are not loggable', !JSON.stringify(toolDefinition(PM_TOOLS.find((t) => t.name === 'log_activity') as PmTool).inputSchema).includes('email.triaged'));
 
   const db = new PGlite();
   await seed(db);

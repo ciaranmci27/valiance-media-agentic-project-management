@@ -17,7 +17,32 @@ export function internalAuthorization(request: Request, kind: 'snapshot' | 'sche
   return null;
 }
 
+/**
+ * Vercel Cron requests: Vercel sends `Authorization: Bearer ${CRON_SECRET}`
+ * when the project has CRON_SECRET set. Without it the cron routes stay off.
+ */
+export function cronAuthorization(request: Request, env: Environment = process.env): Response | null {
+  const secret = env.CRON_SECRET;
+  const respond = (error: string, status: number) => Response.json({ error }, { status, headers: privateHeaders });
+  if (env.NEXT_PUBLIC_DEMO_MODE === 'true' || env.DEMO_MODE === 'true' || !secret) return respond('Cron disabled', 404);
+  if (secret.length < 16 || secret.length > 512 || !env.SUPABASE_SERVICE_ROLE_KEY || !env.NEXT_PUBLIC_SUPABASE_URL) return respond('Cron is not configured', 503);
+  const header = request.headers.get('authorization') ?? '';
+  if (header.length > 1024 || !header.startsWith('Bearer ')) return respond('Unauthorized', 401);
+  const digest = (value: string) => createHash('sha256').update(value).digest();
+  if (!timingSafeEqual(digest(header.slice(7)), digest(secret))) return respond('Unauthorized', 401);
+  return null;
+}
+
 export async function readSmallJson(request: Request, maxBytes = 2048): Promise<unknown> {
+  return JSON.parse(await readCappedJsonText(request, maxBytes));
+}
+
+/**
+ * The raw UTF-8 text of an application/json body, read at most maxBytes
+ * deep. Signed routes need the exact bytes to check the signature before
+ * parsing anything.
+ */
+export async function readCappedJsonText(request: Request, maxBytes: number): Promise<string> {
   if (!request.headers.get('content-type')?.toLowerCase().startsWith('application/json')) throw new Error('Use application/json');
   if (Number(request.headers.get('content-length')) > maxBytes) throw new Error('Request is too large');
   const reader = request.body?.getReader();
@@ -32,7 +57,7 @@ export async function readSmallJson(request: Request, maxBytes = 2048): Promise<
       if (size > maxBytes) throw new Error('Request is too large');
       chunks.push(value);
     }
-    return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks)));
+    return new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks));
   } finally { await reader.cancel().catch(() => {}); }
 }
 

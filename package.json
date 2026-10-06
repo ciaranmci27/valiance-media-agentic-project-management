@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "test:mcp": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-mcp.ts",
+    "test:inbound-email": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-inbound-email-lib.ts && tsx --tsconfig tsconfig.mcp-test.json scripts/verify-inbound-email.ts && tsx --tsconfig tsconfig.mcp-test.json scripts/verify-inbound-email-retention.ts",
     "postinstall": "node -e \"require('fs').copyFileSync(require.resolve('pdfjs-dist/build/pdf.worker.min.mjs'), './public/pdf.worker.min.mjs')\""
   },
   "dependencies": {
@@ -44,6 +45,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
+    "postal-mime": "^4.0.4",
     "tailwindcss": "^4",
     "tsx": "^4.23.15",
     "typescript": "^5"

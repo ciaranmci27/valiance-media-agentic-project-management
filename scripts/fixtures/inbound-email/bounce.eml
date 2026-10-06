@@ -1,0 +1,22 @@
+From: Mail Delivery Subsystem <mailer-daemon@googlemail.com>
+To: ashley@agency.example
+Subject: Delivery Status Notification (Failure)
+Date: Mon, 05 Oct 2026 12:00:00 +0000
+Message-ID: <bounce-7@mx.google.example>
+MIME-Version: 1.0
+Content-Type: multipart/report; report-type=delivery-status; boundary="bnd7"
+
+--bnd7
+Content-Type: text/plain; charset="UTF-8"
+
+Address not found: nobody@acme-roofing.example
+
+--bnd7
+Content-Type: message/delivery-status
+
+Reporting-MTA: dns; googlemail.com
+Final-Recipient: rfc822; nobody@acme-roofing.example
+Action: failed
+Status: 5.1.1
+
+--bnd7--

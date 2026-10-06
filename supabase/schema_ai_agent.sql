@@ -115,7 +115,9 @@ CREATE TABLE public.agent_activities (
     'review.started', 'review.verdict',
     'audit.finding', 'audit.no_work', 'spec.completed',
     'queue.empty', 'blocked',
-    'billing.started', 'billing.paused', 'billing.resumed', 'billing.stopped'
+    'billing.started', 'billing.paused', 'billing.resumed', 'billing.stopped',
+    -- composed by the server at inbox triage (20261006010922_email_inboxes)
+    'email.triaged'
   )),
   title text NOT NULL,
   description text NOT NULL DEFAULT '',

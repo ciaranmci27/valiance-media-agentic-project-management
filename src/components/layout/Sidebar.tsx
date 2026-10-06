@@ -18,6 +18,7 @@ import {
   Bell,
   ChevronDown,
   DollarSign,
+  Inbox,
 } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { computeNeedsYou } from '@/lib/autonomy';
@@ -33,6 +34,8 @@ import { siteConfig } from '@/site-config';
 import { hasPermission } from '@/lib/access-control';
 import { prefetchAgentAnalytics } from '@/lib/use-agent-analytics-events';
 import { defaultAgentAnalyticsRange } from '@/lib/agent-range';
+import { inboxClient } from '@/lib/inbound-email/inbox-client';
+import { INBOX_UPDATED_EVENT } from '@/lib/inbound-email/inbox-types';
 
 export function Sidebar() {
   const pathname = usePathname();
@@ -89,6 +92,25 @@ export function Sidebar() {
     return () => window.removeEventListener('notifications-updated', handler);
   }, [fetchUnreadNotifications]);
 
+  // Inbox badge: threads waiting on a person (Needs you or Needs reply).
+  const canReadInbox = hasPermission(access, 'inbound_email.read') || hasPermission(access, 'inbound_email.manage');
+  const [inboxAttention, setInboxAttention] = useState(0);
+  const [inboxTick, setInboxTick] = useState(0);
+  // Refresh on navigation and whenever the inbox reports a change.
+  useEffect(() => {
+    if (!canReadInbox) return;
+    let live = true;
+    inboxClient(isDemoMode).attentionCount()
+      .then((count) => { if (live) setInboxAttention(count); })
+      .catch((error) => console.error('Error fetching inbox count:', error));
+    return () => { live = false; };
+  }, [canReadInbox, isDemoMode, pathname, inboxTick]);
+  useEffect(() => {
+    const handler = () => setInboxTick((tick) => tick + 1);
+    window.addEventListener(INBOX_UPDATED_EVENT, handler);
+    return () => window.removeEventListener(INBOX_UPDATED_EVENT, handler);
+  }, []);
+
   const currentMember = team.find(m => m.id === teamMemberId);
   const displayName = currentMember?.name || user?.user_metadata?.display_name || user?.email?.split('@')[0] || 'User';
   const displayRole = access?.role || currentMember?.role || 'member';
@@ -114,6 +136,7 @@ export function Sidebar() {
   const navItems = [
     { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', badge: 0, overlay: false },
     { href: '/my-tasks', icon: ListTodo, label: 'My Tasks', badge: radarCount, overlay: true },
+    ...(canReadInbox ? [{ href: '/inbox', icon: Inbox, label: 'Inbox', badge: inboxAttention, overlay: true }] : []),
     ...(hasPermission(access, 'projects.read') || hasPermission(access, 'projects.read_all')
       ? [{ href: '/projects', icon: FolderKanban, label: 'Projects', badge: 0, overlay: false }] : []),
     ...(hasPermission(access, 'leads.read') || hasPermission(access, 'leads.read_all') || hasPermission(access, 'leads.manage')
@@ -269,8 +292,9 @@ export function Sidebar() {
                        Ciaran can make. The Agent badge stays brand because it is
                        a review queue, not a blocker. */
                     <span className={`absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-semibold text-white ${
-                      item.href === '/notifications' ? 'bg-red-600' : 'bg-brand-500'
+                      item.href === '/notifications' || item.href === '/inbox' ? 'bg-red-600' : 'bg-brand-500'
                     }`}>
+                      {item.href === '/inbox' && <span className="sr-only">Threads waiting on you: </span>}
                       {item.badge > 9 ? '9+' : item.badge}
                     </span>
                   )}

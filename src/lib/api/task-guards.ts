@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { badRequest } from '@/lib/api/errors';
+import { ApiError, badRequest, forbidden } from '@/lib/api/errors';
 import { accessAllowsProject, resolveMemberAccess } from '@/lib/api/access';
 
 // Every task in the list must exist inside the given project. Used for time
@@ -85,4 +85,44 @@ export async function assertBlockersInProject(
       throw badRequest('blocked_by_ids must reference existing tasks in the same project');
     }
   }
+}
+
+// Rule 3 of client email: a task linked to a source email only BECOMES
+// ai_ready when a person signed in to the app says so. The database refuses
+// it too (email_task_ai_ready_guard); this answers an agent with a plain 403
+// first, and translates the database refusal if a race gets that far.
+export const EMAIL_TASK_HUMAN_ONLY = 'EMAIL_TASK_HUMAN_ONLY';
+
+export function emailTaskHumanOnly(): ApiError {
+  return forbidden('This task came from a client email. Only a person signed in to the app can mark it ai_ready.', {
+    reason: 'email_task_human_only',
+    grant_on: 'none',
+    hint: 'Leave ai_readiness unset (needs spec). The owner marks email tasks ai_ready in the app after speccing them.',
+  });
+}
+
+/** The database guard's refusal (EMAIL_TASK_HUMAN_ONLY) as the API's 403; anything else unchanged. */
+export function translateEmailTaskGuard(error: unknown): unknown {
+  const message = (error as { message?: string } | null)?.message ?? '';
+  return message.includes(EMAIL_TASK_HUMAN_ONLY) ? emailTaskHumanOnly() : error;
+}
+
+export async function taskHasEmailLinks(supabase: SupabaseClient, taskId: string): Promise<boolean> {
+  const { data, error } = await supabase.from('email_task_links').select('id').eq('task_id', taskId).limit(1);
+  if (error) {
+    // Before the email migration is applied there are no links to honor.
+    if (['42P01', 'PGRST205'].includes(error.code ?? '')) return false;
+    throw error;
+  }
+  return (data ?? []).length > 0;
+}
+
+export async function assertEmailTaskMayBecomeAiReady(
+  supabase: SupabaseClient,
+  taskId: string,
+  before: { ai_readiness?: string | null },
+  requested: string | null | undefined,
+): Promise<void> {
+  if (requested !== 'ai_ready' || before.ai_readiness === 'ai_ready') return;
+  if (await taskHasEmailLinks(supabase, taskId)) throw emailTaskHumanOnly();
 }

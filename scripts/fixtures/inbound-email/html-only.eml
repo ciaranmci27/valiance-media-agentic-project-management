@@ -1,0 +1,9 @@
+From: Carla Mendes <carla.mendes@gmail.com>
+To: "Ashley P." <ashley@agency.example>
+Subject: New logo files
+Date: Mon, 05 Oct 2026 11:00:00 -0700
+Message-ID: <html-only-4@mail.gmail.com>
+MIME-Version: 1.0
+Content-Type: text/html; charset="UTF-8"
+
+<html><head><style>p{color:red}</style></head><body><p>Hi Ashley,</p><p>Here is the link to the new logo: <a href="https://files.example/logo">logo folder</a>.</p><p>Please update the header &amp; footer.</p><script>alert(1)</script></body></html>

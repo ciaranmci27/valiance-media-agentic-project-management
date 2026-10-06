@@ -1,5 +1,5 @@
 import { SupabaseClient } from '@supabase/supabase-js';
-import type { Project, Task, TeamMember, Subtask, AcceptanceCriterion, Comment, Activity, Contact, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, ApiKey, ProjectGoal, TaskSuggestion, AgentActivity, ApiAuditEntry, TimeEntry, ProjectCredential, ProjectCredentialListItem, ProjectInvoice, BusinessSettings, InvoiceTimeEntryAllocation, WebhookEndpoint, WebhookDelivery, ProjectRetainer, ProjectRetainerAmount, ProjectRetainerShare, ProjectRetainerPeriod, RetainerDuePeriod, InvoiceLineShare } from '@/lib/types';
+import type { Project, Task, TeamMember, Subtask, AcceptanceCriterion, Comment, Activity, Contact, ContactEmail, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, ApiKey, ProjectGoal, TaskSuggestion, AgentActivity, ApiAuditEntry, TimeEntry, ProjectCredential, ProjectCredentialListItem, ProjectInvoice, BusinessSettings, InvoiceTimeEntryAllocation, WebhookEndpoint, WebhookDelivery, ProjectRetainer, ProjectRetainerAmount, ProjectRetainerShare, ProjectRetainerPeriod, RetainerDuePeriod, InvoiceLineShare } from '@/lib/types';
 import { fetchAllRows } from '@/lib/supabase/fetch-all';
 import { notFound } from '@/lib/api/errors';
 import { siteConfig } from '@/site-config';
@@ -594,6 +594,45 @@ export async function patchContact(
 
 export async function removeContact(supabase: SupabaseClient, id: string) {
   const { error } = await supabase.from('contacts').delete().eq('id', id);
+  if (error) throw error;
+}
+
+// ============================================================
+// CONTACT EMAILS (several per contact; the primary mirrors contacts.email)
+// ============================================================
+
+export async function fetchContactEmails(supabase: SupabaseClient, contactId?: string) {
+  return fetchAllRows<ContactEmail>((from, to, count) => {
+    let query = supabase.from('contact_emails').select('*', count ? { count } : undefined);
+    if (contactId) query = query.eq('contact_id', contactId);
+    return query.order('contact_id').order('created_at').order('id').range(from, to);
+  });
+}
+
+export async function insertContactEmail(
+  supabase: SupabaseClient,
+  row: { contact_id: string; email: string; label: string | null; is_primary?: boolean },
+) {
+  const { data, error } = await supabase
+    .from('contact_emails')
+    .insert({ contact_id: row.contact_id, email: row.email, label: row.label, is_primary: row.is_primary ?? false })
+    .select()
+    .single();
+  if (error) throw error;
+  return data as ContactEmail;
+}
+
+export async function patchContactEmail(
+  supabase: SupabaseClient,
+  id: string,
+  updates: Partial<Pick<ContactEmail, 'email' | 'label' | 'is_primary'>>,
+) {
+  const { error } = await supabase.from('contact_emails').update(updates).eq('id', id);
+  if (error) throw error;
+}
+
+export async function removeContactEmail(supabase: SupabaseClient, id: string) {
+  const { error } = await supabase.from('contact_emails').delete().eq('id', id);
   if (error) throw error;
 }
 

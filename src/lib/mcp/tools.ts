@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { AGENT_EVENT_SCHEMAS, AGENT_EVENT_TYPES, isTelemetryEvent, type AgentEventType } from '@/lib/agent-events';
+import { AGENT_EVENT_SCHEMAS, AGENT_EVENT_TYPES, isServerEvent, isTelemetryEvent, type AgentEventType } from '@/lib/agent-events';
 import { routeTool, type PmTool } from './core';
 
 /**
@@ -15,7 +15,8 @@ import { routeTool, type PmTool } from './core';
  * Fields a route requires but decides itself (a comment's author, a timer's
  * member) are filled from the key, never asked for.
  *
- * Left out on purpose: credentials, client emails, invoices, rates, time
+ * Left out on purpose: credentials, client emails (outbound, and the inbound
+ * inbox at /api/v1/inbound-emails, which has its own plugin tools), invoices, rates, time
  * approval, team writes, every hard delete, the unscoped app activity feed,
  * suggestion approve/decline, and agent health.
  */
@@ -112,7 +113,7 @@ const mapRows = (fn: (row: Record<string, unknown>) => unknown) => (data: unknow
   Array.isArray(data) ? data.map((row) => fn(row as Record<string, unknown>)) : data;
 
 /** Typed events an agent may log; usage and turn telemetry come from the host publishers. */
-const AGENT_EVENTS = AGENT_EVENT_TYPES.filter((type) => !isTelemetryEvent(type)) as [AgentEventType, ...AgentEventType[]];
+const AGENT_EVENTS = AGENT_EVENT_TYPES.filter((type) => !isTelemetryEvent(type) && !isServerEvent(type)) as [AgentEventType, ...AgentEventType[]];
 
 export const PM_TOOLS: PmTool[] = [
   {

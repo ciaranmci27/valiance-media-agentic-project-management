@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { useApp, defaultFilters } from '@/lib/store';
 import { Header } from '@/components/layout/Header';
 import { ContactForm } from '@/components/contacts/ContactForm';
+import { ExtraEmails } from '@/components/contacts/ContactCard';
 import { Button } from '@/components/ui/Button';
 import { Avatar } from '@/components/ui/Avatar';
 import { DataTable, type Column } from '@/components/ui/DataTable';
@@ -20,7 +21,7 @@ import { formatPhone } from '@/lib/format-phone';
 
 export default function ContactsPage() {
   const router = useRouter();
-  const { contacts, deleteContact, filters, setFilters } = useApp();
+  const { contacts, contactEmails, deleteContact, filters, setFilters } = useApp();
   const { access } = useAuth();
   const canManageContacts = hasPermission(access, 'contacts.manage');
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -42,11 +43,16 @@ export default function ContactsPage() {
   };
 
   const searchLower = filters.search.toLowerCase();
+  // Contacts with any address (primary or not) that matches the search.
+  const emailMatches = filters.search
+    ? new Set(contactEmails.filter(row => row.email.includes(searchLower)).map(row => row.contact_id))
+    : null;
   const filtered = filters.search
     ? contacts.filter(c =>
         c.name.toLowerCase().includes(searchLower) ||
         c.company.toLowerCase().includes(searchLower) ||
-        c.email.toLowerCase().includes(searchLower))
+        c.email.toLowerCase().includes(searchLower) ||
+        emailMatches?.has(c.id))
     : contacts;
 
   const handleCloseForm = () => {
@@ -85,6 +91,7 @@ export default function ContactsPage() {
         <span className="flex items-center gap-2 min-w-0">
           <Mail size={14} className="text-zinc-500 flex-shrink-0" />
           <span className={c.email ? 'truncate' : 'text-zinc-600 italic'}>{c.email || 'No email'}</span>
+          <ExtraEmails contactId={c.id} primaryEmail={c.email} />
         </span>
       </div>
     </div>
@@ -135,6 +142,7 @@ export default function ContactsPage() {
         <span className="flex items-center gap-1.5 text-zinc-300 min-w-0">
           <Mail size={14} className="text-zinc-500 flex-shrink-0" />
           <span className={c.email ? 'truncate' : 'text-zinc-600 italic'}>{c.email || 'No email'}</span>
+          <ExtraEmails contactId={c.id} primaryEmail={c.email} />
         </span>
       ),
     },

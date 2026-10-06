@@ -17,6 +17,7 @@ import { ProjectContactsPanel } from '@/components/projects/ProjectContactsPanel
 import { PortalSettingsPanel } from '@/components/projects/PortalSettingsPanel';
 import { ClientCommunicationsPanel } from '@/components/projects/ClientCommunicationsPanel';
 import { ClientCommunicationsLogPanel } from '@/components/projects/ClientCommunicationsLogPanel';
+import { ProjectEmailsPanel } from '@/components/inbox/ProjectEmailsPanel';
 import { PortalUpdatesPanel } from '@/components/projects/PortalUpdatesPanel';
 import { TimeTrackingPanel } from '@/components/projects/TimeTrackingPanel';
 import { CredentialsPanel } from '@/components/projects/CredentialsPanel';
@@ -63,6 +64,7 @@ export default function ProjectDetailPage() {
   const canReadFiles = hasPermission(access, 'files.read');
   const canReadPortal = hasPermission(access, 'portal.read') || hasPermission(access, 'portal.manage');
   const canReadCommunications = hasPermission(access, 'communications.read') || hasPermission(access, 'communications.manage');
+  const canReadInbox = hasPermission(access, 'inbound_email.read') || hasPermission(access, 'inbound_email.manage');
   const canReadCredentials = hasPermission(access, 'credentials.reveal_shared') || hasPermission(access, 'credentials.manage');
   const canReadInvoices = hasPermission(access, 'invoices.read') || hasPermission(access, 'invoices.manage');
   const canReadTime = hasPermission(access, 'time.manage_own') || hasPermission(access, 'time.read_all') || hasPermission(access, 'time.manage_all');
@@ -686,6 +688,8 @@ export default function ProjectDetailPage() {
             refreshSignal={commsRefreshKey}
           />
         </div>}
+
+        {canReadInbox && <ProjectEmailsPanel projectId={projectId} />}
 
         {(canReadCredentials || canReadInvoices) && <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch mt-6">
           {canReadCredentials && <CredentialsPanel projectId={projectId} />}

@@ -1,0 +1,37 @@
+Return-Path: <dana@acme-roofing.example>
+From: Dana Wu <dana@acme-roofing.example>
+To: Sam Owner <owner@agency.example>
+Cc: "Ashley P." <ashley@agency.example>
+Subject: Re: Homepage banner
+Date: Mon, 05 Oct 2026 10:14:52 -0400
+Message-ID: <CAF2xGmail-reply-1@mail.gmail.com>
+In-Reply-To: <orig-1@agency.example>
+References: <orig-1@agency.example>
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="000000000000a1b2c3"
+
+--000000000000a1b2c3
+Content-Type: text/plain; charset="UTF-8"
+
+Looks great! Two changes please:
+1. Make the phone number bigger.
+2. Swap the photo for the one with the red truck.
+
+Thanks,
+Dana
+
+On Mon, Oct 5, 2026 at 9:02 AM Sam Owner <owner@agency.example>
+wrote:
+
+> Hi Dana,
+>
+> The new homepage banner is live on staging. Let me know what you think.
+>
+> Sam
+
+--000000000000a1b2c3
+Content-Type: text/html; charset="UTF-8"
+
+<div dir="ltr">Looks great! Two changes please:<br><ol><li>Make the phone number bigger.</li><li>Swap the photo for the one with the red truck.</li></ol>Thanks,<br>Dana</div><br><div class="gmail_quote"><div dir="ltr" class="gmail_attr">On Mon, Oct 5, 2026 at 9:02 AM Sam Owner &lt;owner@agency.example&gt; wrote:<br></div><blockquote class="gmail_quote">Hi Dana,<br><br>The new homepage banner is live on staging.</blockquote></div>
+
+--000000000000a1b2c3--

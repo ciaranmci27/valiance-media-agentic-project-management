@@ -126,6 +126,17 @@ export const AGENT_EVENT_SCHEMAS = {
     reason: z.string().min(1).max(300),
   }),
 
+  // -- inbox (composed by the server at triage, never posted by an agent) ---
+  // No subject, sender or summary: the feed reaches the live floor, and email
+  // content stays in the Inbox.
+  'email.triaged': z.object({
+    message_id: z.string().uuid(),
+    thread_id: z.string().uuid(),
+    outcome: z.enum(['no_action', 'task', 'needs_reply', 'needs_ciaran']),
+    urgent: z.boolean(),
+    links: z.number().int().min(0),
+  }),
+
   // -- bookkeeping (hidden from the live-floor feed by default) ------------
   'billing.started': z.object({ ...taskRef, description: z.string().max(200).optional() }),
   'billing.paused': z.object({ ...taskRef }),
@@ -140,6 +151,18 @@ export const AGENT_EVENT_TYPES = Object.keys(AGENT_EVENT_SCHEMAS) as AgentEventT
 
 export function isAgentEventType(t: string): t is AgentEventType {
   return t in AGENT_EVENT_SCHEMAS;
+}
+
+/**
+ * Events only the server composes (from the action that caused them), so the
+ * activity endpoint and the MCP log_activity tool refuse them: an agent
+ * claiming "I triaged that email" without triaging it would be a lie in the
+ * feed.
+ */
+export const SERVER_EVENT_TYPES: AgentEventType[] = ['email.triaged'];
+
+export function isServerEvent(t: string): boolean {
+  return (SERVER_EVENT_TYPES as string[]).includes(t);
 }
 
 /** Bookkeeping events: real data, wrong altitude for the live-floor feed. */
@@ -245,6 +268,15 @@ export function formatEventTitle(type: AgentEventType, payload: Record<string, u
     }
     case 'blocked':
       return `Blocked: ${p.reason}`;
+    case 'email.triaged': {
+      const outcomes: Record<string, string> = {
+        no_action: 'no action',
+        task: 'task',
+        needs_reply: 'reply drafted',
+        needs_ciaran: 'flagged for review',
+      };
+      return `${p.urgent ? 'Urgent: t' : 'T'}riaged email: ${outcomes[String(p.outcome)] ?? String(p.outcome)}`;
+    }
     case 'billing.started':
       return p.description ? `Billing started: ${p.description}` : 'Billing started';
     case 'billing.paused':
@@ -279,6 +311,7 @@ export const EVENT_STATE: Record<AgentEventType, 'work' | 'done' | 'no_work' | '
   'spec.completed': 'work',
   'queue.empty': 'no_work',
   blocked: 'blocked',
+  'email.triaged': 'work',
   'billing.started': 'work',
   'billing.resumed': 'work',
   'billing.paused': 'silent',

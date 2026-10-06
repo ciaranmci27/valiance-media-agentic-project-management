@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { AGENT_EVENT_SCHEMAS, AGENT_EVENT_TYPES } from '@/lib/agent-events';
+import { AGENT_EVENT_SCHEMAS, AGENT_EVENT_TYPES, isServerEvent } from '@/lib/agent-events';
 
 /**
  * Two accepted shapes, one table.
@@ -14,7 +14,8 @@ import { AGENT_EVENT_SCHEMAS, AGENT_EVENT_TYPES } from '@/lib/agent-events';
  * every plugin speaks the typed contract.
  */
 
-const typedVariants = AGENT_EVENT_TYPES.map((type) =>
+// Server-composed events (email.triaged) are not postable.
+const typedVariants = AGENT_EVENT_TYPES.filter((type) => !isServerEvent(type)).map((type) =>
   z.object({
     activity_type: z.literal(type),
     payload: AGENT_EVENT_SCHEMAS[type],

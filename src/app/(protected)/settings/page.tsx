@@ -33,6 +33,7 @@ import { toast } from '@/components/ui/Toast';
 import { useDemo } from '@/lib/demo-context';
 import { SmtpSection } from '@/components/settings/SmtpSection';
 import { WebhooksPanel } from '@/components/settings/WebhooksPanel';
+import { EmailInboxesSection } from '@/components/settings/EmailInboxesSection';
 import { Popover } from '@/components/ui/Popover';
 import { BusinessInfoSection } from '@/components/settings/BusinessInfoSection';
 import { AnalyticsExclusionsSection } from '@/components/settings/AnalyticsExclusionsSection';
@@ -178,6 +179,7 @@ export default function SettingsPage() {
   const canManageSmtp = hasPermission(access, 'smtp.manage');
   const canManageAgents = hasPermission(access, 'agents.manage');
   const canManageWebhooks = hasPermission(access, 'webhooks.manage');
+  const canManageInboxes = hasPermission(access, 'inbound_email.manage');
 
   const [userName, setUserName] = useState('');
   const [userEmail, setUserEmail] = useState('');
@@ -1133,6 +1135,9 @@ export default function SettingsPage() {
 
         {/* SMTP Email Section ; admin only, hidden in demo mode */}
         {canManageSmtp && !isDemoMode && <SmtpSection />}
+
+        {/* Email inboxes ; read-only client email, shown in demo mode too */}
+        {canManageInboxes && <EmailInboxesSection />}
 
         {/* Analytics Exclusions ; admin only */}
         {canManageSettings && <AnalyticsExclusionsSection />}

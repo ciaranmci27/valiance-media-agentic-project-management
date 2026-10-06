@@ -1,4 +1,4 @@
-import type { TeamMember, Contact, Project, ProjectContact, Task, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, Activity, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, TimeEntry, Notification, ProjectGoal, TaskSuggestion, AgentActivity, ProjectInvoice, ClientCommunication, PortalAnalyticsResponse, PortalSessionSummary, EmployeeEarningsData } from './types';
+import type { TeamMember, Contact, ContactEmail, Project, ProjectContact, Task, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, Activity, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, TimeEntry, Notification, ProjectGoal, TaskSuggestion, AgentActivity, ProjectInvoice, ClientCommunication, PortalAnalyticsResponse, PortalSessionSummary, EmployeeEarningsData } from './types';
 import { DEFAULT_SECTION_ORDER } from './types';
 import { siteConfig } from '@/site-config';
 
@@ -56,6 +56,17 @@ export const demoContacts: Contact[] = [
   { id: 'b2b2b2b2-0018-4000-8000-000000000018', name: 'Derek Holt',      email: 'derek@holtconstruction.com',  phone: '(404) 555-0512', company: 'Holt Construction',        notes: 'Owner. Wants project showcase site + lead gen.',                     color: '#F59E0B', avatar_url: '', created_at: daysAgo(6),  updated_at: daysAgo(1) },
   { id: 'b2b2b2b2-0019-4000-8000-000000000019', name: 'Mei-Lin Chang',   email: 'meiling@savorstreet.co',      phone: '(212) 555-0678', company: 'Savor Street Food Hall',   notes: 'Founder. Multi-vendor food hall. Needs site + vendor portal.',       color: '#EF4444', avatar_url: '', created_at: daysAgo(2),  updated_at: daysAgo(1) },
   { id: 'b2b2b2b2-0020-4000-8000-000000000020', name: 'Jordan Blake',    email: 'jordan@crestfinancial.com',   phone: '(312) 555-0221', company: 'Crest Financial Group',   notes: 'IT director. Technical approvals for the website project.',          color: siteConfig.colors.brand[500], avatar_url: '', created_at: daysAgo(33), updated_at: daysAgo(5) },
+];
+
+// Every contact's address is its primary; a few people have more than one.
+export const demoContactEmails: ContactEmail[] = [
+  ...demoContacts.filter(c => c.email).map((c, i) => ({
+    id: `b3b3b3b3-${String(i + 1).padStart(4, '0')}-4000-8000-${String(i + 1).padStart(12, '0')}`,
+    contact_id: c.id, email: c.email.toLowerCase(), is_primary: true, label: null,
+    created_at: c.created_at, updated_at: c.created_at,
+  })),
+  { id: 'b3b3b3b3-0101-4000-8000-000000000101', contact_id: 'b2b2b2b2-0001-4000-8000-000000000001', email: 'dlawson@crestfinancial.com', is_primary: false, label: 'Alias', created_at: daysAgo(40), updated_at: daysAgo(40) },
+  { id: 'b3b3b3b3-0102-4000-8000-000000000102', contact_id: 'b2b2b2b2-0002-4000-8000-000000000002', email: 'monica.reeves@outlook.com', is_primary: false, label: 'Personal', created_at: daysAgo(20), updated_at: daysAgo(20) },
 ];
 
 // ---------------------------------------------------------------------------

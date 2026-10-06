@@ -31,6 +31,7 @@ import { Tooltip } from '@/components/ui/Tooltip';
 import { Popover } from '@/components/ui/Popover';
 import { parseDateOnly, isDateOverdue } from '@/lib/date-utils';
 import { hasPermission, canEditTask, canManageAllTasks } from '@/lib/access-control';
+import { TaskSourceEmailsSection, useTaskSourceEmails } from '@/components/inbox/TaskSourceEmails';
 
 interface TaskDetailPanelProps {
   task: Task | null;
@@ -94,6 +95,9 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
   const [editingCriterionId, setEditingCriterionId] = useState<string | null>(null);
   const [editingCriterionText, setEditingCriterionText] = useState('');
   const [deleteCriterionTarget, setDeleteCriterionTarget] = useState<string | null>(null);
+
+  const sourceEmails = useTaskSourceEmails(task?.id ?? null);
+  const fromEmail = (sourceEmails?.link_count ?? 0) > 0;
 
   // Reset local state when task changes
   useEffect(() => {
@@ -392,6 +396,11 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
                     <p className="text-xs text-zinc-500">
                       The dev agent may pick this task up on its own
                     </p>
+                    {fromEmail && (
+                      <p className="mt-0.5 text-xs text-amber-300">
+                        Came from a client email: only a person can mark it AI Ready, never an agent.
+                      </p>
+                    )}
                   </div>
                 </div>
                 <Toggle
@@ -402,7 +411,14 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
                       toast('error', 'Add acceptance criteria before marking this AI Ready');
                       return;
                     }
-                    updateTask(task.id, { ai_readiness: turningOn ? 'ai_ready' : 'human_only' });
+                    void updateTask(task.id, { ai_readiness: turningOn ? 'ai_ready' : 'human_only' }, { silent: true }).then((ok) => {
+                      if (ok) return;
+                      // Rule 3: the server refuses ai_ready for email-sourced
+                      // tasks unless a person signed in to the app asks.
+                      toast('error', fromEmail
+                        ? 'This task came from a client email, so only a person signed in to the app can mark it AI Ready. It was not changed.'
+                        : 'Failed to update task');
+                    });
                   }}
                   aria-label="AI ready"
                 />
@@ -418,6 +434,8 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
                 </p>
               </div>
             )}
+
+            <TaskSourceEmailsSection data={sourceEmails} />
 
             {/* Blocked By Section */}
             {blockers.length > 0 && (

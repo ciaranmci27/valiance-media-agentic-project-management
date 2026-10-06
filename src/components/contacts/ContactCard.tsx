@@ -6,7 +6,44 @@ import { MoreVertical, Edit, Trash2, Mail, Phone } from 'lucide-react';
 import { Contact } from '@/lib/types';
 import { Avatar } from '@/components/ui/Avatar';
 import { Popover } from '@/components/ui/Popover';
+import { Tooltip } from '@/components/ui/Tooltip';
+import { useApp } from '@/lib/store';
 import { formatPhone } from '@/lib/format-phone';
+
+/**
+ * "+N" after a contact's primary email when they have more addresses. The
+ * tooltip lists the others; screen readers get the same list as text.
+ */
+export function ExtraEmails({ contactId, primaryEmail }: { contactId: string; primaryEmail: string }) {
+  const { getContactEmails } = useApp();
+  const primary = primaryEmail.trim().toLowerCase();
+  const others = getContactEmails(contactId).filter(row => row.email !== primary);
+  if (!primary || others.length === 0) return null;
+
+  const describe = (row: { email: string; label: string | null }) =>
+    row.label ? `${row.email} (${row.label})` : row.email;
+
+  return (
+    <Tooltip
+      className="flex-shrink-0"
+      content={
+        <span className="flex flex-col gap-0.5">
+          {others.map(row => <span key={row.id}>{describe(row)}</span>)}
+        </span>
+      }
+    >
+      <span
+        tabIndex={0}
+        className="text-xs text-zinc-500 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+      >
+        <span aria-hidden="true">+{others.length}</span>
+        <span className="sr-only">
+          {`${others.length} more email ${others.length === 1 ? 'address' : 'addresses'}: ${others.map(describe).join(', ')}`}
+        </span>
+      </span>
+    </Tooltip>
+  );
+}
 
 interface ContactCardProps {
   contact: Contact;
@@ -83,6 +120,7 @@ export function ContactCard({ contact, onEdit, onDelete }: ContactCardProps) {
           <span className={contact.email ? 'truncate' : 'text-zinc-600 italic'}>
             {contact.email || 'No email'}
           </span>
+          <ExtraEmails contactId={contact.id} primaryEmail={contact.email} />
         </span>
       </div>
 

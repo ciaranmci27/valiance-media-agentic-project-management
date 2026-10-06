@@ -24,7 +24,7 @@ import { hasPermission } from '@/lib/access-control';
 export default function ContactDetailPage() {
   const params = useParams();
   const router = useRouter();
-  const { getContact, getProjectsByContact, getInvoicesByContact, getProject, leads, deleteProject, addProjectContact, updateContact } = useApp();
+  const { getContact, getContactEmails, getProjectsByContact, getInvoicesByContact, getProject, leads, deleteProject, addProjectContact, updateContact } = useApp();
   const { access } = useAuth();
   const canManageContacts = hasPermission(access, 'contacts.manage');
   const canManageProjects = hasPermission(access, 'projects.manage');
@@ -56,6 +56,12 @@ export default function ContactDetailPage() {
       </div>
     );
   }
+
+  // contacts.email mirrors the primary address; the rest are listed under the header.
+  const primaryEmail = contact.email.trim().toLowerCase();
+  const savedEmails = getContactEmails(contactId);
+  const primaryEmailRow = savedEmails.find(row => row.email === primaryEmail);
+  const otherEmails = savedEmails.filter(row => row.email !== primaryEmail);
 
   const linkedProjects = getProjectsByContact(contactId);
   const linkedLeads = leads.filter(l => l.contact_id === contactId);
@@ -117,10 +123,14 @@ export default function ContactDetailPage() {
                   )}
                   <div className="flex items-center gap-4 text-sm mt-1 lg:mt-0">
                     {contact.email ? (
-                      <a href={`mailto:${contact.email}`} className="flex items-center gap-1.5 text-zinc-300 hover:text-brand-300 transition-colors">
-                        <Mail size={14} className="text-zinc-500" />
-                        <span>{contact.email}</span>
-                      </a>
+                      <span className="flex items-center gap-1.5 min-w-0">
+                        <a href={`mailto:${contact.email}`} className="flex items-center gap-1.5 min-w-0 text-zinc-300 hover:text-brand-300 transition-colors">
+                          <Mail size={14} className="text-zinc-500 flex-shrink-0" aria-hidden="true" />
+                          <span className="truncate">{contact.email}</span>
+                        </a>
+                        {primaryEmailRow?.label && <Badge className="flex-shrink-0">{primaryEmailRow.label}</Badge>}
+                        {otherEmails.length > 0 && <span className="sr-only">(primary)</span>}
+                      </span>
                     ) : (
                       <span className="flex items-center gap-1.5 text-zinc-600 italic">
                         <Mail size={14} />
@@ -142,6 +152,17 @@ export default function ContactDetailPage() {
                 </div>
                 {contact.company && (
                   <p className="text-sm text-zinc-400 mt-0.5 truncate hidden lg:block">{contact.company}</p>
+                )}
+                {otherEmails.length > 0 && (
+                  <ul aria-label="Other email addresses" className="mt-2 space-y-1 text-sm">
+                    {otherEmails.map(row => (
+                      <li key={row.id} className="flex items-center gap-1.5 min-w-0 text-zinc-300">
+                        <Mail size={14} className="text-zinc-500 flex-shrink-0" aria-hidden="true" />
+                        <span className="truncate">{row.email}</span>
+                        {row.label && <Badge className="flex-shrink-0">{row.label}</Badge>}
+                      </li>
+                    ))}
+                  </ul>
                 )}
               </div>
             </div>

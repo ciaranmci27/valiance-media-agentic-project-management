@@ -1,13 +1,13 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, useRef, ReactNode, type SetStateAction } from 'react';
-import { Project, Task, TeamMember, FilterState, ViewMode, Subtask, AcceptanceCriterion, Comment, Contact, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, Activity, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, EntityFileType, ApiKey, NotificationCategory, ProjectGoal, TaskSuggestion, AgentActivity, TimeEntry, ProjectCredentialListItem, CredentialPayload, CredentialCategory, ProjectInvoice, InvoiceStatus, BusinessSettings, EmployeeEarningsData, DEFAULT_SECTION_ORDER } from './types';
+import { Project, Task, TeamMember, FilterState, ViewMode, Subtask, AcceptanceCriterion, Comment, Contact, ContactEmail, ContactEmailDraft, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, Activity, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, EntityFileType, ApiKey, NotificationCategory, ProjectGoal, TaskSuggestion, AgentActivity, TimeEntry, ProjectCredentialListItem, CredentialPayload, CredentialCategory, ProjectInvoice, InvoiceStatus, BusinessSettings, EmployeeEarningsData, DEFAULT_SECTION_ORDER } from './types';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
 import { generatePortalSlug } from '@/lib/portal-slug';
 import {
-  demoTeam, demoContacts, demoProjects, demoProjectContacts, demoTasks,
+  demoTeam, demoContacts, demoContactEmails, demoProjects, demoProjectContacts, demoTasks,
   demoLeads, demoLeadInteractions, demoLeadProposals, demoLeadFields,
   demoLeadContacts, demoActivities,
   demoPortalSettings, demoPortalUpdates, demoPortalUpdateAttachments, demoEntityFiles, demoTimeEntries,
@@ -34,6 +34,10 @@ import {
   insertTeamMember,
   removeTeamMember,
   fetchContacts,
+  fetchContactEmails,
+  insertContactEmail,
+  patchContactEmail,
+  removeContactEmail,
   insertContact,
   patchContact,
   removeContact,
@@ -106,6 +110,7 @@ import { findStalePausedEntries, isStalePause } from '@/lib/time-entry-utils';
 import { hasPermission, canReadTasks } from '@/lib/access-control';
 import { loadRetainerFinanceInputs } from '@/lib/finance/use-retainer-finance';
 import { rollbackScope } from '@/lib/optimistic';
+import { INBOX_UPDATED_EVENT } from '@/lib/inbound-email/inbox-types';
 
 // Best-effort nudge so the webhook dispatcher runs right after an invoice
 // change, delivering the event immediately. The DB trigger already enqueued
@@ -124,7 +129,7 @@ function kickWebhookDispatch(): void {
 type RealtimeSlice =
   | 'tasks' | 'projects' | 'team' | 'contacts' | 'leads' | 'activities'
   | 'agentActivity' | 'portal' | 'files' | 'timeEntries' | 'credentials'
-  | 'invoices' | 'suggestions' | 'goals' | 'notifications' | 'comms';
+  | 'invoices' | 'suggestions' | 'goals' | 'notifications' | 'comms' | 'emails';
 
 /** `silent` skips the per-task error toast, for bulk actions that report one summary. */
 export interface TaskWriteOptions {
@@ -152,6 +157,7 @@ export const LOAD_KEY_LABELS: Record<LoadKey, string> = {
   goals: 'goals',
   notifications: 'notifications',
   comms: 'client emails',
+  emails: 'the inbox',
   apiKeys: 'API keys',
   businessSettings: 'business settings',
   employeeEarnings: 'your earnings',
@@ -199,6 +205,18 @@ const REALTIME_TABLE_SLICES: Record<string, RealtimeSlice> = {
   project_goals: 'goals',
   team_member_notifications: 'notifications',
   client_communications: 'comms',
+  contact_emails: 'contacts',
+  // The Inbox reads through session routes; these are invalidation pings.
+  email_inboxes: 'emails',
+  email_inbox_access: 'emails',
+  email_client_domains: 'emails',
+  email_threads: 'emails',
+  email_messages: 'emails',
+  email_message_recipients: 'emails',
+  email_message_candidates: 'emails',
+  email_attachments: 'emails',
+  email_triage: 'emails',
+  email_task_links: 'emails',
 };
 
 const ALL_REALTIME_SLICES = [...new Set(Object.values(REALTIME_TABLE_SLICES))];
@@ -216,6 +234,8 @@ interface AppContextType {
   tasks: Task[];
   team: TeamMember[];
   contacts: Contact[];
+  /** Every address of every readable contact; the primary mirrors contacts.email. */
+  contactEmails: ContactEmail[];
   projectContacts: ProjectContact[];
   leads: Lead[];
   leadInteractions: LeadInteraction[];
@@ -248,6 +268,10 @@ interface AppContextType {
   // server-side (e.g. after a budget change). Components showing the
   // communication log subscribe to this to refetch without a page reload.
   commsRefreshSignal: number;
+  // Bumped when inbox email may have changed (realtime). The Inbox views and
+  // the task Source emails list refetch on it; the sidebar badge listens to
+  // the matching window event.
+  emailsRefreshSignal: number;
 
   // Project CRUD
   addProject: (project: Omit<Project, 'id' | 'created_at' | 'updated_at'>) => Promise<Project | undefined>;
@@ -292,6 +316,14 @@ interface AppContextType {
   addContact: (contact: Omit<Contact, 'id' | 'created_at' | 'updated_at'>) => Promise<Contact | undefined>;
   updateContact: (id: string, updates: Partial<Contact>) => void;
   deleteContact: (id: string) => void;
+  /** A contact's addresses, primary first. */
+  getContactEmails: (contactId: string) => ContactEmail[];
+  /**
+   * Makes the contact's addresses match `drafts` (add, edit, remove, set
+   * primary). Resolves false after a failure (already toasted, then reloaded
+   * from the server so the list shows what was saved).
+   */
+  saveContactEmails: (contactId: string, drafts: ContactEmailDraft[]) => Promise<boolean>;
 
   // Project Contact CRUD
   addProjectContact: (projectId: string, contactId: string, role: string, customRole: string | null, isPrimaryClient: boolean) => void;
@@ -447,6 +479,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [tasks, setTasksState] = useState<Task[]>([]);
   const [team, setTeamState] = useState<TeamMember[]>([]);
   const [contacts, setContactsState] = useState<Contact[]>([]);
+  const [contactEmails, setContactEmailsState] = useState<ContactEmail[]>([]);
   const [projectContacts, setProjectContactsState] = useState<ProjectContact[]>([]);
   const [leads, setLeadsState] = useState<Lead[]>([]);
   const [leadInteractions, setLeadInteractionsState] = useState<LeadInteraction[]>([]);
@@ -495,6 +528,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const setTasks = (value: SetStateAction<Task[]>) => { markSliceMutated('tasks'); setTasksState(value); };
   const setTeam = (value: SetStateAction<TeamMember[]>) => { markSliceMutated('team'); setTeamState(value); };
   const setContacts = (value: SetStateAction<Contact[]>) => { markSliceMutated('contacts'); setContactsState(value); };
+  const setContactEmails = (value: SetStateAction<ContactEmail[]>) => { markSliceMutated('contacts'); setContactEmailsState(value); };
   const setProjectContacts = (value: SetStateAction<ProjectContact[]>) => { markSliceMutated('contacts'); setProjectContactsState(value); };
   const setLeads = (value: SetStateAction<Lead[]>) => { markSliceMutated('leads'); setLeadsState(value); };
   const setLeadInteractions = (value: SetStateAction<LeadInteraction[]>) => { markSliceMutated('leads'); setLeadInteractionsState(value); };
@@ -516,6 +550,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [viewMode, setViewMode] = useState<ViewMode>('board');
   const [loading, setLoading] = useState(true);
   const [commsRefreshSignal, setCommsRefreshSignal] = useState(0);
+  const [emailsRefreshSignal, setEmailsRefreshSignal] = useState(0);
 
   const { user, teamMemberId, access } = useAuth();
   const { isDemoMode } = useDemo();
@@ -563,6 +598,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setTasks(demoTasks.map(t => ({ acceptance_criteria: [], blocked_by_ids: [], ...t } as Task)));
       setTeam([...demoTeam]);
       setContacts([...demoContacts]);
+      setContactEmails([...demoContactEmails]);
       setProjectContacts([...demoProjectContacts]);
       setLeads([...demoLeads]);
       setLeadInteractions([...demoLeadInteractions]);
@@ -649,6 +685,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
               (error: unknown) => ({ data: null, error }),
             )
           : null;
+        const contactEmailsRequest = canReadContacts
+          ? safeLoad<ContactEmail[]>('contacts', 'contact emails', fetchContactEmails(supabase), [])
+          : Promise.resolve([] as ContactEmail[]);
         const [projectsData, tasksData, teamData, contactsData, projectContactsData, leadsData, leadInteractionsData, leadProposalsData, leadFieldsData, leadContactsData, activitiesData, portalSettingsData, portalUpdatesData, portalUpdateAttachmentsData, entityFilesData, apiKeysData, timeEntriesData, projectCredentialsData, projectInvoicesData, businessSettingsData] = await Promise.all([
           canReadProjects ? safeLoad('projects', 'projects', workspaceData<Project[]>('/api/workspace/projects'), []) : Promise.resolve([]),
           canReadTaskRows ? safeLoad('tasks', 'tasks', fetchTasks(supabase), []) : Promise.resolve([]),
@@ -682,6 +721,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setTasks(tasksData);
         setTeam(teamData);
         setContacts(contactsData);
+        setContactEmails(await contactEmailsRequest);
         setProjectContacts(projectContactsData);
         setLeads(leadsData);
         setLeadInteractions(leadInteractionsData);
@@ -786,12 +826,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
         case 'contacts':
           if (hasPermission(access, 'contacts.read') || hasPermission(access, 'contacts.read_all') || hasPermission(access, 'contacts.manage')) {
-            const [contactRows, projectContactRows] = await Promise.all([
+            const [contactRows, projectContactRows, contactEmailRows] = await Promise.all([
               fetchContacts(supabase),
               fetchAllProjectContacts(supabase),
+              fetchContactEmails(supabase),
             ]);
             if (superseded()) break;
             setContacts(contactRows);
+            setContactEmails(contactEmailRows);
             setProjectContacts(projectContactRows);
           }
           break;
@@ -886,6 +928,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
           break;
         case 'comms':
           setCommsRefreshSignal(s => s + 1);
+          break;
+        case 'emails':
+          // Like notifications: the Inbox views own their fetches through the
+          // session routes; this only tells them (and the badge) to refetch.
+          if (hasPermission(access, 'inbound_email.read') || hasPermission(access, 'inbound_email.manage')) {
+            setEmailsRefreshSignal(s => s + 1);
+            window.dispatchEvent(new Event(INBOX_UPDATED_EVENT));
+          }
           break;
       }
       // A slice that read cleanly is complete again, whatever the boot load said.
@@ -1786,6 +1836,85 @@ export function AppProvider({ children }: { children: ReactNode }) {
     } catch (err) {
       setContacts(rollbackScope(prev, contact => contact.id === id));
       toast('error', 'Failed to delete contact');
+    }
+  };
+
+  // Contact email addresses
+  const byPrimaryThenAge = (a: ContactEmail, b: ContactEmail) =>
+    Number(b.is_primary) - Number(a.is_primary) || a.created_at.localeCompare(b.created_at);
+
+  const getContactEmails = (contactId: string) =>
+    contactEmails.filter(row => row.contact_id === contactId).sort(byPrimaryThenAge);
+
+  const saveContactEmails = async (contactId: string, drafts: ContactEmailDraft[]): Promise<boolean> => {
+    const cleaned = drafts
+      .map(draft => ({ ...draft, email: draft.email.trim().toLowerCase(), label: draft.label?.trim() || null }))
+      .filter(draft => draft.email);
+    const primary = cleaned.find(draft => draft.is_primary)?.email ?? cleaned[0]?.email ?? '';
+    const now = new Date().toISOString();
+    // The database mirrors the primary address to contacts.email; mirror it locally too.
+    const mirror = () => setContacts(prev => prev.map(c => (c.id === contactId ? { ...c, email: primary } : c)));
+
+    if (skipSupabase) {
+      setContactEmails(prev => [
+        ...prev.filter(row => row.contact_id !== contactId),
+        ...cleaned.map(draft => ({
+          id: draft.id ?? crypto.randomUUID(),
+          contact_id: contactId,
+          email: draft.email,
+          label: draft.label,
+          is_primary: draft.email === primary,
+          created_at: prev.find(row => row.id === draft.id)?.created_at ?? now,
+          updated_at: now,
+        })),
+      ]);
+      mirror();
+      return true;
+    }
+
+    try {
+      // Diff against what the server holds now: a new contact gets its
+      // primary row from the database, so local state may not have it yet.
+      const current = await fetchContactEmails(supabase, contactId);
+      const keep = new Set(cleaned.map(draft => draft.id).filter(Boolean));
+      for (const row of current) {
+        if (!keep.has(row.id) && !cleaned.some(draft => !draft.id && draft.email === row.email)) {
+          await removeContactEmail(supabase, row.id);
+        }
+      }
+      for (const draft of cleaned) {
+        const existing = current.find(row => row.id === draft.id) ?? (!draft.id ? current.find(row => row.email === draft.email) : undefined);
+        if (existing) {
+          if (existing.email !== draft.email || (existing.label ?? null) !== draft.label) {
+            await patchContactEmail(supabase, existing.id, { email: draft.email, label: draft.label });
+          }
+        } else {
+          await insertContactEmail(supabase, { contact_id: contactId, email: draft.email, label: draft.label });
+        }
+      }
+      if (primary) {
+        const saved = await fetchContactEmails(supabase, contactId);
+        const target = saved.find(row => row.email === primary);
+        if (target && !target.is_primary) await patchContactEmail(supabase, target.id, { is_primary: true });
+      }
+      const rows = await fetchContactEmails(supabase, contactId);
+      setContactEmails(prev => [...prev.filter(row => row.contact_id !== contactId), ...rows]);
+      mirror();
+      return true;
+    } catch (err) {
+      console.error('Failed to save contact emails:', err);
+      const message = (err as { code?: string })?.code === '23505'
+        ? 'That contact already has this email address'
+        : 'Failed to save email addresses';
+      toast('error', message);
+      try {
+        const [rows, contactRows] = await Promise.all([fetchContactEmails(supabase, contactId), fetchContacts(supabase)]);
+        setContactEmails(prev => [...prev.filter(row => row.contact_id !== contactId), ...rows]);
+        setContacts(contactRows);
+      } catch {
+        // The next live-sync refetch corrects it.
+      }
+      return false;
     }
   };
 
@@ -3813,6 +3942,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       tasks,
       team,
       contacts,
+      contactEmails,
       projectContacts,
       leads,
       leadInteractions,
@@ -3834,6 +3964,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       viewMode,
       setViewMode,
       commsRefreshSignal,
+      emailsRefreshSignal,
       addProject,
       updateProject,
       deleteProject,
@@ -3860,6 +3991,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       addContact,
       updateContact,
       deleteContact,
+      getContactEmails,
+      saveContactEmails,
       addProjectContact: addProjectContactAction,
       updateProjectContact: updateProjectContactAction,
       removeProjectContact: removeProjectContactAction,
