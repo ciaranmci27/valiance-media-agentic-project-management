@@ -103,7 +103,9 @@ export function createResendReceiving(options: {
     listAttachments: async (id) =>
       (await get<{ data?: ResendAttachment[] }>(`/emails/receiving/${encodeURIComponent(id)}/attachments`)).data ?? [],
     // Signed URLs carry their own authorization; no API key goes with them.
-    download: (url) => doFetch(url, { method: 'GET', signal: AbortSignal.timeout(45_000) }),
+    // Identity encoding, so Content-Length is the size of the bytes read and
+    // a cut-off download can be told from a whole one (readCapped).
+    download: (url) => doFetch(url, { method: 'GET', headers: { 'Accept-Encoding': 'identity' }, signal: AbortSignal.timeout(45_000) }),
   };
 }
 

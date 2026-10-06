@@ -77,6 +77,10 @@ export function ClientEmailDomains({ isOpen, projectId }: ClientEmailDomainsProp
   const handleAdd = async (event: React.FormEvent) => {
     event.preventDefault();
     if (adding) return;
+    if (!draft.trim()) {
+      setAddError('Type a domain, such as acme.com');
+      return;
+    }
     const result = validateClientDomain(draft);
     if (!result.ok) {
       setAddError(result.error);
@@ -113,13 +117,15 @@ export function ClientEmailDomains({ isOpen, projectId }: ClientEmailDomainsProp
       <div className="space-y-1">
         <div className="flex items-center gap-2">
           <Globe size={14} className="text-zinc-400 flex-shrink-0" aria-hidden="true" />
-          <h3 id={`${inputId}-heading`} className="text-sm font-medium text-white">Client email domains</h3>
+          <h4 id={`${inputId}-heading`} className="text-sm font-medium text-white">
+            Client email domains <span className="font-normal text-zinc-400">(optional)</span>
+          </h4>
           {loading && (
             <Loader2 size={14} className="text-zinc-500 animate-spin motion-reduce:animate-none" aria-label="Loading domains" role="status" />
           )}
         </div>
         <p className="text-xs text-zinc-400">
-          Mail from any address at these domains maps to this project. Public email services like gmail.com can&apos;t be added; add the person as a contact instead.
+          Mail from anyone at these domains maps to this project. Public services like gmail.com can&apos;t be added here; add the exact address above.
         </p>
       </div>
 
@@ -149,7 +155,7 @@ export function ClientEmailDomains({ isOpen, projectId }: ClientEmailDomainsProp
           ))}
         </ul>
       ) : !loading ? (
-        <p className="text-xs text-zinc-500">No client domains yet</p>
+        <p className="text-xs text-zinc-400">None yet. Optional: add one to catch everyone at the client&apos;s company.</p>
       ) : null}
 
       {canManage && (
@@ -171,10 +177,18 @@ export function ClientEmailDomains({ isOpen, projectId }: ClientEmailDomainsProp
               disabled={adding}
               className="flex-1 min-w-0"
             />
-            <Button type="submit" disabled={adding || !draft.trim()} className="flex-shrink-0">
+            {/* Focusable while empty, so a keyboard or screen reader user reaches it and hears why it does nothing. */}
+            <Button
+              type="submit"
+              disabled={adding}
+              aria-disabled={!draft.trim() || undefined}
+              aria-describedby={!draft.trim() ? `${inputId}-hint` : undefined}
+              className="flex-shrink-0 aria-disabled:opacity-50 aria-disabled:cursor-not-allowed"
+            >
               {adding ? 'Adding...' : 'Add'}
             </Button>
           </div>
+          <span id={`${inputId}-hint`} className="sr-only">Type a domain first</span>
         </form>
       )}
 

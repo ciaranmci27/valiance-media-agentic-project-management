@@ -2,7 +2,7 @@
  * A PGlite database for the inbound email tests: the tables and access
  * helpers the email migration builds on (the real definitions from
  * schema.sql where they matter, small stand-ins elsewhere), then the real
- * migration, applied twice to prove it re-runs. auth.uid() and auth.role()
+ * migrations, each applied twice to prove it re-runs. auth.uid() and auth.role()
  * read the same request.jwt settings Supabase uses, so a test can act as the
  * service role (what fake-postgrest does) or as a signed-in person.
  */
@@ -11,6 +11,7 @@ import { readFile } from 'node:fs/promises';
 import { PGlite } from '@electric-sql/pglite';
 
 export const EMAIL_MIGRATION = '../supabase/migrations/20261006010922_email_inboxes.sql';
+export const PROJECT_ADDRESS_MIGRATION = '../supabase/migrations/20261006030328_email_project_addresses.sql';
 const TASK_SAVE_MIGRATION = '../supabase/migrations/20260923235152_atomic_task_save.sql';
 
 async function read(path: string) {
@@ -94,6 +95,9 @@ export async function createEmailDatabase(source: 'migration' | 'schema' = 'migr
     const migration = await read(EMAIL_MIGRATION);
     await db.exec(migration);
     await db.exec(migration); // safe to re-run
+    const addresses = await read(PROJECT_ADDRESS_MIGRATION);
+    await db.exec(addresses);
+    await db.exec(addresses); // safe to re-run
   } else {
     const hostname = canonical.match(/create or replace function public\.email_is_hostname\([\s\S]*?^\$\$;/m)?.[0];
     const settingsColumn = canonical.match(/^  inbound_email_domain text[\s\S]*?\),\n/m)?.[0];

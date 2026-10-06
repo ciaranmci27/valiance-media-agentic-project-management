@@ -10,6 +10,15 @@
  * - rule 3 (an email-linked task becomes ai_ready only in a human session)
  *   through the task PATCH route, suggestion approval and the database;
  * - contact_emails syncing with contacts.email, inbox routing settings;
+ * - project email addresses (routing, the 'address' source, uniqueness
+ *   against inbox routing addresses, permissions, the agent API);
+ * - client email addresses (reason 'sender', public webmail allowed, the
+ *   merged list with contact addresses, permissions and RLS like domains);
+ * - forwards and copies from the team (routing_basis: a verified teammate's
+ *   forward maps by its original sender, their own copied email by the
+ *   client recipients; the agent API and Inbox fields; threading);
+ * - the agent's guess (project_source guessed) and the batched summary's
+ *   routing fields;
  * - the schema.sql snapshot loading on its own.
  *
  * Run: npx tsx --tsconfig tsconfig.mcp-test.json scripts/verify-inbound-email.ts
@@ -256,10 +265,18 @@ async function main() {
     const [afterVerify] = await rows(db, 'SELECT verified_at FROM email_inboxes WHERE id=$1', [ids.inboxA]);
     check('verification: the inbox is verified and the email is gone, files and row', verified.body.inboxes?.[0]?.outcome === 'verified' && !!afterVerify.verified_at
       && (await messageBy('verify-9@agency.example')).length === 0 && storage.objects.size === objectsBefore, verified.body);
+    await db.query('UPDATE email_inboxes SET last_received_at = NULL WHERE id=$1', [ids.inboxA]);
+    await add('verification.eml', 're_verify_again', { deliveredTo: [`ashley@${RELAY}`], messageId: '<verify-10@agency.example>' });
+    const verifiedAgain = await deliver('re_verify_again');
+    const [codeMail] = await messageBy('verify-10@agency.example');
+    check('verification: once verified, an email with the code is ordinary mail (kept, filed, the inbox hears from it)',
+      verifiedAgain.body.inboxes?.[0]?.outcome === 'completed' && codeMail?.status === 'new'
+      && !!(await rows(db, 'SELECT last_received_at FROM email_inboxes WHERE id=$1', [ids.inboxA]))[0].last_received_at, verifiedAgain.body);
     await db.query("UPDATE email_inboxes SET routing_local_part = 'ashley2' WHERE id=$1", [ids.inboxB]);
-    await db.query("UPDATE email_inboxes SET verified_at = now() WHERE id=$1", [ids.inboxB]);
+    await db.query("UPDATE email_inboxes SET verified_at = now(), last_received_at = now() WHERE id=$1", [ids.inboxB]);
     await db.query("UPDATE email_inboxes SET routing_local_part = 'billing' WHERE id=$1", [ids.inboxB]);
-    check('inbox: changing the routing address clears verified_at', (await rows(db, 'SELECT verified_at FROM email_inboxes WHERE id=$1', [ids.inboxB]))[0].verified_at === null);
+    const [movedInbox] = await rows(db, 'SELECT verified_at, last_received_at FROM email_inboxes WHERE id=$1', [ids.inboxB]);
+    check('inbox: changing the routing address clears verified_at and last_received_at', movedInbox.verified_at === null && movedInbox.last_received_at === null, movedInbox);
 
     // Recipients.
     await add('owner-original.eml', 're_nobody', { deliveredTo: [`nobody@${RELAY}`], messageId: '<nobody@agency.example>' });
@@ -285,12 +302,53 @@ async function main() {
     const flaky = await deliver('re_flaky');
     const [flakyRow] = await messageBy('flaky@acme-roofing.example');
     const pending = await rows(db, 'SELECT * FROM email_attachments WHERE message_id=$1 ORDER BY position', [flakyRow.id]);
-    check('failure: a failed download answers 500 and leaves the row receiving', flaky.status === 500 && flakyRow.status === 'receiving' && pending.filter((a) => a.uploaded_at).length === 2, pending.map((a) => !!a.uploaded_at));
+    check('failure: a failed download answers 500 and leaves the row receiving; the other files still go in', flaky.status === 500 && flakyRow.status === 'receiving'
+      && pending.filter((a) => a.uploaded_at).length === pending.length - 1 && !pending[2].uploaded_at && flakyRow.file_failures === 1, pending.map((a) => !!a.uploaded_at));
     check('failure: the inbox records the error', /download answered 503/.test((await rows(db, 'SELECT last_error FROM email_inboxes WHERE id=$1', [ids.inboxA]))[0].last_error ?? ''));
     resend.failDownloads.clear();
     const resumed = await deliver('re_flaky');
     const [flakyDone] = await messageBy('flaky@acme-roofing.example');
     check('failure: the retry resumes and completes', resumed.status === 200 && flakyDone.status === 'new', resumed.body);
+
+    // A file that keeps failing: the fifth failed run gives up on it and the email arrives without it.
+    await db.query('UPDATE email_inboxes SET last_error = NULL WHERE id=$1', [ids.inboxA]);
+    await add('many-attachments.eml', 're_dead', { messageId: '<dead-file@acme-roofing.example>' });
+    resend.failDownloads.add('/re_dead/attachments/re_dead-att-1');
+    const deadStatuses: number[] = [];
+    for (let run = 0; run < 4; run++) deadStatuses.push((await deliver('re_dead')).status);
+    const [deadWaiting] = await messageBy('dead-file@acme-roofing.example');
+    check('give up: four failed runs still answer 500 and keep the email receiving', deadStatuses.every((code) => code === 500)
+      && deadWaiting.status === 'receiving' && deadWaiting.file_failures === 4, [deadStatuses, deadWaiting.file_failures]);
+    const deadFifth = await deliver('re_dead');
+    const [deadDone] = await messageBy('dead-file@acme-roofing.example');
+    const deadFiles = await rows(db, 'SELECT * FROM email_attachments WHERE message_id=$1 ORDER BY position', [deadDone.id]);
+    check('give up: the fifth run skips the file as download_failed and the email arrives', deadFifth.status === 200 && deadDone.status === 'new'
+      && deadFiles[1].skipped_reason === 'download_failed' && deadFiles[1].storage_path === null
+      && deadFiles.filter((a) => a.position !== 1).every((a) => !!a.uploaded_at), [deadFifth.body, deadFiles.map((a) => [a.skipped_reason, !!a.uploaded_at])]);
+    check('give up: the inbox says an email arrived without a file',
+      /arrived without 1 attachment after 5 failed tries/.test((await rows(db, 'SELECT last_error FROM email_inboxes WHERE id=$1', [ids.inboxA]))[0].last_error ?? ''));
+    resend.failDownloads.clear();
+
+    // By age: an email over six hours old gives up on the next failed run, the raw .eml included.
+    await add('many-attachments.eml', 're_old', { messageId: '<old-file@acme-roofing.example>' });
+    resend.failDownloads.add('/raw/re_old');
+    resend.failDownloads.add('/re_old/attachments/re_old-att-0');
+    const oldFirst = await deliver('re_old');
+    await db.query("UPDATE email_messages SET created_at = now() - interval '7 hours' WHERE internet_message_id = 'old-file@acme-roofing.example'");
+    const oldSecond = await deliver('re_old');
+    const [oldDone] = await messageBy('old-file@acme-roofing.example');
+    const oldFiles = await rows(db, 'SELECT skipped_reason FROM email_attachments WHERE message_id=$1 ORDER BY position', [oldDone.id]);
+    check('give up: past six hours, the next failed run delivers it without the raw .eml and the failed attachment', oldFirst.status === 500 && oldSecond.status === 200
+      && oldDone.status === 'new' && oldDone.raw_storage_path === null && oldFiles[0].skipped_reason === 'download_failed' && oldDone.file_failures === 2,
+      [oldSecond.body, oldDone.raw_storage_path, oldFiles]);
+    resend.failDownloads.clear();
+    let filesFailedRefused = '';
+    try { await asPerson(db, ids.ownerAuth, () => db.query("SELECT email_files_failed($1, '[]'::jsonb, false, 5, 360)", [oldDone.id])); } catch (error) { filesFailedRefused = (error as Error).message; }
+    check('give up: email_files_failed needs the service role', /permission denied|Service role required/.test(filesFailedRefused), filesFailedRefused);
+    let skipRefused = '';
+    try { await db.query("UPDATE email_attachments SET skipped_reason = 'lost' WHERE message_id = $1 AND position = 0", [oldDone.id]); } catch (error) { skipRefused = (error as Error).message; }
+    check('give up: skipped_reason allows only the known reasons', /check constraint/.test(skipRefused), skipRefused);
+
     const paths = new Set([
       ...(await rows(db, 'SELECT raw_storage_path AS p FROM email_messages WHERE raw_storage_path IS NOT NULL')).map((r) => `inbound-email/${r.p}`),
       ...(await rows(db, 'SELECT storage_path AS p FROM email_attachments WHERE storage_path IS NOT NULL')).map((r) => `inbound-email/${r.p}`),
@@ -401,8 +459,8 @@ async function main() {
       && (await rows(db, 'SELECT project_id FROM email_threads WHERE id=$1', [htmlOnly.thread_id]))[0].project_id === null
       && (await rows(db, 'SELECT status FROM email_messages WHERE id=$1', [htmlOnly.id]))[0].status === 'new', [completedPick.body, archivedPick.body]);
     const unknownTrust = await triageOf(htmlOnly.id, { outcome: 'needs_reply', urgent: false, summary: 'Update header and footer', suggested_reply: 'Thanks Carla, on it.', project_id: ids.other });
-    check('triage: unknown trust is not forced to needs_ciaran; with no candidates any project may be inferred', unknownTrust.status === 201 && unknownTrust.body.data.status === 'handled'
-      && unknownTrust.body.data.thread.project_id === ids.other && unknownTrust.body.data.thread.project_source === 'inferred', unknownTrust.body);
+    check('triage: unknown trust is not forced to needs_ciaran; with no candidates any project may be chosen, as guessed', unknownTrust.status === 201 && unknownTrust.body.data.status === 'handled'
+      && unknownTrust.body.data.thread.project_id === ids.other && unknownTrust.body.data.thread.project_source === 'guessed', unknownTrust.body);
     const flagged = await triageOf(forward.id, { outcome: 'needs_ciaran', urgent: true, summary: 'Site down for Acme', question_for_ciaran: 'Restart the server?' });
     check('triage: needs_ciaran outcome sets needs_ciaran', flagged.body.data?.status === 'needs_ciaran', flagged.body);
     const jeffTriage = await triageOf(reply.id, { outcome: 'no_action', urgent: false, summary: 'x' }, keys.jeff);
@@ -585,6 +643,9 @@ async function main() {
     const reader = person(readerId, 'member', ['inbound_email.read', 'projects.read'], [ids.acme]);
     const outsider = person(outsiderId, 'member', ['projects.read_all']);
     const allThreads = { inboxId: null, projectId: null, tab: 'all' as const, search: '', limit: 200, offset: 0 };
+    const deadThread = await inbox.threadDetail(owner, deadDone.thread_id);
+    const deadShown = deadThread.messages.find((m) => m.id === deadDone.id)?.attachments.find((a) => a.id === deadFiles[1].id);
+    check('give up: the thread shows the file as not stored, with its reason', deadShown?.available === false && deadShown.skipped_reason === 'download_failed', deadShown);
 
     const ownerList = await inbox.listThreads(owner, allThreads);
     const threadCount = (await rows(db, "SELECT count(DISTINCT thread_id)::int AS n FROM email_messages WHERE status <> 'receiving'"))[0].n;
@@ -710,10 +771,638 @@ async function main() {
     check('domains: removed, and removing again is 404', (await inboxSettings.listClientDomains(manage, ids.acme)).every((d) => d.id !== added.id)
       && (await failsWith(() => inboxSettings.removeClientDomain(manage, ids.acme, added.id))) === 404);
 
+    // ---- Project email addresses ------------------------------------------
+    const p4tf = randomUUID();
+    const shelved = randomUUID();
+    await db.query("INSERT INTO projects(id, name) VALUES ($1,'P4TF Rebrand')", [p4tf]);
+    await db.query("INSERT INTO projects(id, name, status, archived_at) VALUES ($1,'Old client','completed',now())", [shelved]);
+    const statusOfFailure = async (work: () => Promise<unknown>) => {
+      try { await work(); return { status: 0, message: '' }; } catch (error) {
+        return error instanceof inbox.InboxError ? { status: error.status, message: error.message } : { status: -1, message: (error as Error).message };
+      }
+    };
+    const refusedBy = async (sql: string, params: unknown[] = []) => {
+      try { await db.query(sql, params); return ''; } catch (error) { return (error as Error).message; }
+    };
+    const rawMail = (mail: { from: string; to: string; subject: string; id: string; inReplyTo?: string }) => Buffer.from([
+      `From: ${mail.from}`, `To: ${mail.to}`, `Subject: ${mail.subject}`, 'Date: Mon, 05 Oct 2026 12:00:00 -0400', `Message-ID: <${mail.id}>`,
+      ...(mail.inReplyTo ? [`In-Reply-To: <${mail.inReplyTo}>`, `References: <${mail.inReplyTo}>`] : []),
+      'MIME-Version: 1.0', 'Content-Type: text/plain; charset="UTF-8"', '', 'Hello, a quick note about the project.', '',
+    ].join('\r\n'));
+    const sendRaw = async (emailId: string, mail: Parameters<typeof rawMail>[0], deliveredTo: string[], receivedFor: string[] = []) => {
+      resend.add(await resendFixture(rawMail(mail), { emailId, deliveredTo, receivedFor }));
+      return deliver(emailId);
+    };
+    const threadOf = async (internetId: string) => {
+      const [message] = await messageBy(internetId);
+      if (!message) throw new Error(`no message ${internetId}`);
+      const [row] = await rows(db, 'SELECT * FROM email_threads WHERE id=$1', [message.thread_id]);
+      return { message, thread: row };
+    };
+
+    // Settings: create, normalize, uniqueness both ways, case-insensitively.
+    const address = await inboxSettings.addProjectAddress(manage, p4tf, { inbox_id: ids.inboxA, routing_local_part: 'P4TF', public_address: 'P4TF@Agency.example', enabled: true });
+    check('project address: created on the relay domain, lowercased, with its public address', address.routing_address === `p4tf@${RELAY}`
+      && address.public_address === 'p4tf@agency.example' && address.enabled && address.inbox_id === ids.inboxA, address);
+    const fromPublic = await inboxSettings.addProjectAddress(manage, p4tf, { inbox_id: ids.inboxA, routing_local_part: '', public_address: 'p4tf.team@agency.example', enabled: false });
+    check('project address: an empty routing local part takes the public address\'s', fromPublic.routing_address === `p4tf.team@${RELAY}` && !fromPublic.enabled, fromPublic);
+    check('project address: neither a routing nor a public address is 422',
+      (await failsWith(() => inboxSettings.addProjectAddress(manage, p4tf, { inbox_id: ids.inboxA, routing_local_part: '', public_address: null, enabled: true }))) === 422);
+    const takenByInbox = await statusOfFailure(() => inboxSettings.addProjectAddress(manage, p4tf, { inbox_id: ids.inboxA, routing_local_part: 'Ashley', public_address: null, enabled: true }));
+    check('uniqueness: an inbox\'s routing address cannot become a project address (409)', takenByInbox.status === 409 && /inbox already uses/.test(takenByInbox.message), takenByInbox);
+    const takenByAddress = await statusOfFailure(() => inboxSettings.createInbox(manage, { ...baseInput, address: 'rebrand@agency.example', routing_local_part: 'P4TF' }));
+    check('uniqueness: a project address cannot become an inbox\'s routing address (409)', takenByAddress.status === 409 && /project email address already uses/.test(takenByAddress.message), takenByAddress);
+    const twice = await statusOfFailure(() => inboxSettings.addProjectAddress(manage, ids.birch, { inbox_id: ids.inboxB, routing_local_part: 'p4tf', public_address: null, enabled: true }));
+    check('uniqueness: two project addresses cannot share a routing address (409)', twice.status === 409, twice);
+    const upperInsert = await refusedBy("INSERT INTO email_project_addresses(project_id, inbox_id, routing_local_part, routing_domain) VALUES ($1,$2,'P4TF','')", [ids.birch, ids.inboxB]);
+    const inboxMove = await refusedBy("UPDATE email_inboxes SET routing_local_part = 'P4TF' WHERE id = $1", [ids.inboxB]);
+    const addressMove = await refusedBy("UPDATE email_project_addresses SET routing_local_part = 'billing' WHERE id = $1", [address.id]);
+    check('uniqueness: the database refuses either direction, whatever the case', /duplicate key/.test(upperInsert)
+      && /EMAIL_ROUTING_ADDRESS_TAKEN/.test(inboxMove) && /EMAIL_ROUTING_ADDRESS_TAKEN/.test(addressMove), [upperInsert, inboxMove, addressMove]);
+    const [stepped] = await rows(db, "INSERT INTO email_inboxes(name, address) VALUES ('Rebrand','p4tf@elsewhere.example') RETURNING id, routing_local_part");
+    check('uniqueness: an inbox\'s generated local part steps around project addresses', /^p4tf-[0-9a-f]{4}$/.test(stepped.routing_local_part), stepped);
+    await db.query('DELETE FROM email_inboxes WHERE id=$1', [stepped.id]);
+    check('project address: editing in place to an inbox\'s address is 409',
+      (await failsWith(() => inboxSettings.updateProjectAddress(manage, p4tf, address.id, { routing_local_part: 'billing' }))) === 409);
+    check('project address: a bad local part is 422 at the route', (await failsWith(async () => {
+      const { readBody } = await import('../src/lib/inbound-email/inbox-route');
+      const { projectAddressSchema } = await import('../src/lib/inbound-email/schemas');
+      await readBody(new Request('http://localhost/x', { method: 'POST', body: JSON.stringify({ inbox_id: ids.inboxA, routing_local_part: 'p4tf!', public_address: null, enabled: true }) }), projectAddressSchema);
+    })) === 422);
+
+    // Permissions: the same people as client email domains.
+    const projectReader = person(readerId, 'member', ['inbound_email.read', 'projects.read'], [ids.acme, p4tf]);
+    const contactsManager = person(readerId, 'member', ['contacts.manage', 'projects.read'], [p4tf]);
+    check('permissions: a reader lists but cannot add, edit or delete',
+      (await inboxSettings.listProjectAddresses(projectReader, p4tf)).addresses.length === 2
+      && (await failsWith(() => inboxSettings.addProjectAddress(projectReader, p4tf, { inbox_id: ids.inboxA, routing_local_part: 'x-reader', public_address: null, enabled: true }))) === 403
+      && (await failsWith(() => inboxSettings.updateProjectAddress(projectReader, p4tf, address.id, { enabled: false }))) === 403
+      && (await failsWith(() => inboxSettings.removeProjectAddress(projectReader, p4tf, address.id))) === 403);
+    check('permissions: no contacts or inbox permission is 403; a project outside reach is 403',
+      (await failsWith(() => inboxSettings.listProjectAddresses(outsider, p4tf))) === 403
+      && (await failsWith(() => inboxSettings.listProjectAddresses(reader, p4tf))) === 403
+      && (await failsWith(() => inboxSettings.addProjectAddress(contactsManager, ids.birch, { inbox_id: ids.inboxA, routing_local_part: 'x-birch', public_address: null, enabled: true }))) === 403);
+    check('permissions: an agent never manages them', (await failsWith(() => inboxSettings.addProjectAddress(person(ids.ashley, 'agent', ['*']), p4tf,
+      { inbox_id: ids.inboxA, routing_local_part: 'x-agent', public_address: null, enabled: true }))) === 403);
+    const byContacts = await inboxSettings.addProjectAddress(contactsManager, p4tf, { inbox_id: ids.inboxB, routing_local_part: 'p4tf-billing', public_address: null, enabled: true });
+    check('permissions: contacts.manage on the project manages them; an address on another project is 404',
+      byContacts.inbox_id === ids.inboxB && (await failsWith(() => inboxSettings.updateProjectAddress(manage, ids.birch, address.id, { enabled: false }))) === 404, byContacts);
+    const listedAddresses = await inboxSettings.listProjectAddresses(manage, p4tf);
+    check('project address: the list carries the relay domain and the inboxes to choose from', listedAddresses.relay_domain === RELAY
+      && listedAddresses.addresses.length === 3 && listedAddresses.inboxes.some((i) => i.id === ids.inboxB), listedAddresses);
+    const countedSettings = await inboxSettings.listInboxSettings(manage);
+    check('settings: each inbox counts the project addresses that route to it', countedSettings.inboxes.find((i) => i.id === ids.inboxA)?.project_address_count === 2
+      && countedSettings.inboxes.find((i) => i.id === ids.inboxB)?.project_address_count === 1);
+
+    // Ingestion: a new thread is filed on the project, ahead of the mapping.
+    const viaForwarder = await sendRaw('re_pa_new', { from: 'Dana Wu <dana@acme-roofing.example>', to: 'p4tf@agency.example', subject: 'Rebrand kickoff notes', id: 'pa-new@acme-roofing.example' },
+      ['p4tf@agency.example'], [`P4TF@${RELAY.toUpperCase()}`]);
+    const filed = await threadOf('pa-new@acme-roofing.example');
+    const filedCandidates = await rows(db, 'SELECT project_id FROM email_message_candidates WHERE message_id=$1', [filed.message.id]);
+    check('ingest: a forwarded email to a project address lands in its inbox, the new thread filed as address',
+      viaForwarder.status === 200 && filed.message.inbox_id === ids.inboxA && filed.thread.project_id === p4tf
+      && filed.thread.project_source === 'address' && filed.thread.project_address_id === address.id && filed.message.status === 'new', [viaForwarder.body, filed.thread]);
+    check('ingest: the contact mapping still records its candidates but does not override the address', filedCandidates.length === 2, filedCandidates);
+    const filedRecipients = await rows(db, "SELECT address FROM email_message_recipients WHERE message_id=$1 AND kind='to'", [filed.message.id]);
+    check('ingest: the project\'s public address is ours, never offered as a sender to remember',
+      filedRecipients.some((r) => r.address === 'p4tf@agency.example') && !(await inbox.threadDetail(owner, filed.thread.id)).senders.some((x) => x.address === 'p4tf@agency.example'));
+    const filedDetail = await inbox.threadDetail(owner, filed.thread.id);
+    check('inbox ui: the thread shows the address source and the address it came through',
+      filedDetail.project?.source === 'address' && filedDetail.project.address === 'p4tf@agency.example' && filedDetail.project.id === p4tf, filedDetail.project);
+    const [heard] = await rows(db, 'SELECT last_received_at, updated_at FROM email_project_addresses WHERE id=$1', [address.id]);
+    const listedHeard = (await inboxSettings.listProjectAddresses(manage, p4tf)).addresses.find((row) => row.id === address.id);
+    check('project address: mail through it stamps last_received_at (not updated_at); the list returns it',
+      !!heard.last_received_at && heard.updated_at < heard.last_received_at && !!listedHeard?.last_received_at, [heard, listedHeard]);
+    check('project address: an address nothing came through has none', (await inboxSettings.listProjectAddresses(manage, p4tf)).addresses.find((row) => row.id === fromPublic.id)?.last_received_at === null);
+
+    // A reply on a thread with a project keeps it.
+    await db.query('UPDATE email_project_addresses SET last_received_at = NULL WHERE id=$1', [address.id]);
+    await sendRaw('re_pa_reply', { from: 'Dana Wu <dana@acme-roofing.example>', to: 'p4tf@agency.example', subject: 'Re: Homepage banner', id: 'pa-reply@acme-roofing.example', inReplyTo: 'orig-1@agency.example' },
+      [`p4tf@${RELAY}`]);
+    const replied = await threadOf('pa-reply@acme-roofing.example');
+    check('ingest: a reply through a project address keeps the thread\'s project', replied.thread.id === orig.thread_id
+      && replied.thread.project_id === ids.acme && replied.thread.project_source === 'inferred' && replied.thread.project_address_id === null, replied.thread);
+    check('project address: a reply that came through it stamps it too, though it set no project',
+      !!(await rows(db, 'SELECT last_received_at FROM email_project_addresses WHERE id=$1', [address.id]))[0].last_received_at);
+
+    // Archived or completed projects still take their address's mail.
+    const oldAddress = await inboxSettings.addProjectAddress(manage, shelved, { inbox_id: ids.inboxA, routing_local_part: 'oldco', public_address: null, enabled: true });
+    await sendRaw('re_pa_shelved', { from: 'Kim <kim@oldco.example>', to: `oldco@${RELAY}`, subject: 'Are you still there?', id: 'pa-shelved@oldco.example' }, [`oldco@${RELAY}`]);
+    const shelvedThread = await threadOf('pa-shelved@oldco.example');
+    check('ingest: a completed, archived project is still filed through its address', shelvedThread.thread.project_id === shelved && shelvedThread.thread.project_source === 'address', shelvedThread.thread);
+
+    // Off, or its inbox off: unknown, nothing stored.
+    await inboxSettings.updateProjectAddress(manage, p4tf, address.id, { enabled: false });
+    const offMail = await sendRaw('re_pa_off', { from: 'Kim <kim@oldco.example>', to: 'p4tf@agency.example', subject: 'Off address', id: 'pa-off@oldco.example' }, ['p4tf@agency.example'], [`p4tf@${RELAY}`]);
+    check('ingest: a disabled project address is unknown: dropped, nothing stored', offMail.body.reason === 'no_inbox' && (await messageBy('pa-off@oldco.example')).length === 0, offMail.body);
+    await inboxSettings.updateProjectAddress(manage, p4tf, address.id, { enabled: true });
+    await db.query('UPDATE email_inboxes SET enabled = false WHERE id=$1', [ids.inboxB]);
+    const inboxOff = await sendRaw('re_pa_inbox_off', { from: 'Kim <kim@oldco.example>', to: `p4tf-billing@${RELAY}`, subject: 'Inbox off', id: 'pa-inbox-off@oldco.example' }, [`p4tf-billing@${RELAY}`]);
+    check('ingest: an address whose inbox is disabled is unknown too', inboxOff.body.reason === 'no_inbox' && (await messageBy('pa-inbox-off@oldco.example')).length === 0, inboxOff.body);
+    await db.query('UPDATE email_inboxes SET enabled = true WHERE id=$1', [ids.inboxB]);
+
+    // Several addresses: the first in recipient order decides each inbox's project.
+    const birchWeb = await inboxSettings.addProjectAddress(manage, ids.birch, { inbox_id: ids.inboxA, routing_local_part: 'birch-web', public_address: null, enabled: true });
+    await sendRaw('re_pa_two_a', { from: 'Kim <kim@oldco.example>', to: 'x@agency.example', subject: 'Two addresses A', id: 'pa-two-a@oldco.example' },
+      [`ashley@${RELAY}`, `birch-web@${RELAY}`, `p4tf@${RELAY}`]);
+    await sendRaw('re_pa_two_b', { from: 'Kim <kim@oldco.example>', to: 'x@agency.example', subject: 'Two addresses B', id: 'pa-two-b@oldco.example' },
+      [`p4tf@${RELAY}`, `birch-web@${RELAY}`]);
+    const twoA = await messageBy('pa-two-a@oldco.example');
+    const twoB = await messageBy('pa-two-b@oldco.example');
+    const projectOfThread = async (threadId: string) => (await rows(db, 'SELECT project_id, project_address_id FROM email_threads WHERE id=$1', [threadId]))[0];
+    const twoAThread = twoA[0] ? await projectOfThread(twoA[0].thread_id) : null;
+    const twoBThread = twoB[0] ? await projectOfThread(twoB[0].thread_id) : null;
+    check('routing: two project addresses on one inbox: one copy, the first in recipient order sets the project; the inbox address never outranks one',
+      twoA.length === 1 && twoAThread?.project_id === ids.birch && twoAThread.project_address_id === birchWeb.id
+      && twoB.length === 1 && twoBThread?.project_id === p4tf && twoBThread.project_address_id === address.id, [twoAThread, twoBThread]);
+    await sendRaw('re_pa_cross', { from: 'Kim <kim@oldco.example>', to: 'x@agency.example', subject: 'Across inboxes', id: 'pa-cross@oldco.example' },
+      [`birch-web@${RELAY}`, `p4tf-billing@${RELAY}`]);
+    const cross = await messageBy('pa-cross@oldco.example');
+    const crossProjects = await Promise.all(cross.map(async (m) => [m.inbox_id, (await projectOfThread(m.thread_id)).project_id]));
+    check('routing: project addresses on two inboxes deliver a copy to each, each with its own project', cross.length === 2
+      && crossProjects.some(([inboxId, projectId]) => inboxId === ids.inboxA && projectId === ids.birch)
+      && crossProjects.some(([inboxId, projectId]) => inboxId === ids.inboxB && projectId === p4tf), crossProjects);
+
+    // Every inbox rule still applies: the verification code, auto-mail.
+    await db.query('UPDATE email_inboxes SET verified_at = NULL WHERE id=$1', [ids.inboxA]);
+    const verifiedVia = await sendRaw('re_pa_verify', { from: 'Sam Owner <owner@agency.example>', to: 'p4tf@agency.example', subject: 'Check VM-7K2Q', id: 'pa-verify@agency.example' }, [`p4tf@${RELAY}`]);
+    await db.query('UPDATE email_project_addresses SET public_address = $2 WHERE id=$1', [birchWeb.id, 'birch@agency.example']);
+    check('project address: a new public or routing address waits for its first email again',
+      (await rows(db, 'SELECT last_received_at FROM email_project_addresses WHERE id=$1', [birchWeb.id]))[0].last_received_at === null);
+    check('rules: the inbox verification code through a project address verifies and stores nothing', verifiedVia.body.inboxes?.[0]?.outcome === 'verified'
+      && !!(await rows(db, 'SELECT verified_at FROM email_inboxes WHERE id=$1', [ids.inboxA]))[0].verified_at && (await messageBy('pa-verify@agency.example')).length === 0, verifiedVia.body);
+    await add('newsletter.eml', 're_pa_news', { deliveredTo: [`p4tf@${RELAY}`], messageId: '<pa-news@acme-supplies.example>' });
+    await deliver('re_pa_news');
+    const [paNews] = await messageBy('pa-news@acme-supplies.example');
+    check('rules: auto-mail through a project address is still ignored', paNews?.status === 'ignored', paNews);
+
+    // The agent sees the source and the address; inference cannot override it.
+    const paDetail = await api(detail.GET, 'GET', `/api/v1/inbound-emails/${filed.message.id}`, keys.ashley, { id: filed.message.id });
+    check('agent api: detail shows source address and the address it came through', paDetail.status === 200 && paDetail.body.data.project?.id === p4tf
+      && paDetail.body.data.project.source === 'address' && paDetail.body.data.project.address?.routing_address === `p4tf@${RELAY}`
+      && paDetail.body.data.project.address.public_address === 'p4tf@agency.example', paDetail.body.data?.project);
+    const paList = await api(list.GET, 'GET', `/api/v1/inbound-emails?project_id=${p4tf}`, keys.ashley);
+    const paRow = paList.body.data.find((m: Payload) => m.id === filed.message.id);
+    check('agent api: the list shows the same project, source and address', paRow?.project?.source === 'address' && paRow.project.address?.id === address.id
+      && paList.body.data.every((m: Payload) => m.project?.id === p4tf), paRow);
+    const orderList = await api(list.GET, 'GET', `/api/v1/inbound-emails?project_id=${ids.acme}`, keys.ashley);
+    check('agent api: other sources carry address null', orderList.body.data.length > 0 && orderList.body.data.every((m: Payload) => m.project.address === null), orderList.body.data.map((m: Payload) => m.project));
+    const inferOver = await triageOf(filed.message.id, { outcome: 'task', urgent: false, summary: 'Kickoff notes', project_id: ids.acme });
+    check('triage: an agent cannot override an address project (409 thread_project_set)', inferOver.status === 409
+      && inferOver.body.error.details.reason === 'thread_project_set' && inferOver.body.error.details.project_source === 'address', inferOver.body);
+    const sameProject = await triageOf(filed.message.id, { outcome: 'no_action', urgent: false, summary: 'Kickoff notes', project_id: p4tf });
+    const [afterTriage] = await rows(db, 'SELECT project_id, project_source, project_address_id FROM email_threads WHERE id=$1', [filed.thread.id]);
+    check('triage: naming the address project is accepted and leaves the source as address', sameProject.status === 201
+      && sameProject.body.data.thread.project_source === 'address' && afterTriage.project_source === 'address' && afterTriage.project_address_id === address.id, [sameProject.body, afterTriage]);
+
+    // Deleting an address keeps what it filed; a person can still move a thread.
+    await inboxSettings.removeProjectAddress(manage, p4tf, fromPublic.id);
+    check('project address: deleted, and deleting again is 404', (await failsWith(() => inboxSettings.removeProjectAddress(manage, p4tf, fromPublic.id))) === 404);
+    await inboxSettings.removeProjectAddress(manage, shelved, oldAddress.id);
+    const [keptShelved] = await rows(db, 'SELECT project_id, project_source, project_address_id FROM email_threads WHERE id=$1', [shelvedThread.thread.id]);
+    check('project address: a deleted address leaves its threads on the project, without the address', keptShelved.project_id === shelved
+      && keptShelved.project_source === 'address' && keptShelved.project_address_id === null, keptShelved);
+    await inbox.setThreadProject(owner, filed.thread.id, { project_id: ids.birch });
+    const [movedByPerson] = await rows(db, 'SELECT project_id, project_source, project_address_id FROM email_threads WHERE id=$1', [filed.thread.id]);
+    check('inbox ui: a person moving the thread sets ciaran and drops the address', movedByPerson.project_id === ids.birch && movedByPerson.project_source === 'ciaran' && movedByPerson.project_address_id === null, movedByPerson);
+    let pairRefused = '';
+    try { await db.query("UPDATE email_threads SET project_address_id = $1, project_source = 'mapped' WHERE id = $2", [address.id, filed.thread.id]); } catch (error) { pairRefused = (error as Error).message; }
+    const [stillClear] = await rows(db, 'SELECT project_address_id FROM email_threads WHERE id=$1', [filed.thread.id]);
+    check('threads: only an address source carries an address', pairRefused === '' && stillClear.project_address_id === null, [pairRefused, stillClear]);
+
     // A deleted project leaves the thread unassigned, cleanly.
     await db.query('DELETE FROM projects WHERE id=$1', [ids.other]);
     const [orphaned] = await rows(db, 'SELECT project_id, project_source FROM email_threads WHERE id=$1', [htmlOnly.thread_id]);
     check('threads: a deleted project clears project and source', orphaned.project_id === null && orphaned.project_source === null, orphaned);
+
+    // ---- Inbox UI review fixes: read only without triage, no names from unreachable projects ----
+    // (Appended block; keep it self-contained.)
+    {
+      const viewOnly = person(readerId, 'member', ['inbound_email.read', 'projects.read'], [ids.acme]);
+      const triager = person(readerId, 'member', ['inbound_email.read', 'inbound_email.triage', 'projects.read'], [ids.acme]);
+      const inboxManager = person(readerId, 'member', ['inbound_email.manage', 'projects.read'], [ids.acme]);
+      const stateOf = async () => JSON.stringify([
+        await rows(db, 'SELECT id, status, reviewed_at FROM email_messages WHERE thread_id=$1 ORDER BY id', [orig.thread_id]),
+        await rows(db, 'SELECT project_id, project_source FROM email_threads WHERE id=$1', [orig.thread_id]),
+      ]);
+      const untouched = await stateOf();
+      const refused = [
+        await failsWith(() => inbox.setThreadProject(viewOnly, orig.thread_id, { project_id: ids.acme })),
+        await failsWith(() => inbox.markThreadHandled(viewOnly, orig.thread_id)),
+        await failsWith(() => inbox.sendBackToAgent(viewOnly, orig.thread_id, null)),
+      ];
+      check('read only: viewing the inbox cannot set a project, mark handled or send back (403), and changes nothing',
+        refused.every((status) => status === 403) && (await stateOf()) === untouched, refused);
+      check('read only: viewing still reads the list and the thread', (await inbox.listThreads(viewOnly, allThreads)).total > 0
+        && (await inbox.threadDetail(viewOnly, orig.thread_id)).id === orig.thread_id);
+
+      const handledByTriager = await inbox.markThreadHandled(triager, orig.thread_id);
+      const sentBackByTriager = await inbox.sendBackToAgent(triager, orig.thread_id, null);
+      check('triage: inbound_email.triage marks handled and sends back', typeof handledByTriager.handled === 'number'
+        && typeof sentBackByTriager.message_id === 'string', [handledByTriager, sentBackByTriager]);
+      check('triage: inbound_email.manage acts too', typeof (await inbox.markThreadHandled(inboxManager, orig.thread_id)).handled === 'number');
+      check('triage: a project outside reach is still 403; one in reach is set by a person',
+        (await failsWith(() => inbox.setThreadProject(triager, orig.thread_id, { project_id: ids.birch }))) === 403
+        && (await inbox.setThreadProject(triager, orig.thread_id, { project_id: ids.acme })).project.source === 'ciaran');
+
+      // Names: a task in a project the member cannot open, linked to a readable thread.
+      const birchTask = await taskIn(ids.birch, 'Birch-only task title', null, ids.owner);
+      await asService(db, () => db.query("INSERT INTO email_task_links(message_id, task_id, relation, linked_by) VALUES ($1,$2,'updated',$3)", [reply.id, birchTask, ids.owner]));
+      const linksOf = (d: Awaited<ReturnType<typeof inbox.threadDetail>>) => d.messages.flatMap((m) => m.linked_tasks);
+      const hiddenDetail = await inbox.threadDetail(viewOnly, orig.thread_id);
+      const ownerDetail = await inbox.threadDetail(owner, orig.thread_id);
+      const hiddenLink = linksOf(hiddenDetail).find((l) => l.task_id === birchTask);
+      const ownerLink = linksOf(ownerDetail).find((l) => l.task_id === birchTask);
+      check('names: a linked task in an unreachable project keeps its ids but not its title or status; the owner sees both',
+        hiddenLink?.title === null && hiddenLink.status === null && hiddenLink.project_id === ids.birch
+        && ownerLink?.title === 'Birch-only task title' && !!ownerLink.status, [hiddenLink, ownerLink]);
+      check('names: a linked task in reach keeps its title', !!linksOf(hiddenDetail).find((l) => l.task_id === acmeTask)?.title, linksOf(hiddenDetail));
+      const hiddenCandidates = Object.fromEntries(hiddenDetail.candidates.map((c) => [c.project_id, c.name]));
+      check('names: a candidate project out of reach has no name; one in reach does',
+        hiddenCandidates[ids.acme2] === null && hiddenCandidates[ids.acme] === 'Acme Roofing', hiddenDetail.candidates);
+      check('names: the json carries no unreachable name', !JSON.stringify(hiddenDetail).includes('Birch-only task title')
+        && !JSON.stringify(hiddenDetail).includes('Acme Gutters LLC'));
+
+      const elsewhere = await inbox.threadDetail(viewOnly, filed.thread.id);
+      check('names: a thread on an unreachable project shows a neutral label, not the name', elsewhere.project?.id === ids.birch
+        && elsewhere.project.name === inbox.OTHER_PROJECT_LABEL && (await inbox.threadDetail(owner, filed.thread.id)).project?.name === 'Birch Partners', elsewhere.project);
+      const viewOnlyList = await inbox.listThreads(viewOnly, allThreads);
+      check('names: the list labels it the same way', viewOnlyList.threads.find((t) => t.id === filed.thread.id)?.project?.name === inbox.OTHER_PROJECT_LABEL,
+        viewOnlyList.threads.find((t) => t.id === filed.thread.id));
+      const byName = { ...allThreads, search: 'birch partners' };
+      check('names: search never matches an unreachable project name', (await inbox.listThreads(owner, byName)).threads.some((t) => t.id === filed.thread.id)
+        && !(await inbox.listThreads(viewOnly, byName)).threads.some((t) => t.id === filed.thread.id));
+    }
+
+    // ---- Client email addresses (email_client_addresses, reason 'sender') ----
+    // (Appended block; keep it self-contained.)
+    {
+      const bobA = randomUUID();
+      const bobB = randomUUID();
+      const bobC = randomUUID();
+      const carol = randomUUID();
+      const cora = randomUUID();
+      await db.query("INSERT INTO projects(id, name) VALUES ($1,'Bob Plumbing'),($2,'Bob Side Gig'),($3,'Bob Desk')", [bobA, bobB, bobC]);
+
+      // Settings: a public webmail address is accepted, lowercased; duplicates and bad input refused.
+      const bob = await inboxSettings.addClientSender(manage, bobA, ' Bob.Smith@GMAIL.com ');
+      check('senders: a gmail address is accepted, lowercased, as a removable manual row', bob.address === 'bob.smith@gmail.com'
+        && bob.source === 'manual' && !!bob.id && bob.contact_name === null, bob);
+      const dupe = await statusOfFailure(() => inboxSettings.addClientSender(manage, bobA, 'BOB.SMITH@gmail.com'));
+      check('senders: a duplicate on the project is 409, case-insensitively', dupe.status === 409 && /already on this project/.test(dupe.message), dupe);
+      check('senders: a non-address is 422; one of our own addresses (inbox, teammate) is 422',
+        (await failsWith(() => inboxSettings.addClientSender(manage, bobA, 'bob at gmail'))) === 422
+        && (await failsWith(() => inboxSettings.addClientSender(manage, bobA, 'Ashley@Agency.example'))) === 422
+        && (await failsWith(() => inboxSettings.addClientSender(manage, bobA, 'owner@agency.example'))) === 422);
+      check('senders: an empty body is 422 at the route', (await failsWith(async () => {
+        const { readBody } = await import('../src/lib/inbound-email/inbox-route');
+        const { clientSenderSchema } = await import('../src/lib/inbound-email/schemas');
+        await readBody(new Request('http://localhost/x', { method: 'POST', body: JSON.stringify({ address: '' }) }), clientSenderSchema);
+      })) === 422);
+      check('senders: the database refuses a mixed-case or invalid address and a duplicate',
+        /check/i.test(await refusedBy("INSERT INTO email_client_addresses(project_id, address) VALUES ($1,'Bob@x.example')", [bobA]))
+        && /check/i.test(await refusedBy("INSERT INTO email_client_addresses(project_id, address) VALUES ($1,'nope')", [bobA]))
+        && /email_client_addresses_project_address_key/.test(await refusedBy("INSERT INTO email_client_addresses(project_id, address) VALUES ($1,'bob.smith@gmail.com')", [bobA])));
+
+      // Permissions: the same people as client email domains.
+      const senderReader = person(readerId, 'member', ['inbound_email.read', 'projects.read'], [bobA]);
+      const senderManager = person(readerId, 'member', ['contacts.manage', 'projects.read'], [bobA]);
+      check('senders permissions: a reader lists but cannot add or remove',
+        (await inboxSettings.listClientSenders(senderReader, bobA)).addresses.some((r) => r.id === bob.id)
+        && (await failsWith(() => inboxSettings.addClientSender(senderReader, bobA, 'x@gmail.com'))) === 403
+        && (await failsWith(() => inboxSettings.removeClientSender(senderReader, bobA, bob.id as string))) === 403);
+      check('senders permissions: no contacts or inbox permission is 403; a project outside reach is 403; an agent never manages',
+        (await failsWith(() => inboxSettings.listClientSenders(outsider, bobA))) === 403
+        && (await failsWith(() => inboxSettings.listClientSenders(senderReader, bobB))) === 403
+        && (await failsWith(() => inboxSettings.addClientSender(senderManager, bobB, 'x@gmail.com'))) === 403
+        && (await failsWith(() => inboxSettings.addClientSender(person(ids.ashley, 'agent', ['*']), bobA, 'x@gmail.com'))) === 403);
+      const byManager = await inboxSettings.addClientSender(senderManager, bobA, 'temp@gmail.com');
+      await inboxSettings.removeClientSender(senderManager, bobA, byManager.id as string);
+      check('senders permissions: contacts.manage on the project adds and removes; removing again is 404; another project\'s row is 404',
+        (await failsWith(() => inboxSettings.removeClientSender(manage, bobA, byManager.id as string))) === 404
+        && (await failsWith(() => inboxSettings.removeClientSender(manage, bobB, bob.id as string))) === 404);
+
+      // RLS mirrors email_client_domains.
+      const rlsMember = randomUUID();
+      const rlsAuth = randomUUID();
+      await db.query("INSERT INTO team_members(id, auth_user_id, name, role) VALUES ($1,$2,'Rita','rls_test')", [rlsMember, rlsAuth]);
+      await db.query('INSERT INTO project_members(project_id, member_id) VALUES ($1,$2)', [bobA, rlsMember]);
+      for (const key of ['projects.read', 'inbound_email.read'])
+        await db.query("INSERT INTO team_member_permissions(member_id, permission_key, access_channel, effect) VALUES ($1,$2,'app','allow')", [rlsMember, key]);
+      await db.query('INSERT INTO email_client_addresses(project_id, address) VALUES ($1,$2)', [bobB, 'bob.smith@gmail.com']);
+      const rlsSeen = await asPerson(db, rlsAuth, () => rows(db, 'SELECT project_id FROM email_client_addresses'));
+      const rlsInsert = async (projectId: string) => {
+        try { await asPerson(db, rlsAuth, () => db.query("INSERT INTO email_client_addresses(project_id, address) VALUES ($1,'rls@gmail.com')", [projectId])); return ''; }
+        catch (error) { return (error as Error).message; }
+      };
+      const readOnlyInsert = await rlsInsert(bobA);
+      await db.query("INSERT INTO team_member_permissions(member_id, permission_key, access_channel, effect) VALUES ($1,'contacts.manage','app','allow')", [rlsMember]);
+      const managedInsert = await rlsInsert(bobA);
+      const otherProjectInsert = await rlsInsert(bobB);
+      check('senders rls: a reader sees only reachable projects\' rows and cannot write; a manager writes only where the project is reachable',
+        rlsSeen.length === 1 && rlsSeen[0].project_id === bobA && /row-level security/.test(readOnlyInsert)
+        && managedInsert === '' && /row-level security/.test(otherProjectInsert), { rlsSeen, readOnlyInsert, managedInsert, otherProjectInsert });
+      await db.query("DELETE FROM email_client_addresses WHERE address = 'rls@gmail.com'");
+
+      // Ingestion: one project maps (reason sender), case-insensitively.
+      await db.query('DELETE FROM email_client_addresses WHERE project_id = $1', [bobB]);
+      await sendRaw('re_cs_one', { from: 'Bob Smith <BOB.SMITH@GMAIL.COM>', to: 'ashley@agency.example', subject: 'Leaky tap quote', id: 'cs-one@gmail.example' }, [`ashley@${RELAY}`]);
+      const one = await threadOf('cs-one@gmail.example');
+      const oneCandidates = await rows(db, 'SELECT project_id, reason FROM email_message_candidates WHERE message_id=$1', [one.message.id]);
+      check('senders ingest: mail from a client email address maps the thread (mapped, reason sender)', one.thread.project_id === bobA
+        && one.thread.project_source === 'mapped' && oneCandidates.length === 1 && oneCandidates[0].reason === 'sender' && oneCandidates[0].project_id === bobA,
+        [one.thread, oneCandidates]);
+      const oneDetail = await inbox.threadDetail(owner, one.thread.id);
+      check('senders ingest: the thread lists the candidate with reason sender', oneDetail.candidates.some((c) => c.project_id === bobA && c.reasons.includes('sender')), oneDetail.candidates);
+
+      // One sender on two projects: two candidates, no auto-map.
+      await inboxSettings.addClientSender(manage, bobB, 'bob.smith@gmail.com');
+      await sendRaw('re_cs_two', { from: 'bob.smith@gmail.com', to: 'ashley@agency.example', subject: 'Side gig invoice', id: 'cs-two@gmail.example' }, [`ashley@${RELAY}`]);
+      const two = await threadOf('cs-two@gmail.example');
+      const twoCandidates = await rows(db, 'SELECT project_id, reason FROM email_message_candidates WHERE message_id=$1 ORDER BY project_id', [two.message.id]);
+      check('senders ingest: one sender on two projects yields two candidates and leaves the project open', two.thread.project_id === null
+        && twoCandidates.length === 2 && twoCandidates.every((c) => c.reason === 'sender') && new Set(twoCandidates.map((c) => c.project_id)).size === 2,
+        [two.thread, twoCandidates]);
+
+      // A project address still outranks the sender match.
+      const desk = await inboxSettings.addProjectAddress(manage, bobC, { inbox_id: ids.inboxA, routing_local_part: 'bob-desk', public_address: null, enabled: true });
+      await sendRaw('re_cs_desk', { from: 'bob.smith@gmail.com', to: `bob-desk@${RELAY}`, subject: 'Through the desk', id: 'cs-desk@gmail.example' }, [`bob-desk@${RELAY}`]);
+      const viaDesk = await threadOf('cs-desk@gmail.example');
+      check('senders ingest: a project address outranks a sender match', viaDesk.thread.project_id === bobC && viaDesk.thread.project_source === 'address'
+        && viaDesk.thread.project_address_id === desk.id, viaDesk.thread);
+
+      // The list: contact addresses (named, tagged, not removable) and manual rows, merged.
+      await db.query("INSERT INTO contacts(id, name, email) VALUES ($1,'Carol Ng','carol@carol.example'),($2,'Ann Lee','ann@lee.example')", [carol, cora]);
+      await db.query("INSERT INTO contact_emails(contact_id, email) VALUES ($1,'carol.alt@gmail.com')", [carol]);
+      await db.query("INSERT INTO email_client_addresses(project_id, address) VALUES ($1,'carol.alt@gmail.com')", [bobA]);
+      await db.query('INSERT INTO project_contacts(project_id, contact_id) VALUES ($1,$2),($1,$3)', [bobA, carol, cora]);
+      const listed = await inboxSettings.listClientSenders(manage, bobA);
+      check('senders list: contacts first by name (each address once), a manual row on a contact address stays removable, then manual by address',
+        JSON.stringify(listed.addresses.map((r) => [r.address, r.source, r.contact_name, !!r.id])) === JSON.stringify([
+          ['ann@lee.example', 'contact', 'Ann Lee', false],
+          ['carol.alt@gmail.com', 'contact', 'Carol Ng', true],
+          ['carol@carol.example', 'contact', 'Carol Ng', false],
+          ['bob.smith@gmail.com', 'manual', null, true],
+        ]), listed.addresses);
+      const namesHidden = await inboxSettings.listClientSenders(senderReader, bobA);
+      check('senders list: without contact access the contact addresses show without names or ids',
+        namesHidden.addresses.filter((r) => r.source === 'contact').length === 3
+        && namesHidden.addresses.every((r) => r.contact_name === null && r.contact_id === null), namesHidden.addresses);
+      const onContact = await statusOfFailure(() => inboxSettings.addClientSender(manage, bobA, 'Ann@Lee.example'));
+      check('senders: an address of a contact on the project is 409 (it already routes here), not a duplicate row',
+        onContact.status === 409 && /already routes here/.test(onContact.message)
+        && (await rows(db, "SELECT 1 FROM email_client_addresses WHERE address = 'ann@lee.example'")).length === 0, onContact);
+      const carolRow = listed.addresses.find((r) => r.address === 'carol.alt@gmail.com');
+      await inboxSettings.removeClientSender(manage, bobA, carolRow?.id as string);
+      const afterRemove = (await inboxSettings.listClientSenders(manage, bobA)).addresses.find((r) => r.address === 'carol.alt@gmail.com');
+      check('senders list: removing the manual row of a contact address keeps the contact row', afterRemove?.source === 'contact' && afterRemove.id === null, afterRemove);
+
+      // Remember sender: a project that already has the address counts as remembered; no contact is made for it.
+      const bobSender = (await inbox.threadDetail(owner, two.thread.id)).senders.find((s) => s.address === 'bob.smith@gmail.com');
+      check('remember: a client email address counts as already mapped', !!bobSender && bobSender.mapped_project_ids.includes(bobA)
+        && bobSender.mapped_project_ids.includes(bobB) && bobSender.contact_ids.length === 0, bobSender);
+      const remembered = await inbox.setThreadProject(owner, two.thread.id, { project_id: bobA, remember_sender: { address: 'bob.smith@gmail.com', project_ids: [bobA, bobB] } });
+      check('remember: every chosen project already had the address, so no contact is created or linked',
+        remembered.remembered_sender?.contact_id === null && remembered.remembered_sender.created_contact === false
+        && remembered.remembered_sender.linked_project_ids.length === 0
+        && (await rows(db, "SELECT 1 FROM contact_emails WHERE email = 'bob.smith@gmail.com'")).length === 0, remembered);
+      const rememberedNew = await inbox.setThreadProject(owner, two.thread.id, { project_id: bobA, remember_sender: { address: 'bob.smith@gmail.com', project_ids: [bobA, bobC] } });
+      check('remember: a project without it still makes the person a contact there, unchanged', rememberedNew.remembered_sender?.created_contact === true
+        && JSON.stringify(rememberedNew.remembered_sender.linked_project_ids) === JSON.stringify([bobC]), rememberedNew);
+    }
+
+    // ---- Forwards and copies from the team (routing_basis) -------------------
+    // (Appended block; keep it self-contained.) The owner (owner@agency.example,
+    // an active person on the team since the Inbox UI block) is the teammate.
+    {
+      const fwdA = randomUUID();
+      const fwdB = randomUUID();
+      const fwdDesk = randomUUID();
+      const vera = randomUUID();
+      const cliff = randomUUID();
+      const paul = randomUUID();
+      await db.query("INSERT INTO projects(id, name) VALUES ($1,'Vera Studio'),($2,'Cliff Builders'),($3,'Forward Desk')", [fwdA, fwdB, fwdDesk]);
+      await db.query("INSERT INTO contacts(id, name, email) VALUES ($1,'Vera Lane','vera@verastudio.example'),($2,'Cliff Hart','cliff@cliffbuilders.example')", [vera, cliff]);
+      await db.query('INSERT INTO project_contacts(project_id, contact_id) VALUES ($1,$2),($3,$4)', [fwdA, vera, fwdB, cliff]);
+      // A suspended teammate and an agent with a team address are never verified teammates.
+      await db.query("INSERT INTO team_members(id, name, email, role, status) VALUES ($1,'Paul','paul@agency.example','member','suspended')", [paul]);
+      await db.query("UPDATE team_members SET email = 'ashley.agent@agency.example' WHERE id = $1", [ids.ashley]);
+
+      type Mail = { from: string; to: string; cc?: string; subject: string; id: string; body?: string; html?: string; attached?: string };
+      const mime = (mail: Mail) => {
+        const head = [`From: ${mail.from}`, `To: ${mail.to}`, ...(mail.cc ? [`Cc: ${mail.cc}`] : []), `Subject: ${mail.subject}`,
+          'Date: Tue, 06 Oct 2026 09:00:00 -0400', `Message-ID: <${mail.id}>`, 'MIME-Version: 1.0'];
+        if (mail.attached) {
+          return Buffer.from([...head, 'Content-Type: multipart/mixed; boundary="fwd-b"', '', '--fwd-b', 'Content-Type: text/plain; charset="UTF-8"', '',
+            mail.body ?? 'See attached.', '', '--fwd-b', 'Content-Type: message/rfc822', 'Content-Disposition: attachment; filename="original.eml"', '',
+            mail.attached, '', '--fwd-b--', ''].join('\r\n'));
+        }
+        if (mail.html) return Buffer.from([...head, 'Content-Type: text/html; charset="UTF-8"', '', mail.html, ''].join('\r\n'));
+        return Buffer.from([...head, 'Content-Type: text/plain; charset="UTF-8"', '', mail.body ?? 'Hello.', ''].join('\r\n'));
+      };
+      const sendMail = async (emailId: string, mail: Mail, options: { auth?: { spf: string; dkim: string; dmarc: string }; deliveredTo?: string[] } = {}) => {
+        resend.add(await resendFixture(mime(mail), { emailId, deliveredTo: options.deliveredTo ?? [`ashley@${RELAY}`], authentication: options.auth }));
+        return deliver(emailId);
+      };
+      const routed = async (internetId: string) => {
+        const { message, thread } = await threadOf(internetId);
+        const candidates = await rows(db, 'SELECT project_id, reason FROM email_message_candidates WHERE message_id=$1 ORDER BY project_id, reason', [message.id]);
+        return { message, thread, candidates };
+      };
+      const FAILED_DKIM = { spf: 'pass', dkim: 'fail', dmarc: 'fail' };
+      const gmailBody = (from: string) => ['Can you add this to the board?', '', '---------- Forwarded message ---------', `From: ${from}`,
+        'Date: Mon, Oct 5, 2026 at 4:40 PM', 'Subject: New homepage copy', 'To: Sam Owner <owner@agency.example>', '', 'Here is the new homepage copy.'].join('\r\n');
+      const isForwardedByOwner = (r: Awaited<ReturnType<typeof routed>>, projectId: string | null, reason: string | null) =>
+        r.message.routing_basis === 'forwarded_original' && r.message.forwarded_by_member_id === ids.owner
+        && r.message.original_from_address === 'vera@verastudio.example' && r.message.original_from_name === 'Vera Lane'
+        && r.thread.project_id === projectId && (reason === null ? r.candidates.length === 0 : r.candidates.length === 1 && r.candidates[0].project_id === projectId && r.candidates[0].reason === reason);
+
+      // Gmail, Outlook and Apple inline forwards and a forward as attachment, from a verified teammate.
+      await sendMail('re_fw_gmail', { from: 'Sam Owner <owner@agency.example>', to: 'ashley@agency.example', subject: 'Fwd: New homepage copy', id: 'fw-gmail@agency.example',
+        body: gmailBody('Vera Lane <Vera@VeraStudio.example>') });
+      const gm = await routed('fw-gmail@agency.example');
+      check('team forward: a Gmail forward from a verified teammate maps by the original sender (contact), forwarded_by set', isForwardedByOwner(gm, fwdA, 'contact')
+        && gm.thread.project_source === 'mapped' && gm.message.auth.trust === 'trusted', [gm.message.routing_basis, gm.message.original_from_address, gm.thread, gm.candidates]);
+      await sendMail('re_fw_outlook', { from: 'owner@agency.example', to: 'ashley@agency.example', subject: 'FW: Kickoff notes', id: 'fw-outlook@agency.example',
+        body: ['Notes from Vera below.', '', '-----Original Message-----', 'From: Vera Lane [mailto:vera@verastudio.example]', 'Sent: Monday, October 5, 2026 4:40 PM',
+          'To: Sam Owner', 'Subject: Kickoff notes', '', 'Agenda attached.'].join('\r\n') });
+      check('team forward: an Outlook forward maps by the original sender', isForwardedByOwner(await routed('fw-outlook@agency.example'), fwdA, 'contact'));
+      await sendMail('re_fw_apple', { from: 'owner@agency.example', to: 'ashley@agency.example', subject: 'Fwd: Logo feedback', id: 'fw-apple@agency.example',
+        body: ['Begin forwarded message:', '', 'From: Vera Lane <vera@verastudio.example>', 'Subject: Logo feedback', 'Date: October 5, 2026 at 4:40:00 PM EDT',
+          'To: Sam Owner <owner@agency.example>', '', 'Love the second logo.'].join('\r\n') });
+      check('team forward: an Apple Mail forward maps by the original sender', isForwardedByOwner(await routed('fw-apple@agency.example'), fwdA, 'contact'));
+      await sendMail('re_fw_html', { from: 'owner@agency.example', to: 'ashley@agency.example', subject: 'Fwd: Photos', id: 'fw-html@agency.example',
+        html: '<div>See below<br><br>---------- Forwarded message ---------<br>From: <strong>Vera Lane</strong> <span>&lt;<a href="mailto:vera@verastudio.example">vera@verastudio.example</a>&gt;</span><br>Date: Mon, Oct 5, 2026<br>Subject: Photos<br><br>Three photos.</div>' });
+      check('team forward: an HTML-only forward uses its HTML text', isForwardedByOwner(await routed('fw-html@agency.example'), fwdA, 'contact'));
+      const attachedOriginal = ['From: Vera Lane <vera@verastudio.example>', 'To: owner@agency.example', 'Subject: Invoice question', 'Message-ID: <orig-in-eml@verastudio.example>',
+        'Content-Type: text/plain; charset="UTF-8"', '', 'Is the invoice due on the 15th?'].join('\r\n');
+      await sendMail('re_fw_eml', { from: 'owner@agency.example', to: 'ashley@agency.example', subject: 'Fwd: Invoice question', id: 'fw-eml@agency.example',
+        body: 'Forwarding as attachment.', attached: attachedOriginal });
+      const eml = await routed('fw-eml@agency.example');
+      const emlAttachment = (await rows(db, 'SELECT content_type, filename, uploaded_at FROM email_attachments WHERE message_id=$1', [eml.message.id]))[0];
+      check('team forward: a forward as attachment (message/rfc822) maps by the attached message\'s From', isForwardedByOwner(eml, fwdA, 'contact')
+        && /rfc822/.test(emlAttachment?.content_type ?? '') && !!emlAttachment.uploaded_at, [eml.message.routing_basis, eml.message.original_from_address, emlAttachment]);
+
+      // The same forward from an unverified teammate address, a suspended teammate or an agent maps by the outer sender.
+      await sendMail('re_fw_unverified', { from: 'owner@agency.example', to: 'ashley@agency.example', subject: 'Fwd: New homepage copy', id: 'fw-unverified@agency.example',
+        body: gmailBody('Vera Lane <vera@verastudio.example>') }, { auth: FAILED_DKIM });
+      const unverified = await routed('fw-unverified@agency.example');
+      check('team forward: from a teammate address with failed DKIM it routes by the outer sender, no forwarder',
+        unverified.message.routing_basis === 'sender' && unverified.message.forwarded_by_member_id === null && unverified.message.original_from_address === null
+        && unverified.message.auth.trust === 'untrusted' && unverified.candidates.length === 0 && unverified.thread.project_id === null, [unverified.message.routing_basis, unverified.candidates]);
+      await sendMail('re_fw_suspended', { from: 'paul@agency.example', to: 'ashley@agency.example', subject: 'Fwd: New homepage copy', id: 'fw-suspended@agency.example',
+        body: gmailBody('Vera Lane <vera@verastudio.example>') });
+      await sendMail('re_fw_agent', { from: 'ashley.agent@agency.example', to: 'ashley@agency.example', subject: 'Fwd: New homepage copy', id: 'fw-agent@agency.example',
+        body: gmailBody('Vera Lane <vera@verastudio.example>') });
+      const suspendedFwd = await routed('fw-suspended@agency.example');
+      const agentFwd = await routed('fw-agent@agency.example');
+      check('team forward: a suspended teammate or an agent is not a verified teammate (routes by sender)',
+        [suspendedFwd, agentFwd].every((r) => r.message.routing_basis === 'sender' && r.message.forwarded_by_member_id === null && r.candidates.length === 0),
+        [suspendedFwd.message.routing_basis, agentFwd.message.routing_basis]);
+
+      // A client forwarding a vendor's email maps by the client.
+      await sendMail('re_fw_client', { from: 'Cliff Hart <cliff@cliffbuilders.example>', to: 'ashley@agency.example', subject: 'Fwd: Hosting renewal', id: 'fw-client@cliffbuilders.example',
+        body: ['Is this ours to pay?', '', '---------- Forwarded message ---------', 'From: Billing <billing@hostco.example>', 'Subject: Hosting renewal', 'Date: Mon, Oct 5, 2026', '', 'Renew now.'].join('\r\n') });
+      const clientFwd = await routed('fw-client@cliffbuilders.example');
+      check('client forward: a client forwarding a vendor email maps by the client (sender basis)', clientFwd.message.routing_basis === 'sender'
+        && clientFwd.message.original_from_address === null && clientFwd.thread.project_id === fwdB && clientFwd.candidates.length === 1 && clientFwd.candidates[0].reason === 'contact',
+        [clientFwd.message.routing_basis, clientFwd.candidates]);
+
+      // A teammate's own email copied to the inbox maps by the client in To and Cc.
+      await sendMail('re_team_cc', { from: 'Sam Owner <owner@agency.example>', to: 'Vera Lane <vera@verastudio.example>, Paul <paul@agency.example>', cc: 'Ashley <ashley@agency.example>',
+        subject: 'Next steps on the site', id: 'team-cc@agency.example', body: 'Hi Vera, here are the next steps.' });
+      const teamCc = await routed('team-cc@agency.example');
+      check('team cc: a teammate writing to a client and copying the inbox maps by the client in To/Cc (team_recipients)',
+        teamCc.message.routing_basis === 'team_recipients' && teamCc.message.forwarded_by_member_id === ids.owner && teamCc.message.original_from_address === null
+        && teamCc.thread.project_id === fwdA && teamCc.candidates.length === 1 && teamCc.candidates[0].reason === 'contact', [teamCc.message.routing_basis, teamCc.candidates]);
+      await sendMail('re_team_cc_two', { from: 'owner@agency.example', to: 'vera@verastudio.example', cc: 'cliff@cliffbuilders.example, ashley@agency.example',
+        subject: 'Joint call', id: 'team-cc-two@agency.example', body: 'Both of you on one call.' });
+      const teamTwo = await routed('team-cc-two@agency.example');
+      check('team cc: two clients on two projects yield two candidates and no project', teamTwo.message.routing_basis === 'team_recipients'
+        && teamTwo.thread.project_id === null && new Set(teamTwo.candidates.map((c) => c.project_id)).size === 2, teamTwo.candidates);
+
+      // A forward whose original sender is unknown: no candidates, the forwarder still recorded.
+      await sendMail('re_fw_unknown', { from: 'owner@agency.example', to: 'ashley@agency.example', subject: 'Fwd: Cold pitch', id: 'fw-unknown@agency.example',
+        body: gmailBody('Stranger <stranger@nowhere.example>') });
+      const unknownFwd = await routed('fw-unknown@agency.example');
+      check('team forward: an unknown original sender yields no candidates, forwarded_by set', unknownFwd.message.routing_basis === 'forwarded_original'
+        && unknownFwd.message.original_from_address === 'stranger@nowhere.example' && unknownFwd.message.forwarded_by_member_id === ids.owner
+        && unknownFwd.candidates.length === 0 && unknownFwd.thread.project_id === null, [unknownFwd.message, unknownFwd.candidates]);
+
+      // "From:" far down the body is not a forward: the teammate's own email, routed by its client recipient.
+      const farDown = [...Array.from({ length: 15 }, (_, i) => `Point ${i + 1}: notes on the launch plan for this week.`), '',
+        '---------- Forwarded message ---------', 'From: Stranger <stranger@nowhere.example>', 'Subject: Old thing', 'Date: Mon, Oct 5, 2026', '', 'Old.'].join('\r\n');
+      await sendMail('re_fw_far', { from: 'owner@agency.example', to: 'vera@verastudio.example', cc: 'ashley@agency.example', subject: 'Fwd: Launch plan', id: 'fw-far@agency.example', body: farDown });
+      const far = await routed('fw-far@agency.example');
+      check('team forward: a forward marker far down the body does not make it a forward', far.message.routing_basis === 'team_recipients'
+        && far.message.original_from_address === null && far.thread.project_id === fwdA, [far.message.routing_basis, far.message.original_from_address]);
+
+      // A project address still outranks a team forward's mapping.
+      await inboxSettings.addProjectAddress(manage, fwdDesk, { inbox_id: ids.inboxA, routing_local_part: 'fwd-desk', public_address: null, enabled: true });
+      await sendMail('re_fw_desk', { from: 'owner@agency.example', to: `fwd-desk@${RELAY}`, subject: 'Fwd: Desk copy', id: 'fw-desk@agency.example',
+        body: gmailBody('Vera Lane <vera@verastudio.example>') }, { deliveredTo: [`fwd-desk@${RELAY}`] });
+      const desk = await routed('fw-desk@agency.example');
+      check('team forward: a project address still outranks the original sender\'s mapping', desk.thread.project_id === fwdDesk && desk.thread.project_source === 'address'
+        && desk.message.routing_basis === 'forwarded_original' && desk.candidates.some((c) => c.project_id === fwdA), [desk.thread, desk.candidates]);
+
+      // Threading: team and inbox addresses are never shared participants.
+      await sendMail('re_team_thread_1', { from: 'owner@agency.example', to: 'vera@verastudio.example', cc: 'ashley@agency.example', subject: 'Weekly update', id: 'tt-1@agency.example', body: 'Update for Vera.' });
+      await sendMail('re_team_thread_2', { from: 'owner@agency.example', to: 'cliff@cliffbuilders.example', cc: 'ashley@agency.example', subject: 'Weekly update', id: 'tt-2@agency.example', body: 'Update for Cliff.' });
+      await sendMail('re_team_thread_3', { from: 'vera@verastudio.example', to: 'owner@agency.example', cc: 'ashley@agency.example', subject: 'Re: Weekly update', id: 'tt-3@verastudio.example', body: 'Thanks!' });
+      const [t1, t2, t3] = [await routed('tt-1@agency.example'), await routed('tt-2@agency.example'), await routed('tt-3@verastudio.example')];
+      check('threading: the same subject to two clients from one teammate stays two threads; the client\'s answer joins its own',
+        t1.thread.id !== t2.thread.id && t3.thread.id === t1.thread.id && t2.thread.project_id === fwdB, [t1.thread.id, t2.thread.id, t3.thread.id]);
+
+      // The agent API.
+      const apiList = await api(list.GET, 'GET', '/api/v1/inbound-emails?limit=100', keys.ashley);
+      const listedFwd = apiList.body.data.find((m: Payload) => m.id === gm.message.id);
+      const listedCc = apiList.body.data.find((m: Payload) => m.id === teamCc.message.id);
+      const listedPlain = apiList.body.data.find((m: Payload) => m.id === clientFwd.message.id);
+      check('agent api list: routing_basis, forwarded_by and original_sender', listedFwd?.routing_basis === 'forwarded_original'
+        && JSON.stringify(listedFwd.forwarded_by) === JSON.stringify({ member_id: ids.owner, name: 'Sam' })
+        && JSON.stringify(listedFwd.original_sender) === JSON.stringify({ address: 'vera@verastudio.example', name: 'Vera Lane' })
+        && listedFwd.from.address === 'owner@agency.example' && listedFwd.trust === 'trusted'
+        && listedCc?.routing_basis === 'team_recipients' && listedCc.forwarded_by?.member_id === ids.owner && listedCc.original_sender === null
+        && listedPlain?.routing_basis === 'sender' && listedPlain.forwarded_by === null && listedPlain.original_sender === null, [listedFwd, listedCc, listedPlain]);
+      const apiDetail = await api(detail.GET, 'GET', `/api/v1/inbound-emails/${gm.message.id}`, keys.ashley, { id: gm.message.id });
+      const detailed = apiDetail.body.data;
+      check('agent api detail: the routing fields, auth.trust stays the outer verdict, candidates by the original sender', apiDetail.status === 200
+        && detailed.routing_basis === 'forwarded_original' && detailed.forwarded_by?.name === 'Sam' && detailed.original_sender?.address === 'vera@verastudio.example'
+        && detailed.auth.trust === 'trusted' && detailed.from.address === 'owner@agency.example'
+        && detailed.candidates.some((c: Payload) => c.project_id === fwdA && c.reasons.includes('contact'))
+        && detailed.thread.messages.every((m: Payload) => 'routing_basis' in m && 'forwarded_by' in m && 'original_sender' in m), detailed);
+      const unverifiedDetail = (await api(detail.GET, 'GET', `/api/v1/inbound-emails/${unverified.message.id}`, keys.ashley, { id: unverified.message.id })).body.data;
+      check('agent api detail: an unverified teammate forward reads as sender basis, auth untrusted', unverifiedDetail.routing_basis === 'sender'
+        && unverifiedDetail.forwarded_by === null && unverifiedDetail.original_sender === null && unverifiedDetail.auth.trust === 'untrusted', unverifiedDetail);
+
+      // The Inbox UI: the original sender shows as the sender, the teammate on their own line, and is the one to remember.
+      const fwdDetail = await inbox.threadDetail(owner, gm.thread.id);
+      const fwdMessage = fwdDetail.messages.find((m) => m.id === gm.message.id);
+      check('inbox ui: a team forward carries the original sender and the forwarder; From stays the outer sender',
+        fwdMessage?.routing_basis === 'forwarded_original' && fwdMessage.original_sender?.address === 'vera@verastudio.example'
+        && fwdMessage.forwarded_by?.name === 'Sam' && fwdMessage.from?.address === 'owner@agency.example', fwdMessage);
+      check('inbox ui: remember sender offers the original sender, never the forwarding teammate',
+        fwdDetail.senders.some((s) => s.address === 'vera@verastudio.example' && s.mapped_project_ids.includes(fwdA))
+        && !fwdDetail.senders.some((s) => s.address === 'owner@agency.example'), fwdDetail.senders);
+      const ccDetail = await inbox.threadDetail(owner, teamCc.thread.id);
+      check('inbox ui: a team copy reads as sent by the teammate', ccDetail.messages[0].routing_basis === 'team_recipients'
+        && ccDetail.messages[0].forwarded_by?.name === 'Sam' && ccDetail.messages[0].original_sender === null, ccDetail.messages[0]);
+      const uiList = await inbox.listThreads(owner, { ...allThreads, search: 'vera lane' });
+      check('inbox ui: the thread list shows the original sender for a forward and search finds it by name',
+        uiList.threads.find((t) => t.id === gm.thread.id)?.sender?.address === 'vera@verastudio.example', uiList.threads.map((t) => [t.subject, t.sender]));
+      const unknownDetail = await inbox.threadDetail(owner, unknownFwd.thread.id);
+      const rememberedOriginal = await inbox.setThreadProject(owner, unknownFwd.thread.id, { project_id: fwdB, remember_sender: { address: 'stranger@nowhere.example', project_ids: [fwdB] } });
+      check('inbox ui: remember sender on a forward makes the original sender a contact', unknownDetail.senders.length === 1 && unknownDetail.senders[0].address === 'stranger@nowhere.example'
+        && rememberedOriginal.remembered_sender?.created_contact === true && JSON.stringify(rememberedOriginal.remembered_sender.linked_project_ids) === JSON.stringify([fwdB]), rememberedOriginal);
+      check('inbox ui: the forwarding teammate cannot be remembered from a forward', (await failsWith(() => inbox.setThreadProject(owner, unknownFwd.thread.id,
+        { project_id: fwdB, remember_sender: { address: 'owner@agency.example', project_ids: [fwdB] } }))) === 422);
+
+      // The agent's guess: a project picked for an email with no candidates is guessed; with candidates it stays inferred.
+      await sendMail('re_guess', { from: 'Quinn <quinn@unknown-co.example>', to: 'ashley@agency.example', subject: 'Question about our site', id: 'guess@unknown-co.example', body: 'Who handles our site?' });
+      const guess = await routed('guess@unknown-co.example');
+      const guessTriage = await triageOf(guess.message.id, { outcome: 'no_action', urgent: false, summary: 'Probably Vera Studio', project_id: fwdA });
+      const inferredTriage = await triageOf(teamTwo.message.id, { outcome: 'no_action', urgent: false, summary: 'The joint call is Cliff\'s project', project_id: fwdB });
+      check('guessed: a project picked with no candidates is guessed; picked among candidates it stays inferred', guessTriage.status === 201
+        && guessTriage.body.data.thread.project_source === 'guessed' && guessTriage.body.data.thread.project_id === fwdA
+        && inferredTriage.body.data.thread.project_source === 'inferred', [guessTriage.body, inferredTriage.body]);
+      const guessDetail = (await api(detail.GET, 'GET', `/api/v1/inbound-emails/${guess.message.id}`, keys.ashley, { id: guess.message.id })).body.data;
+      const guessListed = (await api(list.GET, 'GET', '/api/v1/inbound-emails?limit=100', keys.ashley)).body.data.find((m: Payload) => m.id === guess.message.id);
+      check('guessed: the agent API shows the source on detail and list', guessDetail.project?.source === 'guessed' && guessListed?.project?.source === 'guessed', [guessDetail.project, guessListed?.project]);
+      const guessUi = await inbox.threadDetail(owner, guess.thread.id);
+      const unassigned = await inbox.listThreads(owner, { ...allThreads, tab: 'unassigned' });
+      check('guessed: the Inbox shows it as guessed, and a guessed thread is not Unassigned', guessUi.project?.source === 'guessed'
+        && !unassigned.threads.some((t) => t.id === guess.thread.id), guessUi.project);
+
+      // The batched summary: the triage's own project_id, routing and the project's source.
+      const fwdTriage = await triageOf(gm.message.id, { outcome: 'no_action', urgent: false, summary: 'Homepage copy from Vera' });
+      const summaryItems = (await api(unsummarized.GET, 'GET', '/api/v1/inbound-emails/triage/unsummarized', keys.ashley)).body.data as Payload[];
+      const guessItem = summaryItems.find((i) => i.message.id === guess.message.id);
+      const fwdItem = summaryItems.find((i) => i.message.id === gm.message.id);
+      const plainItem = summaryItems.find((i) => i.message.id === teamTwo.message.id);
+      check('summary: an item carries the triage\'s project_id and the thread project\'s source (guessed)', guessItem?.project_id === fwdA
+        && guessItem.project?.source === 'guessed' && guessItem.message.routing_basis === 'sender' && guessItem.message.forwarded_by === null
+        && guessItem.message.original_sender === null, guessItem);
+      check('summary: a team forward carries routing_basis, forwarded_by and original_sender; a triage without a project has project_id null',
+        fwdTriage.status === 201 && fwdItem?.project_id === null && fwdItem.message.routing_basis === 'forwarded_original'
+        && fwdItem.message.forwarded_by?.member_id === ids.owner && fwdItem.message.forwarded_by.name === 'Sam'
+        && fwdItem.message.original_sender?.address === 'vera@verastudio.example' && fwdItem.message.original_sender.name === 'Vera Lane'
+        && plainItem?.message.routing_basis === 'team_recipients' && plainItem.message.forwarded_by?.member_id === ids.owner && plainItem.project?.source === 'inferred',
+        [fwdItem, plainItem]);
+
+      // Confirming a guess is a person setting it.
+      const confirmed = await inbox.setThreadProject(owner, guess.thread.id, { project_id: fwdA });
+      check('guessed: confirming it marks it as set by a person', confirmed.project.source === 'ciaran'
+        && (await rows(db, 'SELECT project_source FROM email_threads WHERE id=$1', [guess.thread.id]))[0].project_source === 'ciaran', confirmed.project);
+      check('guessed: the database accepts guessed and nothing unknown', /project_source_check/.test(await refusedBy("UPDATE email_threads SET project_source = 'hunch' WHERE id = $1", [guess.thread.id])));
+
+      // The database keeps the routing columns consistent.
+      check('routing columns: the database refuses an original sender on a sender-basis row and a forwarder on a sender-basis row',
+        /email_messages_routing_check/.test(await refusedBy("UPDATE email_messages SET original_from_address = 'x@y.example' WHERE id = $1", [clientFwd.message.id]))
+        && /email_messages_routing_check/.test(await refusedBy('UPDATE email_messages SET forwarded_by_member_id = $2 WHERE id = $1', [clientFwd.message.id, ids.owner]))
+        && /routing_basis_check/.test(await refusedBy("UPDATE email_messages SET routing_basis = 'other' WHERE id = $1", [clientFwd.message.id])));
+      await db.query('DELETE FROM team_members WHERE id = $1', [paul]);
+      await db.query('UPDATE team_members SET email = $2 WHERE id = $1', [ids.ashley, '']);
+    }
 
     // Deletes: no agent route deletes anything.
     check('no deletes: no inbound email route exports DELETE', [list, detail, attachmentUrl, attachmentLabel, triage, unsummarized, markSummarized, signal, webhook].every((m) => !('DELETE' in m)));
@@ -726,7 +1415,10 @@ async function main() {
 
   // The schema.sql snapshot stands on its own.
   const snapshot = await createEmailDatabase('schema');
-  check('schema.sql: the inbound email section loads', (await rows(snapshot, "SELECT count(*)::int AS n FROM pg_tables WHERE tablename LIKE 'email_%' OR tablename = 'contact_emails'"))[0].n === 12);
+  check('schema.sql: the inbound email section loads', (await rows(snapshot, "SELECT count(*)::int AS n FROM pg_tables WHERE tablename LIKE 'email_%' OR tablename = 'contact_emails'"))[0].n === 14);
+  check('schema.sql: client sender addresses and the sender reason are in the snapshot',
+    (await rows(snapshot, "SELECT 1 FROM pg_policies WHERE tablename = 'email_client_addresses'")).length === 2
+    && (await rows(snapshot, "SELECT 1 FROM pg_constraint WHERE conname = 'email_message_candidates_reason_check' AND pg_get_constraintdef(oid) LIKE '%sender%'")).length === 1);
   await snapshot.close();
 
   if (failures.length) {

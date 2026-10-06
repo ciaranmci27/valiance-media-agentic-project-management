@@ -2,8 +2,9 @@
 
 import { demoInbox, demoInboxSettings } from './inbox-demo';
 import type {
-  ClientEmailDomain, InboxSettings, InboxSettingsInput, InboxSettingsList, InboxTab, InboxThreadDetail, InboxThreadList,
-  MxStatus, SetThreadProjectRequest, SetThreadProjectResult, TaskSourceEmails,
+  ClientEmailDomain, ClientSenderAddress, ClientSenderAddressList, InboxSettings, InboxSettingsInput, InboxSettingsList, InboxTab, InboxThreadDetail, InboxThreadList,
+  MxStatus, ProjectEmailAddress, ProjectEmailAddressInput, ProjectEmailAddressList, SetThreadProjectRequest, SetThreadProjectResult,
+  TaskSourceEmails,
 } from './inbox-types';
 import { INBOX_UPDATED_EVENT } from './inbox-types';
 
@@ -26,10 +27,17 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
 
 const post = <T,>(path: string, body: unknown = {}) => call<T>(path, { method: 'POST', body: JSON.stringify(body) });
 const put = <T,>(path: string, body: unknown) => call<T>(path, { method: 'PUT', body: JSON.stringify(body) });
+const patch = <T,>(path: string, body: unknown) => call<T>(path, { method: 'PATCH', body: JSON.stringify(body) });
+
+/** Where a change came from, when a view already refreshed itself for it. */
+export interface InboxChangeDetail {
+  /** The thread view that made the change and has already reloaded it. */
+  threadId?: string;
+}
 
 /** Tell the sidebar badge and any open Inbox view to refresh. */
-export function announceInboxChange() {
-  if (typeof window !== 'undefined') window.dispatchEvent(new Event(INBOX_UPDATED_EVENT));
+export function announceInboxChange(detail: InboxChangeDetail | null = null) {
+  if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent<InboxChangeDetail | null>(INBOX_UPDATED_EVENT, { detail }));
 }
 
 export interface ThreadQuery {
@@ -83,6 +91,31 @@ export function inboxClient(isDemo: boolean) {
     async removeDomain(projectId: string, domainId: string): Promise<void> {
       if (isDemo) return demoInbox.removeDomain(projectId, domainId);
       await call(`/api/workspace/projects/${projectId}/email-domains/${domainId}`, { method: 'DELETE' });
+    },
+    listSenders(projectId: string): Promise<ClientSenderAddressList> {
+      return isDemo ? demoInbox.listSenders(projectId) : call(`/api/workspace/projects/${projectId}/email-senders`);
+    },
+    addSender(projectId: string, address: string): Promise<ClientSenderAddress> {
+      return isDemo ? demoInbox.addSender(projectId, address) : post(`/api/workspace/projects/${projectId}/email-senders`, { address });
+    },
+    async removeSender(projectId: string, senderId: string): Promise<void> {
+      if (isDemo) return demoInbox.removeSender(projectId, senderId);
+      await call(`/api/workspace/projects/${projectId}/email-senders/${senderId}`, { method: 'DELETE' });
+    },
+    listAddresses(projectId: string): Promise<ProjectEmailAddressList> {
+      return isDemo ? demoInbox.listAddresses(projectId) : call(`/api/workspace/projects/${projectId}/email-addresses`);
+    },
+    addAddress(projectId: string, input: ProjectEmailAddressInput): Promise<ProjectEmailAddress> {
+      return isDemo ? demoInbox.addAddress(projectId, input) : post(`/api/workspace/projects/${projectId}/email-addresses`, input);
+    },
+    updateAddress(projectId: string, addressId: string, input: Partial<ProjectEmailAddressInput>): Promise<ProjectEmailAddress> {
+      return isDemo
+        ? demoInbox.updateAddress(projectId, addressId, input)
+        : patch(`/api/workspace/projects/${projectId}/email-addresses/${addressId}`, input);
+    },
+    async removeAddress(projectId: string, addressId: string): Promise<void> {
+      if (isDemo) return demoInbox.removeAddress(projectId, addressId);
+      await call(`/api/workspace/projects/${projectId}/email-addresses/${addressId}`, { method: 'DELETE' });
     },
   };
 }

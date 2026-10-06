@@ -14,34 +14,77 @@ import DOMPurify from 'dompurify';
 
 const CSP = "default-src 'none'; img-src data: cid:; style-src 'unsafe-inline'; font-src data:; form-action 'none'";
 
-const HEAD = `<meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${CSP}"><base target="_blank"><style>
-  html, body { margin: 0; background: #ffffff; }
+/**
+ * Email is designed for white paper in every theme, so the frame (and the
+ * iframe element behind it, before the document paints) is always white.
+ */
+const PAPER = '#ffffff';
+
+const BASE_STYLES = `
+  html, body { margin: 0; background: ${PAPER}; }
   body { padding: 16px 18px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 14px; line-height: 1.6; color: #1f2937; overflow-wrap: anywhere; }
   img { max-width: 100%; height: auto; }
   blockquote { margin: 10px 0; padding: 2px 0 2px 12px; border-left: 3px solid #d1d5db; color: #4b5563; }
   a { color: #1d4ed8; }
-</style>`;
+`;
 
-function sanitize(html: string): string {
+/** CSS treats `<!--` and `-->` at the top level as nothing; mail clients (Outlook) still wrap styles in them. */
+function unwrapStyleComments(node: Node) {
+  if (node.nodeName.toLowerCase() !== 'style') return;
+  const css = node.textContent ?? '';
+  if (css.includes('<!--') || css.includes('-->')) node.textContent = css.replace(/<!--|-->/g, '');
+}
+
+function addLinkSafety(node: Element) {
+  if (node.nodeName === 'A') {
+    node.setAttribute('target', '_blank');
+    node.setAttribute('rel', 'noopener noreferrer nofollow');
+  }
+}
+
+/** The sanitized email as a whole document, our policy and styles first in its head. */
+function buildDocument(html: string): string {
   // Never hand unsanitized mail to the frame (no DOM on the server).
   if (typeof window === 'undefined' || !DOMPurify.isSupported) return '';
-  const hook = (node: Element) => {
-    if (node.tagName === 'A') {
-      node.setAttribute('target', '_blank');
-      node.setAttribute('rel', 'noopener noreferrer nofollow');
-    }
-  };
-  DOMPurify.addHook('afterSanitizeAttributes', hook);
+  // Before DOMPurify's own checks, which would drop a whole <style> whose text contains "<!".
+  DOMPurify.addHook('uponSanitizeElement', unwrapStyleComments);
+  DOMPurify.addHook('afterSanitizeAttributes', addLinkSafety);
+  let root: Node;
   try {
-    return DOMPurify.sanitize(html, {
+    root = DOMPurify.sanitize(html, {
       // Keep the head: emails carry their styles there.
       WHOLE_DOCUMENT: true,
+      RETURN_DOM: true,
       FORBID_TAGS: ['base', 'meta', 'link', 'script', 'iframe', 'frame', 'frameset', 'object', 'embed', 'form', 'input', 'button', 'textarea', 'select', 'video', 'audio', 'source'],
       FORBID_ATTR: ['srcset', 'action', 'formaction', 'ping'],
     });
   } finally {
-    DOMPurify.removeHook('afterSanitizeAttributes');
+    DOMPurify.removeHook('uponSanitizeElement', unwrapStyleComments);
+    DOMPurify.removeHook('afterSanitizeAttributes', addLinkSafety);
   }
+
+  // Work on the parsed tree, never on the markup text: the policy goes in as
+  // the head's first children, ahead of anything the email brought.
+  // With WHOLE_DOCUMENT and RETURN_DOM, DOMPurify hands back the <html> element.
+  const doc = root.ownerDocument;
+  if (!doc || root.nodeType !== Node.ELEMENT_NODE) return '';
+  const documentElement = root as Element;
+  let head = documentElement.querySelector('head');
+  if (!head) {
+    head = doc.createElement('head');
+    documentElement.insertBefore(head, documentElement.firstChild);
+  }
+  const charset = doc.createElement('meta');
+  charset.setAttribute('charset', 'utf-8');
+  const policy = doc.createElement('meta');
+  policy.setAttribute('http-equiv', 'Content-Security-Policy');
+  policy.setAttribute('content', CSP);
+  const base = doc.createElement('base');
+  base.setAttribute('target', '_blank');
+  const style = doc.createElement('style');
+  style.textContent = BASE_STYLES;
+  head.prepend(charset, policy, base, style);
+  return `<!DOCTYPE html>${documentElement.outerHTML}`;
 }
 
 /** True when the email asks for images from the web (blocked here). */
@@ -52,13 +95,7 @@ export function hasRemoteImages(html: string): boolean {
 export function EmailBodyFrame({ html, title }: { html: string; title: string }) {
   const frameRef = useRef<HTMLIFrameElement>(null);
   const [height, setHeight] = useState(160);
-  const srcDoc = useMemo(() => {
-    const clean = sanitize(html);
-    // Our policy and styles go first in the head, ahead of anything the email brought.
-    return /<head[^>]*>/i.test(clean)
-      ? `<!DOCTYPE html>${clean.replace(/<head[^>]*>/i, (head) => `${head}${HEAD}`)}`
-      : `<!DOCTYPE html><html><head>${HEAD}</head><body>${clean}</body></html>`;
-  }, [html]);
+  const srcDoc = useMemo(() => buildDocument(html), [html]);
 
   const observer = useRef<ResizeObserver | null>(null);
   useEffect(() => () => observer.current?.disconnect(), []);
@@ -88,8 +125,9 @@ export function EmailBodyFrame({ html, title }: { html: string; title: string })
       referrerPolicy="no-referrer"
       srcDoc={srcDoc}
       onLoad={syncHeight}
-      className="block w-full rounded-lg border border-white/[0.08] bg-white"
-      style={{ height }}
+      className="block w-full rounded-lg border border-white/[0.08]"
+      // Not bg-white: the light theme remaps white to ink, which flashed dark before the email painted.
+      style={{ height, backgroundColor: PAPER, colorScheme: 'light' }}
     />
   );
 }

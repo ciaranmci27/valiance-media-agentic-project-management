@@ -72,6 +72,9 @@ export function ContactForm({ isOpen, onClose, contact }: ContactFormProps) {
   const [avatarBlob, setAvatarBlob] = useState<Blob | null>(null);
   const [avatarPreview, setAvatarPreview] = useState<string | undefined>(undefined);
   const [avatarUploading, setAvatarUploading] = useState(false);
+  // A new contact whose addresses failed to save: a retry saves them on it
+  // instead of creating the contact twice.
+  const [createdId, setCreatedId] = useState<string | null>(null);
 
   const emailsDirty = fingerprint(emailRows) !== initialEmails;
   const isDirty = name !== (contact?.name || '') || emailsDirty ||
@@ -85,7 +88,12 @@ export function ContactForm({ isOpen, onClose, contact }: ContactFormProps) {
     return () => window.removeEventListener('beforeunload', handler);
   }, [isOpen, isDirty]);
 
-  useEffect(() => {
+  // Reset when the form opens or switches contact, never when the contact
+  // merely refreshes (live sync), which would wipe edits in progress.
+  const formKey = `${isOpen ? 'open' : 'closed'}:${contact?.id ?? 'new'}`;
+  const [preparedFor, setPreparedFor] = useState<string | null>(null);
+  if (formKey !== preparedFor) {
+    setPreparedFor(formKey);
     if (contact) {
       const saved = getContactEmails(contact.id);
       const rows: EmailRow[] = saved.length > 0
@@ -111,7 +119,8 @@ export function ContactForm({ isOpen, onClose, contact }: ContactFormProps) {
     }
     setAvatarBlob(null);
     setErrors({});
-  }, [contact?.id, isOpen]);
+    setCreatedId(null);
+  }
 
   const updateRow = (key: string, patch: Partial<EmailRow>) => {
     setEmailRows(prev => prev.map(row => (row.key === key ? { ...row, ...patch } : row)));
@@ -171,7 +180,7 @@ export function ContactForm({ isOpen, onClose, contact }: ContactFormProps) {
           await updateContact(contact.id, { avatar_url: blobUrl });
           toast('success', 'Avatar updated');
         } else {
-          // Fixed path per contact — upsert replaces previous file, no storage bloat
+          // Fixed path per contact: upsert replaces previous file, no storage bloat
           const path = `contacts/${contact.id}.jpg`;
           const { error: uploadError } = await supabase.storage
             .from('avatars')
@@ -219,18 +228,26 @@ export function ContactForm({ isOpen, onClose, contact }: ContactFormProps) {
       company: company.trim(),
       notes: notes.trim(),
       color: contact?.color || siteConfig.colors.brand[500],
-      avatar_url: contact?.avatar_url || '',
     };
 
-    if (contact) {
+    // Stays open when the addresses fail to save (the store says why), so nothing typed is lost.
+    let emailsSaved = true;
+    const existingId = contact?.id ?? createdId;
+    if (existingId) {
       // contacts.email mirrors the primary address, so saveContactEmails owns it.
-      await updateContact(contact.id, contactData);
-      if (emailsDirty) await saveContactEmails(contact.id, drafts);
+      // A retry on a just-created contact leaves its avatar (already uploaded) alone.
+      await updateContact(existingId, contact ? { ...contactData, avatar_url: contact.avatar_url || '' } : contactData);
+      if (emailsDirty || createdId) emailsSaved = await saveContactEmails(existingId, drafts);
     } else {
-      const newContact = await addContact({ ...contactData, email: primaryEmail });
+      const newContact = await addContact({ ...contactData, avatar_url: '', email: primaryEmail });
+      if (!newContact) {
+        setSaving(false);
+        return;
+      }
       // The database creates the primary row itself; extra addresses and labels need a save.
-      if (newContact && (drafts.length > 1 || drafts.some(draft => draft.label))) {
-        await saveContactEmails(newContact.id, drafts);
+      if (drafts.length > 1 || drafts.some(draft => draft.label)) {
+        emailsSaved = await saveContactEmails(newContact.id, drafts);
+        if (!emailsSaved) setCreatedId(newContact.id);
       }
       // Upload avatar for newly created contact
       if (newContact && avatarBlob) {
@@ -239,7 +256,7 @@ export function ContactForm({ isOpen, onClose, contact }: ContactFormProps) {
             const blobUrl = URL.createObjectURL(avatarBlob);
             await updateContact(newContact.id, { avatar_url: blobUrl });
           } else {
-            // Fixed path per contact — upsert replaces previous file, no storage bloat
+            // Fixed path per contact: upsert replaces previous file, no storage bloat
             const path = `contacts/${newContact.id}.jpg`;
             const { error: uploadError } = await supabase.storage
               .from('avatars')
@@ -250,13 +267,13 @@ export function ContactForm({ isOpen, onClose, contact }: ContactFormProps) {
             }
           }
         } catch {
-          // Non-critical — contact was created, avatar upload failed
+          // Non-critical: the contact was created, avatar upload failed
         }
       }
     }
 
     setSaving(false);
-    onClose();
+    if (emailsSaved) onClose();
   };
 
   return (
@@ -371,7 +388,7 @@ export function ContactForm({ isOpen, onClose, contact }: ContactFormProps) {
             Cancel
           </Button>
           <Button type="submit" disabled={saving}>
-            {saving ? 'Saving...' : contact ? 'Save Changes' : 'Add Contact'}
+            {saving ? 'Saving...' : contact || createdId ? 'Save Changes' : 'Add Contact'}
           </Button>
         </div>
       </form>

@@ -64,7 +64,8 @@ async function priorTriage(supabase: SupabaseClient, message: AccessibleMessage,
  * status: needs_ciaran when the outcome is needs_ciaran or the sender is
  * untrusted, otherwise handled. project_id is taken only while the thread
  * has no project, and only from the mapping candidates when there are any;
- * it sets the thread's project as inferred. It never creates a contact or
+ * it sets the thread's project as inferred (chosen among the candidates) or
+ * guessed (the email had none). It never creates a contact or
  * domain mapping. links must name tasks in that project; an email-sourced
  * task that is already ai_ready cannot be linked as created, nor by its own
  * creator (rule 3). A project chosen now must be active (not completed,

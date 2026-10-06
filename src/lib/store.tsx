@@ -127,7 +127,7 @@ function kickWebhookDispatch(): void {
 // construction (a raw row lacks assignee_ids, criteria, dependencies_met, and
 // API-stripped billing fields).
 type RealtimeSlice =
-  | 'tasks' | 'projects' | 'team' | 'contacts' | 'leads' | 'activities'
+  | 'tasks' | 'projects' | 'team' | 'contacts' | 'contactEmails' | 'leads' | 'activities'
   | 'agentActivity' | 'portal' | 'files' | 'timeEntries' | 'credentials'
   | 'invoices' | 'suggestions' | 'goals' | 'notifications' | 'comms' | 'emails';
 
@@ -145,6 +145,7 @@ export const LOAD_KEY_LABELS: Record<LoadKey, string> = {
   projects: 'projects',
   team: 'the team',
   contacts: 'contacts',
+  contactEmails: 'contact email addresses',
   leads: 'leads',
   activities: 'activity',
   agentActivity: 'agent activity',
@@ -205,11 +206,13 @@ const REALTIME_TABLE_SLICES: Record<string, RealtimeSlice> = {
   project_goals: 'goals',
   team_member_notifications: 'notifications',
   client_communications: 'comms',
-  contact_emails: 'contacts',
+  // Its own slice: a contact_emails failure must never make contacts look failed.
+  contact_emails: 'contactEmails',
   // The Inbox reads through session routes; these are invalidation pings.
   email_inboxes: 'emails',
   email_inbox_access: 'emails',
   email_client_domains: 'emails',
+  email_project_addresses: 'emails',
   email_threads: 'emails',
   email_messages: 'emails',
   email_message_recipients: 'emails',
@@ -528,7 +531,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const setTasks = (value: SetStateAction<Task[]>) => { markSliceMutated('tasks'); setTasksState(value); };
   const setTeam = (value: SetStateAction<TeamMember[]>) => { markSliceMutated('team'); setTeamState(value); };
   const setContacts = (value: SetStateAction<Contact[]>) => { markSliceMutated('contacts'); setContactsState(value); };
-  const setContactEmails = (value: SetStateAction<ContactEmail[]>) => { markSliceMutated('contacts'); setContactEmailsState(value); };
+  const setContactEmails = (value: SetStateAction<ContactEmail[]>) => { markSliceMutated('contactEmails'); setContactEmailsState(value); };
   const setProjectContacts = (value: SetStateAction<ProjectContact[]>) => { markSliceMutated('contacts'); setProjectContactsState(value); };
   const setLeads = (value: SetStateAction<Lead[]>) => { markSliceMutated('leads'); setLeadsState(value); };
   const setLeadInteractions = (value: SetStateAction<LeadInteraction[]>) => { markSliceMutated('leads'); setLeadInteractionsState(value); };
@@ -686,7 +689,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             )
           : null;
         const contactEmailsRequest = canReadContacts
-          ? safeLoad<ContactEmail[]>('contacts', 'contact emails', fetchContactEmails(supabase), [])
+          ? safeLoad<ContactEmail[]>('contactEmails', 'contact emails', fetchContactEmails(supabase), [])
           : Promise.resolve([] as ContactEmail[]);
         const [projectsData, tasksData, teamData, contactsData, projectContactsData, leadsData, leadInteractionsData, leadProposalsData, leadFieldsData, leadContactsData, activitiesData, portalSettingsData, portalUpdatesData, portalUpdateAttachmentsData, entityFilesData, apiKeysData, timeEntriesData, projectCredentialsData, projectInvoicesData, businessSettingsData] = await Promise.all([
           canReadProjects ? safeLoad('projects', 'projects', workspaceData<Project[]>('/api/workspace/projects'), []) : Promise.resolve([]),
@@ -826,15 +829,32 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
         case 'contacts':
           if (hasPermission(access, 'contacts.read') || hasPermission(access, 'contacts.read_all') || hasPermission(access, 'contacts.manage')) {
-            const [contactRows, projectContactRows, contactEmailRows] = await Promise.all([
+            // Contact addresses ride along (the contacts.email trigger edits
+            // them), settled on their own: their failure is theirs alone.
+            const emailIssuedAt = Date.now();
+            const [contactRows, projectContactRows, contactEmailResult] = await Promise.all([
               fetchContacts(supabase),
               fetchAllProjectContacts(supabase),
-              fetchContactEmails(supabase),
+              fetchContactEmails(supabase).then(
+                (rows) => ({ ok: true as const, rows }),
+                (error: unknown) => ({ ok: false as const, error }),
+              ),
             ]);
+            if (contactEmailResult.ok) {
+              if ((sliceMutatedAt.current.contactEmails ?? 0) < emailIssuedAt) setContactEmails(contactEmailResult.rows);
+              setLoadErrors(prev => prev.includes('contactEmails') ? prev.filter(key => key !== 'contactEmails') : prev);
+            } else {
+              console.error('Live-sync refetch failed for contactEmails:', contactEmailResult.error);
+            }
             if (superseded()) break;
             setContacts(contactRows);
-            setContactEmails(contactEmailRows);
             setProjectContacts(projectContactRows);
+          }
+          break;
+        case 'contactEmails':
+          if (hasPermission(access, 'contacts.read') || hasPermission(access, 'contacts.read_all') || hasPermission(access, 'contacts.manage')) {
+            const contactEmailRows = await fetchContactEmails(supabase);
+            if (!superseded()) setContactEmails(contactEmailRows);
           }
           break;
         case 'leads':
@@ -1882,15 +1902,41 @@ export function AppProvider({ children }: { children: ReactNode }) {
           await removeContactEmail(supabase, row.id);
         }
       }
+      // An address is unique per contact, so a write must never land on an
+      // address another row still holds: free addresses before taking them.
+      // Edits run once their new address is free; a swap (a cycle) parks one
+      // row by deleting it and adds it back last; new rows go in after edits.
+      const held = new Map(current.filter(row => keep.has(row.id) || cleaned.some(draft => !draft.id && draft.email === row.email)).map(row => [row.email, row.id]));
+      const edits: { id: string; email: string; label: string | null }[] = [];
+      const inserts: { email: string; label: string | null }[] = [];
       for (const draft of cleaned) {
         const existing = current.find(row => row.id === draft.id) ?? (!draft.id ? current.find(row => row.email === draft.email) : undefined);
         if (existing) {
           if (existing.email !== draft.email || (existing.label ?? null) !== draft.label) {
-            await patchContactEmail(supabase, existing.id, { email: draft.email, label: draft.label });
+            edits.push({ id: existing.id, email: draft.email, label: draft.label });
           }
         } else {
-          await insertContactEmail(supabase, { contact_id: contactId, email: draft.email, label: draft.label });
+          inserts.push({ email: draft.email, label: draft.label });
         }
+      }
+      const emailOf = (id: string) => [...held].find(([, rowId]) => rowId === id)?.[0];
+      while (edits.length > 0) {
+        const ready = edits.findIndex(edit => !held.has(edit.email) || held.get(edit.email) === edit.id);
+        if (ready === -1) {
+          // Every remaining edit waits on another: park the first one.
+          const [parked] = edits.splice(0, 1);
+          await removeContactEmail(supabase, parked.id);
+          held.delete(emailOf(parked.id) ?? '');
+          inserts.push({ email: parked.email, label: parked.label });
+          continue;
+        }
+        const [edit] = edits.splice(ready, 1);
+        await patchContactEmail(supabase, edit.id, { email: edit.email, label: edit.label });
+        held.delete(emailOf(edit.id) ?? '');
+        held.set(edit.email, edit.id);
+      }
+      for (const insert of inserts) {
+        await insertContactEmail(supabase, { contact_id: contactId, email: insert.email, label: insert.label });
       }
       if (primary) {
         const saved = await fetchContactEmails(supabase, contactId);
@@ -1904,7 +1950,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     } catch (err) {
       console.error('Failed to save contact emails:', err);
       const message = (err as { code?: string })?.code === '23505'
-        ? 'That contact already has this email address'
+        ? 'One of these addresses is already saved on this contact. Check the list and save again.'
         : 'Failed to save email addresses';
       toast('error', message);
       try {

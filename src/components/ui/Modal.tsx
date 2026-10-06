@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 
 interface ModalProps {
@@ -30,7 +31,7 @@ export default function Modal({ isOpen, onClose, title, children, size = 'md' }:
     };
   }, [isOpen, onClose]);
 
-  if (!isOpen) return null;
+  if (!isOpen || typeof document === 'undefined') return null;
 
   const sizes = {
     sm: 'max-w-sm',
@@ -43,14 +44,17 @@ export default function Modal({ isOpen, onClose, title, children, size = 'md' }:
     full: 'max-w-[90vw]',
   };
 
-  return (
+  // Portaled to <body>: a fixed overlay inside a card would otherwise be
+  // trapped by any ancestor that sets a filter, transform or backdrop-filter,
+  // leaving part of the page uncovered.
+  return createPortal(
     <div
       ref={overlayRef}
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
       onClick={(e) => e.target === overlayRef.current && onClose()}
     >
       {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm animate-fadeIn" />
+      <div className="absolute inset-0 bg-black/60 animate-fadeIn" />
 
       {/* Modal */}
       <div className={`
@@ -98,6 +102,7 @@ export default function Modal({ isOpen, onClose, title, children, size = 'md' }:
           animation: scaleIn 0.2s ease-out;
         }
       `}</style>
-    </div>
+    </div>,
+    document.body,
   );
 }

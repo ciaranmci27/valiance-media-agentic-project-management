@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { INBOUND_EMAIL_BUCKET } from './ingest';
+import { INBOUND_EMAIL_BUCKET, recordInboxError } from './ingest';
 
 /**
  * Retention and the orphan sweep for the inbound-email bucket, run by Vercel
@@ -22,7 +22,10 @@ import { INBOUND_EMAIL_BUCKET } from './ingest';
  * delete.
  *
  * Each run logs one structured line and stores its counts in
- * email_maintenance_runs (one row per job) for the settings status.
+ * email_maintenance_runs (one row per job) for the settings status. A
+ * message deleted while still receiving is client email that never arrived,
+ * so each inbox that lost one also gets it as its last_error, which the
+ * settings card shows.
  */
 
 export type MaintenanceKind = 'retention' | 'orphan_sweep';
@@ -222,6 +225,11 @@ export async function runRetention(supabase: SupabaseClient, options: Maintenanc
 
   finish(summary, now);
   await report(supabase, summary);
+  for (const [inboxId, counts] of Object.entries(summary.by_inbox)) {
+    if (counts.stuck_deleted === 0) continue;
+    const emails = counts.stuck_deleted === 1 ? '1 email' : `${counts.stuck_deleted} emails`;
+    await recordInboxError(supabase, inboxId, `Retention deleted ${emails} that never finished arriving (stuck for over 24 hours). Check the Resend log for the sender.`);
+  }
   return summary;
 }
 

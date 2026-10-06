@@ -54,15 +54,22 @@ export const clientDomainSchema = z.object({
   domain: z.string().trim().min(1).max(253),
 }).strict();
 
+export const clientSenderSchema = z.object({
+  address: z.string().trim().min(1).max(320),
+}).strict();
+
 export const relayDomainSchema = z.object({
   domain: z.string().trim().min(3).max(253),
 }).strict();
 
+/** A routing local part: empty (take the default) or letters, digits, dots, dashes, underscores. */
+const routingLocalPart = z.string().trim().toLowerCase().max(64)
+  .regex(/^([a-z0-9]([a-z0-9._-]{0,62}[a-z0-9])?)?$/, 'Use letters, numbers, dots, dashes or underscores');
+
 export const inboxSettingsSchema = z.object({
   name: z.string().trim().min(1, 'Name is required').max(100),
   address: z.string().trim().toLowerCase().min(3).max(320),
-  routing_local_part: z.string().trim().toLowerCase().max(64)
-    .regex(/^([a-z0-9]([a-z0-9._-]{0,62}[a-z0-9])?)?$/, 'Use letters, numbers, dots, dashes or underscores'),
+  routing_local_part: routingLocalPart,
   routing_domain: z.string().trim().toLowerCase().max(253),
   handler_member_id: z.string().uuid().nullable(),
   enabled: z.boolean(),
@@ -74,3 +81,20 @@ export const inboxSettingsSchema = z.object({
   access_member_ids: z.array(z.string().uuid()).max(100),
 }).strict();
 export type InboxSettingsRequest = z.infer<typeof inboxSettingsSchema>;
+
+/**
+ * A project's own email address. The routing local part follows the inbox
+ * rules; left empty, it takes the public address's local part. The routing
+ * domain is the relay domain when the address is created, and stays.
+ */
+export const projectAddressSchema = z.object({
+  inbox_id: z.string().uuid(),
+  routing_local_part: routingLocalPart,
+  public_address: z.string().trim().toLowerCase().max(320).nullable(),
+  enabled: z.boolean(),
+}).strict();
+export type ProjectAddressRequest = z.infer<typeof projectAddressSchema>;
+
+export const projectAddressPatchSchema = projectAddressSchema.partial().strict()
+  .refine((value) => Object.keys(value).length > 0, 'Send at least one field to change');
+export type ProjectAddressPatch = z.infer<typeof projectAddressPatchSchema>;

@@ -189,7 +189,7 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
       {/* Backdrop */}
       <div
         ref={backdropRef}
-        className="absolute inset-0 bg-black/40 backdrop-blur-sm animate-fadeIn"
+        className="absolute inset-0 bg-black/40 animate-fadeIn"
         onClick={(e) => e.target === backdropRef.current && onClose()}
       />
 

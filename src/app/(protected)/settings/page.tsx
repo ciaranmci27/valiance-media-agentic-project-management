@@ -181,6 +181,27 @@ export default function SettingsPage() {
   const canManageWebhooks = hasPermission(access, 'webhooks.manage');
   const canManageInboxes = hasPermission(access, 'inbound_email.manage');
 
+  // A link to a section (/settings#email-inboxes) lands before the sections
+  // above it finish loading. Keep the target in view while the page settles,
+  // and stop as soon as the person scrolls or after a few seconds.
+  useEffect(() => {
+    const id = window.location.hash.slice(1);
+    if (!id) return;
+    const keep = () => document.getElementById(id)?.scrollIntoView({ block: 'start' });
+    const observer = new ResizeObserver(keep);
+    observer.observe(document.body);
+    keep();
+    const stop = () => observer.disconnect();
+    const timer = window.setTimeout(stop, 4000);
+    const events = ['wheel', 'touchstart', 'keydown', 'pointerdown'] as const;
+    events.forEach((name) => window.addEventListener(name, stop, { once: true, passive: true }));
+    return () => {
+      stop();
+      window.clearTimeout(timer);
+      events.forEach((name) => window.removeEventListener(name, stop));
+    };
+  }, []);
+
   const [userName, setUserName] = useState('');
   const [userEmail, setUserEmail] = useState('');
   const [originalEmail, setOriginalEmail] = useState('');
@@ -1137,7 +1158,7 @@ export default function SettingsPage() {
         {canManageSmtp && !isDemoMode && <SmtpSection />}
 
         {/* Email inboxes ; read-only client email, shown in demo mode too */}
-        {canManageInboxes && <EmailInboxesSection />}
+        {canManageInboxes && <div id="email-inboxes" className="scroll-mt-6"><EmailInboxesSection /></div>}
 
         {/* Analytics Exclusions ; admin only */}
         {canManageSettings && <AnalyticsExclusionsSection />}

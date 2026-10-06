@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Globe, Info, UserPlus } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
@@ -13,7 +13,8 @@ import { MultiSelect } from '@/components/ui/inputs/MultiSelect';
 import { Select } from '@/components/ui/inputs/Select';
 import { toast } from '@/components/ui/Toast';
 import { inboxClient } from '@/lib/inbound-email/inbox-client';
-import type { InboxThreadDetail } from '@/lib/inbound-email/inbox-types';
+import { CANDIDATE_REASON_LABELS, isAgentChoice, type InboxThreadDetail } from '@/lib/inbound-email/inbox-types';
+import { OTHER_PROJECT } from './inbox-badges';
 
 interface ThreadProjectDialogProps {
   isOpen: boolean;
@@ -43,19 +44,28 @@ export function ThreadProjectDialog({ isOpen, onClose, detail, onSaved }: Thread
   const [rememberDomain, setRememberDomain] = useState(false);
   const [domainProjects, setDomainProjects] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
+  // Candidates without a name are in projects this member cannot open: shown, never chosen.
+  const reachable = (id: string) => projects.some((p) => p.id === id);
 
-  useEffect(() => {
-    if (!isOpen) return;
-    const initial = detail.project?.id ?? detail.candidates[0]?.project_id ?? '';
-    setProjectId(initial);
-    setSenderAddress(detail.senders[0]?.address ?? '');
-    setRememberSender(false);
-    setRememberDomain(false);
-    setSenderProjects(initial ? [initial] : []);
-    setDomainProjects(initial ? [initial] : []);
-  }, [isOpen, detail]);
+  // Start fresh when the dialog opens or the thread changes, never when the
+  // thread merely refreshes: a realtime ping must not wipe a choice mid-edit.
+  const formKey = isOpen ? detail.id : null;
+  const [preparedFor, setPreparedFor] = useState<string | null>(null);
+  if (formKey !== preparedFor) {
+    setPreparedFor(formKey);
+    if (formKey) {
+      const current = detail.project && reachable(detail.project.id) ? detail.project.id : '';
+      const initial = current || detail.candidates.find((c) => c.name !== null && reachable(c.project_id))?.project_id || '';
+      setProjectId(initial);
+      setSenderAddress(detail.senders[0]?.address ?? '');
+      setRememberSender(false);
+      setRememberDomain(false);
+      setSenderProjects(initial ? [initial] : []);
+      setDomainProjects(initial ? [initial] : []);
+    }
+  }
 
-  const projectName = (id: string) => projects.find((p) => p.id === id)?.name ?? detail.candidates.find((c) => c.project_id === id)?.name ?? 'Project';
+  const projectName = (id: string) => projects.find((p) => p.id === id)?.name ?? detail.candidates.find((c) => c.project_id === id)?.name ?? OTHER_PROJECT;
   const projectOptions = projects
     .filter((p) => p.status !== 'archived' || p.id === projectId)
     .sort((a, b) => a.name.localeCompare(b.name))
@@ -101,7 +111,9 @@ export function ThreadProjectDialog({ isOpen, onClose, detail, onSaved }: Thread
     }
   };
 
-  const inferred = detail.project?.source === 'inferred';
+  // The agent's choice (inferred or guessed) waits for a person to confirm it.
+  const inferred = isAgentChoice(detail.project?.source);
+  const guessed = detail.project?.source === 'guessed';
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title={inferred ? 'Confirm project' : 'Set project'} size="lg">
@@ -120,25 +132,32 @@ export function ThreadProjectDialog({ isOpen, onClose, detail, onSaved }: Thread
             <div className="flex flex-wrap items-center gap-1.5">
               <span className="text-xs text-zinc-400">Mapping matched:</span>
               {detail.candidates.map((candidate) => (
-                <button
-                  key={candidate.project_id}
-                  type="button"
-                  onClick={() => chooseProject(candidate.project_id)}
-                  aria-pressed={projectId === candidate.project_id}
-                  className={`rounded-full px-2.5 py-1 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${
-                    projectId === candidate.project_id ? 'bg-brand-500/15 text-brand-300' : 'bg-white/[0.05] text-zinc-300 hover:bg-white/[0.08]'
-                  }`}
-                >
-                  {candidate.name ?? projectName(candidate.project_id)}
-                  <span className="sr-only"> (matched by {candidate.reasons.join(' and ')})</span>
-                </button>
+                candidate.name !== null && reachable(candidate.project_id) ? (
+                  <button
+                    key={candidate.project_id}
+                    type="button"
+                    onClick={() => chooseProject(candidate.project_id)}
+                    aria-pressed={projectId === candidate.project_id}
+                    className={`rounded-full px-2.5 py-1 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${
+                      projectId === candidate.project_id ? 'bg-brand-500/15 text-brand-300' : 'bg-white/[0.05] text-zinc-300 hover:bg-white/[0.08]'
+                    }`}
+                  >
+                    {candidate.name}
+                    <span className="sr-only"> (matched by {candidate.reasons.map((reason) => CANDIDATE_REASON_LABELS[reason] ?? reason).join(' and ')})</span>
+                  </button>
+                ) : (
+                  <span key={candidate.project_id} className="rounded-full border border-dashed border-white/[0.16] px-2.5 py-1 text-xs text-zinc-400">
+                    {OTHER_PROJECT}
+                    <span className="sr-only"> (matched, but you cannot open that project)</span>
+                  </span>
+                )
               ))}
             </div>
           )}
           {inferred && (
             <p className="flex items-start gap-1.5 text-xs text-zinc-400">
               <Info size={12} className="mt-0.5 flex-shrink-0" aria-hidden="true" />
-              {detail.inbox.handler?.name ?? 'The agent'} chose {detail.project?.name}. Saving marks it as set by you.
+              {detail.inbox.handler?.name ?? 'The agent'} {guessed ? 'guessed' : 'chose'} {detail.project?.name}. Saving marks it as set by you.
             </p>
           )}
         </div>

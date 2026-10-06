@@ -6,8 +6,9 @@ export const dynamic = 'force-dynamic';
 
 /**
  * For the batched summary: the newest triage of each email that has not
- * been summarized yet, oldest first, with sender, subject, project and
- * linked tasks (no bodies). superseded_triage_ids lists older unsummarized
+ * been summarized yet, oldest first, with sender, subject, routing
+ * (routing_basis, forwarded_by, original_sender), the triage's project_id,
+ * the thread's project with its source, and linked tasks (no bodies). superseded_triage_ids lists older unsummarized
  * triage of the same email, which mark-summarized clears too.
  */
 export const GET = withApi(async ({ supabase, searchParams, teamMemberId }) => {

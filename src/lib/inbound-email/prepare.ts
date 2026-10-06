@@ -52,6 +52,11 @@ function clean(value: string | null | undefined, max: number): string | null {
   return value == null ? null : value.replace(/\u0000/g, '').slice(0, max);
 }
 
+/** The text a reader sees: the plain part, else the HTML part as text. */
+export function readableBody(text: string | null | undefined, html: string | null | undefined): string {
+  return text && text.trim() ? text : htmlToText(html);
+}
+
 export function prepareEmail(email: InboundEmail, options: { trustedAuthservIds: readonly string[] }): PreparedEmail {
   const fromAddress = normalizeAddress(email.from?.address);
   const recipients: PreparedRecipient[] = [];
@@ -73,7 +78,7 @@ export function prepareEmail(email: InboundEmail, options: { trustedAuthservIds:
   const text = clean(email.text, MAX_BODY_CHARS);
   const html = clean(email.html, MAX_BODY_CHARS);
   const subject = clean(email.subject, 2000) ?? '';
-  const readable = text && text.trim() ? text : htmlToText(html);
+  const readable = readableBody(text, html);
   const sentAt = email.date ? new Date(email.date) : null;
   const receivedAt = email.received_at ? new Date(email.received_at) : null;
   const ids = (list: string[]) => [...new Set(list.map(normalizeMessageId).filter((id): id is string => !!id))].slice(-100);

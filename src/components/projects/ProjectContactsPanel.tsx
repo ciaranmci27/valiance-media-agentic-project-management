@@ -12,7 +12,6 @@ import { Select } from '@/components/ui/inputs/Select';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { ContactForm } from '@/components/contacts/ContactForm';
 import { ExtraEmails } from '@/components/contacts/ContactCard';
-import { ClientEmailDomains } from '@/components/projects/ClientEmailDomains';
 import Modal from '@/components/ui/Modal';
 import { TextInput } from '@/components/ui/inputs/TextInput';
 import { ProjectContact, CONTACT_ROLES } from '@/lib/types';
@@ -403,9 +402,6 @@ export function ProjectContactsPanel({ isOpen, onClose, projectId }: ProjectCont
             </Button>
           ) : null}
 
-          <div className="pt-4 mt-1 border-t border-white/[0.06]">
-            <ClientEmailDomains isOpen={isOpen} projectId={projectId} />
-          </div>
         </div>
       </Modal>
 

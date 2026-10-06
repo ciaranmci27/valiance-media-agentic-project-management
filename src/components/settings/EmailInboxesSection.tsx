@@ -4,13 +4,10 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Inbox,
   Plus,
-  Copy,
-  Check,
   Pencil,
   Loader2,
   RefreshCw,
   AlertTriangle,
-  ShieldAlert,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -22,6 +19,7 @@ import { Toggle } from '@/components/ui/inputs/Toggle';
 import { NumberInput } from '@/components/ui/inputs/NumberInput';
 import { toast } from '@/components/ui/Toast';
 import { Tooltip } from '@/components/ui/Tooltip';
+import { CopyValueButton, EmailConnectChecklist, relativeTime } from '@/components/settings/EmailConnectChecklist';
 import { useApp } from '@/lib/store';
 import { useDemo } from '@/lib/demo-context';
 import { announceInboxChange, inboxSettingsClient } from '@/lib/inbound-email/inbox-client';
@@ -37,9 +35,10 @@ import type { TeamMember } from '@/lib/types';
 
 /**
  * Settings for the read-only client email inboxes: the relay domain new
- * inboxes route through, one row per inbox with its verification and MX
- * status, and an inline add/edit form. Inboxes are disabled, never deleted.
- * Nothing here sends email.
+ * inboxes route through, its MX status, one row per inbox with its connect
+ * checklist (forwarder, test email with the verification code, live status),
+ * and an inline add/edit form. Inboxes are disabled, never deleted. Nothing
+ * here sends email.
  */
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -66,18 +65,6 @@ type LimitField = keyof typeof LIMITS;
 
 function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
-}
-
-function timeAgo(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  if (days < 30) return `${days}d ago`;
-  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
 /** The local part the server uses when the routing local part is left empty. */
@@ -235,14 +222,23 @@ type MxCheck =
   | { state: 'done'; result: MxStatus }
   | { state: 'failed'; message: string };
 
+/** How often the list refreshes while an enabled inbox waits for its first email. */
+const WAITING_POLL_MS = 20_000;
+
+const isWaiting = (inbox: InboxSettings) => inbox.enabled && !inbox.verified_at && !inbox.last_received_at;
+
 // ─── Section ──────────────────────────────────────────────────────────────────
 
 export function EmailInboxesSection() {
   const { isDemoMode } = useDemo();
-  const { team } = useApp();
+  const { team, emailsRefreshSignal } = useApp();
   const client = useMemo(() => inboxSettingsClient(isDemoMode), [isDemoMode]);
 
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [retrying, setRetrying] = useState(false);
+  /** The list loaded at least once, so the relay domain and rows are real. */
+  const [loaded, setLoaded] = useState(false);
   const [relay, setRelay] = useState('');
   const [inboxes, setInboxes] = useState<InboxSettings[]>([]);
   const [mx, setMx] = useState<Record<string, MxCheck>>({});
@@ -282,14 +278,17 @@ export function EmailInboxesSection() {
     [client],
   );
 
-  const load = useCallback(async (): Promise<InboxSettingsList | null> => {
+  /** Quiet loads (refreshes) keep what is shown when they fail. */
+  const load = useCallback(async (quiet = false): Promise<InboxSettingsList | null> => {
     try {
       const data = await client.list();
       setRelay(data.relay_domain);
       setInboxes(data.inboxes);
+      setLoadError(null);
+      setLoaded(true);
       return data;
     } catch (error) {
-      toast('error', errorMessage(error, 'Could not load inboxes'));
+      if (!quiet) setLoadError(errorMessage(error, 'Could not load inboxes'));
       return null;
     }
   }, [client]);
@@ -312,6 +311,30 @@ export function EmailInboxesSection() {
     const data = await load();
     if (data) checkMx(domainsOf(data).filter((domain) => !mx[domain]));
   };
+
+  const retryLoad = async () => {
+    setRetrying(true);
+    const data = await load();
+    setRetrying(false);
+    if (data) checkMx(domainsOf(data).filter((domain) => !mx[domain]));
+  };
+
+  // Live status: refresh quietly when email data changes (realtime), and
+  // every WAITING_POLL_MS while an enabled inbox waits for its first email.
+  const firstSignal = useRef(emailsRefreshSignal);
+  useEffect(() => {
+    if (firstSignal.current === emailsRefreshSignal) return;
+    void load(true);
+  }, [emailsRefreshSignal, load]);
+
+  const anyWaiting = inboxes.some(isWaiting);
+  useEffect(() => {
+    if (!anyWaiting || loadError) return;
+    const timer = setInterval(() => {
+      if (document.visibilityState === 'visible') void load(true);
+    }, WAITING_POLL_MS);
+    return () => clearInterval(timer);
+  }, [anyWaiting, loadError, load]);
 
   const domains = useMemo(
     () => domainsOf({ relay_domain: relay, inboxes }),
@@ -448,7 +471,7 @@ export function EmailInboxesSection() {
             </p>
           </div>
         </div>
-        {!showForm && (
+        {!showForm && loaded && (
           <Button size="sm" className="flex-shrink-0 whitespace-nowrap" onClick={handleAdd} icon={<Plus size={14} aria-hidden="true" />}>
             <span className="sm:hidden">Add</span>
             <span className="hidden sm:inline">Add inbox</span>
@@ -456,9 +479,9 @@ export function EmailInboxesSection() {
         )}
       </div>
 
-      <RelayDomainRow relay={relay} onSave={saveRelay} />
+      {loaded && <RelayDomainRow relay={relay} onSave={saveRelay} />}
 
-      {domains.length > 0 && (
+      {loaded && domains.length > 0 && (
         <MxStatusBlock domains={domains} checks={mx} onRefresh={() => checkMx(domains)} />
       )}
 
@@ -477,7 +500,17 @@ export function EmailInboxesSection() {
         />
       )}
 
-      {inboxes.length > 0 ? (
+      {loadError ? (
+        <div role="alert" className="flex items-center justify-between gap-3 rounded-lg border border-white/[0.08] bg-white/[0.03] px-4 py-3">
+          <p className="flex items-start gap-2 text-sm text-red-300 min-w-0">
+            <AlertTriangle size={14} className="flex-shrink-0 mt-0.5" aria-hidden="true" />
+            <span className="min-w-0">{loadError}</span>
+          </p>
+          <Button size="sm" variant="secondary" className="flex-shrink-0" onClick={retryLoad} disabled={retrying}>
+            {retrying ? 'Retrying...' : 'Retry'}
+          </Button>
+        </div>
+      ) : inboxes.length > 0 ? (
         <>
           <ul className="border border-white/[0.08] rounded-lg divide-y divide-white/[0.06]">
             {inboxes.map((inbox) => (
@@ -514,38 +547,6 @@ function SectionIcon() {
     <div className="p-2 bg-brand-500/15 rounded-lg flex-shrink-0">
       <Inbox className="text-brand-300" size={20} aria-hidden="true" />
     </div>
-  );
-}
-
-function CopyButton({ value, label }: { value: string; label: string }) {
-  const [copied, setCopied] = useState(false);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(
-    () => () => {
-      if (timer.current) clearTimeout(timer.current);
-    },
-    [],
-  );
-
-  const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(value);
-      setCopied(true);
-      toast('success', 'Copied to clipboard');
-      if (timer.current) clearTimeout(timer.current);
-      timer.current = setTimeout(() => setCopied(false), 2000);
-    } catch {
-      toast('error', 'Could not copy to the clipboard');
-    }
-  };
-
-  return (
-    <Tooltip content={copied ? 'Copied' : 'Copy'}>
-      <button type="button" onClick={handleCopy} aria-label={label} className={ICON_BUTTON}>
-        {copied ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
-      </button>
-    </Tooltip>
   );
 }
 
@@ -762,7 +763,6 @@ function InboxRow({
   onToggle: () => void;
 }) {
   const count = readers(inbox);
-  const verified = Boolean(inbox.verified_at);
 
   return (
     <li className="px-4 py-3">
@@ -773,9 +773,6 @@ function InboxRow({
             <Badge variant={inbox.enabled ? 'success' : 'default'}>
               {inbox.enabled ? 'Enabled' : 'Disabled'}
             </Badge>
-            <Badge variant={verified ? 'success' : 'warning'}>
-              {verified ? 'Verified' : 'Not verified'}
-            </Badge>
           </div>
 
           <p className="text-xs text-zinc-400 truncate">{inbox.address}</p>
@@ -785,7 +782,7 @@ function InboxRow({
             <code className="px-1.5 py-0.5 bg-white/[0.06] rounded text-xs font-mono text-zinc-300 truncate">
               {inbox.routing_address}
             </code>
-            <CopyButton value={inbox.routing_address} label="Copy routing address" />
+            <CopyValueButton value={inbox.routing_address} label="Copy routing address" />
           </div>
 
           <ul className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-zinc-500">
@@ -795,11 +792,13 @@ function InboxRow({
             <li>
               {count === 1 ? '1 person can read it' : `${count} people can read it`}
             </li>
-            <li>
-              {inbox.last_received_at
-                ? `Last received ${timeAgo(inbox.last_received_at)}`
-                : 'Nothing received yet'}
-            </li>
+            {inbox.project_address_count > 0 && (
+              <li>
+                {inbox.project_address_count === 1
+                  ? '1 project address routes here'
+                  : `${inbox.project_address_count} project addresses route here`}
+              </li>
+            )}
           </ul>
 
           {inbox.last_error && (
@@ -809,7 +808,7 @@ function InboxRow({
                 <span className="sr-only">Last error: </span>
                 {inbox.last_error}
                 {inbox.last_error_at && (
-                  <span className="text-zinc-500"> ({timeAgo(inbox.last_error_at)})</span>
+                  <span className="text-zinc-400"> ({relativeTime(inbox.last_error_at)})</span>
                 )}
               </span>
             </p>
@@ -822,7 +821,7 @@ function InboxRow({
               type="button"
               onClick={onEdit}
               aria-label={`Edit ${inbox.name}`}
-              className="p-1.5 text-zinc-500 hover:text-blue-400 hover:bg-blue-500/15 rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+              className="p-1.5 text-zinc-500 hover:text-brand-300 hover:bg-brand-500/15 rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
             >
               <Pencil size={14} aria-hidden="true" />
             </button>
@@ -839,25 +838,15 @@ function InboxRow({
         </div>
       </div>
 
-      {!verified && (
-        <div className="mt-3 bg-amber-500/[0.08] border border-amber-500/20 rounded-lg p-3 text-amber-200">
-          <div className="flex items-start gap-2">
-            <ShieldAlert size={16} className="flex-shrink-0 mt-0.5" aria-hidden="true" />
-            <div className="min-w-0 text-xs leading-relaxed">
-              Not verified yet. Forward or email{' '}
-              <span className="font-mono break-all">{inbox.routing_address}</span> from any
-              mailbox with{' '}
-              <span className="inline-flex items-center gap-0.5 align-middle">
-                <code className="px-1.5 py-0.5 bg-white/[0.06] rounded text-xs font-mono text-amber-100">
-                  {inbox.verification_code}
-                </code>
-                <CopyButton value={inbox.verification_code} label="Copy verification code" />
-              </span>{' '}
-              in the subject. It turns verified when that email arrives.
-            </div>
-          </div>
-        </div>
-      )}
+      <div className="mt-3">
+        <EmailConnectChecklist
+          routingAddress={inbox.routing_address}
+          publicAddress={inbox.address}
+          lastReceivedAt={inbox.last_received_at}
+          verification={{ code: inbox.verification_code, verifiedAt: inbox.verified_at }}
+          offNote={inbox.enabled ? null : 'Disabled. Mail sent here is dropped, not queued. Turn it on to receive again.'}
+        />
+      </div>
     </li>
   );
 }

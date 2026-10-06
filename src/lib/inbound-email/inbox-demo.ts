@@ -1,9 +1,11 @@
+import { normalizeAddress, validateClientSenderAddress } from './addresses';
+import { mergeClientSenders, type ProjectContactAddress } from './mapping';
 import { validateClientDomain } from './public-domains';
 import { matchesSearch, needsAttention, snippetOf, tabCounts, threadFlags, threadInTab, type MessageState } from './inbox-view';
 import type {
-  ClientEmailDomain, InboxMessage, InboxSettings, InboxSettingsInput, InboxSettingsList, InboxSummary, InboxTab,
-  InboxThreadDetail, InboxThreadList, InboxThreadSummary, MxStatus, SetThreadProjectRequest, SetThreadProjectResult,
-  TaskSourceEmails,
+  ClientEmailDomain, ClientSenderAddress, ClientSenderAddressList, InboxMessage, InboxSettings, InboxSettingsInput, InboxSettingsList, InboxSummary, InboxTab,
+  InboxThreadDetail, InboxThreadList, InboxThreadSummary, MxStatus, ProjectEmailAddress, ProjectEmailAddressInput,
+  ProjectEmailAddressList, SetThreadProjectRequest, SetThreadProjectResult, TaskSourceEmails,
 } from './inbox-types';
 
 /**
@@ -46,6 +48,9 @@ function message(partial: Partial<InboxMessage> & Pick<InboxMessage, 'subject' |
     to: [{ address: INBOX_SCOUT.address, name: 'Scout', contact_id: null }],
     cc: [],
     is_forward: false,
+    routing_basis: 'sender',
+    forwarded_by: null,
+    original_sender: null,
     trust: TRUSTED,
     auto_mail_reason: null,
     text_body: partial.new_text,
@@ -109,7 +114,7 @@ function buildThreads(): InboxThreadDetail[] {
     thread({
       inbox: INBOX_SCOUT,
       subject: 'Site is down?',
-      project: { id: NEOFORGE, name: PROJECT_NAMES[NEOFORGE], source: 'inferred' },
+      project: { id: NEOFORGE, name: PROJECT_NAMES[NEOFORGE], source: 'guessed' },
       candidates: [],
       senders: [],
       messages: [
@@ -209,6 +214,9 @@ function buildThreads(): InboxThreadDetail[] {
           received_at: hoursAgo(50),
           from: person('Sarah Chen', 'sarah@valiancemedia.com'),
           is_forward: true,
+          routing_basis: 'forwarded_original',
+          forwarded_by: { member_id: SARAH.id, name: SARAH.name },
+          original_sender: { name: 'Jordan Blake', address: 'jordan@crestfinancial.com' },
           new_text: 'Forwarding Jordan\'s files.\n\n---------- Forwarded message ---------\nFrom: Jordan Blake <jordan@crestfinancial.com>\nSubject: Brand files for both sites\n\nHere are the final brand files. The large source file was too big for email, I will share a link.\n\nJordan',
           attachments: [
             { id: '9b9b9b9b-0003-4000-8000-000000000003', filename: 'brand-colors.png', content_type: 'image/png', size_bytes: 284_221, kind: 'image', available: true, skipped_reason: null, agent_label: 'Palette swatches: navy, gold, slate' },
@@ -247,8 +255,10 @@ const DEMO_TEAM_EMAILS = new Set(['sarah@valiancemedia.com', INBOX_SCOUT.address
 function withSenders(detail: InboxThreadDetail): InboxThreadDetail {
   const seen = new Map<string, string>();
   for (const m of [...detail.messages].reverse()) {
-    if (!m.from || DEMO_TEAM_EMAILS.has(m.from.address) || seen.has(m.from.address)) continue;
-    seen.set(m.from.address, m.from.name);
+    // A teammate's forward offers the original sender.
+    const from = m.original_sender ?? m.from;
+    if (!from || DEMO_TEAM_EMAILS.has(from.address) || seen.has(from.address)) continue;
+    seen.set(from.address, from.name);
   }
   const senders = [...seen.entries()].map(([address, name]) => {
     const host = address.split('@')[1];
@@ -260,7 +270,10 @@ function withSenders(detail: InboxThreadDetail): InboxThreadDetail {
       domain: host,
       domain_is_public: publicHost,
       contact_ids: [...new Set(contactIds)],
-      mapped_project_ids: contactIds.length && detail.project ? [detail.project.id] : [],
+      mapped_project_ids: [...new Set([
+        ...(contactIds.length && detail.project ? [detail.project.id] : []),
+        ...demoSenders.filter((row) => row.address === address).map((row) => row.project_id),
+      ])],
       domain_project_ids: demoDomains.filter((d) => d.domain === host).map((d) => d.project_id),
     };
   });
@@ -278,8 +291,51 @@ let demoDomains: ClientEmailDomain[] = [
   { id: '9a9a9a9a-0002-4000-8000-000000000002', domain: 'bloomwell.co', project_id: BLOOMWELL, created_at: hoursAgo(300) },
   { id: '9a9a9a9a-0003-4000-8000-000000000003', domain: 'neoforge.io', project_id: NEOFORGE, created_at: hoursAgo(200) },
 ];
+/** The demo projects' contact addresses, as project_contacts and contact_emails would give them. */
+const DEMO_CONTACT_ADDRESSES: (ProjectContactAddress & { project_id: string })[] = [
+  { project_id: CREST, address: 'david@crestfinancial.com', contact_id: 'b2b2b2b2-0001-4000-8000-000000000001', contact_name: 'David Lawson' },
+  { project_id: CREST, address: 'lisa@crestfinancial.com', contact_id: 'b2b2b2b2-0006-4000-8000-000000000006', contact_name: 'Lisa Martinez' },
+  { project_id: BLOOMWELL, address: 'monica@bloomwell.co', contact_id: 'b2b2b2b2-0002-4000-8000-000000000002', contact_name: 'Monica Reeves' },
+  { project_id: SOLSTICE, address: 'rachel@solsticerealty.com', contact_id: 'b2b2b2b2-0004-4000-8000-000000000004', contact_name: 'Rachel Kim' },
+];
+let demoSenders: { id: string; address: string; project_id: string; created_at: string }[] = [
+  { id: '9a9a9a9a-0101-4000-8000-000000000001', address: 'andre.williams@gmail.com', project_id: NEOFORGE, created_at: hoursAgo(150) },
+];
+let demoAddresses: ProjectEmailAddress[] = [
+  {
+    id: '9b9b9b9b-0001-4000-8000-000000000001', project_id: CREST, inbox_id: INBOX_SCOUT.id, routing_local_part: 'crest',
+    routing_domain: 'relay.valiancemedia.com', routing_address: 'crest@relay.valiancemedia.com', public_address: 'crest@valiancemedia.com',
+    enabled: true, last_received_at: hoursAgo(2), created_at: hoursAgo(380), updated_at: hoursAgo(380),
+  },
+];
 let threads: InboxThreadDetail[] | null = null;
 const store = () => (threads ??= buildThreads());
+
+const ROUTING_LOCAL_PART = /^[a-z0-9]([a-z0-9._-]{0,62}[a-z0-9])?$/;
+
+/** The demo's checks mirror the server's: a valid local part, one owner per routing address. */
+function demoAddressRow(base: ProjectEmailAddress, input: Partial<ProjectEmailAddressInput>): ProjectEmailAddress {
+  const publicAddress = input.public_address !== undefined ? (input.public_address?.trim().toLowerCase() || null) : base.public_address;
+  if (publicAddress && !normalizeAddress(publicAddress)) throw new Error('Enter the public address in full, such as p4tf@yourdomain.com.');
+  const typed = input.routing_local_part !== undefined ? input.routing_local_part.trim().toLowerCase() : base.routing_local_part;
+  const local = typed || (publicAddress ? publicAddress.split('@')[0].replace(/[^a-z0-9._-]/g, '') : '');
+  if (!local) throw new Error('Enter the routing address, such as p4tf, or a public address to take it from.');
+  if (!ROUTING_LOCAL_PART.test(local)) throw new Error('Use letters, numbers, dots, dashes or underscores');
+  const routing = `${local}@${base.routing_domain}`;
+  if (settings.some((inbox) => inbox.routing_address === routing)) throw new Error('An inbox already uses that routing address.');
+  if (demoAddresses.some((row) => row.id !== base.id && row.routing_address === routing)) throw new Error('Another project email address already uses that routing address.');
+  return {
+    ...base,
+    inbox_id: input.inbox_id ?? base.inbox_id,
+    routing_local_part: local,
+    routing_address: routing,
+    public_address: publicAddress,
+    enabled: input.enabled ?? base.enabled,
+    // A new route waits for its first email again, as on the server.
+    last_received_at: routing === base.routing_address && publicAddress === base.public_address ? base.last_received_at : null,
+    updated_at: new Date().toISOString(),
+  };
+}
 
 function summary(detail: InboxThreadDetail): InboxThreadSummary {
   const flags = threadFlags(detail.messages.map(stateOf));
@@ -292,7 +348,7 @@ function summary(detail: InboxThreadDetail): InboxThreadSummary {
     project: detail.project,
     last_message_at: latest.received_at,
     message_count: detail.messages.length,
-    sender: latest.from ? { name: latest.from.name, address: latest.from.address } : null,
+    sender: latest.original_sender ?? (latest.from ? { name: latest.from.name, address: latest.from.address } : null),
     snippet: snippetOf(latest.new_text || latest.text_body),
     state: flags.state,
     needs_you: flags.needs_you,
@@ -422,6 +478,70 @@ export const demoInbox = {
     await pause();
     demoDomains = demoDomains.filter((d) => !(d.id === domainId && d.project_id === projectId));
   },
+
+  async listSenders(projectId: string): Promise<ClientSenderAddressList> {
+    await pause();
+    return {
+      addresses: mergeClientSenders(
+        DEMO_CONTACT_ADDRESSES.filter((row) => row.project_id === projectId),
+        demoSenders.filter((row) => row.project_id === projectId),
+        true,
+      ),
+    };
+  },
+
+  async addSender(projectId: string, input: string): Promise<ClientSenderAddress> {
+    await pause();
+    const valid = validateClientSenderAddress(input);
+    if (!valid.ok) throw new Error(valid.error);
+    if (DEMO_TEAM_EMAILS.has(valid.address)) throw new Error(`${valid.address} is one of your own addresses, not a client's.`);
+    if (demoSenders.some((row) => row.project_id === projectId && row.address === valid.address)) throw new Error(`${valid.address} is already on this project.`);
+    if (DEMO_CONTACT_ADDRESSES.some((row) => row.project_id === projectId && row.address === valid.address)) {
+      throw new Error(`${valid.address} belongs to a contact on this project, so it already routes here.`);
+    }
+    const row = { id: crypto.randomUUID(), address: valid.address, project_id: projectId, created_at: new Date().toISOString() };
+    demoSenders = [...demoSenders, row];
+    return { address: row.address, source: 'manual', id: row.id, contact_id: null, contact_name: null, created_at: row.created_at };
+  },
+
+  async removeSender(projectId: string, senderId: string): Promise<void> {
+    await pause();
+    demoSenders = demoSenders.filter((row) => !(row.id === senderId && row.project_id === projectId));
+  },
+
+  async listAddresses(projectId: string): Promise<ProjectEmailAddressList> {
+    await pause();
+    return structuredClone({
+      relay_domain: relay,
+      addresses: demoAddresses.filter((row) => row.project_id === projectId),
+      inboxes: settings.map((inbox) => ({ id: inbox.id, name: inbox.name, address: inbox.address, enabled: inbox.enabled })),
+    });
+  },
+
+  async addAddress(projectId: string, input: ProjectEmailAddressInput): Promise<ProjectEmailAddress> {
+    await pause();
+    const now = new Date().toISOString();
+    const row = demoAddressRow({
+      id: crypto.randomUUID(), project_id: projectId, inbox_id: input.inbox_id, routing_local_part: '', routing_domain: relay,
+      routing_address: '', public_address: null, enabled: true, last_received_at: null, created_at: now, updated_at: now,
+    }, input);
+    demoAddresses = [...demoAddresses, row];
+    return structuredClone(row);
+  },
+
+  async updateAddress(projectId: string, addressId: string, input: Partial<ProjectEmailAddressInput>): Promise<ProjectEmailAddress> {
+    await pause();
+    const base = demoAddresses.find((row) => row.id === addressId && row.project_id === projectId);
+    if (!base) throw new Error('Address not found');
+    const row = demoAddressRow(base, input);
+    demoAddresses = demoAddresses.map((existing) => (existing.id === addressId ? row : existing));
+    return structuredClone(row);
+  },
+
+  async removeAddress(projectId: string, addressId: string): Promise<void> {
+    await pause();
+    demoAddresses = demoAddresses.filter((row) => !(row.id === addressId && row.project_id === projectId));
+  },
 };
 
 // -- Settings ----------------------------------------------------------------
@@ -433,14 +553,14 @@ let settings: InboxSettings[] = [
     routing_address: `scout@${relay}`, handler_member_id: SCOUT.id, enabled: true, retention_days: 90, max_attachment_mb: 25,
     agent_readable_types: ['image', 'pdf', 'text'], summary_interval_minutes: 30, filter_auto_mail: true, verification_code: 'VM-7K2Q',
     verified_at: hoursAgo(240), last_received_at: hoursAgo(0.6), last_error: null, last_error_at: null,
-    access_member_ids: [SCOUT.id, SARAH.id], message_count: 9, created_at: hoursAgo(300),
+    access_member_ids: [SCOUT.id, SARAH.id], message_count: 9, project_address_count: 0, created_at: hoursAgo(300),
   },
   {
     id: INBOX_BILLING.id, name: 'Billing', address: INBOX_BILLING.address, routing_local_part: 'billing', routing_domain: relay,
     routing_address: `billing@${relay}`, handler_member_id: ATLAS.id, enabled: true, retention_days: 180, max_attachment_mb: 10,
     agent_readable_types: ['pdf'], summary_interval_minutes: 60, filter_auto_mail: true, verification_code: 'VM-3XPA',
     verified_at: null, last_received_at: hoursAgo(9), last_error: 'Attachment invoice-scan.tiff was over the 10 MB limit and was not stored',
-    last_error_at: hoursAgo(9), access_member_ids: [ATLAS.id], message_count: 1, created_at: hoursAgo(20),
+    last_error_at: hoursAgo(9), access_member_ids: [ATLAS.id], message_count: 1, project_address_count: 0, created_at: hoursAgo(20),
   },
 ];
 
@@ -463,7 +583,8 @@ function applyInput(base: InboxSettings, input: InboxSettingsInput): InboxSettin
 export const demoInboxSettings = {
   async list(): Promise<InboxSettingsList> {
     await pause();
-    return structuredClone({ relay_domain: relay, inboxes: settings });
+    const inboxes = settings.map((inbox) => ({ ...inbox, project_address_count: demoAddresses.filter((row) => row.inbox_id === inbox.id).length }));
+    return structuredClone({ relay_domain: relay, inboxes });
   },
   async create(input: InboxSettingsInput): Promise<InboxSettings> {
     await pause();

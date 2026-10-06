@@ -9,6 +9,17 @@ export function normalizeAddress(value: string | null | undefined): string | nul
   return address.length <= 320 && ADDRESS.test(address) ? address : null;
 }
 
+/**
+ * Validates a client sender address (email_client_addresses): one exact
+ * address, public email services such as gmail.com included.
+ */
+export function validateClientSenderAddress(input: string):
+  | { ok: true; address: string }
+  | { ok: false; error: string } {
+  const address = normalizeAddress(input);
+  return address ? { ok: true, address } : { ok: false, error: 'Enter a full email address, such as bob@gmail.com.' };
+}
+
 export function domainOf(address: string): string {
   return address.slice(address.lastIndexOf('@') + 1).toLowerCase();
 }

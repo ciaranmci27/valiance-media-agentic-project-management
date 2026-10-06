@@ -166,6 +166,10 @@ async function main() {
     check('retention: tasks keep their own content', JSON.stringify(await rows(db, 'SELECT id, title, description, status FROM tasks ORDER BY id')) === JSON.stringify(tasksBefore));
     check('retention: counts', s1.messages_deleted === 3 && s1.stuck_deleted === 1 && s1.threads_deleted === 2 && s1.files_deleted === 3 + 2 + 2 + 2 && s1.failures === 0
       && s1.by_inbox[ids.inboxA]?.messages_deleted === 2 && s1.by_inbox[ids.inboxA]?.stuck_deleted === 1 && s1.by_inbox[ids.inboxB]?.messages_deleted === 1, s1);
+    const lastErrors = await rows(db, 'SELECT id, last_error FROM email_inboxes WHERE id = ANY($1::uuid[])', [[ids.inboxA, ids.inboxB]]);
+    check('retention: an inbox that lost a stuck email shows it as its last error; the other is untouched',
+      /Retention deleted 1 email that never finished arriving/.test(lastErrors.find((r) => r.id === ids.inboxA)?.last_error ?? '')
+      && !lastErrors.find((r) => r.id === ids.inboxB)?.last_error, lastErrors);
     const run1 = await lastRun('retention');
     check('retention: the run is recorded', run1?.outcome === 'complete' && run1.messages_deleted === 3 && run1.stuck_deleted === 1 && run1.threads_deleted === 2 && run1.more_pending === false && !!run1.finished_at, run1);
     storage.onRemove = undefined;

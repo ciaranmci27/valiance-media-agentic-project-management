@@ -5774,6 +5774,13 @@ COMMIT;
 -- contacts.email kept as the primary mirror). Rule 3 lives in
 -- email_task_ai_ready_guard and email_task_link_guard. The email.triaged
 -- activity type is in schema_ai_agent.sql.
+-- Per-project email addresses (20261006030328_email_project_addresses.sql):
+-- email_project_addresses route a routing address to an inbox and file new
+-- threads on the project (project_source 'address'); a routing address
+-- belongs to one inbox or one project address (email_routing_address_guard).
+-- A file that keeps failing to download or store is given up on
+-- (email_files_failed, skipped_reason download_failed) so its message still
+-- arrives.
 -- ─────────────────────────────────────────────────────────────
 
 -- ============================================================
@@ -6033,6 +6040,9 @@ BEGIN
     WHILE EXISTS (
       SELECT 1 FROM public.email_inboxes
       WHERE routing_local_part = v_candidate AND routing_domain = NEW.routing_domain AND id <> NEW.id
+    ) OR EXISTS (
+      SELECT 1 FROM public.email_project_addresses
+      WHERE routing_local_part = v_candidate AND routing_domain = NEW.routing_domain
     ) LOOP
       v_candidate := v_base || '-' || substr(md5(random()::text), 1, 4);
     END LOOP;
@@ -6042,7 +6052,9 @@ BEGIN
   END IF;
   IF TG_OP = 'UPDATE' THEN
     IF NEW.routing_domain IS DISTINCT FROM OLD.routing_domain OR NEW.routing_local_part IS DISTINCT FROM OLD.routing_local_part THEN
+      -- A new route: verify again, and it waits for its first email again.
       NEW.verified_at := NULL;
+      NEW.last_received_at := NULL;
     END IF;
     NEW.updated_at := now();
   END IF;
@@ -6090,6 +6102,118 @@ CREATE TABLE public.email_client_domains (
 );
 CREATE INDEX idx_email_client_domains_project ON public.email_client_domains (project_id);
 
+-- Mail from one exact client address maps to the project, without making the
+-- person a contact. Public email services are allowed here (a client who
+-- writes from bob@gmail.com). An address may map to several projects.
+CREATE TABLE public.email_client_addresses (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  project_id uuid NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+  address text NOT NULL CHECK (address = lower(btrim(address)) AND public.email_is_address(address)),
+  created_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT email_client_addresses_project_address_key UNIQUE (project_id, address)
+);
+CREATE INDEX idx_email_client_addresses_address ON public.email_client_addresses (address);
+
+-- A project's own addresses: mail to one lands in its inbox, filed on the
+-- project. Several per project, so an address can change without dropping
+-- mail from clients still using the old one.
+CREATE TABLE public.email_project_addresses (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  project_id uuid NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+  -- The inbox that receives the mail; its handler triages it.
+  inbox_id uuid NOT NULL REFERENCES public.email_inboxes(id) ON DELETE CASCADE,
+  -- <local>@<domain>, where the forwarder delivers and what ingestion looks
+  -- up, as on email_inboxes. The domain defaults to
+  -- business_settings.inbound_email_domain and the local part to the public
+  -- address's, when left empty (email_project_addresses_before_write).
+  routing_domain text NOT NULL CHECK (routing_domain = lower(btrim(routing_domain)) AND public.email_is_hostname(routing_domain)),
+  routing_local_part text NOT NULL CHECK (routing_local_part ~ '^[a-z0-9]([a-z0-9._-]{0,62}[a-z0-9])?$'),
+  routing_address text GENERATED ALWAYS AS (routing_local_part || '@' || routing_domain) STORED,
+  -- What clients see, e.g. p4tf@valiancemedia.com: display and the forwarder
+  -- instructions only, never matched.
+  public_address text CHECK (public_address IS NULL OR (public_address = lower(btrim(public_address)) AND public.email_is_address(public_address))),
+  enabled boolean NOT NULL DEFAULT true,
+  -- When mail last came through this address (email_complete_message).
+  last_received_at timestamptz,
+  created_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT email_project_addresses_routing_address_key UNIQUE (routing_address)
+);
+CREATE INDEX idx_email_project_addresses_project ON public.email_project_addresses (project_id);
+CREATE INDEX idx_email_project_addresses_inbox ON public.email_project_addresses (inbox_id);
+
+CREATE OR REPLACE FUNCTION public.email_project_addresses_before_write()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_base text;
+BEGIN
+  NEW.public_address := NULLIF(lower(btrim(COALESCE(NEW.public_address, ''))), '');
+  IF NEW.routing_domain IS NULL OR btrim(NEW.routing_domain) = '' THEN
+    SELECT inbound_email_domain INTO NEW.routing_domain FROM public.business_settings LIMIT 1;
+  END IF;
+  NEW.routing_domain := lower(btrim(NEW.routing_domain));
+  IF (NEW.routing_local_part IS NULL OR btrim(NEW.routing_local_part) = '') AND NEW.public_address IS NOT NULL THEN
+    v_base := regexp_replace(regexp_replace(split_part(NEW.public_address, '@', 1), '[^a-z0-9._-]', '', 'g'), '^[._-]+|[._-]+$', '', 'g');
+    NEW.routing_local_part := regexp_replace(left(v_base, 64), '[._-]+$', '');
+  ELSE
+    NEW.routing_local_part := lower(btrim(COALESCE(NEW.routing_local_part, '')));
+  END IF;
+  -- An edit, not mail arriving (last_received_at). A new route (routing or
+  -- public address) waits for its first email again.
+  IF TG_OP = 'UPDATE' AND NEW.last_received_at IS NOT DISTINCT FROM OLD.last_received_at THEN
+    NEW.updated_at := now();
+    IF NEW.routing_local_part IS DISTINCT FROM OLD.routing_local_part OR NEW.routing_domain IS DISTINCT FROM OLD.routing_domain
+      OR NEW.public_address IS DISTINCT FROM OLD.public_address THEN
+      NEW.last_received_at := NULL;
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER email_project_addresses_before_write
+  BEFORE INSERT OR UPDATE ON public.email_project_addresses
+  FOR EACH ROW EXECUTE FUNCTION public.email_project_addresses_before_write();
+
+-- After the row is written, so the generated routing_address is final. The
+-- advisory lock takes writers to either table one at a time, so two
+-- concurrent writes of the same address cannot both pass.
+CREATE OR REPLACE FUNCTION public.email_routing_address_guard()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF TG_OP = 'UPDATE' AND NEW.routing_address IS NOT DISTINCT FROM OLD.routing_address THEN RETURN NULL; END IF;
+  PERFORM pg_advisory_xact_lock(hashtext('public.email_routing_address'));
+  IF TG_TABLE_NAME = 'email_inboxes' THEN
+    IF EXISTS (SELECT 1 FROM public.email_project_addresses WHERE routing_address = NEW.routing_address) THEN
+      RAISE EXCEPTION 'EMAIL_ROUTING_ADDRESS_TAKEN: % is a project email address', NEW.routing_address
+        USING ERRCODE = '23505', CONSTRAINT = 'email_routing_address_guard';
+    END IF;
+  ELSIF EXISTS (SELECT 1 FROM public.email_inboxes WHERE routing_address = NEW.routing_address) THEN
+    RAISE EXCEPTION 'EMAIL_ROUTING_ADDRESS_TAKEN: % is an inbox routing address', NEW.routing_address
+      USING ERRCODE = '23505', CONSTRAINT = 'email_routing_address_guard';
+  END IF;
+  RETURN NULL;
+END;
+$$;
+
+CREATE TRIGGER email_inboxes_routing_address_guard
+  AFTER INSERT OR UPDATE ON public.email_inboxes
+  FOR EACH ROW EXECUTE FUNCTION public.email_routing_address_guard();
+
+CREATE TRIGGER email_project_addresses_routing_address_guard
+  AFTER INSERT OR UPDATE ON public.email_project_addresses
+  FOR EACH ROW EXECUTE FUNCTION public.email_routing_address_guard();
+
 -- ============================================================
 -- 4. Threads and messages
 -- ============================================================
@@ -6099,26 +6223,36 @@ CREATE TABLE public.email_threads (
   inbox_id uuid NOT NULL REFERENCES public.email_inboxes(id) ON DELETE RESTRICT,
   subject_normalized text NOT NULL DEFAULT '',
   -- The project lives here, on the thread, and nowhere else. mapped: from a
-  -- contact or domain mapping; inferred: chosen by the agent at triage;
-  -- ciaran: set by a person.
+  -- contact or domain mapping; inferred: chosen by the agent at triage among
+  -- the mapping candidates; guessed: chosen by the agent for an email with
+  -- no candidates; ciaran: set by a person; address: sent to one of the project's own
+  -- addresses (a person's mapping, final like ciaran).
   project_id uuid REFERENCES public.projects(id) ON DELETE SET NULL,
-  project_source text CHECK (project_source IN ('mapped', 'inferred', 'ciaran')),
+  project_source text,
+  -- The project address that filed the thread, while its source is
+  -- 'address'. A deleted address leaves the project in place.
+  project_address_id uuid REFERENCES public.email_project_addresses(id) ON DELETE SET NULL,
   last_message_at timestamptz NOT NULL DEFAULT now(),
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT email_threads_project_pair_check CHECK ((project_id IS NULL) = (project_source IS NULL))
+  CONSTRAINT email_threads_project_source_check CHECK (project_source IN ('mapped', 'inferred', 'guessed', 'ciaran', 'address')),
+  CONSTRAINT email_threads_project_pair_check CHECK ((project_id IS NULL) = (project_source IS NULL)),
+  CONSTRAINT email_threads_project_address_check CHECK (project_address_id IS NULL OR project_source = 'address')
 );
 CREATE INDEX idx_email_threads_inbox_last ON public.email_threads (inbox_id, last_message_at DESC);
 CREATE INDEX idx_email_threads_inbox_subject ON public.email_threads (inbox_id, subject_normalized);
 CREATE INDEX idx_email_threads_project ON public.email_threads (project_id) WHERE project_id IS NOT NULL;
+CREATE INDEX idx_email_threads_project_address ON public.email_threads (project_address_id) WHERE project_address_id IS NOT NULL;
 
--- A deleted project nulls project_id (ON DELETE SET NULL); its source goes too.
+-- A deleted project nulls project_id (ON DELETE SET NULL); its source goes
+-- too. Any other source than 'address' drops the address.
 CREATE OR REPLACE FUNCTION public.email_threads_before_update()
 RETURNS trigger
 LANGUAGE plpgsql
 AS $$
 BEGIN
   IF NEW.project_id IS NULL THEN NEW.project_source := NULL; END IF;
+  IF NEW.project_source IS DISTINCT FROM 'address' THEN NEW.project_address_id := NULL; END IF;
   NEW.updated_at := now();
   RETURN NEW;
 END;
@@ -6164,6 +6298,23 @@ CREATE TABLE public.email_messages (
   raw_size_bytes bigint CHECK (raw_size_bytes IS NULL OR raw_size_bytes >= 0),
   raw_sha256 text CHECK (raw_sha256 IS NULL OR raw_sha256 ~ '^[0-9a-f]{64}$'),
   raw_uploaded_at timestamptz,
+  -- Ingestion runs in which a file failed to download or store
+  -- (email_files_failed); enough of them and the files are given up on.
+  file_failures integer NOT NULL DEFAULT 0 CHECK (file_failures >= 0),
+  -- What decided the project candidates. The visible sender decides, unless
+  -- it is a verified teammate (an active person on the team, not an agent,
+  -- with sender trust 'trusted'): sender (the From address; the default),
+  -- forwarded_original (a teammate forwarded it: the original sender of the
+  -- outermost forwarded message, original_from_address and _name), or
+  -- team_recipients (a teammate wrote it and copied the inbox: the client
+  -- addresses in To and Cc). forwarded_by_member_id: that teammate. auth
+  -- stays the verdict on the outer message.
+  routing_basis text NOT NULL DEFAULT 'sender'
+    CHECK (routing_basis IN ('sender', 'forwarded_original', 'team_recipients')),
+  forwarded_by_member_id uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  original_from_address text
+    CHECK (original_from_address IS NULL OR (original_from_address = lower(btrim(original_from_address)) AND length(original_from_address) BETWEEN 3 AND 320)),
+  original_from_name text CHECK (original_from_name IS NULL OR length(original_from_name) <= 300),
   completed_at timestamptz,
   -- A person looked at it in the Inbox and marked it handled. A suggested
   -- reply waits in "Needs reply" until then; sending the message back to
@@ -6175,11 +6326,19 @@ CREATE TABLE public.email_messages (
   CONSTRAINT email_messages_inbox_message_key UNIQUE (inbox_id, internet_message_id),
   CONSTRAINT email_messages_inbox_provider_key UNIQUE (inbox_id, provider, provider_email_id),
   CONSTRAINT email_messages_thread_when_complete CHECK (status = 'receiving' OR thread_id IS NOT NULL),
-  CONSTRAINT email_messages_raw_stored_with_hash CHECK (raw_uploaded_at IS NULL OR (raw_storage_path IS NOT NULL AND raw_sha256 IS NOT NULL AND raw_size_bytes IS NOT NULL))
+  CONSTRAINT email_messages_raw_stored_with_hash CHECK (raw_uploaded_at IS NULL OR (raw_storage_path IS NOT NULL AND raw_sha256 IS NOT NULL AND raw_size_bytes IS NOT NULL)),
+  -- The original sender belongs to a forward only; the forwarder to anything
+  -- but the sender basis (it may be null there once that teammate is deleted).
+  CONSTRAINT email_messages_routing_check CHECK (
+    (original_from_address IS NOT NULL) = (routing_basis = 'forwarded_original')
+    AND (original_from_name IS NULL OR routing_basis = 'forwarded_original')
+    AND (forwarded_by_member_id IS NULL OR routing_basis <> 'sender')
+  )
 );
 CREATE INDEX idx_email_messages_inbox_status ON public.email_messages (inbox_id, status, received_at DESC);
 CREATE INDEX idx_email_messages_inbox_received ON public.email_messages (inbox_id, received_at DESC);
 CREATE INDEX idx_email_messages_thread ON public.email_messages (thread_id, received_at);
+CREATE INDEX idx_email_messages_forwarded_by ON public.email_messages (forwarded_by_member_id) WHERE forwarded_by_member_id IS NOT NULL;
 CREATE UNIQUE INDEX email_messages_raw_storage_path_key ON public.email_messages (raw_storage_path) WHERE raw_storage_path IS NOT NULL;
 
 CREATE TRIGGER set_email_messages_updated_at
@@ -6217,11 +6376,12 @@ JOIN public.email_messages m ON m.id = r.message_id
 WHERE m.thread_id IS NOT NULL
 GROUP BY m.thread_id, r.address;
 
--- Projects the sender maps to: through a contact address or a client domain.
+-- Projects the sender maps to: through a contact address, a client domain or
+-- a client sender address.
 CREATE TABLE public.email_message_candidates (
   message_id uuid NOT NULL REFERENCES public.email_messages(id) ON DELETE CASCADE,
   project_id uuid NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
-  reason text NOT NULL CHECK (reason IN ('contact', 'domain')),
+  reason text NOT NULL CHECK (reason IN ('contact', 'domain', 'sender')),
   created_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (message_id, project_id, reason)
 );
@@ -6241,9 +6401,10 @@ CREATE TABLE public.email_attachments (
   disposition text CHECK (disposition IN ('attachment', 'inline')),
   content_id text CHECK (content_id IS NULL OR length(content_id) <= 998),
   -- {inbox_id}/{message_id}/{attachment_id} in the inbound-email bucket, or
-  -- NULL with a skipped_reason when the file was never stored.
+  -- NULL with a skipped_reason when the file was never stored: over the
+  -- size cap, or given up on after failed downloads (email_files_failed).
   storage_path text,
-  skipped_reason text CHECK (skipped_reason IN ('over_size_cap')),
+  skipped_reason text CHECK (skipped_reason IN ('over_size_cap', 'download_failed')),
   uploaded_at timestamptz,
   page_count integer CHECK (page_count IS NULL OR page_count >= 0),
   -- Display only, for the Inbox UI. Never a substitute for reading the file.
@@ -6474,7 +6635,15 @@ $$;
 
 -- Ingestion step 2, after every planned file is stored: thread, mapping, status.
 -- p_decision: { status: new|ignored, thread_id?: uuid (else a new thread),
---   project_id?: uuid (the mapped project, set only on a thread without one),
+--   project_id?: uuid (set only on a thread without one),
+--   project_source?: mapped (default, a contact or domain) | address (the
+--   project's own address, with project_address_id),
+--   project_address_id?: uuid,
+--   received_via_address_id?: uuid (the project address the email matched,
+--   whether or not it sets the project: its last_received_at is stamped),
+--   routing_basis?: sender (default) | forwarded_original | team_recipients,
+--   forwarded_by_member_id?: uuid (the verified teammate, when not sender),
+--   original_from_address?, original_from_name? (forwarded_original only),
 --   candidates: [{project_id, reason}], recipient_contacts: [{address, contact_id}] }
 CREATE OR REPLACE FUNCTION public.email_complete_message(p_message_id uuid, p_decision jsonb)
 RETURNS jsonb
@@ -6486,9 +6655,15 @@ DECLARE
   v_message public.email_messages;
   v_thread uuid;
   v_status text := p_decision->>'status';
+  v_source text := COALESCE(p_decision->>'project_source', 'mapped');
+  v_basis text := COALESCE(p_decision->>'routing_basis', 'sender');
 BEGIN
   IF COALESCE(auth.role(), '') <> 'service_role' THEN RAISE EXCEPTION 'Service role required' USING ERRCODE = '42501'; END IF;
   IF v_status NOT IN ('new', 'ignored') THEN RAISE EXCEPTION 'email_complete_message: status must be new or ignored' USING ERRCODE = '22023'; END IF;
+  IF v_source NOT IN ('mapped', 'address') THEN RAISE EXCEPTION 'email_complete_message: project_source must be mapped or address' USING ERRCODE = '22023'; END IF;
+  IF v_basis NOT IN ('sender', 'forwarded_original', 'team_recipients') THEN
+    RAISE EXCEPTION 'email_complete_message: routing_basis must be sender, forwarded_original or team_recipients' USING ERRCODE = '22023';
+  END IF;
 
   SELECT * INTO v_message FROM public.email_messages WHERE id = p_message_id FOR UPDATE;
   IF NOT FOUND THEN RAISE EXCEPTION 'EMAIL_NOT_FOUND: message %', p_message_id USING ERRCODE = 'P0002'; END IF;
@@ -6512,9 +6687,15 @@ BEGIN
     RETURNING id INTO v_thread;
   END IF;
 
-  -- A thread keeps its project once set.
+  -- A thread keeps its project once set. An address deleted since it was
+  -- matched still files the project, without the address.
   IF p_decision->>'project_id' IS NOT NULL THEN
-    UPDATE public.email_threads SET project_id = (p_decision->>'project_id')::uuid, project_source = 'mapped'
+    UPDATE public.email_threads
+    SET project_id = (p_decision->>'project_id')::uuid,
+        project_source = v_source,
+        project_address_id = CASE WHEN v_source = 'address' THEN (
+          SELECT a.id FROM public.email_project_addresses a WHERE a.id = (p_decision->>'project_address_id')::uuid
+        ) END
     WHERE id = v_thread AND project_id IS NULL;
   END IF;
 
@@ -6528,15 +6709,74 @@ BEGIN
   FROM jsonb_array_elements(COALESCE(p_decision->'recipient_contacts', '[]'::jsonb)) AS x
   WHERE r.message_id = p_message_id AND r.address = x->>'address';
 
+  -- A teammate deleted since ingestion read them leaves no forwarder.
   UPDATE public.email_messages
   SET thread_id = v_thread,
       status = v_status,
-      completed_at = now()
+      completed_at = now(),
+      routing_basis = v_basis,
+      forwarded_by_member_id = CASE WHEN v_basis <> 'sender' THEN (
+        SELECT tm.id FROM public.team_members tm WHERE tm.id = (p_decision->>'forwarded_by_member_id')::uuid
+      ) END,
+      original_from_address = CASE WHEN v_basis = 'forwarded_original' THEN lower(btrim(p_decision->>'original_from_address')) END,
+      original_from_name = CASE WHEN v_basis = 'forwarded_original'
+        THEN NULLIF(left(btrim(COALESCE(p_decision->>'original_from_name', '')), 300), '') END
   WHERE id = p_message_id;
 
   UPDATE public.email_inboxes SET last_received_at = now() WHERE id = v_message.inbox_id;
+  IF p_decision->>'received_via_address_id' IS NOT NULL THEN
+    UPDATE public.email_project_addresses SET last_received_at = now()
+    WHERE id = (p_decision->>'received_via_address_id')::uuid AND inbox_id = v_message.inbox_id;
+  END IF;
 
   RETURN jsonb_build_object('already_complete', false, 'status', v_status, 'thread_id', v_thread);
+END;
+$$;
+
+-- Ingestion, when files of a receiving message failed in this run:
+-- p_attachment_ids the attachments that failed, p_raw whether the raw .eml
+-- did. Counts the failed run. From the p_max_failures-th failed run, or once
+-- the message is p_max_age_minutes old, it gives up on those files: each
+-- attachment is skipped as download_failed and the raw .eml is dropped (its
+-- parsed bodies stand), so the message completes without them instead of
+-- staying in receiving until retention deletes it. Anything already stored
+-- under a dropped path is an orphan for the weekly sweep.
+CREATE OR REPLACE FUNCTION public.email_files_failed(
+  p_message_id uuid,
+  p_attachment_ids jsonb,
+  p_raw boolean,
+  p_max_failures integer,
+  p_max_age_minutes integer
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_message public.email_messages;
+  v_give_up boolean;
+BEGIN
+  IF COALESCE(auth.role(), '') <> 'service_role' THEN RAISE EXCEPTION 'Service role required' USING ERRCODE = '42501'; END IF;
+
+  UPDATE public.email_messages SET file_failures = file_failures + 1
+  WHERE id = p_message_id AND status = 'receiving'
+  RETURNING * INTO v_message;
+  IF NOT FOUND THEN RETURN jsonb_build_object('receiving', false, 'gave_up', false, 'failures', 0); END IF;
+
+  v_give_up := v_message.file_failures >= p_max_failures
+    OR v_message.created_at < now() - make_interval(mins => p_max_age_minutes);
+  IF v_give_up THEN
+    UPDATE public.email_attachments
+    SET storage_path = NULL, skipped_reason = 'download_failed'
+    WHERE message_id = p_message_id AND storage_path IS NOT NULL AND uploaded_at IS NULL
+      AND id IN (SELECT value::uuid FROM jsonb_array_elements_text(COALESCE(p_attachment_ids, '[]'::jsonb)));
+    IF p_raw THEN
+      UPDATE public.email_messages SET raw_storage_path = NULL WHERE id = p_message_id AND raw_uploaded_at IS NULL;
+    END IF;
+  END IF;
+
+  RETURN jsonb_build_object('receiving', true, 'gave_up', v_give_up, 'failures', v_message.file_failures);
 END;
 $$;
 
@@ -6589,8 +6829,13 @@ BEGIN
     END IF;
   END IF;
 
+  -- inferred: chosen among the message's mapping candidates; guessed: the
+  -- message had none, so nothing in it matched a project.
   IF p_project_id IS NOT NULL THEN
-    UPDATE public.email_threads SET project_id = p_project_id, project_source = 'inferred'
+    UPDATE public.email_threads
+    SET project_id = p_project_id,
+        project_source = CASE WHEN EXISTS (SELECT 1 FROM public.email_message_candidates c WHERE c.message_id = p_message_id)
+          THEN 'inferred' ELSE 'guessed' END
     WHERE id = v_message.thread_id AND project_id IS NULL;
     IF NOT FOUND AND NOT EXISTS (
       SELECT 1 FROM public.email_threads WHERE id = v_message.thread_id AND project_id = p_project_id
@@ -6675,6 +6920,7 @@ AS $$
       'summary', l.summary,
       'question_for_ciaran', l.question_for_ciaran,
       'has_suggested_reply', l.suggested_reply IS NOT NULL,
+      'project_id', l.project_id,
       'superseded_triage_ids', COALESCE((
         SELECT jsonb_agg(o.id) FROM public.email_triage o
         WHERE o.message_id = l.message_id AND o.id <> l.id AND o.summarized_at IS NULL
@@ -6683,7 +6929,13 @@ AS $$
         'id', m.id, 'inbox_id', m.inbox_id, 'thread_id', m.thread_id, 'status', m.status,
         'subject', m.subject, 'received_at', m.received_at,
         'from', (SELECT jsonb_build_object('address', r.address, 'name', r.name)
-                 FROM public.email_message_recipients r WHERE r.message_id = m.id AND r.kind = 'from')
+                 FROM public.email_message_recipients r WHERE r.message_id = m.id AND r.kind = 'from'),
+        'routing_basis', m.routing_basis,
+        'forwarded_by', CASE WHEN m.routing_basis <> 'sender' AND m.forwarded_by_member_id IS NOT NULL THEN jsonb_build_object(
+          'member_id', m.forwarded_by_member_id,
+          'name', (SELECT tm.name FROM public.team_members tm WHERE tm.id = m.forwarded_by_member_id)) END,
+        'original_sender', CASE WHEN m.routing_basis = 'forwarded_original' THEN jsonb_build_object(
+          'address', m.original_from_address, 'name', COALESCE(m.original_from_name, '')) END
       ),
       'project', CASE WHEN th.project_id IS NULL THEN NULL ELSE jsonb_build_object(
         'id', th.project_id, 'name', p.name, 'source', th.project_source) END,
@@ -6744,12 +6996,14 @@ $$;
 
 REVOKE ALL ON FUNCTION public.email_start_message(uuid, jsonb, jsonb, jsonb, bigint) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.email_complete_message(uuid, jsonb) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.email_files_failed(uuid, jsonb, boolean, integer, integer) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.email_record_triage(uuid, uuid, jsonb, jsonb, uuid, text, text, text) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.email_signal(jsonb) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.email_unsummarized_triage(jsonb, integer) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.email_mark_triage_summarized(jsonb, jsonb) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.email_start_message(uuid, jsonb, jsonb, jsonb, bigint) TO service_role;
 GRANT EXECUTE ON FUNCTION public.email_complete_message(uuid, jsonb) TO service_role;
+GRANT EXECUTE ON FUNCTION public.email_files_failed(uuid, jsonb, boolean, integer, integer) TO service_role;
 GRANT EXECUTE ON FUNCTION public.email_record_triage(uuid, uuid, jsonb, jsonb, uuid, text, text, text) TO service_role;
 GRANT EXECUTE ON FUNCTION public.email_signal(jsonb) TO service_role;
 GRANT EXECUTE ON FUNCTION public.email_unsummarized_triage(jsonb, integer) TO service_role;
@@ -6803,6 +7057,8 @@ ALTER TABLE public.contact_emails ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.email_inboxes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.email_inbox_access ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.email_client_domains ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.email_client_addresses ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.email_project_addresses ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.email_threads ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.email_messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.email_message_recipients ENABLE ROW LEVEL SECURITY;
@@ -6837,6 +7093,22 @@ CREATE POLICY email_client_domains_select ON public.email_client_domains FOR SEL
     public.has_permission('contacts.read') OR public.has_permission('inbound_email.read')
   ));
 CREATE POLICY email_client_domains_manage ON public.email_client_domains FOR ALL TO authenticated
+  USING ((public.has_permission('contacts.manage') OR public.has_permission('inbound_email.manage')) AND public.can_access_project(project_id))
+  WITH CHECK ((public.has_permission('contacts.manage') OR public.has_permission('inbound_email.manage')) AND public.can_access_project(project_id));
+
+CREATE POLICY email_client_addresses_select ON public.email_client_addresses FOR SELECT TO authenticated
+  USING (public.can_access_project(project_id) AND (
+    public.has_permission('contacts.read') OR public.has_permission('inbound_email.read')
+  ));
+CREATE POLICY email_client_addresses_manage ON public.email_client_addresses FOR ALL TO authenticated
+  USING ((public.has_permission('contacts.manage') OR public.has_permission('inbound_email.manage')) AND public.can_access_project(project_id))
+  WITH CHECK ((public.has_permission('contacts.manage') OR public.has_permission('inbound_email.manage')) AND public.can_access_project(project_id));
+
+CREATE POLICY email_project_addresses_select ON public.email_project_addresses FOR SELECT TO authenticated
+  USING (public.can_access_project(project_id) AND (
+    public.has_permission('contacts.read') OR public.has_permission('inbound_email.read')
+  ));
+CREATE POLICY email_project_addresses_manage ON public.email_project_addresses FOR ALL TO authenticated
   USING ((public.has_permission('contacts.manage') OR public.has_permission('inbound_email.manage')) AND public.can_access_project(project_id))
   WITH CHECK ((public.has_permission('contacts.manage') OR public.has_permission('inbound_email.manage')) AND public.can_access_project(project_id));
 
@@ -7133,7 +7405,7 @@ begin
     'project_retainers', 'project_retainer_amounts', 'project_retainer_periods',
     'task_suggestions', 'project_goals',
     'team_member_notifications', 'client_communications',
-    'contact_emails', 'email_inboxes', 'email_inbox_access', 'email_client_domains',
+    'contact_emails', 'email_inboxes', 'email_inbox_access', 'email_client_domains', 'email_client_addresses', 'email_project_addresses',
     'email_threads', 'email_messages', 'email_message_recipients', 'email_message_candidates',
     'email_attachments', 'email_triage', 'email_task_links'
   ] loop

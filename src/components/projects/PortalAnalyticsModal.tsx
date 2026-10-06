@@ -320,7 +320,7 @@ export function PortalAnalyticsModal({
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" style={{ animation: 'fadeIn 0.2s ease both' }} />
+      <div className="absolute inset-0 bg-black/50" style={{ animation: 'fadeIn 0.2s ease both' }} />
 
       <div
         className="relative w-full max-w-6xl max-h-[88vh] bg-surface-raised rounded-2xl shadow-2xl flex flex-col overflow-hidden"

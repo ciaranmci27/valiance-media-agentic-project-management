@@ -77,7 +77,7 @@ export function ConfirmDialog({
       className="fixed inset-0 z-[60] flex items-center justify-center p-4"
       onClick={(e) => e.target === overlayRef.current && handleClose()}
     >
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm animate-fadeIn" />
+      <div className="absolute inset-0 bg-black/50 animate-fadeIn" />
 
       <div className="relative w-full max-w-sm bg-surface-raised border border-white/10 rounded-xl shadow-[0_16px_48px_-12px_rgba(0,0,0,0.7)] transform animate-scaleIn">
         <div className="p-6">

@@ -350,7 +350,7 @@ export function InvoicePreviewModalView({
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
       onClick={(e) => e.target === overlayRef.current && onClose()}
     >
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm animate-fadeIn" />
+      <div className="absolute inset-0 bg-black/60 animate-fadeIn" />
 
       {/* Use dynamic viewport height (dvh) so the modal sizes against the
           *visible* area on mobile — `vh` reports the large viewport (browser

@@ -48,7 +48,7 @@ export function validateClientDomain(input: string):
   const domain = input.trim().toLowerCase().replace(/^@/, '').replace(/\.$/, '');
   if (!isHostname(domain)) return { ok: false, error: 'Enter a domain such as acme.com.' };
   if (isPublicEmailDomain(domain)) {
-    return { ok: false, error: `${domain} is a public email service. Add the person's exact address as a contact instead.` };
+    return { ok: false, error: `${domain} is a public email service. Add the person's exact address under Client email addresses instead.` };
   }
   return { ok: true, domain };
 }
