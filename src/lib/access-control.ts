@@ -107,6 +107,28 @@ export function hasPermission(
   return permissions.includes('*') || permissions.includes(permission);
 }
 
+/**
+ * The scopes a key for this member may carry: API endpoint permissions the
+ * member holds on the api channel, in the order the API lists them. Creating
+ * and editing a key both check against it.
+ */
+export function apiScopesFor(access: AccessContext | null | undefined): PermissionKey[] {
+  return API_ENDPOINT_PERMISSIONS.filter((scope) => hasPermission(access, scope, 'api'));
+}
+
+/**
+ * Who may edit a key's name and scopes: the member it acts as, or a holder
+ * of api_keys.manage_all. A creator who is not the key's member may still
+ * revoke it, but not change what it can do.
+ */
+export function canEditApiKey(
+  access: AccessContext | null | undefined,
+  memberId: string | null | undefined,
+  key: { team_member_id: string | null },
+): boolean {
+  return (!!memberId && key.team_member_id === memberId) || hasPermission(access, 'api_keys.manage_all');
+}
+
 /** Either task read grant: every task in accessible projects, or only your own (RLS decides which rows). */
 export function canReadTasks(access: AccessContext | null | undefined): boolean {
   return hasPermission(access, 'tasks.read') || hasPermission(access, 'tasks.read_assigned');
@@ -166,7 +188,7 @@ export const PERMISSION_GROUPS: Array<{
       { key: 'settings.manage', label: 'Business settings', description: 'Manage workspace and invoice identity settings.' },
       { key: 'smtp.manage', label: 'Email settings', description: 'Manage SMTP accounts and outbound email configuration.' },
       { key: 'audit.read', label: 'View audit log', description: 'Review security and API activity.' },
-      { key: 'api_keys.manage_all', label: 'Manage all API keys', description: 'Inspect, disable, and revoke every member key.' },
+      { key: 'api_keys.manage_all', label: 'Manage all API keys', description: 'Inspect, edit, disable, and revoke every member key.' },
       { key: 'webhooks.manage', label: 'Manage webhooks', description: 'Create, edit, and remove outbound webhook endpoints and view deliveries.' },
       { key: 'notifications.manage_own', label: 'Manage own notifications', description: 'Read and update only the member\'s own notifications through the API.' },
       { key: 'notifications.send', label: 'Send notifications', description: 'Send in-app notifications to the Owner (agent questions and escalations).' },

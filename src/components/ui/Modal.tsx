@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useId, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 
@@ -14,6 +14,7 @@ interface ModalProps {
 
 export default function Modal({ isOpen, onClose, title, children, size = 'md' }: ModalProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
 
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
@@ -57,17 +58,19 @@ export default function Modal({ isOpen, onClose, title, children, size = 'md' }:
       <div className="absolute inset-0 bg-black/60 animate-fadeIn" />
 
       {/* Modal */}
-      <div className={`
+      <div role="dialog" aria-modal="true" aria-labelledby={titleId} className={`
         relative w-full ${sizes[size]} max-h-[85vh] bg-surface-raised border border-white/10 rounded-xl
         shadow-[0_16px_48px_-12px_rgba(0,0,0,0.7)] transform animate-scaleIn flex flex-col
       `}>
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-white/[0.08] flex-shrink-0">
-          <h2 className="text-lg font-semibold text-white">
+          <h2 id={titleId} className="text-lg font-semibold text-white">
             {title}
           </h2>
           <button
+            type="button"
             onClick={onClose}
+            aria-label="Close"
             className="p-1 rounded-lg text-zinc-400 hover:text-white hover:bg-white/[0.06] transition-colors"
           >
             <X className="w-5 h-5" />

@@ -387,6 +387,8 @@ interface AppContextType {
   /** Creates a key on the server; resolves to the full key, shown once, or undefined on failure. */
   addApiKey: (name: string, scopes: string[]) => Promise<string | undefined>;
   revokeApiKey: (id: string) => void;
+  /** Renames a key and/or replaces its scopes on the server; the secret stays the same. Throws the server's message on failure. */
+  updateApiKey: (id: string, changes: { name?: string; scopes?: string[] }) => Promise<ApiKey | undefined>;
 
   // Agent data (conditionally loaded when NEXT_PUBLIC_ENABLE_AGENTS=true)
   projectGoals: ProjectGoal[];
@@ -3468,6 +3470,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const updateApiKeyAction = async (id: string, changes: { name?: string; scopes?: string[] }): Promise<ApiKey | undefined> => {
+    if (skipSupabase) return undefined;
+    const response = await fetch(`/api/workspace/api-keys/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(changes),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || 'Failed to update API key');
+    const updated = payload.data as ApiKey;
+    setApiKeys(keys => keys.map(k => k.id === id ? updated : k));
+    notify(adminMemberIds(), `API key edited: "${updated.name}"`, `${actorName()} changed an API key's name or scopes.`, '/settings', 'member', null, 'api_keys');
+    return updated;
+  };
+
   // Project Goal CRUD
   const addGoalAction = async (goal: { project_id: string; title: string; description?: string; target_date?: string | null; status?: string }): Promise<ProjectGoal | undefined> => {
     const optimisticId = crypto.randomUUID();
@@ -4084,6 +4101,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       getTimeEntriesByProject,
       addApiKey: addApiKeyAction,
       revokeApiKey: revokeApiKeyAction,
+      updateApiKey: updateApiKeyAction,
       projectGoals,
       taskSuggestions,
       agentActivity: agentActivityList,

@@ -194,7 +194,8 @@ export default async function ApiDocsPage() {
                 >
                   Settings
                 </a>
-                .
+                , where a key&apos;s name and scopes can also be edited. The key itself stays the same, and the
+                new scopes apply from its next request.
               </p>
 
               <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">

@@ -20,6 +20,7 @@ import {
   Check,
   Plus,
   Ban,
+  Pencil,
   BookOpen,
   Bell,
   Globe,
@@ -40,12 +41,9 @@ import { AnalyticsExclusionsSection } from '@/components/settings/AnalyticsExclu
 import { Tooltip } from '@/components/ui/Tooltip';
 import Link from 'next/link';
 import type { ApiKey, NotificationCategory, NotificationPreferences } from '@/lib/types';
-import {
-  API_ENDPOINT_PERMISSIONS,
-  API_ENDPOINT_PERMISSION_SET,
-  hasPermission,
-} from '@/lib/access-control';
-import { Checkbox } from '@/components/ui/inputs/Checkbox';
+import { apiScopesFor, canEditApiKey, hasPermission } from '@/lib/access-control';
+import { ApiScopePicker } from '@/components/settings/ApiScopePicker';
+import { EditApiKeyModal } from '@/components/settings/EditApiKeyModal';
 
 const NOTIF_GROUPS: {
   group: string;
@@ -118,7 +116,7 @@ const NOTIF_GROUPS: {
     group: 'Team',
     items: [
       { key: 'team_members', label: 'Team changes', desc: 'Members added, invited, or removed' },
-      { key: 'api_keys', label: 'API keys', desc: 'API keys created or revoked' },
+      { key: 'api_keys', label: 'API keys', desc: 'API keys created, edited or revoked' },
     ],
   },
   {
@@ -222,6 +220,7 @@ export default function SettingsPage() {
   const [revealedKey, setRevealedKey] = useState<string | null>(null);
   const [copiedKey, setCopiedKey] = useState(false);
   const [revokeTarget, setRevokeTarget] = useState<ApiKey | null>(null);
+  const [editTarget, setEditTarget] = useState<ApiKey | null>(null);
 
   // Notification prefs state
   const [notifPrefs, setNotifPrefs] = useState<NotificationPreferences>({});
@@ -1013,47 +1012,12 @@ export default function SettingsPage() {
                   onChange={(e) => setKeyName(e.target.value)}
                   placeholder='e.g. "Zapier Integration"'
                 />
-                <div>
-                  <label className="block text-sm font-medium text-zinc-300 mb-1.5">
-                    API scopes
-                  </label>
-                  <p className="text-xs text-zinc-400 mb-2">
-                    Choose only what this integration needs. Available scopes are controlled by the
-                    Owner.
-                  </p>
-                  <div className="max-h-52 overflow-y-auto rounded-lg border border-white/[0.08] bg-surface-raised divide-y divide-white/[0.06]">
-                    {(access?.api_permissions.includes('*')
-                      ? API_ENDPOINT_PERMISSIONS
-                      : (access?.api_permissions || []).filter(
-                          (scope) => scope !== '*' && API_ENDPOINT_PERMISSION_SET.has(scope),
-                        )
-                    ).map((scope) => (
-                      <Checkbox
-                        key={scope}
-                        size="sm"
-                        checked={keyScopes.includes(scope)}
-                        onChange={(checked) =>
-                          setKeyScopes((current) =>
-                            checked
-                              ? [...current, scope]
-                              : current.filter((item) => item !== scope),
-                          )
-                        }
-                        label={
-                          <span className="font-mono text-xs font-normal text-zinc-300">
-                            {scope}
-                          </span>
-                        }
-                        className="w-full px-3 py-2"
-                      />
-                    ))}
-                    {access?.api_permissions.length === 0 && (
-                      <p className="px-3 py-3 text-xs text-zinc-400">
-                        No API scopes are enabled for your account.
-                      </p>
-                    )}
-                  </div>
-                </div>
+                <ApiScopePicker
+                  available={apiScopesFor(access)}
+                  selected={keyScopes}
+                  onChange={setKeyScopes}
+                  hint="Choose only what this integration needs. Available scopes are controlled by the Owner."
+                />
                 <div className="flex gap-2">
                   <Button
                     onClick={handleGenerateKey}
@@ -1105,14 +1069,30 @@ export default function SettingsPage() {
                             })()}
                         </div>
                       </div>
-                      <Tooltip content="Revoke key">
-                        <button
-                          onClick={() => setRevokeTarget(key)}
-                          className="p-1.5 text-zinc-500 hover:text-red-400 hover:bg-red-500/15 rounded-lg transition-colors flex-shrink-0"
-                        >
-                          <Ban size={14} />
-                        </button>
-                      </Tooltip>
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        {canEditApiKey(access, teamMemberId, key) && (
+                          <Tooltip content="Edit key">
+                            <button
+                              type="button"
+                              onClick={() => setEditTarget(key)}
+                              aria-label={`Edit ${key.name}`}
+                              className="p-1.5 text-zinc-500 hover:text-white hover:bg-white/[0.06] rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+                            >
+                              <Pencil size={14} aria-hidden="true" />
+                            </button>
+                          </Tooltip>
+                        )}
+                        <Tooltip content="Revoke key">
+                          <button
+                            type="button"
+                            onClick={() => setRevokeTarget(key)}
+                            aria-label={`Revoke ${key.name}`}
+                            className="p-1.5 text-zinc-500 hover:text-red-400 hover:bg-red-500/15 rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+                          >
+                            <Ban size={14} aria-hidden="true" />
+                          </button>
+                        </Tooltip>
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -1202,6 +1182,16 @@ export default function SettingsPage() {
           </section>
         )}
       </div>
+
+      <EditApiKeyModal
+        apiKey={editTarget}
+        memberName={
+          editTarget && editTarget.team_member_id !== teamMemberId
+            ? team.find((m) => m.id === editTarget.team_member_id)?.name ?? 'this member'
+            : null
+        }
+        onClose={() => setEditTarget(null)}
+      />
 
       <ConfirmDialog
         isOpen={!!revokeTarget}

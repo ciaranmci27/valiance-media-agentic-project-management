@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "test:mcp": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-mcp.ts",
+    "test:api-keys": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-api-key-edit.ts",
     "test:inbound-email": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-inbound-email-lib.ts && tsx --tsconfig tsconfig.mcp-test.json scripts/verify-inbound-email.ts && tsx --tsconfig tsconfig.mcp-test.json scripts/verify-inbound-email-retention.ts",
     "postinstall": "node -e \"require('fs').copyFileSync(require.resolve('pdfjs-dist/build/pdf.worker.min.mjs'), './public/pdf.worker.min.mjs')\""
   },
