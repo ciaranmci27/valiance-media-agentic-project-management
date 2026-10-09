@@ -9,6 +9,7 @@ import type { TimeSegment } from '@/lib/types';
 import { resolveProjectHourlyRate, TIME_ENTRY_SELECT, mapTimeEntryRow } from '@/lib/supabase/queries';
 import { assertTasksInProject } from '@/lib/api/task-guards';
 import { apiKeyAllows, sanitizeTimeEntryForAccess } from '@/lib/api/access';
+import { APPROVED_ENTRY_LOCKED_MESSAGE, lockedApprovedFields } from '@/lib/time-entry-lock';
 
 export const GET = withApi(async ({ supabase, params, access, teamMemberId, scopes }) => {
   const { id, entryId } = params as any;
@@ -44,7 +45,10 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
     throw notFound('Time entry');
   }
   if (!canManageAll && before.approval_status === 'approved') {
-    throw badRequest('Approved time cannot be edited');
+    // Approval locks the time and money, not the notes: the description and
+    // linked tasks stay editable by the entry's own member.
+    const locked = lockedApprovedFields(body as Record<string, unknown>);
+    if (locked.length > 0) throw badRequest(`${APPROVED_ENTRY_LOCKED_MESSAGE} (not ${locked.join(', ')})`);
   }
 
   // Canonicalize segments when the denormalized range of a finalized entry

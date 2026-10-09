@@ -428,7 +428,7 @@ export const endpoints: EndpointDoc[] = [
       { name: 'entryId', type: 'uuid', required: true, description: 'Time entry ID' },
     ],
   },
-  { method: 'PATCH', path: '/api/v1/projects/:id/time-entries/:entryId', description: 'Update a time entry. Set end_time to null to re-open a completed timer. For finalized entries, updating start_time or end_time without supplying segments collapses the entry to a single [start, end] segment; pass segments explicitly to preserve multi-segment pause history. For unfinalized entries (running or paused), updating start_time or end_time without an explicit segments array returns a 400 — send segments yourself so state-machine transitions stay deliberate.', group: 'Time Entries',
+  { method: 'PATCH', path: '/api/v1/projects/:id/time-entries/:entryId', description: 'Update a time entry. An approved entry (owner time is approved when it stops) still lets its own member change description and task_ids; every other field needs time.manage_all. Set end_time to null to re-open a completed timer. For finalized entries, updating start_time or end_time without supplying segments collapses the entry to a single [start, end] segment; pass segments explicitly to preserve multi-segment pause history. For unfinalized entries (running or paused), updating start_time or end_time without an explicit segments array returns a 400 — send segments yourself so state-machine transitions stay deliberate.', group: 'Time Entries',
     params: [
       { name: 'id', type: 'uuid', required: true, description: 'Project ID' },
       { name: 'entryId', type: 'uuid', required: true, description: 'Time entry ID' },
