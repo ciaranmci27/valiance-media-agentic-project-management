@@ -8,6 +8,7 @@ import { Logo } from '@/components/ui/Logo';
 import { siteConfig } from '@/site-config';
 import { TextInput } from '@/components/ui/inputs/TextInput';
 import { PasswordInput } from '@/components/ui/inputs/PasswordInput';
+import { safeNextPath } from '@/lib/supabase/next-path';
 
 const ENV_DEMO = process.env.NEXT_PUBLIC_DEMO_MODE === 'true';
 
@@ -45,7 +46,8 @@ export default function LoginPage() {
       return;
     }
 
-    router.push('/dashboard');
+    // Back to the link that sent them here (a task, an email), else the dashboard.
+    router.push(safeNextPath(new URLSearchParams(window.location.search).get('next')) ?? '/dashboard');
   };
 
   return (

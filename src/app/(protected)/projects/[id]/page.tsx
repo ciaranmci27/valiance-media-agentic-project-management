@@ -3,7 +3,7 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { Popover } from '@/components/ui/Popover';
 import { TaskFilterControl, UNASSIGNED_FILTER_ID } from '@/components/tasks/TaskFilterControl';
-import { useParams, useRouter, useSearchParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useApp, defaultFilters } from '@/lib/store';
 import { Header } from '@/components/layout/Header';
@@ -28,6 +28,7 @@ import { Button } from '@/components/ui/Button';
 import { StatusBadge } from '@/components/ui/Badge';
 import { Avatar, AvatarGroup } from '@/components/ui/Avatar';
 import { toast } from '@/components/ui/Toast';
+import { useTaskUrlParam } from '@/lib/use-task-url';
 import {
   Plus, LayoutGrid, List, Calendar,
   Edit, Trash2, CalendarDays, Clock, Users, UserCircle, ChevronRight,
@@ -73,6 +74,7 @@ export default function ProjectDetailPage() {
     getProject, getTasksByProject, getTeamMember,
     getContactsByProject, team,
     deleteTask, deleteProject, updateTask, reorderTasks, updateProject, filters, setFilters,
+    tasks, loading,
   } = useApp();
 
   useEffect(() => { setFilters(defaultFilters); }, []);
@@ -83,7 +85,6 @@ export default function ProjectDetailPage() {
   const [isEditProjectOpen, setIsEditProjectOpen] = useState(false);
   const [isContactsPanelOpen, setIsContactsPanelOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
-  const [viewingTaskId, setViewingTaskId] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<{ type: 'task' | 'project' | 'bulk'; id: string } | null>(null);
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
   const [showBulkMenu, setShowBulkMenu] = useState(false);
@@ -94,28 +95,27 @@ export default function ProjectDetailPage() {
   // Unfiltered tasks for stats / progress bar
   const allProjectTasks = getTasksByProject(projectId);
 
+  // The open task is the URL's ?task=, so every task link opens the panel,
+  // here or from anywhere else, and the address bar can be copied as a link.
+  const { taskId: viewingTaskId, openTask: setViewingTaskId, closeTask: closeViewingTask } = useTaskUrlParam();
+
   // Derive viewingTask from store so it stays in sync with subtask/comment changes
   const viewingTask = useMemo(() => {
     if (!viewingTaskId) return null;
     return allProjectTasks.find(t => t.id === viewingTaskId) || null;
   }, [viewingTaskId, allProjectTasks]);
 
-  // Deep link: /projects/:id?task=<taskId> opens that task's detail panel once
-  // tasks have hydrated (activity feed and notifications link here).
-  const searchParams = useSearchParams();
-  const deepLinkHandledRef = useRef(false);
   useEffect(() => {
-    if (deepLinkHandledRef.current) return;
-    const taskParam = searchParams.get('task');
-    if (!taskParam) {
-      deepLinkHandledRef.current = true;
+    if (!viewingTaskId || loading || allProjectTasks.some(t => t.id === viewingTaskId)) return;
+    const elsewhere = tasks.find(t => t.id === viewingTaskId);
+    if (elsewhere) {
+      // A link with the wrong project still lands on the task.
+      router.replace(`/projects/${elsewhere.project_id}?task=${elsewhere.id}`, { scroll: false });
       return;
     }
-    if (allProjectTasks.some(t => t.id === taskParam)) {
-      setViewingTaskId(taskParam);
-      deepLinkHandledRef.current = true;
-    }
-  }, [searchParams, allProjectTasks]);
+    toast('error', 'That task no longer exists, or you do not have access to it');
+    closeViewingTask();
+  }, [viewingTaskId, loading, allProjectTasks, tasks, router, closeViewingTask]);
 
   // Filtered tasks for the views
   let projectTasks = [...allProjectTasks];
@@ -170,7 +170,7 @@ export default function ProjectDetailPage() {
   };
 
   const handleEditTask = (task: Task) => {
-    setViewingTaskId(null);
+    closeViewingTask();
     setEditingTask(task);
     setIsTaskFormOpen(true);
   };
@@ -733,7 +733,7 @@ export default function ProjectDetailPage() {
       {/* Task Detail Panel */}
       <TaskDetailPanel
         task={viewingTask}
-        onClose={() => setViewingTaskId(null)}
+        onClose={closeViewingTask}
         onEdit={handleEditTask}
         onDelete={handleDeleteTask}
       />

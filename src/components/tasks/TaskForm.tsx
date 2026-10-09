@@ -72,7 +72,8 @@ export function TaskForm({ isOpen, onClose, projectId, task, initialDueDate }: T
       setDueDate(task.due_date || '');
       setTags(task.tags.join(', '));
       setTaskType(task.task_type || '');
-      setAiReadiness(task.ai_readiness || '');
+      // human_only reads as "A person", the same as no readiness.
+      setAiReadiness(task.ai_readiness === 'human_only' ? '' : task.ai_readiness || '');
       setBlockedByIds(task.blocked_by_ids || []);
     } else {
       setTitle('');
@@ -104,7 +105,11 @@ export function TaskForm({ isOpen, onClose, projectId, task, initialDueDate }: T
         .map((t) => t.trim())
         .filter(Boolean),
       ...(canManageAgents
-        ? { task_type: taskType || null, ai_readiness: aiReadiness || null }
+        ? {
+            task_type: taskType || null,
+            // A task already marked human_only keeps it while "A person" stays chosen.
+            ai_readiness: aiReadiness || (task?.ai_readiness === 'human_only' ? 'human_only' as const : null),
+          }
         : {}),
     };
 
@@ -225,13 +230,13 @@ export function TaskForm({ isOpen, onClose, projectId, task, initialDueDate }: T
               ]}
             />
             <Select
-              label="AI Ready"
+              label="Who does it"
               value={aiReadiness}
               onChange={(value) => setAiReadiness(value as AiReadiness | '')}
               options={[
-                { value: '', label: 'Unclassified' },
-                { value: 'ai_ready', label: 'AI Ready' },
-                { value: 'human_only', label: 'Human' },
+                { value: '', label: 'A person' },
+                { value: 'needs_spec', label: 'Dev agent, needs spec' },
+                { value: 'ai_ready', label: 'Dev agent, AI Ready' },
               ]}
             />
           </div>

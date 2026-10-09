@@ -166,8 +166,10 @@ create table public.tasks (
   sort_order int not null default 0,
   created_by uuid references public.team_members(id) on delete set null,
   completed_at timestamptz,
-  -- Explicit AI-readiness classification; null until someone decides.
-  ai_readiness text check (ai_readiness in ('ai_ready', 'human_only') or ai_readiness is null),
+  -- Who does the work. null or 'human_only': a person (most tasks).
+  -- 'needs_spec': meant for the dev agent, spec not written yet.
+  -- 'ai_ready': specced; the dev agent may claim it (the only claimable value).
+  ai_readiness text check (ai_readiness in ('ai_ready', 'needs_spec', 'human_only') or ai_readiness is null),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -5771,9 +5773,10 @@ COMMIT;
 -- messages (project on the thread), recipients and mapping candidates as
 -- rows, attachments in the private inbound-email bucket, agent triage and
 -- task links, and contact_emails (several addresses per contact, with
--- contacts.email kept as the primary mirror). Rule 3 lives in
--- email_task_ai_ready_guard and email_task_link_guard. The email.triaged
--- activity type is in schema_ai_agent.sql.
+-- contacts.email kept as the primary mirror). A task linked to an email
+-- is a normal task (rule 3 was removed in
+-- 20261006113522_spec_is_for_agents.sql). The email.triaged activity type is
+-- in schema_ai_agent.sql.
 -- Per-project email addresses (20261006030328_email_project_addresses.sql):
 -- email_project_addresses route a routing address to an inbox and file new
 -- threads on the project (project_source 'address'); a routing address
@@ -5814,23 +5817,6 @@ AS $$
       'fastmail.com', 'hey.com', 'tutanota.com', 'tuta.io'
     )
     OR lower(p_domain) ~ '^(gmx|hotmail|outlook|live|yahoo|ymail|aol|msn|windowslive)\.[a-z]{2,3}(\.[a-z]{2})?$'
-$$;
-
--- A person signed in to the app: an authenticated session (never the service
--- role) whose user is an active, non-agent team member.
-CREATE OR REPLACE FUNCTION public.is_human_session()
-RETURNS boolean
-LANGUAGE sql
-STABLE
-SECURITY DEFINER
-SET search_path = public
-AS $$
-  SELECT COALESCE(auth.role(), '') <> 'service_role'
-    AND auth.uid() IS NOT NULL
-    AND EXISTS (
-      SELECT 1 FROM public.team_members
-      WHERE auth_user_id = auth.uid() AND status = 'active' AND role <> 'agent'
-    )
 $$;
 
 CREATE OR REPLACE FUNCTION public.email_inbox_verification_code()
@@ -6464,58 +6450,6 @@ CREATE TABLE public.email_task_links (
 );
 CREATE INDEX idx_email_task_links_task ON public.email_task_links (task_id);
 
--- Rule 3: a task linked to a source email only BECOMES ai_ready when a
--- person signed in to the app says so. Agent keys (service role) and
--- sessions without a user are refused.
-CREATE OR REPLACE FUNCTION public.email_task_ai_ready_guard()
-RETURNS trigger
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public
-AS $$
-BEGIN
-  IF NEW.ai_readiness = 'ai_ready'
-    AND OLD.ai_readiness IS DISTINCT FROM 'ai_ready'
-    AND EXISTS (SELECT 1 FROM public.email_task_links WHERE task_id = NEW.id)
-    AND NOT public.is_human_session() THEN
-    RAISE EXCEPTION 'EMAIL_TASK_HUMAN_ONLY: task % came from a client email; only a person signed in to the app can mark it ai_ready', NEW.id
-      USING ERRCODE = '42501';
-  END IF;
-  RETURN NEW;
-END;
-$$;
-
-CREATE TRIGGER email_task_ai_ready_guard
-  BEFORE UPDATE OF ai_readiness ON public.tasks
-  FOR EACH ROW EXECUTE FUNCTION public.email_task_ai_ready_guard();
-
--- The other door to the same rule: outside a human session, a task that is
--- already ai_ready cannot be linked as created from an email, nor linked at
--- all by the member who created it (create ai_ready, then link).
-CREATE OR REPLACE FUNCTION public.email_task_link_guard()
-RETURNS trigger
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public
-AS $$
-DECLARE
-  v_readiness text;
-  v_created_by uuid;
-BEGIN
-  SELECT ai_readiness, created_by INTO v_readiness, v_created_by FROM public.tasks WHERE id = NEW.task_id;
-  IF v_readiness = 'ai_ready' AND NOT public.is_human_session()
-    AND (NEW.relation = 'created' OR NEW.linked_by IS NULL OR v_created_by = NEW.linked_by) THEN
-    RAISE EXCEPTION 'EMAIL_TASK_HUMAN_ONLY: task % is ai_ready; an email-sourced task can only be marked ai_ready by a person signed in to the app', NEW.task_id
-      USING ERRCODE = '42501';
-  END IF;
-  RETURN NEW;
-END;
-$$;
-
-CREATE TRIGGER email_task_link_guard
-  BEFORE INSERT OR UPDATE ON public.email_task_links
-  FOR EACH ROW EXECUTE FUNCTION public.email_task_link_guard();
-
 -- ============================================================
 -- 6. Server-side writes (service role only)
 -- ============================================================
@@ -7009,8 +6943,6 @@ GRANT EXECUTE ON FUNCTION public.email_signal(jsonb) TO service_role;
 GRANT EXECUTE ON FUNCTION public.email_unsummarized_triage(jsonb, integer) TO service_role;
 GRANT EXECUTE ON FUNCTION public.email_mark_triage_summarized(jsonb, jsonb) TO service_role;
 REVOKE ALL ON FUNCTION public.sync_contact_email_mirror(uuid) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.is_human_session() FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.is_human_session() TO authenticated, service_role;
 
 -- ============================================================
 -- 7. Row level security (people in the app; agents use the service client)

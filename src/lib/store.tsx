@@ -1,7 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, useRef, ReactNode, type SetStateAction } from 'react';
-import { Project, Task, TeamMember, FilterState, ViewMode, Subtask, AcceptanceCriterion, Comment, Contact, ContactEmail, ContactEmailDraft, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, Activity, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, EntityFileType, ApiKey, NotificationCategory, ProjectGoal, TaskSuggestion, AgentActivity, TimeEntry, ProjectCredentialListItem, CredentialPayload, CredentialCategory, ProjectInvoice, InvoiceStatus, BusinessSettings, EmployeeEarningsData, DEFAULT_SECTION_ORDER } from './types';
+import { AiReadiness, Project, Task, TeamMember, FilterState, ViewMode, Subtask, AcceptanceCriterion, Comment, Contact, ContactEmail, ContactEmailDraft, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, Activity, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, EntityFileType, ApiKey, NotificationCategory, ProjectGoal, TaskSuggestion, AgentActivity, TimeEntry, ProjectCredentialListItem, CredentialPayload, CredentialCategory, ProjectInvoice, InvoiceStatus, BusinessSettings, EmployeeEarningsData, DEFAULT_SECTION_ORDER } from './types';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
@@ -399,10 +399,10 @@ interface AppContextType {
   archiveGoal: (id: string) => void;
 
   // Task Suggestion review actions
-  approveSuggestion: (id: string, taskOverrides: { priority?: string; assigned_to?: string | null; due_date?: string | null; project_id?: string; task_type?: string | null; ai_readiness?: 'ai_ready' | 'human_only' | null }, reviewedBy: string) => Promise<boolean>;
+  approveSuggestion: (id: string, taskOverrides: { priority?: string; assigned_to?: string | null; due_date?: string | null; project_id?: string; task_type?: string | null; ai_readiness?: AiReadiness | null }, reviewedBy: string) => Promise<boolean>;
   declineSuggestion: (id: string, reviewedBy: string) => Promise<boolean>;
   /** Approve several BUNDLED suggestions as one composed task. */
-  approveSuggestionBundle: (ids: string[], overrides: { title?: string; priority?: string; assigned_to?: string | null; due_date?: string | null; task_type?: string | null; ai_readiness?: 'ai_ready' | 'human_only' | null }, reviewedBy: string) => Promise<boolean>;
+  approveSuggestionBundle: (ids: string[], overrides: { title?: string; priority?: string; assigned_to?: string | null; due_date?: string | null; task_type?: string | null; ai_readiness?: AiReadiness | null }, reviewedBy: string) => Promise<boolean>;
   /** Manually tie pending suggestions together (same project). */
   bundleSuggestions: (ids: string[]) => Promise<boolean>;
   /** Remove one suggestion from its bundle; the agent never re-bundles it. */
@@ -3544,7 +3544,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // Task Suggestion review actions
   const approveSuggestionAction = async (
     id: string,
-    taskOverrides: { priority?: string; assigned_to?: string | null; due_date?: string | null; project_id?: string; task_type?: string | null; ai_readiness?: 'ai_ready' | 'human_only' | null },
+    taskOverrides: { priority?: string; assigned_to?: string | null; due_date?: string | null; project_id?: string; task_type?: string | null; ai_readiness?: AiReadiness | null },
     reviewedBy: string
   ) => {
     const suggestion = taskSuggestions.find(s => s.id === id);
@@ -3604,7 +3604,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const approveSuggestionBundleAction = async (
     ids: string[],
-    overrides: { title?: string; priority?: string; assigned_to?: string | null; due_date?: string | null; task_type?: string | null; ai_readiness?: 'ai_ready' | 'human_only' | null },
+    overrides: { title?: string; priority?: string; assigned_to?: string | null; due_date?: string | null; task_type?: string | null; ai_readiness?: AiReadiness | null },
     reviewedBy: string
   ) => {
     const members = taskSuggestions.filter(s => ids.includes(s.id));

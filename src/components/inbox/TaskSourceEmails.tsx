@@ -9,7 +9,7 @@ import { inboxClient } from '@/lib/inbound-email/inbox-client';
 import type { TaskSourceEmails as TaskSourceEmailsData } from '@/lib/inbound-email/inbox-types';
 import { formatFullTime } from './inbox-badges';
 
-/** The client emails a task came from (rule 3 applies to any task with one). */
+/** The client emails a task came from. */
 export function useTaskSourceEmails(taskId: string | null): TaskSourceEmailsData | null {
   const { isDemoMode } = useDemo();
   const { emailsRefreshSignal } = useApp();

@@ -5,7 +5,7 @@ import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { StatusBadge, PriorityBadge, TaskTypeBadge } from '@/components/ui/Badge';
 import { AvatarGroup } from '@/components/ui/Avatar';
-import { Calendar, MessageSquare, CheckSquare, MoreVertical, Edit, Trash2, Clock, User, Lock, FileQuestion } from 'lucide-react';
+import { Calendar, MessageSquare, CheckSquare, MoreVertical, Edit, Trash2, Clock, Lock, FileQuestion } from 'lucide-react';
 import { useState, useRef } from 'react';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { Popover } from '@/components/ui/Popover';
@@ -71,26 +71,15 @@ export function TaskCard({ task, onView, onEdit, onDelete }: TaskCardProps) {
           {isAgentsEnabled && canManageAgents && task.task_type && (
             <TaskTypeBadge taskType={task.task_type} />
           )}
-          {/* "Manual" and "not yet decided" are different states and used to look
-              identical here. Null readiness means nobody has said who does this
-              work, so it is the queue of things waiting on Ciaran rather than a
-              deliberate choice to keep it off the agents. */}
-          {isAgentsEnabled && canManageAgents && task.ai_readiness !== 'ai_ready' && getProject(task.project_id)?.autonomous_enabled && (
-            task.ai_readiness ? (
-              <Tooltip content="A person does this task; it is kept off the agents on purpose">
-                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] lg:text-xs font-medium bg-amber-500/15 text-amber-300 border border-amber-500/30 rounded-full">
-                  <User size={10} aria-hidden="true" />
-                  Manual
-                </span>
-              </Tooltip>
-            ) : (
-              <Tooltip content="Needs a spec before anyone, human or agent, can start it">
-                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] lg:text-xs font-medium bg-sky-500/15 text-sky-300 border border-sky-500/30 rounded-full">
-                  <FileQuestion size={10} aria-hidden="true" />
-                  Needs spec
-                </span>
-              </Tooltip>
-            )
+          {/* Most tasks are a person's and carry no label. Only a task marked
+              for the dev agent whose spec is not written yet is flagged. */}
+          {isAgentsEnabled && canManageAgents && task.ai_readiness === 'needs_spec' && getProject(task.project_id)?.autonomous_enabled && (
+            <Tooltip content="Meant for the dev agent; needs a spec before it can start">
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] lg:text-xs font-medium bg-sky-500/15 text-sky-300 border border-sky-500/30 rounded-full">
+                <FileQuestion size={10} aria-hidden="true" />
+                Needs spec
+              </span>
+            </Tooltip>
           )}
           {task.status !== 'done' && (task.blocked_by_ids || []).some(id => tasks.find(t => t.id === id)?.status !== 'done') && (
             <Tooltip content="Waiting on another task to finish first">

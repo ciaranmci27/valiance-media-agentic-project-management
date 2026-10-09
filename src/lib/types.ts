@@ -239,7 +239,10 @@ export interface LeadContact {
 export const TASK_TYPES = ['engineering', 'research', 'audit', 'marketing', 'copywriting', 'operations', 'general'] as const;
 export type TaskType = typeof TASK_TYPES[number];
 
-export const AI_READINESS = ['ai_ready', 'human_only', 'hybrid'] as const;
+// Who does a task. null or 'human_only': a person (most tasks; no spec).
+// 'needs_spec': meant for the dev agent, spec not written yet.
+// 'ai_ready': specced; the only value the dev agent may claim.
+export const AI_READINESS = ['ai_ready', 'needs_spec', 'human_only'] as const;
 export type AiReadiness = typeof AI_READINESS[number];
 
 export interface Task {

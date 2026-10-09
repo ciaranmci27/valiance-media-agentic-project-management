@@ -7,8 +7,9 @@
  * - the agent API (inbox scope, missing scopes, triage project rules,
  *   status rules, idempotency keys, attachments, summaries, signal, rows
  *   deleted mid-request);
- * - rule 3 (an email-linked task becomes ai_ready only in a human session)
- *   through the task PATCH route, suggestion approval and the database;
+ * - no rule 3: an email-linked task is a normal task (needs_spec and
+ *   ai_ready through the task PATCH route, suggestion approval, linking and
+ *   the database), and the needs_spec backfill;
  * - contact_emails syncing with contacts.email, inbox routing settings;
  * - project email addresses (routing, the 'address' source, uniqueness
  *   against inbox routing addresses, permissions, the agent API);
@@ -28,7 +29,7 @@ import type { IncomingMessage } from 'node:http';
 import { NextRequest } from 'next/server';
 import type { PGlite } from '@electric-sql/pglite';
 import { startFakePostgrest } from './fake-postgrest';
-import { asPerson, asService, createEmailDatabase } from './inbound-email-db';
+import { SPEC_MIGRATION, asPerson, asService, createEmailDatabase, readMigration } from './inbound-email-db';
 import { FakeResend, FakeStorage, readEml, resendFixture } from './inbound-email-fixtures';
 import { signSvix } from '../src/lib/inbound-email/svix';
 
@@ -522,41 +523,72 @@ async function main() {
       && raced[0].body.data.triage.id === raced[1].body.data.triage.id && (await triageCount(followup.id)) === 2 && (await activityCount(followup.id)) === 2,
       raced.map((r) => r.body));
 
-    // ---- Rule 3 ---------------------------------------------------------
+    // ---- Rule 3 is gone (20261006113522_spec_is_for_agents.sql) ---------
+    // A task linked to an email is a normal task: anyone who may edit it may
+    // make it ai_ready. The PM agent's email jobs never change readiness; that
+    // rule lives in the agent, not here.
     const patchTask = (taskId: string, key: string, body: unknown) => api(taskRoute.PATCH, 'PATCH', `/api/v1/tasks/${taskId}`, key, { id: taskId }, body);
-    const jeffReady = await patchTask(acmeTask, keys.jeff, { ai_readiness: 'ai_ready' });
+    check('spec: the rule 3 guards are dropped', (await rows(db,
+      "SELECT 1 FROM pg_proc WHERE proname IN ('email_task_ai_ready_guard', 'email_task_link_guard', 'is_human_session')")).length === 0
+      && (await rows(db, "SELECT 1 FROM pg_trigger WHERE tgname IN ('email_task_ai_ready_guard', 'email_task_link_guard')")).length === 0);
+    const needsSpec = await patchTask(acmeTask, keys.ashley, { title: 'Bigger phone number in the banner', ai_readiness: 'needs_spec' });
+    check('spec: an email-linked task can be marked needs_spec', needsSpec.status === 200 && needsSpec.body.data.ai_readiness === 'needs_spec', needsSpec.body);
+    const hybrid = await patchTask(acmeTask, keys.ashley, { ai_readiness: 'hybrid' });
+    check('spec: hybrid is not a task state (422)', hybrid.status === 422, hybrid.body);
     const ashleyReady = await patchTask(acmeTask, keys.ashley, { ai_readiness: 'ai_ready' });
-    check('rule 3: an agent cannot make an email-linked task ai_ready (403)', jeffReady.status === 403 && jeffReady.body.error.details.reason === 'email_task_human_only' && ashleyReady.status === 403, jeffReady.body);
-    const otherEdit = await patchTask(acmeTask, keys.ashley, { title: 'Bigger phone number in the banner', ai_readiness: 'human_only' });
-    check('rule 3: other edits still work', otherEdit.status === 200 && otherEdit.body.data.ai_readiness === 'human_only', otherEdit.body);
-    let dbRefusal = '';
-    try { await asService(db, () => db.query("UPDATE tasks SET ai_readiness = 'ai_ready' WHERE id = $1", [acmeTask])); } catch (error) { dbRefusal = (error as Error).message; }
-    check('rule 3: the database refuses the service role', /EMAIL_TASK_HUMAN_ONLY/.test(dbRefusal), dbRefusal);
-    let noUser = '';
-    try { await db.query("UPDATE tasks SET ai_readiness = 'ai_ready' WHERE id = $1", [acmeTask]); } catch (error) { noUser = (error as Error).message; }
-    check('rule 3: a session with no user is refused', /EMAIL_TASK_HUMAN_ONLY/.test(noUser), noUser);
-    const human = await asPerson(db, ids.ownerAuth, () =>
-      db.query<{ r: Payload }>("SELECT public.save_task($1, $2::jsonb) AS r", [acmeTask, JSON.stringify({ ai_readiness: 'ai_ready' })]));
-    check('rule 3: a person signed in to the app can (save_task, authenticated)', human.rows[0].r.task.ai_readiness === 'ai_ready', human.rows[0]);
-    const plainTask = await taskIn(ids.acme, 'Not from email', null, ids.owner);
-    check('rule 3: unlinked tasks are unaffected', (await patchTask(plainTask, keys.jeff, { ai_readiness: 'ai_ready' })).status === 200);
+    check('spec: an agent can make an email-linked task ai_ready', ashleyReady.status === 200 && ashleyReady.body.data.ai_readiness === 'ai_ready', ashleyReady.body);
+    const cleared = await patchTask(acmeTask, keys.jeff, { ai_readiness: null });
+    check('spec: readiness clears back to a normal task', cleared.status === 200 && cleared.body.data.ai_readiness === null, cleared.body);
+    await asService(db, () => db.query("UPDATE tasks SET ai_readiness = 'ai_ready' WHERE id = $1", [acmeTask]));
+    check('spec: the database lets the service role mark it ai_ready',
+      (await rows(db, 'SELECT ai_readiness FROM tasks WHERE id=$1', [acmeTask]))[0].ai_readiness === 'ai_ready');
 
-    // The approve-then-link loophole.
+    // An agent's own ai_ready task links to an email like any other.
     const [suggestion] = await rows(db, "INSERT INTO task_suggestions(project_id, goal_id, proposed_by, title) VALUES ($1,$2,$3,'Swap banner photo') RETURNING id", [ids.acme, ids.goal, ids.ashley]);
     const approved = await api(approve.POST, 'POST', `/api/v1/task-suggestions/${suggestion.id}/approve`, keys.ashley, { id: suggestion.id }, { ai_readiness: 'ai_ready' });
     const approvedTask = approved.body.data?.task?.id as string;
-    check('approve: an agent approval creates an ai_ready task (no email link yet)', approved.status === 200 && approved.body.data.task.ai_readiness === 'ai_ready', approved.body);
-    const linkUpdated = await triageOf(reply.id, { outcome: 'task', urgent: false, summary: 'x', links: [{ task_id: approvedTask, relation: 'updated' }] });
+    check('approve: an agent approval creates an ai_ready task', approved.status === 200 && approved.body.data.task.ai_readiness === 'ai_ready', approved.body);
     const linkCreated = await triageOf(reply.id, { outcome: 'task', urgent: false, summary: 'x', links: [{ task_id: approvedTask, relation: 'created' }] });
-    check('rule 3: an agent cannot link its own ai_ready task to an email', linkUpdated.status === 403 && linkCreated.status === 403 && linkUpdated.body.error.details.reason === 'email_task_human_only', [linkUpdated.body, linkCreated.body]);
-    let linkRefusal = '';
-    try {
-      await asService(db, () => db.query("INSERT INTO email_task_links(message_id, task_id, relation, linked_by) VALUES ($1,$2,'updated',$3)", [reply.id, approvedTask, ids.ashley]));
-    } catch (error) { linkRefusal = (error as Error).message; }
-    check('rule 3: the database refuses that link too', /EMAIL_TASK_HUMAN_ONLY/.test(linkRefusal), linkRefusal);
-    const ownerSpecced = await taskIn(ids.acme, 'Specced by Sam', 'ai_ready', ids.owner);
-    const linkSpecced = await triageOf(reply.id, { outcome: 'task', urgent: false, summary: 'Update to a specced task', links: [{ task_id: ownerSpecced, relation: 'updated' }] });
-    check('rule 3: an agent may link a task someone else made ai_ready, as updated', linkSpecced.status === 201, linkSpecced.body);
+    check('spec: an agent may link its own ai_ready task to an email', linkCreated.status === 201, linkCreated.body);
+
+    // Approval: needs_spec is an explicit choice and the value says it all (no
+    // marker text); an explicit null or an unclassified recommendation is a
+    // person's task.
+    const MARKER = '[Needs spec interview before development]';
+    const suggest = async (title: string, metadata: Payload = {}) => (await rows(db,
+      'INSERT INTO task_suggestions(project_id, goal_id, proposed_by, title, metadata) VALUES ($1,$2,$3,$4,$5::jsonb) RETURNING id',
+      [ids.acme, ids.goal, ids.ashley, title, JSON.stringify(metadata)]))[0].id as string;
+    const approveAs = (id: string, body: Payload) => api(approve.POST, 'POST', `/api/v1/task-suggestions/${id}/approve`, keys.ashley, { id }, body);
+    const specLater = await approveAs(await suggest('Rework the quote form'), { ai_readiness: 'needs_spec' });
+    check('approve: needs_spec lands as needs_spec, with no marker text', specLater.status === 200 && specLater.body.data.task.ai_readiness === 'needs_spec'
+      && !specLater.body.data.task.description.includes(MARKER), specLater.body);
+    const personal = await approveAs(await suggest('Call the printer'), { ai_readiness: null });
+    const hybridRecommended = await approveAs(await suggest('Split the launch work', { ai_readiness_recommendation: 'hybrid', tier: 'feature' }), {});
+    check('approve: an explicit null or an unclassified recommendation is a person\'s task, no marker',
+      [personal, hybridRecommended].every((r) => r.status === 200 && r.body.data.task.ai_readiness === null && !r.body.data.task.description.includes(MARKER)),
+      [personal.body, hybridRecommended.body]);
+
+    // The marker is retired: the migration strips it (and the blank lines it
+    // leaves) from every task and changes no readiness. The file re-runs.
+    const withDescription = async (title: string, readiness: string | null, description: string) => {
+      const taskId = await taskIn(ids.acme, title, readiness, ids.owner);
+      await db.query('UPDATE tasks SET description = $2 WHERE id = $1', [taskId, description]);
+      return taskId;
+    };
+    const stripCases: [string | null, string, string][] = [
+      [null, `Fix it\n\n${MARKER}`, 'Fix it'],
+      ['human_only', MARKER, ''],
+      [null, `Intro\n\n${MARKER}\n\nLater note`, 'Intro\n\nLater note'],
+      [null, `${MARKER}\n\nBody`, 'Body'],
+      ['ai_ready', `Specced since\r\n\r\n${MARKER}`, 'Specced since'],
+      [null, 'Plain human task\n\n', 'Plain human task\n\n'],
+    ];
+    const stripIds: string[] = [];
+    for (const [readiness, before] of stripCases) stripIds.push(await withDescription('Marker case', readiness, before));
+    await db.exec(await readMigration(SPEC_MIGRATION));
+    const after = await Promise.all(stripIds.map(async (taskId) => (await rows(db, 'SELECT ai_readiness, description FROM tasks WHERE id=$1', [taskId]))[0]));
+    check('spec migration: the marker is stripped, readiness and other text are untouched',
+      after.every((row, i) => row.description === stripCases[i][2] && row.ai_readiness === stripCases[i][0]), after);
 
     // ---- Deleted mid-request ---------------------------------------------
     // Each case deletes the row just before the route's last request reaches

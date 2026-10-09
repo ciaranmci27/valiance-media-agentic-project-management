@@ -32,8 +32,9 @@ const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD');
 const TASK_STATUS = z.enum(['todo', 'in_progress', 'in_review', 'done']);
 const PRIORITY = z.enum(['low', 'medium', 'high', 'urgent']);
 const TASK_TYPE = z.enum(['engineering', 'research', 'audit', 'marketing', 'copywriting', 'operations', 'general']);
-// The schema also lists hybrid, which the database refuses.
-const AI_READINESS = z.enum(['ai_ready', 'human_only']);
+// null or human_only: a person does it. needs_spec: meant for the dev agent,
+// spec not written yet. ai_ready: specced, the only value the dev agent claims.
+const AI_READINESS = z.enum(['ai_ready', 'needs_spec', 'human_only']);
 const CONTEXT_CATEGORY = z.enum(['business_context', 'existing_work', 'technical_decision', 'constraint', 'lesson_learned']);
 const EFFORT = z.enum(['small', 'medium', 'large']);
 const atLeastOne = (fields: string[]) => (value: Record<string, unknown>) =>

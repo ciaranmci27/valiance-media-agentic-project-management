@@ -12,11 +12,15 @@ import { PGlite } from '@electric-sql/pglite';
 
 export const EMAIL_MIGRATION = '../supabase/migrations/20261006010922_email_inboxes.sql';
 export const PROJECT_ADDRESS_MIGRATION = '../supabase/migrations/20261006030328_email_project_addresses.sql';
+export const SPEC_MIGRATION = '../supabase/migrations/20261006113522_spec_is_for_agents.sql';
 const TASK_SAVE_MIGRATION = '../supabase/migrations/20260923235152_atomic_task_save.sql';
 
 async function read(path: string) {
   return (await readFile(new URL(path, import.meta.url), 'utf8')).replace(/\r\n/g, '\n');
 }
+
+/** A migration file's SQL, for a test that re-runs one. */
+export const readMigration = read;
 
 /**
  * source 'migration' applies the migration (twice); 'schema' instead loads
@@ -98,6 +102,9 @@ export async function createEmailDatabase(source: 'migration' | 'schema' = 'migr
     const addresses = await read(PROJECT_ADDRESS_MIGRATION);
     await db.exec(addresses);
     await db.exec(addresses); // safe to re-run
+    const spec = await read(SPEC_MIGRATION);
+    await db.exec(spec);
+    await db.exec(spec); // safe to re-run
   } else {
     const hostname = canonical.match(/create or replace function public\.email_is_hostname\([\s\S]*?^\$\$;/m)?.[0];
     const settingsColumn = canonical.match(/^  inbound_email_domain text[\s\S]*?\),\n/m)?.[0];

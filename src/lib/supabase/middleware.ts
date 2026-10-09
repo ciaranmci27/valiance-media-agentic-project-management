@@ -1,6 +1,7 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 import { sessionUser } from './session-user';
+import { safeNextPath } from './next-path';
 
 function isPublicRoute(pathname: string) {
   return (
@@ -104,16 +105,22 @@ export async function updateSession(request: NextRequest) {
   // latch is not (otherwise a mis-set NEXT_PUBLIC_DEMO_MODE causes a loop).
   if (!user && !isPublicRoute(request.nextUrl.pathname)) {
     const url = request.nextUrl.clone();
+    // Where they were headed (a task link from Telegram, say), so login can
+    // send them there instead of the dashboard.
+    const destination = request.nextUrl.pathname + request.nextUrl.search;
     url.pathname = '/login';
     url.search = '';
     url.searchParams.set('auth', 'required');
+    if (destination !== '/' && destination !== '/dashboard') url.searchParams.set('next', destination);
     return NextResponse.redirect(url);
   }
 
   // Redirect authenticated users away from /login
   if (user && request.nextUrl.pathname.startsWith('/login')) {
     const url = request.nextUrl.clone();
-    url.pathname = '/dashboard';
+    const next = safeNextPath(request.nextUrl.searchParams.get('next'));
+    url.pathname = next ? next.split('?')[0] : '/dashboard';
+    url.search = next && next.includes('?') ? next.slice(next.indexOf('?')) : '';
     return NextResponse.redirect(url);
   }
 

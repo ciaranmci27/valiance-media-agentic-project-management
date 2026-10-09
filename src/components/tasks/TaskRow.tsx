@@ -5,7 +5,7 @@ import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { StatusBadge, PriorityBadge, TaskTypeBadge } from '@/components/ui/Badge';
 import { AvatarGroup } from '@/components/ui/Avatar';
-import { Calendar, CheckSquare, MessageSquare, MoreVertical, Edit, Trash2, Clock, User, Lock, FileQuestion } from 'lucide-react';
+import { Calendar, CheckSquare, MessageSquare, MoreVertical, Edit, Trash2, Clock, Lock, FileQuestion } from 'lucide-react';
 import { useState, useRef } from 'react';
 import { Popover } from '@/components/ui/Popover';
 import { Tooltip } from '@/components/ui/Tooltip';
@@ -138,18 +138,11 @@ export function TaskRow({ task, onView, onEdit, onDelete }: TaskRowProps) {
             {isAgentsEnabled && canManageAgents && task.task_type && (
               <TaskTypeBadge taskType={task.task_type} />
             )}
-            {isAgentsEnabled && canManageAgents && task.ai_readiness !== 'ai_ready' && getProject(task.project_id)?.autonomous_enabled && (
-              task.ai_readiness ? (
-                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium bg-amber-500/15 text-amber-300 border border-amber-500/30 rounded-full">
-                  <User size={10} aria-hidden="true" />
-                  Manual
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium bg-sky-500/15 text-sky-300 border border-sky-500/30 rounded-full">
-                  <FileQuestion size={10} aria-hidden="true" />
-                  Needs spec
-                </span>
-              )
+            {isAgentsEnabled && canManageAgents && task.ai_readiness === 'needs_spec' && getProject(task.project_id)?.autonomous_enabled && (
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium bg-sky-500/15 text-sky-300 border border-sky-500/30 rounded-full">
+                <FileQuestion size={10} aria-hidden="true" />
+                Needs spec
+              </span>
             )}
             {task.status !== 'done' && (task.blocked_by_ids || []).some(id => tasks.find(t => t.id === id)?.status !== 'done') && (
               <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium bg-amber-500/15 text-amber-300 border border-amber-500/30 rounded-full">
@@ -247,7 +240,9 @@ export function TaskRowDesktop({ task, onView, onEdit, onDelete, selected, onTog
   const dueInfo = formatDate(task.due_date);
   const completedSubtasks = task.subtasks.filter(s => s.completed).length;
   const isBlocked = task.status !== 'done' && (task.blocked_by_ids || []).some(id => tasks.find(t => t.id === id)?.status !== 'done');
-  const showReadinessChip = isAgentsEnabled && canManageAgents && task.ai_readiness !== 'ai_ready' && getProject(task.project_id)?.autonomous_enabled;
+  // Only a task meant for the dev agent and still waiting on its spec is
+  // flagged; a person's task (most tasks) carries no readiness chip.
+  const showSpecChip = isAgentsEnabled && canManageAgents && task.ai_readiness === 'needs_spec' && getProject(task.project_id)?.autonomous_enabled;
 
   // Every bulk action edits the task, so only rows the viewer can edit are
   // selectable; a read-only row never joins a bulk edit it would fail.
@@ -300,20 +295,12 @@ export function TaskRowDesktop({ task, onView, onEdit, onDelete, selected, onTog
             </span>
           </Tooltip>
         )}
-        {showReadinessChip && (
-          task.ai_readiness ? (
-            <Tooltip content="Manual task (not AI Ready)">
-              <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium bg-amber-500/15 text-amber-300 border border-amber-500/30 rounded-full flex-shrink-0">
-                <User size={10} aria-hidden="true" />
-              </span>
-            </Tooltip>
-          ) : (
-            <Tooltip content="Needs a spec before anyone can start it">
-              <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium bg-sky-500/15 text-sky-300 border border-sky-500/30 rounded-full flex-shrink-0">
-                <FileQuestion size={10} aria-hidden="true" />
-              </span>
-            </Tooltip>
-          )
+        {showSpecChip && (
+          <Tooltip content="Needs spec: meant for the dev agent, spec not written yet">
+            <span role="img" aria-label="Needs spec" className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium bg-sky-500/15 text-sky-300 border border-sky-500/30 rounded-full flex-shrink-0">
+              <FileQuestion size={10} aria-hidden="true" />
+            </span>
+          </Tooltip>
         )}
         {task.subtasks.length > 0 && (
           <Tooltip content={`${completedSubtasks} of ${task.subtasks.length} subtasks complete`}>

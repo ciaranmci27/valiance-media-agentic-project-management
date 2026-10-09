@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { AI_READINESS } from '@/lib/types';
 
 const taskTypeEnum = z.enum(['engineering', 'research', 'audit', 'marketing', 'copywriting', 'operations', 'general']);
 
@@ -37,7 +38,7 @@ export const approveSuggestionSchema = z.object({
   assigned_to: z.string().uuid().nullable().optional(),
   due_date: z.string().nullable().optional(),
   task_type: taskTypeEnum.nullable().optional(),
-  ai_readiness: z.enum(['ai_ready', 'human_only']).nullable().optional(),
+  ai_readiness: z.enum(AI_READINESS).nullable().optional(),
 });
 
 export const rejectSuggestionSchema = z.object({

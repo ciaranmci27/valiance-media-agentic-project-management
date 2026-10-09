@@ -231,7 +231,7 @@ export interface TaskSourceEmail {
 }
 
 export interface TaskSourceEmails {
-  /** Every link the task has, readable or not: rule 3 applies either way. */
+  /** Every link the task has, readable or not. */
   link_count: number;
   emails: TaskSourceEmail[];
 }

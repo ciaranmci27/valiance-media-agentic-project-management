@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useApp } from '@/lib/store';
-import { TaskSuggestion, TASK_TYPES, TaskType } from '@/lib/types';
+import { AiReadiness, TaskSuggestion, TASK_TYPES, TaskType } from '@/lib/types';
 import Modal from '@/components/ui/Modal';
 import { toast } from '@/components/ui/Toast';
 import { Button } from '@/components/ui/Button';
@@ -16,7 +16,7 @@ type ApproveOverrides = {
   due_date?: string | null;
   project_id?: string;
   task_type?: string | null;
-  ai_readiness?: 'ai_ready' | 'human_only' | null;
+  ai_readiness?: AiReadiness | null;
 };
 
 interface ApproveModalProps {
@@ -61,11 +61,11 @@ export function ApproveModal({ suggestion, onClose, onApprove }: ApproveModalPro
   // choice is the human confirmation and always wins.
   //   ai_ready:   dev agent claims it within one pickup cycle, auto-assigned.
   //   human_only: Ciaran's own task.
-  //   needs_spec: readiness stays NULL, so the dev agent structurally cannot
-  //               see it; the spec agent's sweep starts the interview
-  //               instead. This is the feature path: the auditor cannot spec
-  //               a feature the way the owner wants it, so approval means
-  //               "yes, but interview me".
+  //   needs_spec: readiness needs_spec, which the dev agent never claims;
+  //               the spec agent's sweep starts the interview instead. This
+  //               is the feature path: the auditor cannot spec a feature the
+  //               way the owner wants it, so approval means "yes, but
+  //               interview me".
   const [mode, setMode] = useState<'ai_ready' | 'human_only' | 'needs_spec'>(initialMode);
 
   // Switching mode re-points the assignee at that mode's default, because who
@@ -82,10 +82,9 @@ export function ApproveModal({ suggestion, onClose, onApprove }: ApproveModalPro
     due_date: dueDate || null,
     project_id: suggestion.project_id,
     task_type: taskType || null,
-    // needs_spec sends an explicit null: the created task has no readiness, is
-    // invisible to the dev agent's pickup filter, and is what the spec
-    // agent's sweep recognizes as "interview the owner".
-    ai_readiness: mode === 'needs_spec' ? null : mode,
+    // needs_spec is a real readiness value: the dev agent never claims it,
+    // and it is what the spec agent's sweep recognizes as "interview the owner".
+    ai_readiness: mode,
   });
 
   const handleSubmit = (e: React.FormEvent) => {

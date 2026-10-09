@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { Suspense, useMemo, useState } from 'react';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { Header } from '@/components/layout/Header';
@@ -8,6 +8,7 @@ import { PriorityBadge } from '@/components/ui/Badge';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { TaskDetailPanel } from '@/components/tasks/TaskDetailPanel';
 import { TaskForm } from '@/components/tasks/TaskForm';
+import { useTaskUrlParam } from '@/lib/use-task-url';
 import Link from 'next/link';
 import {
   ListTodo, Zap, Activity, Hourglass, GitMerge, Eye, CalendarClock,
@@ -44,10 +45,20 @@ import { MergeReviewModal } from '@/components/tasks/MergeReviewModal';
  */
 
 export default function RadarPage() {
+  // useSearchParams (the open task) needs a Suspense boundary on a static page.
+  return (
+    <Suspense fallback={null}>
+      <RadarPageContent />
+    </Suspense>
+  );
+}
+
+function RadarPageContent() {
   const { tasks, projects, taskSuggestions, timeEntries, agentActivity, deleteTask } = useApp();
   const { teamMemberId, access } = useAuth();
 
-  const [viewingTaskId, setViewingTaskId] = useState<string | null>(null);
+  // The open task is the URL's ?task=, so the address bar is a link to it.
+  const { taskId: viewingTaskId, openTask: setViewingTaskId, closeTask: closeViewingTask } = useTaskUrlParam();
   const [reviewingTaskId, setReviewingTaskId] = useState<string | null>(null);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [deletingTaskId, setDeletingTaskId] = useState<string | null>(null);
@@ -454,8 +465,8 @@ export default function RadarPage() {
 
       <TaskDetailPanel
         task={viewingTask}
-        onClose={() => setViewingTaskId(null)}
-        onEdit={(task) => { setViewingTaskId(null); setEditingTask(task); }}
+        onClose={closeViewingTask}
+        onEdit={(task) => { closeViewingTask(); setEditingTask(task); }}
         onDelete={(id) => setDeletingTaskId(id)}
       />
 
@@ -473,7 +484,7 @@ export default function RadarPage() {
         onClose={() => setDeletingTaskId(null)}
         onConfirm={() => {
           if (deletingTaskId) deleteTask(deletingTaskId);
-          setViewingTaskId(null);
+          closeViewingTask();
         }}
         title="Delete Task"
         message="This will permanently delete this task and all its subtasks and comments. This action cannot be undone."

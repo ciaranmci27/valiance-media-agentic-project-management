@@ -40,7 +40,7 @@ export const GET = withApi(async ({ supabase, searchParams, access }) => {
   const taskType = searchParams.get('task_type');
   if (taskType) query = query.eq('task_type', taskType);
   const aiReadiness = searchParams.get('ai_readiness');
-  if (aiReadiness === 'ai_ready' || aiReadiness === 'human_only') {
+  if (aiReadiness === 'ai_ready' || aiReadiness === 'needs_spec' || aiReadiness === 'human_only') {
     query = query.eq('ai_readiness', aiReadiness);
   }
   const goalId = searchParams.get('project_goal_id');

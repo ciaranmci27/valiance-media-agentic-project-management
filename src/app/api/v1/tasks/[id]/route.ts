@@ -5,7 +5,7 @@ import { forbidden, notFound } from '@/lib/api/errors';
 import { patchTask } from '@/lib/supabase/queries';
 import { logAudit } from '@/lib/api/audit';
 import { accessAllows, accessAllowsProject } from '@/lib/api/access';
-import { assertAssigneesCanOpenProject, assertBlockersInProject, assertEmailTaskMayBecomeAiReady, assertGoalInProject, translateEmailTaskGuard } from '@/lib/api/task-guards';
+import { assertAssigneesCanOpenProject, assertBlockersInProject, assertGoalInProject } from '@/lib/api/task-guards';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 async function currentAssigneeIds(supabase: SupabaseClient, taskId: string): Promise<string[]> {
@@ -92,8 +92,6 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
   const { data: before } = await supabase.from('tasks').select('*').eq('id', id).maybeSingle();
   if (!before) throw notFound('Task');
   const { assignee_ids, acceptance_criteria, blocked_by_ids, ...updates } = body as any;
-  // Email-sourced tasks become ai_ready only from a person in the app.
-  await assertEmailTaskMayBecomeAiReady(supabase, id, before, updates.ai_readiness);
   const canManageAll = scopes.includes('tasks.manage_all') && accessAllows(access, 'tasks.manage_all', 'api');
   if (assignee_ids !== undefined && !canManageAll) {
     throw forbidden('Changing task assignments requires the tasks.manage_all API scope');
@@ -138,12 +136,7 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
     await assertAssigneesCanOpenProject(supabase, effectiveAssignees, targetProjectId);
   }
   const criteria: string[] | undefined = Array.isArray(acceptance_criteria) ? acceptance_criteria : undefined;
-  let data;
-  try {
-    data = await patchTask(supabase, id, updates, assignee_ids, criteria, blockedByIds);
-  } catch (error) {
-    throw translateEmailTaskGuard(error);
-  }
+  const data = await patchTask(supabase, id, updates, assignee_ids, criteria, blockedByIds);
   logAudit(supabase, { method: 'PATCH', endpoint: `/api/v1/tasks/${id}`, entityType: 'task', entityId: id, apiKeyId, teamMemberId, requestBody: body, beforeSnapshot: before, afterSnapshot: data, statusCode: 200 });
   return success(data);
 }, { schema: updateTaskSchema });

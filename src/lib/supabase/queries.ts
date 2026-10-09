@@ -1,5 +1,5 @@
 import { SupabaseClient } from '@supabase/supabase-js';
-import type { Project, Task, TeamMember, Subtask, AcceptanceCriterion, Comment, Activity, Contact, ContactEmail, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, ApiKey, ProjectGoal, TaskSuggestion, AgentActivity, ApiAuditEntry, TimeEntry, ProjectCredential, ProjectCredentialListItem, ProjectInvoice, BusinessSettings, InvoiceTimeEntryAllocation, WebhookEndpoint, WebhookDelivery, ProjectRetainer, ProjectRetainerAmount, ProjectRetainerShare, ProjectRetainerPeriod, RetainerDuePeriod, InvoiceLineShare } from '@/lib/types';
+import type { AiReadiness, Project, Task, TeamMember, Subtask, AcceptanceCriterion, Comment, Activity, Contact, ContactEmail, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, ApiKey, ProjectGoal, TaskSuggestion, AgentActivity, ApiAuditEntry, TimeEntry, ProjectCredential, ProjectCredentialListItem, ProjectInvoice, BusinessSettings, InvoiceTimeEntryAllocation, WebhookEndpoint, WebhookDelivery, ProjectRetainer, ProjectRetainerAmount, ProjectRetainerShare, ProjectRetainerPeriod, RetainerDuePeriod, InvoiceLineShare } from '@/lib/types';
 import { fetchAllRows } from '@/lib/supabase/fetch-all';
 import { notFound } from '@/lib/api/errors';
 import { siteConfig } from '@/site-config';
@@ -1749,7 +1749,7 @@ export async function patchTaskSuggestion(
 export async function approveTaskSuggestion(
   supabase: SupabaseClient,
   id: string,
-  taskOverrides: { priority?: string; assigned_to?: string | null; due_date?: string | null; project_id?: string; task_type?: string | null; ai_readiness?: 'ai_ready' | 'human_only' | null },
+  taskOverrides: { priority?: string; assigned_to?: string | null; due_date?: string | null; project_id?: string; task_type?: string | null; ai_readiness?: AiReadiness | null },
   reviewedBy: string
 ) {
   // Snapshot the pre-claim review state so a failed approval can restore it
@@ -1787,11 +1787,13 @@ export async function approveTaskSuggestion(
   const specCriteria: string[] = Array.isArray(metadata.acceptance_criteria)
     ? metadata.acceptance_criteria.filter((c: unknown): c is string => typeof c === 'string' && c.trim().length > 0)
     : [];
-  // The reviewer's explicit choice wins; otherwise the recommendation, and
-  // 'hybrid' deliberately maps to null: a hybrid recommendation means "needs
-  // decomposition", which is the spec agent's interview, not a runnable task state.
+  // The reviewer's explicit choice wins: needs_spec (meant for the dev agent,
+  // spec not written yet, which the spec sweep picks up), ai_ready,
+  // human_only, or null (a person's task). Otherwise the recommendation, and
+  // anything else ('hybrid' included) maps to null: a needs_spec task is
+  // always a deliberate choice, never a guess.
   const recommended = metadata.ai_readiness_recommendation;
-  const resolvedReadiness =
+  const resolvedReadiness: AiReadiness | null =
     taskOverrides.ai_readiness !== undefined
       ? taskOverrides.ai_readiness
       : recommended === 'ai_ready' || recommended === 'human_only'
@@ -1799,13 +1801,7 @@ export async function approveTaskSuggestion(
         : null;
 
   const resolvedTaskType = taskOverrides.task_type !== undefined ? taskOverrides.task_type : suggestion.task_type || null;
-  // A spec-less approval (feature or hybrid recommendation, no criteria, or
-  // the reviewer choosing "Needs spec") carries a deterministic marker so the
-  // spec sweep can tell "interview Ciaran" apart from "complete this yourself".
-  const needsInterview = resolvedReadiness === null
-    && (recommended === 'hybrid' || metadata.tier === 'feature' || metadata.tier === 'business' || specCriteria.length === 0);
-  let composedDescription = proposedFix ? `${suggestion.description}\n\nProposed fix: ${proposedFix}` : suggestion.description;
-  if (needsInterview) composedDescription += '\n\n[Needs spec interview before development]';
+  const composedDescription = proposedFix ? `${suggestion.description}\n\nProposed fix: ${proposedFix}` : suggestion.description;
   const taskData: Record<string, any> = {
     project_id: taskOverrides.project_id || suggestion.project_id,
     title: suggestion.title,
@@ -1902,7 +1898,7 @@ export async function approveTaskSuggestion(
 export async function approveTaskSuggestionBundle(
   supabase: SupabaseClient,
   ids: string[],
-  taskOverrides: { title?: string; priority?: string; assigned_to?: string | null; due_date?: string | null; task_type?: string | null; ai_readiness?: 'ai_ready' | 'human_only' | null },
+  taskOverrides: { title?: string; priority?: string; assigned_to?: string | null; due_date?: string | null; task_type?: string | null; ai_readiness?: AiReadiness | null },
   reviewedBy: string
 ) {
   if (ids.length < 2) throw new Error('A bundle approval needs at least two suggestions');
@@ -1956,8 +1952,8 @@ ${member.description}${fix}`);
   // The reviewer's explicit choice wins; otherwise inherit the members'
   // recommendations, mirroring the solo path: unanimous ai_ready runs
   // autonomously, any human_only makes the whole composed task human (one
-  // human member gates the branch), anything mixed or hybrid stays unset
-  // until a human or the spec pass decides.
+  // human member gates the branch), anything mixed or hybrid stays unset (a
+  // person's task) unless the reviewer chooses needs_spec.
   const recommendations = claimed.map(
     m => ((m.metadata || {}) as Record<string, unknown>).ai_readiness_recommendation
   );

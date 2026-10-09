@@ -97,7 +97,6 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
   const [deleteCriterionTarget, setDeleteCriterionTarget] = useState<string | null>(null);
 
   const sourceEmails = useTaskSourceEmails(task?.id ?? null);
-  const fromEmail = (sourceEmails?.link_count ?? 0) > 0;
 
   // Reset local state when task changes
   useEffect(() => {
@@ -384,9 +383,10 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
             </div>
 
             {/* AI Ready Toggle. On = ai_ready (the dev agent may pick it up),
-                off = human_only. A task with no acceptance criteria cannot be
-                flipped on: the dev agent refuses spec-less tasks, so allowing
-                it would create a task that is claimed and then refused, forever. */}
+                off = no readiness, a person's task like most tasks. A task with
+                no acceptance criteria cannot be flipped on: the dev agent
+                refuses spec-less tasks, so allowing it would create a task that
+                is claimed and then refused, forever. */}
             {showAiToggle && (
               <div className="flex items-center justify-between py-2 px-3 bg-white/[0.03] rounded-lg">
                 <div className="flex items-center gap-2">
@@ -396,9 +396,9 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
                     <p className="text-xs text-zinc-500">
                       The dev agent may pick this task up on its own
                     </p>
-                    {fromEmail && (
-                      <p className="mt-0.5 text-xs text-amber-300">
-                        Came from a client email: only a person can mark it AI Ready, never an agent.
+                    {task.ai_readiness === 'needs_spec' && (
+                      <p className="mt-0.5 text-xs text-sky-300">
+                        Needs spec: meant for the dev agent, spec not written yet.
                       </p>
                     )}
                   </div>
@@ -411,14 +411,7 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
                       toast('error', 'Add acceptance criteria before marking this AI Ready');
                       return;
                     }
-                    void updateTask(task.id, { ai_readiness: turningOn ? 'ai_ready' : 'human_only' }, { silent: true }).then((ok) => {
-                      if (ok) return;
-                      // Rule 3: the server refuses ai_ready for email-sourced
-                      // tasks unless a person signed in to the app asks.
-                      toast('error', fromEmail
-                        ? 'This task came from a client email, so only a person signed in to the app can mark it AI Ready. It was not changed.'
-                        : 'Failed to update task');
-                    });
+                    updateTask(task.id, { ai_readiness: turningOn ? 'ai_ready' : null });
                   }}
                   aria-label="AI ready"
                 />

@@ -1,7 +1,8 @@
 import { z } from 'zod';
+import { AI_READINESS } from '@/lib/types';
 
 const taskTypeEnum = z.enum(['engineering', 'research', 'audit', 'marketing', 'copywriting', 'operations', 'general']);
-const aiReadinessEnum = z.enum(['ai_ready', 'human_only', 'hybrid']);
+const aiReadinessEnum = z.enum(AI_READINESS);
 
 export const createTaskSchema = z.object({
   project_id: z.string().uuid('project_id must be a UUID'),

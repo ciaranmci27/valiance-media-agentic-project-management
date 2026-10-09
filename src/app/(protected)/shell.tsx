@@ -72,7 +72,9 @@ function AuthGate({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!loading && !user) {
-      router.replace('/login');
+      // Keep where they were headed (a task link, say) for after login.
+      const destination = window.location.pathname + window.location.search;
+      router.replace(destination === '/dashboard' ? '/login' : `/login?next=${encodeURIComponent(destination)}`);
     }
   }, [loading, user, router]);
 

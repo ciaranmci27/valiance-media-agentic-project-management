@@ -37,8 +37,8 @@ export type TaskLane =
   | 'autonomous'     // builds, merges, closes; the owner never hears about it
   | 'needs_merge'    // builds itself, then holds for one human merge click
   | 'merge_unknown'  // AI-ready but no file forecast; treated as may-need-merge
-  | 'manual'         // a person's task
-  | 'needs_spec';    // nobody can start it until it is specced
+  | 'manual'         // a person's task (no readiness, or human_only)
+  | 'needs_spec';    // meant for the dev agent; waiting on its spec
 
 export const DEFAULT_SENSITIVE_PATHS =
   '(^|/)(migrations?|supabase/migrations)/|(^|/)\\.github/workflows/|\\.sql$|auth|permission|role|access|middleware|session|credential|secret|token|rls|billing|payment|invoice|stripe|payout|revenue|pdf|docx|document-generation|(^|/)email/|mailer|smtp|resend|sendgrid|twilio|sms|outbound|webhook';
@@ -67,8 +67,10 @@ export function getTaskLane(
   suggestion: TaskSuggestion | undefined,
   project: Project | undefined,
 ): TaskLane {
-  if (!task.ai_readiness) return 'needs_spec';
-  if (task.ai_readiness === 'human_only') return 'manual';
+  // Only a deliberate needs_spec waits on a spec. No readiness is a normal
+  // task a person does, the same as human_only: most tasks never get a label.
+  if (task.ai_readiness === 'needs_spec') return 'needs_spec';
+  if (task.ai_readiness !== 'ai_ready') return 'manual';
 
   const files = evidenceFiles(suggestion);
   if (files.length === 0) return 'merge_unknown';
@@ -95,7 +97,7 @@ export const LANE_HINT: Record<TaskLane, string> = {
   needs_merge: 'Builds itself, then holds for one merge click from you (touches sensitive paths)',
   merge_unknown: 'Agent task with no file forecast; may hold for your merge at the end',
   manual: 'A person does this task',
-  needs_spec: 'Waiting on a spec before anyone can start it',
+  needs_spec: 'Meant for the dev agent; waiting on its spec',
 };
 
 // ---------------------------------------------------------------------------
@@ -191,8 +193,7 @@ export function computeNeedsYou(input: {
 
   // Your own queued tasks that are urgent or due: the "start this today"
   // nudge. In-progress work is deliberately excluded; you are already on it.
-  // An unclassified task (needs_spec) is still a person's work: most tasks a
-  // member creates never get an AI readiness at all.
+  // A needs_spec task assigned to you is yours until it is specced.
   for (const task of tasks) {
     if (!teamMemberId || task.status !== 'todo' || !task.assignee_ids.includes(teamMemberId)) continue;
     const lane = laneOf(task);

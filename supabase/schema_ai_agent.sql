@@ -195,7 +195,7 @@ ALTER TABLE public.task_suggestions
 -- ============================================================
 -- 9. (RETIRED 2026-08-04) AI MANAGED FLAG FOR TASKS
 -- ============================================================
--- ai_managed was superseded by tasks.ai_readiness ('ai_ready' | 'human_only')
+-- ai_managed was superseded by tasks.ai_readiness (see schema.sql)
 -- and the column was dropped. Kept as a numbered section so later sections'
 -- numbering stays stable in diffs.
 
