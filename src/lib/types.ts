@@ -1125,6 +1125,9 @@ export interface AgentActivity {
   created_at: string;
 }
 
+/** A fleet host alert: the one activity row with no agent (attention.message, kind host_alert). */
+export type FleetAgentActivity = Omit<AgentActivity, 'agent_id'> & { agent_id: null };
+
 // ============================================================
 // API AUDIT LOG
 // ============================================================

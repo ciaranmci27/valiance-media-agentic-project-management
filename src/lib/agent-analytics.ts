@@ -1,7 +1,6 @@
 import type { AgentActivity, Project, TeamMember, TimeEntry } from '@/lib/types';
 import { projectTimeEntryForBilling, type DateRange } from '@/lib/finance/summary';
 import { getWorkedHoursByDay } from '@/lib/time-entry-utils';
-import { EVENT_STATE, isAgentEventType } from '@/lib/agent-events';
 
 export type TrackingState = 'tracked' | 'not_tracked';
 
@@ -29,28 +28,8 @@ export interface AgentAnalyticsRow {
   cachedTokens: TrackedMetric;
   modelCost: TrackedMetric;
   profit: TrackedMetric;
-  /**
-   * How long this agent actually ran, in milliseconds.
-   *
-   * A capacity measure, and INTERNAL ONLY: runtime never becomes a time entry,
-   * never carries a rate, and never reaches the finance engine, which reads
-   * project_time_entries alone. Only Jeff bills, through that separate path.
-   */
-  runtimeMs: TrackedMetric;
-  /** Runtime spent on turns that produced work rather than finding none. */
-  productiveRuntimeMs: TrackedMetric;
-  /**
-   * Runtime minus work that should not have happened. Derived, never stored:
-   * `runtimeMs` remains the reconcilable measure, and this rule can change
-   * without rewriting a single recorded turn.
-   */
-  effectiveRuntimeMs: TrackedMetric;
-  /** Rebuilding or re-reviewing a pull request that was already approved. */
-  reworkRuntimeMs: TrackedMetric;
-  /** Turns that ran while the agent was blocked and could not proceed. */
-  blockedRuntimeMs: TrackedMetric;
-  /** Completed turns behind the runtime figures. */
-  turns: number;
+  // Runtime (active, effective, by outcome) lives in agent-telemetry-analytics,
+  // which reads each turn's outcome instead of guessing from nearby events.
 }
 
 export interface AgentAnalyticsDay {
@@ -66,9 +45,6 @@ export interface AgentAnalyticsDay {
   cachedTokens: number | null;
   modelCost: number | null;
   profit: number | null;
-  runtimeMs: number | null;
-  productiveRuntimeMs: number | null;
-  effectiveRuntimeMs: number | null;
 }
 
 export interface AgentAnalyticsData {
@@ -106,11 +82,6 @@ interface MutableRow {
   cachedTokens: number;
   modelCost: number;
   usageRecords: number;
-  runtimeMs: number;
-  productiveRuntimeMs: number;
-  reworkRuntimeMs: number;
-  blockedRuntimeMs: number;
-  turns: number;
 }
 
 interface MutableDay {
@@ -126,11 +97,6 @@ interface MutableDay {
   cachedTokens: number;
   modelCost: number;
   usageRecords: number;
-  runtimeMs: number;
-  productiveRuntimeMs: number;
-  reworkRuntimeMs: number;
-  blockedRuntimeMs: number;
-  turns: number;
 }
 
 const numeric = (value: unknown): number => {
@@ -198,11 +164,6 @@ export function computeAgentAnalytics(input: AgentAnalyticsInput): AgentAnalytic
         cachedTokens: 0,
         modelCost: 0,
         usageRecords: 0,
-        runtimeMs: 0,
-        productiveRuntimeMs: 0,
-        reworkRuntimeMs: 0,
-        blockedRuntimeMs: 0,
-        turns: 0,
       };
       rows.set(agentId, row);
     }
@@ -225,11 +186,6 @@ export function computeAgentAnalytics(input: AgentAnalyticsInput): AgentAnalytic
         cachedTokens: 0,
         modelCost: 0,
         usageRecords: 0,
-        runtimeMs: 0,
-        productiveRuntimeMs: 0,
-        reworkRuntimeMs: 0,
-        blockedRuntimeMs: 0,
-        turns: 0,
       };
       days.set(key, day);
     }
@@ -330,196 +286,6 @@ export function computeAgentAnalytics(input: AgentAnalyticsInput): AgentAnalytic
     }
   }
 
-  // ── Runtime: how long each agent actually ran ──────────────────────────
-  // Classification lives here rather than in the host publisher, so what counts
-  // as "productive" can be revised in the app without redeploying the VPS. The
-  // publisher only reports facts: which turn, when, how long.
-  //
-  // A turn is productive when it overlaps an event proving the agent did
-  // something. Turns that woke, found nothing, and logged `audit.no_work` or
-  // `queue.empty` are real runtime but not real output, and the gap between the
-  // two numbers is itself the signal: a fleet spending its day finding nothing.
-  const workWindowsByAgent = new Map<string, number[]>();
-  for (const activity of input.activities) {
-    if (!isAgentEventType(activity.activity_type)) continue;
-    if (EVENT_STATE[activity.activity_type] !== 'work') continue;
-    if (!includeProject(activity.project_id)) continue;
-    const at = Date.parse(activity.created_at);
-    if (!Number.isFinite(at)) continue;
-    const stamps = workWindowsByAgent.get(activity.agent_id);
-    if (stamps) stamps.push(at); else workWindowsByAgent.set(activity.agent_id, [at]);
-  }
-  for (const stamps of workWindowsByAgent.values()) stamps.sort((a, b) => a - b);
-
-  // Runtime is elapsed time, so overlapping turns must not be added together.
-  // Agents do run turns concurrently: measured live, 19.8% of Jeff's summed
-  // turn time was wall-clock counted twice, which would eventually report an
-  // agent running more hours than the day contains. Intervals are collected
-  // here, merged below, and only then summed. The stored events stay raw, so
-  // this rule can be revised without republishing a single turn.
-  // ── Waste: work that should not have happened ──────────────────────────
-  //
-  // Failure flags do not find it. Across 2,138 turns there were two unknown
-  // statuses and one blocked event, while the nine-hour review loop that
-  // prompted this produced no error at all: every turn completed and logged
-  // real work. The waste looked exactly like success.
-  //
-  // What it does have is a signature. A verdict is about a commit, and the
-  // first verdict on a commit is final, so once a pull request is approved any
-  // further work on it is by definition redundant. That is measurable from
-  // events already stored, and it is a rule rather than a guess.
-  // Verdicts are keyed by task, not by pull request: the events carry
-  // `task_id` and no PR link, so the task is the only join available.
-  //
-  // A round of 1 opens a fresh review cycle, which is how a replacement pull
-  // request announces itself. Treating that as a reset stops a stale approval
-  // from condemning legitimate work on a new PR for the same task.
-  const verdictTimeline = new Map<string, { at: number; approved: boolean }[]>();
-  for (const activity of input.activities) {
-    if (activity.activity_type !== 'review.verdict') continue;
-    const metadata = activity.metadata ?? {};
-    const taskId = typeof metadata.task_id === 'string' ? metadata.task_id : activity.reference_id;
-    if (!taskId) continue;
-    const at = Date.parse(activity.created_at);
-    if (!Number.isFinite(at)) continue;
-    const approved = metadata.verdict === 'approved';
-    const isNewCycle = numeric(metadata.round) === 1;
-    // Only two things matter for this question: a moment work became
-    // redundant (an approval), and a moment that stopped being true (a new
-    // cycle that was not itself an approval).
-    if (!approved && !isNewCycle) continue;
-    const list = verdictTimeline.get(taskId);
-    if (list) list.push({ at, approved }); else verdictTimeline.set(taskId, [{ at, approved }]);
-  }
-  for (const list of verdictTimeline.values()) list.sort((a, b) => a.at - b.at);
-
-  /** Was this task's work already approved, and still approved, at this moment? */
-  const approvedBefore = (taskId: string, moment: number): boolean => {
-    const list = verdictTimeline.get(taskId);
-    if (!list) return false;
-    let approved = false;
-    for (const entry of list) {
-      if (entry.at >= moment) break;
-      approved = entry.approved;
-    }
-    return approved;
-  };
-
-  // Every event that names a task, so a turn can be tested against the tasks it
-  // touched rather than against a task it was merely near.
-  const taskTouchesByAgent = new Map<string, { at: number; taskId: string }[]>();
-  const blockedByAgent = new Map<string, number[]>();
-  for (const activity of input.activities) {
-    const at = Date.parse(activity.created_at);
-    if (!Number.isFinite(at)) continue;
-    if (activity.activity_type === 'blocked') {
-      const list = blockedByAgent.get(activity.agent_id);
-      if (list) list.push(at); else blockedByAgent.set(activity.agent_id, [at]);
-      continue;
-    }
-    const metadata = activity.metadata ?? {};
-    const taskId = typeof metadata.task_id === 'string' ? metadata.task_id : activity.reference_id;
-    if (!taskId) continue;
-    const list = taskTouchesByAgent.get(activity.agent_id);
-    if (list) list.push({ at, taskId }); else taskTouchesByAgent.set(activity.agent_id, [{ at, taskId }]);
-  }
-
-  const turnIds = new Set<string>();
-  const intervalsByAgent = new Map<string, {
-    start: number; end: number; productive: boolean; rework: boolean; blocked: boolean;
-  }[]>();
-  const turnsByAgent = new Map<string, number>();
-  for (const activity of input.activities) {
-    if (activity.activity_type !== 'turn.completed') continue;
-    const metadata = activity.metadata ?? {};
-    const sourceId = typeof metadata.source_turn_id === 'string' ? metadata.source_turn_id : null;
-    // Runtime is not project-scoped: a single turn can touch several projects
-    // or none. Under a project filter, delivery and revenue narrow but runtime
-    // would be a half-truth, so it is withheld rather than misattributed.
-    if (!sourceId || turnIds.has(sourceId) || input.selectedProjectIds?.size) continue;
-    const startedAt = typeof metadata.started_at === 'string' ? metadata.started_at : activity.created_at;
-    if (!inRange(isoToDateKey(startedAt, input.timezone))) continue;
-    const row = getRow(activity.agent_id);
-    if (!row) continue;
-    const startMs = Date.parse(startedAt);
-    if (!Number.isFinite(startMs)) continue;
-    turnIds.add(sourceId);
-
-    const endMs = startMs + numeric(metadata.duration_ms);
-    const stamps = workWindowsByAgent.get(activity.agent_id) ?? [];
-    const productive = stamps.some(at => at >= startMs && at <= endMs);
-
-    // Rework: this turn touched a task whose pull request had already been
-    // approved before the turn began. Rebuilding approved work, or reviewing an
-    // approved commit again, is time the fleet should never have spent.
-    const touches = taskTouchesByAgent.get(activity.agent_id) ?? [];
-    const rework = touches.some(touch =>
-      touch.at >= startMs && touch.at <= endMs && approvedBefore(touch.taskId, startMs));
-    const blocked = (blockedByAgent.get(activity.agent_id) ?? [])
-      .some(at => at >= startMs && at <= endMs);
-
-    const list = intervalsByAgent.get(row.agentId);
-    const interval = { start: startMs, end: endMs, productive, rework, blocked };
-    if (list) list.push(interval);
-    else intervalsByAgent.set(row.agentId, [interval]);
-    turnsByAgent.set(row.agentId, (turnsByAgent.get(row.agentId) ?? 0) + 1);
-  }
-
-  type RuntimeBucket = 'runtimeMs' | 'productiveRuntimeMs' | 'reworkRuntimeMs' | 'blockedRuntimeMs';
-
-  /**
-   * Merge overlapping spans, then credit each merged span to the days it covers.
-   *
-   * Each bucket merges independently, so a turn counted as rework is subtracted
-   * exactly once even when it overlapped another turn: every measure here is
-   * elapsed time, and elapsed time cannot be double counted in either direction.
-   */
-  const creditRuntime = (agentId: string, spans: { start: number; end: number }[], bucket: RuntimeBucket) => {
-    const row = rows.get(agentId);
-    if (!row) return;
-    const sorted = spans.slice().sort((a, b) => a.start - b.start);
-    const merged: { start: number; end: number }[] = [];
-    for (const span of sorted) {
-      const last = merged[merged.length - 1];
-      if (last && span.start <= last.end) last.end = Math.max(last.end, span.end);
-      else merged.push({ start: span.start, end: span.end });
-    }
-    for (const span of merged) {
-      // A turn can cross local midnight; each day keeps only its own share so
-      // the daily series still sums to the range total.
-      let cursor = span.start;
-      while (cursor < span.end) {
-        const dateKey = isoToDateKey(new Date(cursor).toISOString(), input.timezone);
-        const dayEnd = new Date(cursor);
-        dayEnd.setHours(23, 59, 59, 999);
-        const sliceEnd = Math.min(span.end, dayEnd.getTime() + 1);
-        const slice = sliceEnd - cursor;
-        if (inRange(dateKey)) {
-          row[bucket] += slice;
-          getDay(dateKey, agentId)[bucket] += slice;
-        }
-        cursor = sliceEnd;
-      }
-    }
-  };
-
-  for (const [agentId, intervals] of intervalsByAgent) {
-    creditRuntime(agentId, intervals, 'runtimeMs');
-    creditRuntime(agentId, intervals.filter(i => i.productive), 'productiveRuntimeMs');
-    creditRuntime(agentId, intervals.filter(i => i.rework), 'reworkRuntimeMs');
-    // Blocked time that is also rework is already excluded; counting it in both
-    // would subtract the same minutes twice from effective runtime.
-    creditRuntime(agentId, intervals.filter(i => i.blocked && !i.rework), 'blockedRuntimeMs');
-    const row = rows.get(agentId);
-    const turns = turnsByAgent.get(agentId) ?? 0;
-    if (row) row.turns += turns;
-    // The day rows carry their own turn counts for the chart's tooltip.
-    for (const interval of intervals) {
-      const dateKey = isoToDateKey(new Date(interval.start).toISOString(), input.timezone);
-      if (inRange(dateKey)) getDay(dateKey, agentId).turns += 1;
-    }
-  }
-
   for (const entry of input.timeEntries) {
     const row = getRow(entry.member_id);
     if (!row || !includeProject(entry.project_id) || entry.work_type === 'internal') continue;
@@ -572,15 +338,6 @@ export function computeAgentAnalytics(input: AgentAnalyticsInput): AgentAnalytic
           cachedTokens: tracked(row.cachedTokens, usageTracked),
           modelCost: tracked(row.modelCost, usageTracked),
           profit: tracked(row.revenue - row.modelCost, usageTracked),
-          runtimeMs: tracked(row.runtimeMs, row.turns > 0),
-          productiveRuntimeMs: tracked(row.productiveRuntimeMs, row.turns > 0),
-          effectiveRuntimeMs: tracked(
-            Math.max(0, row.runtimeMs - row.reworkRuntimeMs - row.blockedRuntimeMs),
-            row.turns > 0,
-          ),
-          reworkRuntimeMs: tracked(row.reworkRuntimeMs, row.turns > 0),
-          blockedRuntimeMs: tracked(row.blockedRuntimeMs, row.turns > 0),
-          turns: row.turns,
         };
       })
       .sort((a, b) => b.revenue - a.revenue || a.agentName.localeCompare(b.agentName)),
@@ -598,11 +355,6 @@ export function computeAgentAnalytics(input: AgentAnalyticsInput): AgentAnalytic
         cachedTokens: day.usageRecords > 0 ? day.cachedTokens : null,
         modelCost: day.usageRecords > 0 ? day.modelCost : null,
         profit: day.usageRecords > 0 ? day.revenue - day.modelCost : null,
-        runtimeMs: day.turns > 0 ? day.runtimeMs : null,
-        productiveRuntimeMs: day.turns > 0 ? day.productiveRuntimeMs : null,
-        effectiveRuntimeMs: day.turns > 0
-          ? Math.max(0, day.runtimeMs - day.reworkRuntimeMs - day.blockedRuntimeMs)
-          : null,
       }))
       .sort((a, b) => a.dateKey.localeCompare(b.dateKey) || a.agentId.localeCompare(b.agentId)),
   };

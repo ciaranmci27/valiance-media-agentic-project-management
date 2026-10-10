@@ -1,5 +1,5 @@
 import { SupabaseClient } from '@supabase/supabase-js';
-import type { AiReadiness, Project, Task, TeamMember, Subtask, AcceptanceCriterion, Comment, Activity, Contact, ContactEmail, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, ApiKey, ProjectGoal, TaskSuggestion, AgentActivity, ApiAuditEntry, TimeEntry, ProjectCredential, ProjectCredentialListItem, ProjectInvoice, BusinessSettings, InvoiceTimeEntryAllocation, WebhookEndpoint, WebhookDelivery, ProjectRetainer, ProjectRetainerAmount, ProjectRetainerShare, ProjectRetainerPeriod, RetainerDuePeriod, InvoiceLineShare } from '@/lib/types';
+import type { AiReadiness, Project, Task, TeamMember, Subtask, AcceptanceCriterion, Comment, Activity, Contact, ContactEmail, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, ApiKey, ProjectGoal, TaskSuggestion, AgentActivity, FleetAgentActivity, ApiAuditEntry, TimeEntry, ProjectCredential, ProjectCredentialListItem, ProjectInvoice, BusinessSettings, InvoiceTimeEntryAllocation, WebhookEndpoint, WebhookDelivery, ProjectRetainer, ProjectRetainerAmount, ProjectRetainerShare, ProjectRetainerPeriod, RetainerDuePeriod, InvoiceLineShare } from '@/lib/types';
 import { fetchAllRows } from '@/lib/supabase/fetch-all';
 import { notFound } from '@/lib/api/errors';
 import { siteConfig } from '@/site-config';
@@ -2159,35 +2159,114 @@ export async function fetchAgentActivity(supabase: SupabaseClient, filters?: { a
  * of turns and usage deltas runs to thousands of rows) and it needs the types
  * that window deliberately drops. A hard ceiling still applies, and the caller
  * is told when it was hit so the UI can say so instead of quietly under-reporting.
+ *
+ * Host telemetry is often posted after the event it describes (the first
+ * attention scan reaches 30 days back, the outcome backfill about three
+ * weeks), so a second, separately capped read takes telemetry recorded up to
+ * ANALYTICS_LOOKAHEAD_DAYS after the range. Separate so late rows can never
+ * use up the range's own budget. Each metric places a row by its own event
+ * time and drops what falls outside the range.
+ *
+ * Fleet host alerts carry no agent, so they come back separately: an
+ * AgentActivity always has one.
  */
+export const ANALYTICS_LOOKAHEAD_DAYS = 32;
+
 export async function fetchAgentActivityRange(
   supabase: SupabaseClient,
   range: { startKey: string; endKey: string },
   options?: { maxRows?: number },
-): Promise<{ rows: AgentActivity[]; truncated: boolean }> {
+): Promise<{ rows: AgentActivity[]; fleet: FleetAgentActivity[]; truncated: boolean }> {
   const maxRows = options?.maxRows ?? 20000;
   const pageSize = 1000;
   const rows: AgentActivity[] = [];
+  const fleet: FleetAgentActivity[] = [];
   // Date keys are calendar days; widen to cover the whole end day in any zone.
   const from = `${range.startKey}T00:00:00.000Z`;
   const to = `${range.endKey}T23:59:59.999Z`;
+  const [y, m, d] = range.endKey.split('-').map(Number);
+  const lateTo = new Date(Date.UTC(y, m - 1, d + ANALYTICS_LOOKAHEAD_DAYS, 23, 59, 59, 999)).toISOString();
 
-  for (let offset = 0; offset < maxRows; offset += pageSize) {
-    const { data, error } = await supabase
-      .from('agent_activities')
-      .select('*')
-      .gte('created_at', from)
-      .lte('created_at', to)
-      // Fleet host alerts name no agent; AgentActivity always has one.
-      .not('agent_id', 'is', null)
-      .order('created_at', { ascending: false })
-      .range(offset, offset + pageSize - 1);
-    if (error) throw error;
-    const page = (data || []) as AgentActivity[];
-    rows.push(...page);
-    if (page.length < pageSize) return { rows, truncated: false };
-  }
-  return { rows, truncated: true };
+  const read = async (lower: string, upper: string, types: readonly string[] | null, cap: number) => {
+    for (let offset = 0; offset < cap; offset += pageSize) {
+      let query = supabase
+        .from('agent_activities')
+        .select('*')
+        .gte('created_at', lower)
+        .lte('created_at', upper);
+      if (types) query = query.in('activity_type', [...types]);
+      const { data, error } = await query
+        .order('created_at', { ascending: false })
+        .range(offset, offset + pageSize - 1);
+      if (error) throw error;
+      const page = (data || []) as (AgentActivity | FleetAgentActivity)[];
+      for (const row of page) {
+        if (row.agent_id === null) fleet.push(row as FleetAgentActivity);
+        else rows.push(row as AgentActivity);
+      }
+      if (page.length < pageSize) return false;
+    }
+    return true;
+  };
+
+  const truncated = await read(from, to, null, maxRows);
+  // gt, not gte: the range read already took rows at exactly `to`.
+  const lateTruncated = lateTo > to
+    ? await read(new Date(Date.parse(to) + 1).toISOString(), lateTo, TELEMETRY_EVENT_TYPES, maxRows)
+    : false;
+  return { rows, fleet, truncated: truncated || lateTruncated };
+}
+
+/** Billing gap reviews (Reconciled / Dismissed), for the analytics gaps list. */
+export async function fetchBillingGapReviews(supabase: SupabaseClient) {
+  const { data, error } = await supabase
+    .from('agent_billing_gap_reviews')
+    .select('activity_id, status, note, reviewed_at');
+  if (error) throw error;
+  return (data || []) as { activity_id: string; status: 'reconciled' | 'dismissed'; note: string; reviewed_at: string }[];
+}
+
+/** Save a review; the database stamps who reviewed it and when. */
+export async function saveBillingGapReview(
+  supabase: SupabaseClient,
+  review: { activity_id: string; status: 'reconciled' | 'dismissed'; note: string },
+) {
+  const { data, error } = await supabase
+    .from('agent_billing_gap_reviews')
+    .upsert(review, { onConflict: 'activity_id' })
+    .select('activity_id, status, note, reviewed_at')
+    .single();
+  if (error) throw error;
+  return data as { activity_id: string; status: 'reconciled' | 'dismissed'; note: string; reviewed_at: string };
+}
+
+/** Undo a review: the gap goes back to open. */
+export async function clearBillingGapReview(supabase: SupabaseClient, activityId: string) {
+  const { error } = await supabase.from('agent_billing_gap_reviews').delete().eq('activity_id', activityId);
+  if (error) throw error;
+}
+
+/**
+ * Task reopens (a task leaving done) and when the recorder began, which is
+ * when its migration ran. Throws when either table is missing: reopens are
+ * then not tracked, which the page must not show as zero.
+ */
+export async function fetchTaskReopens(supabase: SupabaseClient) {
+  const [{ data: start, error: startError }, { data, error }] = await Promise.all([
+    supabase.from('analytics_tracking_starts').select('started_at').eq('metric', 'task_reopens').maybeSingle(),
+    supabase
+      .from('task_reopens')
+      .select('task_id, project_id, reopened_at')
+      .order('reopened_at', { ascending: false })
+      .limit(5000),
+  ]);
+  if (startError) throw startError;
+  if (error) throw error;
+  if (!start) throw new Error('reopen tracking start not recorded');
+  return {
+    since: (start as { started_at: string }).started_at,
+    rows: (data || []) as { task_id: string; project_id: string | null; reopened_at: string }[],
+  };
 }
 
 export async function insertAgentActivity(

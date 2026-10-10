@@ -1,14 +1,20 @@
 'use client';
 
 import { createClient } from '@/lib/supabase/client';
-import { fetchAgentActivityRange } from '@/lib/supabase/queries';
+import {
+  fetchAgentActivityRange,
+  fetchBillingGapReviews,
+  fetchTaskReopens,
+} from '@/lib/supabase/queries';
 import { prefetchQuery, useCachedQuery } from '@/lib/query-cache';
 import type { DateRange } from '@/lib/finance/summary';
-import type { AgentActivity } from '@/lib/types';
+import type { AgentActivity, FleetAgentActivity } from '@/lib/types';
 import type { AgentHealthTransition } from '@/lib/agent-analytics';
 
 export interface AgentAnalyticsEvents {
   rows: AgentActivity[];
+  /** Fleet host alerts: no agent, so not AgentActivity rows. */
+  fleet: FleetAgentActivity[];
   /** No answer yet. Callers show their own shape, never stale numbers. */
   loading: boolean;
   /** The range held more rows than the ceiling, so figures under-report. */
@@ -17,9 +23,10 @@ export interface AgentAnalyticsEvents {
   failed: boolean;
 }
 
-interface RangeResult { rows: AgentActivity[]; truncated: boolean }
+interface RangeResult { rows: AgentActivity[]; fleet: FleetAgentActivity[]; truncated: boolean }
 
-const keyFor = (range: DateRange) => `agent-activity:${range.startKey}:${range.endKey}`;
+// v2: the read now runs past the range end and returns fleet rows.
+const keyFor = (range: DateRange) => `agent-activity:v2:${range.startKey}:${range.endKey}`;
 
 const fetchRange = async (range: DateRange): Promise<RangeResult> => {
   const supabase = createClient();
@@ -89,12 +96,56 @@ export function useAgentAnalyticsEvents(
   const key = enabled ? keyFor(range) : 'agent-activity:disabled';
   const query = useCachedQuery<RangeResult>(
     key,
-    enabled ? () => fetchRange(range) : async () => ({ rows: [], truncated: false }),
+    enabled ? () => fetchRange(range) : async () => ({ rows: [], fleet: [], truncated: false }),
   );
   return {
     rows: query.data?.rows ?? [],
+    fleet: query.data?.fleet ?? [],
     loading: enabled && query.loading,
     truncated: query.data?.truncated ?? false,
     failed: enabled && query.failed,
   };
+}
+
+export type BillingGapReviewRow = Awaited<ReturnType<typeof fetchBillingGapReviews>>[number];
+
+// Module-level empties keep a missing answer referentially stable, so memos
+// downstream do not recompute on every render while a query has failed.
+const NO_REVIEWS: BillingGapReviewRow[] = [];
+
+/**
+ * Ciaran's Reconciled / Dismissed marks on billing gaps. `available` is false
+ * when the reviews table cannot be read (its migration is not applied yet).
+ */
+export function useBillingGapReviews(options?: { enabled?: boolean }): {
+  rows: BillingGapReviewRow[];
+  loading: boolean;
+  available: boolean;
+} {
+  const enabled = options?.enabled !== false;
+  const query = useCachedQuery<BillingGapReviewRow[]>(
+    enabled ? 'agent-billing-gap-reviews' : 'agent-billing-gap-reviews:disabled',
+    enabled ? () => fetchBillingGapReviews(createClient()) : async () => NO_REVIEWS,
+  );
+  return { rows: query.data ?? NO_REVIEWS, loading: enabled && query.loading, available: !(enabled && query.failed) };
+}
+
+type ReopenAnswer = Awaited<ReturnType<typeof fetchTaskReopens>>;
+
+/**
+ * Task reopens and when their recorder began. Both null when they cannot be
+ * read (the migration is not applied yet): not tracked, never zero.
+ */
+export function useTaskReopens(options?: { enabled?: boolean }): {
+  rows: ReopenAnswer['rows'] | null;
+  since: string | null;
+  loading: boolean;
+} {
+  const enabled = options?.enabled !== false;
+  const query = useCachedQuery<ReopenAnswer | null>(
+    enabled ? 'task-reopens:v2' : 'task-reopens:disabled',
+    enabled ? () => fetchTaskReopens(createClient()) : async () => null,
+  );
+  const answer = query.failed ? null : query.data ?? null;
+  return { rows: answer?.rows ?? null, since: answer?.since ?? null, loading: enabled && query.loading };
 }

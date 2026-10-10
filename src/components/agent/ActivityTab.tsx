@@ -3,6 +3,7 @@
 import { useMemo } from 'react';
 import { useApp } from '@/lib/store';
 import { Avatar } from '@/components/ui/Avatar';
+import { isTelemetryEvent } from '@/lib/agent-events';
 import {
   Activity, Lightbulb, PlayCircle, CheckCircle2, XCircle,
   Search, MessageSquare, RefreshCw, Zap,
@@ -43,6 +44,8 @@ export function ActivityTab({ filters }: { filters: ActivityFilters }) {
 
   const filtered = useMemo(() => {
     return agentActivity.filter(a => {
+      // Telemetry is measurement, not narrative; Agent Analytics reads it.
+      if (isTelemetryEvent(a.activity_type)) return false;
       if (filterAgent && a.agent_id !== filterAgent) return false;
       if (filterProject && a.project_id !== filterProject) return false;
       if (filterType && a.activity_type !== filterType) return false;

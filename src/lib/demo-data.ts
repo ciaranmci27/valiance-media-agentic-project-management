@@ -1594,9 +1594,73 @@ export const demoTaskSuggestions: TaskSuggestion[] = [
 ];
 
 // ---------------------------------------------------------------------------
+// AGENT TELEMETRY (host-published, docs/12-telemetry.md): two weeks of turns
+// with outcomes, failures, attention, wakes, a billing gap and eval runs, so
+// Agent Analytics demos every card. Deterministic: same rows every load.
+// ---------------------------------------------------------------------------
+function demoTelemetry(): AgentActivity[] {
+  const ATLAS = 'a1a1a1a1-0006-4000-8000-000000000006';
+  const SCOUT = 'a1a1a1a1-0007-4000-8000-000000000007';
+  const TASK = 'e5e5e5e5-0001-4000-8000-000000000001';
+  const rows: AgentActivity[] = [];
+  let n = 0;
+  const row = (agent: string, type: string, metadata: Record<string, unknown>, at: string): AgentActivity => {
+    n += 1;
+    return {
+      id: `demo-tel-${String(n).padStart(4, '0')}`, agent_id: agent, project_id: null, activity_type: type,
+      title: type, description: '', reference_type: null, reference_id: null, metadata, created_at: at,
+    };
+  };
+  const outcomes = ['idle', 'idle', 'work', 'idle', 'waiting', 'idle', 'work', 'skipped', 'idle', 'blocked'] as const;
+  for (let day = 13; day >= 0; day--) {
+    for (let slot = 0; slot < 10; slot++) {
+      const agent = slot % 2 ? SCOUT : ATLAS;
+      const outcome = outcomes[(slot + day) % outcomes.length];
+      const minutes = outcome === 'work' ? 18 + ((slot * 7 + day) % 25) : outcome === 'skipped' ? 0.2 : 2 + ((slot + day) % 3);
+      const start = dayAtTime(day, 8 + slot, (day * 7) % 50);
+      const ms = Math.round(minutes * 60_000);
+      const finished = new Date(Date.parse(start) + ms).toISOString();
+      // The oldest week predates outcomes: those turns read as unlabelled.
+      const labelled = day < 9;
+      rows.push(row(agent, 'turn.completed', {
+        source_turn_id: `cron:demo-${day}-${slot}`, origin: 'scheduled', duration_ms: ms, started_at: start, finished_at: finished,
+        job_name: slot % 3 === 0 ? 'Review' : 'Work', session_id: `cron_demo_${day}_${slot}`,
+        ...(labelled ? {
+          outcome, trigger: slot % 4 === 0 ? 'direct' : 'schedule', model: day < 4 ? 'gpt-5.5-codex' : 'gpt-5.4-codex',
+          tokens_scope: 'turn', tokens: { input: outcome === 'work' ? 61_000 : 23_000, output: outcome === 'work' ? 4_200 : 300, cache_read: 41_000, cache_write: 0, reasoning: 900 },
+        } : {}),
+      }, finished));
+    }
+    if (day % 3 === 0) {
+      const start = dayAtTime(day, 15, 10);
+      rows.push(row(ATLAS, 'turn.completed', {
+        source_turn_id: `msg:demo-${day}:1`, origin: 'directed', duration_ms: 25 * 60_000, started_at: start,
+        finished_at: new Date(Date.parse(start) + 25 * 60_000).toISOString(), outcome: 'work', session_id: 'tg_demo', model: 'gpt-5.5-codex', tokens_scope: 'session_usage',
+      }, start));
+      rows.push(row(ATLAS, 'attention.message', { kind: 'telegram_reply', at: dayAtTime(day, 15, 30), solicited: true, session_id: 'tg_demo' }, dayAtTime(day, 15, 33)));
+    }
+    rows.push(row(SCOUT, 'attention.message', { kind: 'cron_delivery', at: dayAtTime(day, 9, 5), solicited: false, job_name: 'Morning digest' }, dayAtTime(day, 9, 8)));
+    rows.push(row(SCOUT, 'dispatch.wake', { kind: 'state_change', at: dayAtTime(day, 11, 2), waited_seconds: (day * 13) % 50 }, dayAtTime(day, 11, 3)));
+  }
+  rows.push(row(ATLAS, 'attention.message', { kind: 'blocking_question', at: dayAtTime(4, 13, 0), solicited: false, task_id: TASK }, dayAtTime(4, 13, 2)));
+  rows.push(row(ATLAS, 'blocked', { task_id: TASK, reason: 'Needs the brand fonts licence' }, dayAtTime(4, 13, 0)));
+  rows.push(row(ATLAS, 'billing.resumed', { task_id: TASK }, dayAtTime(4, 16, 40)));
+  rows.push(row(ATLAS, 'turn.failed', { source_turn_id: 'cron:demo-f1', failure: 'dead', has_completed_turn: false, started_at: dayAtTime(6, 14, 0), finished_at: dayAtTime(6, 14, 11), duration_ms: 11 * 60_000, job_name: 'Work', trigger: 'schedule', error: 'Process exited while running tools' }, dayAtTime(6, 14, 25)));
+  rows.push(row(SCOUT, 'turn.failed', { source_turn_id: 'cron:demo-f2', failure: 'unknown', has_completed_turn: false, started_at: dayAtTime(3, 10, 0), job_name: 'Review', trigger: 'schedule', error: 'Scheduler restarted under the turn' }, dayAtTime(3, 10, 30)));
+  rows.push(row(SCOUT, 'agent.restarted', { kind: 'container', started_at: dayAtTime(3, 10, 1), deploy_commit: '6d7b1b2' }, dayAtTime(3, 10, 2)));
+  rows.push(row(ATLAS, 'billing.gap', { start: dayAtTime(2, 14, 3), end: dayAtTime(2, 14, 12), minutes: 9, phase: 'mid_turn', origin: 'scheduled', source_turn_id: 'cron:demo-2-2', task_id: TASK }, dayAtTime(1, 9, 0)));
+  rows.push(row(ATLAS, 'billing.gap', { start: dayAtTime(5, 10, 0), end: dayAtTime(5, 10, 4), minutes: 4, phase: 'before_timer', origin: 'scheduled', source_turn_id: 'cron:demo-5-4' }, dayAtTime(1, 9, 0)));
+  for (const [day, score, model, complete] of [[12, 17, 'gpt-5.4-codex', true], [8, 18, 'gpt-5.4-codex', true], [5, 6, 'gpt-5.5-codex', false], [3, 19, 'gpt-5.5-codex', true]] as const) {
+    rows.push(row(SCOUT, 'eval.result', { suite: 'alex', score, total: complete ? 20 : 7, complete, model, started_at: dayAtTime(day, 20, 0) }, dayAtTime(day, 20, 30)));
+  }
+  return rows;
+}
+
+// ---------------------------------------------------------------------------
 // AGENT ACTIVITY
 // ---------------------------------------------------------------------------
 export const demoAgentActivity: AgentActivity[] = [
+  ...demoTelemetry(),
   // Atlas's pending billed session (te-0010): narration landing inside the
   // session window so the agent session review modal shows a real timeline.
   { id: 'aact-0101-4000-8000-000000000101', agent_id: 'a1a1a1a1-0006-4000-8000-000000000006', project_id: 'c3c3c3c3-0002-4000-8000-000000000002', activity_type: 'task_started', title: 'Starting: Add CSV export to reports', description: '', reference_type: null, reference_id: null, metadata: {}, created_at: dayAtTime(1, 9, 2) },

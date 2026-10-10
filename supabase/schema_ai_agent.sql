@@ -161,6 +161,47 @@ CREATE INDEX idx_agent_activities_turn_created ON public.agent_activities(agent_
 ALTER TABLE public.agent_activities ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "agent_activities_all" ON public.agent_activities FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
+-- Billing gap reviews (20261010212024_agent_analytics_reviews.sql). The billing audit posts each stretch of Jeff's work
+-- that no time entry segment covers (agent_activities, billing.gap). Ciaran
+-- marks each one reconciled (he logged the time) or dismissed (it was not
+-- billable), with a note. A review never creates or changes a time entry, and
+-- the gap row itself stays immutable telemetry.
+CREATE TABLE public.agent_billing_gap_reviews (
+  activity_id uuid primary key references public.agent_activities(id) on delete cascade,
+  status text not null check (status in ('reconciled', 'dismissed')),
+  note text not null default '' check (char_length(note) <= 1000),
+  reviewed_by uuid references public.team_members(id) on delete set null,
+  reviewed_at timestamptz not null default now()
+);
+
+alter table public.agent_billing_gap_reviews enable row level security;
+
+create policy agent_billing_gap_reviews_access on public.agent_billing_gap_reviews for all to authenticated
+  using (public.has_permission('agents.manage'))
+  with check (public.has_permission('agents.manage'));
+
+grant select, insert, update, delete on public.agent_billing_gap_reviews to authenticated;
+
+-- Who reviewed and when is the database's to say, not the client's.
+create or replace function public.stamp_billing_gap_review()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  new.reviewed_by := public.current_team_member_id();
+  new.reviewed_at := now();
+  return new;
+end;
+$$;
+
+revoke all on function public.stamp_billing_gap_review() from public;
+
+create trigger stamp_billing_gap_review
+  before insert or update on public.agent_billing_gap_reviews
+  for each row execute function public.stamp_billing_gap_review();
+
 -- ============================================================
 -- 6. API AUDIT LOG (NOT gated behind ENABLE_AGENTS)
 -- ============================================================

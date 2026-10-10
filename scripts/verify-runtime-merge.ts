@@ -3,10 +3,10 @@
  * Measured live, 19.8% of Jeff's summed turn time was wall-clock counted twice.
  * These cases pin the merge.
  *
- * Run: npx tsx scripts/verify-runtime-merge.ts
+ * Run: npx tsx --tsconfig tsconfig.mcp-test.json scripts/verify-runtime-merge.ts
  */
-import { computeAgentAnalytics } from '@/lib/agent-analytics';
-import type { AgentActivity, Project, TeamMember, TimeEntry } from '@/lib/types';
+import { computeTelemetryAnalytics } from '@/lib/agent-telemetry-analytics';
+import type { AgentActivity, TeamMember } from '@/lib/types';
 
 const AGENT = '11111111-1111-4111-8111-111111111111';
 const team = [{ id: AGENT, name: 'Test Agent', role: 'agent' } as TeamMember];
@@ -31,15 +31,16 @@ const turn = (id: string, startIso: string, minutes: number): AgentActivity => (
   created_at: startIso,
 });
 
-const run = (activities: AgentActivity[]) => computeAgentAnalytics({
-  activities,
-  timeEntries: [] as TimeEntry[],
-  team,
-  projects: [] as Project[],
-  range: { startKey: day, endKey: day },
-  now: Date.parse(`${day}T23:59:00.000Z`),
-  timezone: 'UTC',
-}).agents[0];
+const run = (activities: AgentActivity[]) => {
+  const accounting = computeTelemetryAnalytics({
+    activities,
+    team,
+    range: { startKey: day, endKey: day },
+    now: Date.parse(`${day}T23:59:00.000Z`),
+    timezone: 'UTC',
+  }).perAgent[0].accounting;
+  return { runtimeMs: { value: accounting.activeMs } };
+};
 
 let failures = 0;
 const check = (label: string, actualMs: number | null, expectedMinutes: number) => {

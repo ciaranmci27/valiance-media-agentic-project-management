@@ -7315,6 +7315,66 @@ GRANT EXECUTE ON FUNCTION public.email_storage_known_paths(jsonb) TO service_rol
 GRANT EXECUTE ON FUNCTION public.email_record_maintenance_run(text, jsonb) TO service_role;
 
 -- ─────────────────────────────────────────────────────────────
+-- Task reopens (20261010212024_agent_analytics_reviews.sql). A task leaving `done` was not finished after all, and
+-- nothing recorded that: completed_at is cleared on the way out, so the
+-- history was lost. From this migration on every reopen is one row, written
+-- by the database whoever moves the task (the app, the API, an agent).
+CREATE TABLE public.task_reopens (
+  id uuid primary key default gen_random_uuid(),
+  task_id uuid not null references public.tasks(id) on delete cascade,
+  project_id uuid references public.projects(id) on delete set null,
+  to_status text not null,
+  reopened_by uuid references public.team_members(id) on delete set null,
+  reopened_at timestamptz not null default now()
+);
+
+CREATE INDEX idx_task_reopens_reopened_at on public.task_reopens (reopened_at desc);
+
+alter table public.task_reopens enable row level security;
+
+create policy task_reopens_read on public.task_reopens for select to authenticated
+  using (public.has_permission('agents.manage') and public.can_access_project(project_id));
+
+grant select on public.task_reopens to authenticated;
+
+create or replace function public.record_task_reopen()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if old.status = 'done' and new.status is distinct from 'done' then
+    insert into public.task_reopens (task_id, project_id, to_status, reopened_by)
+    values (new.id, new.project_id, new.status, public.current_team_member_id());
+  end if;
+  return new;
+end;
+$$;
+
+revoke all on function public.record_task_reopen() from public;
+
+create trigger record_task_reopen
+  after update of status on public.tasks
+  for each row execute function public.record_task_reopen();
+
+-- When each recorder began (same migration): a metric recorded from a moment
+-- on reads as "not measured" before it, never as zero.
+CREATE TABLE public.analytics_tracking_starts (
+  metric text primary key,
+  started_at timestamptz not null default now()
+);
+
+alter table public.analytics_tracking_starts enable row level security;
+
+create policy analytics_tracking_starts_read on public.analytics_tracking_starts for select to authenticated
+  using (public.has_permission('agents.manage'));
+
+grant select on public.analytics_tracking_starts to authenticated;
+
+insert into public.analytics_tracking_starts (metric) values ('task_reopens')
+on conflict (metric) do nothing;
+
 -- Realtime publication (20260730134850_realtime_publication.sql)
 -- Workspace tables published for postgres_changes so the app store can
 -- live-sync. Events respect RLS and column-level grants per subscriber.

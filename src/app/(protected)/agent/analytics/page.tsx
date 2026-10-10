@@ -19,7 +19,24 @@ import {
 } from '@/lib/agent-analytics';
 import { toDateKey } from '@/lib/finance/vesting';
 import { toLocalDateKey } from '@/lib/date-utils';
-import { useAgentAnalyticsEvents, useAgentHealthHistory } from '@/lib/use-agent-analytics-events';
+import {
+  useAgentAnalyticsEvents,
+  useAgentHealthHistory,
+  useBillingGapReviews,
+  useTaskReopens,
+} from '@/lib/use-agent-analytics-events';
+import { computeTelemetryAnalytics, TIME_LINES, type BillingGap, type GapReview } from '@/lib/agent-telemetry-analytics';
+import { createClient } from '@/lib/supabase/client';
+import { clearBillingGapReview, saveBillingGapReview } from '@/lib/supabase/queries';
+import { toast } from '@/components/ui/Toast';
+import { LINE_STYLE, fmtCount, fmtDuration } from '@/components/agent/analytics/shared';
+import { TimeAccountingCard } from '@/components/agent/analytics/TimeAccountingCard';
+import { TokensCard } from '@/components/agent/analytics/TokensCard';
+import { AttentionCard } from '@/components/agent/analytics/AttentionCard';
+import { QualityCard } from '@/components/agent/analytics/QualityCard';
+import { ReliabilityCard } from '@/components/agent/analytics/ReliabilityCard';
+import { BillingGapsCard } from '@/components/agent/analytics/BillingGapsCard';
+import { ModelsEvalsCard } from '@/components/agent/analytics/ModelsEvalsCard';
 import { PRESET_OPTIONS, resolveRange, DEFAULT_PRESET, type RangePreset } from '@/lib/agent-range';
 import {
   BarChart3,
@@ -58,13 +75,6 @@ function fmt(value: number): string {
 
 function fmtCurrency(value: number): string {
   return value < 0 ? `-$${fmt(Math.abs(value))}` : `$${fmt(value)}`;
-}
-
-/** Token and line counts get compact units; small values stay exact. */
-function fmtCount(value: number): string {
-  if (Math.abs(value) >= 1_000_000) return `${(value / 1_000_000).toFixed(value % 1_000_000 === 0 ? 0 : 1)}M`;
-  if (Math.abs(value) >= 10_000) return `${(value / 1000).toFixed(value % 1000 === 0 ? 0 : 1)}K`;
-  return value.toLocaleString('en-US');
 }
 
 function fmtDate(dateKey: string, withWeekday = false): string {
@@ -149,20 +159,11 @@ function metricOf(day: AgentAnalyticsDay, metric: ChartMetric): number {
     case 'revenue': return day.revenue;
     case 'modelCost': return day.modelCost ?? 0;
     case 'profit': return day.profit ?? 0;
-    case 'runtime': return day.runtimeMs ?? 0;
+    // Runtime is plotted from the outcome model (agent-telemetry-analytics).
+    case 'runtime': return 0;
     case 'prsMerged': return day.prsMerged;
     case 'reviewRounds': return day.reviewRounds;
   }
-}
-
-/** Runtime reads in hours and minutes; milliseconds are a storage detail. */
-function fmtDuration(ms: number): string {
-  const totalMinutes = Math.round(ms / 60000);
-  if (totalMinutes < 1) return `${Math.max(0, Math.round(ms / 1000))}s`;
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  if (hours === 0) return `${minutes}m`;
-  return minutes === 0 ? `${hours}h` : `${hours}h ${minutes}m`;
 }
 
 /** ~4 rounded axis ticks from 0 to just past maxVal. Integer steps for counts. */
@@ -239,7 +240,7 @@ function NotTracked({ reason, className = '' }: { reason: string; className?: st
 // ---------------------------------------------------------------------------
 
 export default function AgentAnalyticsPage() {
-  const { agentActivity: recentActivity, timeEntries, team, projects } = useApp();
+  const { agentActivity: recentActivity, timeEntries, team, projects, tasks, taskSuggestions } = useApp();
   const { isDemoMode } = useDemo();
   const { teamMemberId } = useAuth();
   const currentMember = team.find(member => member.id === teamMemberId);
@@ -343,6 +344,80 @@ export default function AgentAnalyticsPage() {
     .filter((value): value is string => Boolean(value))
     .sort()[0] ?? null;
 
+  // ── Honest telemetry: outcomes, tokens, attention, reliability ──
+  const gapReviewQuery = useBillingGapReviews({ enabled: !isDemoMode });
+  const reopenQuery = useTaskReopens({ enabled: !isDemoMode });
+  // Saved reviews apply at once; null marks one reopened in this session.
+  const [gapOverrides, setGapOverrides] = useState<Map<string, GapReview | null>>(() => new Map());
+  const gapReviews = useMemo(() => {
+    const merged = new Map<string, GapReview>(gapReviewQuery.rows.map(row => [row.activity_id, row]));
+    for (const [id, review] of gapOverrides) {
+      if (review) merged.set(id, review); else merged.delete(id);
+    }
+    return [...merged.values()];
+  }, [gapReviewQuery.rows, gapOverrides]);
+
+  const insight = useMemo(() => computeTelemetryAnalytics({
+    activities: agentActivity,
+    fleetActivities: isDemoMode ? [] : events.fleet,
+    team,
+    range,
+    now,
+    timezone: preferredTimezone,
+    selectedAgentIds: selectedAgentIds.size > 0 ? selectedAgentIds : undefined,
+    selectedProjectIds: selectedProjectIds.size > 0 ? selectedProjectIds : undefined,
+    suggestions: taskSuggestions,
+    reopens: reopenQuery.rows,
+    reopenTrackingSince: reopenQuery.since,
+    gapReviews,
+    // The delivery read model owns merge dedupe and the usage ledger; the
+    // telemetry model divides by them rather than recounting.
+    mergedPrsByAgent: new Map(analytics.agents.map(row => [row.agentId, row.prsMerged])),
+    ledgerTokensByAgent: new Map(analytics.agents.map(row => [
+      row.agentId,
+      row.inputTokens.tracking === 'tracked'
+        ? (row.inputTokens.value ?? 0) + (row.outputTokens.value ?? 0) + (row.cachedTokens.value ?? 0)
+        : null,
+    ])),
+  }), [agentActivity, events.fleet, isDemoMode, team, range, now, preferredTimezone, selectedAgentIds, selectedProjectIds,
+    taskSuggestions, reopenQuery.rows, reopenQuery.since, gapReviews, analytics.agents]);
+
+  const rangeDayCount = daysBetween(range.startKey, range.endKey);
+  const taskTitle = (taskId: string) => tasks.find(t => t.id === taskId)?.title ?? null;
+  const agentName = (agentId: string) => team.find(m => m.id === agentId)?.name ?? 'Unknown agent';
+
+  const reviewGap = async (gap: BillingGap, status: 'reconciled' | 'dismissed', note: string) => {
+    // Demo mode changes nothing outside the page.
+    if (isDemoMode) {
+      setGapOverrides(prev => new Map(prev).set(gap.id, { activity_id: gap.id, status, note, reviewed_at: new Date().toISOString() }));
+      return true;
+    }
+    try {
+      const saved = await saveBillingGapReview(createClient(), { activity_id: gap.id, status, note });
+      setGapOverrides(prev => new Map(prev).set(gap.id, saved));
+      toast('success', status === 'reconciled' ? 'Gap marked reconciled' : 'Gap dismissed');
+      return true;
+    } catch {
+      toast('error', 'Could not save the review');
+      return false;
+    }
+  };
+  const reopenGap = async (gap: BillingGap) => {
+    if (isDemoMode) {
+      setGapOverrides(prev => new Map(prev).set(gap.id, null));
+      return true;
+    }
+    try {
+      await clearBillingGapReview(createClient(), gap.id);
+      setGapOverrides(prev => new Map(prev).set(gap.id, null));
+      toast('success', 'Gap reopened');
+      return true;
+    } catch {
+      toast('error', 'Could not reopen the gap');
+      return false;
+    }
+  };
+
   // Which telemetry streams have EVER reported. A stream that has never
   // reported renders as "Not tracked"; a stream that reports zero renders 0.
   const telemetry = useMemo(() => ({
@@ -382,18 +457,6 @@ export default function AgentAnalyticsPage() {
       usagePartial: usageTracked && trackedRows.length < rows.length,
       usageAgents: trackedRows.length,
       totalAgents: rows.length,
-      runtimeMs: rows.some(r => r.runtimeMs.tracking === 'tracked')
-        ? rows.reduce((s, r) => s + (r.runtimeMs.value ?? 0), 0)
-        : null,
-      effectiveMs: rows.some(r => r.runtimeMs.tracking === 'tracked')
-        ? rows.reduce((s, r) => s + (r.effectiveRuntimeMs.value ?? 0), 0)
-        : null,
-      reworkMs: rows.reduce((s, r) => s + (r.reworkRuntimeMs.value ?? 0), 0),
-      blockedMs: rows.reduce((s, r) => s + (r.blockedRuntimeMs.value ?? 0), 0),
-      productiveRuntimeMs: rows.some(r => r.productiveRuntimeMs.tracking === 'tracked')
-        ? rows.reduce((s, r) => s + (r.productiveRuntimeMs.value ?? 0), 0)
-        : null,
-      turns: sum(r => r.turns),
     };
   }, [analytics]);
 
@@ -432,11 +495,18 @@ export default function AgentAnalyticsPage() {
       const i = index.get(day.dateKey);
       if (i === undefined) continue;
       for (const metric of Object.keys(series) as ChartMetric[]) {
+        if (metric === 'runtime') continue;
         series[metric][i] += metricOf(day, metric);
       }
     }
+    // Runtime comes from the outcome model, failed fires included, so the
+    // tile, its line and the chart agree with Time accounting.
+    for (const day of insight.daily) {
+      const i = index.get(day.dateKey);
+      if (i !== undefined) series.runtime[i] += TIME_LINES.reduce((sum, line) => sum + day.lines[line], 0);
+    }
     return series;
-  }, [analytics.daily, range]);
+  }, [analytics.daily, insight.daily, range]);
 
   // What each tile shows: the value slot (null = not tracked), a context
   // line, and whether the sparkline is meaningful.
@@ -474,18 +544,17 @@ export default function AgentAnalyticsPage() {
           notTracked: profitReason,
         };
         case 'runtime': {
-          // The capacity trend: how long the fleet ran. Productive share is the
+          // The capacity trend: how long the fleet ran. The work share is the
           // context because runtime spent finding nothing is real time but not
           // real output, and the gap between them is the useful signal.
-          const productivePct = summary.runtimeMs && summary.runtimeMs > 0 && summary.productiveRuntimeMs !== null
-            ? Math.round((summary.productiveRuntimeMs / summary.runtimeMs) * 100)
-            : null;
+          const fleet = insight.fleet;
+          const measured = fleet.turns > 0 || fleet.failedRuns > 0;
           return {
             ...metric,
-            value: summary.runtimeMs !== null ? fmtDuration(summary.runtimeMs) : null,
+            value: measured ? fmtDuration(fleet.activeMs) : null,
             valueClass: 'text-sky-300',
-            context: productivePct !== null
-              ? `${productivePct}% productive · ${summary.turns.toLocaleString('en-US')} turns`
+            context: measured && fleet.productiveShare !== null
+              ? `${Math.round(fleet.productiveShare * 100)}% work · ${fleet.turns.toLocaleString('en-US')} turns`
               : 'Time the agents actually ran',
             notTracked: selectedProjectIds.size > 0
               ? 'Runtime is fleet-wide, not per project: a turn can touch several projects or none, so it is not attributed to a project filter.'
@@ -519,7 +588,7 @@ export default function AgentAnalyticsPage() {
         };
       }
     });
-  }, [summary, telemetry, usageReason, profitReason, mergeReason, selectedProjectIds]);
+  }, [summary, telemetry, usageReason, profitReason, mergeReason, selectedProjectIds, insight.fleet]);
 
   const metricConfig = CHART_METRICS.find(m => m.key === chartMetric)!;
 
@@ -559,7 +628,20 @@ export default function AgentAnalyticsPage() {
         });
       }
     }
-    for (const day of analytics.daily) {
+    // Runtime stacks by outcome rather than by agent, so idle reads as idle.
+    if (chartMetric === 'runtime') {
+      for (const day of insight.daily) {
+        const bucket = buckets.get(bucketStartKey(day.dateKey, granularity));
+        if (!bucket) continue;
+        for (const line of TIME_LINES) {
+          const value = day.lines[line];
+          if (value <= 0) continue;
+          bucket.perAgent.set(line, (bucket.perAgent.get(line) ?? 0) + value);
+          bucket.total += value;
+        }
+      }
+    }
+    for (const day of chartMetric === 'runtime' ? [] : analytics.daily) {
       const bucket = buckets.get(bucketStartKey(day.dateKey, granularity));
       if (!bucket) continue;
       const value = metricOf(day, chartMetric);
@@ -580,7 +662,7 @@ export default function AgentAnalyticsPage() {
     const posMax = Math.max(...bars.map(b => b.posTotal), 0);
     const negMin = Math.min(...bars.map(b => b.negTotal), 0);
     return { bars, posMax, negMin, granularity };
-  }, [analytics.daily, chartMetric, range, todayKey]);
+  }, [analytics.daily, insight.daily, chartMetric, range, todayKey]);
 
   // Axis with an optional negative region below the zero line (profit only).
   const ticks = useMemo(() => {
@@ -640,6 +722,22 @@ export default function AgentAnalyticsPage() {
     [roster, selectedAgentIds],
   );
 
+  // What each bar is stacked by: agents, or for runtime the outcome lines.
+  const stack = useMemo(() => chartMetric === 'runtime'
+    ? TIME_LINES.map(line => ({
+        id: line as string,
+        name: LINE_STYLE[line].label,
+        avatar: null as string | null,
+        series: { bar: LINE_STYLE[line].bar, hover: '', dot: LINE_STYLE[line].dot },
+      }))
+    : chartAgents.map(m => ({
+        id: m.id,
+        name: m.name,
+        avatar: m.avatar || null,
+        series: seriesByAgent.get(m.id) ?? AGENT_SERIES[0],
+      })),
+  [chartMetric, chartAgents, seriesByAgent]);
+
   const noTelemetryForMetric =
     chartMetric === 'prsMerged' && !telemetry.merged
       ? 'Merge telemetry has not reported yet. This chart fills in once merged pull requests are recorded.'
@@ -648,6 +746,12 @@ export default function AgentAnalyticsPage() {
         : chartMetric === 'runtime' && !telemetry.runtime
           ? 'Turn telemetry has not reported yet. Runtime appears once completed turns are recorded.'
           : null;
+
+  /** One agent's active runtime from the outcome model; null when it ran no turns. */
+  const runtimeOf = (agentId: string): number | null => {
+    const accounting = insight.perAgent.find(row => row.agentId === agentId)?.accounting;
+    return accounting && (accounting.turns > 0 || accounting.failedRuns > 0) ? accounting.activeMs : null;
+  };
 
   const fmtValue = (v: number) => metricConfig.format === 'currency'
     ? fmtCurrency(v)
@@ -911,6 +1015,12 @@ export default function AgentAnalyticsPage() {
           </div>
         </div>
 
+        {!measuring && events.truncated && (
+          <p role="status" className="glass-card rounded-xl px-5 py-3 text-xs text-amber-300">
+            This range holds more agent events than one read can take, so figures under-report. Narrow the date range for complete numbers.
+          </p>
+        )}
+
         {/* ── KPI tiles: one per metric, selection drives the chart ── */}
         <div className="flex overflow-x-auto gap-3 lg:grid lg:grid-cols-3 xl:grid-cols-6 lg:gap-4 -mx-4 px-4 lg:mx-0 lg:px-0 scrollbar-none">
           {tiles.map(tile => {
@@ -974,7 +1084,7 @@ export default function AgentAnalyticsPage() {
               </h2>
             </div>
             <span className="text-xs text-zinc-500 font-medium hidden sm:inline flex-shrink-0">
-              Stacked by agent
+              {chartMetric === 'runtime' ? 'Stacked by outcome' : 'Stacked by agent'}
             </span>
           </div>
 
@@ -1059,7 +1169,7 @@ export default function AgentAnalyticsPage() {
                           </svg>
                         )}
                         {chart.bars.map((bar, barIdx) => {
-                          const segments = chartAgents
+                          const segments = stack
                             .map(m => ({ member: m, value: bar.perAgent.get(m.id) ?? 0 }))
                             .filter(s => s.value !== 0);
                           const posSegments = segments.filter(s => s.value > 0);
@@ -1092,7 +1202,7 @@ export default function AgentAnalyticsPage() {
                                     style={{ bottom: `${zeroBottomPct}%`, height: `${Math.max(posBarPct, posSegments.length * 1.5)}%` }}
                                   >
                                     {posSegments.map((s, i) => {
-                                      const series = seriesByAgent.get(s.member.id) ?? AGENT_SERIES[0];
+                                      const series = s.member.series;
                                       const isTop = i === posSegments.length - 1;
                                       return (
                                         <div
@@ -1116,7 +1226,7 @@ export default function AgentAnalyticsPage() {
                                   style={{ top: `${100 - zeroBottomPct}%`, height: `${Math.max(negBarPct, negSegments.length * 1.5)}%` }}
                                 >
                                   {negSegments.map((s, i) => {
-                                    const series = seriesByAgent.get(s.member.id) ?? AGENT_SERIES[0];
+                                    const series = s.member.series;
                                     const isBottom = i === negSegments.length - 1;
                                     return (
                                       <div
@@ -1141,7 +1251,7 @@ export default function AgentAnalyticsPage() {
                                     <p className="font-semibold text-zinc-200 mb-1">{bar.label === 'Today' ? fmtDate(bar.startKey, true) : bar.label}</p>
                                     <div className="space-y-0.5">
                                       {segments.slice().reverse().map(s => {
-                                        const series = seriesByAgent.get(s.member.id) ?? AGENT_SERIES[0];
+                                        const series = s.member.series;
                                         return (
                                           <div key={s.member.id} className="flex items-center gap-1.5">
                                             <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${series.dot}`} aria-hidden="true" />
@@ -1204,10 +1314,11 @@ export default function AgentAnalyticsPage() {
             )}
 
             {/* Legend: agent hues plus the cost overlay when shown */}
-            {chartAgents.length > 0 && (
+            {stack.length > 0 && (
               <div className="flex items-center gap-3 mt-3 pt-3 border-t border-white/[0.06] flex-wrap">
-                {chartAgents.map(m => {
-                  const series = seriesByAgent.get(m.id) ?? AGENT_SERIES[0];
+                {/* Outcome lines with no time in range stay out of the legend. */}
+                {stack.filter(m => chartMetric !== 'runtime' || chart.bars.some(b => b.perAgent.has(m.id))).map(m => {
+                  const series = m.series;
                   return (
                     <span key={m.id} className="flex items-center gap-1.5 px-2 py-1 rounded-md">
                       <span className={`w-2.5 h-2.5 rounded-sm ${series.dot}`} aria-hidden="true" />
@@ -1228,55 +1339,15 @@ export default function AgentAnalyticsPage() {
 
         {/* ── Where the time went ────────────────────────────── */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
-          {/* Time accounting: active runtime is the measured total, and every
-              deduction below it is named so the smaller number can be audited
-              rather than trusted. */}
-          <div className="glass-card rounded-xl overflow-hidden">
-            <div className="px-5 py-4 border-b border-white/[0.06] flex items-center gap-2">
-              <Timer size={18} className="text-zinc-400 flex-shrink-0" aria-hidden="true" />
-              <h2 className="font-semibold text-white">Time accounting</h2>
-            </div>
-            {measuring ? (
-              <div className="p-5 space-y-3" aria-hidden="true">
-                {Array.from({ length: 3 }).map((_, i) => (
-                  <div key={i} className="h-5 w-full rounded bg-white/[0.05] motion-safe:animate-pulse" />
-                ))}
-              </div>
-            ) : summary.runtimeMs === null ? (
-              <div className="px-5 py-8 text-center">
-                <NotTracked className="text-sm" reason={runtimeReason} />
-              </div>
-            ) : (
-              <div className="p-5 space-y-4">
-                <div className="flex items-baseline justify-between gap-3">
-                  <span className="text-sm text-zinc-400">Active runtime</span>
-                  <span className="text-lg font-bold text-sky-300">{fmtDuration(summary.runtimeMs)}</span>
-                </div>
-                {[
-                  { label: 'Rework on approved work', value: summary.reworkMs, tone: 'text-amber-400',
-                    hint: 'Rebuilding or re-reviewing a pull request that had already been approved.' },
-                  { label: 'Blocked', value: summary.blockedMs, tone: 'text-red-400',
-                    hint: 'Turns that ran while the agent could not proceed.' },
-                ].filter(row => (row.value ?? 0) > 0).map(row => (
-                  <div key={row.label} className="flex items-baseline justify-between gap-3">
-                    <Tooltip content={<span className="block max-w-[260px] whitespace-normal">{row.hint}</span>}>
-                      <span className="text-sm text-zinc-500 cursor-help">− {row.label}</span>
-                    </Tooltip>
-                    <span className={`text-sm font-semibold ${row.tone}`}>{fmtDuration(row.value ?? 0)}</span>
-                  </div>
-                ))}
-                <div className="flex items-baseline justify-between gap-3 pt-3 border-t border-white/[0.08]">
-                  <span className="text-sm font-medium text-zinc-300">Effective runtime</span>
-                  <span className="text-lg font-bold text-emerald-400">{fmtDuration(summary.effectiveMs ?? 0)}</span>
-                </div>
-                {summary.runtimeMs > 0 && (
-                  <p className="text-[11px] text-zinc-500">
-                    {Math.round(((summary.effectiveMs ?? 0) / summary.runtimeMs) * 100)}% of runtime displaced work a person would have had to do.
-                  </p>
-                )}
-              </div>
-            )}
-          </div>
+          <TimeAccountingCard
+            accounting={insight.fleet}
+            byJob={insight.byJob}
+            byTrigger={insight.byTrigger}
+            byAgent={insight.byAgent}
+            measuring={measuring}
+            withheldReason={selectedProjectIds.size > 0 ? runtimeReason : null}
+            outcomesReported={insight.outcomesReported}
+          />
 
           {/* Latency: runtime says how long agents ran, this says how long work
               sat still, which is usually the larger number. */}
@@ -1335,6 +1406,46 @@ export default function AgentAnalyticsPage() {
               </div>
             )}
           </div>
+        </div>
+
+        {/* ── What the tokens bought, and what reached Ciaran ── */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
+          <TokensCard
+            tokens={insight.tokens}
+            measuring={measuring}
+            withheldReason={selectedProjectIds.size > 0 ? 'Token attribution follows turns, which are fleet-wide, so it is not shown under a project filter.' : null}
+          />
+          <AttentionCard attention={insight.attention} measuring={measuring} rangeDays={rangeDayCount} taskTitle={taskTitle} />
+        </div>
+
+        {/* ── Quality and reliability ───────────────────────── */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
+          <QualityCard quality={insight.quality} measuring={measuring || reopenQuery.loading} />
+          <ReliabilityCard
+            reliability={insight.reliability}
+            measuring={measuring}
+            withheldReason={selectedProjectIds.size > 0 ? 'Turns, failures, restarts and wakes are fleet-wide, so they are not shown under a project filter.' : null}
+          />
+        </div>
+
+        {/* ── Billing integrity, models and evals ─────────────── */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
+          <BillingGapsCard
+            gaps={insight.billingGaps}
+            measuring={measuring || gapReviewQuery.loading}
+            reviewsAvailable={gapReviewQuery.available}
+            withheldReason={selectedProjectIds.size > 0 ? 'Billing gaps belong to turns, which are fleet-wide, so they are not shown under a project filter.' : null}
+            taskTitle={taskTitle}
+            agentName={agentName}
+            onReview={reviewGap}
+            onReopen={reopenGap}
+          />
+          <ModelsEvalsCard
+            models={insight.models}
+            evals={insight.evals}
+            measuring={measuring}
+            withheldReason={selectedProjectIds.size > 0 ? 'Models come from turns, which are fleet-wide, so they are not shown under a project filter.' : null}
+          />
         </div>
 
         {/* ── Leaderboard ────────────────────────────────────── */}
@@ -1431,8 +1542,8 @@ export default function AgentAnalyticsPage() {
                         </span>
                         <span className="text-sm text-zinc-300 font-medium text-right w-16">{row.reviewRounds}</span>
                         <span className="text-sm font-medium text-right w-20">
-                          {row.runtimeMs.tracking === 'tracked' && row.runtimeMs.value !== null
-                            ? <span className="text-sky-300">{fmtDuration(row.runtimeMs.value)}</span>
+                          {runtimeOf(row.agentId) !== null
+                            ? <span className="text-sky-300">{fmtDuration(runtimeOf(row.agentId)!)}</span>
                             : <NotTracked className="text-[11px]" reason={runtimeReason} />}
                         </span>
                         <span className="text-sm font-medium text-right w-24">
@@ -1507,11 +1618,11 @@ export default function AgentAnalyticsPage() {
                         </div>
                         <div>
                           <p className="text-[10px] uppercase tracking-wider text-zinc-500 font-medium">Runtime</p>
-                          <p className="text-sm font-semibold text-sky-300">
-                            {row.runtimeMs.tracking === 'tracked' && row.runtimeMs.value !== null
-                              ? fmtDuration(row.runtimeMs.value)
+                          <div className="text-sm font-semibold text-sky-300">
+                            {runtimeOf(row.agentId) !== null
+                              ? fmtDuration(runtimeOf(row.agentId)!)
                               : <NotTracked className="text-xs" reason={runtimeReason} />}
-                          </p>
+                          </div>
                         </div>
                         <div>
                           <p className="text-[10px] uppercase tracking-wider text-zinc-500 font-medium">Revenue</p>
