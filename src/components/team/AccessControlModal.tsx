@@ -282,6 +282,7 @@ export function AccessControlModal({
                       'notifications.manage_own',
                       'suggestions.create',
                       'agent_activity.write',
+                      'fleet_alerts.write',
                     ].includes(permission.key),
               ),
             }))

@@ -2,7 +2,7 @@
  * A small stand-in for Supabase's PostgREST over a pglite database, for
  * tests that run real server code with the real supabase-js client (a copy
  * of admin/scripts/fake-postgrest.ts). It serves only plain requests: rpc
- * calls; selects with eq/neq/is/gte/lte/gt/lt/in/or and not.<op> filters,
+ * calls; selects with eq/neq/is/gte/lte/gt/lt/in/cs (jsonb)/or and not.<op> filters,
  * order, limit and offset, exact counts (Prefer: count=exact) and one level
  * of embedded resources found through a foreign key; inserts, updates and
  * deletes. `handle` can serve other paths (a Storage stand-in). Every request
@@ -56,6 +56,8 @@ function filter(column: string, expression: string, params: unknown[]): string {
       return `${col} > ${bind(value)}`;
     case "lt":
       return `${col} < ${bind(value)}`;
+    case "cs":
+      return `${col} @> ${bind(value)}::jsonb`;
     case "is":
       if (value === "null") return `${col} IS NULL`;
       if (value === "true" || value === "false") return `${col} IS ${value.toUpperCase()}`;

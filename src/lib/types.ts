@@ -1100,6 +1100,12 @@ export interface TaskSuggestion {
 
 export interface AgentActivity {
   id: string;
+  /**
+   * The acting agent. The table also holds fleet host alerts with no agent
+   * (attention.message, kind host_alert); those are telemetry, which narrative
+   * reads exclude, and every read that can return them filters them out or
+   * types them separately.
+   */
   agent_id: string;
   project_id: string | null;
   /**
@@ -1114,6 +1120,8 @@ export interface AgentActivity {
   reference_type: string | null;
   reference_id: string | null;
   metadata: Record<string, any>;
+  /** Idempotency key for host telemetry records (agent-telemetry-ingest.ts); null otherwise. */
+  source_key?: string | null;
   created_at: string;
 }
 

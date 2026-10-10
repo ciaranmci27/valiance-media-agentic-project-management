@@ -7083,6 +7083,13 @@ INSERT INTO public.role_permissions (role, permission_key, access_channel) VALUE
   ('agent', 'inbound_email.signal', 'api')
 ON CONFLICT DO NOTHING;
 
+-- Fleet host alerts (20261010210652_agent_telemetry.sql): the scope the
+-- dispatcher's key carries to post alerts that name no agent. No key gets it
+-- automatically.
+INSERT INTO public.role_permissions (role, permission_key, access_channel) VALUES
+  ('agent', 'fleet_alerts.write', 'api')
+ON CONFLICT DO NOTHING;
+
 -- ============================================================
 -- 11. Retention and the orphan sweep
 -- ============================================================

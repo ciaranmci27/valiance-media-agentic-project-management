@@ -22,7 +22,7 @@ export function getEndpointScopes(endpoint: EndpointDoc): string[] {
   if (path.includes('/hourly-rates')) return ['billing.manage'];
   if (path.includes('/invoices')) return write ? ['invoices.manage'] : ['invoices.read', 'invoices.manage'];
   if (path === '/api/v1/agent-activities') {
-    return [write ? 'agent_activity.write' : 'audit.read'];
+    return write ? ['agent_activity.write', 'fleet_alerts.write'] : ['audit.read'];
   }
   if (path.includes('/task-suggestions')) {
     if (method === 'POST' && path === '/api/v1/task-suggestions') return ['suggestions.create'];
@@ -989,7 +989,7 @@ export const endpoints: EndpointDoc[] = [
       { name: 'limit', type: 'number', description: 'Items per page (default 25, max 100)' },
     ],
   },
-  { method: 'POST', path: '/api/v1/agent-activities', description: 'Log a typed agent event. Typed writes carry activity_type, project_id, and a schema-validated payload; the server composes the title and derives the agent from the API key. Grandfathered legacy writes remain accepted for rollout compatibility.', group: 'Agent Activity',
+  { method: 'POST', path: '/api/v1/agent-activities', description: 'Log a typed agent event. Typed writes carry activity_type, project_id, and a schema-validated payload; the server composes the title and derives the agent from the API key. Host telemetry (turn.completed, turn.outcome, turn.failed, agent.restarted, attention.message, dispatch.wake, billing.gap, eval.result) is idempotent on resend; turn.outcome merges onto the turn.completed with the same source_turn_id. A key with fleet_alerts.write may post only attention.message host alerts, stored with no agent. Grandfathered legacy writes remain accepted for rollout compatibility.', group: 'Agent Activity',
     body: [
       { name: 'activity_type', type: 'string', required: true, description: 'Canonical typed event name, including work.handoff, pr.merged, review.verdict, or usage.recorded.' },
       { name: 'payload', type: 'object', required: true, description: 'Event-specific fields validated by the canonical agent event contract.' },

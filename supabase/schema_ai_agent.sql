@@ -99,7 +99,8 @@ CREATE INDEX IF NOT EXISTS idx_tasks_source_task_suggestion_id ON public.tasks(s
 -- ============================================================
 CREATE TABLE public.agent_activities (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  agent_id uuid NOT NULL REFERENCES public.team_members(id) ON DELETE CASCADE,
+  -- Null only for a fleet host alert, which names no agent (see the check below).
+  agent_id uuid REFERENCES public.team_members(id) ON DELETE CASCADE,
   project_id uuid REFERENCES public.projects(id) ON DELETE SET NULL,
   -- Legacy values are grandfathered; the typed vocabulary is owned by
   -- src/lib/agent-events.ts (payload schemas + server-generated titles).
@@ -117,14 +118,23 @@ CREATE TABLE public.agent_activities (
     'queue.empty', 'blocked',
     'billing.started', 'billing.paused', 'billing.resumed', 'billing.stopped',
     -- composed by the server at inbox triage (20261006010922_email_inboxes)
-    'email.triaged'
+    'email.triaged',
+    -- host telemetry (20261010210652_agent_telemetry)
+    'turn.outcome', 'turn.failed', 'agent.restarted', 'attention.message',
+    'dispatch.wake', 'billing.gap', 'eval.result'
   )),
   title text NOT NULL,
   description text NOT NULL DEFAULT '',
   reference_type text,
   reference_id uuid,
   metadata jsonb NOT NULL DEFAULT '{}',
-  created_at timestamptz NOT NULL DEFAULT now()
+  -- Retry-safe identity of a host telemetry record (src/lib/agent-telemetry-ingest.ts).
+  source_key text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT agent_activities_agent_or_fleet_alert CHECK (
+    agent_id IS NOT NULL
+    OR (activity_type = 'attention.message' AND metadata->>'kind' = 'host_alert')
+  )
 );
 
 CREATE INDEX idx_agent_activities_agent_id ON public.agent_activities(agent_id);
@@ -140,6 +150,10 @@ CREATE UNIQUE INDEX idx_agent_activities_merged_pr_identity ON public.agent_acti
   WHERE activity_type = 'pr.merged' AND metadata->>'pr_url' IS NOT NULL;
 CREATE UNIQUE INDEX idx_agent_activities_turn_identity ON public.agent_activities(agent_id, (metadata->>'source_turn_id'))
   WHERE activity_type = 'turn.completed' AND metadata->>'source_turn_id' IS NOT NULL;
+-- One identity space for host records; fleet rows share the zero uuid.
+CREATE UNIQUE INDEX idx_agent_activities_source_identity ON public.agent_activities(
+  COALESCE(agent_id, '00000000-0000-0000-0000-000000000000'::uuid), activity_type, source_key)
+  WHERE source_key IS NOT NULL;
 -- Runtime rollups read one agent's turns over a date window.
 CREATE INDEX idx_agent_activities_turn_created ON public.agent_activities(agent_id, created_at DESC)
   WHERE activity_type = 'turn.completed';

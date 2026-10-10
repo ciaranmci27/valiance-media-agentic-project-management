@@ -24,7 +24,7 @@
  *   is labelled with what it measures.
  */
 
-import { EVENT_STATE, isAgentEventType } from '@/lib/agent-events';
+import { EVENT_STATE, isAgentEventType, isHostRecordEvent } from '@/lib/agent-events';
 export { isBookkeepingEvent } from '@/lib/agent-events';
 
 export type AgentMood = 'idle' | 'working' | 'reviewing' | 'blocked' | 'celebrating' | 'offline';
@@ -154,6 +154,9 @@ export function classifyActivity(row: ActivityLike): {
 
 /** Fold one activity row into a trace. Pure; returns a new trace. */
 export function ingestIntoTrace(cur: AgentTrace, row: ActivityLike): AgentTrace {
+  // A host record (restart, wake, audit gap, eval run) is written about the
+  // agent, often long after the fact, so it is not evidence the agent ran.
+  if (isHostRecordEvent(row.activity_type)) return cur;
   const at = new Date(row.created_at).getTime();
   const kind = classifyActivity(row);
   return {

@@ -29,6 +29,73 @@ const taskRef = {
   task_title: z.string().min(1).max(200).optional(),
 };
 
+// -- host telemetry (docs/12-telemetry.md in the agents repo) ---------------
+//
+// Host publishers post these with each agent's own key, retry a refused row
+// every minute, and stop that agent's later events behind it. So these
+// schemas are deliberately tolerant where the contract allows: unknown fields
+// are stripped rather than refused, and an identifier the app only reads
+// (task_id on host records) is a string, not a uuid, because one malformed
+// value must not stall a whole agent's telemetry. Times use offset: true for
+// python's isoformat ("+00:00").
+
+const instant = z.string().datetime({ offset: true });
+
+/**
+ * A host payload: python publishers send `None` for a field they could not
+ * read (a gap with no task, a fire with no start), and JSON carries it as
+ * null. The contract treats a missing value as absent, so nulls are dropped
+ * before validation (one level into nested objects such as `tokens`) rather
+ * than refused, which would stall that agent's publisher for good.
+ */
+function dropNulls(value: unknown): unknown {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+  const out: Record<string, unknown> = {};
+  for (const [key, field] of Object.entries(value as Record<string, unknown>)) {
+    if (field === null) continue;
+    out[key] = field && typeof field === 'object' && !Array.isArray(field)
+      ? Object.fromEntries(Object.entries(field as Record<string, unknown>).filter(([, inner]) => inner !== null))
+      : field;
+  }
+  return out;
+}
+const hostPayload = <T extends z.ZodRawShape>(shape: T) => z.preprocess(dropNulls, z.object(shape));
+
+/** Free text the app only displays: trimmed to fit, never refused for length. */
+const text = (max: number) => z.string().transform((value) => value.slice(0, max));
+
+/** What a turn was, decided on the host from what it did. Never guessed. */
+export const TURN_OUTCOMES = ['work', 'idle', 'waiting', 'blocked', 'skipped', 'unknown'] as const;
+export type TurnOutcome = typeof TURN_OUTCOMES[number];
+
+const turnTokens = z.object({
+  input: z.number().int().min(0).optional(),
+  output: z.number().int().min(0).optional(),
+  cache_read: z.number().int().min(0).optional(),
+  cache_write: z.number().int().min(0).optional(),
+  reasoning: z.number().int().min(0).optional(),
+});
+
+/** The labelling a turn carries, shared by turn.completed and turn.outcome. */
+const turnLabel = {
+  outcome: z.enum(TURN_OUTCOMES).optional(),
+  final_marker: text(60).optional(),
+  job_name: text(200).optional(),
+  trigger: z.enum(['schedule', 'direct']).optional(),
+  session_id: text(300).optional(),
+  model: text(200).optional(),
+  tokens: turnTokens.optional(),
+  tokens_scope: z.enum(['turn', 'session_usage']).optional(),
+};
+
+/** The turn.outcome fields merged onto a turn.completed (never source_turn_id). */
+export const TURN_LABEL_FIELDS = Object.keys(turnLabel) as (keyof typeof turnLabel)[];
+
+const looseId = text(300);
+
+/** The publisher's own checkpoint key for an event beside turns: its identity. */
+const sourceRef = { source_ref: z.string().min(1).max(500).optional() };
+
 export const AGENT_EVENT_SCHEMAS = {
   // -- building ------------------------------------------------------------
   'work.claimed': z.object({ ...taskRef, task_title: z.string().min(1).max(200) }),
@@ -53,6 +120,9 @@ export const AGENT_EVENT_SCHEMAS = {
     deletions: z.number().int().min(0),
     head_sha: z.string().regex(/^[0-9a-f]{40}$/i).optional(),
     repository: z.string().min(1).max(300).optional(),
+    // The pull request's title, when the merge publisher sends it. Analytics
+    // finds reverts by it (GitHub titles a revert `Revert "<title>"`).
+    title: z.string().min(1).max(300).optional(),
   }),
 
   // Emitted by the host-side Hermes publisher, never by an agent mid-turn.
@@ -81,14 +151,96 @@ export const AGENT_EVENT_SCHEMAS = {
   // to real client work. Emitted by the host publisher from the scheduler's own
   // ledger (scheduled turns) and from message timing (directed turns), so a
   // 25 minute conversation with 15 minutes of processing records the 15.
-  'turn.completed': z.object({
+  //
+  // `outcome` labels the turn (work, idle, waiting, blocked, skipped,
+  // unknown). Rows published before outcomes existed have none and read as
+  // unlabelled: never as work, never as idle.
+  'turn.completed': hostPayload({
     source_turn_id: z.string().min(1).max(300),
     origin: z.enum(['scheduled', 'directed']),
     duration_ms: z.number().int().min(0),
-    started_at: z.string().datetime({ offset: true }),
-    finished_at: z.string().datetime({ offset: true }),
-    job_name: z.string().min(1).max(200).optional(),
-    session_id: z.string().min(1).max(300).optional(),
+    started_at: instant,
+    finished_at: instant,
+    ...turnLabel,
+  }),
+  // A late label for a turn.completed published before outcomes existed. It
+  // carries no runtime: the API merges it onto the turn with the same
+  // source_turn_id, and only keeps it as its own row when that turn has not
+  // arrived (the turn absorbs it on arrival).
+  'turn.outcome': hostPayload({
+    source_turn_id: z.string().min(1).max(300),
+    ...turnLabel,
+    outcome: z.enum(TURN_OUTCOMES),
+  }),
+  // A scheduled fire that did not end cleanly. `has_completed_turn` marks a
+  // completed_with_error fire whose runtime is already on its turn.completed.
+  'turn.failed': hostPayload({
+    source_turn_id: z.string().min(1).max(300),
+    failure: z.enum(['failed', 'unknown', 'completed_with_error', 'dead']),
+    has_completed_turn: z.boolean().default(false),
+    started_at: instant.optional(),
+    finished_at: instant.optional(),
+    duration_ms: z.number().int().min(0).optional(),
+    error: z.string().max(2000).transform((value) => value.slice(0, 300)).optional(),
+    job_name: text(200).optional(),
+    trigger: z.enum(['schedule', 'direct']).optional(),
+  }),
+  'agent.restarted': hostPayload({
+    ...sourceRef,
+    kind: z.enum(['container', 'gateway']),
+    started_at: instant,
+    deploy_commit: text(64).optional(),
+  }),
+  // A message that reached Ciaran. Counted, never quoted: no text.
+  'attention.message': hostPayload({
+    ...sourceRef,
+    kind: z.enum(['telegram_reply', 'cron_delivery', 'pm_notify', 'blocking_question', 'host_alert']),
+    at: instant,
+    solicited: z.boolean().default(false),
+    session_id: looseId.optional(),
+    job_name: text(200).optional(),
+    task_id: looseId.optional(),
+    script: text(200).optional(),
+    alert_key: text(200).optional(),
+  }),
+  'dispatch.wake': hostPayload({
+    ...sourceRef,
+    kind: z.enum(['state_change', 'continuation', 'yielded']),
+    at: instant,
+    waited_seconds: z.number().int().min(0).optional(),
+    ledger_quiet_seconds: z.number().int().min(0).optional(),
+    schedule_in_seconds: z.number().int().min(0).optional(),
+  }),
+  // Work no billing segment covers, found by the billing audit. It never
+  // creates or changes a time entry; Ciaran reconciles or dismisses it.
+  'billing.gap': hostPayload({
+    start: instant,
+    end: instant,
+    minutes: z.number().min(0),
+    phase: z.enum(['before_timer', 'mid_turn', 'after_timer', 'unbilled_turn']),
+    origin: z.enum(['scheduled', 'directed']).optional(),
+    source_turn_id: z.string().min(1).max(300),
+    task_id: looseId.optional(),
+  }),
+  // One real run of a regression eval. Only `complete` runs are comparable.
+  'eval.result': hostPayload({
+    suite: z.string().min(1).transform((value) => value.slice(0, 100)),
+    score: z.number().int().min(0),
+    total: z.number().int().min(0),
+    passed: z.number().int().min(0).optional(),
+    failed: z.number().int().min(0).optional(),
+    errors: z.number().int().min(0).optional(),
+    skipped: z.number().int().min(0).optional(),
+    failed_cases: z.array(z.union([z.string().max(200), z.number()]).nullable()).max(200).optional(),
+    cases_selected: z.number().int().min(0).optional(),
+    cases_in_suite: z.number().int().min(0).optional(),
+    complete: z.boolean().default(false),
+    model: text(200).optional(),
+    // The evals fall back to their own stamp (20261010T190000Z) when it does
+    // not parse, so these are kept as sent and parsed where they are read.
+    started_at: z.string().min(1).max(64),
+    finished_at: z.string().min(1).max(64).optional(),
+    duration_seconds: z.number().int().min(0).optional(),
   }),
 
   // -- reviewing -----------------------------------------------------------
@@ -183,11 +335,26 @@ export function isBookkeepingEvent(t: string): boolean {
  * directly, range-scoped, where they belong.
  */
 export function isTelemetryEvent(t: string): boolean {
-  return t === 'usage.recorded' || t === 'turn.completed';
+  return (TELEMETRY_EVENT_TYPES as string[]).includes(t);
+}
+
+/**
+ * Records the host writes about an agent after the fact (a restart, a wake, a
+ * message that reached Ciaran, an audit finding, an eval run). Unlike a turn
+ * or a usage delta they prove nothing about whether the agent is alive now:
+ * a billing gap can be posted days after the work, by hand.
+ */
+export const HOST_RECORD_EVENT_TYPES: AgentEventType[] = [
+  'turn.outcome', 'turn.failed', 'agent.restarted', 'attention.message',
+  'dispatch.wake', 'billing.gap', 'eval.result',
+];
+
+export function isHostRecordEvent(t: string): boolean {
+  return (HOST_RECORD_EVENT_TYPES as string[]).includes(t);
 }
 
 /** Every activity type analytics reads but no human should read in a feed. */
-export const TELEMETRY_EVENT_TYPES: AgentEventType[] = ['usage.recorded', 'turn.completed'];
+export const TELEMETRY_EVENT_TYPES: AgentEventType[] = ['usage.recorded', 'turn.completed', ...HOST_RECORD_EVENT_TYPES];
 
 const short = (pr?: string) => {
   const m = pr ? /\/pull\/(\d+)/.exec(pr) : null;
@@ -236,6 +403,40 @@ export function formatEventTitle(type: AgentEventType, payload: Record<string, u
       const spell = seconds >= 60 ? `${Math.floor(seconds / 60)}m ${seconds % 60}s` : `${seconds}s`;
       return `Ran ${spell} (${p.origin === 'directed' ? 'directed' : 'scheduled'})`;
     }
+    case 'turn.outcome':
+      return `Turn labelled ${p.outcome}`;
+    case 'turn.failed': {
+      const failures: Record<string, string> = {
+        failed: 'Turn failed',
+        unknown: 'Turn lost to a restart',
+        completed_with_error: 'Turn completed with an error',
+        dead: 'Turn died mid-run',
+      };
+      const label = failures[String(p.failure)] ?? 'Turn failed';
+      return p.job_name ? `${label}: ${p.job_name}` : label;
+    }
+    case 'agent.restarted':
+      return p.kind === 'gateway' ? 'Gateway restarted' : 'Container restarted';
+    case 'attention.message': {
+      const kinds: Record<string, string> = {
+        telegram_reply: 'Replied on Telegram',
+        cron_delivery: 'Sent a scheduled update',
+        pm_notify: 'Sent a notification',
+        blocking_question: 'Asked a blocking question',
+        host_alert: 'Host alert',
+      };
+      const label = kinds[String(p.kind)] ?? 'Message to Ciaran';
+      return p.kind === 'host_alert' && p.alert_key ? `${label}: ${p.alert_key}` : label;
+    }
+    case 'dispatch.wake': {
+      if (p.kind === 'continuation') return 'Woken to continue claimed work';
+      if (p.kind === 'yielded') return 'Wake yielded to the schedule';
+      return p.waited_seconds ? `Woken by the dispatcher after ${p.waited_seconds}s` : 'Woken by the dispatcher';
+    }
+    case 'billing.gap':
+      return `Billing gap: ${p.minutes} min ${String(p.phase).replace(/_/g, ' ')}`;
+    case 'eval.result':
+      return `Eval ${p.suite}: ${p.score}/${p.total}${p.complete ? '' : ' (partial)'}`;
     case 'review.started': {
       // Both references are optional on a verdict-adjacent event; a missing
       // one must vanish, not render as the literal string "undefined"
@@ -304,6 +505,14 @@ export const EVENT_STATE: Record<AgentEventType, 'work' | 'done' | 'no_work' | '
   // Runtime is measurement, not state: a turn record arrives after the fact and
   // must never move an agent's mood. agent_health remains the status authority.
   'turn.completed': 'silent',
+  // Host records describe the past; none of them may move a mood either.
+  'turn.outcome': 'silent',
+  'turn.failed': 'silent',
+  'agent.restarted': 'silent',
+  'attention.message': 'silent',
+  'dispatch.wake': 'silent',
+  'billing.gap': 'silent',
+  'eval.result': 'silent',
   'review.started': 'work',
   'review.verdict': 'done',
   'audit.finding': 'work',

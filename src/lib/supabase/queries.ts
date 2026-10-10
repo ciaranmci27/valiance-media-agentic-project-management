@@ -2178,6 +2178,8 @@ export async function fetchAgentActivityRange(
       .select('*')
       .gte('created_at', from)
       .lte('created_at', to)
+      // Fleet host alerts name no agent; AgentActivity always has one.
+      .not('agent_id', 'is', null)
       .order('created_at', { ascending: false })
       .range(offset, offset + pageSize - 1);
     if (error) throw error;
@@ -2190,7 +2192,8 @@ export async function fetchAgentActivityRange(
 
 export async function insertAgentActivity(
   supabase: SupabaseClient,
-  entry: Omit<AgentActivity, 'id' | 'created_at'>
+  // agent_id is null only for a fleet host alert (see the activities route).
+  entry: Omit<AgentActivity, 'id' | 'created_at' | 'agent_id'> & { agent_id: string | null }
 ) {
   const { data, error } = await supabase
     .from('agent_activities')
@@ -2203,6 +2206,9 @@ export async function insertAgentActivity(
       reference_type: entry.reference_type || null,
       reference_id: entry.reference_id || null,
       metadata: entry.metadata || {},
+      // Only host telemetry sets it; omitted otherwise so a database without
+      // the column (before its migration) still takes every older type.
+      ...(entry.source_key ? { source_key: entry.source_key } : {}),
     })
     .select()
     .single();
