@@ -6,6 +6,7 @@ import { siteConfig } from '@/site-config';
 import { generatePortalSlug } from '@/lib/portal-slug';
 import { ensureLineItems } from '@/lib/invoice-utils';
 import { TELEMETRY_EVENT_TYPES } from '@/lib/agent-events';
+import { activitiesFromWindow, type AnalyticsWindowPayload } from '@/lib/agent-analytics-window';
 
 // ============================================================
 // PROJECTS
@@ -2215,6 +2216,29 @@ export async function fetchAgentActivityRange(
     ? await read(new Date(Date.parse(to) + 1).toISOString(), lateTo, TELEMETRY_EVENT_TYPES, maxRows)
     : false;
   return { rows, fleet, truncated: truncated || lateTruncated };
+}
+
+/**
+ * Agent Analytics in one round trip: the agent_analytics_window database
+ * function returns turns, hourly usage, directed-session usage and every
+ * other event for the range, compactly (see agent-analytics-window.ts). The
+ * bounds are widened a day each side so every viewer timezone's days are
+ * inside; the read models cut to the exact range.
+ */
+export async function fetchAgentAnalyticsWindow(
+  supabase: SupabaseClient,
+  range: { startKey: string; endKey: string },
+) {
+  const DAY = 86_400_000;
+  const startMs = Date.parse(`${range.startKey}T00:00:00.000Z`) - DAY;
+  const endMs = Date.parse(`${range.endKey}T23:59:59.999Z`);
+  const { data, error } = await supabase.rpc('agent_analytics_window', {
+    p_from: new Date(startMs).toISOString(),
+    p_to: new Date(endMs + DAY).toISOString(),
+    p_late_to: new Date(endMs + ANALYTICS_LOOKAHEAD_DAYS * DAY).toISOString(),
+  });
+  if (error) throw error;
+  return activitiesFromWindow(data as AnalyticsWindowPayload);
 }
 
 /** Billing gap reviews (Reconciled / Dismissed), for the analytics gaps list. */

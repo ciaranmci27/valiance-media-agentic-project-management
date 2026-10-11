@@ -130,9 +130,15 @@ export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId, acc
       .select('*')
       .eq('activity_type', type);
     query = agentId ? query.eq('agent_id', agentId) : query.is('agent_id', null);
-    query = record.source_key && type === parsed.activity_type
-      ? query.eq('source_key', record.source_key)
-      : query.contains('metadata', identity ?? { source_turn_id: metadata.source_turn_id });
+    // Equality on the indexed identity, never a jsonb containment scan: the
+    // partial unique indexes on metadata->>'source_turn_id' (and usage, PR)
+    // answer these in one probe, where @> read every one of the agent's rows.
+    if (record.source_key && type === parsed.activity_type) {
+      query = query.eq('source_key', record.source_key);
+    } else {
+      const [field, value] = Object.entries(identity ?? { source_turn_id: metadata.source_turn_id })[0];
+      query = query.eq(`metadata->>${field}`, String(value));
+    }
     const { data: existing, error: existingError } = await query.limit(1).maybeSingle();
     if (existingError) throw existingError;
     return existing as AgentActivity | null;

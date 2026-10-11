@@ -3,18 +3,22 @@
 import { createClient } from '@/lib/supabase/client';
 import {
   fetchAgentActivityRange,
+  fetchAgentAnalyticsWindow,
   fetchBillingGapReviews,
   fetchTaskReopens,
 } from '@/lib/supabase/queries';
 import { prefetchQuery, useCachedQuery } from '@/lib/query-cache';
 import type { DateRange } from '@/lib/finance/summary';
 import type { AgentActivity, FleetAgentActivity } from '@/lib/types';
+import type { AttributionDelta } from '@/lib/agent-telemetry-analytics';
 import type { AgentHealthTransition } from '@/lib/agent-analytics';
 
 export interface AgentAnalyticsEvents {
   rows: AgentActivity[];
   /** Fleet host alerts: no agent, so not AgentActivity rows. */
   fleet: FleetAgentActivity[];
+  /** Directed-session usage for token attribution, when usage came summed per hour. */
+  attribution: AttributionDelta[] | undefined;
   /** No answer yet. Callers show their own shape, never stale numbers. */
   loading: boolean;
   /** The range held more rows than the ceiling, so figures under-report. */
@@ -23,14 +27,33 @@ export interface AgentAnalyticsEvents {
   failed: boolean;
 }
 
-interface RangeResult { rows: AgentActivity[]; fleet: FleetAgentActivity[]; truncated: boolean }
+interface RangeResult {
+  rows: AgentActivity[];
+  fleet: FleetAgentActivity[];
+  truncated: boolean;
+  attribution?: AttributionDelta[];
+}
 
-// v2: the read now runs past the range end and returns fleet rows.
-const keyFor = (range: DateRange) => `agent-activity:v2:${range.startKey}:${range.endKey}`;
+// v3: one database round trip (agent_analytics_window).
+const keyFor = (range: DateRange) => `agent-activity:v3:${range.startKey}:${range.endKey}`;
+
+/** PostgREST and Postgres both say "no such function" before its migration. */
+const isMissingFunction = (error: unknown) => {
+  const e = error as { code?: string; message?: string } | null;
+  return e?.code === 'PGRST202' || e?.code === '42883' || /agent_analytics_window/.test(e?.message ?? '');
+};
 
 const fetchRange = async (range: DateRange): Promise<RangeResult> => {
   const supabase = createClient();
-  return fetchAgentActivityRange(supabase, range);
+  try {
+    const window = await fetchAgentAnalyticsWindow(supabase, range);
+    return { rows: window.rows, fleet: window.fleet, attribution: window.attribution, truncated: false };
+  } catch (error) {
+    // Until 20261011033458_agent_analytics_window.sql is applied, read the raw
+    // rows as before: slower, same numbers.
+    if (!isMissingFunction(error)) throw error;
+    return fetchAgentActivityRange(supabase, range);
+  }
 };
 
 /**
@@ -101,6 +124,7 @@ export function useAgentAnalyticsEvents(
   return {
     rows: query.data?.rows ?? [],
     fleet: query.data?.fleet ?? [],
+    attribution: query.data?.attribution,
     loading: enabled && query.loading,
     truncated: query.data?.truncated ?? false,
     failed: enabled && query.failed,

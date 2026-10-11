@@ -263,6 +263,14 @@ export interface TelemetryAnalytics {
   outcomesReported: boolean;
 }
 
+/** One usage delta of a directed session, for token attribution. */
+export interface AttributionDelta {
+  agentId: string;
+  sessionId: string;
+  at: number;
+  tokens: number;
+}
+
 /** A fleet-level row: host alerts that name no agent. */
 export type FleetActivity = FleetAgentActivity;
 
@@ -284,6 +292,12 @@ export interface TelemetryInput {
   mergedPrsByAgent?: Map<string, number>;
   /** Usage-ledger tokens per agent in range; null for an agent with none. */
   ledgerTokensByAgent?: Map<string, number | null>;
+  /**
+   * Usage deltas for directed-turn attribution. Given when `activities`
+   * carries usage summed per hour (the database window), which has no session
+   * to attribute by; otherwise the raw usage rows in `activities` are used.
+   */
+  attributionUsage?: AttributionDelta[];
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -688,17 +702,28 @@ export function computeTelemetryAnalytics(input: TelemetryInput): TelemetryAnaly
   // Scheduled turns carry their own tokens. Directed turns take the usage
   // deltas of their session recorded inside [start, finish + 3 min] (deltas
   // publish 90 s after a session goes quiet). Each delta attributes once.
-  const usageBySession = new Map<string, { id: string; at: number; tokens: number; used: boolean }[]>();
-  for (const a of activities) {
-    if (a.activity_type !== 'usage.recorded') continue;
-    const m = a.metadata ?? {};
-    const session = str(m.session_id);
-    const at = time(m.recorded_at) ?? Date.parse(a.created_at);
-    if (!session || !Number.isFinite(at)) continue;
-    const list = usageBySession.get(`${a.agent_id}:${session}`) ?? [];
-    list.push({ id: a.id, at, tokens: num(m.input_tokens) + num(m.output_tokens) + num(m.cached_tokens), used: false });
-    usageBySession.set(`${a.agent_id}:${session}`, list);
+  const usageBySession = new Map<string, { at: number; tokens: number; used: boolean }[]>();
+  const addDelta = (agentId: string, session: string, at: number, tokens: number) => {
+    const list = usageBySession.get(`${agentId}:${session}`) ?? [];
+    list.push({ at, tokens, used: false });
+    usageBySession.set(`${agentId}:${session}`, list);
+  };
+  if (input.attributionUsage) {
+    for (const d of input.attributionUsage) {
+      if (includeAgent(d.agentId) && Number.isFinite(d.at)) addDelta(d.agentId, d.sessionId, d.at, d.tokens);
+    }
+  } else {
+    for (const a of activities) {
+      if (a.activity_type !== 'usage.recorded') continue;
+      const m = a.metadata ?? {};
+      const session = str(m.session_id);
+      const at = time(m.recorded_at) ?? Date.parse(a.created_at);
+      if (!session || !Number.isFinite(at)) continue;
+      addDelta(a.agent_id, session, at, num(m.input_tokens) + num(m.output_tokens) + num(m.cached_tokens));
+    }
   }
+  // Deltas in time order, so a window takes them in the order they happened.
+  for (const list of usageBySession.values()) list.sort((x, y) => x.at - y.at);
   const ATTRIBUTION_GRACE_MS = 3 * 60_000;
   const tokensByOutcome = new Map<TurnOutcome | 'unlabelled', TokenSlice>();
   for (const t of turns.slice().sort((a, b) => a.start - b.start)) {

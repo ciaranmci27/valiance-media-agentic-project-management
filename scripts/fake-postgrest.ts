@@ -38,7 +38,9 @@ function filter(column: string, expression: string, params: unknown[]): string {
   const dot = expression.indexOf(".");
   const op = expression.slice(0, dot);
   const value = expression.slice(dot + 1);
-  const col = ident(column);
+  // `col->>key` filters a jsonb field as text, as PostgREST does.
+  const path = /^([a-z_][a-z0-9_]*)->>([a-z_][a-z0-9_]*)$/.exec(column);
+  const col = path ? `${ident(path[1])}->>'${path[2]}'` : ident(column);
   const bind = (v: unknown) => {
     params.push(v);
     return `$${params.length}`;

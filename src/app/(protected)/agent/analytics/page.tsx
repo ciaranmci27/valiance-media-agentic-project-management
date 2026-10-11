@@ -370,6 +370,7 @@ export default function AgentAnalyticsPage() {
     reopens: reopenQuery.rows,
     reopenTrackingSince: reopenQuery.since,
     gapReviews,
+    attributionUsage: isDemoMode ? undefined : events.attribution,
     // The delivery read model owns merge dedupe and the usage ledger; the
     // telemetry model divides by them rather than recounting.
     mergedPrsByAgent: new Map(analytics.agents.map(row => [row.agentId, row.prsMerged])),
@@ -379,7 +380,7 @@ export default function AgentAnalyticsPage() {
         ? (row.inputTokens.value ?? 0) + (row.outputTokens.value ?? 0) + (row.cachedTokens.value ?? 0)
         : null,
     ])),
-  }), [agentActivity, events.fleet, isDemoMode, team, range, now, preferredTimezone, selectedAgentIds, selectedProjectIds,
+  }), [agentActivity, events.fleet, events.attribution, isDemoMode, team, range, now, preferredTimezone, selectedAgentIds, selectedProjectIds,
     taskSuggestions, reopenQuery.rows, reopenQuery.since, gapReviews, analytics.agents]);
 
   const rangeDayCount = daysBetween(range.startKey, range.endKey);
