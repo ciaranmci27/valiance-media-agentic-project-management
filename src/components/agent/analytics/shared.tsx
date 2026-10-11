@@ -1,6 +1,7 @@
 'use client';
 
-import type { LucideIcon } from 'lucide-react';
+import { useId, useState } from 'react';
+import { ChevronDown, type LucideIcon } from 'lucide-react';
 import { Tooltip } from '@/components/ui/Tooltip';
 import type { TimeLine } from '@/lib/agent-telemetry-analytics';
 
@@ -103,10 +104,11 @@ export function Card({
 }) {
   return (
     <section className={`glass-card rounded-xl overflow-hidden flex flex-col ${className}`} aria-label={title}>
-      <div className="px-5 py-4 border-b border-white/[0.06] flex items-center justify-between gap-3 flex-shrink-0">
+      <div className="px-5 py-3.5 border-b border-white/[0.06] flex items-center justify-between gap-3 flex-shrink-0">
         <div className="flex items-center gap-2 min-w-0">
-          <Icon size={18} className="text-zinc-400 flex-shrink-0" aria-hidden="true" />
-          <h2 className="font-semibold text-white truncate">{title}</h2>
+          <Icon size={16} className="text-zinc-500 flex-shrink-0" aria-hidden="true" />
+          {/* h3: cards sit under the page's section headings (h2). */}
+          <h3 className="text-sm font-semibold text-white truncate">{title}</h3>
         </div>
         {aside}
       </div>
@@ -141,9 +143,11 @@ export function Label({ children }: { children: React.ReactNode }) {
 export function Defined({ hint, children, className = '' }: { hint: string; children: React.ReactNode; className?: string }) {
   return (
     <Tooltip content={<span className="block max-w-[260px] whitespace-normal">{hint}</span>}>
-      {/* Focusable so keyboard users reach the definition too (the tooltip opens on focus). */}
+      {/* Focusable so keyboard users reach the definition too (the tooltip
+          opens on focus). The underline appears on hover and focus only, so a
+          card full of defined labels does not read as a page of links. */}
       <span tabIndex={0}
-        className={`cursor-help underline decoration-dotted decoration-zinc-600 underline-offset-4 rounded focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500 ${className}`}>
+        className={`cursor-help decoration-dotted decoration-zinc-500 underline-offset-4 hover:underline focus-visible:underline rounded focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500 ${className}`}>
         {children}
       </span>
     </Tooltip>
@@ -164,6 +168,68 @@ export function Stat({ label, value, sub, valueClass = 'text-white' }: {
         <span className={`text-sm font-semibold ${valueClass}`}>{value}</span>
         {sub && <span className="block text-[11px] text-zinc-500">{sub}</span>}
       </span>
+    </div>
+  );
+}
+
+/**
+ * The one way a card states a headline number: small label, large value, one
+ * line of context. `hint` defines the label on hover and focus. A value of
+ * null renders `empty` muted, so a missing measurement never looks like 0.
+ */
+export function MiniStat({ label, hint, value, sub, empty = 'Not measured', valueClass = 'text-white' }: {
+  label: string;
+  hint?: string;
+  value: React.ReactNode | null;
+  sub?: React.ReactNode;
+  empty?: string;
+  valueClass?: string;
+}) {
+  return (
+    <div className="min-w-0">
+      <div className="text-xs text-zinc-500 truncate">
+        {hint ? <Defined hint={hint}>{label}</Defined> : label}
+      </div>
+      {value === null ? (
+        <p className="text-sm font-medium text-zinc-500 mt-1.5">{empty}</p>
+      ) : (
+        <p className={`text-xl font-semibold tracking-tight mt-1 leading-tight tabular-nums ${valueClass}`}>{value}</p>
+      )}
+      {sub && <p className="text-[11px] text-zinc-500 mt-0.5 truncate">{sub}</p>}
+    </div>
+  );
+}
+
+/** A row of MiniStats with even columns that wrap on phones. */
+export function StatRow({ children, columns = 3 }: { children: React.ReactNode; columns?: 2 | 3 | 4 }) {
+  const cols = { 2: 'grid-cols-2', 3: 'grid-cols-2 sm:grid-cols-3', 4: 'grid-cols-2 sm:grid-cols-4' }[columns];
+  return <div className={`grid ${cols} gap-x-4 gap-y-4`}>{children}</div>;
+}
+
+/**
+ * Detail that most visits do not need (error text, every restart, model
+ * history) folded behind a labelled toggle, so the card reads as a summary
+ * first. The count says how much is behind it.
+ */
+export function Disclosure({ label, count, children }: { label: string; count?: number; children: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const id = useId();
+  return (
+    <div className="border-t border-white/[0.06] pt-3">
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={id}
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between gap-3 text-left rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+      >
+        <span className="text-xs font-medium text-zinc-400">
+          {label}
+          {typeof count === 'number' && <span className="ml-1.5 text-zinc-500 tabular-nums">{count}</span>}
+        </span>
+        <ChevronDown size={14} className={`text-zinc-500 transition-transform duration-150 motion-reduce:transition-none ${open ? 'rotate-180' : ''}`} aria-hidden="true" />
+      </button>
+      {open && <div id={id} className="mt-3">{children}</div>}
     </div>
   );
 }

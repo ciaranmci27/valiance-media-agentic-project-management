@@ -2,7 +2,7 @@
 
 import { Cpu } from 'lucide-react';
 import type { EvalPoint, ModelRun } from '@/lib/agent-telemetry-analytics';
-import { Card, CardSkeleton, Label, fmtDay, fmtPct, fmtWhen } from './shared';
+import { Card, CardSkeleton, Disclosure, Label, fmtDay, fmtPct, fmtWhen } from './shared';
 
 /**
  * Which model answered for each agent over time, and each eval suite's score
@@ -16,40 +16,62 @@ export function ModelsEvalsCard({ models, evals, measuring, withheldReason }: {
   measuring: boolean;
   withheldReason: string | null;
 }) {
+  const switches = models.reduce((sum, row) => sum + Math.max(0, row.runs.length - 1), 0);
   return (
     <Card icon={Cpu} title="Models and evals">
       {measuring ? (
         <CardSkeleton rows={4} />
       ) : (
-        <div className="p-5 grid md:grid-cols-2 gap-6">
+        <div className="p-5 space-y-5">
           <div>
-            <Label>Model per agent</Label>
+            <Label>Current model</Label>
             {withheldReason ? (
               <p className="text-xs text-zinc-500">{withheldReason}</p>
             ) : models.length === 0 ? (
-              <p className="text-xs text-zinc-500">No turn in range names its model yet. Models appear once turns carry the model field.</p>
+              <p className="text-xs text-zinc-500">No turn in range names its model yet.</p>
             ) : (
-              <ul className="space-y-3">
-                {models.map((row) => (
-                  <li key={row.agentId}>
-                    <p className="text-sm font-medium text-zinc-200">{row.agentName}</p>
-                    <ol className="mt-1 space-y-0.5">
-                      {row.runs.map((run, i) => (
-                        <li key={`${run.model}:${i}`} className="text-[11px] text-zinc-400 flex items-baseline justify-between gap-3">
-                          <code className="text-zinc-300 truncate">{run.model}</code>
-                          <span className="text-zinc-500 flex-shrink-0">
-                            {fmtDay(run.from)}{fmtDay(run.from) !== fmtDay(run.to) ? ` to ${fmtDay(run.to)}` : ''} · {run.turns} turn{run.turns === 1 ? '' : 's'}
-                          </span>
-                        </li>
-                      ))}
-                    </ol>
-                  </li>
-                ))}
-              </ul>
+              <>
+                <ul className="divide-y divide-white/[0.06]">
+                  {models.map((row) => {
+                    const current = row.runs[row.runs.length - 1];
+                    return (
+                      <li key={row.agentId} className="flex items-baseline justify-between gap-3 py-1.5">
+                        <span className="text-sm text-zinc-300 truncate">{row.agentName}</span>
+                        <span className="text-[11px] text-zinc-500 flex-shrink-0">
+                          <code className="text-zinc-300">{current.model}</code> since {fmtDay(current.from)}
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+                {switches > 0 && (
+                  <div className="mt-3">
+                    <Disclosure label="Model changes in range" count={switches}>
+                      <ul className="space-y-3">
+                        {models.filter((row) => row.runs.length > 1).map((row) => (
+                          <li key={row.agentId}>
+                            <p className="text-xs font-medium text-zinc-300">{row.agentName}</p>
+                            <ol className="mt-1 space-y-0.5">
+                              {row.runs.map((run, i) => (
+                                <li key={`${run.model}:${i}`} className="text-[11px] text-zinc-400 flex items-baseline justify-between gap-3">
+                                  <code className="text-zinc-300 truncate">{run.model}</code>
+                                  <span className="text-zinc-500 flex-shrink-0">
+                                    {fmtDay(run.from)}{fmtDay(run.from) !== fmtDay(run.to) ? ` to ${fmtDay(run.to)}` : ''} · {run.turns} turn{run.turns === 1 ? '' : 's'}
+                                  </span>
+                                </li>
+                              ))}
+                            </ol>
+                          </li>
+                        ))}
+                      </ul>
+                    </Disclosure>
+                  </div>
+                )}
+              </>
             )}
           </div>
 
-          <div>
+          <div className="pt-4 border-t border-white/[0.06]">
             <Label>Eval scores</Label>
             {evals.length === 0 ? (
               <p className="text-xs text-zinc-500">No eval runs in range. A score appears after each real run of an eval suite.</p>

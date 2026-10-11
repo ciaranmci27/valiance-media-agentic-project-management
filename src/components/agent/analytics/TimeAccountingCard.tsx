@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { Timer } from 'lucide-react';
 import type { BreakdownRow, TimeAccounting, TimeLine } from '@/lib/agent-telemetry-analytics';
-import { Card, CardSkeleton, Defined, LINE_STYLE, Missing, fmtDuration, fmtPct } from './shared';
+import { Card, CardSkeleton, Defined, LINE_STYLE, MiniStat, Missing, StatRow, fmtDuration, fmtPct } from './shared';
 
 /**
  * Where every minute of runtime went. Active runtime is the measured total;
@@ -30,12 +30,12 @@ export function TimeAccountingCard({
 }) {
   const [view, setView] = useState<'agent' | 'job' | 'trigger'>('agent');
   const a = accounting;
-  const lines: { line: TimeLine; value: number; extra?: string }[] = [
+  const lines: { line: TimeLine; value: number }[] = [
     { line: 'work', value: a.lines.work + a.lines.rework },
-    { line: 'idle', value: a.lines.idle },
     { line: 'waiting', value: a.lines.waiting },
     { line: 'blocked', value: a.lines.blocked },
     { line: 'skipped', value: a.lines.skipped },
+    { line: 'idle', value: a.lines.idle },
   ];
   const unknownOrUnlabelled = a.lines.unknown + a.lines.unlabelled;
   const breakdown = view === 'agent' ? byAgent : view === 'job' ? byJob : byTrigger;
@@ -50,96 +50,75 @@ export function TimeAccountingCard({
         <Missing>No turns in this range. Runtime appears once completed turns are recorded.</Missing>
       ) : (
         <div className="p-5 space-y-5">
-          <div className="space-y-2.5">
-            <div className="flex items-baseline justify-between gap-3">
-              <Defined hint="Every turn that ran, including idle checks, waiting, failures and turns not yet labelled. Overlapping turns of one agent count once.">
-                <span className="text-sm text-zinc-300">Active runtime</span>
-              </Defined>
-              <span className="text-lg font-bold text-sky-300">{fmtDuration(a.activeMs)}</span>
-            </div>
+          <StatRow columns={3}>
+            <MiniStat
+              label="Active runtime"
+              hint="Every turn that ran, including idle checks, waiting, failures and turns not yet labelled. Overlapping turns of one agent count once."
+              value={fmtDuration(a.activeMs)}
+              valueClass="text-sky-300"
+              sub={`${a.turns.toLocaleString('en-US')} turns`}
+            />
+            <MiniStat
+              label="Effective runtime"
+              hint="Outcome work only, minus rework on approved work. Idle checks, waiting, blocked, skipped, unknown, unlabelled and failed time are never in it."
+              value={fmtDuration(a.effectiveMs)}
+              valueClass="text-emerald-400"
+              sub={a.lines.rework > 0 ? `after ${fmtDuration(a.lines.rework)} of rework` : 'outcome work only'}
+            />
+            <MiniStat
+              label="Productive share"
+              hint="All work, rework included, over active runtime."
+              value={a.productiveShare === null ? null : fmtPct(a.productiveShare)}
+              sub="work over active"
+            />
+          </StatRow>
 
+          <div>
             {/* One bar, proportional, so idle reads as idle at a glance. */}
             <div className="flex h-2 rounded-full overflow-hidden bg-white/[0.04]" role="img"
               aria-label={`Active runtime split: ${[...lines.map((l) => `${LINE_STYLE[l.line].label} ${fmtDuration(l.value)}`),
                 `Unknown or unlabelled ${fmtDuration(unknownOrUnlabelled)}`, `Failed ${fmtDuration(a.lines.failed)}`].join(', ')}`}>
-              {(['work', 'rework', 'blocked', 'waiting', 'idle', 'skipped', 'unknown', 'unlabelled', 'failed'] as TimeLine[]).map((line) =>
+              {(['work', 'rework', 'blocked', 'waiting', 'skipped', 'unknown', 'failed', 'idle', 'unlabelled'] as TimeLine[]).map((line) =>
                 a.lines[line] > 0 ? (
                   <div key={line} className={LINE_STYLE[line].bar} style={{ width: `${(a.lines[line] / a.activeMs) * 100}%` }} />
                 ) : null)}
             </div>
 
-            <ul className="space-y-1.5 pt-1">
-              {lines.map(({ line, value }) => (
-                <li key={line} className="flex items-baseline justify-between gap-3">
-                  <span className="flex items-center gap-2 min-w-0">
-                    <span className={`w-2 h-2 rounded-sm flex-shrink-0 ${LINE_STYLE[line].dot}`} aria-hidden="true" />
-                    <Defined hint={LINE_STYLE[line].hint}><span className="text-sm text-zinc-400">{LINE_STYLE[line].label}</span></Defined>
-                  </span>
-                  <span className="text-sm font-semibold text-zinc-200">
-                    {fmtDuration(value)}
-                    <span className="text-zinc-500 font-normal"> · {fmtPct(value / a.activeMs)}</span>
-                  </span>
-                </li>
-              ))}
-              <li className="flex items-baseline justify-between gap-3">
-                <span className="flex items-center gap-2 min-w-0">
-                  <span className={`w-2 h-2 rounded-sm flex-shrink-0 ${LINE_STYLE.unlabelled.dot}`} aria-hidden="true" />
-                  <Defined hint={`${LINE_STYLE.unknown.hint} ${LINE_STYLE.unlabelled.hint}`}>
-                    <span className="text-sm text-zinc-400">Unknown or unlabelled</span>
-                  </Defined>
-                </span>
-                <span className="text-sm font-semibold text-zinc-200 text-right">
-                  {fmtDuration(unknownOrUnlabelled)}
-                  <span className="text-zinc-500 font-normal"> · {fmtPct(unknownOrUnlabelled / a.activeMs)}</span>
-                  {unknownOrUnlabelled > 0 && (
-                    <span className="block text-[11px] text-zinc-500 font-normal">
-                      {a.unknownTurns} unknown · {a.unlabelledTurns} unlabelled turn{a.unlabelledTurns === 1 ? '' : 's'}
+            <ul className="mt-3 grid sm:grid-cols-2 gap-x-6 gap-y-1.5">
+              {[...lines,
+                { line: 'unlabelled' as TimeLine, value: unknownOrUnlabelled, label: 'Unknown or unlabelled', hint: `${LINE_STYLE.unknown.hint} ${LINE_STYLE.unlabelled.hint}`,
+                  note: unknownOrUnlabelled > 0 ? `${a.unknownTurns} unknown, ${a.unlabelledTurns} unlabelled turns` : undefined },
+                { line: 'failed' as TimeLine, value: a.lines.failed, label: 'Failed', hint: LINE_STYLE.failed.hint,
+                  note: a.failedRuns > 0
+                    ? `${a.failedWithoutTurn} fire${a.failedWithoutTurn === 1 ? '' : 's'}${a.failedRuns > a.failedWithoutTurn ? `, plus ${a.failedRuns - a.failedWithoutTurn} counted under their outcome` : ''}`
+                    : undefined },
+              ].map((item) => {
+                const label = 'label' in item ? item.label : LINE_STYLE[item.line].label;
+                const hint = 'hint' in item ? item.hint : LINE_STYLE[item.line].hint;
+                const note = 'note' in item ? item.note : undefined;
+                return (
+                  <li key={label} className="flex items-baseline justify-between gap-3 min-w-0">
+                    <span className="flex items-center gap-2 min-w-0">
+                      <span className={`w-2 h-2 rounded-sm flex-shrink-0 ${LINE_STYLE[item.line].dot}`} aria-hidden="true" />
+                      <span className="min-w-0">
+                        <Defined hint={hint}><span className="text-xs text-zinc-400">{label}</span></Defined>
+                        {note && <span className="block text-[10px] text-zinc-500 truncate">{note}</span>}
+                      </span>
                     </span>
-                  )}
-                </span>
-              </li>
-              <li className="flex items-baseline justify-between gap-3">
-                <span className="flex items-center gap-2 min-w-0">
-                  <span className={`w-2 h-2 rounded-sm flex-shrink-0 ${LINE_STYLE.failed.dot}`} aria-hidden="true" />
-                  <Defined hint={LINE_STYLE.failed.hint}><span className="text-sm text-zinc-400">Failed</span></Defined>
-                </span>
-                <span className="text-sm font-semibold text-zinc-200 text-right">
-                  {fmtDuration(a.lines.failed)}
-                  <span className="text-zinc-500 font-normal"> · {a.failedWithoutTurn} fire{a.failedWithoutTurn === 1 ? '' : 's'}</span>
-                  {a.failedRuns > a.failedWithoutTurn && (
-                    <span className="block text-[11px] text-zinc-500 font-normal">
-                      plus {a.failedRuns - a.failedWithoutTurn} completed with an error, counted under their outcome
+                    <span className="text-xs font-medium text-zinc-200 tabular-nums flex-shrink-0">
+                      {fmtDuration(item.value)}
+                      <span className="text-zinc-500 font-normal"> {fmtPct(item.value / a.activeMs)}</span>
                     </span>
-                  )}
-                </span>
-              </li>
+                  </li>
+                );
+              })}
             </ul>
-          </div>
-
-          <div className="space-y-1.5 pt-3 border-t border-white/[0.08]">
-            <div className="flex items-baseline justify-between gap-3">
-              <span className="text-sm text-zinc-400">Work</span>
-              <span className="text-sm font-semibold text-zinc-200">{fmtDuration(a.lines.work + a.lines.rework)}</span>
-            </div>
-            {a.lines.rework > 0 && (
-              <div className="flex items-baseline justify-between gap-3">
-                <Defined hint={LINE_STYLE.rework.hint}><span className="text-sm text-zinc-500">− Rework on approved work</span></Defined>
-                <span className="text-sm font-semibold text-amber-400">{fmtDuration(a.lines.rework)}</span>
-              </div>
+            {!outcomesReported && (
+              <p className="text-[11px] text-zinc-500 mt-3">No scheduled turn carries an outcome yet, so scheduled time reads as unlabelled until outcomes arrive.</p>
             )}
-            <div className="flex items-baseline justify-between gap-3">
-              <Defined hint="Outcome work only, minus rework on approved work. Idle checks, waiting, blocked, skipped, unknown, unlabelled and failed time are never in it.">
-                <span className="text-sm font-medium text-zinc-200">Effective runtime</span>
-              </Defined>
-              <span className="text-lg font-bold text-emerald-400">{fmtDuration(a.effectiveMs)}</span>
-            </div>
-            <p className="text-[11px] text-zinc-500">
-              Productive share {a.productiveShare === null ? 'not measurable' : fmtPct(a.productiveShare)}: work over active runtime.
-              {!outcomesReported && ' No scheduled turn carries an outcome yet, so scheduled time reads as unlabelled until outcomes arrive.'}
-            </p>
           </div>
 
-          <div className="pt-3 border-t border-white/[0.08]">
+          <div className="pt-4 border-t border-white/[0.06]">
             <div className="flex items-center justify-between gap-3 mb-2.5">
               <p className="text-[10px] uppercase tracking-wider font-semibold text-zinc-500">Breakdown</p>
               <div className="seg-track seg-sm" role="group" aria-label="Break runtime down by">

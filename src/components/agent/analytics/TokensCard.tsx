@@ -2,7 +2,13 @@
 
 import { Coins } from 'lucide-react';
 import type { TimeLine, TokenView } from '@/lib/agent-telemetry-analytics';
-import { Card, CardSkeleton, Defined, Label, LINE_STYLE, Missing, fmtCount, fmtPct } from './shared';
+import { Card, CardSkeleton, Label, LINE_STYLE, MiniStat, Missing, StatRow, fmtCount, fmtPct } from './shared';
+
+const RATIOS = [
+  { ratio: 'perMergedPr', count: 'mergedPrs', label: 'Per merged PR' },
+  { ratio: 'perAcceptedSuggestion', count: 'acceptedSuggestions', label: 'Per accepted suggestion' },
+  { ratio: 'perTask', count: 'tasksWorked', label: 'Per task worked' },
+] as const;
 
 /**
  * Tokens: one ledger, two views. The usage ledger is the total (and the cost);
@@ -15,95 +21,84 @@ export function TokensCard({ tokens, measuring, withheldReason }: {
   withheldReason: string | null;
 }) {
   const t = tokens;
-  const ratioRows = t.perAgent.filter((row) => row.ledgerTokens !== null
-    && (row.mergedPrs > 0 || row.acceptedSuggestions > 0 || row.tasksWorked > 0));
+  // Only the ratios and agents that have something to divide by.
+  const columns = RATIOS.filter((c) => t.perAgent.some((row) => row[c.ratio] !== null));
+  const rows = t.perAgent.filter((row) => columns.some((c) => row[c.ratio] !== null));
 
   return (
     <Card icon={Coins} title="Tokens">
       {measuring ? (
-        <CardSkeleton rows={5} />
+        <CardSkeleton rows={4} />
       ) : withheldReason ? (
         <Missing>{withheldReason}</Missing>
       ) : t.ledgerTokens === null && t.attributedTokens === 0 ? (
         <Missing>Usage telemetry has not reported for this selection, so there are no tokens to show.</Missing>
       ) : (
         <div className="p-5 space-y-5">
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Defined hint="Hermes' usage ledger: input, output and cached tokens per session. The total, and the source of model cost.">
-                <span className="text-xs text-zinc-500">Usage ledger</span>
-              </Defined>
-              <p className="text-xl font-bold text-white mt-1">{t.ledgerTokens === null ? 'Not reported' : fmtCount(t.ledgerTokens)}</p>
-            </div>
-            <div>
-              <Defined hint="Idle checks, waiting and skipped turns, over every token attributed to a turn.">
-                <span className="text-xs text-zinc-500">Idle-token share</span>
-              </Defined>
-              <p className="text-xl font-bold text-zinc-200 mt-1">{t.idleShare === null ? 'Not measured' : fmtPct(t.idleShare)}</p>
-            </div>
-          </div>
+          <StatRow columns={3}>
+            <MiniStat
+              label="Usage ledger"
+              hint="Hermes' usage ledger: input, output and cached tokens per session. The total, and the source of model cost."
+              value={t.ledgerTokens === null ? null : fmtCount(t.ledgerTokens)}
+              empty="Not reported"
+            />
+            <MiniStat
+              label="Attributed to turns"
+              hint="Tokens tied to a specific turn: scheduled turns report their own, directed turns take their session's usage. Older turns carry none."
+              value={fmtCount(t.attributedTokens)}
+              sub={t.ledgerTokens ? `${fmtPct(Math.min(1, t.attributedTokens / t.ledgerTokens))} of the ledger` : undefined}
+            />
+            <MiniStat
+              label="Idle-token share"
+              hint="Idle checks, waiting and skipped turns, over every token attributed to a turn."
+              value={t.idleShare === null ? null : fmtPct(t.idleShare)}
+              valueClass={t.idleShare !== null && t.idleShare > 0.5 ? 'text-amber-400' : 'text-white'}
+            />
+          </StatRow>
 
-          <div>
-            <Label>Tokens by outcome</Label>
-            {t.byOutcome.length === 0 ? (
-              <p className="text-xs text-zinc-500">
-                No turn carries tokens yet. Scheduled turns report their own tokens once the new publisher runs; directed turns take their session&apos;s usage.
-              </p>
-            ) : (
-              <>
-                <ul className="space-y-1.5">
-                  {t.byOutcome.map((slice) => {
-                    const style = LINE_STYLE[slice.outcome as TimeLine];
-                    return (
-                      <li key={slice.outcome} className="flex items-baseline justify-between gap-3">
-                        <span className="flex items-center gap-2 min-w-0">
-                          <span className={`w-2 h-2 rounded-sm flex-shrink-0 ${style.dot}`} aria-hidden="true" />
-                          <span className="text-sm text-zinc-400 truncate">{style.label}</span>
-                        </span>
-                        <span className="text-sm font-semibold text-zinc-200">
-                          {fmtCount(slice.tokens)}
-                          <span className="text-zinc-500 font-normal"> · {slice.turns} turn{slice.turns === 1 ? '' : 's'}</span>
-                        </span>
-                      </li>
-                    );
-                  })}
-                </ul>
-                <p className="text-[11px] text-zinc-500 mt-2">
-                  {fmtCount(t.attributedTokens)} attributed to a turn
-                  {t.ledgerTokens !== null && t.ledgerTokens > 0 && ` (${fmtPct(Math.min(1, t.attributedTokens / t.ledgerTokens))} of the ledger)`}.
-                  Turns published before turn tokens existed carry none, so they are not attributed.
-                </p>
-              </>
-            )}
-          </div>
+          {t.byOutcome.length > 0 && (
+            <div>
+              <Label>By outcome</Label>
+              <div className="flex h-2 rounded-full overflow-hidden bg-white/[0.04]" role="img"
+                aria-label={`Attributed tokens by outcome: ${t.byOutcome.map((s) => `${LINE_STYLE[s.outcome as TimeLine].label} ${fmtCount(s.tokens)}`).join(', ')}`}>
+                {t.byOutcome.map((slice) => (
+                  <div key={slice.outcome} className={LINE_STYLE[slice.outcome as TimeLine].bar} style={{ width: `${(slice.tokens / t.attributedTokens) * 100}%` }} />
+                ))}
+              </div>
+              <ul className="mt-2.5 grid grid-cols-2 gap-x-4 gap-y-1">
+                {t.byOutcome.map((slice) => (
+                  <li key={slice.outcome} className="flex items-baseline justify-between gap-2 text-xs">
+                    <span className="flex items-center gap-1.5 min-w-0">
+                      <span className={`w-2 h-2 rounded-sm flex-shrink-0 ${LINE_STYLE[slice.outcome as TimeLine].dot}`} aria-hidden="true" />
+                      <span className="text-zinc-400 truncate">{LINE_STYLE[slice.outcome as TimeLine].label}</span>
+                    </span>
+                    <span className="text-zinc-300 tabular-nums">{fmtCount(slice.tokens)}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
-          <div>
-            <Label>Tokens per output</Label>
-            {ratioRows.length === 0 ? (
-              <p className="text-xs text-zinc-500">No merged pull requests, accepted suggestions or worked tasks in range to divide by.</p>
-            ) : (
-              <div className="overflow-x-auto -mx-1">
-                <table className="w-full text-sm">
-                  <caption className="sr-only">Usage-ledger tokens per merged PR, per accepted suggestion and per task worked, by agent</caption>
+          {rows.length > 0 && (
+            <div>
+              <Label>Tokens per output</Label>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <caption className="sr-only">Usage-ledger tokens divided by each agent&apos;s outputs in range</caption>
                   <thead>
                     <tr className="text-[10px] uppercase tracking-wider text-zinc-500">
-                      <th scope="col" className="text-left font-medium px-1 pb-1.5">Agent</th>
-                      <th scope="col" className="text-right font-medium px-1 pb-1.5">Per merged PR</th>
-                      <th scope="col" className="text-right font-medium px-1 pb-1.5">Per accepted suggestion</th>
-                      <th scope="col" className="text-right font-medium px-1 pb-1.5">Per task worked</th>
+                      <th scope="col" className="text-left font-medium pb-1.5 pr-2">Agent</th>
+                      {columns.map((c) => <th key={c.ratio} scope="col" className="text-right font-medium pb-1.5 pl-2">{c.label}</th>)}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-white/[0.06]">
-                    {ratioRows.map((row) => (
+                    {rows.map((row) => (
                       <tr key={row.agentId}>
-                        <th scope="row" className="text-left font-medium text-zinc-300 px-1 py-1.5">{row.agentName}</th>
-                        {([['perMergedPr', 'mergedPrs'], ['perAcceptedSuggestion', 'acceptedSuggestions'], ['perTask', 'tasksWorked']] as const).map(([ratio, count]) => (
-                          <td key={ratio} className="text-right px-1 py-1.5 text-zinc-200">
-                            {row[ratio] === null ? <span className="text-zinc-600">-</span> : (
-                              <>
-                                {fmtCount(row[ratio]!)}
-                                <span className="block text-[10px] text-zinc-500">{row[count]} in range</span>
-                              </>
+                        <th scope="row" className="text-left font-medium text-zinc-300 py-1.5 pr-2">{row.agentName}</th>
+                        {columns.map((c) => (
+                          <td key={c.ratio} className="text-right py-1.5 pl-2 tabular-nums">
+                            {row[c.ratio] === null ? <span className="text-zinc-600">-</span> : (
+                              <span className="text-zinc-200">{fmtCount(row[c.ratio]!)} <span className="text-zinc-500">/ {row[c.count]}</span></span>
                             )}
                           </td>
                         ))}
@@ -112,11 +107,9 @@ export function TokensCard({ tokens, measuring, withheldReason }: {
                   </tbody>
                 </table>
               </div>
-            )}
-            <p className="text-[11px] text-zinc-500 mt-2">
-              The agent&apos;s whole usage ledger in range divided by each output, so idle and waiting tokens are part of each figure.
-            </p>
-          </div>
+              <p className="text-[11px] text-zinc-500 mt-2">The whole ledger divided by each output, so idle and waiting tokens are part of every figure.</p>
+            </div>
+          )}
         </div>
       )}
     </Card>

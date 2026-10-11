@@ -25,11 +25,19 @@ import {
   useBillingGapReviews,
   useTaskReopens,
 } from '@/lib/use-agent-analytics-events';
-import { computeTelemetryAnalytics, TIME_LINES, type BillingGap, type GapReview } from '@/lib/agent-telemetry-analytics';
+import { computeTelemetryAnalytics, TIME_LINES, type BillingGap, type GapReview, type TimeLine } from '@/lib/agent-telemetry-analytics';
+
+const HIDDEN_LINES_KEY = 'agent-analytics:hidden-runtime-lines';
+const DEFAULT_HIDDEN_LINES: TimeLine[] = ['idle', 'unlabelled'];
+// Chart order (legend, tooltip, stack from the bottom): the quiet lines go
+// last, so when shown they sit on top of the work. Display only; the overlap
+// priority in TIME_LINES is unchanged.
+const CHART_LINE_ORDER: TimeLine[] = ['work', 'rework', 'blocked', 'waiting', 'skipped', 'unknown', 'failed', 'idle', 'unlabelled'];
 import { createClient } from '@/lib/supabase/client';
 import { clearBillingGapReview, saveBillingGapReview } from '@/lib/supabase/queries';
 import { toast } from '@/components/ui/Toast';
-import { LINE_STYLE, fmtCount, fmtDuration } from '@/components/agent/analytics/shared';
+import { Card, CardSkeleton, LINE_STYLE, fmtCount, fmtDuration } from '@/components/agent/analytics/shared';
+import { SectionHeader } from '@/components/ui/SectionHeader';
 import { TimeAccountingCard } from '@/components/agent/analytics/TimeAccountingCard';
 import { TokensCard } from '@/components/agent/analytics/TokensCard';
 import { AttentionCard } from '@/components/agent/analytics/AttentionCard';
@@ -268,6 +276,26 @@ export default function AgentAnalyticsPage() {
   const agentRef = useRef<HTMLDivElement>(null);
 
   const [chartMetric, setChartMetric] = useState<ChartMetric>('revenue');
+
+  // Runtime lines hidden from the chart (only the chart: Time accounting and
+  // the tile always count everything). Idle checks and unlabelled turns start
+  // hidden because they dwarf the work; the legend brings them back. The
+  // choice is a per-viewer convenience kept in browser storage. Reading it in
+  // the initializer is hydration-safe: nothing that depends on it renders
+  // until the range's data has loaded, which never happens on the server.
+  const [hiddenLines, setHiddenLines] = useState<Set<TimeLine>>(() => {
+    try {
+      const stored = typeof window === 'undefined' ? null : window.localStorage.getItem(HIDDEN_LINES_KEY);
+      if (stored) return new Set((JSON.parse(stored) as string[]).filter((l): l is TimeLine => (TIME_LINES as string[]).includes(l)));
+    } catch { /* storage unavailable: keep the default */ }
+    return new Set(DEFAULT_HIDDEN_LINES);
+  });
+  const toggleLine = (line: TimeLine) => setHiddenLines(prev => {
+    const next = new Set(prev);
+    if (next.has(line)) next.delete(line); else next.add(line);
+    try { window.localStorage.setItem(HIDDEN_LINES_KEY, JSON.stringify([...next])); } catch { /* not persisted */ }
+    return next;
+  });
 
   // The labels row mirrors the bars' horizontal scroll on mobile so labels
   // stay aligned to their bars.
@@ -636,7 +664,7 @@ export default function AgentAnalyticsPage() {
         if (!bucket) continue;
         for (const line of TIME_LINES) {
           const value = day.lines[line];
-          if (value <= 0) continue;
+          if (value <= 0 || hiddenLines.has(line)) continue;
           bucket.perAgent.set(line, (bucket.perAgent.get(line) ?? 0) + value);
           bucket.total += value;
         }
@@ -663,7 +691,7 @@ export default function AgentAnalyticsPage() {
     const posMax = Math.max(...bars.map(b => b.posTotal), 0);
     const negMin = Math.min(...bars.map(b => b.negTotal), 0);
     return { bars, posMax, negMin, granularity };
-  }, [analytics.daily, insight.daily, chartMetric, range, todayKey]);
+  }, [analytics.daily, insight.daily, chartMetric, range, todayKey, hiddenLines]);
 
   // Axis with an optional negative region below the zero line (profit only).
   const ticks = useMemo(() => {
@@ -682,6 +710,9 @@ export default function AgentAnalyticsPage() {
   const positiveAreaPct = (axisMax / axisRange) * 100;
   const negativeAreaPct = (Math.abs(axisMin) / axisRange) * 100;
   const hasChartData = chart.bars.some(b => b.posTotal > 0 || b.negTotal < 0);
+  // Runtime lines with any time in range: the legend offers exactly these.
+  const linesWithData = CHART_LINE_ORDER.filter(line => insight.daily.some(day => day.lines[line] > 0));
+  const hiddenWithData = chartMetric === 'runtime' ? linesWithData.filter(line => hiddenLines.has(line)) : [];
 
   // Model-cost overlay: only over the revenue chart, and only when usage has
   // reported. Contiguous tracked buckets form polyline runs; untracked
@@ -725,7 +756,7 @@ export default function AgentAnalyticsPage() {
 
   // What each bar is stacked by: agents, or for runtime the outcome lines.
   const stack = useMemo(() => chartMetric === 'runtime'
-    ? TIME_LINES.map(line => ({
+    ? CHART_LINE_ORDER.map(line => ({
         id: line as string,
         name: LINE_STYLE[line].label,
         avatar: null as string | null,
@@ -1088,6 +1119,11 @@ export default function AgentAnalyticsPage() {
               {chartMetric === 'runtime' ? 'Stacked by outcome' : 'Stacked by agent'}
             </span>
           </div>
+          {!measuring && hiddenWithData.length > 0 && (
+            <p className="px-5 pt-3 text-[11px] text-zinc-500">
+              Not shown: {hiddenWithData.map(line => LINE_STYLE[line].label.toLowerCase()).join(', ')}. Time accounting still counts {hiddenWithData.length === 1 ? 'it' : 'them'}; use the legend to show {hiddenWithData.length === 1 ? 'it' : 'them'}.
+            </p>
+          )}
 
           <div className="chart-vivid px-5 pt-5 pb-4 flex-1 flex flex-col">
             {measuring ? (
@@ -1109,10 +1145,16 @@ export default function AgentAnalyticsPage() {
                   <TrendingUp size={18} className="text-zinc-500" aria-hidden="true" />
                 </div>
                 <p className="text-sm font-medium text-zinc-400">
-                  {noTelemetryForMetric ? 'Not tracked yet' : `No ${metricConfig.label.toLowerCase()} in this range`}
+                  {noTelemetryForMetric
+                    ? 'Not tracked yet'
+                    : hiddenWithData.length > 0
+                      ? 'Only hidden lines have time in this range'
+                      : `No ${metricConfig.label.toLowerCase()} in this range`}
                 </p>
                 <p className="text-xs text-zinc-500 mt-1 max-w-[360px]">
-                  {noTelemetryForMetric ?? 'Try a wider date range, or clear the project and agent filters.'}
+                  {noTelemetryForMetric ?? (hiddenWithData.length > 0
+                    ? 'Show them from the legend below.'
+                    : 'Try a wider date range, or clear the project and agent filters.')}
                 </p>
               </div>
             ) : (
@@ -1317,8 +1359,24 @@ export default function AgentAnalyticsPage() {
             {/* Legend: agent hues plus the cost overlay when shown */}
             {stack.length > 0 && (
               <div className="flex items-center gap-3 mt-3 pt-3 border-t border-white/[0.06] flex-wrap">
-                {/* Outcome lines with no time in range stay out of the legend. */}
-                {stack.filter(m => chartMetric !== 'runtime' || chart.bars.some(b => b.perAgent.has(m.id))).map(m => {
+                {/* Runtime: each outcome with time in range is a show/hide toggle. */}
+                {chartMetric === 'runtime' && linesWithData.map(line => {
+                  const shown = !hiddenLines.has(line);
+                  return (
+                    <button
+                      key={line}
+                      type="button"
+                      aria-pressed={shown}
+                      onClick={() => toggleLine(line)}
+                      title={shown ? `Hide ${LINE_STYLE[line].label.toLowerCase()}` : `Show ${LINE_STYLE[line].label.toLowerCase()}`}
+                      className={`flex items-center gap-1.5 px-2 py-1 rounded-md transition-colors hover:bg-white/[0.04] focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${shown ? '' : 'opacity-60'}`}
+                    >
+                      <span className={`w-2.5 h-2.5 rounded-sm ${shown ? LINE_STYLE[line].dot : 'border border-zinc-500'}`} aria-hidden="true" />
+                      <span className={`text-[11px] font-medium ${shown ? 'text-zinc-300' : 'text-zinc-400 line-through decoration-zinc-500'}`}>{LINE_STYLE[line].label}</span>
+                    </button>
+                  );
+                })}
+                {chartMetric !== 'runtime' && stack.map(m => {
                   const series = m.series;
                   return (
                     <span key={m.id} className="flex items-center gap-1.5 px-2 py-1 rounded-md">
@@ -1338,116 +1396,120 @@ export default function AgentAnalyticsPage() {
           </div>
         </div>
 
-        {/* ── Where the time went ────────────────────────────── */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
-          <TimeAccountingCard
-            accounting={insight.fleet}
-            byJob={insight.byJob}
-            byTrigger={insight.byTrigger}
-            byAgent={insight.byAgent}
-            measuring={measuring}
-            withheldReason={selectedProjectIds.size > 0 ? runtimeReason : null}
-            outcomesReported={insight.outcomesReported}
-          />
+        {/* ── Detail sections. Cards are paired by size so a row never
+            stretches a short card to match a long one. ─────────────────── */}
+        <section className="pt-2">
+          <SectionHeader label="Time" />
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
+            <TimeAccountingCard
+              accounting={insight.fleet}
+              byJob={insight.byJob}
+              byTrigger={insight.byTrigger}
+              byAgent={insight.byAgent}
+              measuring={measuring}
+              withheldReason={selectedProjectIds.size > 0 ? runtimeReason : null}
+              outcomesReported={insight.outcomesReported}
+            />
 
-          {/* Latency: runtime says how long agents ran, this says how long work
-              sat still, which is usually the larger number. */}
-          <div className="glass-card rounded-xl overflow-hidden">
-            <div className="px-5 py-4 border-b border-white/[0.06] flex items-center gap-2">
-              <Clock size={18} className="text-zinc-400 flex-shrink-0" aria-hidden="true" />
-              <h2 className="font-semibold text-white">Where work waits</h2>
-            </div>
-            {measuring ? (
-              <div className="p-5 space-y-3" aria-hidden="true">
-                {Array.from({ length: 3 }).map((_, i) => (
-                  <div key={i} className="h-5 w-full rounded bg-white/[0.05] motion-safe:animate-pulse" />
-                ))}
-              </div>
-            ) : (
-              <div className="divide-y divide-white/[0.06]">
-                {latency.map(stage => (
-                  <div key={stage.key} className="px-5 py-3.5 flex items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="text-sm text-zinc-300 truncate">{stage.label}</p>
-                      <p className="text-[11px] text-zinc-500">
-                        {stage.samples > 0 ? `${stage.samples} handoff${stage.samples === 1 ? '' : 's'}` : 'none in range'}
+            {/* Latency: runtime says how long agents ran, this says how long work
+                sat still, which is usually the larger number. */}
+            <Card icon={Clock} title="Where work waits">
+              {measuring ? (
+                <CardSkeleton rows={3} />
+              ) : (
+                <div className="divide-y divide-white/[0.06]">
+                  {latency.map(stage => (
+                    <div key={stage.key} className="px-5 py-3 flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-sm text-zinc-300 truncate">{stage.label}</p>
+                        <p className="text-[11px] text-zinc-500">
+                          {stage.samples > 0 ? `${stage.samples} handoff${stage.samples === 1 ? '' : 's'}` : 'none in range'}
+                        </p>
+                      </div>
+                      <div className="text-right flex-shrink-0">
+                        {stage.notTracked ? (
+                          <NotTracked className="text-xs" reason="Merge telemetry has not reported yet, so the wait between approval and merge cannot be measured." />
+                        ) : stage.medianMs === null ? (
+                          <span className="text-sm text-zinc-500">-</span>
+                        ) : (
+                          <>
+                            <p className="text-sm font-semibold text-white tabular-nums">{fmtDuration(stage.medianMs)}</p>
+                            <p className="text-[11px] text-zinc-500">worst {fmtDuration(stage.worstMs ?? 0)}</p>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                  {availability.some(a => a.uptimePct !== null) && (
+                    <div className="px-5 py-3.5">
+                      <p className="text-[10px] uppercase tracking-wider font-semibold text-zinc-500 mb-2">Availability</p>
+                      <ul className="grid grid-cols-2 gap-x-6 gap-y-1">
+                        {availability.filter(a => a.uptimePct !== null).map(a => (
+                          <li key={a.agentId} className="flex items-baseline justify-between gap-3 text-xs">
+                            <span className="text-zinc-400 truncate">{a.agentName}</span>
+                            <span className="font-medium text-zinc-200 tabular-nums">
+                              {a.uptimePct!.toFixed(1)}%
+                              {a.outages > 0 && <span className="text-zinc-500 font-normal"> · {a.outages} out</span>}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                      <p className="text-[11px] text-zinc-500 mt-2">
+                        Since {availabilitySince ? fmtDate(availabilitySince.slice(0, 10)) : 'first observation'}, when uptime history began.
                       </p>
                     </div>
-                    <div className="text-right flex-shrink-0">
-                      {stage.notTracked ? (
-                        <NotTracked className="text-xs" reason="Merge telemetry has not reported yet, so the wait between approval and merge cannot be measured." />
-                      ) : stage.medianMs === null ? (
-                        <span className="text-sm text-zinc-600">-</span>
-                      ) : (
-                        <>
-                          <p className="text-sm font-semibold text-white">{fmtDuration(stage.medianMs)}</p>
-                          <p className="text-[11px] text-zinc-500">worst {fmtDuration(stage.worstMs ?? 0)}</p>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                ))}
-                {availability.some(a => a.uptimePct !== null) && (
-                  <div className="px-5 py-3.5">
-                    <p className="text-[10px] uppercase tracking-wider font-semibold text-zinc-600 mb-2">Availability</p>
-                    {availability.filter(a => a.uptimePct !== null).map(a => (
-                      <div key={a.agentId} className="flex items-center justify-between gap-3 py-1">
-                        <span className="text-sm text-zinc-400 truncate">{a.agentName}</span>
-                        <span className="text-sm font-medium text-zinc-200">
-                          {a.uptimePct!.toFixed(1)}%
-                          {a.outages > 0 && <span className="text-zinc-500 font-normal"> · {a.outages} outage{a.outages === 1 ? '' : 's'}</span>}
-                        </span>
-                      </div>
-                    ))}
-                    <p className="text-[11px] text-zinc-500 mt-2">
-                      Measured from {availabilitySince ? fmtDate(availabilitySince.slice(0, 10)) : 'first observation'}, when uptime history began.
-                    </p>
-                  </div>
-                )}
-              </div>
-            )}
+                  )}
+                </div>
+              )}
+            </Card>
           </div>
-        </div>
+        </section>
 
-        {/* ── What the tokens bought, and what reached Ciaran ── */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
-          <TokensCard
-            tokens={insight.tokens}
-            measuring={measuring}
-            withheldReason={selectedProjectIds.size > 0 ? 'Token attribution follows turns, which are fleet-wide, so it is not shown under a project filter.' : null}
-          />
-          <AttentionCard attention={insight.attention} measuring={measuring} rangeDays={rangeDayCount} taskTitle={taskTitle} />
-        </div>
+        <section className="pt-2">
+          <SectionHeader label="Cost and attention" />
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
+            <TokensCard
+              tokens={insight.tokens}
+              measuring={measuring}
+              withheldReason={selectedProjectIds.size > 0 ? 'Token attribution follows turns, which are fleet-wide, so it is not shown under a project filter.' : null}
+            />
+            <AttentionCard attention={insight.attention} measuring={measuring} rangeDays={rangeDayCount} taskTitle={taskTitle} />
+          </div>
+        </section>
 
-        {/* ── Quality and reliability ───────────────────────── */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
-          <QualityCard quality={insight.quality} measuring={measuring || reopenQuery.loading} />
-          <ReliabilityCard
-            reliability={insight.reliability}
-            measuring={measuring}
-            withheldReason={selectedProjectIds.size > 0 ? 'Turns, failures, restarts and wakes are fleet-wide, so they are not shown under a project filter.' : null}
-          />
-        </div>
+        <section className="pt-2">
+          <SectionHeader label="Health" />
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
+            <ReliabilityCard
+              reliability={insight.reliability}
+              measuring={measuring}
+              withheldReason={selectedProjectIds.size > 0 ? 'Turns, failures, restarts and wakes are fleet-wide, so they are not shown under a project filter.' : null}
+            />
+            <ModelsEvalsCard
+              models={insight.models}
+              evals={insight.evals}
+              measuring={measuring}
+              withheldReason={selectedProjectIds.size > 0 ? 'Models come from turns, which are fleet-wide, so they are not shown under a project filter.' : null}
+            />
+          </div>
+        </section>
 
-        {/* ── Billing integrity, models and evals ─────────────── */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
-          <BillingGapsCard
-            gaps={insight.billingGaps}
-            measuring={measuring || gapReviewQuery.loading}
-            reviewsAvailable={gapReviewQuery.available}
-            withheldReason={selectedProjectIds.size > 0 ? 'Billing gaps belong to turns, which are fleet-wide, so they are not shown under a project filter.' : null}
-            taskTitle={taskTitle}
-            agentName={agentName}
-            onReview={reviewGap}
-            onReopen={reopenGap}
-          />
-          <ModelsEvalsCard
-            models={insight.models}
-            evals={insight.evals}
-            measuring={measuring}
-            withheldReason={selectedProjectIds.size > 0 ? 'Models come from turns, which are fleet-wide, so they are not shown under a project filter.' : null}
-          />
-        </div>
+        <section className="pt-2">
+          <SectionHeader label="Delivery quality" />
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
+            <QualityCard quality={insight.quality} measuring={measuring || reopenQuery.loading} />
+            <BillingGapsCard
+              gaps={insight.billingGaps}
+              measuring={measuring || gapReviewQuery.loading}
+              reviewsAvailable={gapReviewQuery.available}
+              withheldReason={selectedProjectIds.size > 0 ? 'Billing gaps belong to turns, which are fleet-wide, so they are not shown under a project filter.' : null}
+              taskTitle={taskTitle}
+              agentName={agentName}
+              onReview={reviewGap}
+              onReopen={reopenGap}
+            />
+          </div>
+        </section>
 
         {/* ── Leaderboard ────────────────────────────────────── */}
         <div className="glass-card rounded-xl overflow-hidden flex flex-col">
