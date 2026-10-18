@@ -8,6 +8,7 @@ import {
   lineItemsTotal,
   paidHourlyLineItemTotal,
 } from '@/lib/invoice-utils';
+import { taxOn } from '@/lib/invoice-payments';
 import { getWorkedHours } from '@/lib/time-entry-utils';
 import { siteConfig } from '@/site-config';
 import type { InvoicePdfData, InvoicePdfOptions, InvoicePdfTimeLogEntry } from './types';
@@ -69,8 +70,10 @@ export function buildInvoiceData({
     .filter(li => li.item_type !== 'reimbursement')
     .reduce((sum, li) => sum + (Number(li.amount) || 0), 0);
   const taxRate = project?.tax_rate ?? null;
-  const taxAmount = taxRate != null ? Math.round(taxableSubtotal * (taxRate / 100) * 100) / 100 : 0;
-  const total = subtotal + taxAmount;
+  // Rounded as the database totals the invoice (invoice_total), so the PDF,
+  // the panel and payments agree to the cent.
+  const taxAmount = taxOn(taxableSubtotal, taxRate);
+  const total = (Math.round(subtotal * 100) + Math.round(taxAmount * 100)) / 100;
 
   const business = {
     name: businessSettings?.business_name?.trim() || siteConfig.name,

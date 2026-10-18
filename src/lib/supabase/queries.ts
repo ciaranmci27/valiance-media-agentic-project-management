@@ -1,5 +1,5 @@
 import { SupabaseClient } from '@supabase/supabase-js';
-import type { AiReadiness, Project, Task, TeamMember, Subtask, AcceptanceCriterion, Comment, Activity, Contact, ContactEmail, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, ApiKey, ProjectGoal, TaskSuggestion, AgentActivity, FleetAgentActivity, ApiAuditEntry, TimeEntry, ProjectCredential, ProjectCredentialListItem, ProjectInvoice, BusinessSettings, InvoiceTimeEntryAllocation, WebhookEndpoint, WebhookDelivery, ProjectRetainer, ProjectRetainerAmount, ProjectRetainerShare, ProjectRetainerPeriod, RetainerDuePeriod, InvoiceLineShare, ProjectBillingPlan, ProjectBillingRun, BillingForecastItem } from '@/lib/types';
+import type { AiReadiness, Project, Task, TeamMember, Subtask, AcceptanceCriterion, Comment, Activity, Contact, ContactEmail, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, ApiKey, ProjectGoal, TaskSuggestion, AgentActivity, FleetAgentActivity, ApiAuditEntry, TimeEntry, ProjectCredential, ProjectCredentialListItem, ProjectInvoice, InvoicePayment, InvoicePaymentMethod, BusinessSettings, InvoiceTimeEntryAllocation, WebhookEndpoint, WebhookDelivery, ProjectRetainer, ProjectRetainerAmount, ProjectRetainerShare, ProjectRetainerPeriod, RetainerDuePeriod, InvoiceLineShare, ProjectBillingPlan, ProjectBillingRun, BillingForecastItem } from '@/lib/types';
 import { fetchAllRows } from '@/lib/supabase/fetch-all';
 import { notFound } from '@/lib/api/errors';
 import { siteConfig } from '@/site-config';
@@ -1598,12 +1598,9 @@ export async function fetchWebhookDeliveries(supabase: SupabaseClient, limit = 2
   return (data || []) as WebhookDelivery[];
 }
 
-/** Manual resend: mark a failed delivery pending again so the next dispatch re-sends it. */
+/** Manual resend: a failed delivery goes back to pending with a fresh attempt budget. */
 export async function requeueWebhookDelivery(supabase: SupabaseClient, id: string) {
-  const { error } = await supabase
-    .from('webhook_deliveries')
-    .update({ status: 'pending', last_error: null })
-    .eq('id', id);
+  const { error } = await supabase.rpc('requeue_webhook_delivery', { p_delivery_id: id });
   if (error) throw error;
 }
 
@@ -2597,21 +2594,41 @@ export async function removeProjectCredential(supabase: SupabaseClient, id: stri
 // PROJECT INVOICES
 // ============================================================
 
+const INVOICE_COLUMNS = '*, invoice_time_entry_allocations(*), invoice_payments(*)';
+
+/** A stored invoice row with its allocations and payments, as the app holds it. */
+function hydrateInvoice(row: Record<string, unknown>): ProjectInvoice {
+  const { invoice_time_entry_allocations, invoice_payments, ...rest } = row as Record<string, unknown> & {
+    invoice_time_entry_allocations?: InvoiceTimeEntryAllocation[];
+    invoice_payments?: InvoicePayment[];
+  };
+  const inv = rest as unknown as ProjectInvoice;
+  return {
+    ...inv,
+    line_items: ensureLineItems(inv),
+    time_allocations: invoice_time_entry_allocations || [],
+    payments: (invoice_payments || [])
+      .map((payment) => ({ ...payment, amount: Number(payment.amount) }))
+      .sort((a, b) => a.paid_date.localeCompare(b.paid_date) || a.created_at.localeCompare(b.created_at)),
+  };
+}
+
+/** One invoice re-read after a change the database made around it (payments, status). */
+export async function fetchProjectInvoice(supabase: SupabaseClient, id: string) {
+  const { data, error } = await supabase.from('project_invoices').select(INVOICE_COLUMNS).eq('id', id).maybeSingle();
+  if (error) throw error;
+  return data ? hydrateInvoice(data as Record<string, unknown>) : null;
+}
+
 export async function fetchAllProjectInvoices(supabase: SupabaseClient) {
   const data = await fetchAllRows((from, to, count) => supabase
     .from('project_invoices')
-    .select('*, invoice_time_entry_allocations(*)', { count })
+    .select(INVOICE_COLUMNS, { count })
     .order('date', { ascending: false })
     .order('id')
     .range(from, to));
   // Hydrate line_items via lazy synthesis so consumers always see a populated array.
-  return data.map((row) => {
-    const inv = row as ProjectInvoice;
-    const allocations = ((row as ProjectInvoice & {
-      invoice_time_entry_allocations?: InvoiceTimeEntryAllocation[];
-    }).invoice_time_entry_allocations || []);
-    return { ...inv, line_items: ensureLineItems(inv), time_allocations: allocations };
-  });
+  return data.map((row) => hydrateInvoice(row as Record<string, unknown>));
 }
 
 export async function insertProjectInvoice(
@@ -2628,7 +2645,12 @@ export async function insertProjectInvoice(
     .single();
   if (error) throw error;
   const inv = data as ProjectInvoice;
-  return { ...inv, line_items: ensureLineItems(inv), time_allocations };
+  // Created as paid: the database recorded its payment too.
+  if (inv.status === 'paid') {
+    const fresh = await fetchProjectInvoice(supabase, inv.id);
+    if (fresh) return fresh;
+  }
+  return { ...inv, line_items: ensureLineItems(inv), time_allocations, payments: [] };
 }
 
 export async function patchProjectInvoice(
@@ -2650,21 +2672,38 @@ export async function patchProjectInvoice(
     })
     .single();
   if (error) throw error;
-  const { data: allocationRows, error: allocationError } = await supabase
-    .from('invoice_time_entry_allocations')
-    .select('*')
-    .eq('invoice_id', id);
-  if (allocationError) throw allocationError;
-  const inv = data as ProjectInvoice;
-  return {
-    ...inv,
-    line_items: ensureLineItems(inv),
-    time_allocations: (allocationRows || []) as InvoiceTimeEntryAllocation[],
-  };
+  // Re-read with allocations and payments: a status change records or
+  // removes payments in the same save.
+  const fresh = await fetchProjectInvoice(supabase, id);
+  if (!fresh) throw new Error('Invoice not found');
+  return fresh;
 }
 
 export async function removeProjectInvoice(supabase: SupabaseClient, id: string) {
   const { error } = await supabase.from('project_invoices').delete().eq('id', id);
+  if (error) throw error;
+}
+
+/** A project's payments with the name of the API key that recorded each. */
+export async function fetchProjectInvoicePayments(supabase: SupabaseClient, projectId: string) {
+  const { data, error } = await supabase.rpc('project_invoice_payments', { p_project_id: projectId });
+  if (error) throw error;
+  return ((data ?? []) as InvoicePayment[]).map((payment) => ({ ...payment, amount: Number(payment.amount) }));
+}
+
+/** Record a payment by hand (recorded_via app). The invoice's status follows. */
+export async function recordInvoicePayment(
+  supabase: SupabaseClient,
+  invoiceId: string,
+  payment: { amount: number; paid_date: string; method: InvoicePaymentMethod | null; reference: string | null },
+) {
+  const { error } = await supabase.rpc('record_invoice_payment', { p_invoice_id: invoiceId, p_payment: payment });
+  if (error) throw error;
+}
+
+/** Remove a payment recorded by hand. */
+export async function removeInvoicePayment(supabase: SupabaseClient, paymentId: string) {
+  const { error } = await supabase.rpc('remove_invoice_payment', { p_payment_id: paymentId });
   if (error) throw error;
 }
 

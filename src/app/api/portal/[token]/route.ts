@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
-import type { PortalData, PortalSectionKey, ProjectInvoice, TimeEntry, BusinessSettings, Contact, Project } from '@/lib/types';
+import type { PortalData, PortalSectionKey, ProjectInvoice, InvoicePayment, TimeEntry, BusinessSettings, Contact, Project } from '@/lib/types';
 import type { InvoicePdfData, InvoicePdfOptions } from '@/lib/invoice-pdf/types';
 import { DEFAULT_SECTION_ORDER } from '@/lib/types';
 import {
@@ -12,6 +12,7 @@ import {
 import { siteConfig } from '@/site-config';
 import { getWorkedHours, getWorkedMs, isClientBillable } from '@/lib/time-entry-utils';
 import { fifoPaymentStatuses, paidHourlyLineItemTotal, totalBillableAmount } from '@/lib/invoice-utils';
+import { invoiceAmountPaid } from '@/lib/invoice-payments';
 import { buildInvoiceData } from '@/lib/invoice-pdf/buildInvoiceData';
 import { InvoicePdfIntegrityError } from '@/lib/invoice-pdf/resolveInvoicePdfBilling';
 import { recordPortalEvent, getOrCreateSessionId } from '@/lib/portal-analytics';
@@ -172,7 +173,7 @@ export async function GET(
   if (needsInvoices) {
     const { data: invoiceData } = await supabase
       .from('project_invoices')
-      .select('*, invoice_time_entry_allocations(*)')
+      .select('*, invoice_time_entry_allocations(*), invoice_payments(*)')
       .eq('project_id', settings.project_id)
       .neq('status', 'draft')
       .order('date', { ascending: false });
@@ -182,6 +183,9 @@ export async function GET(
         invoice_time_entry_allocations?: ProjectInvoice['time_allocations'];
       }).invoice_time_entry_allocations ?? [],
       invoice_time_entry_allocations: undefined,
+      payments: ((row as { invoice_payments?: InvoicePayment[] }).invoice_payments ?? [])
+        .map((payment) => ({ ...payment, amount: Number(payment.amount) })),
+      invoice_payments: undefined,
     })) as ProjectInvoice[];
   }
 
@@ -284,6 +288,7 @@ export async function GET(
         file_name: i.file_name,
         file_size: i.file_size,
         mime_type: i.mime_type,
+        paid_amount: invoiceAmountPaid(i, project.tax_rate ?? null),
       }))
     : [];
 

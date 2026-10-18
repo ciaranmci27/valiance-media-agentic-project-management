@@ -26,8 +26,11 @@ import { InvoicePreviewModal } from '@/components/projects/InvoicePreviewModal';
 import ClientEmailPreviewModal from '@/components/projects/ClientEmailPreviewModal';
 import BillingModal, { type BillingTab } from '@/components/projects/billing/BillingModal';
 import { InvoiceLineSplit, type LineSplit } from '@/components/projects/InvoiceLineSplit';
+import { InvoicePayments, formatMoney } from '@/components/projects/InvoicePayments';
+import { invoiceAmountPaid, invoicePaidTotal, invoiceTotal, isPartiallyPaid } from '@/lib/invoice-payments';
 import {
   fetchBillingForecast,
+  fetchProjectInvoicePayments,
   fetchBillingRuns,
   fetchInvoiceLineShares,
   fetchRetainerDuePeriods,
@@ -186,6 +189,8 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
     addInvoice,
     updateInvoice,
     deleteInvoice,
+    recordInvoicePayment,
+    removeInvoicePayment,
     getInvoicesByProject,
     getProject,
     updateProject,
@@ -210,6 +215,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
   const canEmailInvoices =
     hasPermission(access, 'communications.manage') && hasPermission(access, 'invoices.manage');
   const canManageInvoices = hasPermission(access, 'invoices.manage');
+  const canRecordPayments = canManageInvoices || hasPermission(access, 'invoices.record_payments');
   // Splits are compensation: invoices.manage alone never sees or sends them.
   const canManageSplits = canManageInvoices && hasPermission(access, 'compensation.manage');
 
@@ -332,9 +338,11 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
   // Outstanding preserves the hourly-vs-non-hourly formula from lessons.md.
   const activeInvoices = invoices.filter((inv) => inv.status !== 'cancelled');
   const totalInvoiced = activeInvoices.reduce((sum, inv) => sum + inv.amount, 0);
+  // Part payments count their share of the amount; a paid invoice counts in full.
+  const taxRate = project?.tax_rate ?? null;
   const totalPaid = invoices
-    .filter((inv) => inv.status === 'paid')
-    .reduce((sum, inv) => sum + inv.amount, 0);
+    .filter((inv) => inv.status !== 'cancelled')
+    .reduce((sum, inv) => sum + invoiceAmountPaid(inv, taxRate), 0);
   let hourlyInvoiced = 0;
   let serviceInvoiced = 0;
   let reimbursementInvoiced = 0;
@@ -553,6 +561,24 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
   // need invoices.read; refreshed when invoices change or Billing closes.
   const canReadInvoices = hasPermission(access, 'invoices.read');
   const invoiceSignature = invoices.map((invoice) => `${invoice.id}:${invoice.status}`).join(',');
+
+  // Which API key recorded each API payment (keys are not readable directly).
+  const [keyNames, setKeyNames] = useState<Map<string, string | null>>(new Map());
+  const apiPaymentSignature = invoices
+    .flatMap((invoice) => (invoice.payments ?? []).filter((payment) => payment.recorded_via === 'api').map((payment) => payment.id))
+    .join(',');
+  useEffect(() => {
+    if (isDemoMode || !apiPaymentSignature) return;
+    let cancelled = false;
+    fetchProjectInvoicePayments(retainerClient, projectId)
+      .then((rows) => {
+        if (!cancelled) setKeyNames(new Map(rows.map((row) => [row.id, row.api_key_name ?? null])));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [apiPaymentSignature, isDemoMode, projectId, retainerClient]);
   useEffect(() => {
     if (!canReadInvoices || isDemoMode || billingTab !== null) return;
     let cancelled = false;
@@ -1994,6 +2020,11 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
                             <span className="text-sm font-semibold text-white">
                               {invoice.invoice_number}
                             </span>
+                            {isPartiallyPaid(invoice, taxRate) && (
+                              <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium rounded bg-amber-500/15 text-amber-300">
+                                Partially paid ${formatMoney(invoicePaidTotal(invoice))} of ${formatMoney(invoiceTotal(invoice, taxRate))}
+                              </span>
+                            )}
                             {invoice.auto_generated && invoice.status === 'draft' && (
                               <span
                                 className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium rounded bg-brand-500/15 text-brand-300"
@@ -2178,6 +2209,16 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
                               )}
                             </div>
                           )}
+
+                          <InvoicePayments
+                            invoice={invoice}
+                            taxRate={taxRate}
+                            keyNames={keyNames}
+                            canRecord={canRecordPayments}
+                            today={todayLocalDate}
+                            onRecord={(payment) => recordInvoicePayment(invoice.id, payment)}
+                            onRemove={(paymentId) => removeInvoicePayment(invoice.id, paymentId)}
+                          />
 
                           {invoice.file_url && (
                             <div>

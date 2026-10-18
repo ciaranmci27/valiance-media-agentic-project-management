@@ -20,6 +20,8 @@ export function getEndpointScopes(endpoint: EndpointDoc): string[] {
   if (path.includes('/communications')) return [write ? 'communications.manage' : 'communications.read'];
   if (path.endsWith('/time-entries/review')) return ['time.approve'];
   if (path.includes('/hourly-rates')) return ['billing.manage'];
+  if (path.includes('/payments')) return write ? ['invoices.record_payments', 'invoices.manage'] : ['invoices.read', 'invoices.manage'];
+  if (path === '/api/v1/billing/earned-work') return ['invoices.read', 'invoices.manage'];
   if (path.includes('/invoices')) return write ? ['invoices.manage'] : ['invoices.read', 'invoices.manage'];
   if (path === '/api/v1/agent-activities') {
     return write ? ['agent_activity.write', 'fleet_alerts.write'] : ['audit.read'];
@@ -1131,6 +1133,47 @@ export const endpoints: EndpointDoc[] = [
     ],
   },
 
+  { method: 'GET', path: '/api/v1/invoices', description: 'For an accounting tool: every invoice the key can see, across projects, oldest first. Each has lines that always sum to amount (a line-less invoice gets one line keyed legacy:<id>; lines that do not add up get a fixed line keyed balance:<id> for the difference), tax_amount and total (amount plus tax at the project rate on every line but reimbursements, as the PDF shows), payments, paid_total and outstanding (total less payments), the project, and the customer (the primary client contact and the project billing email). Lines: key, type (hourly|fixed|recurring|reimbursement), description, amount, service_from, service_to, retainer_id. Amounts are dollars with two decimals. Paginated; read every page for a full snapshot.', group: 'Invoices',
+    queryParams: [
+      { name: 'status', type: 'string', description: 'Comma-separated statuses to include: draft, sent, paid, overdue, cancelled (default all)' },
+      { name: 'project_id', type: 'uuid', description: 'Only this project' },
+      { name: 'updated_since', type: 'ISO date-time', description: 'Only invoices changed at or after this time. A payment change counts as a change.' },
+      { name: 'page', type: 'number', description: 'Page number (default 1)' },
+      { name: 'limit', type: 'number', description: 'Items per page (default 25, max 100)' },
+    ],
+  },
+  { method: 'GET', path: '/api/v1/projects/:id/invoices/:invoiceId/payments', description: 'The payments recorded against one invoice, oldest first, with the invoice status, paid_date, total, paid_total and outstanding. recorded_via is app (recorded by hand, or by marking the invoice paid) or api (recorded by an API key).', group: 'Invoices',
+    params: [
+      { name: 'id', type: 'uuid', required: true, description: 'Project ID' },
+      { name: 'invoiceId', type: 'uuid', required: true, description: 'Invoice ID' },
+    ],
+  },
+  { method: 'POST', path: '/api/v1/projects/:id/invoices/:invoiceId/payments', description: 'Record a payment received. The invoice must be sent, overdue or paid, and the amount may not be more than what is outstanding (422 INVOICE_NOT_PAYABLE, PAYMENT_EXCEEDS_OUTSTANDING). Once payments reach the total the invoice is marked paid on the latest payment date; a part payment leaves it sent or overdue. Send external_id (your own id for the payment, unique per invoice) to make retries safe: the same external_id with the same amount, paid_date, method and reference returns the existing payment with 200 and replayed true; with anything different it is 409 PAYMENT_EXTERNAL_ID_CONFLICT. A new payment is 201. Returns payment, replayed and the invoice state. Raises the invoice.payment_recorded webhook, and invoice.paid when it completes the invoice.', group: 'Invoices',
+    params: [
+      { name: 'id', type: 'uuid', required: true, description: 'Project ID' },
+      { name: 'invoiceId', type: 'uuid', required: true, description: 'Invoice ID' },
+    ],
+    body: [
+      { name: 'amount', type: 'number', required: true, description: 'Dollars received, more than 0, at most 2 decimals' },
+      { name: 'paid_date', type: 'YYYY-MM-DD', required: true, description: 'The day the money arrived' },
+      { name: 'method', type: 'ach|wire|check|card|cash|other|null', required: false, description: 'How it was paid' },
+      { name: 'reference', type: 'string|null', required: false, description: 'A bank or check reference, up to 200 characters' },
+      { name: 'external_id', type: 'string|null', required: false, description: 'Your id for this payment, up to 200 characters; makes retries idempotent' },
+    ],
+  },
+  { method: 'DELETE', path: '/api/v1/projects/:id/invoices/:invoiceId/payments/:paymentId', description: 'Remove a payment an API key recorded. A payment recorded by hand in the app is refused (409 PAYMENT_RECORDED_ELSEWHERE). If the invoice was paid and no longer is, it goes back to sent, or overdue when past its due date; that is refused when its revenue split was already paid out to a team member (409 PAYMENT_SHARES_PAID_OUT). Raises invoice.payment_removed, and invoice.updated when the invoice was paid.', group: 'Invoices',
+    params: [
+      { name: 'id', type: 'uuid', required: true, description: 'Project ID' },
+      { name: 'invoiceId', type: 'uuid', required: true, description: 'Invoice ID' },
+      { name: 'paymentId', type: 'uuid', required: true, description: 'Payment ID' },
+    ],
+  },
+  { method: 'GET', path: '/api/v1/billing/earned-work', description: 'Work earned in a date range, per project, for accrual accounting. time: approved client time by day in the workspace time zone (date, hours, amount), billed or not, on projects that bill time by the hour; the same sessions the invoice form counts as billable (approved, not internal, a rate above 0). scheduled: retainer periods that have started and are not on a sent, overdue or paid invoice yet (period_start, period_end, amount, retainer_id, retainer_name, billing_timing, draft_invoice_id when a draft holds it). A period is returned whole in every range it overlaps until it is invoiced, so key it by retainer_id and period_start; periods of a paused retainer are left out. Time follows the current billing setting of each project, so a project switched to hourly counts its earlier time too. Only projects the key can open. Amounts are dollars with two decimals. At most five years per request (422 EARNED_WORK_RANGE).', group: 'Invoices',
+    queryParams: [
+      { name: 'from', type: 'YYYY-MM-DD', description: 'First day, required' },
+      { name: 'to', type: 'YYYY-MM-DD', description: 'Last day, required' },
+    ],
+  },
   { method: 'GET', path: '/api/v1/billing/draft-notices', description: 'Invoice drafts made by the retainer or billing schedule jobs that have not been passed on yet, oldest first, in projects the key can open: invoice_number, project_name, amount, date, due_date, summary and a link. Read only: nothing here sends an invoice, and a draft already sent or deleted is not listed. Requires invoices.read.', group: 'Invoices' },
   { method: 'POST', path: '/api/v1/billing/draft-notices/relayed', description: 'Mark invoice drafts as passed on, so the next check does not repeat them. Ids in projects this key cannot open are ignored and listed in ignored. Requires invoices.read.', group: 'Invoices',
     body: [{ name: 'invoice_ids', type: 'uuid[]', required: true, description: '1 to 100 invoice ids from draft-notices' }],

@@ -97,8 +97,8 @@ export default function WebhooksDocsPage() {
               <p className="text-sm text-zinc-600 mb-4">
                 Create an endpoint under <strong>Settings &rarr; Webhooks</strong>, subscribe it to one or
                 more event types, and copy its signing secret into your receiver. When a matching event
-                happens, we POST a signed JSON payload to your URL immediately (one attempt); if it
-                fails you can re-send it from the dashboard. Your receiver just needs to verify the
+                happens, we POST a signed JSON payload to your URL immediately; if it fails we retry
+                with backoff, and you can re-send it from the dashboard. Your receiver just needs to verify the
                 signature and be idempotent.
               </p>
 
@@ -118,7 +118,7 @@ export default function WebhooksDocsPage() {
                 </div>
                 <div>
                   <h2 className="font-semibold text-zinc-900">Event types</h2>
-                  <p className="text-sm text-zinc-500">Subscribe to all three for full lifecycle sync</p>
+                  <p className="text-sm text-zinc-500">Subscribe to paid, updated and deleted for full lifecycle sync</p>
                 </div>
               </div>
 
@@ -128,6 +128,8 @@ export default function WebhooksDocsPage() {
                   [<code key="e" className="text-brand-600 font-mono text-xs">invoice.paid</code>, 'An invoice enters the paid status.'],
                   [<code key="e" className="text-brand-600 font-mono text-xs">invoice.updated</code>, 'A paid (or previously paid) invoice changes: an edit, an un-pay, or a cancel.'],
                   [<code key="e" className="text-brand-600 font-mono text-xs">invoice.deleted</code>, 'A paid invoice is deleted.'],
+                  [<code key="e" className="text-brand-600 font-mono text-xs">invoice.payment_recorded</code>, 'A payment is recorded against an invoice, in part or in full. data.payment, data.paid_total and data.outstanding describe it.'],
+                  [<code key="e" className="text-brand-600 font-mono text-xs">invoice.payment_removed</code>, 'A payment is removed from an invoice. data.payment is the removed payment.'],
                 ]}
               />
 
@@ -136,6 +138,13 @@ export default function WebhooksDocsPage() {
                   Events fire only for paid-relevant invoices, so editing drafts never sends anything. If your
                   receiver removes data on un-pay/delete, subscribe to <strong>all three</strong> events — not
                   just <code className="text-brand-600 font-mono text-xs">invoice.paid</code>.
+                </p>
+                <p className="text-sm text-zinc-600 mt-2">
+                  The two payment events fire for every invoice that takes a payment, paid or not. Their
+                  payment amounts, <code className="text-brand-600 font-mono text-xs">paid_total</code> and{' '}
+                  <code className="text-brand-600 font-mono text-xs">outstanding</code> are what the client paid,
+                  whichever amount basis the endpoint receives. A payment that completes an invoice also raises
+                  one <code className="text-brand-600 font-mono text-xs">invoice.paid</code>.
                 </p>
               </div>
             </div>
@@ -276,9 +285,10 @@ export function verify(secret: string, header: string, rawBody: string, toleranc
               </div>
 
               <ul className="space-y-2 text-sm text-zinc-600 list-disc pl-5">
-                <li>Return any <code className="text-brand-600 font-mono text-xs">2xx</code> to acknowledge. Anything else — or no response within 10 seconds — marks the delivery <code className="text-brand-600 font-mono text-xs">failed</code>.</li>
-                <li>Delivery is fire-and-forget: one attempt per event, no automatic retries. A failed delivery can be re-sent manually from <strong>Settings &rarr; Webhooks</strong>.</li>
-                <li>A manual re-send (or a re-emitted event) can arrive out of order, so make your handler <strong>idempotent</strong>: key on <code className="text-brand-600 font-mono text-xs">X-VM-Event-Id</code> (or the invoice id) and use <code className="text-brand-600 font-mono text-xs">sequence</code> to ignore stale state.</li>
+                <li>Return any <code className="text-brand-600 font-mono text-xs">2xx</code> to acknowledge. Anything else, or no response within 10 seconds, counts as a failed attempt.</li>
+                <li>A failed attempt is retried automatically with backoff (about 1 minute, 3, 9, 27, 81 minutes, 4 hours, then 12 hours), up to 8 attempts in all. After the last one the delivery is <code className="text-brand-600 font-mono text-xs">failed</code> and can be re-sent manually from <strong>Settings &rarr; Webhooks</strong>.</li>
+                <li>Events for one invoice reach your endpoint in <code className="text-brand-600 font-mono text-xs">sequence</code> order: a later event waits while an earlier one is still being retried.</li>
+                <li>A retry repeats the same event id, so you may see an event twice. A manual re-send (or a re-emitted event) can arrive out of order, so make your handler <strong>idempotent</strong>: key on <code className="text-brand-600 font-mono text-xs">X-VM-Event-Id</code> (or the invoice id) and use <code className="text-brand-600 font-mono text-xs">sequence</code> to ignore stale state.</li>
               </ul>
             </div>
           </section>

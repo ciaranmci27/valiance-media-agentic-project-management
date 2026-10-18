@@ -33,6 +33,7 @@ import {
 } from '@/lib/supabase/queries';
 import {
   WEBHOOK_EVENT_TYPES,
+  WEBHOOK_MAX_ATTEMPTS,
   type WebhookAmountBasis,
   type WebhookEndpoint,
   type WebhookDelivery,
@@ -43,6 +44,8 @@ const EVENT_LABELS: Record<string, string> = {
   'invoice.paid': 'Invoice paid',
   'invoice.updated': 'Invoice updated',
   'invoice.deleted': 'Invoice deleted',
+  'invoice.payment_recorded': 'Payment recorded',
+  'invoice.payment_removed': 'Payment removed',
 };
 
 // What an endpoint is sent for invoice.amount, each line amount and totals_by_type.
@@ -57,6 +60,19 @@ const STATUS_STYLES: Record<WebhookDeliveryStatus, string> = {
   succeeded: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
   failed: 'bg-orange-500/15 text-orange-300 border-orange-500/30',
 };
+
+// A pending delivery that has already been tried is waiting out its backoff.
+function deliveryLabel(d: WebhookDelivery): string {
+  return d.status === 'pending' && d.attempts > 0 ? 'retrying' : d.status;
+}
+
+function deliveryDetail(d: WebhookDelivery): string {
+  if (d.status === 'succeeded') return `Delivered ${formatWhen(d.delivered_at)}`;
+  if (d.status === 'delivering') return 'Sending now';
+  if (d.status === 'failed') return d.last_error || 'Failed';
+  if (d.attempts > 0) return `${d.last_error || 'Failed'}, next try ${formatWhen(d.next_attempt_at)}`;
+  return 'Queued';
+}
 
 function formatWhen(value: string | null): string {
   if (!value) return ';';
@@ -239,7 +255,8 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
       const res = await fetch('/api/internal/webhooks/dispatch', { method: 'POST' });
       if (!res.ok) throw new Error(String(res.status));
       const summary = await res.json();
-      toast('success', `Dispatched ${summary.delivered ?? 0} delivery(s)`);
+      const retrying = summary.retrying ? `, ${summary.retrying} will retry` : '';
+      toast('success', `Delivered ${summary.delivered ?? 0}${retrying}`);
       await load();
     } catch (e) {
       console.error(e);
@@ -498,6 +515,7 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
                   <th className="px-3 py-2 font-medium">Status</th>
                   <th className="px-3 py-2 font-medium">Code</th>
                   <th className="px-3 py-2 font-medium">Attempts</th>
+                  <th className="px-3 py-2 font-medium">Detail</th>
                   <th className="px-3 py-2 font-medium">When</th>
                   <th className="px-3 py-2 font-medium sr-only">Actions</th>
                 </tr>
@@ -512,13 +530,21 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
                       <span
                         className={`text-[11px] border rounded px-1.5 py-0.5 ${STATUS_STYLES[d.status]}`}
                       >
-                        {d.status}
+                        {deliveryLabel(d)}
                       </span>
                     </td>
                     <td className="px-3 py-2 text-zinc-400 font-mono">
                       {d.last_status_code ?? ';'}
                     </td>
-                    <td className="px-3 py-2 text-zinc-400 font-mono">{d.attempts}</td>
+                    <td className="px-3 py-2 text-zinc-400 font-mono whitespace-nowrap">
+                      {d.attempts}/{WEBHOOK_MAX_ATTEMPTS}
+                    </td>
+                    <td
+                      className="px-3 py-2 text-zinc-400 max-w-[18rem] truncate"
+                      title={deliveryDetail(d)}
+                    >
+                      {deliveryDetail(d)}
+                    </td>
                     <td className="px-3 py-2 text-zinc-500 whitespace-nowrap">
                       {formatWhen(d.created_at)}
                     </td>

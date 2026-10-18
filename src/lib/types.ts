@@ -518,6 +518,8 @@ export interface ProjectInvoice {
   line_items: InvoiceLineItem[];
   /** Persisted FIFO result for generated hourly line items. */
   time_allocations?: InvoiceTimeEntryAllocation[];
+  /** Money received against it; status follows these (lib/invoice-payments.ts). */
+  payments?: InvoicePayment[];
   date: string;
   due_date: string | null;
   paid_date: string | null;
@@ -528,6 +530,30 @@ export interface ProjectInvoice {
   mime_type: string | null;
   /** True for drafts the retainer job created. */
   auto_generated?: boolean;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export const INVOICE_PAYMENT_METHODS = ['ach', 'wire', 'check', 'card', 'cash', 'other'] as const;
+export type InvoicePaymentMethod = typeof INVOICE_PAYMENT_METHODS[number];
+
+/** Money received against an invoice. The invoice's status follows the sum:
+ *  paid once payments reach its amount. "app" = recorded by hand (or by
+ *  marking the invoice paid), "api" = recorded by an accounting tool's key. */
+export interface InvoicePayment {
+  id: string;
+  invoice_id: string;
+  amount: number;
+  /** YYYY-MM-DD */
+  paid_date: string;
+  method: InvoicePaymentMethod | null;
+  reference: string | null;
+  external_id: string | null;
+  recorded_via: 'app' | 'api';
+  api_key_id: string | null;
+  /** Name of the key that recorded it (project_invoice_payments only). */
+  api_key_name?: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -1003,11 +1029,16 @@ export interface RolePermission {
 // WEBHOOKS (generic outbound platform)
 // ============================================================
 
-export const WEBHOOK_EVENT_TYPES = ['invoice.paid', 'invoice.updated', 'invoice.deleted'] as const;
+export const WEBHOOK_EVENT_TYPES = [
+  'invoice.paid', 'invoice.updated', 'invoice.deleted', 'invoice.payment_recorded', 'invoice.payment_removed',
+] as const;
 export type WebhookEventType = typeof WEBHOOK_EVENT_TYPES[number];
 
 export const WEBHOOK_DELIVERY_STATUSES = ['pending', 'delivering', 'succeeded', 'failed'] as const;
 export type WebhookDeliveryStatus = typeof WEBHOOK_DELIVERY_STATUSES[number];
+
+/** Attempts before a delivery stays failed (max_attempts in claim/complete_webhook_delivery). */
+export const WEBHOOK_MAX_ATTEMPTS = 8;
 
 export const WEBHOOK_AMOUNT_BASES = ['gross', 'net'] as const;
 export type WebhookAmountBasis = typeof WEBHOOK_AMOUNT_BASES[number];
@@ -1040,6 +1071,11 @@ export interface WebhookDelivery {
   last_error: string | null;
   last_response: string | null;
   delivered_at: string | null;
+  /** When a pending delivery is next tried; pushed out after each failed attempt. */
+  next_attempt_at: string;
+  /** Set while a dispatcher run holds the delivery. */
+  attempt_token: string | null;
+  lease_expires_at: string | null;
   created_at: string;
   updated_at: string;
   /** Joined from webhook_events for display. */
@@ -1327,6 +1363,8 @@ export interface PortalData {
     file_name: string | null;
     file_size: number | null;
     mime_type: string | null;
+    /** The amount (before tax) received so far: in full once paid, a share for a part payment. */
+    paid_amount?: number;
   }[];
   /** Server-built PDF data for each visible invoice, keyed by invoice id.
    *  Empty when invoices aren't shown. Lets the portal preview the same

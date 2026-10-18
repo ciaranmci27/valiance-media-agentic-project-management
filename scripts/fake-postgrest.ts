@@ -172,7 +172,16 @@ export async function startFakePostgrest(db: PGlite, options: { maxRows?: number
           params.push(scalar(value));
           return `${ident(key)} => $${params.length}`;
         });
-        const result = await asService(() => db.query<{ r: unknown }>(`SELECT public.${ident(fn)}(${named.join(", ")}) AS r`, params));
+        const call = `public.${ident(fn)}(${named.join(", ")})`;
+        // A set-returning function (returns table / setof) comes back as an array of rows, as from PostgREST.
+        const setReturning = await db.query<{ s: boolean }>(
+          "SELECT bool_or(proretset) AS s FROM pg_proc WHERE proname = $1 AND pronamespace = 'public'::regnamespace",
+          [fn],
+        );
+        const sql = setReturning.rows[0]?.s
+          ? `SELECT coalesce(json_agg(t), '[]'::json) AS r FROM ${call} t`
+          : `SELECT ${call} AS r`;
+        const result = await asService(() => db.query<{ r: unknown }>(sql, params));
         return send(200, result.rows[0]?.r ?? null);
       }
 

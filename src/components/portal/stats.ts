@@ -11,7 +11,8 @@ import type { PortalData } from '@/lib/types';
 export function summariseInvoices(invoices: PortalData['invoices'], billing: PortalData['billing']) {
   const active = invoices.filter(i => i.status !== 'draft' && i.status !== 'cancelled');
   const invoiced = active.reduce((s, i) => s + i.amount, 0);
-  const paid = invoices.filter(i => i.status === 'paid').reduce((s, i) => s + i.amount, 0);
+  // Part payments count too (paid_amount); without it, a paid invoice counts in full.
+  const paid = invoices.reduce((s, i) => s + (i.paid_amount ?? (i.status === 'paid' ? i.amount : 0)), 0);
 
   // Break down by line-item type so mixed invoices are counted correctly.
   // Falls back to flat invoice_type when line_items is empty (legacy rows).

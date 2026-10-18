@@ -1,7 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, useRef, ReactNode, type SetStateAction } from 'react';
-import { AiReadiness, Project, Task, TeamMember, FilterState, ViewMode, Subtask, AcceptanceCriterion, Comment, Contact, ContactEmail, ContactEmailDraft, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, Activity, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, EntityFileType, ApiKey, NotificationCategory, ProjectGoal, TaskSuggestion, AgentActivity, TimeEntry, ProjectCredentialListItem, CredentialPayload, CredentialCategory, ProjectInvoice, InvoiceStatus, BusinessSettings, EmployeeEarningsData, DEFAULT_SECTION_ORDER } from './types';
+import { AiReadiness, Project, Task, TeamMember, FilterState, ViewMode, Subtask, AcceptanceCriterion, Comment, Contact, ContactEmail, ContactEmailDraft, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, Activity, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, EntityFileType, ApiKey, NotificationCategory, ProjectGoal, TaskSuggestion, AgentActivity, TimeEntry, ProjectCredentialListItem, CredentialPayload, CredentialCategory, ProjectInvoice, InvoiceStatus, InvoicePaymentMethod, BusinessSettings, EmployeeEarningsData, DEFAULT_SECTION_ORDER } from './types';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
@@ -100,6 +100,9 @@ import {
   insertProjectInvoice as insertProjectInvoiceQuery,
   patchProjectInvoice as patchProjectInvoiceQuery,
   removeProjectInvoice as removeProjectInvoiceQuery,
+  fetchProjectInvoice as fetchProjectInvoiceQuery,
+  recordInvoicePayment as recordInvoicePaymentQuery,
+  removeInvoicePayment as removeInvoicePaymentQuery,
   fetchBusinessSettings,
   patchBusinessSettings as patchBusinessSettingsQuery,
 } from '@/lib/supabase/queries';
@@ -111,6 +114,7 @@ import { hasPermission, canReadTasks } from '@/lib/access-control';
 import { loadRetainerFinanceInputs } from '@/lib/finance/use-retainer-finance';
 import { rollbackScope } from '@/lib/optimistic';
 import { INBOX_UPDATED_EVENT } from '@/lib/inbound-email/inbox-types';
+import { parsePaymentRuleError } from '@/lib/invoice-payments';
 
 // Best-effort nudge so the webhook dispatcher runs right after an invoice
 // change, delivering the event immediately. The DB trigger already enqueued
@@ -444,6 +448,11 @@ interface AppContextType {
   addInvoice: (invoice: Omit<ProjectInvoice, 'id' | 'created_at' | 'updated_at'>) => Promise<ProjectInvoice | undefined>;
   updateInvoice: (id: string, updates: Partial<ProjectInvoice>) => Promise<boolean>;
   deleteInvoice: (id: string) => void;
+  recordInvoicePayment: (
+    invoiceId: string,
+    payment: { amount: number; paid_date: string; method: InvoicePaymentMethod | null; reference: string | null },
+  ) => Promise<boolean>;
+  removeInvoicePayment: (invoiceId: string, paymentId: string) => Promise<boolean>;
   getInvoicesByProject: (projectId: string) => ProjectInvoice[];
   getInvoicesByContact: (contactId: string) => ProjectInvoice[];
 
@@ -3940,7 +3949,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       console.error('Failed to update invoice:', error);
       setProjectInvoices(rollbackScope(prev, i => i.id === id));
-      toast('error', 'Failed to update invoice');
+      toast('error', parsePaymentRuleError((error as { message?: string })?.message)?.text ?? 'Failed to update invoice');
       return false;
     }
   };
@@ -3966,9 +3975,58 @@ export function AppProvider({ children }: { children: ReactNode }) {
         // Deleting a paid invoice enqueues an invoice.deleted webhook event.
         if (existing.status === 'paid') kickWebhookDispatch();
       }
-    } catch {
+    } catch (error) {
       setProjectInvoices(rollbackScope(prev, i => i.id === id));
-      toast('error', 'Failed to delete invoice');
+      toast('error', parsePaymentRuleError((error as { message?: string })?.message)?.text ?? 'Failed to delete invoice');
+    }
+  };
+
+  // Payments: the database derives the status, so re-read the invoice after.
+  const refreshInvoice = async (id: string) => {
+    const fresh = await fetchProjectInvoiceQuery(supabase, id);
+    if (fresh) setProjectInvoices(invoices => invoices.map(i => i.id === id ? fresh : i));
+  };
+
+  const recordInvoicePayment: AppContextType['recordInvoicePayment'] = async (invoiceId, payment) => {
+    if (skipSupabase) {
+      const now = new Date().toISOString();
+      setProjectInvoices(invoices => invoices.map(i => i.id === invoiceId ? {
+        ...i,
+        payments: [...(i.payments ?? []), {
+          id: crypto.randomUUID(), invoice_id: invoiceId, ...payment, external_id: null,
+          recorded_via: 'app', api_key_id: null, created_by: teamMemberId ?? null, created_at: now, updated_at: now,
+        }],
+      } : i));
+      return true;
+    }
+    try {
+      await recordInvoicePaymentQuery(supabase, invoiceId, payment);
+      await refreshInvoice(invoiceId);
+      kickWebhookDispatch();
+      return true;
+    } catch (error) {
+      console.error('Failed to record payment:', error);
+      toast('error', parsePaymentRuleError((error as { message?: string })?.message)?.text ?? 'Failed to record payment');
+      return false;
+    }
+  };
+
+  const removeInvoicePayment: AppContextType['removeInvoicePayment'] = async (invoiceId, paymentId) => {
+    if (skipSupabase) {
+      setProjectInvoices(invoices => invoices.map(i => i.id === invoiceId
+        ? { ...i, payments: (i.payments ?? []).filter(payment => payment.id !== paymentId) }
+        : i));
+      return true;
+    }
+    try {
+      await removeInvoicePaymentQuery(supabase, paymentId);
+      await refreshInvoice(invoiceId);
+      kickWebhookDispatch();
+      return true;
+    } catch (error) {
+      console.error('Failed to remove payment:', error);
+      toast('error', parsePaymentRuleError((error as { message?: string })?.message)?.text ?? 'Failed to remove payment');
+      return false;
     }
   };
 
@@ -4146,6 +4204,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       addInvoice,
       updateInvoice,
       deleteInvoice,
+      recordInvoicePayment,
+      removeInvoicePayment,
       getInvoicesByProject,
       getInvoicesByContact,
       businessSettings,

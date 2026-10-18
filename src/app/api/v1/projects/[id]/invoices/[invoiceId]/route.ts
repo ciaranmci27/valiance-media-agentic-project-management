@@ -5,6 +5,7 @@ import { updateInvoiceSchema } from '@/lib/schemas';
 import { badRequest, notFound } from '@/lib/api/errors';
 import { logAudit } from '@/lib/api/audit';
 import { runDispatch } from '@/lib/webhooks/dispatch';
+import { paymentRuleError } from '@/lib/api/invoice-payments';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 function assertInvoiceTotal(amount: number, lineItems: Array<{ amount: number }>) {
@@ -45,6 +46,9 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
       p_allocations: time_allocations === undefined ? null : time_allocations,
     })
     .single();
+  // Payments recorded by an accounting connection pin the invoice (409).
+  const ruleError = paymentRuleError(error);
+  if (ruleError) throw ruleError;
   if (error && /invoice|allocation|time session/i.test(error.message)) throw badRequest(error.message);
   if (error) throw error;
   const saved = data as Record<string, unknown>;
@@ -81,6 +85,8 @@ export const DELETE = withApi(async ({ supabase, params, apiKeyId, teamMemberId 
     .delete()
     .eq('id', params.invoiceId)
     .eq('project_id', params.id);
+  const ruleError = paymentRuleError(error);
+  if (ruleError) throw ruleError;
   if (error) throw error;
 
   logAudit(supabase, {

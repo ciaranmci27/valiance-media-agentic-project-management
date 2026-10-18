@@ -6,8 +6,32 @@ it to one or more event types, and copy the signing secret into your receiver.
 
 Delivery uses a transactional outbox: a database trigger records the event and
 fans out one delivery per subscribed endpoint; a dispatcher signs and POSTs it
-immediately after the change. Delivery is fire-and-forget (one attempt per
-event); if a delivery fails you can re-send it from Settings -> Webhooks.
+immediately after the change. A failed attempt is retried automatically with
+backoff, up to 8 attempts; after that you can re-send it from Settings ->
+Webhooks, which shows each delivery's attempts, last error and next try.
+
+## Retries and ordering
+
+- Any non-`2xx` response, or no response within 10s, is a failed attempt. The
+  delivery goes back in the queue and is tried again after about 1 minute,
+  then 3, 9, 27 and 81 minutes, 4 hours, then 12 hours. After the 8th attempt
+  it is marked `failed` and waits for a manual re-send (which restarts the
+  attempt budget).
+- Supabase pg_cron checks every minute and, when a delivery is due, POSTs to
+  `/api/internal/webhooks/scheduled` (`public.webhook_retry_kick`). Not a
+  Vercel cron: the app is on Hobby, which only allows daily crons. Setup:
+  `WEBHOOK_SCHEDULER_ENABLED=true` and `WEBHOOK_SCHEDULER_SECRET` in the app,
+  and the same secret plus the app URL in Supabase Vault as
+  `webhook_scheduler_secret` and `webhook_scheduler_url`. Without them,
+  retries only go out on the next invoice change or "send now".
+- Each attempt holds a 2-minute lease. If a dispatcher run dies mid-delivery,
+  the next run takes the delivery back once the lease expires, so nothing is
+  left stuck in `delivering`. It counts as an attempt.
+- Events for one invoice reach an endpoint one at a time in `sequence` order:
+  a later event waits while an earlier one for the same invoice is pending or
+  in flight. An event that has used all its attempts stops holding the line.
+- Because a retry or a lost acknowledgement can send the same event again,
+  receivers must be idempotent on `X-VM-Event-Id`.
 
 ## Event types
 
@@ -100,8 +124,8 @@ export function verify(secret: string, header: string, rawBody: string, toleranc
 }
 ```
 
-Return `2xx` to acknowledge. Any other status (or a timeout past 10s) marks the
-delivery failed; it is not retried automatically, but can be re-sent manually.
+Return `2xx` to acknowledge. Any other status (or a timeout past 10s) is a
+failed attempt and is retried as described under Retries and ordering.
 A manual re-send (or a redelivered event) can still arrive out of order, so make
 your handler **idempotent** (key on `X-VM-Event-Id` or the invoice id) and use
 `sequence` to ignore stale state.

@@ -52,3 +52,15 @@ export const updateInvoiceSchema = z.object({
   description: z.string().optional(),
   time_allocations: z.array(invoiceTimeAllocationSchema).optional(),
 });
+
+export const invoicePaymentMethodEnum = z.enum(['ach', 'wire', 'check', 'card', 'cash', 'other']);
+
+/** A payment received against an invoice (POST .../invoices/:invoiceId/payments). */
+export const recordInvoicePaymentSchema = z.object({
+  amount: z.number().positive('Amount must be more than 0')
+    .refine((value) => Math.abs(value * 100 - Math.round(value * 100)) < 1e-6, 'Amount can have at most 2 decimals'),
+  paid_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'paid_date must be YYYY-MM-DD'),
+  method: invoicePaymentMethodEnum.nullable().optional(),
+  reference: z.string().trim().max(200).nullable().optional(),
+  external_id: z.string().trim().min(1).max(200).nullable().optional(),
+});

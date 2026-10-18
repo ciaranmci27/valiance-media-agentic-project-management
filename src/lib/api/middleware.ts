@@ -98,6 +98,7 @@ export function permissionAlternatives(permission: PermissionKey): PermissionKey
     'communications.read': ['communications.manage'],
     'credentials.reveal_shared': ['credentials.manage'],
     'invoices.read': ['invoices.manage'],
+    'invoices.record_payments': ['invoices.manage'],
     'project_context.read': ['project_context.manage'],
     'goals.read': ['goals.manage'],
   };

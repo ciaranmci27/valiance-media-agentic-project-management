@@ -9,6 +9,7 @@ import type { Project, ProjectInvoice, TimeEntry, TeamMember, EmployeeEarningsDa
 import { getWorkedHours, getWorkedHoursByDay, isApprovedTime } from '@/lib/time-entry-utils';
 import { ensureLineItems, spreadLineItem, invoicedTotalsByItemType, totalBillableAmount } from '@/lib/invoice-utils';
 import { dayVestingRatio } from '@/lib/finance/vesting';
+import { invoiceAmountPaid, invoiceAmountReceived } from '@/lib/invoice-payments';
 
 export interface DateRange { startKey: string; endKey: string }
 
@@ -176,12 +177,20 @@ export function computeFinanceData(input: FinanceEngineInput): FinanceData {
   // ── Range-aware invoice / payment filters ──
   const invoicesInRange = fInvoices.filter(inv => inv.date >= startKey && inv.date <= endKey);
   const activeInvoices = invoicesInRange.filter(inv => inv.status !== 'cancelled');
-  const paymentsInRange = fInvoices.filter(
-    inv => inv.status === 'paid' && inv.paid_date && inv.paid_date >= startKey && inv.paid_date <= endKey,
-  );
-  const overdue = fInvoices.filter(inv => inv.status === 'overdue').reduce((s, i) => s + i.amount, 0);
+  // Money received, by the day each payment arrived: a paid invoice counts its
+  // whole amount, a part payment its share (lib/invoice-payments.ts).
+  const taxRateByProject = new Map(projects.map(p => [p.id, p.tax_rate ?? null]));
+  const paymentsInRange = fInvoices
+    .filter(inv => inv.status !== 'cancelled')
+    .flatMap(inv => invoiceAmountReceived(inv, taxRateByProject.get(inv.project_id))
+      .map(part => ({ project_id: inv.project_id, date: part.date, amount: part.amount })))
+    .filter(part => part.date >= startKey && part.date <= endKey);
+  // What is still owed on overdue invoices (part payments come off).
+  const overdue = fInvoices
+    .filter(inv => inv.status === 'overdue')
+    .reduce((s, i) => s + i.amount - invoiceAmountPaid(i, taxRateByProject.get(i.project_id)), 0);
   const invoiced = activeInvoices.reduce((s, i) => s + i.amount, 0);
-  const received = paymentsInRange.reduce((s, i) => s + i.amount, 0);
+  const received = paymentsInRange.reduce((s, part) => s + part.amount, 0);
   const activeInvoicesCount = activeInvoices.length;
 
   // ── Hours fragmented by calendar day (chart, totals, per-project rows) ──
@@ -239,12 +248,10 @@ export function computeFinanceData(input: FinanceEngineInput): FinanceData {
     }
   }
 
-  // Payments received per day (paid_date, range-scoped) — for the chart.
+  // Payments received per day (range-scoped), for the chart.
   const paymentsByDay = new Map<string, number>();
-  for (const inv of fInvoices) {
-    if (inv.status !== 'paid' || !inv.paid_date) continue;
-    if (inv.paid_date < startKey || inv.paid_date > endKey) continue;
-    paymentsByDay.set(inv.paid_date, (paymentsByDay.get(inv.paid_date) ?? 0) + inv.amount);
+  for (const part of paymentsInRange) {
+    paymentsByDay.set(part.date, (paymentsByDay.get(part.date) ?? 0) + part.amount);
   }
 
   // Amortized fixed/recurring revenue per day, broken down by project, vested to `now`.
@@ -282,9 +289,7 @@ export function computeFinanceData(input: FinanceEngineInput): FinanceData {
   for (const p of fProjects) {
     if (p.status === 'archived') continue;
     const pInvoicesAll = fInvoices.filter(inv => inv.project_id === p.id && inv.status !== 'cancelled');
-    const pPaidAll = fInvoices
-      .filter(inv => inv.project_id === p.id && inv.status === 'paid')
-      .reduce((s, i) => s + i.amount, 0);
+    const pPaidAll = pInvoicesAll.reduce((s, i) => s + invoiceAmountPaid(i, p.tax_rate ?? null), 0);
     // Same eligibility as earned revenue: internal time is never owed, and
     // anyone but the owner is owed for only once their time is approved.
     const projectEntries = fTimeEntries.filter(te =>
@@ -334,7 +339,7 @@ export function computeFinanceData(input: FinanceEngineInput): FinanceData {
         isHourly: !!p.hourly_tracking,
         invoiced: pInvoices.reduce((s, i) => s + i.amount, 0),
         earned: pHourlyEarned + pAccrued + pTeamContribution,
-        received: pPayments.reduce((s, i) => s + i.amount, 0),
+        received: pPayments.reduce((s, part) => s + part.amount, 0),
         outstanding: outstandingByProject.get(p.id) ?? 0,
         hours: pHours,
       };
