@@ -14,6 +14,7 @@ export const EMAIL_MIGRATION = '../supabase/migrations/20261006010922_email_inbo
 export const PROJECT_ADDRESS_MIGRATION = '../supabase/migrations/20261006030328_email_project_addresses.sql';
 export const SPEC_MIGRATION = '../supabase/migrations/20261006113522_spec_is_for_agents.sql';
 export const NEEDS_HUMAN_MIGRATION = '../supabase/migrations/20261018161658_email_needs_human.sql';
+export const NEEDS_HUMAN_CLEANUP_MIGRATION = '../supabase/migrations/20261018164310_email_needs_human_cleanup.sql';
 const TASK_SAVE_MIGRATION = '../supabase/migrations/20260923235152_atomic_task_save.sql';
 
 async function read(path: string) {
@@ -26,8 +27,8 @@ export const readMigration = read;
 /**
  * source 'migration' applies the migration (twice); 'schema' instead loads
  * the inbound email section of schema.sql, to prove the snapshot stands on
- * its own. stopBeforeNeedsHuman leaves out the needs_human rename, so a test
- * can write rows under the old names and then apply it.
+ * its own. stopBeforeNeedsHuman leaves out the needs_human rename (both
+ * steps), so a test can write rows under the old names and then apply it.
  */
 export async function createEmailDatabase(
   source: 'migration' | 'schema' = 'migration',
@@ -111,9 +112,11 @@ export async function createEmailDatabase(
     await db.exec(spec);
     await db.exec(spec); // safe to re-run
     if (!stopBeforeNeedsHuman) {
-      const needsHuman = await read(NEEDS_HUMAN_MIGRATION);
-      await db.exec(needsHuman);
-      await db.exec(needsHuman); // safe to re-run
+      for (const path of [NEEDS_HUMAN_MIGRATION, NEEDS_HUMAN_CLEANUP_MIGRATION]) {
+        const sql = await read(path);
+        await db.exec(sql);
+        await db.exec(sql); // safe to re-run
+      }
     }
   } else {
     const hostname = canonical.match(/create or replace function public\.email_is_hostname\([\s\S]*?^\$\$;/m)?.[0];

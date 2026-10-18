@@ -4,7 +4,7 @@ import { parsePagination } from '@/lib/api/pagination';
 import { badRequest } from '@/lib/api/errors';
 import { assertUuid, inboxScope } from '@/lib/inbound-email/agent-access';
 import { listMessages } from '@/lib/inbound-email/agent-read';
-import { AGENT_MESSAGE_STATUSES, fromLegacyStatus } from '@/lib/inbound-email/schemas';
+import { AGENT_MESSAGE_STATUSES } from '@/lib/inbound-email/schemas';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,7 +15,7 @@ export const dynamic = 'force-dynamic';
 export const GET = withApi(async ({ supabase, searchParams, teamMemberId }) => {
   const { page, limit, offset } = parsePagination(searchParams);
   const inboxIds = await inboxScope(supabase, teamMemberId, searchParams.get('inbox_id'));
-  const status = fromLegacyStatus(searchParams.get('status'));
+  const status = searchParams.get('status');
   if (status && !(AGENT_MESSAGE_STATUSES as readonly string[]).includes(status)) {
     throw badRequest(`status must be one of ${AGENT_MESSAGE_STATUSES.join(', ')}`);
   }

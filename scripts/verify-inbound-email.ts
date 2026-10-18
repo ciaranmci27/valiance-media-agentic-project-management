@@ -29,7 +29,7 @@ import type { IncomingMessage } from 'node:http';
 import { NextRequest } from 'next/server';
 import type { PGlite } from '@electric-sql/pglite';
 import { startFakePostgrest } from './fake-postgrest';
-import { NEEDS_HUMAN_MIGRATION, SPEC_MIGRATION, asPerson, asService, createEmailDatabase, readMigration } from './inbound-email-db';
+import { NEEDS_HUMAN_CLEANUP_MIGRATION, NEEDS_HUMAN_MIGRATION, SPEC_MIGRATION, asPerson, asService, createEmailDatabase, readMigration } from './inbound-email-db';
 import { FakeResend, FakeStorage, readEml, resendFixture } from './inbound-email-fixtures';
 import { signSvix } from '../src/lib/inbound-email/svix';
 
@@ -1438,25 +1438,21 @@ async function main() {
     }
 
     // Deletes: no agent route deletes anything.
-    // The rename's compatibility: an agent (or an app build) from before
-    // needs_human still sends the old names; they are stored as the new ones.
-    const oldNames = await triageOf(forward.id, { outcome: 'needs_ciaran', urgent: false, summary: 'Old plugin', question_for_ciaran: 'Old key?' });
-    const [legacyRow] = await rows(db, 'SELECT outcome, question_for_human, question_for_ciaran FROM email_triage WHERE id=$1', [oldNames.body.data?.triage?.id]);
-    check('rename: the old outcome and question names are accepted and stored as needs_human and question_for_human',
-      oldNames.status === 201 && oldNames.body.data.status === 'needs_human' && legacyRow?.outcome === 'needs_human'
-      && legacyRow.question_for_human === 'Old key?' && legacyRow.question_for_ciaran === 'Old key?', [oldNames.body, legacyRow]);
-    const bothQuestions = await triageOf(forward.id, { outcome: 'needs_human', urgent: false, summary: 'Both', question_for_human: 'New?', question_for_ciaran: 'Old?' });
-    const [bothRow] = await rows(db, 'SELECT question_for_human FROM email_triage WHERE id=$1', [bothQuestions.body.data?.triage?.id]);
-    check('rename: when both question names come, the new one wins', bothRow?.question_for_human === 'New?', bothRow);
-    const byOldStatus = await api(list.GET, 'GET', '/api/v1/inbound-emails?status=needs_ciaran', keys.ashley);
-    check('rename: the list filter takes the old status name and returns needs_human email',
-      byOldStatus.status === 200 && byOldStatus.body.data.length > 0 && byOldStatus.body.data.every((m: { status: string }) => m.status === 'needs_human'), byOldStatus.body);
-    const oldBuild = await asService(db, () => rows(db, `SELECT public.email_record_triage($1, $2, $3::jsonb, '[]'::jsonb, NULL, 'needs_ciaran') AS r`, [
-      forward.id, ids.ashley, JSON.stringify({ outcome: 'needs_ciaran', urgent: false, summary: 'Old app build', question_for_ciaran: 'From the old build?' }),
-    ]));
-    const [oldBuildRow] = await rows(db, 'SELECT outcome, question_for_human FROM email_triage WHERE id=$1', [oldBuild[0].r.triage.id]);
-    check('rename: the database function takes an old app build\'s names and stores the new ones',
-      oldBuild[0].r.status === 'needs_human' && oldBuildRow.outcome === 'needs_human' && oldBuildRow.question_for_human === 'From the old build?', [oldBuild, oldBuildRow]);
+    // After the rename's step 2 the old names are refused everywhere.
+    const oldOutcome = await triageOf(forward.id, { outcome: 'needs_ciaran', urgent: false, summary: 'Old plugin', question_for_human: 'x' });
+    const oldQuestion = await triageOf(forward.id, { outcome: 'needs_human', urgent: false, summary: 'Old key', question_for_ciaran: 'x' });
+    const oldFilter = await api(list.GET, 'GET', '/api/v1/inbound-emails?status=needs_ciaran', keys.ashley);
+    let oldFunction = false;
+    try {
+      await asService(db, () => rows(db, `SELECT public.email_record_triage($1, $2, $3::jsonb, '[]'::jsonb, NULL, 'needs_ciaran')`, [
+        forward.id, ids.ashley, JSON.stringify({ outcome: 'needs_human', urgent: false, summary: 'Old status' }),
+      ]));
+    } catch {
+      oldFunction = true;
+    }
+    check('rename: needs_ciaran and question_for_ciaran are refused by the API, the list filter and the database function',
+      [400, 422].includes(oldOutcome.status) && [400, 422].includes(oldQuestion.status) && oldFilter.status === 400 && oldFunction,
+      [oldOutcome.status, oldQuestion.status, oldFilter.status, oldFunction]);
 
     check('no deletes: no inbound email route exports DELETE', [list, detail, attachmentUrl, attachmentLabel, triage, unsummarized, markSummarized, signal, webhook].every((m) => !('DELETE' in m)));
     await settle();
@@ -1486,6 +1482,12 @@ async function main() {
     const [tri] = await rows(before, "SELECT outcome, question_for_human, question_for_ciaran FROM email_triage WHERE message_id='00000000-0000-4000-8000-0000000000e3'");
     check('rename: existing needs_ciaran email and triage become needs_human, the question copied to question_for_human',
       msg.status === 'needs_human' && tri.outcome === 'needs_human' && tri.question_for_human === 'Decide this?' && tri.question_for_ciaran === 'Decide this?', [msg, tri]);
+    const cleanup = await readMigration(NEEDS_HUMAN_CLEANUP_MIGRATION);
+    await before.exec(cleanup);
+    await before.exec(cleanup); // safe to re-run
+    const [after] = await rows(before, "SELECT * FROM email_triage WHERE message_id='00000000-0000-4000-8000-0000000000e3'");
+    check('rename step 2: question_for_ciaran is dropped and the question survives in question_for_human',
+      !('question_for_ciaran' in after) && after.question_for_human === 'Decide this?', after);
     let refused = false;
     try {
       await before.exec("UPDATE public.email_messages SET status = 'needs_ciaran' WHERE id = '00000000-0000-4000-8000-0000000000e3'");

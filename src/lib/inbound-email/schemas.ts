@@ -5,28 +5,7 @@ import { z } from 'zod';
 export const AGENT_MESSAGE_STATUSES = ['new', 'handled', 'ignored', 'needs_human'] as const;
 export const TRIAGE_OUTCOMES = ['no_action', 'task', 'needs_reply', 'needs_human'] as const;
 
-/**
- * needs_ciaran and question_for_ciaran are the old names of needs_human and
- * question_for_human (2026-10-18): the inbox is for every member who reads it,
- * so nothing names one person. An agent built before the rename still sends
- * them, so they are read as the new names until the rename's step 2.
- */
-export const LEGACY_NEEDS_HUMAN = 'needs_ciaran';
-
-export function fromLegacyStatus(value: string | null): string | null {
-  return value === LEGACY_NEEDS_HUMAN ? 'needs_human' : value;
-}
-
-function fromLegacyTriage(input: unknown): unknown {
-  if (!input || typeof input !== 'object' || Array.isArray(input)) return input;
-  const { question_for_ciaran: legacyQuestion, ...rest } = input as Record<string, unknown>;
-  const out: Record<string, unknown> = { ...rest };
-  if (out.outcome === LEGACY_NEEDS_HUMAN) out.outcome = 'needs_human';
-  if (legacyQuestion !== undefined && out.question_for_human === undefined) out.question_for_human = legacyQuestion;
-  return out;
-}
-
-export const triageSchema = z.preprocess(fromLegacyTriage, z.object({
+export const triageSchema = z.object({
   outcome: z.enum(TRIAGE_OUTCOMES),
   urgent: z.boolean(),
   summary: z.string().trim().min(1).max(4000),
@@ -39,7 +18,7 @@ export const triageSchema = z.preprocess(fromLegacyTriage, z.object({
   }).strict()).max(50).default([]),
   // A retry with the same key on the same email returns the first triage.
   idempotency_key: z.string().min(8).max(100).nullable().optional(),
-}).strict());
+}).strict();
 export type TriageRequest = z.infer<typeof triageSchema>;
 
 export const attachmentLabelSchema = z.object({

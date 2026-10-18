@@ -6471,9 +6471,6 @@ CREATE TABLE public.email_triage (
   -- What the agent needs a person to decide (needs_human).
   question_for_human text CONSTRAINT email_triage_question_for_human_check
     CHECK (question_for_human IS NULL OR length(question_for_human) <= 4000),
-  -- The old name of question_for_human, written with the same text until the
-  -- needs_human rename's step 2 drops it.
-  question_for_ciaran text CHECK (question_for_ciaran IS NULL OR length(question_for_ciaran) <= 4000),
   -- Copy-only text for a person to send from their own mail. Never sent.
   suggested_reply text CHECK (suggested_reply IS NULL OR length(suggested_reply) <= 20000),
   -- The project this triage chose (inferred) when the thread had none.
@@ -6790,15 +6787,9 @@ AS $$
 DECLARE
   v_message public.email_messages;
   v_triage public.email_triage;
-  -- needs_ciaran and question_for_ciaran are the old names of needs_human and
-  -- question_for_human: an app build from before the rename still sends them
-  -- until it is replaced, so they are read here and stored under the new names.
-  v_status text := CASE WHEN p_status = 'needs_ciaran' THEN 'needs_human' ELSE p_status END;
-  v_outcome text := CASE WHEN p_triage->>'outcome' = 'needs_ciaran' THEN 'needs_human' ELSE p_triage->>'outcome' END;
-  v_question text := COALESCE(p_triage->>'question_for_human', p_triage->>'question_for_ciaran');
 BEGIN
   IF COALESCE(auth.role(), '') <> 'service_role' THEN RAISE EXCEPTION 'Service role required' USING ERRCODE = '42501'; END IF;
-  IF v_status NOT IN ('handled', 'needs_human') THEN RAISE EXCEPTION 'email_record_triage: invalid status' USING ERRCODE = '22023'; END IF;
+  IF p_status NOT IN ('handled', 'needs_human') THEN RAISE EXCEPTION 'email_record_triage: invalid status' USING ERRCODE = '22023'; END IF;
 
   SELECT * INTO v_message FROM public.email_messages WHERE id = p_message_id FOR UPDATE;
   IF NOT FOUND OR v_message.status = 'receiving' THEN
@@ -6839,11 +6830,11 @@ BEGIN
   END IF;
 
   INSERT INTO public.email_triage (
-    message_id, member_id, outcome, urgent, summary, question_for_human, question_for_ciaran, suggested_reply, project_id, idempotency_key, request_hash
+    message_id, member_id, outcome, urgent, summary, question_for_human, suggested_reply, project_id, idempotency_key, request_hash
   )
   VALUES (
-    p_message_id, p_member_id, v_outcome, COALESCE((p_triage->>'urgent')::boolean, false),
-    p_triage->>'summary', v_question, v_question, p_triage->>'suggested_reply', p_project_id,
+    p_message_id, p_member_id, p_triage->>'outcome', COALESCE((p_triage->>'urgent')::boolean, false),
+    p_triage->>'summary', p_triage->>'question_for_human', p_triage->>'suggested_reply', p_project_id,
     p_idempotency_key, p_request_hash
   )
   RETURNING * INTO v_triage;
@@ -6853,11 +6844,11 @@ BEGIN
   FROM jsonb_array_elements(COALESCE(p_links, '[]'::jsonb)) AS l
   ON CONFLICT (message_id, task_id, relation) DO NOTHING;
 
-  UPDATE public.email_messages SET status = v_status WHERE id = p_message_id;
+  UPDATE public.email_messages SET status = p_status WHERE id = p_message_id;
 
   RETURN jsonb_build_object(
     'triage', to_jsonb(v_triage) - 'request_hash',
-    'status', v_status,
+    'status', p_status,
     'thread', (SELECT jsonb_build_object('id', t.id, 'project_id', t.project_id, 'project_source', t.project_source)
                FROM public.email_threads t WHERE t.id = v_message.thread_id),
     'replayed', false
@@ -6913,8 +6904,6 @@ AS $$
       'urgent', l.urgent,
       'summary', l.summary,
       'question_for_human', l.question_for_human,
-      -- The old key, for an agent plugin from before the rename (step 2 removes it).
-      'question_for_ciaran', l.question_for_human,
       'has_suggested_reply', l.suggested_reply IS NOT NULL,
       'project_id', l.project_id,
       'superseded_triage_ids', COALESCE((
