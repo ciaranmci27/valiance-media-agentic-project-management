@@ -46,44 +46,59 @@ export function fmtDay(ms: number): string {
 }
 
 /**
- * One color and one plain label per runtime line. Color is never the only
- * cue: every place that shows a line also prints its name.
+ * Display order of the runtime lines everywhere they appear together (chart
+ * legend, tooltip and stack from the bottom; Time accounting's split bar):
+ * work first, then the turns stuck on something (waiting, blocked, failed),
+ * then the quiet lines. Display only: the overlap priority in TIME_LINES is
+ * unchanged.
  */
-export const LINE_STYLE: Record<TimeLine, { label: string; bar: string; dot: string; text: string; hint: string }> = {
+export const LINE_ORDER: TimeLine[] = ['work', 'rework', 'waiting', 'blocked', 'failed', 'skipped', 'idle', 'unknown', 'unlabelled'];
+
+// Unlabelled is the one line with no outcome at all, so it wears a stripe
+// rather than a third flat gray (idle and unknown are the flat ones).
+const UNLABELLED_STRIPE = 'bg-[repeating-linear-gradient(135deg,var(--color-zinc-500)_0_2px,transparent_2px_5px)]';
+
+/**
+ * One color and one plain label per runtime line. Color is never the only
+ * cue: every place that shows a line also prints its name. The signal lines
+ * use the validated runtime tokens in globals.css; the quiet ones are a light
+ * gray (unknown), a mid gray (idle) and a gray stripe (unlabelled).
+ */
+export const LINE_STYLE: Record<TimeLine, { label: string; bar: string; dot: string; hint: string }> = {
   work: {
-    label: 'Work', bar: 'bg-emerald-500', dot: 'bg-emerald-500', text: 'text-emerald-400',
+    label: 'Work', bar: 'bg-runtime-work', dot: 'bg-runtime-work',
     hint: 'Turns that changed something: any tool call beyond reading. Every directed (Telegram) turn is work.',
   },
   rework: {
-    label: 'Rework on approved work', bar: 'bg-amber-400', dot: 'bg-amber-400', text: 'text-amber-400',
+    label: 'Rework on approved work', bar: 'bg-runtime-rework', dot: 'bg-runtime-rework',
     hint: 'Work on a task whose pull request was already approved when the turn began. Real work, but it should not have been needed.',
   },
+  waiting: {
+    label: 'Waiting on a person', bar: 'bg-runtime-waiting', dot: 'bg-runtime-waiting',
+    hint: 'Turns that found the work parked on a person (a review, an answer, an approval) and replied HEARTBEAT_OK.',
+  },
   blocked: {
-    label: 'Blocked', bar: 'bg-red-400', dot: 'bg-red-400', text: 'text-red-400',
+    label: 'Blocked', bar: 'bg-runtime-blocked', dot: 'bg-runtime-blocked',
     hint: 'Turns that found nothing to do and logged a blocked event or replied BLOCKED.',
   },
-  waiting: {
-    label: 'Waiting on Ciaran', bar: 'bg-violet-400', dot: 'bg-violet-400', text: 'text-violet-300',
-    hint: 'Turns that found the work parked on Ciaran and replied HEARTBEAT_OK.',
-  },
-  idle: {
-    label: 'Idle checks', bar: 'bg-zinc-400', dot: 'bg-zinc-400', text: 'text-zinc-300',
-    hint: 'Scheduled checks that found nothing to do (PICKUP_IDLE, REVIEW_IDLE, SWEEP_CLEAN, NO_WORK).',
-  },
   skipped: {
-    label: 'Skipped by gate', bar: 'bg-slate-500', dot: 'bg-slate-500', text: 'text-slate-300',
+    label: 'Skipped by gate', bar: 'bg-runtime-skipped', dot: 'bg-runtime-skipped',
     hint: 'Fires the cron gate skipped before the model ran.',
   },
+  idle: {
+    label: 'Idle checks', bar: 'bg-zinc-500', dot: 'bg-zinc-500',
+    hint: 'Scheduled checks that found nothing to do (PICKUP_IDLE, REVIEW_IDLE, SWEEP_CLEAN, NO_WORK).',
+  },
   unknown: {
-    label: 'Unknown', bar: 'bg-zinc-600', dot: 'bg-zinc-600', text: 'text-zinc-400',
+    label: 'Unknown', bar: 'bg-zinc-300', dot: 'bg-zinc-300',
     hint: 'The host could not read the session, so the turn is published without a guess.',
   },
   unlabelled: {
-    label: 'Unlabelled', bar: 'bg-zinc-700', dot: 'bg-zinc-700', text: 'text-zinc-400',
+    label: 'Unlabelled', bar: UNLABELLED_STRIPE, dot: UNLABELLED_STRIPE,
     hint: 'Scheduled turns published before outcomes existed. Never counted as work or idle; a backfill can label them.',
   },
   failed: {
-    label: 'Failed', bar: 'bg-rose-600', dot: 'bg-rose-600', text: 'text-rose-400',
+    label: 'Failed', bar: 'bg-runtime-failed', dot: 'bg-runtime-failed',
     hint: 'Fires that did not end cleanly and have no completed turn (a completed-with-error turn is counted under its outcome).',
   },
 };

@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { Timer } from 'lucide-react';
 import type { BreakdownRow, TimeAccounting, TimeLine } from '@/lib/agent-telemetry-analytics';
-import { Card, CardSkeleton, Defined, LINE_STYLE, MiniStat, Missing, StatRow, fmtDuration, fmtPct } from './shared';
+import { Card, CardSkeleton, Defined, LINE_ORDER, LINE_STYLE, MiniStat, Missing, StatRow, fmtDuration, fmtPct } from './shared';
 
 /**
  * Where every minute of runtime went. Active runtime is the measured total;
@@ -30,14 +30,23 @@ export function TimeAccountingCard({
 }) {
   const [view, setView] = useState<'agent' | 'job' | 'trigger'>('agent');
   const a = accounting;
-  const lines: { line: TimeLine; value: number }[] = [
+  const unknownOrUnlabelled = a.lines.unknown + a.lines.unlabelled;
+  // The list follows LINE_ORDER: rework sits inside work, unknown and
+  // unlabelled share a row, failed carries its fire counts.
+  const items: { line: TimeLine; value: number; label?: string; hint?: string; note?: string }[] = [
     { line: 'work', value: a.lines.work + a.lines.rework },
     { line: 'waiting', value: a.lines.waiting },
     { line: 'blocked', value: a.lines.blocked },
+    { line: 'failed', value: a.lines.failed,
+      note: a.failedRuns > 0
+        ? `${a.failedWithoutTurn} fire${a.failedWithoutTurn === 1 ? '' : 's'}${a.failedRuns > a.failedWithoutTurn ? `, plus ${a.failedRuns - a.failedWithoutTurn} counted under their outcome` : ''}`
+        : undefined },
     { line: 'skipped', value: a.lines.skipped },
     { line: 'idle', value: a.lines.idle },
+    { line: 'unlabelled', value: unknownOrUnlabelled, label: 'Unknown or unlabelled',
+      hint: `${LINE_STYLE.unknown.hint} ${LINE_STYLE.unlabelled.hint}`,
+      note: unknownOrUnlabelled > 0 ? `${a.unknownTurns} unknown, ${a.unlabelledTurns} unlabelled turns` : undefined },
   ];
-  const unknownOrUnlabelled = a.lines.unknown + a.lines.unlabelled;
   const breakdown = view === 'agent' ? byAgent : view === 'job' ? byJob : byTrigger;
 
   return (
@@ -76,26 +85,18 @@ export function TimeAccountingCard({
           <div>
             {/* One bar, proportional, so idle reads as idle at a glance. */}
             <div className="flex h-2 rounded-full overflow-hidden bg-white/[0.04]" role="img"
-              aria-label={`Active runtime split: ${[...lines.map((l) => `${LINE_STYLE[l.line].label} ${fmtDuration(l.value)}`),
-                `Unknown or unlabelled ${fmtDuration(unknownOrUnlabelled)}`, `Failed ${fmtDuration(a.lines.failed)}`].join(', ')}`}>
-              {(['work', 'rework', 'blocked', 'waiting', 'skipped', 'unknown', 'failed', 'idle', 'unlabelled'] as TimeLine[]).map((line) =>
+              aria-label={`Active runtime split: ${items.map((i) => `${i.label ?? LINE_STYLE[i.line].label} ${fmtDuration(i.value)}`).join(', ')}`}>
+              {LINE_ORDER.map((line) =>
                 a.lines[line] > 0 ? (
                   <div key={line} className={LINE_STYLE[line].bar} style={{ width: `${(a.lines[line] / a.activeMs) * 100}%` }} />
                 ) : null)}
             </div>
 
             <ul className="mt-3 grid sm:grid-cols-2 gap-x-6 gap-y-1.5">
-              {[...lines,
-                { line: 'unlabelled' as TimeLine, value: unknownOrUnlabelled, label: 'Unknown or unlabelled', hint: `${LINE_STYLE.unknown.hint} ${LINE_STYLE.unlabelled.hint}`,
-                  note: unknownOrUnlabelled > 0 ? `${a.unknownTurns} unknown, ${a.unlabelledTurns} unlabelled turns` : undefined },
-                { line: 'failed' as TimeLine, value: a.lines.failed, label: 'Failed', hint: LINE_STYLE.failed.hint,
-                  note: a.failedRuns > 0
-                    ? `${a.failedWithoutTurn} fire${a.failedWithoutTurn === 1 ? '' : 's'}${a.failedRuns > a.failedWithoutTurn ? `, plus ${a.failedRuns - a.failedWithoutTurn} counted under their outcome` : ''}`
-                    : undefined },
-              ].map((item) => {
-                const label = 'label' in item ? item.label : LINE_STYLE[item.line].label;
-                const hint = 'hint' in item ? item.hint : LINE_STYLE[item.line].hint;
-                const note = 'note' in item ? item.note : undefined;
+              {items.map((item) => {
+                const label = item.label ?? LINE_STYLE[item.line].label;
+                const hint = item.hint ?? LINE_STYLE[item.line].hint;
+                const note = item.note;
                 return (
                   <li key={label} className="flex items-baseline justify-between gap-3 min-w-0">
                     <span className="flex items-center gap-2 min-w-0">

@@ -14,9 +14,9 @@ const KIND_LABELS: Record<string, string> = {
 };
 
 /**
- * Ciaran's attention: every message that reached him, counted and never
- * quoted. Unsolicited messages are the cost; solicited ones are replies to
- * conversations he started.
+ * Human attention: every agent message that reached a person, counted and
+ * never quoted. Unsolicited messages are the cost; solicited ones are replies
+ * to conversations a person started.
  */
 export function AttentionCard({ attention, measuring, rangeDays, taskTitle }: {
   attention: Attention;
@@ -28,13 +28,13 @@ export function AttentionCard({ attention, measuring, rangeDays, taskTitle }: {
   const unsolicited = a.rows.reduce((sum, row) => sum + row.unsolicited, 0);
   const b = a.blockedToResume;
   return (
-    <Card icon={BellRing} title="Ciaran's attention">
+    <Card icon={BellRing} title="Human attention">
       {measuring ? (
         <CardSkeleton rows={4} />
       ) : !a.tracked ? (
         <Missing>Attention telemetry has not reported yet. Messages appear once the host publishes them.</Missing>
       ) : a.total === 0 ? (
-        <Missing>No messages reached Ciaran in this range.</Missing>
+        <Missing>No agent messages reached a person in this range.</Missing>
       ) : (
         <div className="p-5 space-y-4">
           <StatRow columns={3}>
@@ -45,7 +45,7 @@ export function AttentionCard({ attention, measuring, rangeDays, taskTitle }: {
             />
             <MiniStat
               label="Unsolicited a day"
-              hint="Messages Ciaran did not ask for (updates, notifications, questions, alerts), averaged over the days in range."
+              hint="Messages nobody asked for (updates, notifications, questions, alerts), averaged over the days in range."
               value={(unsolicited / rangeDays).toFixed(1)}
               sub={`${unsolicited} in range`}
             />

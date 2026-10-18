@@ -52,6 +52,20 @@
   /* Warm accent (brand copper) ; used only in the ambient back-light for balance */
   --color-copper: #c5a68f;
 
+  /* Agent runtime lines (Agent Analytics). A categorical set run through the
+     data-viz validator in chart order (work, rework, waiting, blocked, failed,
+     skipped): every step inside the lightness band on both the dark card
+     (#14151a) and the light one (#ffffff), adjacent pairs apart for color-blind
+     and full-color readers, 3:1 against both surfaces. Mode-invariant, so the
+     light theme needs no override. The quiet lines (idle, unknown, unlabelled)
+     are neutral steps on purpose and use the zinc scale plus a stripe. */
+  --color-runtime-work: #199e70;
+  --color-runtime-rework: #d95926;
+  --color-runtime-waiting: #3987e5;
+  --color-runtime-blocked: #c98500;
+  --color-runtime-failed: #d03b3b;
+  --color-runtime-skipped: #9085e9;
+
   /* On-surface "ink" ; the RGB triplet behind every white-alpha tint/border/rim in
      the design (glass fills, hairlines, seg control, scrollbars). Dark theme inks in
      white; light theme flips it to near-black so all those alphas invert in one place.

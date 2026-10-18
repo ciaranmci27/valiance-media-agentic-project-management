@@ -425,7 +425,7 @@ export function formatEventTitle(type: AgentEventType, payload: Record<string, u
         blocking_question: 'Asked a blocking question',
         host_alert: 'Host alert',
       };
-      const label = kinds[String(p.kind)] ?? 'Message to Ciaran';
+      const label = kinds[String(p.kind)] ?? 'Message to a person';
       return p.kind === 'host_alert' && p.alert_key ? `${label}: ${p.alert_key}` : label;
     }
     case 'dispatch.wake': {

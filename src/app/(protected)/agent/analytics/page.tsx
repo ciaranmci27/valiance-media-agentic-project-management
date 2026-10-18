@@ -27,16 +27,17 @@ import {
 } from '@/lib/use-agent-analytics-events';
 import { computeTelemetryAnalytics, TIME_LINES, type BillingGap, type GapReview, type TimeLine } from '@/lib/agent-telemetry-analytics';
 
-const HIDDEN_LINES_KEY = 'agent-analytics:hidden-runtime-lines';
-const DEFAULT_HIDDEN_LINES: TimeLine[] = ['idle', 'unlabelled'];
-// Chart order (legend, tooltip, stack from the bottom): the quiet lines go
-// last, so when shown they sit on top of the work. Display only; the overlap
-// priority in TIME_LINES is unchanged.
-const CHART_LINE_ORDER: TimeLine[] = ['work', 'rework', 'blocked', 'waiting', 'skipped', 'unknown', 'failed', 'idle', 'unlabelled'];
+// v2: skipped joined the default-hidden lines, and a choice saved under the old
+// key would keep showing it, so everyone starts again from the new default.
+const HIDDEN_LINES_KEY = 'agent-analytics:hidden-runtime-lines:v2';
+const DEFAULT_HIDDEN_LINES: TimeLine[] = ['skipped', 'idle', 'unlabelled'];
+// Chart order (legend, tooltip, stack from the bottom): LINE_ORDER, so the
+// quiet lines sit on top of the work when shown.
+const CHART_LINE_ORDER = LINE_ORDER;
 import { createClient } from '@/lib/supabase/client';
 import { clearBillingGapReview, saveBillingGapReview } from '@/lib/supabase/queries';
 import { toast } from '@/components/ui/Toast';
-import { Card, CardSkeleton, LINE_STYLE, fmtCount, fmtDuration } from '@/components/agent/analytics/shared';
+import { Card, CardSkeleton, LINE_ORDER, LINE_STYLE, fmtCount, fmtDuration } from '@/components/agent/analytics/shared';
 import { SectionHeader } from '@/components/ui/SectionHeader';
 import { TimeAccountingCard } from '@/components/agent/analytics/TimeAccountingCard';
 import { TokensCard } from '@/components/agent/analytics/TokensCard';
@@ -278,8 +279,8 @@ export default function AgentAnalyticsPage() {
   const [chartMetric, setChartMetric] = useState<ChartMetric>('revenue');
 
   // Runtime lines hidden from the chart (only the chart: Time accounting and
-  // the tile always count everything). Idle checks and unlabelled turns start
-  // hidden because they dwarf the work; the legend brings them back. The
+  // the tile always count everything). Gate skips, idle checks and unlabelled
+  // turns start hidden because they dwarf the work; the legend brings them back. The
   // choice is a per-viewer convenience kept in browser storage. Reading it in
   // the initializer is hydration-safe: nothing that depends on it renders
   // until the range's data has loaded, which never happens on the server.
