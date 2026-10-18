@@ -29,7 +29,7 @@ import type { IncomingMessage } from 'node:http';
 import { NextRequest } from 'next/server';
 import type { PGlite } from '@electric-sql/pglite';
 import { startFakePostgrest } from './fake-postgrest';
-import { NEEDS_HUMAN_CLEANUP_MIGRATION, NEEDS_HUMAN_MIGRATION, SPEC_MIGRATION, asPerson, asService, createEmailDatabase, readMigration } from './inbound-email-db';
+import { NEEDS_HUMAN_CLEANUP_MIGRATION, NEEDS_HUMAN_MIGRATION, PROJECT_SOURCE_PERSON_MIGRATION, SPEC_MIGRATION, asPerson, asService, createEmailDatabase, readMigration } from './inbound-email-db';
 import { FakeResend, FakeStorage, readEml, resendFixture } from './inbound-email-fixtures';
 import { signSvix } from '../src/lib/inbound-email/svix';
 
@@ -754,7 +754,7 @@ async function main() {
     const remembered = await inbox.setThreadProject(owner, htmlOnly.thread_id, { project_id: ids.acme, remember_sender: { address: carla, project_ids: [ids.acme, ids.acme2] } });
     const [htmlThread] = await rows(db, 'SELECT project_id, project_source FROM email_threads WHERE id=$1', [htmlOnly.thread_id]);
     const carlaLinks = await rows(db, 'SELECT pc.project_id FROM project_contacts pc JOIN contact_emails ce ON ce.contact_id = pc.contact_id WHERE ce.email=$1 ORDER BY pc.project_id', [carla]);
-    check('inbox ui: set project (set by a person) and remember the sender as a contact on each project', htmlThread.project_id === ids.acme && htmlThread.project_source === 'ciaran'
+    check('inbox ui: set project (set by a person) and remember the sender as a contact on each project', htmlThread.project_id === ids.acme && htmlThread.project_source === 'person'
       && remembered.remembered_sender?.created_contact === true && carlaLinks.length === 2, { htmlThread, remembered, carlaLinks });
     const again = await inbox.setThreadProject(owner, htmlOnly.thread_id, { project_id: ids.acme, remember_sender: { address: carla, project_ids: [ids.acme] } });
     check('inbox ui: remembering again reuses the contact and adds nothing', again.remembered_sender?.created_contact === false && again.remembered_sender.linked_project_ids.length === 0);
@@ -997,7 +997,7 @@ async function main() {
       && keptShelved.project_source === 'address' && keptShelved.project_address_id === null, keptShelved);
     await inbox.setThreadProject(owner, filed.thread.id, { project_id: ids.birch });
     const [movedByPerson] = await rows(db, 'SELECT project_id, project_source, project_address_id FROM email_threads WHERE id=$1', [filed.thread.id]);
-    check('inbox ui: a person moving the thread sets ciaran and drops the address', movedByPerson.project_id === ids.birch && movedByPerson.project_source === 'ciaran' && movedByPerson.project_address_id === null, movedByPerson);
+    check('inbox ui: a person moving the thread sets person and drops the address', movedByPerson.project_id === ids.birch && movedByPerson.project_source === 'person' && movedByPerson.project_address_id === null, movedByPerson);
     let pairRefused = '';
     try { await db.query("UPDATE email_threads SET project_address_id = $1, project_source = 'mapped' WHERE id = $2", [address.id, filed.thread.id]); } catch (error) { pairRefused = (error as Error).message; }
     const [stillClear] = await rows(db, 'SELECT project_address_id FROM email_threads WHERE id=$1', [filed.thread.id]);
@@ -1036,7 +1036,7 @@ async function main() {
       check('triage: inbound_email.manage acts too', typeof (await inbox.markThreadHandled(inboxManager, orig.thread_id)).handled === 'number');
       check('triage: a project outside reach is still 403; one in reach is set by a person',
         (await failsWith(() => inbox.setThreadProject(triager, orig.thread_id, { project_id: ids.birch }))) === 403
-        && (await inbox.setThreadProject(triager, orig.thread_id, { project_id: ids.acme })).project.source === 'ciaran');
+        && (await inbox.setThreadProject(triager, orig.thread_id, { project_id: ids.acme })).project.source === 'person');
 
       // Names: a task in a project the member cannot open, linked to a readable thread.
       const birchTask = await taskIn(ids.birch, 'Birch-only task title', null, ids.owner);
@@ -1424,8 +1424,8 @@ async function main() {
 
       // Confirming a guess is a person setting it.
       const confirmed = await inbox.setThreadProject(owner, guess.thread.id, { project_id: fwdA });
-      check('guessed: confirming it marks it as set by a person', confirmed.project.source === 'ciaran'
-        && (await rows(db, 'SELECT project_source FROM email_threads WHERE id=$1', [guess.thread.id]))[0].project_source === 'ciaran', confirmed.project);
+      check('guessed: confirming it marks it as set by a person', confirmed.project.source === 'person'
+        && (await rows(db, 'SELECT project_source FROM email_threads WHERE id=$1', [guess.thread.id]))[0].project_source === 'person', confirmed.project);
       check('guessed: the database accepts guessed and nothing unknown', /project_source_check/.test(await refusedBy("UPDATE email_threads SET project_source = 'hunch' WHERE id = $1", [guess.thread.id])));
 
       // The database keeps the routing columns consistent.
@@ -1488,6 +1488,26 @@ async function main() {
     const [after] = await rows(before, "SELECT * FROM email_triage WHERE message_id='00000000-0000-4000-8000-0000000000e3'");
     check('rename step 2: question_for_ciaran is dropped and the question survives in question_for_human',
       !('question_for_ciaran' in after) && after.question_for_human === 'Decide this?', after);
+    // A thread a person filed before the project_source rename.
+    await before.exec(`
+      INSERT INTO public.projects (id, name) VALUES ('00000000-0000-4000-8000-0000000000e4', 'Old client');
+      UPDATE public.email_threads SET project_id = '00000000-0000-4000-8000-0000000000e4', project_source = 'ciaran'
+        WHERE id = '00000000-0000-4000-8000-0000000000e2';
+    `);
+    const [beforeRename] = await rows(before, "SELECT updated_at FROM email_threads WHERE id='00000000-0000-4000-8000-0000000000e2'");
+    const personRename = await readMigration(PROJECT_SOURCE_PERSON_MIGRATION);
+    await before.exec(personRename);
+    await before.exec(personRename); // safe to re-run
+    const [renamed] = await rows(before, "SELECT project_source, updated_at FROM email_threads WHERE id='00000000-0000-4000-8000-0000000000e2'");
+    let ciaranRefused = false;
+    try {
+      await before.exec("UPDATE public.email_threads SET project_source = 'ciaran' WHERE id = '00000000-0000-4000-8000-0000000000e2'");
+    } catch {
+      ciaranRefused = true;
+    }
+    check('rename: a thread set by a person moves from ciaran to person, untouched otherwise (updated_at kept), and ciaran is refused',
+      renamed.project_source === 'person' && String(renamed.updated_at) === String(beforeRename.updated_at) && ciaranRefused,
+      [renamed, beforeRename, ciaranRefused]);
     let refused = false;
     try {
       await before.exec("UPDATE public.email_messages SET status = 'needs_ciaran' WHERE id = '00000000-0000-4000-8000-0000000000e3'");

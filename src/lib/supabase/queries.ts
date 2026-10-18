@@ -1,5 +1,5 @@
 import { SupabaseClient } from '@supabase/supabase-js';
-import type { AiReadiness, Project, Task, TeamMember, Subtask, AcceptanceCriterion, Comment, Activity, Contact, ContactEmail, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, ApiKey, ProjectGoal, TaskSuggestion, AgentActivity, FleetAgentActivity, ApiAuditEntry, TimeEntry, ProjectCredential, ProjectCredentialListItem, ProjectInvoice, BusinessSettings, InvoiceTimeEntryAllocation, WebhookEndpoint, WebhookDelivery, ProjectRetainer, ProjectRetainerAmount, ProjectRetainerShare, ProjectRetainerPeriod, RetainerDuePeriod, InvoiceLineShare } from '@/lib/types';
+import type { AiReadiness, Project, Task, TeamMember, Subtask, AcceptanceCriterion, Comment, Activity, Contact, ContactEmail, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, ApiKey, ProjectGoal, TaskSuggestion, AgentActivity, FleetAgentActivity, ApiAuditEntry, TimeEntry, ProjectCredential, ProjectCredentialListItem, ProjectInvoice, BusinessSettings, InvoiceTimeEntryAllocation, WebhookEndpoint, WebhookDelivery, ProjectRetainer, ProjectRetainerAmount, ProjectRetainerShare, ProjectRetainerPeriod, RetainerDuePeriod, InvoiceLineShare, ProjectBillingPlan, ProjectBillingRun, BillingForecastItem } from '@/lib/types';
 import { fetchAllRows } from '@/lib/supabase/fetch-all';
 import { notFound } from '@/lib/api/errors';
 import { siteConfig } from '@/site-config';
@@ -2801,6 +2801,99 @@ export async function fetchRetainerDuePeriods(supabase: SupabaseClient, projectI
     ...row,
     amount: Number(row.amount),
     full_amount: Number(row.full_amount),
+  }));
+}
+
+// -- Billing plans (scheduled hourly drafts, payment terms, forecast) --------
+
+const DEFAULT_BILLING_PLAN: Omit<ProjectBillingPlan, 'project_id'> = {
+  payment_terms_days: 0,
+  hours_trigger: 'manual',
+  days_of_month: [1],
+  every_weeks: 2,
+  weeks_anchor: null,
+  trigger_amount: null,
+  cap_mode: 'none',
+  cap_value: null,
+  min_amount: 0,
+  combine_with_retainer: true,
+  paused: false,
+  starts_on: null,
+  ends_on: null,
+};
+
+function normalizeBillingPlan(row: Record<string, unknown>): ProjectBillingPlan {
+  const plan = row as unknown as ProjectBillingPlan;
+  return {
+    ...plan,
+    payment_terms_days: Number(plan.payment_terms_days),
+    days_of_month: (plan.days_of_month ?? [1]).map(Number),
+    every_weeks: Number(plan.every_weeks),
+    trigger_amount: plan.trigger_amount === null ? null : Number(plan.trigger_amount),
+    cap_value: plan.cap_value === null ? null : Number(plan.cap_value),
+    min_amount: Number(plan.min_amount),
+  };
+}
+
+/** The project's plan, or the defaults (manual, due on receipt) when none is saved. */
+export async function fetchBillingPlan(supabase: SupabaseClient, projectId: string): Promise<ProjectBillingPlan> {
+  const { data, error } = await supabase.from('project_billing_plans').select('*').eq('project_id', projectId).maybeSingle();
+  if (error) throw error;
+  return data ? normalizeBillingPlan(data) : { project_id: projectId, ...DEFAULT_BILLING_PLAN };
+}
+
+export async function saveBillingPlan(
+  supabase: SupabaseClient,
+  projectId: string,
+  plan: Partial<Omit<ProjectBillingPlan, 'project_id'>>,
+): Promise<ProjectBillingPlan> {
+  const { data, error } = await supabase
+    .rpc('save_project_billing_plan', { p_project_id: projectId, p_plan: plan })
+    .single();
+  if (error) throw error;
+  return normalizeBillingPlan(data as Record<string, unknown>);
+}
+
+export async function fetchBillingRuns(supabase: SupabaseClient, projectId: string, limit = 12): Promise<ProjectBillingRun[]> {
+  const { data, error } = await supabase
+    .from('project_billing_runs')
+    .select('*')
+    .eq('project_id', projectId)
+    .order('run_date', { ascending: false })
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return ((data || []) as ProjectBillingRun[]).map((run) => ({
+    ...run,
+    hours: run.hours === null ? null : Number(run.hours),
+    amount: run.amount === null ? null : Number(run.amount),
+    pending_hours: Number(run.pending_hours),
+    pending_amount: Number(run.pending_amount),
+  }));
+}
+
+/**
+ * Invoices the retainers and billing plan will produce, oldest first. One
+ * project, or every project the viewer can open (projectId null). previewPlan
+ * shows unsaved settings for one project before Save.
+ */
+export async function fetchBillingForecast(
+  supabase: SupabaseClient,
+  projectId: string | null,
+  options: { from?: string; until?: string; previewPlan?: Partial<ProjectBillingPlan> } = {},
+): Promise<BillingForecastItem[]> {
+  const { data, error } = await supabase.rpc('billing_forecast', {
+    p_project_id: projectId,
+    p_from: options.from ?? null,
+    p_until: options.until ?? null,
+    p_plan: options.previewPlan ?? null,
+  });
+  if (error) throw error;
+  return ((data || []) as BillingForecastItem[]).map((item) => ({
+    ...item,
+    exact: Number(item.exact),
+    estimated: Number(item.estimated),
+    lines: item.lines.map((line) => ({ ...line, amount: Number(line.amount) })),
   }));
 }
 

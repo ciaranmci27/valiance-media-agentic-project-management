@@ -27,7 +27,7 @@ export type TriageOutcome = 'no_action' | 'task' | 'needs_reply' | 'needs_human'
  * candidates; guessed: the agent chose with no candidates to go on; address:
  * sent to one of the project's own addresses.
  */
-export type ProjectSource = 'mapped' | 'inferred' | 'guessed' | 'ciaran' | 'address';
+export type ProjectSource = 'mapped' | 'inferred' | 'guessed' | 'person' | 'address';
 
 /** The agent's choice, inferred or guessed: shown as unsettled until a person confirms it. */
 export function isAgentChoice(source: ProjectSource | null | undefined): boolean {

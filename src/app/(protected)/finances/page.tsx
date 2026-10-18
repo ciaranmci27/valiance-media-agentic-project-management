@@ -27,6 +27,7 @@ import {
   ChevronDown,
   Check,
   Users,
+  CalendarClock,
 } from 'lucide-react';
 import { Avatar } from '@/components/ui/Avatar';
 import { PayrollPanel } from '@/components/finances/PayrollPanel';
@@ -1162,6 +1163,15 @@ export default function FinancesPage() {
       <Header
         title="Finances"
         subtitle={<span className="hidden sm:inline">Revenue, billing, and payroll across every project.</span>}
+        actions={hasPermission(access, 'invoices.read') ? (
+          <Link
+            href="/finances/billing"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-zinc-300 border border-white/[0.08] bg-surface-raised hover:bg-white/[0.03] hover:text-white rounded-lg transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-400"
+          >
+            <CalendarClock size={14} aria-hidden="true" />
+            Upcoming invoices
+          </Link>
+        ) : undefined}
       />
 
       <div className="p-4 lg:p-6 space-y-4 lg:space-y-6">

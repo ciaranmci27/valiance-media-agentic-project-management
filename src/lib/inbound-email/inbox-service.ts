@@ -590,7 +590,7 @@ export async function attachmentDownloadUrl(ctx: InboxContext, attachmentId: str
 }
 
 /**
- * Set or confirm the thread's project (source "ciaran"), and optionally
+ * Set or confirm the thread's project (source "person"), and optionally
  * remember the sender (the person becomes a contact on each chosen project)
  * or the sender's domain (a client domain on each chosen project). Rule 7:
  * only people create mappings, and only for a sender of this thread.
@@ -691,9 +691,9 @@ export async function setThreadProject(ctx: InboxContext, threadId: string, requ
     rememberedDomain = { domain, added_project_ids: added };
   }
 
-  const { error } = await ctx.service.from('email_threads').update({ project_id: projectId, project_source: 'ciaran' }).eq('id', thread.id);
+  const { error } = await ctx.service.from('email_threads').update({ project_id: projectId, project_source: 'person' }).eq('id', thread.id);
   if (error) throw error;
-  const project: ThreadProject = { id: projectId, name: projects.find((p) => p.id === projectId)?.name ?? 'Project', source: 'ciaran' };
+  const project: ThreadProject = { id: projectId, name: projects.find((p) => p.id === projectId)?.name ?? 'Project', source: 'person' };
   return { project, remembered_sender: rememberedSender, remembered_domain: rememberedDomain };
 }
 

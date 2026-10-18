@@ -349,7 +349,8 @@ export type NotificationCategory =
   | 'agent_suggestions'
   | 'agent_activity'
   | 'agent_goals'
-  | 'agent_autonomous';
+  | 'agent_autonomous'
+  | 'invoice_drafts';
 
 export type NotificationPreferences = Partial<Record<NotificationCategory, boolean>>;
 
@@ -581,6 +582,73 @@ export interface ProjectRetainerPeriod {
 }
 
 /** A period the invoice form can add as a ready line. */
+/**
+ * When a project's unbilled hours get drafted (autonomous invoice drafting).
+ * manual: as before, by hand. The rest draft on their own, never send.
+ */
+export type HoursTrigger = 'manual' | 'days_of_month' | 'every_weeks' | 'reaches_amount' | 'fixed_blocks';
+export type HoursCapMode = 'none' | 'amount' | 'hours';
+
+/** project_billing_plans: payment terms and hourly drafting, one per project. */
+export interface ProjectBillingPlan {
+  project_id: string;
+  payment_terms_days: number;
+  hours_trigger: HoursTrigger;
+  /** 1-31; 31 means the month's last day. */
+  days_of_month: number[];
+  every_weeks: number;
+  weeks_anchor: string | null;
+  trigger_amount: number | null;
+  cap_mode: HoursCapMode;
+  cap_value: number | null;
+  min_amount: number;
+  combine_with_retainer: boolean;
+  paused: boolean;
+  starts_on: string | null;
+  ends_on: string | null;
+}
+
+/** project_billing_runs: what one scheduled or amount run did. */
+export interface ProjectBillingRun {
+  id: string;
+  project_id: string;
+  run_key: string;
+  run_date: string;
+  outcome: 'drafted' | 'merged' | 'nothing_due' | 'below_minimum' | 'failed';
+  invoice_id: string | null;
+  hours: number | null;
+  amount: number | null;
+  pending_hours: number;
+  pending_amount: number;
+  detail: string | null;
+  created_at: string;
+}
+
+export interface BillingForecastLine {
+  kind: 'retainer' | 'hours';
+  label: string;
+  amount: number;
+  /** Hours "so far" and estimates; fixed amounts are exact. */
+  estimated: boolean;
+  note: string | null;
+}
+
+/** One invoice the billing forecast expects (or one already drafted for that date). */
+export interface BillingForecastItem {
+  date: string;
+  /** "retainer", "hours" or "retainer,hours" (combined on one invoice). */
+  sources: string;
+  status: 'upcoming' | 'paused' | 'skipped' | 'nothing_due' | 'below_minimum' | 'failed' | ProjectInvoice['status'];
+  invoice_id: string | null;
+  invoice_number: string | null;
+  exact: number;
+  estimated: number;
+  lines: BillingForecastLine[];
+  /** Set on the all-projects calendar. */
+  project_id?: string;
+  project_name?: string;
+}
+
 export interface RetainerDuePeriod {
   retainer_id: string;
   retainer_name: string;

@@ -62,6 +62,28 @@ export function paidHourlyLineItemTotal(invoices: ProjectInvoice[]): number {
 }
 
 /**
+ * The FIFO pool for drafting: paid hourly dollars, plus hourly lines on a
+ * draft, sent or overdue invoice that no session allocation backs (an amount
+ * typed over by hand detaches its sessions). Those are billed too, so their
+ * dollars count like paid ones; allocated lines are held slice by slice
+ * instead (heldRangesFromInvoices). Same rule as invoice_billed_hourly_pool.
+ */
+export function billedHourlyPool(invoices: ProjectInvoice[]): number {
+  let total = paidHourlyLineItemTotal(invoices);
+  for (const inv of invoices) {
+    if (inv.status !== 'draft' && inv.status !== 'sent' && inv.status !== 'overdue') continue;
+    const allocated = new Set((inv.time_allocations ?? []).map((allocation) => allocation.line_item_id));
+    const items = ensureLineItems(inv);
+    const legacy = !(Array.isArray(inv.line_items) && inv.line_items.length > 0);
+    for (const li of items) {
+      if (li.item_type !== 'hourly') continue;
+      if (legacy ? allocated.size === 0 : !allocated.has(li.id)) total += Number(li.amount) || 0;
+    }
+  }
+  return total;
+}
+
+/**
  * Sum invoiced dollars across all non-draft invoices, broken down by line-item
  * type. Use this instead of bucketing by the invoice-level `invoice_type`,
  * which would misclassify mixed invoices.
@@ -298,6 +320,87 @@ function unpaidPortionsByEntry(
 }
 
 /**
+ * Hours already on a live invoice that is not paid yet (draft, sent or
+ * overdue), per time entry, as [start, end) offsets in worked hours. They are
+ * billed, so the next invoice must not take them again. Paid invoices are not
+ * listed here: their dollars are the FIFO pool above. The same rule lives in
+ * SQL (invoice_unbilled_slices), so a scheduled draft and this form agree.
+ */
+export type HeldRanges = ReadonlyMap<string, ReadonlyArray<readonly [number, number]>>;
+
+const HELD_STATUSES = new Set(['draft', 'sent', 'overdue']);
+
+export function heldRangesFromInvoices(invoices: ProjectInvoice[], excludeInvoiceId?: string | null): HeldRanges {
+  const held = new Map<string, Array<[number, number]>>();
+  for (const invoice of invoices) {
+    if (invoice.id === excludeInvoiceId || !HELD_STATUSES.has(invoice.status)) continue;
+    for (const allocation of invoice.time_allocations ?? []) {
+      const start = Number(allocation.start_offset_hours) || 0;
+      const end = start + (Number(allocation.allocated_hours) || 0);
+      if (end <= start) continue;
+      const list = held.get(allocation.time_entry_id) ?? [];
+      list.push([start, end]);
+      held.set(allocation.time_entry_id, list);
+    }
+  }
+  return held;
+}
+
+interface UnbilledSlice<E extends BillableEntry> {
+  entry: E;
+  startOffsetHours: number;
+  hours: number;
+}
+
+/** [start, end) minus every held range, keeping the pieces in order. */
+function subtractHeld(
+  start: number,
+  end: number,
+  held: ReadonlyArray<readonly [number, number]>,
+): Array<[number, number]> {
+  let pieces: Array<[number, number]> = [[start, end]];
+  for (const [heldStart, heldEnd] of held) {
+    pieces = pieces.flatMap(([s, e]): Array<[number, number]> => {
+      if (heldEnd <= s || heldStart >= e) return [[s, e]];
+      const out: Array<[number, number]> = [];
+      if (heldStart > s) out.push([s, heldStart]);
+      if (heldEnd < e) out.push([heldEnd, e]);
+      return out;
+    });
+  }
+  return pieces;
+}
+
+/**
+ * The unbilled time, oldest first: each entry's part beyond the paid pool,
+ * minus what other live invoices hold: at most one slice per entry.
+ */
+function unbilledSlices<E extends BillableEntry>(
+  sorted: E[],
+  paidPool: number,
+  fallbackRate: number,
+  held?: HeldRanges,
+): Array<UnbilledSlice<E>> {
+  const portions = unpaidPortionsByEntry(sorted, paidPool, fallbackRate);
+  const slices: Array<UnbilledSlice<E>> = [];
+  for (const entry of sorted) {
+    const portion = portions.get(entry.id);
+    if (!portion || portion.hours <= 0) continue;
+    const pieces = subtractHeld(
+      portion.startOffsetHours,
+      portion.startOffsetHours + portion.hours,
+      held?.get(entry.id) ?? [],
+    );
+    // An invoice line holds one allocation per session, so a session split by
+    // a held piece in its middle offers its first free piece now and the
+    // rest to the next invoice. The SQL walk does the same.
+    const first = pieces.find(([s, e]) => e - s > HOURS_EPSILON);
+    if (first) slices.push({ entry, startOffsetHours: first[0], hours: first[1] - first[0] });
+  }
+  return slices;
+}
+
+/**
  * Format an ISO datetime (or YYYY-MM-DD) into MM/DD/YYYY in the viewer's local
  * timezone. Naïve YYYY-MM-DD slicing was a bug for non-UTC users: an entry
  * tracked at 11pm PST renders as 2026-04-04 in UTC but the user thinks of it
@@ -328,28 +431,27 @@ export function buildUnpaidHoursLineItem(
   paidPool: number,
   fallbackRate = 0,
   eligibleEntryIds?: ReadonlySet<string>,
+  held?: HeldRanges,
 ): UnpaidHoursLineItemDraft | null {
   // Oldest-first ordering is required by the FIFO walk. Sort defensively.
   const sorted = [...entries].sort((a, b) => a.start_time.localeCompare(b.start_time));
-  const unpaidMap = unpaidPortionsByEntry(sorted, paidPool, fallbackRate);
-  if (unpaidMap.size === 0) return null;
+  const slices = unbilledSlices(sorted, paidPool, fallbackRate, held);
+  if (slices.length === 0) return null;
 
   let totalHours = 0;
   let earliestStart: string | null = null;
   let latestEnd: string | null = null;
   let totalAmount = 0;
   const allocations: TimeAllocationDraft[] = [];
-  for (const entry of sorted) {
+  for (const { entry, startOffsetHours, hours } of slices) {
     if (eligibleEntryIds && !eligibleEntryIds.has(entry.id)) continue;
-    const unpaid = unpaidMap.get(entry.id);
-    if (!unpaid || unpaid.hours <= 0) continue;
-    totalHours += unpaid.hours;
-    const amount = unpaid.hours * rateForEntry(entry, fallbackRate);
+    totalHours += hours;
+    const amount = hours * rateForEntry(entry, fallbackRate);
     totalAmount += amount;
     allocations.push({
       time_entry_id: entry.id,
-      start_offset_hours: unpaid.startOffsetHours,
-      allocated_hours: unpaid.hours,
+      start_offset_hours: startOffsetHours,
+      allocated_hours: hours,
       allocated_amount: Math.round(amount * 100) / 100,
     });
     if (!earliestStart || entry.start_time < earliestStart) earliestStart = entry.start_time;
@@ -374,7 +476,9 @@ export function buildUnpaidHoursLineItem(
  * builders so the description shape stays consistent.
  */
 export function formatUnpaidHoursDescription(hours: number, startDate: string, endDate: string): string {
-  const hoursStr = hours.toFixed(4).replace(/\.?0+$/, '');
+  // Round a half up, as the SQL drafter does: 4.15975 is stored as
+  // 4.15974999... in a float, which toFixed alone would print as 4.1597.
+  const hoursStr = (Math.round(hours * 10000 + 1e-7) / 10000).toFixed(4).replace(/\.?0+$/, '');
   return `${hoursStr} hours worked between ${fmtMDY(startDate)} and ${fmtMDY(endDate)}`;
 }
 
@@ -395,11 +499,12 @@ export function buildPartialUnpaidHoursLineItem(
   fallbackRate: number,
   targetHours: number,
   eligibleEntryIds?: ReadonlySet<string>,
+  held?: HeldRanges,
 ): UnpaidHoursLineItemDraft | null {
   if (targetHours <= 0) return null;
   const sorted = [...entries].sort((a, b) => a.start_time.localeCompare(b.start_time));
-  const unpaidMap = unpaidPortionsByEntry(sorted, paidPool, fallbackRate);
-  if (unpaidMap.size === 0) return null;
+  const slices = unbilledSlices(sorted, paidPool, fallbackRate, held);
+  if (slices.length === 0) return null;
 
   let acc = 0;
   let earliestStart: string | null = null;
@@ -407,14 +512,12 @@ export function buildPartialUnpaidHoursLineItem(
   let amount = 0;
   const allocations: TimeAllocationDraft[] = [];
 
-  for (const entry of sorted) {
+  for (const { entry, startOffsetHours, hours: sliceHours } of slices) {
     if (eligibleEntryIds && !eligibleEntryIds.has(entry.id)) continue;
-    const unpaid = unpaidMap.get(entry.id);
-    if (!unpaid || unpaid.hours <= 0) continue;
     const remainingHours = targetHours - acc;
     if (remainingHours <= HOURS_EPSILON) break;
 
-    const used = Math.min(unpaid.hours, remainingHours);
+    const used = Math.min(sliceHours, remainingHours);
     if (used <= HOURS_EPSILON) continue;
     if (!earliestStart) earliestStart = entry.start_time;
     acc += used;
@@ -422,7 +525,7 @@ export function buildPartialUnpaidHoursLineItem(
     amount += usedAmount;
     allocations.push({
       time_entry_id: entry.id,
-      start_offset_hours: unpaid.startOffsetHours,
+      start_offset_hours: startOffsetHours,
       allocated_hours: used,
       allocated_amount: Math.round(usedAmount * 100) / 100,
     });
@@ -449,10 +552,11 @@ export function buildPartialUnpaidHoursLineItemByAmount(
   fallbackRate: number,
   targetAmount: number,
   eligibleEntryIds?: ReadonlySet<string>,
+  held?: HeldRanges,
 ): UnpaidHoursLineItemDraft | null {
   if (targetAmount <= 0) return null;
   const sorted = [...entries].sort((a, b) => a.start_time.localeCompare(b.start_time));
-  const unpaidMap = unpaidPortionsByEntry(sorted, paidPool, fallbackRate);
+  const slices = unbilledSlices(sorted, paidPool, fallbackRate, held);
   let remaining = targetAmount;
   let hours = 0;
   let amount = 0;
@@ -460,11 +564,9 @@ export function buildPartialUnpaidHoursLineItemByAmount(
   let cutoffEnd: string | null = null;
   const allocations: TimeAllocationDraft[] = [];
 
-  for (const entry of sorted) {
+  for (const { entry, startOffsetHours, hours: unpaidHours } of slices) {
     if (!hasUsablePool(remaining)) break;
     if (eligibleEntryIds && !eligibleEntryIds.has(entry.id)) continue;
-    const unpaid = unpaidMap.get(entry.id);
-    const unpaidHours = unpaid?.hours ?? 0;
     const rate = rateForEntry(entry, fallbackRate);
     if (unpaidHours <= 0 || rate <= 0) continue;
     if (!earliestStart) earliestStart = entry.start_time;
@@ -477,7 +579,7 @@ export function buildPartialUnpaidHoursLineItemByAmount(
     cutoffEnd = entry.end_time ?? entry.start_time;
     allocations.push({
       time_entry_id: entry.id,
-      start_offset_hours: unpaid?.startOffsetHours ?? 0,
+      start_offset_hours: startOffsetHours,
       allocated_hours: usedHours,
       allocated_amount: Math.round(usedAmount * 100) / 100,
     });

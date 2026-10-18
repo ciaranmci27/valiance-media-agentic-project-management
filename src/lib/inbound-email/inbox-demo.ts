@@ -202,7 +202,7 @@ function buildThreads(): InboxThreadDetail[] {
     thread({
       inbox: INBOX_SCOUT,
       subject: 'Fwd: Brand files for both sites',
-      project: { id: CREST, name: PROJECT_NAMES[CREST], source: 'ciaran' },
+      project: { id: CREST, name: PROJECT_NAMES[CREST], source: 'person' },
       candidates: [
         { project_id: CREST, name: PROJECT_NAMES[CREST], reasons: ['contact'] },
         { project_id: NEOFORGE, name: PROJECT_NAMES[NEOFORGE], reasons: ['domain'] },
@@ -397,7 +397,7 @@ export const demoInbox = {
     await pause();
     const detail = store().find((t) => t.id === threadId);
     if (!detail) throw new Error('Thread not found');
-    detail.project = { id: request.project_id, name: PROJECT_NAMES[request.project_id] ?? 'Project', source: 'ciaran' };
+    detail.project = { id: request.project_id, name: PROJECT_NAMES[request.project_id] ?? 'Project', source: 'person' };
     let rememberedDomain: SetThreadProjectResult['remembered_domain'] = null;
     if (request.remember_domain) {
       const valid = validateClientDomain(request.remember_domain.domain);

@@ -92,7 +92,7 @@ async function projectAddresses(supabase: SupabaseClient, ids: unknown[]): Promi
 /**
  * The thread's project as the agent sees it: source says how it got there
  * (mapped, inferred: chosen among the candidates, guessed: chosen with none,
- * ciaran, or address: sent to one of the project's own
+ * person: set by a person, or address: sent to one of the project's own
  * addresses, a person's mapping), and address names that address while it exists.
  */
 function threadProject(thread: Row | undefined, names: Map<string, string>, addresses: Map<string, Row>) {

@@ -44,6 +44,10 @@ interface RetainersModalProps {
   /** compensation.manage: splits are neither shown nor sent without it. */
   canManageSplits: boolean;
   isDemoMode: boolean;
+  /** Rendered inside another window (the Billing window's Retainers tab), without its own modal. */
+  embedded?: boolean;
+  /** Called after any change, so a host can refresh what depends on retainers (the forecast). */
+  onChanged?: () => void;
 }
 
 interface SplitRow {
@@ -88,6 +92,8 @@ export default function RetainersModal({
   canManage,
   canManageSplits,
   isDemoMode,
+  embedded = false,
+  onChanged,
 }: RetainersModalProps) {
   const supabase = useMemo(() => createClient(), []);
   const [bundle, setBundle] = useState<ProjectRetainerBundle>(EMPTY_BUNDLE);
@@ -286,6 +292,7 @@ export default function RetainersModal({
       }
       setView('list');
       await load();
+      onChanged?.();
     } catch (error) {
       toast('error', errorMessage(error, 'Failed to save retainer'));
     } finally {
@@ -301,6 +308,7 @@ export default function RetainersModal({
       });
       toast('success', retainer.status === 'active' ? 'Retainer paused' : 'Retainer resumed');
       await load();
+      onChanged?.();
     } catch (error) {
       toast('error', errorMessage(error, 'Failed to update retainer'));
     } finally {
@@ -316,6 +324,7 @@ export default function RetainersModal({
       toast('success', 'Retainer deleted');
       setDeleteTarget(null);
       await load();
+      onChanged?.();
     } catch (error) {
       toast('error', errorMessage(error, 'Failed to delete retainer'));
     } finally {
@@ -329,6 +338,7 @@ export default function RetainersModal({
       const invoice = await generateRetainerPeriod(supabase, retainerId, periodStart);
       toast('success', `Draft ${invoice.invoice_number} created`);
       await load();
+      onChanged?.();
     } catch (error) {
       toast('error', errorMessage(error, 'Failed to create the draft'));
     } finally {
@@ -344,6 +354,7 @@ export default function RetainersModal({
       toast('success', 'Amount scheduled');
       setNewAmount('');
       await load();
+      onChanged?.();
     } catch (error) {
       toast('error', errorMessage(error, 'Failed to schedule amount'));
     } finally {
@@ -356,6 +367,7 @@ export default function RetainersModal({
     try {
       await removeRetainerAmount(supabase, amountId);
       await load();
+      onChanged?.();
     } catch (error) {
       toast('error', errorMessage(error, 'Failed to remove amount'));
     } finally {
@@ -704,14 +716,24 @@ export default function RetainersModal({
     );
   };
 
+  const content = view === 'form' ? renderForm() : renderList();
   return (
     <>
-      <Modal isOpen={isOpen} onClose={onClose} title={view === 'form' ? (editing ? 'Edit retainer' : 'New retainer') : 'Retainers'} size="2xl">
-        <p className="sr-only">
-          Recurring monthly billing for this project. Each retainer drafts its invoice line before the bill date.
-        </p>
-        {view === 'form' ? renderForm() : renderList()}
-      </Modal>
+      {embedded ? (
+        <div>
+          {view === 'form' && (
+            <h3 className="text-sm font-semibold text-white mb-3">{editing ? 'Edit retainer' : 'New retainer'}</h3>
+          )}
+          {content}
+        </div>
+      ) : (
+        <Modal isOpen={isOpen} onClose={onClose} title={view === 'form' ? (editing ? 'Edit retainer' : 'New retainer') : 'Retainers'} size="2xl">
+          <p className="sr-only">
+            Recurring monthly billing for this project. Each retainer drafts its invoice line before the bill date.
+          </p>
+          {content}
+        </Modal>
+      )}
       <ConfirmDialog
         isOpen={!!deleteTarget}
         onClose={() => setDeleteTarget(null)}

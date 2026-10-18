@@ -20,12 +20,15 @@ import {
   ListChecks,
   Send,
   Repeat,
+  CalendarClock,
 } from 'lucide-react';
 import { InvoicePreviewModal } from '@/components/projects/InvoicePreviewModal';
 import ClientEmailPreviewModal from '@/components/projects/ClientEmailPreviewModal';
-import RetainersModal from '@/components/projects/RetainersModal';
+import BillingModal, { type BillingTab } from '@/components/projects/billing/BillingModal';
 import { InvoiceLineSplit, type LineSplit } from '@/components/projects/InvoiceLineSplit';
 import {
+  fetchBillingForecast,
+  fetchBillingRuns,
   fetchInvoiceLineShares,
   fetchRetainerDuePeriods,
   setInvoiceLineShares,
@@ -53,6 +56,7 @@ import {
   type RecurrenceFrequency,
   type InvoiceTimeEntryAllocation,
   type RetainerDuePeriod,
+  type BillingForecastItem,
 } from '@/lib/types';
 import { getWorkedHours, isClientBillable } from '@/lib/time-entry-utils';
 import { HourlyRateSchedule } from './HourlyRateSchedule';
@@ -62,10 +66,11 @@ import {
   dominantInvoiceType,
   newLineItemId,
   suggestServiceEnd,
-  paidHourlyLineItemTotal,
   buildUnpaidHoursLineItem,
   buildPartialUnpaidHoursLineItem,
   buildPartialUnpaidHoursLineItemByAmount,
+  heldRangesFromInvoices,
+  billedHourlyPool,
   formatUnpaidHoursDescription,
   totalBillableAmount,
   type UnpaidHoursLineItemDraft,
@@ -210,8 +215,12 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
 
   // UI state
   const [isAdding, setIsAdding] = useState(false);
-  const [retainersOpen, setRetainersOpen] = useState(false);
+  const [billingTab, setBillingTab] = useState<BillingTab | null>(null);
   const retainerClient = useMemo(() => createClient(), []);
+  // The next invoice that drafts itself, and what each auto draft left out
+  // (time awaiting approval), for the panel's "Next draft" line and draft cards.
+  const [nextDraft, setNextDraft] = useState<BillingForecastItem | null>(null);
+  const [leftOutByInvoice, setLeftOutByInvoice] = useState<Map<string, number>>(new Map());
   // Retainer periods that are due (or were skipped) and can be added as ready lines.
   const [dueRetainerPeriods, setDueRetainerPeriods] = useState<RetainerDuePeriod[]>([]);
   // Revenue splits per line. Only lines touched in this form are written on
@@ -365,20 +374,24 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
       }));
   const defaultType: InvoiceLineItemType = isHourly ? 'hourly' : 'fixed';
 
-  // Roll up unpaid hours into a draft hourly line item. Computed from finalized
-  // entries vs. the FIFO pool of dollars covered by paid hourly line items, so
-  // saving an invoice as `paid` automatically shrinks the next click's amount.
-  // Drafts/sent invoices don't drain the pool, which matches how the rest of
-  // the panel reasons about "paid hours". Hoisted out of the original IIFE
-  // so the partial-amount picker can re-walk FIFO at commit time to find
-  // the right end-date cutoff for less-than-full invoices.
+  // Roll up unbilled hours into a draft hourly line item. Computed from
+  // finalized entries vs. the FIFO pool of dollars covered by paid hourly line
+  // items, minus the hours other draft, sent or overdue invoices already hold
+  // (heldHours). So a draft reserves its time: the next "Add tracked time"
+  // never offers it again, and the scheduled drafting in SQL
+  // (invoice_unbilled_slices) reaches the same answer. Hoisted out of the
+  // original IIFE so the partial-amount picker can re-walk FIFO at commit
+  // time to find the right end-date cutoff for less-than-full invoices.
+  // Paid hourly dollars plus live hourly lines with no sessions behind them
+  // (typed over by hand): both are billed, so FIFO starts after them.
   const paidHourlyPool = isHourly
-    ? paidHourlyLineItemTotal(
+    ? billedHourlyPool(
         editingId ? invoices.filter((invoice) => invoice.id !== editingId) : invoices,
       )
     : 0;
+  const heldHours = heldRangesFromInvoices(invoices, editingId);
   const allUnpaidHoursDraft = isHourly
-    ? buildUnpaidHoursLineItem(finalizedHourEntries, paidHourlyPool, hourlyRate)
+    ? buildUnpaidHoursLineItem(finalizedHourEntries, paidHourlyPool, hourlyRate, undefined, heldHours)
     : null;
   const customPeriodIsValid =
     unpaidPeriodMode === 'all' ||
@@ -401,6 +414,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
         paidHourlyPool,
         hourlyRate,
         periodEligibleEntryIds,
+        heldHours,
       )
     : null;
   const parsedPickerAmount = parseFloat(unpaidPickerAmount);
@@ -414,6 +428,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
             hourlyRate,
             parsedPickerAmount,
             periodEligibleEntryIds,
+            heldHours,
           )
         : null
       : Number.isFinite(parsedPickerHours) && parsedPickerHours > 0
@@ -423,6 +438,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
             hourlyRate,
             parsedPickerHours,
             periodEligibleEntryIds,
+            heldHours,
           )
         : null;
   const timeEntryById = new Map(finalizedHourEntries.map((entry) => [entry.id, entry] as const));
@@ -532,6 +548,32 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
   };
 
   const formOpen = isAdding || Boolean(editingId);
+
+  // The next self-drafting invoice and each auto draft's left-out time. Reads
+  // need invoices.read; refreshed when invoices change or Billing closes.
+  const canReadInvoices = hasPermission(access, 'invoices.read');
+  const invoiceSignature = invoices.map((invoice) => `${invoice.id}:${invoice.status}`).join(',');
+  useEffect(() => {
+    if (!canReadInvoices || isDemoMode || billingTab !== null) return;
+    let cancelled = false;
+    const until = new Date(`${todayLocalDate}T12:00:00`);
+    until.setDate(until.getDate() + 62);
+    Promise.all([
+      fetchBillingForecast(retainerClient, projectId, { until: until.toISOString().slice(0, 10) }),
+      fetchBillingRuns(retainerClient, projectId, 40),
+    ])
+      .then(([forecast, runs]) => {
+        if (cancelled) return;
+        setNextDraft(forecast.find((item) => item.status === 'upcoming') ?? null);
+        setLeftOutByInvoice(new Map(runs
+          .filter((run) => run.invoice_id && run.pending_hours > 0)
+          .map((run) => [run.invoice_id as string, run.pending_hours])));
+      })
+      // Before the billing migration is applied the reads fail: show nothing.
+      .catch(() => { if (!cancelled) { setNextDraft(null); setLeftOutByInvoice(new Map()); } });
+    return () => { cancelled = true; };
+  }, [billingTab, canReadInvoices, invoiceSignature, isDemoMode, projectId, retainerClient, todayLocalDate]);
+
   useEffect(() => {
     if (!formOpen || !canManageInvoices || isDemoMode) return;
     let cancelled = false;
@@ -699,6 +741,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
       hourlyRate,
       parsed,
       periodEligibleEntryIds,
+      heldHours,
     );
     if (draft) setUnpaidPickerHours(draft.hours.toFixed(4).replace(/\.?0+$/, ''));
   };
@@ -712,6 +755,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
       hourlyRate,
       parsed,
       periodEligibleEntryIds,
+      heldHours,
     );
     if (draft) setUnpaidPickerAmount(String(draft.amount));
   };
@@ -1739,11 +1783,12 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={() => setRetainersOpen(true)}
+              onClick={() => setBillingTab('upcoming')}
+              title="Retainers, scheduled hourly drafts, payment terms and what bills next"
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-zinc-300 border border-white/[0.08] bg-surface-raised hover:bg-white/[0.03] hover:text-white rounded-lg transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-400"
             >
-              <Repeat size={14} aria-hidden="true" />
-              Retainers
+              <CalendarClock size={14} aria-hidden="true" />
+              Billing
             </button>
             <button
               onClick={openAddForm}
@@ -1869,6 +1914,21 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
             ) : null}
           </div>
 
+          {nextDraft && (
+            <button
+              type="button"
+              onClick={() => setBillingTab('upcoming')}
+              className="mx-5 mt-4 flex items-center gap-2 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3.5 py-2 text-left text-xs text-zinc-300 hover:bg-white/[0.04] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-400"
+            >
+              <CalendarClock size={14} className="text-zinc-400 flex-shrink-0" aria-hidden="true" />
+              <span className="min-w-0 truncate">
+                Next draft {new Date(`${nextDraft.date}T12:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}:{' '}
+                {nextDraft.lines.map((line) => `${line.label} ${line.estimated ? '~' : ''}$${formatCurrency(line.amount)}`).join(' + ')}
+              </span>
+              <span className="ml-auto flex-shrink-0 text-zinc-500">View</span>
+            </button>
+          )}
+
           {/* Invoice list */}
           {invoices.length > 0 ? (
             <div className="flex-1 overflow-y-auto p-5 space-y-3">
@@ -1937,10 +1997,13 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
                             {invoice.auto_generated && invoice.status === 'draft' && (
                               <span
                                 className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium rounded bg-brand-500/15 text-brand-300"
-                                title="Drafted from a retainer. Review and send it."
+                                title={leftOutByInvoice.get(invoice.id)
+                                  ? `Drafted automatically. ${leftOutByInvoice.get(invoice.id)!.toFixed(2)} h awaiting approval was left out and goes on the next draft. Review and send it.`
+                                  : 'Drafted automatically (retainer or hours schedule). Review and send it.'}
                               >
                                 <Repeat size={10} aria-hidden="true" />
                                 Auto draft
+                                {leftOutByInvoice.get(invoice.id) ? ` · ${leftOutByInvoice.get(invoice.id)!.toFixed(1)} h waiting` : ''}
                               </span>
                             )}
                             {hasMultipleLines ? (
@@ -2175,9 +2238,10 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
 
       <InvoicePreviewModal invoiceId={previewInvoiceId} onClose={() => setPreviewInvoiceId(null)} />
 
-      <RetainersModal
-        isOpen={retainersOpen}
-        onClose={() => setRetainersOpen(false)}
+      {billingTab !== null && <BillingModal
+        isOpen
+        initialTab={billingTab ?? 'upcoming'}
+        onClose={() => setBillingTab(null)}
         projectId={projectId}
         invoices={invoices}
         team={team}
@@ -2185,7 +2249,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
         canManage={canManageInvoices}
         canManageSplits={canManageSplits}
         isDemoMode={isDemoMode}
-      />
+      />}
 
       <ClientEmailPreviewModal
         open={Boolean(emailInvoiceId)}

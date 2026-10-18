@@ -44,6 +44,7 @@ import type { ApiKey, NotificationCategory, NotificationPreferences } from '@/li
 import { apiScopesFor, canEditApiKey, hasPermission } from '@/lib/access-control';
 import { ApiScopePicker } from '@/components/settings/ApiScopePicker';
 import { EditApiKeyModal } from '@/components/settings/EditApiKeyModal';
+import { emailCategoryEnabled } from '@/lib/notification-defaults';
 
 const NOTIF_GROUPS: {
   group: string;
@@ -96,6 +97,11 @@ const NOTIF_GROUPS: {
         key: 'time_entries',
         label: 'Time tracking',
         desc: 'Time entries logged, updated, or deleted',
+      },
+      {
+        key: 'invoice_drafts',
+        label: 'Invoice drafts',
+        desc: 'An invoice was drafted for you to review and send (retainers and scheduled hours). Email is a morning summary.',
       },
       {
         key: 'entity_files',
@@ -386,13 +392,10 @@ export default function SettingsPage() {
 
   const handleToggleEmailNotif = (category: NotificationCategory) => {
     if (!teamMemberId || !emailEnabled) return;
-    const isCurrentlyEnabled = emailNotifPrefs[category] === true;
-    const newPrefs = { ...emailNotifPrefs };
-    if (isCurrentlyEnabled) {
-      delete newPrefs[category];
-    } else {
-      newPrefs[category] = true;
-    }
+    const isCurrentlyEnabled = emailCategoryEnabled(emailNotifPrefs, category);
+    // Explicit either way: some categories are on by default, so "absent"
+    // no longer means off for all of them.
+    const newPrefs = { ...emailNotifPrefs, [category]: !isCurrentlyEnabled };
     setEmailNotifPrefs(newPrefs);
     updateTeamMember(teamMemberId, { email_notification_prefs: newPrefs });
     toast(
@@ -912,7 +915,7 @@ export default function SettingsPage() {
                 <div className="space-y-3">
                   {items.map(({ key, label, desc }) => {
                     const inAppEnabled = notifPrefs[key] !== false;
-                    const emailCatEnabled = emailNotifPrefs[key] === true;
+                    const emailCatEnabled = emailCategoryEnabled(emailNotifPrefs, key);
                     return (
                       <div key={key} className="flex items-center justify-between">
                         <div className="min-w-0 flex-1 mr-4">
