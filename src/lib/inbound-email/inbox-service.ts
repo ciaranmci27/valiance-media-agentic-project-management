@@ -422,7 +422,7 @@ export async function threadDetail(ctx: InboxContext, threadId: string): Promise
       ctxSelect(service, 'email_attachments', 'id, message_id, position, filename, content_type, size_bytes, skipped_reason, uploaded_at, agent_label', count)
         .in('message_id', chunk).order('id').range(from, to)),
     readIn<Row & { id: string; message_id: string; created_at: string }>(ids, (chunk, from, to, count) =>
-      ctxSelect(service, 'email_triage', 'id, message_id, member_id, outcome, urgent, summary, question_for_ciaran, suggested_reply, created_at', count)
+      ctxSelect(service, 'email_triage', 'id, message_id, member_id, outcome, urgent, summary, question_for_human, suggested_reply, created_at', count)
         .in('message_id', chunk).order('id').range(from, to)),
     readIn<Row & { message_id: string; task_id: string }>(ids, (chunk, from, to, count) =>
       ctxSelect(service, 'email_task_links', 'id, message_id, task_id, relation, created_at', count).in('message_id', chunk).order('id').range(from, to)),
@@ -512,7 +512,7 @@ export async function threadDetail(ctx: InboxContext, threadId: string): Promise
         outcome: triageRow.outcome as TriageOutcome,
         urgent: Boolean(triageRow.urgent),
         summary: triageRow.summary as string,
-        question_for_ciaran: (triageRow.question_for_ciaran as string | null) ?? null,
+        question_for_human: (triageRow.question_for_human as string | null) ?? null,
         suggested_reply: (triageRow.suggested_reply as string | null) ?? null,
         member: memberId ? { id: memberId, name: people.get(memberId) ?? 'Agent' } : null,
         created_at: triageRow.created_at,
@@ -707,7 +707,7 @@ export async function markThreadHandled(ctx: InboxContext, threadId: string): Pr
   const thread = await loadReadableThread(ctx, threadId);
   const now = new Date().toISOString();
   const handled = await many<{ id: string }>(ctx.service.from('email_messages')
-    .update({ status: 'handled' }).eq('thread_id', thread.id).in('status', ['new', 'needs_ciaran']).select('id'));
+    .update({ status: 'handled' }).eq('thread_id', thread.id).in('status', ['new', 'needs_human']).select('id'));
   const reviewed = await many<{ id: string }>(ctx.service.from('email_messages')
     .update({ reviewed_at: now, reviewed_by: ctx.memberId })
     .eq('thread_id', thread.id).eq('status', 'handled').is('reviewed_at', null).select('id'));

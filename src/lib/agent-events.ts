@@ -284,7 +284,7 @@ export const AGENT_EVENT_SCHEMAS = {
   'email.triaged': z.object({
     message_id: z.string().uuid(),
     thread_id: z.string().uuid(),
-    outcome: z.enum(['no_action', 'task', 'needs_reply', 'needs_ciaran']),
+    outcome: z.enum(['no_action', 'task', 'needs_reply', 'needs_human']),
     urgent: z.boolean(),
     links: z.number().int().min(0),
   }),
@@ -474,7 +474,8 @@ export function formatEventTitle(type: AgentEventType, payload: Record<string, u
         no_action: 'no action',
         task: 'task',
         needs_reply: 'reply drafted',
-        needs_ciaran: 'flagged for review',
+        needs_human: 'flagged for review',
+        needs_ciaran: 'flagged for review', // events stored before the needs_human rename
       };
       return `${p.urgent ? 'Urgent: t' : 'T'}riaged email: ${outcomes[String(p.outcome)] ?? String(p.outcome)}`;
     }

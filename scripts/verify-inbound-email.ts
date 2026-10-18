@@ -29,7 +29,7 @@ import type { IncomingMessage } from 'node:http';
 import { NextRequest } from 'next/server';
 import type { PGlite } from '@electric-sql/pglite';
 import { startFakePostgrest } from './fake-postgrest';
-import { SPEC_MIGRATION, asPerson, asService, createEmailDatabase, readMigration } from './inbound-email-db';
+import { NEEDS_HUMAN_MIGRATION, SPEC_MIGRATION, asPerson, asService, createEmailDatabase, readMigration } from './inbound-email-db';
 import { FakeResend, FakeStorage, readEml, resendFixture } from './inbound-email-fixtures';
 import { signSvix } from '../src/lib/inbound-email/svix';
 
@@ -442,7 +442,7 @@ async function main() {
     const changeProject = await triageOf(reply.id, { outcome: 'task', urgent: false, summary: 'again', project_id: ids.acme2 });
     check('triage: a thread keeps its project (409)', changeProject.status === 409 && changeProject.body.error.details.reason === 'thread_project_set', changeProject.body);
     const untrusted = await triageOf(outlook.id, { outcome: 'task', urgent: false, summary: 'Send corrected invoice' });
-    check('triage: an untrusted sender is needs_ciaran whatever the outcome', untrusted.status === 201 && untrusted.body.data.status === 'needs_ciaran', untrusted.body);
+    check('triage: an untrusted sender is needs_human whatever the outcome', untrusted.status === 201 && untrusted.body.data.status === 'needs_human', untrusted.body);
     const mappedChoice = await triageOf(outlook.id, { outcome: 'needs_reply', urgent: false, summary: 'x', project_id: ids.other });
     check('triage: a mapped thread refuses another project_id', mappedChoice.status === 409, mappedChoice.body);
     const doneProject = randomUUID();
@@ -460,10 +460,11 @@ async function main() {
       && (await rows(db, 'SELECT project_id FROM email_threads WHERE id=$1', [htmlOnly.thread_id]))[0].project_id === null
       && (await rows(db, 'SELECT status FROM email_messages WHERE id=$1', [htmlOnly.id]))[0].status === 'new', [completedPick.body, archivedPick.body]);
     const unknownTrust = await triageOf(htmlOnly.id, { outcome: 'needs_reply', urgent: false, summary: 'Update header and footer', suggested_reply: 'Thanks Carla, on it.', project_id: ids.other });
-    check('triage: unknown trust is not forced to needs_ciaran; with no candidates any project may be chosen, as guessed', unknownTrust.status === 201 && unknownTrust.body.data.status === 'handled'
+    check('triage: unknown trust is not forced to needs_human; with no candidates any project may be chosen, as guessed', unknownTrust.status === 201 && unknownTrust.body.data.status === 'handled'
       && unknownTrust.body.data.thread.project_id === ids.other && unknownTrust.body.data.thread.project_source === 'guessed', unknownTrust.body);
-    const flagged = await triageOf(forward.id, { outcome: 'needs_ciaran', urgent: true, summary: 'Site down for Acme', question_for_ciaran: 'Restart the server?' });
-    check('triage: needs_ciaran outcome sets needs_ciaran', flagged.body.data?.status === 'needs_ciaran', flagged.body);
+    const flagged = await triageOf(forward.id, { outcome: 'needs_human', urgent: true, summary: 'Site down for Acme', question_for_human: 'Restart the server?' });
+    check('triage: needs_human outcome sets needs_human', flagged.body.data?.status === 'needs_human', flagged.body);
+
     const jeffTriage = await triageOf(reply.id, { outcome: 'no_action', urgent: false, summary: 'x' }, keys.jeff);
     check('scope: triage of an email in an ungranted inbox is 404 and records nothing', jeffTriage.status === 404
       && (await rows(db, 'SELECT 1 FROM email_triage WHERE member_id=$1', [ids.jeff])).length === 0, jeffTriage.body);
@@ -501,7 +502,7 @@ async function main() {
     const keyedCount = await triageCount(followup.id);
     // A person sends it back meanwhile; the retry must not handle it again.
     await db.query("UPDATE email_messages SET status = 'new' WHERE id=$1", [followup.id]);
-    const retried = await triageOf(followup.id, { ...idemBody, summary: '  Thanks for the update ', question_for_ciaran: null, links: [] });
+    const retried = await triageOf(followup.id, { ...idemBody, summary: '  Thanks for the update ', question_for_human: null, links: [] });
     await settle();
     check('idempotency: a retry with the same key is 200 with the first triage, records nothing, emits no event, leaves the status',
       firstKeyed.status === 201 && firstKeyed.body.data.replayed === false && firstKeyed.body.data.triage.idempotency_key === idemKey
@@ -685,7 +686,7 @@ async function main() {
     check('inbox ui: manage sees every thread in every inbox, newest activity first', ownerList.total === threadCount && ownerList.counts.all === threadCount
       && sortedDesc && ownerList.inboxes.length === 2, { total: ownerList.total, threadCount, sortedDesc });
     const byId = (list: typeof ownerList, threadId: string) => list.threads.find((t) => t.id === threadId);
-    check('inbox ui: needs you (untrusted, needs_ciaran) and needs reply read from messages and triage',
+    check('inbox ui: needs you (untrusted, needs_human) and needs reply read from messages and triage',
       byId(ownerList, forward.thread_id)?.needs_you === true && byId(ownerList, forward.thread_id)?.urgent === true
       && byId(ownerList, outlook.thread_id)?.untrusted === true && byId(ownerList, outlook.thread_id)?.state === 'needs_you'
       && byId(ownerList, htmlOnly.thread_id)?.needs_reply === true, ownerList.threads.map((t) => [t.subject, t.state]));
@@ -732,7 +733,7 @@ async function main() {
     check('inbox ui: mark handled reviews the message, which clears Needs reply', handledRow.status === 'handled' && !!handledRow.reviewed_at && handledRow.reviewed_by === ids.owner
       && byId(afterHandled, htmlOnly.thread_id)?.needs_reply === false && byId(afterHandled, htmlOnly.thread_id)?.state === 'handled', handledRow);
     await inbox.markThreadHandled(owner, forward.thread_id);
-    check('inbox ui: mark handled moves needs_ciaran to handled', (await rows(db, 'SELECT status FROM email_messages WHERE id=$1', [forward.id]))[0].status === 'handled');
+    check('inbox ui: mark handled moves needs_human to handled', (await rows(db, 'SELECT status FROM email_messages WHERE id=$1', [forward.id]))[0].status === 'handled');
     const sentBack = await inbox.sendBackToAgent(owner, htmlOnly.thread_id, null);
     const [backRow] = await rows(db, 'SELECT status, reviewed_at FROM email_messages WHERE id=$1', [htmlOnly.id]);
     check('inbox ui: send back makes the newest message New for the agent, unreviewed; twice is 409', sentBack.message_id === htmlOnly.id && backRow.status === 'new' && backRow.reviewed_at === null
@@ -1437,12 +1438,63 @@ async function main() {
     }
 
     // Deletes: no agent route deletes anything.
+    // The rename's compatibility: an agent (or an app build) from before
+    // needs_human still sends the old names; they are stored as the new ones.
+    const oldNames = await triageOf(forward.id, { outcome: 'needs_ciaran', urgent: false, summary: 'Old plugin', question_for_ciaran: 'Old key?' });
+    const [legacyRow] = await rows(db, 'SELECT outcome, question_for_human, question_for_ciaran FROM email_triage WHERE id=$1', [oldNames.body.data?.triage?.id]);
+    check('rename: the old outcome and question names are accepted and stored as needs_human and question_for_human',
+      oldNames.status === 201 && oldNames.body.data.status === 'needs_human' && legacyRow?.outcome === 'needs_human'
+      && legacyRow.question_for_human === 'Old key?' && legacyRow.question_for_ciaran === 'Old key?', [oldNames.body, legacyRow]);
+    const bothQuestions = await triageOf(forward.id, { outcome: 'needs_human', urgent: false, summary: 'Both', question_for_human: 'New?', question_for_ciaran: 'Old?' });
+    const [bothRow] = await rows(db, 'SELECT question_for_human FROM email_triage WHERE id=$1', [bothQuestions.body.data?.triage?.id]);
+    check('rename: when both question names come, the new one wins', bothRow?.question_for_human === 'New?', bothRow);
+    const byOldStatus = await api(list.GET, 'GET', '/api/v1/inbound-emails?status=needs_ciaran', keys.ashley);
+    check('rename: the list filter takes the old status name and returns needs_human email',
+      byOldStatus.status === 200 && byOldStatus.body.data.length > 0 && byOldStatus.body.data.every((m: { status: string }) => m.status === 'needs_human'), byOldStatus.body);
+    const oldBuild = await asService(db, () => rows(db, `SELECT public.email_record_triage($1, $2, $3::jsonb, '[]'::jsonb, NULL, 'needs_ciaran') AS r`, [
+      forward.id, ids.ashley, JSON.stringify({ outcome: 'needs_ciaran', urgent: false, summary: 'Old app build', question_for_ciaran: 'From the old build?' }),
+    ]));
+    const [oldBuildRow] = await rows(db, 'SELECT outcome, question_for_human FROM email_triage WHERE id=$1', [oldBuild[0].r.triage.id]);
+    check('rename: the database function takes an old app build\'s names and stores the new ones',
+      oldBuild[0].r.status === 'needs_human' && oldBuildRow.outcome === 'needs_human' && oldBuildRow.question_for_human === 'From the old build?', [oldBuild, oldBuildRow]);
+
     check('no deletes: no inbound email route exports DELETE', [list, detail, attachmentUrl, attachmentLabel, triage, unsummarized, markSummarized, signal, webhook].every((m) => !('DELETE' in m)));
     await settle();
   } finally {
     uninstall();
     await server.close();
     await db.close();
+  }
+
+  // The needs_human rename on a database that already has needs_ciaran rows.
+  const before = await createEmailDatabase('migration', { stopBeforeNeedsHuman: true });
+  try {
+    await before.exec(`
+      INSERT INTO public.email_inboxes (id, name, address, routing_domain, routing_local_part)
+        VALUES ('00000000-0000-4000-8000-0000000000e1', 'Ops', 'ops@example.com', 'relay.example.com', 'ops');
+      INSERT INTO public.email_threads (id, inbox_id) VALUES ('00000000-0000-4000-8000-0000000000e2', '00000000-0000-4000-8000-0000000000e1');
+      INSERT INTO public.email_messages (id, inbox_id, thread_id, status, provider, provider_email_id, internet_message_id)
+        VALUES ('00000000-0000-4000-8000-0000000000e3', '00000000-0000-4000-8000-0000000000e1', '00000000-0000-4000-8000-0000000000e2',
+                'needs_ciaran', 'resend', 'old-1', 'old-1@example.com');
+      INSERT INTO public.email_triage (message_id, outcome, urgent, summary, question_for_ciaran)
+        VALUES ('00000000-0000-4000-8000-0000000000e3', 'needs_ciaran', true, 'Old triage', 'Decide this?');
+    `);
+    const needsHuman = await readMigration(NEEDS_HUMAN_MIGRATION);
+    await before.exec(needsHuman);
+    await before.exec(needsHuman); // safe to re-run on converted data
+    const [msg] = await rows(before, "SELECT status FROM email_messages WHERE id='00000000-0000-4000-8000-0000000000e3'");
+    const [tri] = await rows(before, "SELECT outcome, question_for_human, question_for_ciaran FROM email_triage WHERE message_id='00000000-0000-4000-8000-0000000000e3'");
+    check('rename: existing needs_ciaran email and triage become needs_human, the question copied to question_for_human',
+      msg.status === 'needs_human' && tri.outcome === 'needs_human' && tri.question_for_human === 'Decide this?' && tri.question_for_ciaran === 'Decide this?', [msg, tri]);
+    let refused = false;
+    try {
+      await before.exec("UPDATE public.email_messages SET status = 'needs_ciaran' WHERE id = '00000000-0000-4000-8000-0000000000e3'");
+    } catch {
+      refused = true;
+    }
+    check('rename: needs_ciaran can no longer be stored', refused);
+  } finally {
+    await before.close();
   }
 
   // The schema.sql snapshot stands on its own.

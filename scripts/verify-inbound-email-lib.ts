@@ -182,8 +182,8 @@ async function main() {
 
   // Inbox thread states (the Inbox page and the sidebar badge).
   const msg = (partial: Partial<MessageState>): MessageState => ({ status: 'handled', reviewed_at: null, outcome: 'task', urgent: false, trust: 'trusted', ...partial });
-  check(threadFlags([msg({}), msg({ status: 'needs_ciaran', outcome: 'needs_ciaran', urgent: true })]).state, 'needs_you', 'needs_ciaran wins the thread state');
-  check(threadFlags([msg({ status: 'needs_ciaran', urgent: true })]).urgent, true, 'urgent while it waits on a person');
+  check(threadFlags([msg({}), msg({ status: 'needs_human', outcome: 'needs_human', urgent: true })]).state, 'needs_you', 'needs_human wins the thread state');
+  check(threadFlags([msg({ status: 'needs_human', urgent: true })]).urgent, true, 'urgent while it waits on a person');
   check(threadFlags([msg({ urgent: true, reviewed_at: 'x' })]).urgent, false, 'not urgent once handled');
   check(threadFlags([msg({ outcome: 'needs_reply' })]).needs_reply, true, 'a suggested reply needs reply until reviewed');
   check(threadFlags([msg({ outcome: 'needs_reply', reviewed_at: '2026-10-05' })]).state, 'handled', 'reviewing clears needs reply');
@@ -193,7 +193,7 @@ async function main() {
   const ignoredFlags = threadFlags([msg({ status: 'ignored', outcome: null })]);
   check([threadInTab(ignoredFlags, null, 'unassigned'), threadInTab(threadFlags([msg({})]), null, 'unassigned')], [false, true], 'unassigned skips auto-mail');
   const counts = tabCounts([
-    { flags: threadFlags([msg({ status: 'needs_ciaran' }), msg({ status: 'new', outcome: null })]), project_id: 'p' },
+    { flags: threadFlags([msg({ status: 'needs_human' }), msg({ status: 'new', outcome: null })]), project_id: 'p' },
     { flags: threadFlags([msg({ outcome: 'needs_reply' })]), project_id: null },
     { flags: ignoredFlags, project_id: null },
   ]);

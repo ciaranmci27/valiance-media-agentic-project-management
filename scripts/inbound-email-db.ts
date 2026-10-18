@@ -13,6 +13,7 @@ import { PGlite } from '@electric-sql/pglite';
 export const EMAIL_MIGRATION = '../supabase/migrations/20261006010922_email_inboxes.sql';
 export const PROJECT_ADDRESS_MIGRATION = '../supabase/migrations/20261006030328_email_project_addresses.sql';
 export const SPEC_MIGRATION = '../supabase/migrations/20261006113522_spec_is_for_agents.sql';
+export const NEEDS_HUMAN_MIGRATION = '../supabase/migrations/20261018161658_email_needs_human.sql';
 const TASK_SAVE_MIGRATION = '../supabase/migrations/20260923235152_atomic_task_save.sql';
 
 async function read(path: string) {
@@ -25,9 +26,13 @@ export const readMigration = read;
 /**
  * source 'migration' applies the migration (twice); 'schema' instead loads
  * the inbound email section of schema.sql, to prove the snapshot stands on
- * its own.
+ * its own. stopBeforeNeedsHuman leaves out the needs_human rename, so a test
+ * can write rows under the old names and then apply it.
  */
-export async function createEmailDatabase(source: 'migration' | 'schema' = 'migration'): Promise<PGlite> {
+export async function createEmailDatabase(
+  source: 'migration' | 'schema' = 'migration',
+  { stopBeforeNeedsHuman = false }: { stopBeforeNeedsHuman?: boolean } = {},
+): Promise<PGlite> {
   const canonical = await read('../supabase/schema.sql');
   const agentSchema = await read('../supabase/schema_ai_agent.sql');
   const table = (sql: string, name: string) => {
@@ -105,6 +110,11 @@ export async function createEmailDatabase(source: 'migration' | 'schema' = 'migr
     const spec = await read(SPEC_MIGRATION);
     await db.exec(spec);
     await db.exec(spec); // safe to re-run
+    if (!stopBeforeNeedsHuman) {
+      const needsHuman = await read(NEEDS_HUMAN_MIGRATION);
+      await db.exec(needsHuman);
+      await db.exec(needsHuman); // safe to re-run
+    }
   } else {
     const hostname = canonical.match(/create or replace function public\.email_is_hostname\([\s\S]*?^\$\$;/m)?.[0];
     const settingsColumn = canonical.match(/^  inbound_email_domain text[\s\S]*?\),\n/m)?.[0];

@@ -33,7 +33,7 @@ const OUTCOME: Record<TriageOutcome, { label: string; icon: typeof Bot; classNam
   no_action: { label: 'No action needed', icon: CheckCircle2, className: 'text-zinc-300' },
   task: { label: 'Tasks drafted or updated', icon: SquareCheck, className: 'text-emerald-300' },
   needs_reply: { label: 'Reply suggested', icon: MessageSquareReply, className: 'text-amber-300' },
-  needs_ciaran: { label: 'Needs you', icon: HelpCircle, className: 'text-red-300' },
+  needs_human: { label: 'Needs you', icon: HelpCircle, className: 'text-red-300' },
 };
 
 function dayLabel(value: string): string {
@@ -501,10 +501,10 @@ function TriageCard({ triage, agentName, linkedTasks }: { triage: InboxTriage; a
       </div>
       <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-zinc-200">{triage.summary}</p>
 
-      {triage.question_for_ciaran && (
+      {triage.question_for_human && (
         <div className="mt-2.5 rounded-md border border-amber-400/25 bg-amber-500/[0.08] px-3 py-2">
           <p className="text-[11px] font-semibold uppercase tracking-wider text-amber-300">Question for you</p>
-          <p className="mt-1 whitespace-pre-wrap text-sm text-zinc-100">{triage.question_for_ciaran}</p>
+          <p className="mt-1 whitespace-pre-wrap text-sm text-zinc-100">{triage.question_for_human}</p>
         </div>
       )}
 

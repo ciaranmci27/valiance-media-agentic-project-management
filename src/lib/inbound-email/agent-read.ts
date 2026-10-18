@@ -110,7 +110,8 @@ async function latestTriageByMessage(supabase: SupabaseClient, messageIds: strin
   const latest = new Map<string, Row>();
   if (messageIds.length === 0) return latest;
   const triage = await rows<Row>(supabase.from('email_triage')
-    .select('id, message_id, member_id, outcome, urgent, summary, question_for_ciaran, suggested_reply, project_id, summarized_at, created_at')
+    // question_for_ciaran: the old key, for an agent plugin from before the rename (step 2 removes it).
+    .select('id, message_id, member_id, outcome, urgent, summary, question_for_human, question_for_ciaran, suggested_reply, project_id, summarized_at, created_at')
     .in('message_id', messageIds)
     .order('created_at', { ascending: false }));
   for (const row of triage) if (!latest.has(row.message_id as string)) latest.set(row.message_id as string, row);

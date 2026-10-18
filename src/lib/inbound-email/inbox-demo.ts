@@ -91,7 +91,7 @@ function buildThreads(): InboxThreadDetail[] {
           from: person('David Lawson', 'david@crestfinancial.com', 'b2b2b2b2-0001-4000-8000-000000000001'),
           cc: [person('Lisa Martinez', 'lisa@crestfinancial.com', 'b2b2b2b2-0006-4000-8000-000000000006')],
           new_text: 'Hi Scout,\n\nWe need 500 business cards printed for the Chicago conference on April 5. Lisa will send the final names and titles this week.\n\nAlso, on the homepage wireframe, can the "Book a consultation" button sit above the fold on mobile too?\n\nThanks,\nDavid',
-          triage: triage({ outcome: 'task', urgent: false, summary: 'Two requests: 500 business cards for the April 5 conference (names to follow from Lisa), and the consultation button above the fold on mobile. Both added to existing tasks.', question_for_ciaran: null, suggested_reply: null, created_at: hoursAgo(29) }),
+          triage: triage({ outcome: 'task', urgent: false, summary: 'Two requests: 500 business cards for the April 5 conference (names to follow from Lisa), and the consultation button above the fold on mobile. Both added to existing tasks.', question_for_human: null, suggested_reply: null, created_at: hoursAgo(29) }),
           linked_tasks: [
             { task_id: 'e5e5e5e5-0004-4000-8000-000000000004', relation: 'updated', title: 'Business card & letterhead design', status: 'todo', project_id: CREST },
             { task_id: 'e5e5e5e5-0005-4000-8000-000000000005', relation: 'updated', title: 'Website wireframes', status: 'in_progress', project_id: CREST },
@@ -106,7 +106,7 @@ function buildThreads(): InboxThreadDetail[] {
             { id: '9b9b9b9b-0001-4000-8000-000000000001', filename: 'card-names.csv', content_type: 'text/csv', size_bytes: 2_310, kind: 'text', available: true, skipped_reason: null, agent_label: 'Names and titles for 14 cards' },
             { id: '9b9b9b9b-0002-4000-8000-000000000002', filename: 'crest-logo-print.pdf', content_type: 'application/pdf', size_bytes: 1_482_112, kind: 'pdf', available: true, skipped_reason: null, agent_label: 'Print logo, CMYK, 1 page' },
           ],
-          triage: triage({ outcome: 'task', urgent: false, summary: 'Lisa sent the 14 names and titles, with Jordan Blake now Director of IT. Copied into the business card task.', question_for_ciaran: null, suggested_reply: null, created_at: hoursAgo(4) }),
+          triage: triage({ outcome: 'task', urgent: false, summary: 'Lisa sent the 14 names and titles, with Jordan Blake now Director of IT. Copied into the business card task.', question_for_human: null, suggested_reply: null, created_at: hoursAgo(4) }),
           linked_tasks: [{ task_id: 'e5e5e5e5-0004-4000-8000-000000000004', relation: 'updated', title: 'Business card & letterhead design', status: 'todo', project_id: CREST }],
         }),
       ],
@@ -124,8 +124,8 @@ function buildThreads(): InboxThreadDetail[] {
           from: person('Andre Williams', 'andre.williams@gmail.com'),
           trust: UNKNOWN,
           new_text: 'Our homepage shows a 500 error right now. Investors are looking at the site this afternoon. Can someone look ASAP?\n\nAndre\nCTO, NeoForge Technologies',
-          status: 'needs_ciaran',
-          triage: triage({ outcome: 'needs_ciaran', urgent: true, summary: 'Andre (NeoForge CTO, writing from his personal Gmail) reports a 500 error on the homepage before an investor review this afternoon.', question_for_ciaran: 'This came from a personal address I could not map. Is the production site yours to check, and should I open an urgent task?', suggested_reply: 'Hi Andre, thanks for flagging this. We are looking at it now and will update you within the hour.', created_at: hoursAgo(0.5) }),
+          status: 'needs_human',
+          triage: triage({ outcome: 'needs_human', urgent: true, summary: 'Andre (NeoForge CTO, writing from his personal Gmail) reports a 500 error on the homepage before an investor review this afternoon.', question_for_human: 'This came from a personal address I could not map. Is the production site yours to check, and should I open an urgent task?', suggested_reply: 'Hi Andre, thanks for flagging this. We are looking at it now and will update you within the hour.', created_at: hoursAgo(0.5) }),
         }),
       ],
     }),
@@ -141,8 +141,8 @@ function buildThreads(): InboxThreadDetail[] {
           received_at: hoursAgo(3),
           from: person('Monica Reeves', 'monica@bloomwell.co', 'b2b2b2b2-0002-4000-8000-000000000002'),
           new_text: 'Hi team,\n\nOur compliance review slipped a week. Could we move the beta launch to next Friday, and would that change the cost?\n\nMonica',
-          status: 'needs_ciaran',
-          triage: triage({ outcome: 'needs_ciaran', urgent: false, summary: 'Monica asks to move the beta launch a week (compliance review slipped) and whether it changes the cost.', question_for_ciaran: 'Moving the launch touches the schedule and possibly the price. Do you want to keep the original date, or move it at no charge?', suggested_reply: null, created_at: hoursAgo(2.8) }),
+          status: 'needs_human',
+          triage: triage({ outcome: 'needs_human', urgent: false, summary: 'Monica asks to move the beta launch a week (compliance review slipped) and whether it changes the cost.', question_for_human: 'Moving the launch touches the schedule and possibly the price. Do you want to keep the original date, or move it at no charge?', suggested_reply: null, created_at: hoursAgo(2.8) }),
         }),
       ],
     }),
@@ -159,7 +159,7 @@ function buildThreads(): InboxThreadDetail[] {
           from: person('Rachel Kim', 'rachel@solsticerealty.com', 'b2b2b2b2-0004-4000-8000-000000000004'),
           new_text: 'Will sold listings stay visible on the new site, or only active ones? Some of our agents like showing recent sales.\n\nRachel',
           html_body: '<div style="font-family:Georgia,serif;font-size:15px;color:#1f2937"><p>Will <b>sold listings</b> stay visible on the new site, or only active ones? Some of our agents like showing recent sales.</p><p>Rachel</p><img src="https://tracker.example.com/open.gif" width="1" height="1" alt=""><table style="margin-top:16px;border-top:1px solid #e5e7eb"><tr><td style="padding-top:8px;color:#6b7280;font-size:12px">Rachel Kim, Broker-owner<br>Solstice Realty</td></tr></table></div>',
-          triage: triage({ outcome: 'needs_reply', urgent: false, summary: 'Rachel asks whether sold listings stay visible on the new site. The IDX research task says the feed includes sold listings for 12 months.', question_for_ciaran: null, suggested_reply: 'Hi Rachel,\n\nYes. The new IDX feed includes sold listings for the past 12 months, and each agent profile can show their recent sales alongside active listings.\n\nBest,\nSarah', created_at: hoursAgo(6.5) }),
+          triage: triage({ outcome: 'needs_reply', urgent: false, summary: 'Rachel asks whether sold listings stay visible on the new site. The IDX research task says the feed includes sold listings for 12 months.', question_for_human: null, suggested_reply: 'Hi Rachel,\n\nYes. The new IDX feed includes sold listings for the past 12 months, and each agent profile can show their recent sales alongside active listings.\n\nBest,\nSarah', created_at: hoursAgo(6.5) }),
         }),
       ],
     }),
@@ -176,9 +176,9 @@ function buildThreads(): InboxThreadDetail[] {
           from: person('Crest Accounts', 'accounts@crestfinancial-billing.com'),
           to: [person('Billing', INBOX_BILLING.address)],
           trust: UNTRUSTED,
-          status: 'needs_ciaran',
+          status: 'needs_human',
           new_text: 'Hello,\n\nPlease update our remittance details. All future invoice payments should go to the new account below, effective immediately.\n\nAccounts Payable',
-          triage: triage({ outcome: 'needs_ciaran', urgent: false, summary: 'Asks to change where invoice payments go. The domain only looks like Crest\'s, and DKIM failed. Treat as likely fraud.', question_for_ciaran: 'Do not act on this without calling David at Crest on a known number. Want me to flag it on the Crest project?', suggested_reply: null, created_at: hoursAgo(8.8) }, ATLAS),
+          triage: triage({ outcome: 'needs_human', urgent: false, summary: 'Asks to change where invoice payments go. The domain only looks like Crest\'s, and DKIM failed. Treat as likely fraud.', question_for_human: 'Do not act on this without calling David at Crest on a known number. Want me to flag it on the Crest project?', suggested_reply: null, created_at: hoursAgo(8.8) }, ATLAS),
         }),
       ],
     }),
@@ -222,7 +222,7 @@ function buildThreads(): InboxThreadDetail[] {
             { id: '9b9b9b9b-0003-4000-8000-000000000003', filename: 'brand-colors.png', content_type: 'image/png', size_bytes: 284_221, kind: 'image', available: true, skipped_reason: null, agent_label: 'Palette swatches: navy, gold, slate' },
             { id: '9b9b9b9b-0004-4000-8000-000000000004', filename: 'brand-source.ai', content_type: 'application/postscript', size_bytes: 61_202_000, kind: 'other', available: false, skipped_reason: 'over_size_cap', agent_label: null },
           ],
-          triage: triage({ outcome: 'task', urgent: false, summary: 'Jordan sent the final brand palette; the source file was over the size limit and was not stored. Palette added to the guidelines task.', question_for_ciaran: null, suggested_reply: null, created_at: hoursAgo(49) }),
+          triage: triage({ outcome: 'task', urgent: false, summary: 'Jordan sent the final brand palette; the source file was over the size limit and was not stored. Palette added to the guidelines task.', question_for_human: null, suggested_reply: null, created_at: hoursAgo(49) }),
           linked_tasks: [{ task_id: 'e5e5e5e5-0003-4000-8000-000000000003', relation: 'updated', title: 'Brand guidelines document', status: 'in_progress', project_id: CREST }],
           reviewed_at: hoursAgo(48),
           reviewed_by: SARAH,
@@ -422,7 +422,7 @@ export const demoInbox = {
     let handled = 0;
     let reviewed = 0;
     for (const m of detail.messages) {
-      if (m.status === 'new' || m.status === 'needs_ciaran') { m.status = 'handled'; handled++; }
+      if (m.status === 'new' || m.status === 'needs_human') { m.status = 'handled'; handled++; }
       if (m.status === 'handled' && !m.reviewed_at) { m.reviewed_at = new Date().toISOString(); m.reviewed_by = SARAH; reviewed++; }
     }
     return { handled, reviewed };

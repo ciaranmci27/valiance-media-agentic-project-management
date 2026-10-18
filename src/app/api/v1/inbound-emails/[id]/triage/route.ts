@@ -30,7 +30,7 @@ function requestHash(body: TriageRequest): string {
     body.outcome,
     body.urgent,
     body.summary,
-    body.question_for_ciaran ?? null,
+    body.question_for_human ?? null,
     body.suggested_reply ?? null,
     body.project_id?.toLowerCase() ?? null,
     links,
@@ -60,7 +60,7 @@ async function priorTriage(supabase: SupabaseClient, message: AccessibleMessage,
 
 /**
  * Records a triage (history is kept; the newest wins) and sets the email's
- * status: needs_ciaran when the outcome is needs_ciaran or the sender is
+ * status: needs_human when the outcome is needs_human or the sender is
  * untrusted, otherwise handled. project_id is taken only while the thread
  * has no project, and only from the mapping candidates when there are any;
  * it sets the thread's project as inferred (chosen among the candidates) or
@@ -112,7 +112,7 @@ export const POST = withApi<TriageRequest, { id: string }>(async ({ supabase, pa
         throw forbidden('Project scope denied', { reason: 'project_scope', grant_on: 'project_membership', project_id: body.project_id });
       }
       if (project.status !== 'active' || project.archived_at) {
-        throw unprocessable('This project is not active, so email cannot be filed to it. Choose an active project, or leave project_id out and flag it for Ciaran.', {
+        throw unprocessable('This project is not active, so email cannot be filed to it. Choose an active project, or leave project_id out and flag it as needs_human.', {
           reason: 'project_inactive',
           project_id: body.project_id,
           status: project.status,
@@ -143,7 +143,7 @@ export const POST = withApi<TriageRequest, { id: string }>(async ({ supabase, pa
   }
 
   const trust = ((row.auth ?? {}) as { trust?: string }).trust;
-  const status = body.outcome === 'needs_ciaran' || trust === 'untrusted' ? 'needs_ciaran' : 'handled';
+  const status = body.outcome === 'needs_human' || trust === 'untrusted' ? 'needs_human' : 'handled';
   const { data, error } = await supabase.rpc('email_record_triage', {
     p_message_id: message.id,
     p_member_id: teamMemberId,
@@ -151,7 +151,7 @@ export const POST = withApi<TriageRequest, { id: string }>(async ({ supabase, pa
       outcome: body.outcome,
       urgent: body.urgent,
       summary: body.summary,
-      question_for_ciaran: body.question_for_ciaran ?? null,
+      question_for_human: body.question_for_human ?? null,
       suggested_reply: body.suggested_reply ?? null,
     },
     p_links: links,

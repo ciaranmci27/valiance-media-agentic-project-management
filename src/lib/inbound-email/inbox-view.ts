@@ -4,7 +4,7 @@ import { INBOX_TABS } from './inbox-types';
 /**
  * How a thread reads in the Inbox, from its messages. Pure, so the session
  * routes and demo mode answer the same way. A message counts toward:
- * - Needs you: the agent (or an untrusted sender) put it at needs_ciaran.
+ * - Needs you: the agent (or an untrusted sender) put it at needs_human.
  * - Needs reply: its latest triage drafted a reply and nobody has marked it
  *   handled yet (reviewed_at). A message sent back to the agent waits as New.
  * - New: the agent has not triaged it yet.
@@ -37,7 +37,7 @@ export function messageNeedsReply(message: MessageState): boolean {
 }
 
 export function threadFlags(messages: readonly MessageState[]): ThreadFlags {
-  const needsYou = messages.some((message) => message.status === 'needs_ciaran');
+  const needsYou = messages.some((message) => message.status === 'needs_human');
   const needsReply = messages.some(messageNeedsReply);
   const hasNew = messages.some((message) => message.status === 'new');
   const allIgnored = messages.length > 0 && messages.every((message) => message.status === 'ignored');
@@ -48,7 +48,7 @@ export function threadFlags(messages: readonly MessageState[]): ThreadFlags {
     needs_reply: needsReply,
     has_new: hasNew,
     // Urgent only while it waits on a person.
-    urgent: messages.some((message) => message.urgent && (message.status === 'needs_ciaran' || messageNeedsReply(message))),
+    urgent: messages.some((message) => message.urgent && (message.status === 'needs_human' || messageNeedsReply(message))),
     untrusted: messages.some((message) => message.trust === 'untrusted'),
   };
 }

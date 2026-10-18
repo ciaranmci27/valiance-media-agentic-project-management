@@ -20,8 +20,8 @@ export const INBOX_TAB_LABELS: Record<InboxTab, string> = {
   unassigned: 'Unassigned',
 };
 
-export type MessageStatus = 'new' | 'handled' | 'ignored' | 'needs_ciaran';
-export type TriageOutcome = 'no_action' | 'task' | 'needs_reply' | 'needs_ciaran';
+export type MessageStatus = 'new' | 'handled' | 'ignored' | 'needs_human';
+export type TriageOutcome = 'no_action' | 'task' | 'needs_reply' | 'needs_human';
 /**
  * How a thread got its project. inferred: the agent chose among the mapping
  * candidates; guessed: the agent chose with no candidates to go on; address:
@@ -125,7 +125,7 @@ export interface InboxTriage {
   outcome: TriageOutcome;
   urgent: boolean;
   summary: string;
-  question_for_ciaran: string | null;
+  question_for_human: string | null;
   suggested_reply: string | null;
   member: { id: string; name: string } | null;
   created_at: string;

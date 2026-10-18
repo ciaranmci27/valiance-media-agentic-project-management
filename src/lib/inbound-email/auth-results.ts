@@ -6,9 +6,9 @@ import { headerValues, type HeaderLine } from './headers';
  *
  * trusted: a DKIM signature passed and is aligned with the From domain.
  * untrusted: DKIM failed, is missing, or is not aligned with From. The
- * triage rules turn this into needs_ciaran.
+ * triage rules turn this into needs_human.
  * unknown: no result we can rely on. Passed to the agent as such; it does
- * not by itself force needs_ciaran.
+ * not by itself force needs_human.
  *
  * Sources, in order:
  * 1. The receiving provider's own verdict. Resend's Retrieve Received Email
