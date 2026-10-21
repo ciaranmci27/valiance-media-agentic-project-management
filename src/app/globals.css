@@ -668,15 +668,23 @@ a.bg-brand-500 {
   background: rgba(255, 255, 255, 0.18);
 }
 
+/* Every column reserves the same scrollbar lane, so cards line up across
+   columns whether or not a column overflows, and a column with more cards
+   than fit always shows a faint thumb (hover darkens it) rather than one
+   only on hover, which read as some columns scrolling and others not. */
+.board-column-scroll {
+  scrollbar-gutter: stable;
+  padding-right: 4px;
+}
 .board-column-scroll::-webkit-scrollbar {
-  width: 3px;
+  width: 4px;
 }
 .board-column-scroll::-webkit-scrollbar-thumb {
-  background: transparent;
+  background: rgba(var(--ink), 0.08);
   border-radius: 2px;
 }
 .board-column-scroll:hover::-webkit-scrollbar-thumb {
-  background: rgba(var(--ink), 0.12);
+  background: rgba(var(--ink), 0.14);
 }
 .board-column-scroll:hover::-webkit-scrollbar-thumb:hover {
   background: rgba(var(--ink), 0.22);

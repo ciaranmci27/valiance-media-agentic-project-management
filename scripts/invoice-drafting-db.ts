@@ -26,6 +26,14 @@ export async function createDraftingDatabase(extraMigrations: string[] = []): Pr
     assert.ok(sql, `table ${name} in schema.sql`);
     return sql;
   };
+  // The bell's real type check, so a draft announced with a type production
+  // rejects fails here too (an 'invoice' type missing from it once would have
+  // rolled back every self-drafting invoice).
+  const notificationTypeCheck = () => {
+    const check = table('team_member_notifications').match(/entity_type text (check \(entity_type in \([^)]*\)\))/i)?.[1];
+    assert.ok(check, 'notification entity_type check in schema.sql');
+    return check;
+  };
   const fn = (name: string) => {
     const sql = canonical.match(new RegExp('create or replace function public\\.' + name + '\\([\\s\\S]*?^\\$\\$;', 'mi'))?.[0];
     assert.ok(sql, `function ${name} in schema.sql`);
@@ -56,7 +64,8 @@ export async function createDraftingDatabase(extraMigrations: string[] = []): Pr
       work_type text NOT NULL DEFAULT 'client', approval_status text NOT NULL DEFAULT 'approved',
       compensation_rate numeric
     );
-    CREATE TABLE public.notifications_log (user_id uuid, title text, message text, link text, entity_type text, entity_id text);
+    CREATE TABLE public.notifications_log (user_id uuid, title text, message text, link text,
+      entity_type text ${notificationTypeCheck()}, entity_id text);
     CREATE FUNCTION public.upsert_notification(uuid, text, text, text, text, text) RETURNS void LANGUAGE sql
       AS $$ INSERT INTO public.notifications_log VALUES ($1, $2, $3, $4, $5, $6) $$;
     CREATE FUNCTION public.handle_updated_at() RETURNS trigger LANGUAGE plpgsql

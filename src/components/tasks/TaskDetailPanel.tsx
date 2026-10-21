@@ -25,7 +25,12 @@ import {
   Bot,
   ListChecks,
   Lock,
+  ClipboardCopy,
+  Link2,
+  Hash,
 } from 'lucide-react';
+import { RowActionsMenu } from '@/components/ui/RowActionsMenu';
+import { taskAsText, taskUrl, copyText } from '@/lib/task-copy';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { Popover } from '@/components/ui/Popover';
@@ -218,8 +223,21 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
                 </button>
               </Tooltip>
             )}
+            <RowActionsMenu
+              label="Copy this task"
+              actions={[
+                {
+                  label: 'Copy details',
+                  icon: <ClipboardCopy size={14} />,
+                  onClick: () => copyText(taskAsText(task, { projectName: getProject(task.project_id)?.name, team, tasks }), 'Task details'),
+                },
+                { label: 'Copy link', icon: <Link2 size={14} />, onClick: () => copyText(taskUrl(task), 'Task link') },
+                { label: 'Copy ID', icon: <Hash size={14} />, onClick: () => copyText(task.id, 'Task ID') },
+              ]}
+            />
             <button
               onClick={onClose}
+              aria-label="Close task"
               className="p-1.5 rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.06] transition-colors"
             >
               <X size={18} />

@@ -3,14 +3,14 @@
 import { Task } from '@/lib/types';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
-import { StatusBadge, PriorityBadge, TaskTypeBadge } from '@/components/ui/Badge';
+import { PriorityBadge, TaskTypeBadge } from '@/components/ui/Badge';
 import { AvatarGroup } from '@/components/ui/Avatar';
-import { Calendar, MessageSquare, CheckSquare, MoreVertical, Edit, Trash2, Clock, Lock, FileQuestion } from 'lucide-react';
-import { useState, useRef } from 'react';
+import { Calendar, MessageSquare, CheckSquare, Edit, Trash2, Clock, Lock, FileQuestion, ArrowRight, ClipboardCopy, Link2, Hash, PanelRight } from 'lucide-react';
 import { Tooltip } from '@/components/ui/Tooltip';
-import { Popover } from '@/components/ui/Popover';
+import { RowActionsMenu, type RowAction } from '@/components/ui/RowActionsMenu';
 import { parseDateOnly, isDateOverdue } from '@/lib/date-utils';
 import { hasPermission, canEditTask, canManageAllTasks } from '@/lib/access-control';
+import { TASK_STATUS_LABELS, taskAsText, taskUrl, copyText } from '@/lib/task-copy';
 
 function timeAgo(dateStr: string): string {
   const now = Date.now();
@@ -30,13 +30,15 @@ interface TaskCardProps {
   onView?: (task: Task) => void;
   onEdit?: (task: Task) => void;
   onDelete?: (id: string) => void;
+  /** Move to another column without dragging: the keyboard and touch path. */
+  onMove?: (taskId: string, status: Task['status']) => void;
 }
 
-export function TaskCard({ task, onView, onEdit, onDelete }: TaskCardProps) {
+const MOVE_ORDER: Task['status'][] = ['todo', 'in_progress', 'in_review', 'done'];
+
+export function TaskCard({ task, onView, onEdit, onDelete, onMove }: TaskCardProps) {
   const { team, tasks, getProject } = useApp();
   const { teamMemberId, access } = useAuth();
-  const [showMenu, setShowMenu] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
 
   const isAgentsEnabled = process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true';
   const canManageAgents = hasPermission(access, 'agents.manage');
@@ -59,14 +61,46 @@ export function TaskCard({ task, onView, onEdit, onDelete }: TaskCardProps) {
 
   const dueInfo = formatDate(task.due_date);
 
+  const actions: RowAction[] = [
+    ...(onView ? [{ label: 'Open', icon: <PanelRight size={14} />, onClick: () => onView(task) }] : []),
+    ...(canEdit && onEdit ? [{ label: 'Edit', icon: <Edit size={14} />, onClick: () => onEdit(task) }] : []),
+    ...(canEdit && onMove
+      ? MOVE_ORDER.filter(s => s !== task.status).map((status, i) => ({
+          label: `Move to ${TASK_STATUS_LABELS[status]}`,
+          icon: <ArrowRight size={14} />,
+          onClick: () => onMove(task.id, status),
+          divider: i === 0,
+        }))
+      : []),
+    {
+      label: 'Copy details',
+      icon: <ClipboardCopy size={14} />,
+      onClick: () => copyText(taskAsText(task, { projectName: getProject(task.project_id)?.name, team, tasks }), 'Task details'),
+      divider: true,
+    },
+    { label: 'Copy link', icon: <Link2 size={14} />, onClick: () => copyText(taskUrl(task), 'Task link') },
+    { label: 'Copy ID', icon: <Hash size={14} />, onClick: () => copyText(task.id, 'Task ID') },
+    ...(canDelete && onDelete
+      ? [{ label: 'Delete', icon: <Trash2 size={14} />, onClick: () => onDelete(task.id), variant: 'danger' as const, divider: true }]
+      : []),
+  ];
+
   return (
+    // A div with a button role, not a <button>: the card holds its own menu
+    // button, and a native button cannot start an HTML5 drag in Firefox.
     <div
-      className="glass-card rounded-lg p-3 lg:p-4 hover:shadow-md hover:border-white/[0.12] transition-all duration-150 group cursor-pointer"
+      role="button"
+      tabIndex={0}
+      className="glass-card rounded-lg p-3 lg:p-4 hover:shadow-md hover:border-white/[0.12] transition-[box-shadow,border-color] duration-150 group cursor-pointer focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-400"
       onClick={() => onView?.(task)}
+      onKeyDown={(e) => {
+        if (e.target !== e.currentTarget || (e.key !== 'Enter' && e.key !== ' ')) return;
+        e.preventDefault();
+        onView?.(task);
+      }}
     >
       <div className="flex items-start justify-between mb-2 lg:mb-3">
         <div className="flex items-center gap-1.5 lg:gap-2 flex-wrap">
-          <StatusBadge status={task.status} />
           <PriorityBadge priority={task.priority} />
           {isAgentsEnabled && canManageAgents && task.task_type && (
             <TaskTypeBadge taskType={task.task_type} />
@@ -91,38 +125,13 @@ export function TaskCard({ task, onView, onEdit, onDelete }: TaskCardProps) {
           )}
         </div>
         
-        {(canEdit || canDelete) && <div ref={menuRef} className="relative">
-          <button
-            onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }}
-            className="lg:opacity-0 group-hover:opacity-100 p-1 rounded text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.06] transition-all"
-          >
-            <MoreVertical size={16} />
-          </button>
-
-          <Popover
-            anchorRef={menuRef}
-            open={showMenu}
-            onClose={() => setShowMenu(false)}
-            align="end"
-            width={120}
-            className="bg-surface-raised rounded-lg shadow-xl border border-white/[0.08] py-1"
-          >
-            {canEdit && <button
-              onClick={(e) => { e.stopPropagation(); onEdit?.(task); setShowMenu(false); }}
-              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-300 hover:bg-white/[0.06]"
-            >
-              <Edit size={14} />
-              Edit
-            </button>}
-            {canDelete && <button
-              onClick={(e) => { e.stopPropagation(); onDelete?.(task.id); setShowMenu(false); }}
-              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-400 hover:bg-red-500/15"
-            >
-              <Trash2 size={14} />
-              Delete
-            </button>}
-          </Popover>
-        </div>}
+        {/* Shown on hover, and whenever focus is inside the card, so the
+            keyboard reaches it too. */}
+        <RowActionsMenu
+          actions={actions}
+          label={`Actions for ${task.title}`}
+          triggerClassName="-mr-1 -mt-1 flex-shrink-0 lg:opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 aria-expanded:opacity-100"
+        />
       </div>
 
       <h3 className="font-medium text-white text-sm lg:text-base mb-1 lg:mb-2 line-clamp-2">{task.title}</h3>

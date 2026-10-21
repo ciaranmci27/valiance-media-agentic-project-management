@@ -13,12 +13,12 @@ const SCROLL_EDGE_PX = 72;
 const SCROLL_MAX_STEP_PX = 16;
 
 
-const COLUMNS = [
+export const BOARD_COLUMNS = [
   { id: 'todo', title: 'To Do', color: 'bg-zinc-400' },
   { id: 'in_progress', title: 'In Progress', color: 'bg-brand-500' },
   { id: 'in_review', title: 'In Review', color: 'bg-amber-500' },
   { id: 'done', title: 'Done', color: 'bg-emerald-500' },
-];
+] as const;
 
 interface BoardViewProps {
   tasks: Task[];
@@ -34,21 +34,45 @@ interface DropIndicator {
   index: number;
 }
 
+/** Where a card will land. Drawn over the gap between cards, never inserted
+ *  into the list: an inserted line pushes the cards below it down, which
+ *  moves the halfway mark the pointer is measured against, and the line
+ *  flickers between two slots. */
+function DropLine({ edge }: { edge: 'top' | 'bottom' }) {
+  return (
+    <div
+      aria-hidden="true"
+      className={`pointer-events-none absolute inset-x-1 z-10 flex items-center gap-1.5 ${edge === 'top' ? '-top-[10px]' : '-bottom-[10px]'}`}
+    >
+      <div className="w-2 h-2 rounded-full bg-brand-500 flex-shrink-0" />
+      <div className="h-0.5 bg-brand-500 flex-1 rounded-full" />
+    </div>
+  );
+}
+
 export function BoardView({ tasks, onViewTask, onEditTask, onDeleteTask, onStatusChange, onReorder }: BoardViewProps) {
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
   const [dropIndicator, setDropIndicator] = useState<DropIndicator | null>(null);
   const draggedTaskIdRef = useRef<string | null>(null);
+  const dropIndicatorRef = useRef<DropIndicator | null>(null);
   const boardRef = useRef<HTMLDivElement | null>(null);
   const scrollAreasRef = useRef<Record<string, HTMLDivElement | null>>({});
   const dragPointerRef = useRef<{ x: number; y: number } | null>(null);
   const autoScrollRafRef = useRef<number | null>(null);
 
+  const showIndicator = useCallback((next: DropIndicator | null) => {
+    const prev = dropIndicatorRef.current;
+    if (prev?.columnId === next?.columnId && prev?.index === next?.index) return;
+    dropIndicatorRef.current = next;
+    setDropIndicator(next);
+  }, []);
+
   // One rAF loop for the whole drag. dragover events only fire a few times a
   // second when the pointer is stationary, so scrolling from the event alone
   // stutters; the loop reads the last known pointer position every frame.
-  const autoScrollStep = useCallback(() => {
+  const autoScrollStep = useCallback(function step() {
     const pointer = dragPointerRef.current;
-    if (!pointer) {
+    if (!pointer || !draggedTaskIdRef.current) {
       autoScrollRafRef.current = null;
       return;
     }
@@ -87,25 +111,47 @@ export function BoardView({ tasks, onViewTask, onEditTask, onDeleteTask, onStatu
       }
     }
 
-    autoScrollRafRef.current = requestAnimationFrame(autoScrollStep);
+    autoScrollRafRef.current = requestAnimationFrame(step);
   }, []);
 
   const trackDragPointer = useCallback((e: React.DragEvent) => {
+    if (!draggedTaskIdRef.current) return;
     dragPointerRef.current = { x: e.clientX, y: e.clientY };
     if (autoScrollRafRef.current === null) {
       autoScrollRafRef.current = requestAnimationFrame(autoScrollStep);
     }
   }, [autoScrollStep]);
 
-  const stopAutoScroll = useCallback(() => {
+  // Ends a drag, however it ended. A card dropped into another column is
+  // unmounted from its old column before the browser sends `dragend`, so
+  // that event goes to a detached node and never reaches React: relying on
+  // it alone left the edge-scroll loop running after the drop (the column
+  // kept scrolling on its own and pushed back against the wheel) and the
+  // board stuck in drag mode. The drop handler, the card's own dragend and
+  // a window listener all call this; whichever comes first wins.
+  const endDrag = useCallback(() => {
     dragPointerRef.current = null;
     if (autoScrollRafRef.current !== null) {
       cancelAnimationFrame(autoScrollRafRef.current);
       autoScrollRafRef.current = null;
     }
-  }, []);
+    if (draggedTaskIdRef.current === null) return;
+    draggedTaskIdRef.current = null;
+    setDraggedTaskId(null);
+    showIndicator(null);
+  }, [showIndicator]);
 
-  useEffect(() => stopAutoScroll, [stopAutoScroll]);
+  useEffect(() => {
+    if (draggedTaskId === null) return;
+    window.addEventListener('dragend', endDrag);
+    window.addEventListener('drop', endDrag);
+    return () => {
+      window.removeEventListener('dragend', endDrag);
+      window.removeEventListener('drop', endDrag);
+    };
+  }, [draggedTaskId, endDrag]);
+
+  useEffect(() => endDrag, [endDrag]);
 
   const getColumnTasks = useCallback((columnId: string) => {
     return tasks
@@ -115,31 +161,18 @@ export function BoardView({ tasks, onViewTask, onEditTask, onDeleteTask, onStatu
 
   const handleDragStart = (e: React.DragEvent, taskId: string) => {
     draggedTaskIdRef.current = taskId;
-    setDraggedTaskId(taskId);
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', taskId);
-    // Use a class instead of inline style to avoid rAF race condition
+    // Dim the card a frame later: re-rendering the source in the same tick
+    // as dragstart makes some browsers snapshot the dimmed card as the drag
+    // image, or cancel the drag outright.
     requestAnimationFrame(() => {
-      const el = document.querySelector(`[data-task-id="${taskId}"]`) as HTMLElement;
-      if (el && draggedTaskIdRef.current === taskId) {
-        el.classList.add('board-dragging');
-      }
+      if (draggedTaskIdRef.current === taskId) setDraggedTaskId(taskId);
     });
   };
 
-  const handleDragEnd = () => {
-    const id = draggedTaskIdRef.current;
-    if (id) {
-      const el = document.querySelector(`[data-task-id="${id}"]`) as HTMLElement;
-      if (el) el.classList.remove('board-dragging');
-    }
-    draggedTaskIdRef.current = null;
-    setDraggedTaskId(null);
-    setDropIndicator(null);
-    stopAutoScroll();
-  };
-
   const handleCardDragOver = (e: React.DragEvent, columnId: string, cardIndex: number) => {
+    if (!draggedTaskIdRef.current) return;
     e.preventDefault();
     e.stopPropagation();
     e.dataTransfer.dropEffect = 'move';
@@ -152,174 +185,145 @@ export function BoardView({ tasks, onViewTask, onEditTask, onDeleteTask, onStatu
 
     // Suppress indicator for no-op positions (directly above or below the dragged card)
     const dragId = draggedTaskIdRef.current;
-    if (dragId) {
-      const colTasks = getColumnTasks(columnId);
-      const dragIdx = colTasks.findIndex(t => t.id === dragId);
-      if (dragIdx !== -1 && (insertIndex === dragIdx || insertIndex === dragIdx + 1)) {
-        setDropIndicator(null);
-        return;
-      }
+    const colTasks = getColumnTasks(columnId);
+    const dragIdx = colTasks.findIndex(t => t.id === dragId);
+    if (dragIdx !== -1 && (insertIndex === dragIdx || insertIndex === dragIdx + 1)) {
+      showIndicator(null);
+      return;
     }
 
-    setDropIndicator({ columnId, index: insertIndex });
+    showIndicator({ columnId, index: insertIndex });
   };
 
   const handleColumnDragOver = (e: React.DragEvent, columnId: string) => {
+    if (!draggedTaskIdRef.current) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
     trackDragPointer(e);
 
-    // Only set indicator to end of column if not already over a card
-    const columnTasks = getColumnTasks(columnId);
-    if (!dropIndicator || dropIndicator.columnId !== columnId) {
-      setDropIndicator({ columnId, index: columnTasks.length });
+    // Over the column but not over a card (its header, the gap under the last
+    // card): the card would land at the end.
+    if (dropIndicatorRef.current?.columnId !== columnId) {
+      const columnTasks = getColumnTasks(columnId);
+      const dragIdx = columnTasks.findIndex(t => t.id === draggedTaskIdRef.current);
+      showIndicator(dragIdx !== -1 && dragIdx === columnTasks.length - 1 ? null : { columnId, index: columnTasks.length });
     }
   };
 
   const handleDragLeave = (e: React.DragEvent) => {
-    const relatedTarget = e.relatedTarget as HTMLElement;
-    const currentTarget = e.currentTarget as HTMLElement;
-    if (!currentTarget.contains(relatedTarget)) {
-      setDropIndicator(null);
+    const relatedTarget = e.relatedTarget as Node | null;
+    if (!relatedTarget || !e.currentTarget.contains(relatedTarget)) {
+      showIndicator(null);
     }
   };
 
   const handleDrop = (e: React.DragEvent, columnId: string) => {
     e.preventDefault();
-    const taskId = e.dataTransfer.getData('text/plain');
+    const taskId = draggedTaskIdRef.current ?? e.dataTransfer.getData('text/plain');
+    const indicator = dropIndicatorRef.current;
+    endDrag();
     const task = tasks.find(t => t.id === taskId);
     if (!task) return;
 
-    const isSameColumn = task.status === columnId;
-
-    if (isSameColumn && onReorder && dropIndicator) {
-      // Within-column reorder
+    if (task.status === columnId) {
+      // Within-column reorder. No indicator means a no-op spot (the card's own).
+      if (!onReorder || !indicator || indicator.columnId !== columnId) return;
       const columnTasks = getColumnTasks(columnId);
       const currentIndex = columnTasks.findIndex(t => t.id === taskId);
-      let targetIndex = dropIndicator.index;
-
-      // Adjust target: if dragging downward, account for the removal of the dragged card
+      let targetIndex = indicator.index;
+      // Dragging downward: the card's own slot closes up before it lands.
       if (currentIndex < targetIndex) targetIndex--;
-
       if (currentIndex !== targetIndex && targetIndex >= 0) {
         onReorder(taskId, targetIndex);
       }
-    } else if (!isSameColumn && onStatusChange) {
-      // Cross-column status change with drop position
+    } else if (onStatusChange) {
       const columnTasks = getColumnTasks(columnId);
-      const targetIndex = dropIndicator ? dropIndicator.index : columnTasks.length;
+      const targetIndex = indicator?.columnId === columnId ? indicator.index : columnTasks.length;
       onStatusChange(taskId, columnId as Task['status'], targetIndex);
     }
-
-    // Don't clear draggedTaskIdRef here. handleDragEnd always fires after
-    // handleDrop and owns the cleanup (removing the board-dragging class).
-    // Clearing the ref here would prevent handleDragEnd from finding the element.
-    setDropIndicator(null);
   };
+
+  const moveTask = onStatusChange
+    ? (taskId: string, status: Task['status']) => onStatusChange(taskId, status, getColumnTasks(status).length)
+    : undefined;
 
   const isDragging = draggedTaskId !== null;
   const draggedTask = isDragging ? tasks.find(t => t.id === draggedTaskId) : null;
 
   return (
-    <>
-      <style jsx>{`
-        .board-dragging {
-          opacity: 0.4;
-        }
-      `}</style>
-      <div ref={boardRef} className="flex flex-col lg:flex-row gap-6 pb-4 lg:pb-0 lg:overflow-x-auto lg:h-[calc(100vh-320px)] lg:min-h-[400px]">
-        {COLUMNS.map((column) => {
-          const columnTasks = getColumnTasks(column.id);
-          const isOverDifferentColumn = isDragging && dropIndicator?.columnId === column.id && draggedTask?.status !== column.id;
+    <div ref={boardRef} className="flex flex-col lg:flex-row gap-6 pb-4 lg:pb-0 lg:overflow-x-auto lg:h-[calc(100vh-320px)] lg:min-h-[400px]">
+      {BOARD_COLUMNS.map((column) => {
+        const columnTasks = getColumnTasks(column.id);
+        const isOverDifferentColumn = isDragging && dropIndicator?.columnId === column.id && draggedTask?.status !== column.id;
+        const indicatorIndex = isDragging && dropIndicator?.columnId === column.id ? dropIndicator.index : null;
 
-          return (
-            <div
-              key={column.id}
-              className="glass-card w-full lg:flex-1 lg:min-w-[260px] flex flex-col bg-white/[0.06] rounded-xl p-2 lg:p-3"
-              onDragOver={(e) => handleColumnDragOver(e, column.id)}
-              onDragLeave={handleDragLeave}
-              onDrop={(e) => handleDrop(e, column.id)}
-            >
-              {/* Column header */}
-              <div className="flex items-center gap-2 mb-2 lg:mb-3 px-1 flex-shrink-0">
-                <div className={`w-2.5 h-2.5 rounded-full ${column.color}`} />
-                <h3 className="font-semibold text-zinc-100 text-lg">{column.title}</h3>
-                <span className="text-xs text-zinc-400 bg-white/[0.06] px-1.5 py-0.5 rounded">
-                  {columnTasks.length}
-                </span>
-              </div>
-
-              {/* Scrollable card area */}
-              <div ref={(el) => { scrollAreasRef.current[column.id] = el; }} className={`flex-1 overflow-y-auto max-h-[50vh] lg:max-h-none lg:min-h-0 pr-1.5 rounded-lg transition-colors duration-150 board-column-scroll ${
-                isOverDifferentColumn
-                  ? 'bg-brand-500/15 ring-2 ring-brand-300 ring-dashed'
-                  : ''
-              }`}>
-                {columnTasks.map((task, idx) => {
-                  const showIndicatorBefore = isDragging
-                    && dropIndicator?.columnId === column.id
-                    && dropIndicator.index === idx
-                    && draggedTaskId !== task.id;
-
-                  return (
-                    <div key={task.id}>
-                      {/* Drop indicator line */}
-                      {showIndicatorBefore && (
-                        <div className="flex items-center gap-1.5 py-0.5 px-1">
-                          <div className="w-2 h-2 rounded-full bg-brand-500 flex-shrink-0" />
-                          <div className="h-0.5 bg-brand-500 flex-1 rounded-full" />
-                        </div>
-                      )}
-
-                      <div
-                        data-task-id={task.id}
-                        draggable
-                        onDragStart={(e) => handleDragStart(e, task.id)}
-                        onDragEnd={handleDragEnd}
-                        onDragOver={(e) => handleCardDragOver(e, column.id, idx)}
-                        className={`transition-opacity duration-150 ${idx > 0 ? 'mt-2 lg:mt-3' : ''}`}
-                      >
-                        <TaskCard
-                          task={task}
-                          onView={onViewTask}
-                          onEdit={onEditTask}
-                          onDelete={onDeleteTask}
-                        />
-                      </div>
-                    </div>
-                  );
-                })}
-
-                {/* Drop indicator at end of column */}
-                {isDragging
-                  && dropIndicator?.columnId === column.id
-                  && dropIndicator.index >= columnTasks.length
-                  && !(columnTasks.length === 0) && (
-                  <div className="flex items-center gap-1.5 py-0.5 px-1 mt-2">
-                    <div className="w-2 h-2 rounded-full bg-brand-500 flex-shrink-0" />
-                    <div className="h-0.5 bg-brand-500 flex-1 rounded-full" />
-                  </div>
-                )}
-
-                {/* Drop indicator when column is empty and being dragged over */}
-                {isDragging && isOverDifferentColumn && columnTasks.length === 0 && (
-                  <div className="h-20 border-2 border-dashed border-brand-500/30 rounded-lg flex items-center justify-center">
-                    <span className="text-sm text-brand-400">Drop here</span>
-                  </div>
-                )}
-
-                {/* Empty column state */}
-                {columnTasks.length === 0 && !isDragging && (
-                  <div className="py-8 text-center">
-                    <p className="text-sm text-zinc-500">No tasks</p>
-                  </div>
-                )}
-
-              </div>
+        return (
+          <section
+            key={column.id}
+            aria-label={`${column.title}, ${columnTasks.length} ${columnTasks.length === 1 ? 'task' : 'tasks'}`}
+            className="glass-card w-full lg:flex-1 lg:min-w-[260px] flex flex-col bg-white/[0.06] rounded-xl p-2 lg:p-3"
+            onDragOver={(e) => handleColumnDragOver(e, column.id)}
+            onDragLeave={handleDragLeave}
+            onDrop={(e) => handleDrop(e, column.id)}
+          >
+            {/* Column header */}
+            <div className="flex items-center gap-2 mb-2 lg:mb-3 px-1 flex-shrink-0">
+              <div className={`w-2.5 h-2.5 rounded-full ${column.color}`} aria-hidden="true" />
+              <h3 className="font-semibold text-zinc-100 text-lg">{column.title}</h3>
+              <span className="text-xs text-zinc-400 bg-white/[0.06] px-1.5 py-0.5 rounded" aria-hidden="true">
+                {columnTasks.length}
+              </span>
             </div>
-          );
-        })}
-      </div>
-    </>
+
+            {/* Scrollable card area. The padding leaves room for the drop
+                line above the first card and below the last. */}
+            <div
+              ref={(el) => { scrollAreasRef.current[column.id] = el; }}
+              className={`flex-1 overflow-y-auto max-h-[50vh] lg:max-h-none lg:min-h-0 pt-2.5 pb-3 rounded-lg transition-colors duration-150 board-column-scroll ${
+                isOverDifferentColumn ? 'bg-brand-500/15 ring-2 ring-brand-300 ring-dashed' : ''
+              }`}
+            >
+              <ul className="space-y-3">
+                {columnTasks.map((task, idx) => (
+                  <li
+                    key={task.id}
+                    data-task-id={task.id}
+                    draggable
+                    onDragStart={(e) => handleDragStart(e, task.id)}
+                    onDragEnd={endDrag}
+                    onDragOver={(e) => handleCardDragOver(e, column.id, idx)}
+                    className={`relative transition-opacity duration-150 ${draggedTaskId === task.id ? 'opacity-40' : ''}`}
+                  >
+                    {indicatorIndex === idx && <DropLine edge="top" />}
+                    {indicatorIndex === columnTasks.length && idx === columnTasks.length - 1 && <DropLine edge="bottom" />}
+                    <TaskCard
+                      task={task}
+                      onView={onViewTask}
+                      onEdit={onEditTask}
+                      onDelete={onDeleteTask}
+                      onMove={moveTask}
+                    />
+                  </li>
+                ))}
+              </ul>
+
+              {/* Drop target when column is empty and being dragged over */}
+              {isOverDifferentColumn && columnTasks.length === 0 && (
+                <div className="h-20 border-2 border-dashed border-brand-500/30 rounded-lg flex items-center justify-center">
+                  <span className="text-sm text-brand-400">Drop here</span>
+                </div>
+              )}
+
+              {/* Empty column state */}
+              {columnTasks.length === 0 && !isOverDifferentColumn && (
+                <div className="py-8 text-center">
+                  <p className="text-sm text-zinc-500">No tasks</p>
+                </div>
+              )}
+            </div>
+          </section>
+        );
+      })}
+    </div>
   );
 }

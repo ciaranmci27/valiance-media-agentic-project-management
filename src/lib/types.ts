@@ -272,6 +272,35 @@ export interface Task {
   updated_at: string;
 }
 
+/**
+ * A next step that must not be forgotten, on a task, on a project, or on its
+ * own. Shared (task or project) reminders are seen by anyone who can see that
+ * task or project; standalone ones only by their owner. A task moved to done
+ * closes its open reminders (closed_by_task) and reopens them if it moves back.
+ */
+export interface Reminder {
+  id: string;
+  title: string;
+  notes: string;
+  /** Day it is due (yyyy-mm-dd), or null for "no date". */
+  remind_on: string | null;
+  /** Time of day (HH:MM:SS) on remind_on; null means 8 am workspace time. */
+  remind_at: string | null;
+  /** Whose reminder it is: the person the due bell goes to. */
+  owner_id: string;
+  project_id: string | null;
+  task_id: string | null;
+  status: 'open' | 'done';
+  completed_at: string | null;
+  completed_by: string | null;
+  closed_by_task: boolean;
+  notified_at: string | null;
+  source: 'manual' | 'agent' | 'email';
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Subtask {
   id: string;
   task_id?: string;
