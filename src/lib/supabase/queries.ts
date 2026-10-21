@@ -1,5 +1,5 @@
 import { SupabaseClient } from '@supabase/supabase-js';
-import type { AiReadiness, Project, Task, TeamMember, Subtask, AcceptanceCriterion, Comment, Activity, Contact, ContactEmail, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, ApiKey, ProjectGoal, TaskSuggestion, AgentActivity, FleetAgentActivity, ApiAuditEntry, TimeEntry, ProjectCredential, ProjectCredentialListItem, ProjectInvoice, InvoicePayment, InvoicePaymentMethod, BusinessSettings, InvoiceTimeEntryAllocation, WebhookEndpoint, WebhookDelivery, ProjectRetainer, ProjectRetainerAmount, ProjectRetainerShare, ProjectRetainerPeriod, RetainerDuePeriod, InvoiceLineShare, ProjectBillingPlan, ProjectBillingRun, BillingForecastItem } from '@/lib/types';
+import type { AiReadiness, Project, Task, TeamMember, Subtask, AcceptanceCriterion, Comment, Activity, Contact, ContactEmail, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, ApiKey, ProjectGoal, TaskSuggestion, AgentActivity, FleetAgentActivity, ApiAuditEntry, TimeEntry, ProjectCredential, ProjectCredentialListItem, ProjectInvoice, InvoicePayment, InvoicePaymentMethod, BusinessSettings, InvoiceTimeEntryAllocation, WebhookEndpoint, WebhookDelivery, ProjectRetainer, ProjectRetainerAmount, ProjectRetainerShare, ProjectRetainerPeriod, RetainerDuePeriod, InvoiceLineShare, ProjectBillingPlan, ProjectBillingRun, BillingForecastItem, Reminder } from '@/lib/types';
 import { fetchAllRows } from '@/lib/supabase/fetch-all';
 import { notFound } from '@/lib/api/errors';
 import { siteConfig } from '@/site-config';
@@ -1601,6 +1601,47 @@ export async function fetchWebhookDeliveries(supabase: SupabaseClient, limit = 2
 /** Manual resend: a failed delivery goes back to pending with a fresh attempt budget. */
 export async function requeueWebhookDelivery(supabase: SupabaseClient, id: string) {
   const { error } = await supabase.rpc('requeue_webhook_delivery', { p_delivery_id: id });
+  if (error) throw error;
+}
+
+// ============================================================
+// REMINDERS
+// ============================================================
+
+/** What a person sets on a reminder; the database owns the rest. */
+export type ReminderFields = Pick<Reminder, 'title'> &
+  Partial<Pick<Reminder, 'notes' | 'remind_on' | 'remind_at' | 'project_id' | 'task_id' | 'owner_id' | 'status'>>;
+
+/** Done reminders older than this stay in the database but not in the app. */
+const DONE_REMINDER_DAYS = 30;
+
+/** Every reminder the reader can see that is open, or was finished recently. */
+export async function fetchReminders(supabase: SupabaseClient) {
+  const since = new Date(Date.now() - DONE_REMINDER_DAYS * 86_400_000).toISOString();
+  return fetchAllRows<Reminder>((from, to, count) =>
+    supabase
+      .from('reminders')
+      .select('*', { count })
+      .or(`status.eq.open,completed_at.gte.${since}`)
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true })
+      .range(from, to));
+}
+
+export async function insertReminder(supabase: SupabaseClient, reminder: ReminderFields & { id?: string; owner_id: string }) {
+  const { data, error } = await supabase.from('reminders').insert(reminder).select().single();
+  if (error) throw error;
+  return data as Reminder;
+}
+
+export async function patchReminder(supabase: SupabaseClient, id: string, updates: Partial<ReminderFields>) {
+  const { data, error } = await supabase.from('reminders').update(updates).eq('id', id).select().single();
+  if (error) throw error;
+  return data as Reminder;
+}
+
+export async function deleteReminder(supabase: SupabaseClient, id: string) {
+  const { error } = await supabase.from('reminders').delete().eq('id', id);
   if (error) throw error;
 }
 

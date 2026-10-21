@@ -5,12 +5,13 @@ import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { PriorityBadge, TaskTypeBadge } from '@/components/ui/Badge';
 import { AvatarGroup } from '@/components/ui/Avatar';
-import { Calendar, MessageSquare, CheckSquare, Edit, Trash2, Clock, Lock, FileQuestion, ArrowRight, ClipboardCopy, Link2, Hash, PanelRight } from 'lucide-react';
+import { Calendar, MessageSquare, CheckSquare, Edit, Trash2, Clock, Lock, FileQuestion, ArrowRight, ClipboardCopy, Link2, Hash, PanelRight, BellRing } from 'lucide-react';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { RowActionsMenu, type RowAction } from '@/components/ui/RowActionsMenu';
 import { parseDateOnly, isDateOverdue } from '@/lib/date-utils';
 import { hasPermission, canEditTask, canManageAllTasks } from '@/lib/access-control';
 import { TASK_STATUS_LABELS, taskAsText, taskUrl, copyText } from '@/lib/task-copy';
+import { nextReminderFor, reminderGroup, whenLabel } from '@/lib/reminders';
 
 function timeAgo(dateStr: string): string {
   const now = Date.now();
@@ -37,7 +38,7 @@ interface TaskCardProps {
 const MOVE_ORDER: Task['status'][] = ['todo', 'in_progress', 'in_review', 'done'];
 
 export function TaskCard({ task, onView, onEdit, onDelete, onMove }: TaskCardProps) {
-  const { team, tasks, getProject } = useApp();
+  const { team, tasks, getProject, reminders } = useApp();
   const { teamMemberId, access } = useAuth();
 
   const isAgentsEnabled = process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true';
@@ -60,6 +61,10 @@ export function TaskCard({ task, onView, onEdit, onDelete, onMove }: TaskCardPro
   };
 
   const dueInfo = formatDate(task.due_date);
+  // The step the task is waiting on. A done task's reminders close with it.
+  const next = task.status !== 'done' ? nextReminderFor(reminders, task.id) : null;
+  const nextGroup = next ? reminderGroup(next.next) : null;
+  const nextWhen = next ? whenLabel(next.next) : null;
 
   const actions: RowAction[] = [
     ...(onView ? [{ label: 'Open', icon: <PanelRight size={14} />, onClick: () => onView(task) }] : []),
@@ -154,6 +159,23 @@ export function TaskCard({ task, onView, onEdit, onDelete, onMove }: TaskCardPro
           {task.tags.length > 3 && (
             <span className="text-[10px] text-zinc-500">+{task.tags.length - 3}</span>
           )}
+        </div>
+      )}
+
+      {/* Next step: the reminder this task is waiting on */}
+      {next && (
+        <div className="flex items-start gap-1.5 mb-2 lg:mb-3 px-2 py-1.5 rounded-md bg-white/[0.04] text-xs">
+          <BellRing size={12} className={`mt-0.5 flex-shrink-0 ${nextGroup === 'overdue' ? 'text-red-400' : 'text-brand-300'}`} aria-hidden="true" />
+          <p className="min-w-0 flex-1 text-zinc-300">
+            <span className="sr-only">Next step: </span>
+            <span className="line-clamp-2 break-words">{next.next.title}</span>
+            {(nextWhen || next.open > 1) && (
+              <span className={`block mt-0.5 ${nextGroup === 'overdue' ? 'text-red-400' : 'text-zinc-500'}`}>
+                {nextGroup === 'overdue' && nextWhen ? `Overdue: ${nextWhen}` : nextWhen}
+                {next.open > 1 && `${nextWhen ? ' | ' : ''}+${next.open - 1} more`}
+              </span>
+            )}
+          </p>
         </div>
       )}
 

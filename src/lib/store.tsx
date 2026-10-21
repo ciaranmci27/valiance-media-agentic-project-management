@@ -1,7 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, useRef, ReactNode, type SetStateAction } from 'react';
-import { AiReadiness, Project, Task, TeamMember, FilterState, ViewMode, Subtask, AcceptanceCriterion, Comment, Contact, ContactEmail, ContactEmailDraft, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, Activity, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, EntityFileType, ApiKey, NotificationCategory, ProjectGoal, TaskSuggestion, AgentActivity, TimeEntry, ProjectCredentialListItem, CredentialPayload, CredentialCategory, ProjectInvoice, InvoiceStatus, InvoicePaymentMethod, BusinessSettings, EmployeeEarningsData, DEFAULT_SECTION_ORDER } from './types';
+import { AiReadiness, Project, Task, TeamMember, FilterState, ViewMode, Subtask, AcceptanceCriterion, Comment, Contact, ContactEmail, ContactEmailDraft, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, Activity, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, EntityFileType, ApiKey, NotificationCategory, ProjectGoal, TaskSuggestion, AgentActivity, TimeEntry, ProjectCredentialListItem, CredentialPayload, CredentialCategory, ProjectInvoice, InvoiceStatus, InvoicePaymentMethod, BusinessSettings, EmployeeEarningsData, Reminder, DEFAULT_SECTION_ORDER } from './types';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
@@ -11,7 +11,7 @@ import {
   demoLeads, demoLeadInteractions, demoLeadProposals, demoLeadFields,
   demoLeadContacts, demoActivities,
   demoPortalSettings, demoPortalUpdates, demoPortalUpdateAttachments, demoEntityFiles, demoTimeEntries,
-  demoProjectGoals, demoTaskSuggestions, demoAgentActivity, demoProjectInvoices,
+  demoProjectGoals, demoTaskSuggestions, demoAgentActivity, demoProjectInvoices, demoReminders,
 } from '@/lib/demo-data';
 import {
   fetchTasks,
@@ -85,6 +85,11 @@ import {
   updateEntityFileVisibility as updateEntityFileVisibilityQuery,
   fetchApiKeys,
   fetchGoals,
+  fetchReminders,
+  insertReminder as insertReminderQuery,
+  patchReminder as patchReminderQuery,
+  deleteReminder as deleteReminderQuery,
+  type ReminderFields,
   insertGoal as insertGoalQuery,
   patchGoal as patchGoalQuery,
   archiveGoal as archiveGoalQuery,
@@ -133,7 +138,7 @@ function kickWebhookDispatch(): void {
 type RealtimeSlice =
   | 'tasks' | 'projects' | 'team' | 'contacts' | 'contactEmails' | 'leads' | 'activities'
   | 'agentActivity' | 'portal' | 'files' | 'timeEntries' | 'credentials'
-  | 'invoices' | 'suggestions' | 'goals' | 'notifications' | 'comms' | 'emails';
+  | 'invoices' | 'suggestions' | 'goals' | 'notifications' | 'comms' | 'emails' | 'reminders';
 
 /** `silent` skips the per-task error toast, for bulk actions that report one summary. */
 export interface TaskWriteOptions {
@@ -160,6 +165,7 @@ export const LOAD_KEY_LABELS: Record<LoadKey, string> = {
   invoices: 'invoices',
   suggestions: 'suggestions',
   goals: 'goals',
+  reminders: 'reminders',
   notifications: 'notifications',
   comms: 'client emails',
   emails: 'the inbox',
@@ -208,6 +214,7 @@ const REALTIME_TABLE_SLICES: Record<string, RealtimeSlice> = {
   invoice_time_entry_allocations: 'invoices',
   task_suggestions: 'suggestions',
   project_goals: 'goals',
+  reminders: 'reminders',
   team_member_notifications: 'notifications',
   client_communications: 'comms',
   // Its own slice: a contact_emails failure must never make contacts look failed.
@@ -404,6 +411,12 @@ interface AppContextType {
   updateGoal: (id: string, updates: Partial<ProjectGoal>) => void;
   archiveGoal: (id: string) => void;
 
+  // Reminders: open ones, and ones finished in the last 30 days
+  reminders: Reminder[];
+  addReminder: (fields: ReminderFields) => Promise<Reminder | undefined>;
+  updateReminder: (id: string, updates: Partial<ReminderFields>) => Promise<void>;
+  deleteReminder: (id: string) => Promise<void>;
+
   // Task Suggestion review actions
   approveSuggestion: (id: string, taskOverrides: { priority?: string; assigned_to?: string | null; due_date?: string | null; project_id?: string; task_type?: string | null; ai_readiness?: AiReadiness | null }, reviewedBy: string) => Promise<boolean>;
   declineSuggestion: (id: string, reviewedBy: string) => Promise<boolean>;
@@ -513,6 +526,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [employeeEarnings, setEmployeeEarnings] = useState<EmployeeEarningsData | null>(null);
   const [loadErrors, setLoadErrors] = useState<LoadKey[]>([]);
   const [projectGoals, setProjectGoalsState] = useState<ProjectGoal[]>([]);
+  const [reminders, setRemindersState] = useState<Reminder[]>([]);
   const [taskSuggestions, setTaskSuggestionsState] = useState<TaskSuggestion[]>([]);
   const [agentActivityList, setAgentActivityListState] = useState<AgentActivity[]>([]);
 
@@ -558,6 +572,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const setProjectCredentials = (value: SetStateAction<ProjectCredentialListItem[]>) => { markSliceMutated('credentials'); setProjectCredentialsState(value); };
   const setProjectInvoices = (value: SetStateAction<ProjectInvoice[]>) => { markSliceMutated('invoices'); setProjectInvoicesState(value); };
   const setProjectGoals = (value: SetStateAction<ProjectGoal[]>) => { markSliceMutated('goals'); setProjectGoalsState(value); };
+  const setReminders = (value: SetStateAction<Reminder[]>) => { markSliceMutated('reminders'); setRemindersState(value); };
   const setTaskSuggestions = (value: SetStateAction<TaskSuggestion[]>) => { markSliceMutated('suggestions'); setTaskSuggestionsState(value); };
   const setAgentActivityList = (value: SetStateAction<AgentActivity[]>) => { markSliceMutated('agentActivity'); setAgentActivityListState(value); };
   const [filters, setFilters] = useState<FilterState>(defaultFilters);
@@ -626,6 +641,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setEntityFiles([...demoEntityFiles]);
       setTimeEntries([...demoTimeEntries]);
       setProjectInvoices([...demoProjectInvoices]);
+      setReminders(demoReminders());
       setProjectCredentials([]);
       setEmployeeEarnings({ entries: [...demoTimeEntries], rates: [], adjustments: [], payouts: [], allocations: [] });
       setBusinessSettings({
@@ -702,6 +718,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const contactEmailsRequest = canReadContacts
           ? safeLoad<ContactEmail[]>('contactEmails', 'contact emails', fetchContactEmails(supabase), [])
           : Promise.resolve([] as ContactEmail[]);
+        // Everyone has reminders (their own at least); RLS narrows the rest.
+        const remindersRequest = safeLoad<Reminder[]>('reminders', 'reminders', fetchReminders(supabase), []);
         const [projectsData, tasksData, teamData, contactsData, projectContactsData, leadsData, leadInteractionsData, leadProposalsData, leadFieldsData, leadContactsData, activitiesData, portalSettingsData, portalUpdatesData, portalUpdateAttachmentsData, entityFilesData, apiKeysData, timeEntriesData, projectCredentialsData, projectInvoicesData, businessSettingsData] = await Promise.all([
           canReadProjects ? safeLoad('projects', 'projects', workspaceData<Project[]>('/api/workspace/projects'), []) : Promise.resolve([]),
           canReadTaskRows ? safeLoad('tasks', 'tasks', fetchTasks(supabase), []) : Promise.resolve([]),
@@ -736,6 +754,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setTeam(teamData);
         setContacts(contactsData);
         setContactEmails(await contactEmailsRequest);
+        setReminders(await remindersRequest);
         setProjectContacts(projectContactsData);
         setLeads(leadsData);
         setLeadInteractions(leadInteractionsData);
@@ -952,6 +971,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
             if (!superseded()) setProjectGoals(goalRows);
           }
           break;
+        case 'reminders': {
+          const reminderRows = await fetchReminders(supabase);
+          if (!superseded()) setReminders(reminderRows);
+          break;
+        }
         case 'notifications':
           // The sidebar badge and notifications page own their fetches; this
           // event is the same one they already dispatch after local changes.
@@ -3864,6 +3888,102 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   // Agent helpers
+  // ── Reminders ────────────────────────────────────────────────
+  // Anyone may write their own; a shared one needs access to its task or
+  // project (RLS). The id is made here so the optimistic row and the saved
+  // row are the same row. A task moved to done closes its reminders in the
+  // database, and the reminders slice refetches on that change.
+  const addReminderAction = async (fields: ReminderFields): Promise<Reminder | undefined> => {
+    if (!teamMemberId) return undefined;
+    const id = crypto.randomUUID();
+    const now = new Date().toISOString();
+    const task = fields.task_id ? tasks.find(t => t.id === fields.task_id) : undefined;
+    const optimistic: Reminder = {
+      id,
+      title: fields.title.trim(),
+      notes: fields.notes ?? '',
+      remind_on: fields.remind_on ?? null,
+      remind_at: fields.remind_on ? fields.remind_at ?? null : null,
+      owner_id: fields.owner_id ?? teamMemberId,
+      project_id: task?.project_id ?? fields.project_id ?? null,
+      task_id: fields.task_id ?? null,
+      status: 'open',
+      completed_at: null,
+      completed_by: null,
+      closed_by_task: false,
+      notified_at: null,
+      source: 'manual',
+      created_by: teamMemberId,
+      created_at: now,
+      updated_at: now,
+    };
+    setReminders(prev => [...prev, optimistic]);
+    if (skipSupabase) return optimistic;
+    try {
+      const saved = await insertReminderQuery(supabase, {
+        id,
+        title: optimistic.title,
+        notes: optimistic.notes,
+        remind_on: optimistic.remind_on,
+        remind_at: optimistic.remind_at,
+        owner_id: optimistic.owner_id,
+        project_id: optimistic.project_id,
+        task_id: optimistic.task_id,
+      });
+      setReminders(prev => prev.map(r => r.id === id ? saved : r));
+      return saved;
+    } catch (err) {
+      console.error('Failed to add reminder:', err);
+      setReminders(prev => prev.filter(r => r.id !== id));
+      toast('error', 'Could not add the reminder');
+      return undefined;
+    }
+  };
+
+  const updateReminderAction = async (id: string, updates: Partial<ReminderFields>) => {
+    const before = reminders;
+    const now = new Date().toISOString();
+    // A reminder with no date has no time either.
+    const patch: Partial<ReminderFields> = 'remind_on' in updates && !updates.remind_on
+      ? { ...updates, remind_at: null }
+      : updates;
+    setReminders(prev => prev.map(r => {
+      if (r.id !== id) return r;
+      const next: Reminder = { ...r, ...patch, updated_at: now };
+      if (patch.status === 'done' && r.status !== 'done') {
+        next.completed_at = now;
+        next.completed_by = teamMemberId;
+      } else if (patch.status === 'open') {
+        next.completed_at = null;
+        next.completed_by = null;
+        next.closed_by_task = false;
+      }
+      return next;
+    }));
+    if (skipSupabase) return;
+    try {
+      const saved = await patchReminderQuery(supabase, id, patch);
+      setReminders(prev => prev.map(r => r.id === id ? saved : r));
+    } catch (err) {
+      console.error('Failed to update reminder:', err);
+      setReminders(rollbackScope(before, r => r.id === id));
+      toast('error', 'Could not update the reminder');
+    }
+  };
+
+  const deleteReminderAction = async (id: string) => {
+    const before = reminders;
+    setReminders(prev => prev.filter(r => r.id !== id));
+    if (skipSupabase) return;
+    try {
+      await deleteReminderQuery(supabase, id);
+    } catch (err) {
+      console.error('Failed to delete reminder:', err);
+      setReminders(rollbackScope(before, r => r.id === id));
+      toast('error', 'Could not delete the reminder');
+    }
+  };
+
   const getGoalsByProject = (projectId: string) => projectGoals.filter(g => g.project_id === projectId);
   const getSuggestionsByGoal = (goalId: string) => taskSuggestions.filter(s => s.goal_id === goalId);
   const getPendingSuggestionCount = () => taskSuggestions.filter(s => s.status === 'pending').length;
@@ -4166,6 +4286,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       addGoal: addGoalAction,
       updateGoal: updateGoalAction,
       archiveGoal: archiveGoalAction,
+      reminders,
+      addReminder: addReminderAction,
+      updateReminder: updateReminderAction,
+      deleteReminder: deleteReminderAction,
       approveSuggestion: approveSuggestionAction,
     approveSuggestionBundle: approveSuggestionBundleAction,
     bundleSuggestions: bundleSuggestionsAction,

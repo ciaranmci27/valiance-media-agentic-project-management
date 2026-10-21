@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 import { RowActionsMenu } from '@/components/ui/RowActionsMenu';
 import { taskAsText, taskUrl, copyText } from '@/lib/task-copy';
+import { TaskReminders } from '@/components/reminders/TaskReminders';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { Popover } from '@/components/ui/Popover';
@@ -447,6 +448,9 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
             )}
 
             <TaskSourceEmailsSection data={sourceEmails} />
+
+            {/* Next steps: what this task is waiting on. */}
+            <TaskReminders task={task} />
 
             {/* Blocked By Section */}
             {blockers.length > 0 && (

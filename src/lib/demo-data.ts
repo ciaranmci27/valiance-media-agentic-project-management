@@ -1,4 +1,4 @@
-import type { TeamMember, Contact, ContactEmail, Project, ProjectContact, Task, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, Activity, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, TimeEntry, Notification, ProjectGoal, TaskSuggestion, AgentActivity, ProjectInvoice, ClientCommunication, PortalAnalyticsResponse, PortalSessionSummary, EmployeeEarningsData } from './types';
+import type { TeamMember, Contact, ContactEmail, Project, ProjectContact, Task, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, Activity, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, TimeEntry, Notification, ProjectGoal, TaskSuggestion, AgentActivity, ProjectInvoice, ClientCommunication, PortalAnalyticsResponse, PortalSessionSummary, EmployeeEarningsData, Reminder } from './types';
 import { DEFAULT_SECTION_ORDER } from './types';
 import { siteConfig } from '@/site-config';
 
@@ -1320,6 +1320,39 @@ export const demoNotifications: Notification[] = [
     created_at: daysAgo(5),
   },
 ];
+
+// ---------------------------------------------------------------------------
+// REMINDERS (dated relative to today, so every group has something in it)
+// ---------------------------------------------------------------------------
+function dayFromToday(n: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + n);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+export function demoReminders(): Reminder[] {
+  const P1 = 'c3c3c3c3-0001-4000-8000-000000000001';
+  const reminder = (r: Partial<Reminder> & Pick<Reminder, 'id' | 'title'>): Reminder => ({
+    notes: '', remind_on: null, remind_at: null, owner_id: TM1, project_id: null, task_id: null,
+    status: 'open', completed_at: null, completed_by: null, closed_by_task: false, notified_at: null,
+    source: 'manual', created_by: TM1, created_at: daysAgo(2), updated_at: daysAgo(2), ...r,
+  });
+  return [
+    reminder({ id: 'd7d7d7d7-0001-4000-8000-000000000001', title: 'Confirm the photography licensing budget with David',
+      remind_on: dayFromToday(-1), project_id: P1, task_id: 'e5e5e5e5-0003-4000-8000-000000000003' }),
+    reminder({ id: 'd7d7d7d7-0002-4000-8000-000000000002', title: 'Ask David to sign off on the Fraunces pairing',
+      remind_on: dayFromToday(0), remind_at: '14:00:00', project_id: P1, task_id: 'e5e5e5e5-0003-4000-8000-000000000003' }),
+    reminder({ id: 'd7d7d7d7-0003-4000-8000-000000000003', title: 'Get the paper stock list from the printer',
+      project_id: P1, task_id: 'e5e5e5e5-0004-4000-8000-000000000004', owner_id: TM3, created_by: TM3 }),
+    reminder({ id: 'd7d7d7d7-0004-4000-8000-000000000004', title: 'Send Crest the round 2 invoice',
+      remind_on: dayFromToday(1), project_id: P1 }),
+    reminder({ id: 'd7d7d7d7-0005-4000-8000-000000000005', title: 'Renew the valiancemedia.com domain',
+      remind_on: dayFromToday(5) }),
+    reminder({ id: 'd7d7d7d7-0006-4000-8000-000000000006', title: 'Share the brand audit deck with the client',
+      project_id: P1, task_id: 'e5e5e5e5-0001-4000-8000-000000000001', status: 'done',
+      completed_at: daysAgo(20), completed_by: TM1, closed_by_task: true }),
+  ];
+}
 
 // ---------------------------------------------------------------------------
 // PROJECT GOALS
