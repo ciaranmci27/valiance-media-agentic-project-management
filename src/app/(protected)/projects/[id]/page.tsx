@@ -8,6 +8,7 @@ import Link from 'next/link';
 import { useApp, defaultFilters } from '@/lib/store';
 import { Header } from '@/components/layout/Header';
 import { BoardView } from '@/components/views/BoardView';
+import { ProjectReminders } from '@/components/reminders/ProjectReminders';
 import { ListView } from '@/components/views/ListView';
 import { CalendarView } from '@/components/views/CalendarView';
 import { TaskForm } from '@/components/tasks/TaskForm';
@@ -665,6 +666,11 @@ export default function ProjectDetailPage() {
 
       {/* Management sections: 2-column grid when time tracking enabled */}
       <div className="px-4 lg:px-6 pb-4 lg:pb-6">
+        {/* Reminders: the project's follow-ups and every task's next step */}
+        <div className="mb-6">
+          <ProjectReminders projectId={projectId} />
+        </div>
+
         <div className={`grid grid-cols-1 ${(project.time_tracking_enabled ?? project.hourly_tracking) && canReadTime ? 'lg:grid-cols-2' : ''} gap-6 items-stretch`}>
           {(project.time_tracking_enabled ?? project.hourly_tracking) && canReadTime && (
             <TimeTrackingPanel projectId={projectId} projectColor={project.color} />

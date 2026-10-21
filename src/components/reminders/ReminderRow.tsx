@@ -27,9 +27,11 @@ interface ReminderRowProps {
   reminder: Reminder;
   /** Name the task or project it belongs to (lists outside that task). */
   showContext?: boolean;
+  /** The project the list is already inside: its name is not repeated. */
+  withinProjectId?: string;
 }
 
-export function ReminderRow({ reminder, showContext = false }: ReminderRowProps) {
+export function ReminderRow({ reminder, showContext = false, withinProjectId }: ReminderRowProps) {
   const { updateReminder, deleteReminder, tasks, getProject, getTeamMember } = useApp();
   const { teamMemberId, access } = useAuth();
   const [editingTitle, setEditingTitle] = useState(false);
@@ -44,7 +46,7 @@ export function ReminderRow({ reminder, showContext = false }: ReminderRowProps)
   const canDelete = reminder.owner_id === teamMemberId || reminder.created_by === teamMemberId || canManageAllTasks(access);
   const owner = reminder.owner_id !== teamMemberId ? getTeamMember(reminder.owner_id) : undefined;
   const task = showContext && reminder.task_id ? tasks.find(t => t.id === reminder.task_id) : undefined;
-  const project = showContext && reminder.project_id ? getProject(reminder.project_id) : undefined;
+  const project = showContext && reminder.project_id && reminder.project_id !== withinProjectId ? getProject(reminder.project_id) : undefined;
 
   const saveTitle = () => {
     const next = title.trim();

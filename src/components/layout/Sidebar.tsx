@@ -19,6 +19,7 @@ import {
   ChevronDown,
   DollarSign,
   Inbox,
+  BellRing,
 } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { computeNeedsYou } from '@/lib/autonomy';
@@ -35,11 +36,12 @@ import { hasPermission } from '@/lib/access-control';
 import { prefetchAgentAnalytics } from '@/lib/use-agent-analytics-events';
 import { defaultAgentAnalyticsRange } from '@/lib/agent-range';
 import { inboxClient } from '@/lib/inbound-email/inbox-client';
+import { reminderGroup } from '@/lib/reminders';
 import { INBOX_UPDATED_EVENT } from '@/lib/inbound-email/inbox-types';
 
 export function Sidebar() {
   const pathname = usePathname();
-  const { projects, team, loading, getPendingSuggestionCount, timeEntries, tasks, taskSuggestions, agentActivity } = useApp();
+  const { projects, team, loading, getPendingSuggestionCount, timeEntries, tasks, taskSuggestions, agentActivity, reminders } = useApp();
   const { user, teamMemberId, access, signOut } = useAuth();
 
   // Project IDs where the current user has an actively-running timer. Used
@@ -133,9 +135,14 @@ export function Sidebar() {
     agentActivity,
   }).length;
 
+  // Your reminders that want you now: overdue or due today.
+  const remindersDue = reminders.filter(r =>
+    r.owner_id === teamMemberId && ['overdue', 'today'].includes(reminderGroup(r))).length;
+
   const navItems = [
     { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', badge: 0, overlay: false },
     { href: '/my-tasks', icon: ListTodo, label: 'My Tasks', badge: radarCount, overlay: true },
+    { href: '/reminders', icon: BellRing, label: 'Reminders', badge: remindersDue, overlay: true },
     ...(canReadInbox ? [{ href: '/inbox', icon: Inbox, label: 'Inbox', badge: inboxAttention, overlay: true }] : []),
     ...(hasPermission(access, 'projects.read') || hasPermission(access, 'projects.read_all')
       ? [{ href: '/projects', icon: FolderKanban, label: 'Projects', badge: 0, overlay: false }] : []),
