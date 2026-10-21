@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
 import { Task } from '@/lib/types';
 import { toast } from '@/components/ui/Toast';
 import { useApp } from '@/lib/store';
@@ -25,6 +26,7 @@ import {
   Bot,
   ListChecks,
   Lock,
+  Maximize2,
   ClipboardCopy,
   Link2,
   Hash,
@@ -44,6 +46,8 @@ interface TaskDetailPanelProps {
   onClose: () => void;
   onEdit: (task: Task) => void;
   onDelete: (id: string) => void;
+  /** 'panel' (default): slides over the page. 'page': the full task page. */
+  variant?: 'panel' | 'page';
 }
 
 const STATUS_OPTIONS: { value: Task['status']; label: string; color: string }[] = [
@@ -60,7 +64,7 @@ const PRIORITY_OPTIONS: { value: Task['priority']; label: string; color: string 
   { value: 'urgent', label: 'Urgent', color: 'bg-red-500' },
 ];
 
-export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailPanelProps) {
+export function TaskDetailPanel({ task, onClose, onEdit, onDelete, variant = 'panel' }: TaskDetailPanelProps) {
   const {
     team,
     tasks,
@@ -111,8 +115,10 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
     setNewCriterion('');
   }, [task?.id]);
 
-  // Escape key handler
+  // Escape closes the panel, which also holds the page still behind it. The
+  // full page is the page: neither applies there.
   useEffect(() => {
+    if (variant !== 'panel') return;
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
     };
@@ -126,7 +132,7 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
       document.removeEventListener('keydown', handleEscape);
       document.body.style.overflow = 'unset';
     };
-  }, [task, onClose]);
+  }, [task, onClose, variant]);
 
   if (!task) return null;
   const canEdit = canEditTask(access, task, teamMemberId);
@@ -189,718 +195,728 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
     if (canDelete) onDelete(task.id);
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex justify-end">
-      {/* Backdrop */}
-      <div
-        ref={backdropRef}
-        className="absolute inset-0 bg-black/40 animate-fadeIn"
-        onClick={(e) => e.target === backdropRef.current && onClose()}
-      />
-
-      {/* Panel */}
-      <div className="relative w-full sm:w-[480px] bg-surface-raised shadow-2xl flex flex-col animate-slideIn overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-white/[0.08] flex-shrink-0">
-          <h2 className="text-lg font-semibold text-white truncate pr-3">{task.title}</h2>
-          <div className="flex items-center gap-1.5 flex-shrink-0">
-            {canEdit && (
-              <Tooltip content="Edit task">
-                <button
-                  onClick={() => onEdit(task)}
-                  className="p-1.5 rounded-lg text-zinc-400 hover:text-brand-300 hover:bg-brand-500/15 transition-colors"
-                >
-                  <Edit size={16} />
-                </button>
-              </Tooltip>
-            )}
-            {canDelete && (
-              <Tooltip content="Delete task">
-                <button
-                  onClick={handleDelete}
-                  className="p-1.5 rounded-lg text-zinc-400 hover:text-red-400 hover:bg-red-500/15 transition-colors"
-                >
-                  <Trash2 size={16} />
-                </button>
-              </Tooltip>
-            )}
-            <RowActionsMenu
-              label="Copy this task"
-              actions={[
-                {
-                  label: 'Copy details',
-                  icon: <ClipboardCopy size={14} />,
-                  onClick: () => copyText(taskAsText(task, { projectName: getProject(task.project_id)?.name, team, tasks }), 'Task details'),
-                },
-                { label: 'Copy link', icon: <Link2 size={14} />, onClick: () => copyText(taskUrl(task), 'Task link') },
-                { label: 'Copy ID', icon: <Hash size={14} />, onClick: () => copyText(task.id, 'Task ID') },
-              ]}
-            />
+  // The same sections in two layouts: the side panel stacks them, the full
+  // task page puts the work (description, reminders, criteria, subtasks,
+  // comments) on the left and the details (status, people, dates) beside it.
+  const header = (
+    <div className="flex items-center justify-between px-5 py-4 border-b border-white/[0.08] flex-shrink-0">
+      <h2 className="text-lg font-semibold text-white truncate pr-3">{task.title}</h2>
+      <div className="flex items-center gap-1.5 flex-shrink-0">
+        {canEdit && (
+          <Tooltip content="Edit task">
             <button
-              onClick={onClose}
-              aria-label="Close task"
-              className="p-1.5 rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.06] transition-colors"
+              onClick={() => onEdit(task)}
+              className="p-1.5 rounded-lg text-zinc-400 hover:text-brand-300 hover:bg-brand-500/15 transition-colors"
             >
-              <X size={18} />
+              <Edit size={16} />
             </button>
-          </div>
-        </div>
+          </Tooltip>
+        )}
+        {canDelete && (
+          <Tooltip content="Delete task">
+            <button
+              onClick={handleDelete}
+              className="p-1.5 rounded-lg text-zinc-400 hover:text-red-400 hover:bg-red-500/15 transition-colors"
+            >
+              <Trash2 size={16} />
+            </button>
+          </Tooltip>
+        )}
+        {variant === 'panel' && (
+          <Tooltip content="Open as a page">
+            <Link
+              href={`/projects/${task.project_id}/tasks/${task.id}`}
+              aria-label="Open task as a page"
+              className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.06] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+            >
+              <Maximize2 size={16} aria-hidden="true" />
+            </Link>
+          </Tooltip>
+        )}
+        <RowActionsMenu
+          label="Copy this task"
+          actions={[
+            {
+              label: 'Copy details',
+              icon: <ClipboardCopy size={14} />,
+              onClick: () => copyText(taskAsText(task, { projectName: getProject(task.project_id)?.name, team, tasks }), 'Task details'),
+            },
+            { label: 'Copy link', icon: <Link2 size={14} />, onClick: () => copyText(taskUrl(task), 'Task link') },
+            { label: 'Copy ID', icon: <Hash size={14} />, onClick: () => copyText(task.id, 'Task ID') },
+          ]}
+        />
+        {variant === 'panel' && (
+          <button
+            onClick={onClose}
+            aria-label="Close task"
+            className="p-1.5 rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.06] transition-colors"
+          >
+            <X size={18} />
+          </button>
+        )}
+      </div>
+    </div>
+  );
 
-        {/* Scrollable Content */}
-        <div className="flex-1 overflow-y-auto">
-          <div className="p-5 space-y-5">
-            {/* Status & Priority Row */}
-            <div className="flex items-center gap-2 flex-wrap">
-              {/* Clickable Status */}
-              <div ref={statusMenuRef} className="relative">
+  const details = (
+    <>
+      {/* Status & Priority Row */}
+      <div className="flex items-center gap-2 flex-wrap">
+        {/* Clickable Status */}
+        <div ref={statusMenuRef} className="relative">
+          <button
+            onClick={() => canEdit && setShowStatusMenu(!showStatusMenu)}
+            className={
+              canEdit
+                ? 'hover:ring-2 hover:ring-brand-500/30 rounded-full transition-all'
+                : 'cursor-default'
+            }
+          >
+            <StatusBadge status={task.status} />
+          </button>
+          {canEdit && (
+            <Popover
+              anchorRef={statusMenuRef}
+              open={showStatusMenu}
+              onClose={() => setShowStatusMenu(false)}
+              align="start"
+              width={160}
+              className="bg-surface-raised rounded-lg shadow-xl border border-white/[0.08] py-1"
+            >
+              {STATUS_OPTIONS.map((opt) => (
                 <button
-                  onClick={() => canEdit && setShowStatusMenu(!showStatusMenu)}
-                  className={
-                    canEdit
-                      ? 'hover:ring-2 hover:ring-brand-500/30 rounded-full transition-all'
-                      : 'cursor-default'
-                  }
-                >
-                  <StatusBadge status={task.status} />
-                </button>
-                {canEdit && (
-                  <Popover
-                    anchorRef={statusMenuRef}
-                    open={showStatusMenu}
-                    onClose={() => setShowStatusMenu(false)}
-                    align="start"
-                    width={160}
-                    className="bg-surface-raised rounded-lg shadow-xl border border-white/[0.08] py-1"
-                  >
-                    {STATUS_OPTIONS.map((opt) => (
-                      <button
-                        key={opt.value}
-                        onClick={() => {
-                          updateTask(task.id, { status: opt.value });
-                          setShowStatusMenu(false);
-                        }}
-                        className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-white/[0.03] transition-colors ${
-                          task.status === opt.value
-                            ? 'bg-white/[0.03] font-medium'
-                            : 'text-zinc-300'
-                        }`}
-                      >
-                        <div className={`w-2 h-2 rounded-full ${opt.color}`} />
-                        {opt.label}
-                      </button>
-                    ))}
-                  </Popover>
-                )}
-              </div>
-
-              {/* Clickable Priority */}
-              <div ref={priorityMenuRef} className="relative">
-                <button
-                  onClick={() => canEdit && setShowPriorityMenu(!showPriorityMenu)}
-                  className={
-                    canEdit
-                      ? 'hover:ring-2 hover:ring-brand-500/30 rounded-full transition-all'
-                      : 'cursor-default'
-                  }
-                >
-                  <PriorityBadge priority={task.priority} />
-                </button>
-                {canEdit && (
-                  <Popover
-                    anchorRef={priorityMenuRef}
-                    open={showPriorityMenu}
-                    onClose={() => setShowPriorityMenu(false)}
-                    align="start"
-                    width={140}
-                    className="bg-surface-raised rounded-lg shadow-xl border border-white/[0.08] py-1"
-                  >
-                    {PRIORITY_OPTIONS.map((opt) => (
-                      <button
-                        key={opt.value}
-                        onClick={() => {
-                          updateTask(task.id, { priority: opt.value });
-                          setShowPriorityMenu(false);
-                        }}
-                        className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-white/[0.03] transition-colors ${
-                          task.priority === opt.value
-                            ? 'bg-white/[0.03] font-medium'
-                            : 'text-zinc-300'
-                        }`}
-                      >
-                        <div className={`w-2 h-2 rounded-full ${opt.color}`} />
-                        {opt.label}
-                      </button>
-                    ))}
-                  </Popover>
-                )}
-              </div>
-              {dueInfo && (
-                <div
-                  className={`flex items-center gap-1.5 text-xs px-2 py-0.5 rounded-full ${
-                    dueInfo.isOverdue
-                      ? 'bg-red-500/15 text-red-300 font-medium'
-                      : 'bg-white/[0.06] text-zinc-300'
+                  key={opt.value}
+                  onClick={() => {
+                    updateTask(task.id, { status: opt.value });
+                    setShowStatusMenu(false);
+                  }}
+                  className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-white/[0.03] transition-colors ${
+                    task.status === opt.value
+                      ? 'bg-white/[0.03] font-medium'
+                      : 'text-zinc-300'
                   }`}
                 >
-                  <Calendar size={12} />
-                  <span>{dueInfo.text}</span>
-                </div>
-              )}
-            </div>
+                  <div className={`w-2 h-2 rounded-full ${opt.color}`} />
+                  {opt.label}
+                </button>
+              ))}
+            </Popover>
+          )}
+        </div>
 
-            {/* Meta Section */}
-            <div className="space-y-3">
-              {/* Assignees */}
-              {assignees.length > 0 && (
-                <div className="flex items-center gap-3">
-                  <div className="flex items-center gap-1.5 text-xs text-zinc-400 w-20 flex-shrink-0">
-                    <Users size={14} />
-                    <span>Assignees</span>
-                  </div>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    {assignees.map((member) => (
-                      <div
-                        key={member.id}
-                        className="flex items-center gap-1.5 px-2 py-1 bg-white/[0.06] rounded-full"
-                      >
-                        <Avatar name={member.name} src={member.avatar || undefined} size="xs" />
-                        <span className="text-xs text-zinc-300">{member.name}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Tags */}
-              {task.tags.length > 0 && (
-                <div className="flex items-center gap-3">
-                  <div className="flex items-center gap-1.5 text-xs text-zinc-400 w-20 flex-shrink-0">
-                    <Tag size={14} />
-                    <span>Tags</span>
-                  </div>
-                  <div className="flex flex-wrap gap-1">
-                    {task.tags.map((tag) => (
-                      <span
-                        key={tag}
-                        className="px-2 py-0.5 text-xs bg-white/[0.06] text-zinc-300 rounded-full"
-                      >
-                        {tag}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Created */}
-              <div className="flex items-center gap-3">
-                <div className="flex items-center gap-1.5 text-xs text-zinc-400 w-20 flex-shrink-0">
-                  <Clock size={14} />
-                  <span>Created</span>
-                </div>
-                <span className="text-xs text-zinc-300">{createdDate}</span>
-              </div>
-            </div>
-
-            {/* AI Ready Toggle. On = ai_ready (the dev agent may pick it up),
-                off = no readiness, a person's task like most tasks. A task with
-                no acceptance criteria cannot be flipped on: the dev agent
-                refuses spec-less tasks, so allowing it would create a task that
-                is claimed and then refused, forever. */}
-            {showAiToggle && (
-              <div className="flex items-center justify-between py-2 px-3 bg-white/[0.03] rounded-lg">
-                <div className="flex items-center gap-2">
-                  <Bot size={14} className="text-zinc-400" />
-                  <div>
-                    <p className="text-sm font-medium text-zinc-300">AI Ready</p>
-                    <p className="text-xs text-zinc-500">
-                      The dev agent may pick this task up on its own
-                    </p>
-                    {task.ai_readiness === 'needs_spec' && (
-                      <p className="mt-0.5 text-xs text-sky-300">
-                        Needs spec: meant for the dev agent, spec not written yet.
-                      </p>
-                    )}
-                  </div>
-                </div>
-                <Toggle
-                  checked={task.ai_readiness === 'ai_ready'}
-                  onChange={() => {
-                    const turningOn = task.ai_readiness !== 'ai_ready';
-                    if (turningOn && (task.acceptance_criteria || []).length === 0) {
-                      toast('error', 'Add acceptance criteria before marking this AI Ready');
-                      return;
-                    }
-                    updateTask(task.id, { ai_readiness: turningOn ? 'ai_ready' : null });
+        {/* Clickable Priority */}
+        <div ref={priorityMenuRef} className="relative">
+          <button
+            onClick={() => canEdit && setShowPriorityMenu(!showPriorityMenu)}
+            className={
+              canEdit
+                ? 'hover:ring-2 hover:ring-brand-500/30 rounded-full transition-all'
+                : 'cursor-default'
+            }
+          >
+            <PriorityBadge priority={task.priority} />
+          </button>
+          {canEdit && (
+            <Popover
+              anchorRef={priorityMenuRef}
+              open={showPriorityMenu}
+              onClose={() => setShowPriorityMenu(false)}
+              align="start"
+              width={140}
+              className="bg-surface-raised rounded-lg shadow-xl border border-white/[0.08] py-1"
+            >
+              {PRIORITY_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  onClick={() => {
+                    updateTask(task.id, { priority: opt.value });
+                    setShowPriorityMenu(false);
                   }}
-                  aria-label="AI ready"
-                />
-              </div>
-            )}
+                  className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-white/[0.03] transition-colors ${
+                    task.priority === opt.value
+                      ? 'bg-white/[0.03] font-medium'
+                      : 'text-zinc-300'
+                  }`}
+                >
+                  <div className={`w-2 h-2 rounded-full ${opt.color}`} />
+                  {opt.label}
+                </button>
+              ))}
+            </Popover>
+          )}
+        </div>
+        {dueInfo && (
+          <div
+            className={`flex items-center gap-1.5 text-xs px-2 py-0.5 rounded-full ${
+              dueInfo.isOverdue
+                ? 'bg-red-500/15 text-red-300 font-medium'
+                : 'bg-white/[0.06] text-zinc-300'
+            }`}
+          >
+            <Calendar size={12} />
+            <span>{dueInfo.text}</span>
+          </div>
+        )}
+      </div>
 
-            {/* Description */}
-            {task.description && (
-              <div className="space-y-2">
-                <h3 className="text-sm font-medium text-zinc-300">Description</h3>
-                <p className="text-sm text-zinc-300 whitespace-pre-wrap leading-relaxed">
-                  {task.description}
-                </p>
-              </div>
-            )}
-
-            <TaskSourceEmailsSection data={sourceEmails} />
-
-            {/* Next steps: what this task is waiting on. */}
-            <TaskReminders task={task} />
-
-            {/* Blocked By Section */}
-            {blockers.length > 0 && (
-              <div className="space-y-2">
-                <h3 className="text-sm font-medium text-zinc-300 flex items-center gap-2">
-                  <Lock size={14} />
-                  Blocked By
-                </h3>
-                {openBlockers.length > 0 && (
-                  <p className="text-xs text-amber-400">
-                    Waiting on {openBlockers.length} {openBlockers.length === 1 ? 'task' : 'tasks'}{' '}
-                    to finish
-                  </p>
-                )}
-                <div className="space-y-1">
-                  {blockers.map((blocker) => (
-                    <div
-                      key={blocker.id}
-                      className="flex items-center justify-between gap-2 p-2 rounded-lg bg-white/[0.03]"
-                    >
-                      <span
-                        className={`text-sm truncate ${blocker.status === 'done' ? 'text-zinc-500 line-through' : 'text-zinc-300'}`}
-                      >
-                        {blocker.title}
-                      </span>
-                      <StatusBadge status={blocker.status} />
-                    </div>
-                  ))}
+      {/* Meta Section */}
+      <div className="space-y-3">
+        {/* Assignees */}
+        {assignees.length > 0 && (
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1.5 text-xs text-zinc-400 w-20 flex-shrink-0">
+              <Users size={14} />
+              <span>Assignees</span>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              {assignees.map((member) => (
+                <div
+                  key={member.id}
+                  className="flex items-center gap-1.5 px-2 py-1 bg-white/[0.06] rounded-full"
+                >
+                  <Avatar name={member.name} src={member.avatar || undefined} size="xs" />
+                  <span className="text-xs text-zinc-300">{member.name}</span>
                 </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Tags */}
+        {task.tags.length > 0 && (
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1.5 text-xs text-zinc-400 w-20 flex-shrink-0">
+              <Tag size={14} />
+              <span>Tags</span>
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {task.tags.map((tag) => (
+                <span
+                  key={tag}
+                  className="px-2 py-0.5 text-xs bg-white/[0.06] text-zinc-300 rounded-full"
+                >
+                  {tag}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Created */}
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5 text-xs text-zinc-400 w-20 flex-shrink-0">
+            <Clock size={14} />
+            <span>Created</span>
+          </div>
+          <span className="text-xs text-zinc-300">{createdDate}</span>
+        </div>
+      </div>
+
+      {/* AI Ready Toggle. On = ai_ready (the dev agent may pick it up),
+          off = no readiness, a person's task like most tasks. A task with
+          no acceptance criteria cannot be flipped on: the dev agent
+          refuses spec-less tasks, so allowing it would create a task that
+          is claimed and then refused, forever. */}
+      {showAiToggle && (
+        <div className="flex items-center justify-between py-2 px-3 bg-white/[0.03] rounded-lg">
+          <div className="flex items-center gap-2">
+            <Bot size={14} className="text-zinc-400" />
+            <div>
+              <p className="text-sm font-medium text-zinc-300">AI Ready</p>
+              <p className="text-xs text-zinc-500">
+                The dev agent may pick this task up on its own
+              </p>
+              {task.ai_readiness === 'needs_spec' && (
+                <p className="mt-0.5 text-xs text-sky-300">
+                  Needs spec: meant for the dev agent, spec not written yet.
+                </p>
+              )}
+            </div>
+          </div>
+          <Toggle
+            checked={task.ai_readiness === 'ai_ready'}
+            onChange={() => {
+              const turningOn = task.ai_readiness !== 'ai_ready';
+              if (turningOn && (task.acceptance_criteria || []).length === 0) {
+                toast('error', 'Add acceptance criteria before marking this AI Ready');
+                return;
+              }
+              updateTask(task.id, { ai_readiness: turningOn ? 'ai_ready' : null });
+            }}
+            aria-label="AI ready"
+          />
+        </div>
+      )}
+    </>
+  );
+
+  const sections = (
+    <>
+      {/* Description */}
+      {task.description && (
+        <div className="space-y-2">
+          <h3 className="text-sm font-medium text-zinc-300">Description</h3>
+          <p className="text-sm text-zinc-300 whitespace-pre-wrap leading-relaxed">
+            {task.description}
+          </p>
+        </div>
+      )}
+
+      <TaskSourceEmailsSection data={sourceEmails} />
+
+      {/* Next steps: what this task is waiting on. */}
+      <TaskReminders task={task} />
+
+      {/* Blocked By Section */}
+      {blockers.length > 0 && (
+        <div className="space-y-2">
+          <h3 className="text-sm font-medium text-zinc-300 flex items-center gap-2">
+            <Lock size={14} />
+            Blocked By
+          </h3>
+          {openBlockers.length > 0 && (
+            <p className="text-xs text-amber-400">
+              Waiting on {openBlockers.length} {openBlockers.length === 1 ? 'task' : 'tasks'}{' '}
+              to finish
+            </p>
+          )}
+          <div className="space-y-1">
+            {blockers.map((blocker) => (
+              <div
+                key={blocker.id}
+                className="flex items-center justify-between gap-2 p-2 rounded-lg bg-white/[0.03]"
+              >
+                <span
+                  className={`text-sm truncate ${blocker.status === 'done' ? 'text-zinc-500 line-through' : 'text-zinc-300'}`}
+                >
+                  {blocker.title}
+                </span>
+                <StatusBadge status={blocker.status} />
               </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Acceptance Criteria Section */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-medium text-zinc-300 flex items-center gap-2">
+            <ListChecks size={14} />
+            Acceptance Criteria
+            {task.acceptance_criteria.length > 0 && (
+              <span className="text-xs text-zinc-400 font-normal">
+                ({satisfiedCriteria}/{task.acceptance_criteria.length})
+              </span>
             )}
+          </h3>
+        </div>
 
-            {/* Acceptance Criteria Section */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-medium text-zinc-300 flex items-center gap-2">
-                  <ListChecks size={14} />
-                  Acceptance Criteria
-                  {task.acceptance_criteria.length > 0 && (
-                    <span className="text-xs text-zinc-400 font-normal">
-                      ({satisfiedCriteria}/{task.acceptance_criteria.length})
-                    </span>
-                  )}
-                </h3>
-              </div>
-
-              <div className="space-y-1">
-                {task.acceptance_criteria.map((criterion) => (
-                  <div
-                    key={criterion.id}
-                    className="flex items-center gap-2 p-2 rounded-lg hover:bg-white/[0.03] group"
-                  >
-                    <button
-                      onClick={() => canEdit && toggleCriterion(task.id, criterion.id)}
-                      aria-label={
-                        criterion.satisfied ? 'Mark criterion unmet' : 'Mark criterion met'
+        <div className="space-y-1">
+          {task.acceptance_criteria.map((criterion) => (
+            <div
+              key={criterion.id}
+              className="flex items-center gap-2 p-2 rounded-lg hover:bg-white/[0.03] group"
+            >
+              <button
+                onClick={() => canEdit && toggleCriterion(task.id, criterion.id)}
+                aria-label={
+                  criterion.satisfied ? 'Mark criterion unmet' : 'Mark criterion met'
+                }
+                className={`flex-shrink-0 w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
+                  criterion.satisfied
+                    ? 'bg-brand-500 border-brand-500'
+                    : 'border-white/[0.12] hover:border-brand-400'
+                }`}
+              >
+                {criterion.satisfied && <CheckSquare size={12} className="text-white" />}
+              </button>
+              {editingCriterionId === criterion.id ? (
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (editingCriterionText.trim()) {
+                      updateCriterion(task.id, criterion.id, editingCriterionText.trim());
+                    }
+                    setEditingCriterionId(null);
+                  }}
+                  className="flex-1"
+                >
+                  <TextInput
+                    value={editingCriterionText}
+                    onChange={setEditingCriterionText}
+                    onBlur={() => {
+                      if (editingCriterionText.trim()) {
+                        updateCriterion(task.id, criterion.id, editingCriterionText.trim());
                       }
-                      className={`flex-shrink-0 w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
-                        criterion.satisfied
-                          ? 'bg-brand-500 border-brand-500'
-                          : 'border-white/[0.12] hover:border-brand-400'
-                      }`}
-                    >
-                      {criterion.satisfied && <CheckSquare size={12} className="text-white" />}
-                    </button>
-                    {editingCriterionId === criterion.id ? (
-                      <form
-                        onSubmit={(e) => {
-                          e.preventDefault();
-                          if (editingCriterionText.trim()) {
-                            updateCriterion(task.id, criterion.id, editingCriterionText.trim());
-                          }
-                          setEditingCriterionId(null);
-                        }}
-                        className="flex-1"
-                      >
-                        <TextInput
-                          value={editingCriterionText}
-                          onChange={setEditingCriterionText}
-                          onBlur={() => {
-                            if (editingCriterionText.trim()) {
-                              updateCriterion(task.id, criterion.id, editingCriterionText.trim());
-                            }
-                            setEditingCriterionId(null);
-                          }}
-                          autoFocus
-                          size="sm"
-                        />
-                      </form>
-                    ) : (
-                      <Tooltip content="Double-click to edit" delay={500}>
-                        <span
-                          className={`flex-1 text-sm cursor-pointer ${criterion.satisfied ? 'text-zinc-500' : 'text-zinc-300'}`}
-                          onDoubleClick={() => {
-                            setEditingCriterionId(criterion.id);
-                            setEditingCriterionText(criterion.criterion);
-                          }}
-                        >
-                          {criterion.criterion}
-                        </span>
-                      </Tooltip>
-                    )}
+                      setEditingCriterionId(null);
+                    }}
+                    autoFocus
+                    size="sm"
+                  />
+                </form>
+              ) : (
+                <Tooltip content="Double-click to edit" delay={500}>
+                  <span
+                    className={`flex-1 text-sm cursor-pointer ${criterion.satisfied ? 'text-zinc-500' : 'text-zinc-300'}`}
+                    onDoubleClick={() => {
+                      setEditingCriterionId(criterion.id);
+                      setEditingCriterionText(criterion.criterion);
+                    }}
+                  >
+                    {criterion.criterion}
+                  </span>
+                </Tooltip>
+              )}
+              <div className="flex items-center gap-0.5 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-all">
+                <button
+                  onClick={() => {
+                    setEditingCriterionId(criterion.id);
+                    setEditingCriterionText(criterion.criterion);
+                  }}
+                  aria-label="Edit criterion"
+                  className="p-1 text-zinc-500 hover:text-brand-500"
+                >
+                  <Edit size={12} />
+                </button>
+                <button
+                  onClick={() => setDeleteCriterionTarget(criterion.id)}
+                  aria-label="Delete criterion"
+                  className="p-1 text-zinc-500 hover:text-red-500"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Add criterion */}
+        {canEdit && (
+          <form onSubmit={handleAddCriterion} className="flex items-center gap-2 pl-[22px]">
+            <TextInput
+              value={newCriterion}
+              onChange={setNewCriterion}
+              placeholder="Add an acceptance criterion..."
+              size="sm"
+              className="flex-1"
+            />
+            <button
+              type="submit"
+              aria-label="Add acceptance criterion"
+              className="p-1 rounded text-zinc-500 hover:text-brand-300 hover:bg-brand-500/15 transition-colors flex-shrink-0"
+            >
+              <Plus size={16} />
+            </button>
+          </form>
+        )}
+      </div>
+
+      {/* Subtasks Section */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-medium text-zinc-300 flex items-center gap-2">
+            <CheckSquare size={14} />
+            Subtasks
+            {task.subtasks.length > 0 && (
+              <span className="text-xs text-zinc-400 font-normal">
+                ({completedSubtasks}/{task.subtasks.length})
+              </span>
+            )}
+          </h3>
+        </div>
+
+        {/* Progress bar */}
+        {task.subtasks.length > 0 && (
+          <div className="h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
+            <div
+              className="h-full bg-emerald-500 rounded-full transition-all duration-300"
+              style={{ width: `${(completedSubtasks / task.subtasks.length) * 100}%` }}
+            />
+          </div>
+        )}
+
+        {/* Subtask list */}
+        <div className="space-y-1">
+          {(dragSubtaskOrder
+            ? dragSubtaskOrder
+                .map((id) => task.subtasks.find((s) => s.id === id))
+                .filter((s): s is NonNullable<typeof s> => !!s)
+            : task.subtasks
+          ).map((subtask) => (
+            <div
+              key={subtask.id}
+              draggable={canEdit}
+              onDragStart={() => {
+                if (!canEdit) return;
+                setDraggedSubtaskId(subtask.id);
+                setDragSubtaskOrder(task.subtasks.map((s) => s.id));
+              }}
+              onDragEnd={() => {
+                // Persist the final order once, only if it changed
+                if (dragSubtaskOrder) {
+                  const original = task.subtasks.map((s) => s.id);
+                  if (dragSubtaskOrder.join() !== original.join()) {
+                    reorderSubtasks(task.id, dragSubtaskOrder);
+                  }
+                }
+                setDraggedSubtaskId(null);
+                setDragSubtaskOrder(null);
+              }}
+              onDragOver={(e) => {
+                e.preventDefault();
+                if (draggedSubtaskId && draggedSubtaskId !== subtask.id) {
+                  setDragSubtaskOrder((order) => {
+                    const ids = [...(order ?? task.subtasks.map((s) => s.id))];
+                    const fromIdx = ids.indexOf(draggedSubtaskId);
+                    const toIdx = ids.indexOf(subtask.id);
+                    if (fromIdx === -1 || toIdx === -1 || fromIdx === toIdx) return order;
+                    ids.splice(fromIdx, 1);
+                    ids.splice(toIdx, 0, draggedSubtaskId);
+                    return ids;
+                  });
+                }
+              }}
+              className={`flex items-center gap-2 p-2 rounded-lg hover:bg-white/[0.03] group ${canEdit ? 'cursor-grab active:cursor-grabbing' : ''} ${
+                draggedSubtaskId === subtask.id ? 'opacity-50' : ''
+              }`}
+            >
+              <button
+                onClick={() => toggleSubtask(task.id, subtask.id)}
+                disabled={!canEdit}
+                aria-label={subtask.completed ? `Mark "${subtask.title}" not done` : `Mark "${subtask.title}" done`}
+                aria-pressed={subtask.completed}
+                className={`flex-shrink-0 w-5 h-5 rounded border-2 flex items-center justify-center transition-colors disabled:cursor-default ${
+                  subtask.completed
+                    ? 'bg-emerald-500 border-emerald-500'
+                    : `border-white/[0.12] ${canEdit ? 'hover:border-emerald-400' : ''}`
+                }`}
+              >
+                {subtask.completed && <CheckSquare size={12} className="text-white" />}
+              </button>
+              {editingSubtaskId === subtask.id ? (
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (editingSubtaskTitle.trim()) {
+                      updateSubtask(task.id, subtask.id, editingSubtaskTitle.trim());
+                    }
+                    setEditingSubtaskId(null);
+                  }}
+                  className="flex-1"
+                >
+                  <TextInput
+                    value={editingSubtaskTitle}
+                    onChange={setEditingSubtaskTitle}
+                    onBlur={() => {
+                      if (editingSubtaskTitle.trim()) {
+                        updateSubtask(task.id, subtask.id, editingSubtaskTitle.trim());
+                      }
+                      setEditingSubtaskId(null);
+                    }}
+                    autoFocus
+                    size="sm"
+                  />
+                </form>
+              ) : canEdit ? (
+                <Tooltip content="Double-click to edit" delay={500}>
+                  <span
+                    className={`flex-1 text-sm cursor-pointer ${subtask.completed ? 'text-zinc-500 line-through' : 'text-zinc-300'}`}
+                    onDoubleClick={() => {
+                      setEditingSubtaskId(subtask.id);
+                      setEditingSubtaskTitle(subtask.title);
+                    }}
+                  >
+                    {subtask.title}
+                  </span>
+                </Tooltip>
+              ) : (
+                <span className={`flex-1 text-sm ${subtask.completed ? 'text-zinc-500 line-through' : 'text-zinc-300'}`}>
+                  {subtask.title}
+                </span>
+              )}
+              {canEdit && (
+                <div className="flex items-center gap-0.5 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-all">
+                  <button
+                    onClick={() => {
+                      setEditingSubtaskId(subtask.id);
+                      setEditingSubtaskTitle(subtask.title);
+                    }}
+                    aria-label={`Edit "${subtask.title}"`}
+                    className="p-1 text-zinc-500 hover:text-brand-500"
+                  >
+                    <Edit size={12} aria-hidden="true" />
+                  </button>
+                  <button
+                    onClick={() => setDeleteSubtaskTarget(subtask.id)}
+                    aria-label={`Delete "${subtask.title}"`}
+                    className="p-1 text-zinc-500 hover:text-red-500"
+                  >
+                    <X size={14} aria-hidden="true" />
+                  </button>
+                  <GripVertical
+                    size={14}
+                    aria-hidden="true"
+                    className="text-zinc-600 flex-shrink-0 cursor-grab active:cursor-grabbing"
+                  />
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {/* Add subtask */}
+        {canEdit && <form onSubmit={handleAddSubtask} className="flex items-center gap-2 pl-[22px]">
+          <TextInput
+            value={newSubtask}
+            onChange={setNewSubtask}
+            placeholder="Add a subtask..."
+            size="sm"
+            className="flex-1"
+          />
+          <button
+            type="submit"
+            aria-label="Add subtask"
+            className="p-1 rounded text-zinc-500 hover:text-brand-300 hover:bg-brand-500/15 transition-colors flex-shrink-0"
+          >
+            <Plus size={16} aria-hidden="true" />
+          </button>
+        </form>}
+      </div>
+
+      {/* Comments Section */}
+      <div className="space-y-3">
+        <h3 className="text-sm font-medium text-zinc-300 flex items-center gap-2">
+          <MessageSquare size={14} />
+          Comments
+          {task.comments.length > 0 && (
+            <span className="text-xs text-zinc-400 font-normal">
+              ({task.comments.length})
+            </span>
+          )}
+        </h3>
+
+        {/* Comment thread */}
+        <div className="space-y-3">
+          {task.comments.map((comment) => {
+            const author = getTeamMember(comment.user_id);
+            const isOwn = comment.user_id === teamMemberId;
+            return (
+              <div key={comment.id} className="flex gap-3 group">
+                <Avatar
+                  name={author?.name || '?'}
+                  src={author?.avatar || undefined}
+                  size="sm"
+                />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-medium text-white">
+                        {author?.name || 'Unknown'}
+                      </p>
+                      <p className="text-xs text-zinc-500">
+                        {new Date(comment.created_at).toLocaleDateString('en-US', {
+                          month: 'short',
+                          day: 'numeric',
+                          hour: 'numeric',
+                          minute: '2-digit',
+                        })}
+                      </p>
+                    </div>
                     <div className="flex items-center gap-0.5 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-all">
+                      {isOwn && (
+                        <button
+                          onClick={() => {
+                            setEditingCommentId(comment.id);
+                            setEditingCommentText(comment.text);
+                          }}
+                          className="p-1 text-zinc-500 hover:text-brand-500"
+                        >
+                          <Edit size={12} />
+                        </button>
+                      )}
                       <button
-                        onClick={() => {
-                          setEditingCriterionId(criterion.id);
-                          setEditingCriterionText(criterion.criterion);
-                        }}
-                        aria-label="Edit criterion"
-                        className="p-1 text-zinc-500 hover:text-brand-500"
-                      >
-                        <Edit size={12} />
-                      </button>
-                      <button
-                        onClick={() => setDeleteCriterionTarget(criterion.id)}
-                        aria-label="Delete criterion"
+                        onClick={() => setDeleteCommentTarget(comment.id)}
                         className="p-1 text-zinc-500 hover:text-red-500"
                       >
                         <X size={14} />
                       </button>
                     </div>
                   </div>
-                ))}
-              </div>
-
-              {/* Add criterion */}
-              {canEdit && (
-                <form onSubmit={handleAddCriterion} className="flex items-center gap-2 pl-[22px]">
-                  <TextInput
-                    value={newCriterion}
-                    onChange={setNewCriterion}
-                    placeholder="Add an acceptance criterion..."
-                    size="sm"
-                    className="flex-1"
-                  />
-                  <button
-                    type="submit"
-                    aria-label="Add acceptance criterion"
-                    className="p-1 rounded text-zinc-500 hover:text-brand-300 hover:bg-brand-500/15 transition-colors flex-shrink-0"
-                  >
-                    <Plus size={16} />
-                  </button>
-                </form>
-              )}
-            </div>
-
-            {/* Subtasks Section */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-medium text-zinc-300 flex items-center gap-2">
-                  <CheckSquare size={14} />
-                  Subtasks
-                  {task.subtasks.length > 0 && (
-                    <span className="text-xs text-zinc-400 font-normal">
-                      ({completedSubtasks}/{task.subtasks.length})
-                    </span>
-                  )}
-                </h3>
-              </div>
-
-              {/* Progress bar */}
-              {task.subtasks.length > 0 && (
-                <div className="h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-emerald-500 rounded-full transition-all duration-300"
-                    style={{ width: `${(completedSubtasks / task.subtasks.length) * 100}%` }}
-                  />
-                </div>
-              )}
-
-              {/* Subtask list */}
-              <div className="space-y-1">
-                {(dragSubtaskOrder
-                  ? dragSubtaskOrder
-                      .map((id) => task.subtasks.find((s) => s.id === id))
-                      .filter((s): s is NonNullable<typeof s> => !!s)
-                  : task.subtasks
-                ).map((subtask) => (
-                  <div
-                    key={subtask.id}
-                    draggable={canEdit}
-                    onDragStart={() => {
-                      if (!canEdit) return;
-                      setDraggedSubtaskId(subtask.id);
-                      setDragSubtaskOrder(task.subtasks.map((s) => s.id));
-                    }}
-                    onDragEnd={() => {
-                      // Persist the final order once, only if it changed
-                      if (dragSubtaskOrder) {
-                        const original = task.subtasks.map((s) => s.id);
-                        if (dragSubtaskOrder.join() !== original.join()) {
-                          reorderSubtasks(task.id, dragSubtaskOrder);
+                  {editingCommentId === comment.id ? (
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        if (editingCommentText.trim()) {
+                          updateComment(task.id, comment.id, editingCommentText.trim());
                         }
-                      }
-                      setDraggedSubtaskId(null);
-                      setDragSubtaskOrder(null);
-                    }}
-                    onDragOver={(e) => {
-                      e.preventDefault();
-                      if (draggedSubtaskId && draggedSubtaskId !== subtask.id) {
-                        setDragSubtaskOrder((order) => {
-                          const ids = [...(order ?? task.subtasks.map((s) => s.id))];
-                          const fromIdx = ids.indexOf(draggedSubtaskId);
-                          const toIdx = ids.indexOf(subtask.id);
-                          if (fromIdx === -1 || toIdx === -1 || fromIdx === toIdx) return order;
-                          ids.splice(fromIdx, 1);
-                          ids.splice(toIdx, 0, draggedSubtaskId);
-                          return ids;
-                        });
-                      }
-                    }}
-                    className={`flex items-center gap-2 p-2 rounded-lg hover:bg-white/[0.03] group ${canEdit ? 'cursor-grab active:cursor-grabbing' : ''} ${
-                      draggedSubtaskId === subtask.id ? 'opacity-50' : ''
-                    }`}
-                  >
-                    <button
-                      onClick={() => toggleSubtask(task.id, subtask.id)}
-                      disabled={!canEdit}
-                      aria-label={subtask.completed ? `Mark "${subtask.title}" not done` : `Mark "${subtask.title}" done`}
-                      aria-pressed={subtask.completed}
-                      className={`flex-shrink-0 w-5 h-5 rounded border-2 flex items-center justify-center transition-colors disabled:cursor-default ${
-                        subtask.completed
-                          ? 'bg-emerald-500 border-emerald-500'
-                          : `border-white/[0.12] ${canEdit ? 'hover:border-emerald-400' : ''}`
-                      }`}
+                        setEditingCommentId(null);
+                      }}
+                      className="mt-1 space-y-1.5"
                     >
-                      {subtask.completed && <CheckSquare size={12} className="text-white" />}
-                    </button>
-                    {editingSubtaskId === subtask.id ? (
-                      <form
-                        onSubmit={(e) => {
-                          e.preventDefault();
-                          if (editingSubtaskTitle.trim()) {
-                            updateSubtask(task.id, subtask.id, editingSubtaskTitle.trim());
-                          }
-                          setEditingSubtaskId(null);
-                        }}
-                        className="flex-1"
-                      >
-                        <TextInput
-                          value={editingSubtaskTitle}
-                          onChange={setEditingSubtaskTitle}
-                          onBlur={() => {
-                            if (editingSubtaskTitle.trim()) {
-                              updateSubtask(task.id, subtask.id, editingSubtaskTitle.trim());
-                            }
-                            setEditingSubtaskId(null);
-                          }}
-                          autoFocus
-                          size="sm"
-                        />
-                      </form>
-                    ) : canEdit ? (
-                      <Tooltip content="Double-click to edit" delay={500}>
-                        <span
-                          className={`flex-1 text-sm cursor-pointer ${subtask.completed ? 'text-zinc-500 line-through' : 'text-zinc-300'}`}
-                          onDoubleClick={() => {
-                            setEditingSubtaskId(subtask.id);
-                            setEditingSubtaskTitle(subtask.title);
-                          }}
-                        >
-                          {subtask.title}
-                        </span>
-                      </Tooltip>
-                    ) : (
-                      <span className={`flex-1 text-sm ${subtask.completed ? 'text-zinc-500 line-through' : 'text-zinc-300'}`}>
-                        {subtask.title}
-                      </span>
-                    )}
-                    {canEdit && (
-                      <div className="flex items-center gap-0.5 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-all">
-                        <button
-                          onClick={() => {
-                            setEditingSubtaskId(subtask.id);
-                            setEditingSubtaskTitle(subtask.title);
-                          }}
-                          aria-label={`Edit "${subtask.title}"`}
-                          className="p-1 text-zinc-500 hover:text-brand-500"
-                        >
-                          <Edit size={12} aria-hidden="true" />
-                        </button>
-                        <button
-                          onClick={() => setDeleteSubtaskTarget(subtask.id)}
-                          aria-label={`Delete "${subtask.title}"`}
-                          className="p-1 text-zinc-500 hover:text-red-500"
-                        >
-                          <X size={14} aria-hidden="true" />
-                        </button>
-                        <GripVertical
-                          size={14}
-                          aria-hidden="true"
-                          className="text-zinc-600 flex-shrink-0 cursor-grab active:cursor-grabbing"
-                        />
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-
-              {/* Add subtask */}
-              {canEdit && <form onSubmit={handleAddSubtask} className="flex items-center gap-2 pl-[22px]">
-                <TextInput
-                  value={newSubtask}
-                  onChange={setNewSubtask}
-                  placeholder="Add a subtask..."
-                  size="sm"
-                  className="flex-1"
-                />
-                <button
-                  type="submit"
-                  aria-label="Add subtask"
-                  className="p-1 rounded text-zinc-500 hover:text-brand-300 hover:bg-brand-500/15 transition-colors flex-shrink-0"
-                >
-                  <Plus size={16} aria-hidden="true" />
-                </button>
-              </form>}
-            </div>
-
-            {/* Comments Section */}
-            <div className="space-y-3">
-              <h3 className="text-sm font-medium text-zinc-300 flex items-center gap-2">
-                <MessageSquare size={14} />
-                Comments
-                {task.comments.length > 0 && (
-                  <span className="text-xs text-zinc-400 font-normal">
-                    ({task.comments.length})
-                  </span>
-                )}
-              </h3>
-
-              {/* Comment thread */}
-              <div className="space-y-3">
-                {task.comments.map((comment) => {
-                  const author = getTeamMember(comment.user_id);
-                  const isOwn = comment.user_id === teamMemberId;
-                  return (
-                    <div key={comment.id} className="flex gap-3 group">
-                      <Avatar
-                        name={author?.name || '?'}
-                        src={author?.avatar || undefined}
+                      <Textarea
+                        value={editingCommentText}
+                        onChange={setEditingCommentText}
+                        autoFocus
+                        rows={2}
                         size="sm"
                       />
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <p className="text-sm font-medium text-white">
-                              {author?.name || 'Unknown'}
-                            </p>
-                            <p className="text-xs text-zinc-500">
-                              {new Date(comment.created_at).toLocaleDateString('en-US', {
-                                month: 'short',
-                                day: 'numeric',
-                                hour: 'numeric',
-                                minute: '2-digit',
-                              })}
-                            </p>
-                          </div>
-                          <div className="flex items-center gap-0.5 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-all">
-                            {isOwn && (
-                              <button
-                                onClick={() => {
-                                  setEditingCommentId(comment.id);
-                                  setEditingCommentText(comment.text);
-                                }}
-                                className="p-1 text-zinc-500 hover:text-brand-500"
-                              >
-                                <Edit size={12} />
-                              </button>
-                            )}
-                            <button
-                              onClick={() => setDeleteCommentTarget(comment.id)}
-                              className="p-1 text-zinc-500 hover:text-red-500"
-                            >
-                              <X size={14} />
-                            </button>
-                          </div>
-                        </div>
-                        {editingCommentId === comment.id ? (
-                          <form
-                            onSubmit={(e) => {
-                              e.preventDefault();
-                              if (editingCommentText.trim()) {
-                                updateComment(task.id, comment.id, editingCommentText.trim());
-                              }
-                              setEditingCommentId(null);
-                            }}
-                            className="mt-1 space-y-1.5"
-                          >
-                            <Textarea
-                              value={editingCommentText}
-                              onChange={setEditingCommentText}
-                              autoFocus
-                              rows={2}
-                              size="sm"
-                            />
-                            <div className="flex gap-1.5">
-                              <button
-                                type="submit"
-                                className="px-2.5 py-1 text-xs text-white bg-brand-600 hover:bg-brand-700 rounded-md transition-colors"
-                              >
-                                Save
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setEditingCommentId(null)}
-                                className="px-2.5 py-1 text-xs text-zinc-300 hover:bg-white/[0.06] rounded-md transition-colors"
-                              >
-                                Cancel
-                              </button>
-                            </div>
-                          </form>
-                        ) : (
-                          <p className="text-sm text-zinc-300 mt-0.5">{comment.text}</p>
-                        )}
+                      <div className="flex gap-1.5">
+                        <button
+                          type="submit"
+                          className="px-2.5 py-1 text-xs text-white bg-brand-600 hover:bg-brand-700 rounded-md transition-colors"
+                        >
+                          Save
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEditingCommentId(null)}
+                          className="px-2.5 py-1 text-xs text-zinc-300 hover:bg-white/[0.06] rounded-md transition-colors"
+                        >
+                          Cancel
+                        </button>
                       </div>
-                    </div>
-                  );
-                })}
-                {task.comments.length === 0 && (
-                  <div className="flex flex-col items-center justify-center p-8 text-center">
-                    <div className="w-10 h-10 rounded-full bg-white/[0.06] flex items-center justify-center mb-3">
-                      <MessageSquare size={18} className="text-zinc-500" />
-                    </div>
-                    <p className="text-sm font-medium text-zinc-400">No comments yet</p>
-                    <p className="text-xs text-zinc-500 mt-1">Add a comment below</p>
-                  </div>
-                )}
+                    </form>
+                  ) : (
+                    <p className="text-sm text-zinc-300 mt-0.5">{comment.text}</p>
+                  )}
+                </div>
               </div>
-
-              {/* Add comment */}
-              <form onSubmit={handleAddComment} className="flex items-center gap-2">
-                <TextInput
-                  value={newComment}
-                  onChange={setNewComment}
-                  placeholder="Write a comment..."
-                  size="sm"
-                  className="flex-1"
-                />
-                <button
-                  type="submit"
-                  className="p-1 rounded text-zinc-500 hover:text-brand-300 hover:bg-brand-500/15 transition-colors flex-shrink-0"
-                >
-                  <MessageSquare size={16} />
-                </button>
-              </form>
+            );
+          })}
+          {task.comments.length === 0 && (
+            <div className="flex flex-col items-center justify-center p-8 text-center">
+              <div className="w-10 h-10 rounded-full bg-white/[0.06] flex items-center justify-center mb-3">
+                <MessageSquare size={18} className="text-zinc-500" />
+              </div>
+              <p className="text-sm font-medium text-zinc-400">No comments yet</p>
+              <p className="text-xs text-zinc-500 mt-1">Add a comment below</p>
             </div>
-          </div>
+          )}
         </div>
-      </div>
 
+        {/* Add comment */}
+        <form onSubmit={handleAddComment} className="flex items-center gap-2">
+          <TextInput
+            value={newComment}
+            onChange={setNewComment}
+            placeholder="Write a comment..."
+            size="sm"
+            className="flex-1"
+          />
+          <button
+            type="submit"
+            className="p-1 rounded text-zinc-500 hover:text-brand-300 hover:bg-brand-500/15 transition-colors flex-shrink-0"
+          >
+            <MessageSquare size={16} />
+          </button>
+        </form>
+      </div>
+    </>
+  );
+
+  const dialogs = (
+    <>
       <ConfirmDialog
         isOpen={!!deleteSubtaskTarget}
         onClose={() => setDeleteSubtaskTarget(null)}
@@ -936,6 +952,49 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete }: TaskDetailP
         confirmLabel="Delete"
         variant="danger"
       />
+    </>
+  );
+
+  if (variant === 'page') {
+    return (
+      <div className="space-y-6">
+        <div className="glass-card rounded-xl overflow-hidden">
+          {header}
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px] gap-6 items-start">
+          <div className="glass-card rounded-xl p-5 space-y-6 min-w-0">{sections}</div>
+          <aside className="glass-card rounded-xl p-5 space-y-5 lg:sticky lg:top-6" aria-label="Task details">
+            {details}
+          </aside>
+        </div>
+        {dialogs}
+      </div>
+    );
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end">
+      {/* Backdrop */}
+      <div
+        ref={backdropRef}
+        className="absolute inset-0 bg-black/40 animate-fadeIn"
+        onClick={(e) => e.target === backdropRef.current && onClose()}
+      />
+
+      {/* Panel */}
+      <div className="relative w-full sm:w-[480px] bg-surface-raised shadow-2xl flex flex-col animate-slideIn overflow-hidden">
+        {header}
+
+        {/* Scrollable Content */}
+        <div className="flex-1 overflow-y-auto">
+          <div className="p-5 space-y-5">
+            {details}
+            {sections}
+          </div>
+        </div>
+      </div>
+
+      {dialogs}
 
       <style jsx>{`
         @keyframes fadeIn {
