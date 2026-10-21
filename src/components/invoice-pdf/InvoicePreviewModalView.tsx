@@ -182,6 +182,9 @@ export function InvoicePreviewModalView({
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   /** True from a document change until its blob is ready. */
   const [generating, setGenerating] = useState(false);
+  /** The PDF runtime or the document build failed (a font that would not
+   *  load, say): shown as an error, never as a spinner that never ends. */
+  const [buildFailed, setBuildFailed] = useState(false);
   /** Which edition is being generated for download, or null when idle. */
   const [downloading, setDownloading] = useState<InvoicePdfTheme | null>(null);
   const [downloadMenuOpen, setDownloadMenuOpen] = useState(false);
@@ -207,6 +210,10 @@ export function InvoicePreviewModalView({
       setPdfLib(pdf);
       setDocLib(doc);
       setPreviewLib(preview);
+    }).catch((error) => {
+      if (cancelled) return;
+      console.error('[invoice-pdf] could not load the PDF runtime', error);
+      setBuildFailed(true);
     });
     return () => { cancelled = true; };
   }, [isOpen]);
@@ -228,6 +235,7 @@ export function InvoicePreviewModalView({
     }
     let cancelled = false;
     setGenerating(true);
+    setBuildFailed(false);
 
     pdfLib.pdf(documentNode).toBlob().then((blob: Blob) => {
       if (cancelled) return;
@@ -236,6 +244,11 @@ export function InvoicePreviewModalView({
         if (prev) URL.revokeObjectURL(prev);
         return newUrl;
       });
+      setGenerating(false);
+    }).catch((error) => {
+      if (cancelled) return;
+      console.error('[invoice-pdf] could not build the preview', error);
+      setBuildFailed(true);
       setGenerating(false);
     });
 
@@ -510,6 +523,15 @@ export function InvoicePreviewModalView({
                 <p className={`mt-2 text-sm leading-relaxed ${chrome.errorBody}`}>{integrityError}</p>
                 <p className={`mt-3 text-xs ${chrome.errorFoot}`}>
                   The invoice was not rendered or downloaded because its saved billing details did not reconcile.
+                </p>
+              </div>
+            </div>
+          ) : buildFailed ? (
+            <div className="w-full h-full flex items-center justify-center p-8" role="alert">
+              <div className={`max-w-lg rounded-xl border ${chrome.errorCard} p-5 text-center`}>
+                <p className={`text-sm font-semibold ${chrome.errorTitle}`}>Preview unavailable</p>
+                <p className={`mt-2 text-sm leading-relaxed ${chrome.errorBody}`}>
+                  This invoice could not be displayed. Close it and open it again, or try again later.
                 </p>
               </div>
             </div>

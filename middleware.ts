@@ -41,7 +41,10 @@ export const config = {
      * props are public-folder models, and an anonymous visitor's fetch for
      * one would otherwise be redirected to the login page's HTML, which the
      * GLTF loader chokes on hard enough to take the whole scene down.
+     * Fonts and the pdf.js worker (mjs) are listed for the same reason: the
+     * client portal's invoice preview loads them signed out, and a font
+     * that redirects to login stops the PDF from ever rendering.
      */
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|glb)$).*)',
+    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|glb|ttf|woff2?|mjs|webmanifest)$).*)',
   ],
 };
