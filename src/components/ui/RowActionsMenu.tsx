@@ -90,11 +90,14 @@ export function RowActionsMenu({ actions, label = 'Row actions', triggerClassNam
 
       {open && createPortal(
         <>
+          {/* data-row-actions: a Popover holding this menu ignores clicks here. */}
           <div
+            data-row-actions=""
             className="fixed inset-0 z-[9998] cursor-default"
             onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpen(false); }}
           />
           <div
+            data-row-actions=""
             role="menu"
             className="fixed z-[9999] bg-surface-overlay rounded-lg shadow-[0_16px_48px_-12px_rgba(0,0,0,0.7)] border border-white/10 py-1 animate-scaleIn origin-top-right"
             style={{ top: pos.top, left: pos.left, minWidth: MENU_WIDTH }}

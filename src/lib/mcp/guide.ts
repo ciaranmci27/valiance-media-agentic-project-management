@@ -26,6 +26,11 @@ Time
 Suggestions
 - create_task_suggestion proposes work for the owner, tied to a goal in the same project. The owner approves, declines or asks for more information (status needs_info, question in info_request). Answer by adding to the description with update_task_suggestion.
 
+Reminders
+- A reminder keeps something from being forgotten: a task's next step (what it is waiting on, such as questions to ask someone), a project follow-up, or a standalone date to keep. Prefer a reminder to a task when there is nothing to build, only something to remember or chase.
+- Hang a next step on its task with task_id. A dated reminder rings its owner at remind_at, or 8 am; an undated one waits on the list. owner_id gives it to a person.
+- list_reminders before add_reminder, so the same reminder is never added twice. Tick one off with update_reminder status done. A task moved to done closes its reminders by itself.
+
 Notifications and events
 - notify_owner reaches the owner. Pass the entity_id of what it is about so a repeat does not pile up unread.
 - log_activity takes typed events only; the feed line is written from the payload. Check its description for each event's payload.

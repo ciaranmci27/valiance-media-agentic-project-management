@@ -2933,7 +2933,7 @@ VALUES
   ('admin','communications.manage','api'), ('admin','project_context.read','api'),
   ('admin','project_context.manage','api'), ('admin','goals.read','api'),
   ('admin','goals.manage','api'), ('admin','suggestions.manage','api'),
-  ('admin','notifications.manage_own','api'),
+  ('admin','notifications.manage_own','api'), ('admin','reminders.manage_own','api'),
 
   -- Member defaults.
   ('member','team.read','app'), ('member','projects.read','app'),
@@ -2946,6 +2946,7 @@ VALUES
   ('member','tasks.create','api'), ('member','tasks.manage_assigned','api'),
   ('member','time.manage_own','api'), ('member','files.read','api'),
   ('member','files.upload','api'), ('member','notifications.manage_own','api'),
+  ('member','reminders.manage_own','api'),
 
   -- Guest defaults.
   ('guest','team.read','app'), ('guest','projects.read','app'),
@@ -2967,7 +2968,8 @@ VALUES
   ('agent','goals.read','api'), ('agent','goals.manage','api'),
   ('agent','suggestions.manage','api'), ('agent','files.read','api'),
   ('agent','notifications.manage_own','api'),
-  ('agent','time.manage_own','api'), ('agent','notifications.send','api')
+  ('agent','time.manage_own','api'), ('agent','notifications.send','api'),
+  ('agent','reminders.manage_own','api')
 ON CONFLICT DO NOTHING;
 
 -- ---------------------------------------------------------------------------

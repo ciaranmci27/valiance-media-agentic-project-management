@@ -602,6 +602,62 @@ export const PM_TOOLS: PmTool[] = [
     path: '/api/v1/notifications',
     request: (body) => ({ body: { ...body, audience: 'owner' } }),
   }),
+  // Reminders: next steps on a task, follow-ups on a project, or standalone
+  routeTool({
+    name: 'list_reminders',
+    lead: 'List reminders: open ones first, by when they are due.',
+    detail:
+      'Yours, ones you wrote, and shared ones on projects you can open. status open (default), done or all; owner me to skip ones for others; due_by YYYY-MM-DD for what is due by then. A task\'s open reminders are its next steps.',
+    input: z.object({
+      status: z.enum(['open', 'done', 'all']).optional(),
+      owner: z.enum(['me', 'anyone']).optional(),
+      task_id: id('task_id').optional(),
+      project_id: id('project_id').optional(),
+      due_by: date.optional(),
+      page, limit: limit(25),
+    }).strict(),
+    permission: 'reminders.manage_own',
+    method: 'GET',
+    path: '/api/v1/reminders',
+    request: (args) => ({ query: args }),
+  }),
+  routeTool({
+    name: 'add_reminder',
+    lead: 'Add a reminder: a next step, follow-up or date to keep.',
+    detail:
+      'Hang it on a task (its next step: what the task is waiting on), a project, or nothing. remind_on (YYYY-MM-DD) and remind_at (HH:MM, needs a date) are optional; a dated one rings its owner at the time, or 8 am. owner_id gives it to a person (yours otherwise). Check list_reminders first: never add one twice.',
+    input: z.object({
+      title: z.string().min(1).max(500),
+      notes: z.string().max(5000).optional(),
+      task_id: id('task_id').optional(),
+      project_id: id('project_id').optional(),
+      remind_on: date.nullable().optional(),
+      remind_at: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Use HH:MM (24-hour)').nullable().optional(),
+      owner_id: id('owner_id').optional(),
+    }).strict(),
+    permission: 'reminders.manage_own',
+    method: 'POST',
+    path: '/api/v1/reminders',
+    request: (body) => ({ body }),
+  }),
+  routeTool({
+    name: 'update_reminder',
+    lead: 'Tick off, reopen or change a reminder.',
+    detail:
+      'status done ticks it off (open reopens it). Change title, notes, remind_on or remind_at; remind_on null removes the date and its time. A task moved to done closes its reminders on its own.',
+    input: z.object({
+      reminder_id: id('reminder_id'),
+      title: z.string().min(1).max(500).optional(),
+      notes: z.string().max(5000).optional(),
+      remind_on: date.nullable().optional(),
+      remind_at: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Use HH:MM (24-hour)').nullable().optional(),
+      status: z.enum(['open', 'done']).optional(),
+    }).strict().refine(atLeastOne(['title', 'notes', 'remind_on', 'remind_at', 'status']), 'Send at least one field to change'),
+    permission: 'reminders.manage_own',
+    method: 'PATCH',
+    path: '/api/v1/reminders/{id}',
+    request: ({ reminder_id, ...body }) => ({ params: { id: reminder_id }, body }),
+  }),
   routeTool({
     name: 'list_agent_activity',
     lead: 'List the agent activity feed, newest first.',

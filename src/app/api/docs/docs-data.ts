@@ -36,6 +36,7 @@ export function getEndpointScopes(endpoint: EndpointDoc): string[] {
       ? ['credentials.reveal_shared', 'credentials.manage']
       : ['credentials.manage'];
   }
+  if (path.includes('/reminders')) return ['reminders.manage_own'];
   if (path.includes('/notifications')) {
     if (method === 'POST' && path === '/api/v1/notifications') return ['notifications.send'];
     return ['notifications.manage_own'];
@@ -1270,6 +1271,44 @@ export const endpoints: EndpointDoc[] = [
     queryParams: [{ name: 'inbox_id', type: 'uuid', description: 'One granted inbox (default: every granted inbox)' }],
   },
 
+  { method: 'GET', path: '/api/v1/reminders', description: 'List reminders the key can see: reminders its member owns or wrote, and shared ones on projects it can open. Open ones by default, earliest due first, undated last. Each row carries task { title, status } and project { name }. Paginated.', group: 'Reminders',
+    queryParams: [
+      { name: 'status', type: 'open|done|all', description: 'Default open' },
+      { name: 'owner', type: 'me|anyone', description: 'me: only reminders the member behind the key owns (default anyone)' },
+      { name: 'task_id', type: 'uuid', description: 'Reminders on one task (its next steps)' },
+      { name: 'project_id', type: 'uuid', description: 'Reminders on one project, its tasks included' },
+      { name: 'due_by', type: 'YYYY-MM-DD', description: 'Dated on or before this day' },
+      { name: 'page', type: 'number', description: 'Page number (default 1)' },
+      { name: 'limit', type: 'number', description: 'Items per page (default 25, max 100)' },
+    ],
+  },
+  { method: 'POST', path: '/api/v1/reminders', description: 'Add a reminder on a task (its next step), on a project, or standalone. A dated reminder rings the bell of its owner at remind_at, or 8 am workspace time. It belongs to the member behind the key unless owner_id names someone, which only agents and task managers may do.', group: 'Reminders',
+    body: [
+      { name: 'title', type: 'string', required: true, description: 'What to remember, 1 to 500 characters' },
+      { name: 'notes', type: 'string', required: false, description: 'More detail, up to 5000 characters' },
+      { name: 'task_id', type: 'uuid|null', required: false, description: 'The task it belongs to; its project comes with it' },
+      { name: 'project_id', type: 'uuid|null', required: false, description: 'The project it belongs to (when not on a task)' },
+      { name: 'remind_on', type: 'YYYY-MM-DD|null', required: false, description: 'Day it is due; omit for no date' },
+      { name: 'remind_at', type: 'HH:MM|null', required: false, description: 'Time on that day; needs remind_on' },
+      { name: 'owner_id', type: 'uuid', required: false, description: 'Whose reminder it is (default the member behind the key)' },
+    ],
+  },
+  { method: 'GET', path: '/api/v1/reminders/:id', description: 'Get one reminder the key can see.', group: 'Reminders',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'Reminder ID' }],
+  },
+  { method: 'PATCH', path: '/api/v1/reminders/:id', description: 'Tick a reminder off (status done), reopen it, or change its text or date. remind_on null removes the date and its time. A task moved to done closes its reminders on its own.', group: 'Reminders',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'Reminder ID' }],
+    body: [
+      { name: 'status', type: 'open|done', required: false, description: 'Tick off or reopen' },
+      { name: 'title', type: 'string', required: false, description: 'New text' },
+      { name: 'notes', type: 'string', required: false, description: 'New notes' },
+      { name: 'remind_on', type: 'YYYY-MM-DD|null', required: false, description: 'New day, or null for no date' },
+      { name: 'remind_at', type: 'HH:MM|null', required: false, description: 'New time, or null for 8 am' },
+    ],
+  },
+  { method: 'DELETE', path: '/api/v1/reminders/:id', description: 'Delete a reminder. Only its owner, its writer or a task manager may; anyone else ticks it off instead.', group: 'Reminders',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'Reminder ID' }],
+  },
   { method: 'GET', path: '/api/v1/notifications', description: 'List notifications for the team member linked to this API key. Requires the API key to be linked to a team member. Paginated.', group: 'Notifications',
     queryParams: [
       { name: 'page', type: 'number', description: 'Page number (default 1)' },

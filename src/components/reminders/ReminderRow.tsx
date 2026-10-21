@@ -29,9 +29,13 @@ interface ReminderRowProps {
   showContext?: boolean;
   /** The project the list is already inside: its name is not repeated. */
   withinProjectId?: string;
+  /** 'compact' for the task panel and pop-ups; 'band' for a My Tasks band. */
+  variant?: 'compact' | 'band';
+  /** Opens the reminder's task (band rows); without it the title is plain text. */
+  onOpenTask?: (taskId: string) => void;
 }
 
-export function ReminderRow({ reminder, showContext = false, withinProjectId }: ReminderRowProps) {
+export function ReminderRow({ reminder, showContext = false, withinProjectId, variant = 'compact', onOpenTask }: ReminderRowProps) {
   const { updateReminder, deleteReminder, tasks, getProject, getTeamMember } = useApp();
   const { teamMemberId, access } = useAuth();
   const [editingTitle, setEditingTitle] = useState(false);
@@ -80,6 +84,96 @@ export function ReminderRow({ reminder, showContext = false, withinProjectId }: 
     ...(reminder.remind_on ? [{ label: 'Remove the date', icon: <CalendarX size={14} />, onClick: () => void updateReminder(reminder.id, { remind_on: null }) }] : []),
     ...(canDelete ? [{ label: 'Delete', icon: <Trash2 size={14} />, onClick: () => void deleteReminder(reminder.id), variant: 'danger' as const, divider: true }] : []),
   ];
+
+  // My Tasks rows: the page's one row anatomy (icon square, title over a
+  // context line, meta on the right). The square is the tick-off button.
+  if (variant === 'band') {
+    const bandTask = reminder.task_id ? tasks.find(t => t.id === reminder.task_id) : undefined;
+    const bandProject = reminder.project_id ? getProject(reminder.project_id) : undefined;
+    const tone = done
+      ? 'bg-emerald-500/15 text-emerald-300'
+      : group === 'overdue'
+        ? 'bg-red-500/15 text-red-300'
+        : group === 'today' ? 'bg-brand-500/15 text-brand-300' : 'bg-white/[0.06] text-zinc-400';
+    const context = bandTask ? `Next step on ${bandTask.title}` : bandProject ? 'Project follow-up' : 'No project';
+    return (
+      <div className="group flex items-center gap-3 px-4 py-3 hover:bg-white/[0.03] transition-colors">
+        <button
+          type="button"
+          onClick={() => void updateReminder(reminder.id, { status: done ? 'open' : 'done' })}
+          aria-pressed={done}
+          aria-label={done ? `Mark "${reminder.title}" not done` : `Mark "${reminder.title}" done`}
+          className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors hover:ring-1 hover:ring-emerald-400/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${tone}`}
+        >
+          {done
+            ? <Check size={15} aria-hidden="true" />
+            : <span className="w-3.5 h-3.5 rounded-full border-2 border-current" aria-hidden="true" />}
+        </button>
+
+        <div className="flex-1 min-w-0">
+          {editingTitle ? (
+            <form onSubmit={(e) => { e.preventDefault(); saveTitle(); }}>
+              <TextInput value={title} onChange={setTitle} onBlur={saveTitle} autoFocus size="sm" aria-label="Reminder text" />
+            </form>
+          ) : bandTask && onOpenTask ? (
+            <button
+              type="button"
+              onClick={() => onOpenTask(bandTask.id)}
+              className={`block max-w-full text-left text-sm font-medium truncate rounded hover:underline underline-offset-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${done ? 'text-zinc-500 line-through' : 'text-white'}`}
+            >
+              {reminder.title}
+            </button>
+          ) : (
+            <span className={`block text-sm font-medium truncate ${done ? 'text-zinc-500 line-through' : 'text-white'}`}>{reminder.title}</span>
+          )}
+          {editingWhen ? (
+            <form onSubmit={saveWhen} className="mt-1.5 flex flex-wrap items-center gap-1.5">
+              <DateInput value={date} onChange={(v) => { setDate(v); if (!v) setTime(''); }} placeholder="No date" ariaLabel="Reminder date" size="sm" clearable className="w-36" />
+              {date && <TimeInput value={time} onChange={setTime} placeholder="Any time" size="sm" minuteStep={15} className="w-28" />}
+              <button type="submit" className="px-2 py-1 rounded-md text-xs font-medium bg-brand-500/20 text-brand-200 hover:bg-brand-500/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
+                Save
+              </button>
+              <button type="button" onClick={() => setEditingWhen(false)} className="px-2 py-1 rounded-md text-xs text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.06] focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
+                Cancel
+              </button>
+            </form>
+          ) : (
+            <span className="flex items-center gap-1.5 mt-0.5 min-w-0 text-xs text-zinc-500">
+              {bandProject && (
+                <>
+                  {bandProject.color && (
+                    <span className="w-1.5 h-1.5 rounded-full inline-block flex-shrink-0" style={{ backgroundColor: bandProject.color }} aria-hidden="true" />
+                  )}
+                  <span className="truncate flex-shrink-0 max-w-[180px] text-zinc-400">{bandProject.name}</span>
+                  <span className="text-zinc-600" aria-hidden="true">·</span>
+                </>
+              )}
+              <span className="truncate">{context}</span>
+            </span>
+          )}
+        </div>
+
+        <span className="flex items-center gap-2 flex-shrink-0">
+          {done ? (
+            <span className="text-xs text-zinc-500">{reminder.closed_by_task ? 'Closed with the task' : 'Done'}</span>
+          ) : when && !editingWhen && (
+            <button
+              type="button"
+              onClick={openWhenEditor}
+              className={`text-xs tabular-nums rounded hover:underline underline-offset-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${WHEN_TONE[group]} ${group === 'overdue' ? 'font-medium' : ''}`}
+            >
+              {group === 'overdue' ? `Overdue ${when}` : when}
+            </button>
+          )}
+          <RowActionsMenu
+            actions={actions}
+            label={`Actions for reminder ${reminder.title}`}
+            triggerClassName="lg:opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 aria-expanded:opacity-100"
+          />
+        </span>
+      </div>
+    );
+  }
 
   return (
     <div className="group flex items-start gap-2 p-2 rounded-lg hover:bg-white/[0.03]">

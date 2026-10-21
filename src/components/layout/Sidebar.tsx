@@ -19,7 +19,6 @@ import {
   ChevronDown,
   DollarSign,
   Inbox,
-  BellRing,
 } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { computeNeedsYou } from '@/lib/autonomy';
@@ -135,14 +134,14 @@ export function Sidebar() {
     agentActivity,
   }).length;
 
-  // Your reminders that want you now: overdue or due today.
+  // Your reminders that want you now (overdue or due today): rows in My
+  // Tasks' Needs you now, so they count toward its badge.
   const remindersDue = reminders.filter(r =>
     r.owner_id === teamMemberId && ['overdue', 'today'].includes(reminderGroup(r))).length;
 
   const navItems = [
     { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', badge: 0, overlay: false },
-    { href: '/my-tasks', icon: ListTodo, label: 'My Tasks', badge: radarCount, overlay: true },
-    { href: '/reminders', icon: BellRing, label: 'Reminders', badge: remindersDue, overlay: true },
+    { href: '/my-tasks', icon: ListTodo, label: 'My Tasks', badge: radarCount + remindersDue, overlay: true },
     ...(canReadInbox ? [{ href: '/inbox', icon: Inbox, label: 'Inbox', badge: inboxAttention, overlay: true }] : []),
     ...(hasPermission(access, 'projects.read') || hasPermission(access, 'projects.read_all')
       ? [{ href: '/projects', icon: FolderKanban, label: 'Projects', badge: 0, overlay: false }] : []),

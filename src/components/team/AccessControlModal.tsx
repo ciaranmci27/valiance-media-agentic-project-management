@@ -280,6 +280,7 @@ export function AccessControlModal({
                   ? API_ENDPOINT_PERMISSION_SET.has(permission.key)
                   : ![
                       'notifications.manage_own',
+                      'reminders.manage_own',
                       'suggestions.create',
                       'agent_activity.write',
                       'fleet_alerts.write',

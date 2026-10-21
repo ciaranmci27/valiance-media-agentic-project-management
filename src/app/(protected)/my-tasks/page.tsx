@@ -12,7 +12,7 @@ import { useTaskUrlParam } from '@/lib/use-task-url';
 import Link from 'next/link';
 import {
   ListTodo, Zap, Activity, Hourglass, GitMerge, Eye, CalendarClock,
-  Inbox, ChevronRight, Check, Hammer, MessageSquareWarning, ClipboardList,
+  Inbox, ChevronRight, Check, Hammer, MessageSquareWarning, ClipboardList, BellRing,
 } from 'lucide-react';
 import { Task } from '@/lib/types';
 import { parseDateOnly } from '@/lib/date-utils';
@@ -21,6 +21,9 @@ import {
   computeNeedsYou, getTaskLane, getReviewProfile, type NeedsYouItem,
 } from '@/lib/autonomy';
 import { MergeReviewModal } from '@/components/tasks/MergeReviewModal';
+import { ReminderRow } from '@/components/reminders/ReminderRow';
+import { ReminderComposer } from '@/components/reminders/ReminderComposer';
+import { compareReminders, reminderGroup } from '@/lib/reminders';
 
 /**
  * Radar: the owner's attention surface. Three bands, strictest first:
@@ -31,6 +34,10 @@ import { MergeReviewModal } from '@/components/tasks/MergeReviewModal';
  *                        in_progress is the owner's own "I'm on this"
  *   3. Coming your way — agent work in flight that will predictably ask
  *                        for one merge click later
+ *
+ * Your reminders live here too: one due today or overdue is a row in
+ * "Needs you now" (ticking it off is the one action), and the rest sit in
+ * their own band with a quick add, so this page is the one place to check.
  *
  * That is the owner's view, and anyone else who oversees agent work. A team
  * member gets the same first two bands scoped to their own actions, and an
@@ -54,7 +61,7 @@ export default function RadarPage() {
 }
 
 function RadarPageContent() {
-  const { tasks, projects, taskSuggestions, timeEntries, agentActivity, deleteTask } = useApp();
+  const { tasks, projects, taskSuggestions, timeEntries, agentActivity, deleteTask, reminders, addReminder } = useApp();
   const { teamMemberId, access } = useAuth();
 
   // The open task is the URL's ?task=, so the address bar is a link to it.
@@ -62,6 +69,7 @@ function RadarPageContent() {
   const [reviewingTaskId, setReviewingTaskId] = useState<string | null>(null);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [deletingTaskId, setDeletingTaskId] = useState<string | null>(null);
+  const [showDoneReminders, setShowDoneReminders] = useState(false);
 
   const isAgentsEnabled = process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true';
   const canManageAgents = hasPermission(access, 'agents.manage');
@@ -93,6 +101,18 @@ function RadarPageContent() {
     }),
     [tasks, taskSuggestions, projects, teamMemberId, canManageAgents, agentActivity],
   );
+
+  // Your reminders. Due today or overdue ones join "Needs you now"; the
+  // rest (upcoming, no date) and the last 30 days of done ones get a band.
+  const myReminders = useMemo(
+    () => reminders.filter(r => r.owner_id === teamMemberId).sort(compareReminders),
+    [reminders, teamMemberId],
+  );
+  const now = new Date();
+  const dueReminders = myReminders.filter(r => ['overdue', 'today'].includes(reminderGroup(r, now)));
+  const laterReminders = myReminders.filter(r => ['upcoming', 'no_date'].includes(reminderGroup(r, now)));
+  const doneReminders = myReminders.filter(r => r.status === 'done');
+  const needsYouCount = needsYou.length + dueReminders.length;
 
   // Suggestions get their own band rather than a row inside "Needs you
   // now": they are batch review work with their own home (the Agent queue
@@ -166,8 +186,8 @@ function RadarPageContent() {
         timeEntries,
       )
     : null;
-  const allClear = needsYou.length === 0 && inProgress.length === 0 && comingYourWay.length === 0
-    && assignedToYou.length === 0 && pendingSuggestions === 0;
+  const allClear = needsYouCount === 0 && inProgress.length === 0 && comingYourWay.length === 0
+    && assignedToYou.length === 0 && pendingSuggestions === 0 && laterReminders.length === 0;
 
   // ── The one row anatomy every band uses ────────────────────────────────
   //    [icon square] [title / project · context]        [meta] [affordance]
@@ -305,9 +325,11 @@ function RadarPageContent() {
     hint: string;
     count: number;
     emphasis?: boolean;
+    id?: string;
     children: React.ReactNode;
   }) => (
     <section
+      id={opts.id}
       className={`glass-card rounded-xl overflow-hidden ${opts.emphasis ? 'border border-amber-500/20' : ''}`}
     >
       <div className={`flex items-center gap-2 px-4 py-3 border-b ${opts.emphasis ? 'border-amber-500/15 bg-amber-500/[0.05]' : 'border-white/[0.08]'}`}>
@@ -324,14 +346,52 @@ function RadarPageContent() {
     </section>
   );
 
+  const reminderRow = (reminder: typeof myReminders[number]) => (
+    <ReminderRow key={reminder.id} reminder={reminder} variant="band" onOpenTask={setViewingTaskId} />
+  );
+
+  // Always shown, so a reminder can be added from here even on a clear day.
+  const remindersBand = band({
+    icon: BellRing,
+    title: 'Reminders',
+    hint: 'next steps and follow-ups; due ones move up',
+    count: laterReminders.length,
+    id: 'reminders',
+    children: (
+      <>
+        <div className="px-4 py-3">
+          <ReminderComposer
+            placeholder="Add a reminder..."
+            onAdd={(draft) => void addReminder(draft)}
+          />
+        </div>
+        {laterReminders.map(reminderRow)}
+        {doneReminders.length > 0 && (
+          <>
+            <button
+              type="button"
+              onClick={() => setShowDoneReminders(v => !v)}
+              aria-expanded={showDoneReminders}
+              className="w-full flex items-center gap-1.5 px-4 py-2.5 text-xs text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.03] focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand-500"
+            >
+              <ChevronRight size={12} className={`transition-transform ${showDoneReminders ? 'rotate-90' : ''}`} aria-hidden="true" />
+              Done in the last 30 days ({doneReminders.length})
+            </button>
+            {showDoneReminders && doneReminders.map(reminderRow)}
+          </>
+        )}
+      </>
+    ),
+  });
+
   return (
     <div className="animate-fadeIn min-h-screen">
       <Header
         title="My Tasks"
         subtitle={
           <span className="hidden sm:inline">
-            {needsYou.length > 0
-              ? `${needsYou.length} thing${needsYou.length === 1 ? '' : 's'} need${needsYou.length === 1 ? 's' : ''} you`
+            {needsYouCount > 0
+              ? `${needsYouCount} thing${needsYouCount === 1 ? '' : 's'} need${needsYouCount === 1 ? 's' : ''} you`
               : 'All clear. Nothing needs you right now'}
           </span>
         }
@@ -354,7 +414,8 @@ function RadarPageContent() {
                 appears here.
               </p>
             </div>
-          ) : (
+          ) : null}
+          {allClear ? remindersBand : (
             <>
               {/* Band 1 is ALWAYS rendered: its empty state is the good
                   news, and a band that disappears makes the reader hunt
@@ -363,10 +424,10 @@ function RadarPageContent() {
                 icon: Zap,
                 title: 'Needs you now',
                 hint: 'each row is one action',
-                count: needsYou.length,
+                count: needsYouCount,
                 emphasis: true,
-                children: needsYou.length > 0
-                  ? needsYou.map(needsYouRow)
+                children: needsYouCount > 0
+                  ? <>{needsYou.map(needsYouRow)}{dueReminders.map(reminderRow)}</>
                   : (
                     <div className="flex items-center gap-3 px-4 py-4 text-sm text-zinc-400">
                       <span className="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-300 flex items-center justify-center flex-shrink-0">
@@ -395,6 +456,8 @@ function RadarPageContent() {
                     showPriority: true,
                   })),
                 })}
+
+              {remindersBand}
 
               {assignedToYou.length > 0 &&
                 band({

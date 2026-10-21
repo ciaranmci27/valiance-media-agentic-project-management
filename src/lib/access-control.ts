@@ -15,6 +15,7 @@ export const PERMISSIONS = [
   'webhooks.manage',
   'notifications.manage_own',
   'notifications.send',
+  'reminders.manage_own',
   'projects.read',
   'projects.read_all',
   'projects.manage',
@@ -69,7 +70,7 @@ export const PERMISSIONS = [
 export type PermissionKey = typeof PERMISSIONS[number];
 
 export const API_ENDPOINT_PERMISSIONS = [
-  'team.read', 'team.manage', 'audit.read', 'notifications.manage_own', 'notifications.send',
+  'team.read', 'team.manage', 'audit.read', 'notifications.manage_own', 'notifications.send', 'reminders.manage_own',
   'projects.read', 'projects.read_all', 'projects.manage', 'project_members.manage',
   'tasks.read', 'tasks.create', 'tasks.manage_assigned', 'tasks.manage_all',
   'time.manage_own', 'time.read_all', 'time.manage_all', 'time.approve',
@@ -194,6 +195,7 @@ export const PERMISSION_GROUPS: Array<{
       { key: 'webhooks.manage', label: 'Manage webhooks', description: 'Create, edit, and remove outbound webhook endpoints and view deliveries.' },
       { key: 'notifications.manage_own', label: 'Manage own notifications', description: 'Read and update only the member\'s own notifications through the API.' },
       { key: 'notifications.send', label: 'Send notifications', description: 'Send in-app notifications to the Owner (agent questions and escalations).' },
+      { key: 'reminders.manage_own', label: 'Manage reminders', description: 'Read, add, tick off and change reminders through the API: reminders the member owns or wrote, and shared ones on projects it can open. An agent may write one for someone else.' },
     ],
   },
   {
