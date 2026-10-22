@@ -17,7 +17,6 @@ import { buildInvoiceData } from '@/lib/invoice-pdf/buildInvoiceData';
 import { InvoicePdfIntegrityError } from '@/lib/invoice-pdf/resolveInvoicePdfBilling';
 import { recordPortalEvent, getOrCreateSessionId } from '@/lib/portal-analytics';
 import { checkPortalPin, pinFailureResponse } from '@/lib/portal-pin';
-import { projectIsLive } from '@/lib/supabase/trash';
 import { resolveProjectHourlyRate } from '@/lib/supabase/queries';
 
 /**
@@ -98,8 +97,10 @@ export async function GET(
   // Find portal settings by token
   const { data: settings, error: settingsError } = await supabase
     .from('portal_settings')
-    .select('*')
+    .select('*, project:projects!inner(id)')
     .eq('token', token)
+    // A project in Trash has no portal; it comes back when the project is restored.
+    .is('project.deleted_at', null)
     .maybeSingle();
 
   if (settingsError || !settings) {
@@ -108,11 +109,6 @@ export async function GET(
 
   if (!settings.enabled) {
     return NextResponse.json({ error: 'Portal is disabled' }, { status: 404 });
-  }
-
-  // A project in Trash has no portal; it comes back when the project is restored.
-  if (!(await projectIsLive(supabase, settings.project_id))) {
-    return NextResponse.json({ error: 'Portal not found' }, { status: 404 });
   }
 
   const pinCheck = await checkPortalPin({ supabase, request, token, settings });
@@ -315,9 +311,11 @@ export async function GET(
       supabase.from('business_settings').select('*').limit(1).maybeSingle(),
       supabase
         .from('project_contacts')
-        .select('contact_id, contact:contacts(*)')
+        .select('contact_id, contact:contacts!inner(*)')
         .eq('project_id', settings.project_id)
         .eq('is_primary_client', true)
+        // A contact in Trash is no longer the one billed.
+        .is('contact.deleted_at', null)
         .maybeSingle(),
     ]);
 

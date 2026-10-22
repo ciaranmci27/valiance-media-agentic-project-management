@@ -247,27 +247,45 @@ export async function accessAllowsEntity(
   entityType: string,
   entityId: string,
   channel: 'app' | 'api' = 'api',
+  options: { includeTrashed?: boolean } = {},
 ): Promise<boolean> {
-  // What is in Trash (or belongs to something in Trash) is out of reach.
+  // What is in Trash (or belongs to something in Trash) is out of reach,
+  // except for the notice that it went there: includeTrashed answers who could
+  // open it before.
+  const includeTrashed = options.includeTrashed === true;
+  // Project membership read directly: access.project_ids leaves out projects in Trash.
+  const reachesProject = async (projectId: string) => {
+    if (!includeTrashed) return accessAllowsProject(access, projectId, channel);
+    if (accessAllows(access, 'projects.read_all', channel)) return true;
+    if (!accessAllows(access, 'projects.read', channel)) return false;
+    const { data: membership } = await service.from('project_members').select('project_id')
+      .eq('project_id', projectId).eq('member_id', memberId).maybeSingle();
+    return Boolean(membership);
+  };
+
   if (entityType === 'project') {
-    if (!accessAllowsProject(access, entityId, channel)) return false;
+    if (!(await reachesProject(entityId))) return false;
+    if (includeTrashed) return true;
     const { data: project } = await service.from('projects').select('id').eq('id', entityId).is('deleted_at', null).maybeSingle();
     return Boolean(project);
   }
 
   if (entityType === 'task') {
-    const { data: task } = await service
+    // includes-deleted: filtered below unless this is a Trash notice
+    let taskQuery = service
       .from('tasks')
       .select('project_id, project:projects!inner(id)')
-      .eq('id', entityId)
-      .is('deleted_at', null)
-      .is('project.deleted_at', null)
-      .maybeSingle();
-    return Boolean(task && accessAllowsProject(access, task.project_id, channel));
+      .eq('id', entityId);
+    if (!includeTrashed) taskQuery = taskQuery.is('deleted_at', null).is('project.deleted_at', null);
+    const { data: task } = await taskQuery.maybeSingle();
+    return Boolean(task && await reachesProject(task.project_id));
   }
 
   if (entityType === 'contact') {
-    const { data: contact } = await service.from('contacts').select('id').eq('id', entityId).is('deleted_at', null).maybeSingle();
+    // includes-deleted: filtered below unless this is a Trash notice
+    let contactQuery = service.from('contacts').select('id').eq('id', entityId);
+    if (!includeTrashed) contactQuery = contactQuery.is('deleted_at', null);
+    const { data: contact } = await contactQuery.maybeSingle();
     if (!contact) return false;
     if (accessAllows(access, 'contacts.read_all', channel)) return true;
     if (!accessAllows(access, 'contacts.read', channel) || access.project_ids.length === 0) return false;
@@ -282,7 +300,10 @@ export async function accessAllowsEntity(
   }
 
   if (entityType === 'lead') {
-    const { data: lead } = await service.from('leads').select('assigned_to').eq('id', entityId).is('deleted_at', null).maybeSingle();
+    // includes-deleted: filtered below unless this is a Trash notice
+    let leadQuery = service.from('leads').select('assigned_to').eq('id', entityId);
+    if (!includeTrashed) leadQuery = leadQuery.is('deleted_at', null);
+    const { data: lead } = await leadQuery.maybeSingle();
     if (!lead) return false;
     if (accessAllows(access, 'leads.read_all', channel)) return true;
     if (!accessAllows(access, 'leads.read', channel)) return false;

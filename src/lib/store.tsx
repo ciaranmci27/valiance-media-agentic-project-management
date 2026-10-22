@@ -242,6 +242,26 @@ const REALTIME_TABLE_SLICES: Record<string, RealtimeSlice> = {
 
 const ALL_REALTIME_SLICES = [...new Set(Object.values(REALTIME_TABLE_SLICES))];
 
+// Slices that a record moving into or out of Trash changes. A project owns
+// everything under it; a task carries its reminders and time-entry links; a
+// contact its emails and lead links; a time entry or invoice the other's
+// billed hours.
+const TRASH_SIDE_SLICES: Partial<Record<string, RealtimeSlice[]>> = {
+  tasks: ['reminders', 'timeEntries'],
+  contacts: ['contactEmails', 'leads'],
+  project_time_entries: ['invoices'],
+  project_invoices: ['timeEntries'],
+  invoice_payments: ['invoices'],
+};
+
+const NO_LONGER_IN_TRASH = 'This is no longer in Trash. Someone may have restored it already.';
+
+function trashSlices(recordType: string): RealtimeSlice[] {
+  if (recordType === 'projects') return ALL_REALTIME_SLICES;
+  const own = REALTIME_TABLE_SLICES[recordType];
+  return [...new Set([...(own ? [own] : []), ...(TRASH_SIDE_SLICES[recordType] ?? [])])];
+}
+
 // Bursts (a task insert plus its assignees, criteria, and dependencies) land
 // as separate events; this window collapses them into one refetch per slice.
 const REALTIME_DEBOUNCE_MS = 400;
@@ -314,7 +334,7 @@ interface AppContextType {
   toggleSubtask: (taskId: string, subtaskId: string) => void;
   updateSubtask: (taskId: string, subtaskId: string, title: string) => void;
   reorderSubtasks: (taskId: string, subtaskIds: string[]) => void;
-  deleteSubtask: (taskId: string, subtaskId: string) => void;
+  deleteSubtask: (taskId: string, subtaskId: string) => Promise<boolean>;
 
   // Acceptance criteria
   addCriterion: (taskId: string, criterion: string) => void;
@@ -325,7 +345,7 @@ interface AppContextType {
   // Comments
   addComment: (taskId: string, text: string, userId: string) => void;
   updateComment: (taskId: string, commentId: string, text: string) => void;
-  deleteComment: (taskId: string, commentId: string) => void;
+  deleteComment: (taskId: string, commentId: string) => Promise<boolean>;
 
   // Team CRUD
   addTeamMember: (member: Omit<TeamMember, 'id'>) => void;
@@ -336,7 +356,7 @@ interface AppContextType {
   // Contact CRUD
   addContact: (contact: Omit<Contact, 'id' | 'created_at' | 'updated_at'>) => Promise<Contact | undefined>;
   updateContact: (id: string, updates: Partial<Contact>) => void;
-  deleteContact: (id: string) => void;
+  deleteContact: (id: string) => Promise<boolean>;
   /** A contact's addresses, primary first. */
   getContactEmails: (contactId: string) => ContactEmail[];
   /**
@@ -383,7 +403,7 @@ interface AppContextType {
   // Portal Update CRUD
   addPortalUpdate: (update: Omit<PortalUpdate, 'id' | 'created_at' | 'updated_at'>, attachments?: { name: string; file_url: string; file_size: number; mime_type: string }[]) => void;
   updatePortalUpdate: (id: string, updates: Partial<Pick<PortalUpdate, 'title' | 'content' | 'update_type' | 'pinned'>>, newAttachments?: { name: string; file_url: string; file_size: number; mime_type: string }[], removedAttachmentIds?: string[]) => void;
-  deletePortalUpdate: (id: string) => void;
+  deletePortalUpdate: (id: string) => Promise<boolean>;
   getPortalUpdates: (projectId: string) => PortalUpdate[];
 
   // Portal Update Attachment CRUD
@@ -397,7 +417,7 @@ interface AppContextType {
   renameEntityFile: (id: string, name: string) => void;
   /** Point an existing file at new content (a note edit). Resolves false after a toasted failure. */
   replaceEntityFileContent: (id: string, content: Pick<EntityFile, 'name' | 'file_url' | 'file_size' | 'mime_type'>) => Promise<boolean>;
-  deleteEntityFile: (id: string) => void;
+  deleteEntityFile: (id: string) => Promise<boolean>;
   updateEntityFileVisibility: (id: string, visibility: 'internal' | 'external') => void;
   getEntityFiles: (entityType: EntityFileType, entityId: string) => EntityFile[];
 
@@ -464,14 +484,14 @@ interface AppContextType {
   // Credential CRUD
   addCredential: (projectId: string, data: { label: string; category: string; fields: Record<string, string> }) => Promise<ProjectCredentialListItem | undefined>;
   updateCredential: (id: string, data: { label?: string; category?: string; fields?: Record<string, string> }) => Promise<boolean>;
-  deleteCredential: (id: string) => void;
+  deleteCredential: (id: string) => Promise<boolean>;
   revealCredential: (id: string) => Promise<CredentialPayload | null>;
   getCredentialsByProject: (projectId: string) => ProjectCredentialListItem[];
 
   // Invoice CRUD
   addInvoice: (invoice: Omit<ProjectInvoice, 'id' | 'created_at' | 'updated_at'>) => Promise<ProjectInvoice | undefined>;
   updateInvoice: (id: string, updates: Partial<ProjectInvoice>) => Promise<boolean>;
-  deleteInvoice: (id: string) => void;
+  deleteInvoice: (id: string) => Promise<boolean>;
   recordInvoicePayment: (
     invoiceId: string,
     payment: { amount: number; paid_date: string; method: InvoicePaymentMethod | null; reference: string | null },
@@ -625,22 +645,50 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }).catch(() => {});
   };
 
-  // Helper: get actor name for notification messages
   // Demo mode has no database, so Trash lives here: each delete records what
   // it removed and how to put it back, and Restore runs that.
   // A ref, so the Trash page reads the list as it is right after a restore.
-  const demoTrash = useRef<{ item: TrashItem; putBack: () => void }[]>([]);
-  const trashInDemo = (recordType: string, id: string, label: string, context: string | null, projectId: string | null, putBack: () => void) => {
+  // `parent` is the record it belongs to besides its project (a subtask's
+  // task, an interaction's lead), so Restore waits for that one like the
+  // database does.
+  type DemoTrashEntry = { item: TrashItem; putBack: () => void; parent?: { type: 'tasks' | 'leads' | 'portal_updates'; id: string } };
+  const demoTrash = useRef<DemoTrashEntry[]>([]);
+  const trashInDemo = (recordType: string, id: string, label: string, context: string | null, projectId: string | null, putBack: () => void,
+    parent?: DemoTrashEntry['parent']) => {
     demoTrash.current = [{
       item: {
         record_type: recordType, id, label, context, project_id: projectId,
         deleted_at: new Date().toISOString(), deleted_by: teamMemberId ?? null, deleted_by_name: actorName(), blocker: null,
       },
       putBack,
+      parent,
     }, ...demoTrash.current.filter(entry => entry.item.id !== id)];
+  };
+  // A demo restore adds back what that delete removed and leaves everything
+  // else as it is now, so restoring one thing never undoes a later change.
+  const putBackRows = <T extends { id: string },>(removed: T[]) => (current: T[]) => {
+    const present = new Set(current.map(row => row.id));
+    return [...current, ...removed.filter(row => !present.has(row.id))];
+  };
+  // A subtask or comment goes back where it was: ahead of the first row that
+  // followed it before the delete.
+  const putBackTaskChild = (before: Task | undefined, key: 'subtasks' | 'comments', childId: string) => {
+    const snapshot: { id: string }[] = before?.[key] ?? [];
+    const index = snapshot.findIndex(row => row.id === childId);
+    if (!before || index < 0) return;
+    const followers = new Set(snapshot.slice(index + 1).map(row => row.id));
+    setTasks(current => current.map(task => {
+      const rows: { id: string }[] = task[key];
+      if (task.id !== before.id || rows.some(row => row.id === childId)) return task;
+      const at = rows.findIndex(row => followers.has(row.id));
+      const next = [...rows];
+      next.splice(at < 0 ? next.length : at, 0, snapshot[index]);
+      return { ...task, [key]: next };
+    }));
   };
   const projectName = (projectId: string | null | undefined) => projects.find(p => p.id === projectId)?.name ?? null;
 
+  // Helper: get actor name for notification messages
   const actorName = () => {
     const actor = team.find(m => m.id === teamMemberId);
     return actor?.name || 'Someone';
@@ -649,6 +697,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // Fetch all data from Supabase on mount (or load demo data)
   useEffect(() => {
     if (isDemoMode) {
+      // Fresh demo data has nothing in Trash; old entries would restore over it.
+      demoTrash.current = [];
       setProjects([...demoProjects]);
       setTasks(demoTasks.map(t => ({ acceptance_criteria: [], blocked_by_ids: [], ...t } as Task)));
       setTeam([...demoTeam]);
@@ -1099,6 +1149,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const channel = supabase
       .channel(`workspace-live-sync-${Math.random().toString(36).slice(2)}`)
       .on('postgres_changes', { event: '*', schema: 'public' }, (payload) => {
+        // Realtime checks RLS on the new row, so a record moved to Trash
+        // sends nobody an update; trash_events is the ping that it moved.
+        if (payload.table === 'trash_events') {
+          const row = payload.new as { table_name?: string } | undefined;
+          if (row?.table_name) trashSlices(row.table_name).forEach(queue);
+          return;
+        }
         const slice = REALTIME_TABLE_SLICES[payload.table];
         if (!slice) return;
         // Telemetry writes constantly and is excluded from the narrative query
@@ -1292,9 +1349,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setProjectContacts(pc => pc.filter(p => p.project_id !== id));
     if (skipSupabase) {
       trashInDemo('projects', id, deletedProject?.name ?? 'Project', null, id, () => {
-        setProjects(rollbackScope(prev, proj => proj.id === id));
-        setTasks(rollbackScope(prevTasks, task => task.project_id === id));
-        setProjectContacts(rollbackScope(prevPc, pc => pc.project_id === id));
+        setProjects(putBackRows(prev.filter(proj => proj.id === id)));
+        setTasks(putBackRows(prevTasks.filter(task => task.project_id === id)));
+        setProjectContacts(putBackRows(prevPc.filter(pc => pc.project_id === id)));
       });
       return true;
     }
@@ -1309,6 +1366,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (deletedProject) {
         notify(allMemberIds(), `Project "${deletedProject.name}" was moved to Trash`, `${actorName()} moved the project to Trash.`, '/projects', 'project', id, 'project_deleted');
       }
+      // Its time, invoices, files and reminders went with it.
+      trashSlices('projects').forEach(slice => { void refreshSlice(slice); });
       return true;
     } catch (err) {
       setProjects(rollbackScope(prev, proj => proj.id === id));
@@ -1453,7 +1512,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setTasks(t => t.filter(task => task.id !== id));
     if (skipSupabase) {
       trashInDemo('tasks', id, deletedTask?.title ?? 'Task', projectName(deletedTask?.project_id), deletedTask?.project_id ?? null,
-        () => setTasks(rollbackScope(prev, task => task.id === id)));
+        () => setTasks(putBackRows(prev.filter(task => task.id === id))));
       return true;
     }
 
@@ -1462,6 +1521,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (deletedTask) {
         notify(allMemberIds(), `Task "${deletedTask.title}" was moved to Trash`, `${actorName()} moved a task to Trash.`, deletedTask.project_id ? `/projects/${deletedTask.project_id}` : null, 'task', id, 'task_deleted');
       }
+      // Its reminders and time-entry links leave the screen with it.
+      (TRASH_SIDE_SLICES.tasks ?? []).forEach(slice => { void refreshSlice(slice); });
       return true;
     } catch (err) {
       setTasks(rollbackScope(prev, task => task.id === id));
@@ -1579,7 +1640,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const deleteSubtask = async (taskId: string, subtaskId: string) => {
+  const deleteSubtask = async (taskId: string, subtaskId: string): Promise<boolean> => {
     const prev = tasks;
     setTasks(t => t.map(task =>
       task.id === taskId
@@ -1589,8 +1650,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (skipSupabase) {
       const parent = prev.find(t => t.id === taskId);
       trashInDemo('task_subtasks', subtaskId, parent?.subtasks.find(s => s.id === subtaskId)?.title ?? 'Subtask', parent?.title ?? null,
-        parent?.project_id ?? null, () => setTasks(rollbackScope(prev, task => task.id === taskId)));
-      return;
+        parent?.project_id ?? null, () => putBackTaskChild(parent, 'subtasks', subtaskId),
+        { type: 'tasks', id: taskId });
+      return true;
     }
 
     try {
@@ -1599,9 +1661,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (task) {
         notify(allMemberIds(), `"${task.title}" was updated`, `${actorName()} removed a subtask.`, `/projects/${task.project_id}`, 'task', taskId, 'task_subtasks');
       }
+      return true;
     } catch (err) {
       setTasks(rollbackScope(prev, task => task.id === taskId));
       toast('error', 'Failed to delete subtask');
+      return false;
     }
   };
 
@@ -1772,7 +1836,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const deleteComment = async (taskId: string, commentId: string) => {
+  const deleteComment = async (taskId: string, commentId: string): Promise<boolean> => {
     const prev = tasks;
     setTasks(t => t.map(task =>
       task.id === taskId
@@ -1782,8 +1846,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (skipSupabase) {
       const parent = prev.find(t => t.id === taskId);
       trashInDemo('task_comments', commentId, (parent?.comments.find(c => c.id === commentId)?.text ?? 'Comment').slice(0, 120),
-        parent?.title ?? null, parent?.project_id ?? null, () => setTasks(rollbackScope(prev, task => task.id === taskId)));
-      return;
+        parent?.title ?? null, parent?.project_id ?? null, () => putBackTaskChild(parent, 'comments', commentId),
+        { type: 'tasks', id: taskId });
+      return true;
     }
 
     try {
@@ -1792,9 +1857,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (task) {
         notify(allMemberIds(), `Comment removed on "${task.title}"`, `${actorName()} moved a comment to Trash.`, `/projects/${task.project_id}`, 'task', taskId, 'task_comments');
       }
+      return true;
     } catch (err) {
       setTasks(rollbackScope(prev, task => task.id === taskId));
       toast('error', 'Failed to delete comment');
+      return false;
     }
   };
 
@@ -1937,13 +2004,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const deleteContact = async (id: string) => {
+  const deleteContact = async (id: string): Promise<boolean> => {
     const prev = contacts;
     const deletedContact = contacts.find(c => c.id === id);
     setContacts(c => c.filter(contact => contact.id !== id));
     if (skipSupabase) {
       trashInDemo('contacts', id, deletedContact?.name ?? 'Contact', null, null, () => setContacts(rollbackScope(prev, contact => contact.id === id)));
-      return;
+      return true;
     }
 
     try {
@@ -1951,9 +2018,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (deletedContact) {
         notify(allMemberIds(), `Contact "${deletedContact.name}" was moved to Trash`, `${actorName()} moved a contact to Trash.`, null, 'contact', id, 'contact_deleted');
       }
+      return true;
     } catch (err) {
       setContacts(rollbackScope(prev, contact => contact.id === id));
       toast('error', 'Failed to delete contact');
+      return false;
     }
   };
 
@@ -2274,8 +2343,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (skipSupabase) {
       trashInDemo('leads', id, deletedLead?.name ?? 'Lead', null, null, () => {
         setLeads(rollbackScope(prev, lead => lead.id === id));
-        setLeadInteractions(rollbackScope(prevInteractions, int => int.lead_id === id));
-        setLeadProposals(rollbackScope(prevProposals, prop => prop.lead_id === id));
+        setLeadInteractions(putBackRows(prevInteractions.filter(int => int.lead_id === id)));
+        setLeadProposals(putBackRows(prevProposals.filter(prop => prop.lead_id === id)));
         setLeadFields(rollbackScope(prevFields, field => field.lead_id === id));
         setLeadContacts(rollbackScope(prevLeadContacts, c => c.lead_id === id));
       });
@@ -2463,7 +2532,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setLeadInteractions(i => i.filter(int => int.id !== id));
     if (skipSupabase) {
       trashInDemo('lead_interactions', id, deletedInteraction?.title ?? 'Interaction',
-        leads.find(l => l.id === deletedInteraction?.lead_id)?.name ?? null, null, () => setLeadInteractions(rollbackScope(prev, int => int.id === id)));
+        leads.find(l => l.id === deletedInteraction?.lead_id)?.name ?? null, null, () => setLeadInteractions(rollbackScope(prev, int => int.id === id)),
+        deletedInteraction ? { type: 'leads', id: deletedInteraction.lead_id } : undefined);
       return true;
     }
 
@@ -2540,7 +2610,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setLeadProposals(p => p.filter(prop => prop.id !== id));
     if (skipSupabase) {
       trashInDemo('lead_proposals', id, deletedProposal?.title ?? 'Proposal',
-        leads.find(l => l.id === deletedProposal?.lead_id)?.name ?? null, null, () => setLeadProposals(rollbackScope(prev, prop => prop.id === id)));
+        leads.find(l => l.id === deletedProposal?.lead_id)?.name ?? null, null, () => setLeadProposals(rollbackScope(prev, prop => prop.id === id)),
+        deletedProposal ? { type: 'leads', id: deletedProposal.lead_id } : undefined);
       return true;
     }
 
@@ -2617,7 +2688,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (skipSupabase) {
       const field = prev.find(f => f.id === id);
       trashInDemo('lead_fields', id, field ? `${field.field_key}: ${field.value}` : 'Lead field', leads.find(l => l.id === leadId)?.name ?? null, null,
-        () => setLeadFields(rollbackScope(prev, f => f.id === id)));
+        () => setLeadFields(rollbackScope(prev, f => f.id === id)), { type: 'leads', id: leadId });
       return;
     }
 
@@ -3007,7 +3078,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const deletePortalUpdate = async (id: string) => {
+  const deletePortalUpdate = async (id: string): Promise<boolean> => {
     const prev = portalUpdates;
     const prevAttachments = portalUpdateAttachments;
     const existing = portalUpdates.find(u => u.id === id);
@@ -3016,9 +3087,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (skipSupabase) {
       trashInDemo('portal_updates', id, existing?.title ?? 'Portal update', projectName(existing?.project_id), existing?.project_id ?? null, () => {
         setPortalUpdates(rollbackScope(prev, upd => upd.id === id));
-        setPortalUpdateAttachments(rollbackScope(prevAttachments, att => att.update_id === id));
+        setPortalUpdateAttachments(putBackRows(prevAttachments.filter(att => att.update_id === id)));
       });
-      return;
+      return true;
     }
 
     try {
@@ -3026,10 +3097,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (existing) {
         notify(allMemberIds(), 'Portal update moved to Trash', `${actorName()} moved a portal update to Trash.`, `/projects/${existing.project_id}`, 'project', existing.project_id, 'portal_updates');
       }
+      return true;
     } catch (err) {
       setPortalUpdates(rollbackScope(prev, upd => upd.id === id));
       setPortalUpdateAttachments(rollbackScope(prevAttachments, att => att.update_id === id));
       toast('error', 'Failed to delete update');
+      return false;
     }
   };
 
@@ -3039,7 +3112,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setPortalUpdateAttachments(a => a.filter(att => att.id !== id));
     if (skipSupabase) {
       trashInDemo('portal_update_attachments', id, existing?.name ?? 'Attachment', portalUpdates.find(u => u.id === existing?.update_id)?.title ?? null, null,
-        () => setPortalUpdateAttachments(rollbackScope(prev, att => att.id === id)));
+        () => setPortalUpdateAttachments(rollbackScope(prev, att => att.id === id)),
+        existing ? { type: 'portal_updates', id: existing.update_id } : undefined);
       return;
     }
 
@@ -3129,14 +3203,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const deleteCredential = async (id: string) => {
+  const deleteCredential = async (id: string): Promise<boolean> => {
     const prev = projectCredentials;
     const existing = projectCredentials.find(c => c.id === id);
     setProjectCredentials(creds => creds.filter(c => c.id !== id));
     if (skipSupabase) {
       trashInDemo('project_credentials', id, existing?.label ?? 'Credential', projectName(existing?.project_id), existing?.project_id ?? null,
         () => setProjectCredentials(rollbackScope(prev, c => c.id === id)));
-      return;
+      return true;
     }
 
     try {
@@ -3146,9 +3220,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const project = projects.find(p => p.id === existing.project_id);
         notify(allMemberIds(), 'Credential moved to Trash', `${actorName()} moved a credential on "${project?.name || 'project'}" to Trash.`, `/projects/${existing.project_id}`, 'project', existing.project_id, 'portal_settings');
       }
+      return true;
     } catch {
       setProjectCredentials(rollbackScope(prev, c => c.id === id));
       toast('error', 'Failed to delete credential');
+      return false;
     }
   };
 
@@ -3232,14 +3308,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const deleteEntityFile = async (id: string) => {
+  const deleteEntityFile = async (id: string): Promise<boolean> => {
     const prev = entityFiles;
     const existing = entityFiles.find(f => f.id === id);
     setEntityFiles(f => f.filter(file => file.id !== id));
     if (skipSupabase) {
       trashInDemo('entity_files', id, existing?.name ?? 'File', existing?.entity_type === 'project' ? projectName(existing.entity_id) : null,
         existing?.entity_type === 'project' ? existing.entity_id : null, () => setEntityFiles(rollbackScope(prev, file => file.id === id)));
-      return;
+      return true;
     }
 
     try {
@@ -3248,9 +3324,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const link = existing.entity_type === 'project' ? `/projects/${existing.entity_id}` : existing.entity_type === 'lead' ? `/leads/${existing.entity_id}` : `/contacts/${existing.entity_id}`;
         notify(allMemberIds(), `File removed from ${existing.entity_type}`, `${actorName()} moved an attachment to Trash.`, link, existing.entity_type, existing.entity_id, 'entity_files');
       }
+      return true;
     } catch (err) {
       setEntityFiles(rollbackScope(prev, file => file.id === id));
       toast('error', 'Failed to delete file');
+      return false;
     }
   };
 
@@ -4082,10 +4160,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (skipSupabase) {
       // A record whose project is in Trash too comes back after its project.
       const trashedProjects = new Set(demoTrash.current.filter(entry => entry.item.record_type === 'projects').map(entry => entry.item.id));
-      return demoTrash.current.map(({ item }) => ({
+      const inTrash = new Set(demoTrash.current.map(entry => `${entry.item.record_type}:${entry.item.id}`));
+      const parentBlocker = { tasks: 'Restore the task it belongs to first.', leads: 'Restore the lead it belongs to first.', portal_updates: 'Restore the portal update it belongs to first.' };
+      return demoTrash.current.map(({ item, parent }) => ({
         ...item,
         blocker: item.record_type !== 'projects' && item.project_id && trashedProjects.has(item.project_id)
-          ? 'Restore the project it belongs to first.' : null,
+          ? 'Restore the project it belongs to first.'
+          : parent && inTrash.has(`${parent.type}:${parent.id}`) ? parentBlocker[parent.type] : null,
       }));
     }
     return fetchTrash(supabase);
@@ -4095,7 +4176,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (!(TRASH_TABLES as readonly string[]).includes(recordType)) return false;
     if (skipSupabase) {
       const entry = demoTrash.current.find(e => e.item.record_type === recordType && e.item.id === id);
-      if (!entry) return false;
+      if (!entry) {
+        toast('error', NO_LONGER_IN_TRASH);
+        return false;
+      }
+      // The Trash page only offers Restore once the blocker clears; this keeps
+      // a stale page from restoring a child into a parent that is not back.
+      const blocker = (await loadTrash()).find(item => item.record_type === recordType && item.id === id)?.blocker;
+      if (blocker) {
+        toast('error', blocker);
+        return false;
+      }
       entry.putBack();
       demoTrash.current = demoTrash.current.filter(e => e !== entry);
       return true;
@@ -4103,15 +4194,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       await restoreFromTrash(supabase, recordType as TrashTable, id);
     } catch (err) {
-      toast('error', err instanceof TrashError && err.reason !== 'invalid' ? err.message : 'Failed to restore');
+      toast('error', !(err instanceof TrashError) || err.reason === 'invalid' ? 'Failed to restore'
+        : err.reason === 'not_found' ? NO_LONGER_IN_TRASH : err.message);
       return false;
     }
-    // Live sync would catch up on its own; refetch now so it shows at once. A
-    // project brings back everything it owns, so it refreshes every slice.
-    const slices = recordType === 'projects'
-      ? ALL_REALTIME_SLICES
-      : [REALTIME_TABLE_SLICES[recordType === 'invoice_payments' ? 'project_invoices' : recordType]].filter(Boolean);
-    await Promise.all(slices.map(slice => refreshSlice(slice)));
+    // Live sync would catch up on its own; refetch now so it shows at once.
+    await Promise.all(trashSlices(recordType).map(slice => refreshSlice(slice)));
     return true;
   };
 
@@ -4223,14 +4311,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const deleteInvoice = async (id: string) => {
+  const deleteInvoice = async (id: string): Promise<boolean> => {
     const prev = projectInvoices;
     const existing = projectInvoices.find(i => i.id === id);
     setProjectInvoices(invoices => invoices.filter(i => i.id !== id));
     if (skipSupabase) {
       trashInDemo('project_invoices', id, existing?.invoice_number ?? 'Invoice', projectName(existing?.project_id), existing?.project_id ?? null,
         () => setProjectInvoices(rollbackScope(prev, i => i.id === id)));
-      return;
+      return true;
     }
 
     try {
@@ -4242,9 +4330,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
         // Deleting a paid invoice enqueues an invoice.deleted webhook event.
         if (existing.status === 'paid') kickWebhookDispatch();
       }
+      return true;
     } catch (error) {
       setProjectInvoices(rollbackScope(prev, i => i.id === id));
       toast('error', trashFailure(error, 'Failed to delete invoice'));
+      return false;
     }
   };
 

@@ -200,11 +200,8 @@ export function FileAttachments({ entityType, entityId, layout = 'list' }: FileA
     setOpenMenuId(null);
   };
 
-  const executeDeleteFile = () => {
-    if (deleteFileTarget) {
-      deleteEntityFile(deleteFileTarget);
-      toast('success', 'File moved to Trash');
-    }
+  const executeDeleteFile = async () => {
+    if (deleteFileTarget && await deleteEntityFile(deleteFileTarget)) toast('success', 'File moved to Trash');
   };
 
   const handleToggleVisibility = (fileId: string, currentVisibility: string) => {

@@ -74,7 +74,7 @@ function ProjectsContent() {
 
   const buildActions = (p: Project): RowAction[] => [
     { label: 'Edit', icon: <Edit size={14} />, onClick: () => handleEdit(p) },
-    { label: 'Delete', icon: <Trash2 size={14} />, variant: 'danger', onClick: () => setDeletingProjectId(p.id) },
+    { label: 'Move to Trash', icon: <Trash2 size={14} />, variant: 'danger', onClick: () => setDeletingProjectId(p.id) },
   ];
 
   const mobileCard = (p: Project) => {

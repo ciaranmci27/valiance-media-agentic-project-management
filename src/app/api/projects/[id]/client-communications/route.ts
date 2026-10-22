@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getServiceClient } from '@/lib/api/supabase-service';
 import { accessAllows, accessAllowsProject, requireSessionAccess } from '@/lib/api/access';
+import { projectIsLive } from '@/lib/supabase/trash';
 import {
   previewCommunication,
   sendCommunication,
@@ -50,6 +51,10 @@ export async function GET(
 
   const status = req.nextUrl.searchParams.get('status');
   const service = getServiceClient();
+  // A project in Trash takes its communication history with it.
+  if (!(await projectIsLive(service, projectId))) {
+    return NextResponse.json({ error: 'Project not found' }, { status: 404 });
+  }
   let query = service
     .from('client_communications')
     .select('*, contact:contacts(id, name, email)')

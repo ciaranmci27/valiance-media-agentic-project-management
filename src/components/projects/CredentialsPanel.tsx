@@ -431,9 +431,8 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
     setRevealingId(null);
   };
 
-  const executeDelete = () => {
-    if (deleteTarget) {
-      deleteCredential(deleteTarget);
+  const executeDelete = async () => {
+    if (deleteTarget && await deleteCredential(deleteTarget)) {
       setRevealedData((prev) => {
         const next = { ...prev };
         delete next[deleteTarget];

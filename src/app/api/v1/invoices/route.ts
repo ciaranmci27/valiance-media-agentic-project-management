@@ -61,7 +61,7 @@ export const GET = withApi(async ({ supabase, searchParams, access }) => {
     pageProjects.length
       ? supabase
           .from('project_contacts')
-          .select('project_id, contact_id, contact:contacts(id, name, email, company)')
+          .select('project_id, contact_id, contact:contacts!inner(id, name, email, company)')
           .eq('is_primary_client', true)
           .in('project_id', pageProjects)
           // A contact in Trash is no longer the customer.

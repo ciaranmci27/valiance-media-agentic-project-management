@@ -3,7 +3,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { PORTAL_EVENT_TYPES, type PortalEventType } from '@/lib/types';
 import { recordPortalEvent, isValidUuid } from '@/lib/portal-analytics';
 import { checkPortalPin, pinFailureResponse } from '@/lib/portal-pin';
-import { projectIsLive } from '@/lib/supabase/trash';
 
 export const dynamic = 'force-dynamic';
 
@@ -122,12 +121,13 @@ export async function POST(
   // someone with the URL but no PIN can't fire events.
   const { data: settings } = await supabase
     .from('portal_settings')
-    .select('id, project_id, enabled, pin')
+    .select('id, project_id, enabled, pin, project:projects!inner(id)')
     .eq('token', token)
+    // A project in Trash has no portal; it comes back when the project is restored.
+    .is('project.deleted_at', null)
     .maybeSingle();
 
-  // A project in Trash has no portal.
-  if (!settings || !settings.enabled || !(await projectIsLive(supabase, settings.project_id))) {
+  if (!settings || !settings.enabled) {
     return NextResponse.json({ error: 'Portal not found' }, { status: 404 });
   }
   const pinCheck = await checkPortalPin({ supabase, request, token, settings });

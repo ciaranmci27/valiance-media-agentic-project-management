@@ -8,7 +8,7 @@ import { trashForApi } from '@/lib/api/trash';
 import { evaluateBudgetAlerts } from '@/lib/email/client-notifications';
 import type { TimeSegment } from '@/lib/types';
 import { resolveProjectHourlyRate, TIME_ENTRY_SELECT, mapTimeEntryRow } from '@/lib/supabase/queries';
-import { assertTasksInProject } from '@/lib/api/task-guards';
+import { assertTasksInProject, replaceEntryTaskLinks, withLiveTaskIds } from '@/lib/api/task-guards';
 import { apiKeyAllows, sanitizeTimeEntryForAccess } from '@/lib/api/access';
 import { APPROVED_ENTRY_LOCKED_MESSAGE, lockedApprovedFields } from '@/lib/time-entry-lock';
 
@@ -28,7 +28,8 @@ export const GET = withApi(async ({ supabase, params, access, teamMemberId, scop
   if (!apiKeyAllows(access, scopes, 'time.read_all') && (data as any).member_id !== teamMemberId) {
     throw notFound('Time entry');
   }
-  return success(sanitizeTimeEntryForAccess(mapTimeEntryRow(data) as unknown as Record<string, unknown>, access, 'api'));
+  const [entry] = await withLiveTaskIds(supabase, [mapTimeEntryRow(data)]);
+  return success(sanitizeTimeEntryForAccess(entry as unknown as Record<string, unknown>, access, 'api'));
 }, { permission: ['time.manage_own', 'time.read_all', 'time.manage_all'] });
 
 export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemberId, access, scopes }) => {
@@ -135,14 +136,7 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
   }
 
   if (taskIds !== undefined) {
-    await supabase.from('time_entry_tasks').delete().eq('time_entry_id', entryId);
-    const uniqueTaskIds = [...new Set(taskIds)];
-    if (uniqueTaskIds.length > 0) {
-      const { error: linkError } = await supabase
-        .from('time_entry_tasks')
-        .insert(uniqueTaskIds.map((linkedTaskId) => ({ time_entry_id: entryId, task_id: linkedTaskId })));
-      if (linkError) throw linkError;
-    }
+    await replaceEntryTaskLinks(supabase, entryId, taskIds);
   }
   const data = taskIds !== undefined
     ? { ...mapTimeEntryRow(updated), task_ids: [...new Set(taskIds)] }

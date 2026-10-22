@@ -6,7 +6,7 @@ import { logAudit } from '@/lib/api/audit';
 import { parsePagination } from '@/lib/api/pagination';
 import { z } from 'zod';
 import { fetchMemberBillingMultiplier, resolveProjectHourlyRate, TIME_ENTRY_SELECT, mapTimeEntryRow } from '@/lib/supabase/queries';
-import { assertTasksInProject } from '@/lib/api/task-guards';
+import { assertTasksInProject, withLiveTaskIds } from '@/lib/api/task-guards';
 import { apiKeyAllows, sanitizeTimeEntryForAccess } from '@/lib/api/access';
 
 // POST body: either a manual entry (start_time + end_time) or a timer start (no end_time)
@@ -45,7 +45,9 @@ export const GET = withApi(async ({ supabase, params, searchParams, access, team
   const { data, count, error } = await query.range(offset, offset + limit - 1);
   if (error) throw error;
 
-  return paginated((data || []).map((entry) => sanitizeTimeEntryForAccess(mapTimeEntryRow(entry) as unknown as Record<string, unknown>, access, 'api')), { page, limit, total: count || 0 });
+  // Links to tasks in Trash wait for their restore; they are not shown.
+  const entries = await withLiveTaskIds(supabase, (data || []).map((entry) => mapTimeEntryRow(entry)));
+  return paginated(entries.map((entry) => sanitizeTimeEntryForAccess(entry as unknown as Record<string, unknown>, access, 'api')), { page, limit, total: count || 0 });
 }, { permission: ['time.manage_own', 'time.read_all', 'time.manage_all'] });
 
 /**

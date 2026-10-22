@@ -22,8 +22,17 @@ export const GET = withApi(async ({ supabase, params }) => {
 
 export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemberId }) => {
   const { id, contactId } = params as any;
-  const { data: before } = await supabase.from('project_contacts').select('*').eq('id', contactId).eq('project_id', id).maybeSingle();
+  // A link to a contact in Trash reads as missing and stays as it is, so a
+  // restore of the contact brings it back.
+  const { data: before } = await supabase
+    .from('project_contacts')
+    .select('*, contact:contacts!inner(id)')
+    .eq('id', contactId)
+    .eq('project_id', id)
+    .is('contact.deleted_at', null)
+    .maybeSingle();
   if (!before) throw notFound('Project contact');
+  delete (before as { contact?: unknown }).contact;
   const pc = await updateProjectContact(supabase, contactId, id, body as any);
   logAudit(supabase, { method: 'PATCH', endpoint: `/api/v1/projects/${id}/contacts/${contactId}`, entityType: 'project_contact', entityId: contactId, apiKeyId, teamMemberId, requestBody: body, beforeSnapshot: before, afterSnapshot: pc, statusCode: 200 });
   return success(pc);
@@ -31,8 +40,17 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
 
 export const DELETE = withApi(async ({ supabase, params, apiKeyId, teamMemberId }) => {
   const { id, contactId } = params as any;
-  const { data: before } = await supabase.from('project_contacts').select('*').eq('id', contactId).eq('project_id', id).maybeSingle();
+  // A link to a contact in Trash reads as missing and stays as it is, so a
+  // restore of the contact brings it back.
+  const { data: before } = await supabase
+    .from('project_contacts')
+    .select('*, contact:contacts!inner(id)')
+    .eq('id', contactId)
+    .eq('project_id', id)
+    .is('contact.deleted_at', null)
+    .maybeSingle();
   if (!before) throw notFound('Project contact');
+  delete (before as { contact?: unknown }).contact;
   await removeProjectContact(supabase, contactId);
   logAudit(supabase, { method: 'DELETE', endpoint: `/api/v1/projects/${id}/contacts/${contactId}`, entityType: 'project_contact', entityId: contactId, apiKeyId, teamMemberId, beforeSnapshot: before, statusCode: 200 });
   return success({ deleted: true });

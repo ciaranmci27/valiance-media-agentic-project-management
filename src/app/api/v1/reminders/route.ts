@@ -17,19 +17,20 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const day = /^\d{4}-\d{2}-\d{2}$/;
 
-/** Ids of tasks out of reach: in Trash themselves, or in a project in Trash. */
-async function trashedTaskIds(supabase: SupabaseClient, trashedProjects: string[]): Promise<string[]> {
-  // includes-deleted: lists the tasks in Trash
-  const { data: trashed, error } = await supabase.from('tasks').select('id').not('deleted_at', 'is', null);
+/**
+ * Tasks in Trash that still have reminders. Only these need leaving out: a
+ * reminder on a task in a project in Trash carries that project id, which the
+ * project filter covers. Bounded by reminders, not by everything in Trash.
+ */
+async function trashedTasksWithReminders(supabase: SupabaseClient): Promise<string[]> {
+  // includes-deleted: finds the reminders' tasks that are in Trash
+  const { data, error } = await supabase
+    .from('reminders')
+    .select('task_id, task:tasks!inner(id)')
+    .is('deleted_at', null)
+    .not('task.deleted_at', 'is', null);
   if (error) throw error;
-  const ids = (trashed || []).map((row: { id: string }) => row.id);
-  if (trashedProjects.length) {
-    // includes-deleted: every task of a project in Trash, trashed or not
-    const { data: inTrashedProjects, error: projectError } = await supabase.from('tasks').select('id').in('project_id', trashedProjects);
-    if (projectError) throw projectError;
-    ids.push(...(inTrashedProjects || []).map((row: { id: string }) => row.id));
-  }
-  return [...new Set(ids)];
+  return [...new Set((data || []).map((row: { task_id: string }) => row.task_id))];
 }
 
 /**
@@ -59,7 +60,7 @@ export const GET = withApi(async ({ supabase, searchParams, teamMemberId, access
   // A reminder on a task or project in Trash went to Trash with it.
   const trashedProjects = await trashedProjectIds(supabase);
   if (trashedProjects.length) query = query.or(`project_id.is.null,project_id.not.in.${postgrestList(trashedProjects)}`);
-  const trashedTasks = await trashedTaskIds(supabase, trashedProjects);
+  const trashedTasks = await trashedTasksWithReminders(supabase);
   if (trashedTasks.length) query = query.or(`task_id.is.null,task_id.not.in.${postgrestList(trashedTasks)}`);
   if (status !== 'all') query = query.eq('status', status);
   if (owner === 'me') query = query.eq('owner_id', teamMemberId);

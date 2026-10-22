@@ -1244,7 +1244,7 @@ declare
   v_contact_id uuid;
   v_project_id uuid;
 begin
-  select * into v_lead from public.leads where id = p_lead_id for update;
+  select * into v_lead from public.leads where id = p_lead_id and deleted_at is null for update;
   if not found then
     raise exception 'Lead not found' using errcode = 'P0002';
   end if;
@@ -1254,8 +1254,9 @@ begin
     raise exception 'Lead has already been converted' using errcode = 'LC409';
   end if;
 
-  -- Reuse existing contact if the lead has one, otherwise create one
-  v_contact_id := v_lead.contact_id;
+  -- Reuse the lead's contact unless it is in Trash, otherwise create one
+  select c.id into v_contact_id from public.contacts c
+  where c.id = v_lead.contact_id and c.deleted_at is null;
   if v_contact_id is null then
     insert into public.contacts (name, email, phone, company, color, created_by)
     values (v_lead.name, v_lead.email, v_lead.phone, v_lead.company, p_project_color, p_created_by)
@@ -1274,6 +1275,7 @@ begin
   insert into public.project_contacts (project_id, contact_id, role, custom_role, is_primary_client)
   select v_project_id, lc.contact_id, lc.role, lc.custom_role, false
   from public.lead_contacts lc
+  join public.contacts c on c.id = lc.contact_id and c.deleted_at is null
   where lc.lead_id = p_lead_id and lc.is_primary_client = false
   on conflict (project_id, contact_id) do nothing;
 
@@ -4363,6 +4365,24 @@ AS $$
   WHERE project_id = p_project_id
 $$;
 
+-- The next free invoice number for the invoice form. A number on an invoice in
+-- Trash stays taken (a restore brings the invoice back with it), and the
+-- person adding an invoice cannot see those, so the database suggests it.
+CREATE OR REPLACE FUNCTION public.suggest_project_invoice_number(p_project_id uuid)
+RETURNS text
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF NOT (public.has_permission('invoices.manage') AND public.can_access_project(p_project_id)) THEN
+    RAISE EXCEPTION 'You cannot add invoices to this project' USING ERRCODE = '42501';
+  END IF;
+  RETURN public.next_project_invoice_number(p_project_id);
+END;
+$$;
+
 -- Builds one draft from the given lines. The reconcile trigger on
 -- project_invoices claims the periods and copies the retainer splits.
 CREATE OR REPLACE FUNCTION public.create_retainer_draft_internal(
@@ -5877,6 +5897,10 @@ AS $$
 DECLARE
   member_role text;
 BEGIN
+  -- Moving it to Trash or back is not an edit: nothing to resubmit or reprice.
+  IF TG_OP = 'UPDATE' AND NEW.deleted_at IS DISTINCT FROM OLD.deleted_at THEN
+    RETURN NEW;
+  END IF;
   SELECT role INTO member_role FROM public.team_members WHERE id = NEW.member_id;
 
   IF TG_OP = 'INSERT' OR NEW.start_time IS DISTINCT FROM OLD.start_time OR NEW.member_id IS DISTINCT FROM OLD.member_id THEN
@@ -6337,6 +6361,8 @@ REVOKE ALL ON FUNCTION public.set_invoice_line_shares(uuid, jsonb) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.retainer_periods(uuid, date, date) FROM anon, authenticated;
 REVOKE ALL ON FUNCTION public.retainer_due_periods_internal(uuid, date) FROM anon, authenticated;
 REVOKE ALL ON FUNCTION public.next_project_invoice_number(uuid) FROM anon, authenticated;
+REVOKE ALL ON FUNCTION public.suggest_project_invoice_number(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.suggest_project_invoice_number(uuid) TO authenticated;
 REVOKE ALL ON FUNCTION public.create_retainer_draft_internal(uuid, jsonb, date, boolean) FROM anon, authenticated;
 REVOKE ALL ON FUNCTION public.generate_retainer_drafts(date) FROM anon, authenticated;
 REVOKE ALL ON FUNCTION public.retire_share_earning(uuid, text) FROM anon, authenticated;
@@ -6373,6 +6399,8 @@ REVOKE SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON public.p
 GRANT SELECT (
   id, name, description, color, status, start_date, due_date,
   hourly_tracking, time_tracking_enabled, created_by, created_at, updated_at, archived_at,
+  -- Trash, so signed-in reads can leave out what is in it.
+  deleted_at, deleted_by,
   -- Agent columns, read by the live floor from the client: a feature flag
   -- and a branch name, neither financial (20260811_grant_agent_project_columns).
   autonomous_enabled, integration_branch
@@ -6382,7 +6410,7 @@ REVOKE SELECT, INSERT, UPDATE, TRUNCATE, REFERENCES, TRIGGER ON public.project_t
 GRANT SELECT (
   id, project_id, member_id, start_time, end_time, description,
   created_at, updated_at, segments, work_type, approval_status,
-  submitted_at, approved_at, approved_by, rejection_reason
+  submitted_at, approved_at, approved_by, rejection_reason, deleted_at, deleted_by
 ) ON public.project_time_entries TO authenticated;
 GRANT DELETE ON public.project_time_entries TO authenticated;
 
@@ -10319,6 +10347,7 @@ DECLARE
   parent_gone boolean := false;
   payment public.invoice_payments;
   invoice public.project_invoices;
+  v_number text;
 BEGIN
   CASE p_table
     WHEN 'tasks' THEN
@@ -10403,6 +10432,64 @@ BEGIN
           AND other.end_time IS NULL AND other.deleted_at IS NULL
       ) THEN
         RETURN 'This timer is still running and a newer one is running on the same project. Stop that one first.';
+      END IF;
+    WHEN 'project_invoices' THEN
+      SELECT * INTO invoice FROM public.project_invoices WHERE id = p_id;
+      IF invoice.status <> 'cancelled' THEN
+        SELECT other.invoice_number INTO v_number
+        FROM public.invoice_time_entry_allocations mine
+        JOIN public.invoice_time_entry_allocations theirs
+          ON theirs.time_entry_id = mine.time_entry_id AND theirs.invoice_id <> mine.invoice_id
+        JOIN public.project_invoices other ON other.id = theirs.invoice_id
+        WHERE mine.invoice_id = p_id AND other.status <> 'cancelled' AND other.deleted_at IS NULL
+          AND mine.start_offset_hours < theirs.start_offset_hours + theirs.allocated_hours - 0.000001
+          AND theirs.start_offset_hours < mine.start_offset_hours + mine.allocated_hours - 0.000001
+        LIMIT 1;
+        IF FOUND THEN
+          RETURN 'Some of its hours are on invoice ' || v_number || ' now. Take them off that invoice first.';
+        END IF;
+        IF EXISTS (
+          SELECT 1 FROM public.invoice_time_entry_allocations allocation
+          JOIN public.project_time_entries entry ON entry.id = allocation.time_entry_id
+          WHERE allocation.invoice_id = p_id AND entry.deleted_at IS NOT NULL
+        ) THEN
+          RETURN 'Some of its time is in Trash. Restore that time first.';
+        END IF;
+        IF EXISTS (
+          SELECT 1
+          FROM jsonb_array_elements(COALESCE(NULLIF(invoice.line_items, 'null'::jsonb), '[]'::jsonb)) line
+          JOIN public.project_retainers retainer ON retainer.id::text = line.value->>'retainer_id' AND retainer.deleted_at IS NULL
+          JOIN public.project_retainer_periods handled
+            ON handled.retainer_id = retainer.id
+           AND handled.period_start = GREATEST(date_trunc('month', (line.value->>'service_start_date')::date)::date, retainer.start_date)
+          WHERE COALESCE(line.value->>'service_start_date', '') ~ '^\d{4}-\d{2}-\d{2}$'
+            AND handled.status = 'invoiced' AND handled.invoice_id IS NOT NULL AND handled.invoice_id <> p_id
+        ) THEN
+          RETURN 'Its retainer period is on another invoice now.';
+        END IF;
+      END IF;
+      -- Paid hours that are not linked to time entries cannot be checked
+      -- against what was billed since; counting them again would under-bill.
+      IF invoice.status = 'paid'
+         AND (
+           (jsonb_array_length(COALESCE(NULLIF(invoice.line_items, 'null'::jsonb), '[]'::jsonb)) = 0 AND invoice.invoice_type = 'hourly'
+            AND NOT EXISTS (SELECT 1 FROM public.invoice_time_entry_allocations a WHERE a.invoice_id = p_id))
+           OR EXISTS (
+             SELECT 1 FROM jsonb_array_elements(COALESCE(NULLIF(invoice.line_items, 'null'::jsonb), '[]'::jsonb)) line
+             WHERE line.value->>'item_type' = 'hourly'
+               AND NOT EXISTS (SELECT 1 FROM public.invoice_time_entry_allocations a
+                               WHERE a.invoice_id = p_id AND a.line_item_id = line.value->>'id')
+           )
+         )
+         AND EXISTS (
+           SELECT 1 FROM public.project_invoices other
+           WHERE other.project_id = invoice.project_id AND other.id <> p_id AND other.deleted_at IS NULL
+             AND other.status <> 'cancelled' AND other.created_at > invoice.deleted_at
+             AND (other.invoice_type = 'hourly' OR EXISTS (
+               SELECT 1 FROM jsonb_array_elements(COALESCE(NULLIF(other.line_items, 'null'::jsonb), '[]'::jsonb)) line
+               WHERE line.value->>'item_type' = 'hourly'))
+         ) THEN
+        RETURN 'Hours were invoiced after this invoice went to Trash, and its own hours are not linked to time entries, so restoring it could count hours twice. Check the hourly invoices first.';
       END IF;
     WHEN 'project_hourly_rates' THEN
       IF EXISTS (
@@ -10498,13 +10585,19 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
 AS $$
+DECLARE
+  hidden text[] := ARRAY['encrypted_data', 'iv', 'hourly_rate', 'compensation_rate', 'billing_multiplier',
+    'budget_type', 'budget_value', 'billing_address', 'billing_email', 'tax_rate', 'invoice_pdf_options'];
 BEGIN
   INSERT INTO public.api_audit_log (
     method, endpoint, entity_type, entity_id, team_member_id, before_snapshot, after_snapshot, status_code, via
   ) VALUES (
     CASE WHEN p_restore THEN 'POST' ELSE 'DELETE' END,
     '/app/trash/' || p_table || '/' || p_id::text || CASE WHEN p_restore THEN '/restore' ELSE '' END,
-    public.trash_entity_type(p_table), p_id, public.current_team_member_id(), p_before, p_after, 200, 'app'
+    public.trash_entity_type(p_table), p_id, public.current_team_member_id(),
+    -- Not the credential secrets, client rates or pay rates: audit readers
+    -- are not necessarily allowed to see those.
+    p_before - hidden, p_after - hidden, 200, 'app'
   );
 END;
 $$;
@@ -10590,6 +10683,18 @@ BEGIN
   END;
   IF changed > 0 AND NOT is_service THEN
     PERFORM public.audit_trash_change(p_table, p_id, true, before, after);
+  END IF;
+  -- Retainer months that came due while it (or its project) was in Trash
+  -- are skipped, as a pause skips them: restoring never back-bills.
+  IF changed > 0 AND p_table IN ('projects', 'project_retainers') THEN
+    INSERT INTO public.project_retainer_periods (retainer_id, period_start, period_end, status)
+    SELECT due.retainer_id, due.period_start, due.period_end, 'skipped'
+    FROM public.retainer_due_periods_internal(
+      CASE WHEN p_table = 'projects' THEN p_id ELSE (after->>'project_id')::uuid END,
+      public.workspace_today()) due
+    WHERE (p_table = 'projects' OR due.retainer_id = p_id)
+      AND due.bill_date >= ((before->>'deleted_at')::timestamptz AT TIME ZONE public.workspace_timezone())::date
+    ON CONFLICT (retainer_id, period_start) DO NOTHING;
   END IF;
   RETURN changed > 0;
 END;
@@ -10902,3 +11007,146 @@ $$;
 
 REVOKE ALL ON FUNCTION public.list_trash(text[], integer) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.list_trash(text[], integer) TO authenticated, service_role;
+
+-- ---------------------------------------------------------------------------
+-- Soft delete review fixes (migration 20261022063149_soft_delete_review_fixes.sql)
+-- ---------------------------------------------------------------------------
+-- A contact in Trash keeps its project and lead links (so a restore brings
+-- them back), but it must not hold the one primary client slot: setting a
+-- new primary client lets go of a trashed one, which the person setting it
+-- cannot see.
+CREATE OR REPLACE FUNCTION public.release_trashed_primary_client()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF NEW.is_primary_client THEN
+    IF TG_TABLE_NAME = 'project_contacts' THEN
+      UPDATE public.project_contacts link
+      SET is_primary_client = false
+      FROM public.contacts contact
+      WHERE link.project_id = NEW.project_id AND link.id <> NEW.id AND link.is_primary_client
+        AND contact.id = link.contact_id AND contact.deleted_at IS NOT NULL;
+    ELSE
+      UPDATE public.lead_contacts link
+      SET is_primary_client = false
+      FROM public.contacts contact
+      WHERE link.lead_id = NEW.lead_id AND link.id <> NEW.id AND link.is_primary_client
+        AND contact.id = link.contact_id AND contact.deleted_at IS NOT NULL;
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER release_trashed_primary_client
+  BEFORE INSERT OR UPDATE OF is_primary_client ON public.project_contacts
+  FOR EACH ROW EXECUTE FUNCTION public.release_trashed_primary_client();
+CREATE TRIGGER release_trashed_primary_client
+  BEFORE INSERT OR UPDATE OF is_primary_client ON public.lead_contacts
+  FOR EACH ROW EXECUTE FUNCTION public.release_trashed_primary_client();
+
+-- Trash moves and restores, as pings for live sync. A soft delete is an
+-- UPDATE that the viewer can no longer see, so it never reaches other open
+-- screens through the table itself; this row does. Only the table and id.
+CREATE TABLE IF NOT EXISTS public.trash_events (
+  id bigserial PRIMARY KEY,
+  table_name text NOT NULL,
+  record_id uuid NOT NULL,
+  restored boolean NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE public.trash_events ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS trash_events_select ON public.trash_events;
+CREATE POLICY trash_events_select ON public.trash_events FOR SELECT TO authenticated USING (true);
+REVOKE ALL ON public.trash_events FROM anon, authenticated;
+GRANT SELECT ON public.trash_events TO authenticated;
+GRANT ALL ON public.trash_events TO service_role;
+
+CREATE OR REPLACE FUNCTION public.record_trash_event()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  INSERT INTO public.trash_events (table_name, record_id, restored)
+  VALUES (TG_TABLE_NAME, NEW.id, NEW.deleted_at IS NULL);
+  RETURN NULL;
+END;
+$$;
+
+CREATE TRIGGER record_trash_event AFTER UPDATE OF deleted_at ON public.projects
+  FOR EACH ROW WHEN (OLD.deleted_at IS DISTINCT FROM NEW.deleted_at)
+  EXECUTE FUNCTION public.record_trash_event();
+CREATE TRIGGER record_trash_event AFTER UPDATE OF deleted_at ON public.tasks
+  FOR EACH ROW WHEN (OLD.deleted_at IS DISTINCT FROM NEW.deleted_at)
+  EXECUTE FUNCTION public.record_trash_event();
+CREATE TRIGGER record_trash_event AFTER UPDATE OF deleted_at ON public.task_subtasks
+  FOR EACH ROW WHEN (OLD.deleted_at IS DISTINCT FROM NEW.deleted_at)
+  EXECUTE FUNCTION public.record_trash_event();
+CREATE TRIGGER record_trash_event AFTER UPDATE OF deleted_at ON public.task_comments
+  FOR EACH ROW WHEN (OLD.deleted_at IS DISTINCT FROM NEW.deleted_at)
+  EXECUTE FUNCTION public.record_trash_event();
+CREATE TRIGGER record_trash_event AFTER UPDATE OF deleted_at ON public.reminders
+  FOR EACH ROW WHEN (OLD.deleted_at IS DISTINCT FROM NEW.deleted_at)
+  EXECUTE FUNCTION public.record_trash_event();
+CREATE TRIGGER record_trash_event AFTER UPDATE OF deleted_at ON public.project_credentials
+  FOR EACH ROW WHEN (OLD.deleted_at IS DISTINCT FROM NEW.deleted_at)
+  EXECUTE FUNCTION public.record_trash_event();
+CREATE TRIGGER record_trash_event AFTER UPDATE OF deleted_at ON public.entity_files
+  FOR EACH ROW WHEN (OLD.deleted_at IS DISTINCT FROM NEW.deleted_at)
+  EXECUTE FUNCTION public.record_trash_event();
+CREATE TRIGGER record_trash_event AFTER UPDATE OF deleted_at ON public.portal_updates
+  FOR EACH ROW WHEN (OLD.deleted_at IS DISTINCT FROM NEW.deleted_at)
+  EXECUTE FUNCTION public.record_trash_event();
+CREATE TRIGGER record_trash_event AFTER UPDATE OF deleted_at ON public.portal_update_attachments
+  FOR EACH ROW WHEN (OLD.deleted_at IS DISTINCT FROM NEW.deleted_at)
+  EXECUTE FUNCTION public.record_trash_event();
+CREATE TRIGGER record_trash_event AFTER UPDATE OF deleted_at ON public.contacts
+  FOR EACH ROW WHEN (OLD.deleted_at IS DISTINCT FROM NEW.deleted_at)
+  EXECUTE FUNCTION public.record_trash_event();
+CREATE TRIGGER record_trash_event AFTER UPDATE OF deleted_at ON public.leads
+  FOR EACH ROW WHEN (OLD.deleted_at IS DISTINCT FROM NEW.deleted_at)
+  EXECUTE FUNCTION public.record_trash_event();
+CREATE TRIGGER record_trash_event AFTER UPDATE OF deleted_at ON public.lead_interactions
+  FOR EACH ROW WHEN (OLD.deleted_at IS DISTINCT FROM NEW.deleted_at)
+  EXECUTE FUNCTION public.record_trash_event();
+CREATE TRIGGER record_trash_event AFTER UPDATE OF deleted_at ON public.lead_proposals
+  FOR EACH ROW WHEN (OLD.deleted_at IS DISTINCT FROM NEW.deleted_at)
+  EXECUTE FUNCTION public.record_trash_event();
+CREATE TRIGGER record_trash_event AFTER UPDATE OF deleted_at ON public.lead_fields
+  FOR EACH ROW WHEN (OLD.deleted_at IS DISTINCT FROM NEW.deleted_at)
+  EXECUTE FUNCTION public.record_trash_event();
+CREATE TRIGGER record_trash_event AFTER UPDATE OF deleted_at ON public.project_time_entries
+  FOR EACH ROW WHEN (OLD.deleted_at IS DISTINCT FROM NEW.deleted_at)
+  EXECUTE FUNCTION public.record_trash_event();
+CREATE TRIGGER record_trash_event AFTER UPDATE OF deleted_at ON public.project_invoices
+  FOR EACH ROW WHEN (OLD.deleted_at IS DISTINCT FROM NEW.deleted_at)
+  EXECUTE FUNCTION public.record_trash_event();
+CREATE TRIGGER record_trash_event AFTER UPDATE OF deleted_at ON public.invoice_payments
+  FOR EACH ROW WHEN (OLD.deleted_at IS DISTINCT FROM NEW.deleted_at)
+  EXECUTE FUNCTION public.record_trash_event();
+CREATE TRIGGER record_trash_event AFTER UPDATE OF deleted_at ON public.project_hourly_rates
+  FOR EACH ROW WHEN (OLD.deleted_at IS DISTINCT FROM NEW.deleted_at)
+  EXECUTE FUNCTION public.record_trash_event();
+CREATE TRIGGER record_trash_event AFTER UPDATE OF deleted_at ON public.project_retainers
+  FOR EACH ROW WHEN (OLD.deleted_at IS DISTINCT FROM NEW.deleted_at)
+  EXECUTE FUNCTION public.record_trash_event();
+CREATE TRIGGER record_trash_event AFTER UPDATE OF deleted_at ON public.project_retainer_amounts
+  FOR EACH ROW WHEN (OLD.deleted_at IS DISTINCT FROM NEW.deleted_at)
+  EXECUTE FUNCTION public.record_trash_event();
+
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'supabase_realtime')
+     AND NOT EXISTS (SELECT 1 FROM pg_publication_tables
+                     WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'trash_events') THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.trash_events;
+  END IF;
+END $$;
+
+REVOKE ALL ON FUNCTION public.release_trashed_primary_client() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.record_trash_event() FROM PUBLIC, anon, authenticated;

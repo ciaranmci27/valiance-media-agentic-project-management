@@ -18,7 +18,7 @@ import { join } from 'node:path';
 import type { PGlite } from '@electric-sql/pglite';
 import { actAs, createFullSchemaDatabase } from './full-schema-db';
 
-const MIGRATIONS = ['20261022035227_soft_delete_records.sql', '20261022041249_soft_delete_billing.sql', '20261022044708_trash_audit.sql', '20261022052745_lead_field_keys_live.sql', '20261022053626_list_trash.sql']
+const MIGRATIONS = ['20261022035227_soft_delete_records.sql', '20261022041249_soft_delete_billing.sql', '20261022044708_trash_audit.sql', '20261022052745_lead_field_keys_live.sql', '20261022053626_list_trash.sql', '20261022063149_soft_delete_review_fixes.sql']
   .map((name) => join(__dirname, '..', 'supabase', 'migrations', name));
 /** The schema files as they were before this change (the branch point from main). */
 const BASE_REF = execFileSync('git', ['merge-base', 'HEAD', 'origin/main'], { encoding: 'utf8' }).trim();
@@ -142,7 +142,10 @@ async function billing(db: PGlite, people: { owner: string; member: string }) {
   await asOwner();
   const clash = await attempt(db, "SELECT public.restore_record('project_invoices', $1)", [first]);
   check('it cannot come back while its hours are on another invoice',
-    /cannot come back as it was: Some of these hours are already on invoice INV-002/.test(clash.error ?? ''), clash);
+    /Some of its hours are on invoice INV-002 now/.test(clash.error ?? ''), clash);
+  await asOwner();
+  const listedClash = (await q<{ id: string; blocker: string | null }>('SELECT id, blocker FROM public.list_trash()')).find((row) => row.id === first);
+  check('and the Trash list says so before anyone tries', /Some of its hours are on invoice INV-002 now/.test(listedClash?.blocker ?? ''), listedClash);
   check('and the refused restore changed nothing', !!(await invoice(first)).deleted_at);
   await db.query("SELECT public.soft_delete_record('project_invoices', $1)", [second]);
   await db.query("SELECT public.restore_record('project_invoices', $1)", [first]);
@@ -153,6 +156,14 @@ async function billing(db: PGlite, people: { owner: string; member: string }) {
     (await q<{ n: number }>('SELECT count(*)::int AS n FROM public.project_invoice_payments($1)', [project]))[0].n === 1);
   const noNumberReuse = await attempt(db, "INSERT INTO public.project_invoices (project_id, invoice_number, date) VALUES ($1, 'INV-002', '2026-10-09')", [project]);
   check('a trashed invoice keeps its number', !!noNumberReuse.error, noNumberReuse);
+  await asOwner();
+  const suggested = (await q<{ n: string }>('SELECT public.suggest_project_invoice_number($1) AS n', [project]))[0].n;
+  await superuser();
+  const taken = (await q<{ invoice_number: string }>('SELECT invoice_number FROM public.project_invoices WHERE project_id = $1', [project])).map((row) => row.invoice_number);
+  check('the suggested invoice number skips numbers held in Trash', suggested === 'INV-003' && !taken.includes(suggested), { suggested, taken });
+  await db.exec('SET ROLE anon');
+  const anonSuggest = await attempt(db, 'SELECT public.suggest_project_invoice_number($1)', [project]);
+  check('nobody signed out gets a suggestion', !!anonSuggest.error, anonSuggest);
 
   // --- Payments -------------------------------------------------------------
   await asService();
@@ -260,7 +271,24 @@ async function billing(db: PGlite, people: { owner: string; member: string }) {
   await asOwner();
   const periodTaken = await attempt(db, "SELECT public.restore_record('project_invoices', $1)", [retainerDraft]);
   check('it cannot come back once the period is billed again',
-    /cannot come back as it was: That retainer period is already on another invoice/.test(periodTaken.error ?? ''), periodTaken);
+    /Its retainer period is on another invoice now/.test(periodTaken.error ?? ''), periodTaken);
+
+  // Restoring a retainer skips the months it spent in Trash, as a pause does.
+  await asService();
+  const lapsed = (await q<{ id: string }>('SELECT (public.save_project_retainer(NULL, $1::jsonb)).id', [
+    JSON.stringify({ project_id: project, name: 'Hosting', start_date: monthStart, amount: 100 })]))[0].id;
+  await asOwner();
+  await db.query("SELECT public.soft_delete_record('project_retainers', $1)", [lapsed]);
+  await superuser();
+  await db.query("UPDATE public.project_retainers SET deleted_at = $2::date - 75 WHERE id = $1", [lapsed, today]);
+  await asOwner();
+  await db.query("SELECT public.restore_record('project_retainers', $1)", [lapsed]);
+  await superuser();
+  const backBilled = (await q<{ n: number }>(
+    'SELECT count(*)::int AS n FROM public.retainer_due_periods_internal(NULL, $1::date) WHERE retainer_id = $2', [today, lapsed]))[0].n;
+  const skipped = (await q<{ n: number }>(
+    "SELECT count(*)::int AS n FROM public.project_retainer_periods WHERE retainer_id = $1 AND status = 'skipped'", [lapsed]))[0].n;
+  check('a restored retainer does not back-bill the months it spent in Trash', skipped > 0 && backBilled < 3, { skipped, backBilled });
 
   // --- A project in Trash stops its jobs ------------------------------------------
   const earned = async () => {
@@ -425,6 +453,15 @@ async function main() {
     'SELECT title, deleted_by FROM public.tasks WHERE id = $1', [task])).rows[0];
   check('exactly as it was', restoredRow.title === 'Capture plan domicile state' && restoredRow.deleted_by === null, restoredRow);
 
+  // --- Signed-in reads may check the Trash columns ------------------------------
+  await actAs(db, OWNER_USER);
+  const columnRead = await attempt(db, 'SELECT id FROM public.projects WHERE id = $1 AND deleted_at IS NULL', [project]);
+  check('a signed-in member can filter projects by deleted_at (converting a lead, approving suggestions)', !columnRead.error, columnRead.error);
+  await db.exec('RESET ROLE');
+  const pings = (await db.query<{ table_name: string; restored: boolean }>(
+    'SELECT table_name, restored FROM public.trash_events WHERE record_id = $1 ORDER BY id', [task])).rows;
+  check('each Trash move and restore leaves a ping for live sync', pings.length === 2 && pings[0].table_name === 'tasks' && !pings[0].restored && pings[1].restored, pings);
+
   // --- Who did it is audited ------------------------------------------------
   await db.exec('RESET ROLE');
   const audit = (await db.query<{ method: string; endpoint: string; entity_type: string; team_member_id: string; via: string;
@@ -523,6 +560,50 @@ async function main() {
   await actAs(db, OWNER_USER);
   const fieldClash = await attempt(db, "SELECT public.restore_record('lead_fields', $1)", [firstField.id]);
   check('and the trashed one cannot come back over the new one', /set again since/.test(fieldClash.error ?? ''), fieldClash);
+
+  // --- A rejected time entry stays rejected through Trash -------------------------
+  await db.exec('RESET ROLE');
+  await db.query("INSERT INTO public.team_member_hourly_rates (member_id, hourly_rate, effective_at) VALUES ($1, 20, '2026-01-01')", [member.id]);
+  const rejected = (await db.query<{ id: string }>(`INSERT INTO public.project_time_entries (project_id, member_id, start_time, end_time, segments)
+    VALUES ($1, $2, '2026-10-01T16:00:00Z', '2026-10-01T18:00:00Z', '[{"start":"2026-10-01T16:00:00Z","end":"2026-10-01T18:00:00Z"}]') RETURNING id`,
+    [project, member.id])).rows[0].id;
+  await db.query("UPDATE public.project_time_entries SET approval_status = 'rejected', rejection_reason = 'Wrong project' WHERE id = $1", [rejected]);
+  await actAs(db, null);
+  await db.query("SELECT public.soft_delete_record('project_time_entries', $1, $2)", [rejected, member.id]);
+  await db.query("SELECT public.restore_record('project_time_entries', $1)", [rejected]);
+  await db.exec('RESET ROLE');
+  const stillRejected = (await db.query<{ approval_status: string; rejection_reason: string | null }>(
+    'SELECT approval_status, rejection_reason FROM public.project_time_entries WHERE id = $1', [rejected])).rows[0];
+  check('a rejected time entry comes back from Trash still rejected, with its reason',
+    stillRejected.approval_status === 'rejected' && stillRejected.rejection_reason === 'Wrong project', stillRejected);
+
+  // --- A primary client in Trash gives up the slot ----------------------------------
+  await db.exec('RESET ROLE');
+  const [oldClient, newClient] = (await db.query<{ id: string }>(
+    "INSERT INTO public.contacts (name, email) VALUES ('Old Client', 'old@client.example'), ('New Client', 'new@client.example') RETURNING id")).rows.map((r) => r.id);
+  await db.query("INSERT INTO public.project_contacts (project_id, contact_id, role, is_primary_client) VALUES ($1, $2, 'Client', true)", [project, oldClient]);
+  await actAs(db, OWNER_USER);
+  await db.query("SELECT public.soft_delete_record('contacts', $1)", [oldClient]);
+  const newPrimary = await attempt(db, "INSERT INTO public.project_contacts (project_id, contact_id, role, is_primary_client) VALUES ($1, $2, 'Client', true) RETURNING id", [project, newClient]);
+  check('a new primary client can be set while the old one is in Trash', !newPrimary.error, newPrimary.error);
+
+  // --- Converting a lead never makes a contact in Trash the client ------------------
+  await db.exec('RESET ROLE');
+  const goneContact = (await db.query<{ id: string }>("INSERT INTO public.contacts (name, email) VALUES ('Gone', 'gone@x.example') RETURNING id")).rows[0].id;
+  const convertible = (await db.query<{ id: string }>("INSERT INTO public.leads (name, contact_id) VALUES ('Sunrise Dental', $1) RETURNING id", [goneContact])).rows[0].id;
+  await actAs(db, null);
+  await db.query("SELECT public.soft_delete_record('contacts', $1)", [goneContact]);
+  const converted = (await db.query<{ r: { contact_id: string } }>("SELECT public.convert_lead($1, 'Sunrise Dental site', '#000000', '', NULL) AS r", [convertible])).rows[0].r;
+  check('converting a lead whose contact is in Trash makes a fresh client contact', converted.contact_id !== goneContact, converted);
+
+  // --- Audit rows leave out secrets ---------------------------------------------------
+  await db.exec('RESET ROLE');
+  const secret = (await db.query<{ id: string }>("INSERT INTO public.project_credentials (project_id, label, encrypted_data, iv) VALUES ($1, 'Hosting', 'cipher', 'nonce') RETURNING id", [project])).rows[0].id;
+  await actAs(db, OWNER_USER);
+  await db.query("SELECT public.soft_delete_record('project_credentials', $1)", [secret]);
+  await db.exec('RESET ROLE');
+  const secretAudit = (await db.query<{ snapshot: Record<string, unknown> }>('SELECT before_snapshot AS snapshot FROM public.api_audit_log WHERE entity_id = $1', [secret])).rows[0];
+  check('a Trash audit row leaves out credential secrets', !!secretAudit && !('encrypted_data' in secretAudit.snapshot) && !('iv' in secretAudit.snapshot) && secretAudit.snapshot.label === 'Hosting', secretAudit);
 
   await billing(db, { owner: owner.id, member: member.id });
 

@@ -2,6 +2,49 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { badRequest } from '@/lib/api/errors';
 import { accessAllowsProject, resolveMemberAccess } from '@/lib/api/access';
 
+/**
+ * The ids among `ids` whose task is live. Links (blockers, a time entry's
+ * tasks) keep pointing at a task in Trash so a restore brings them back;
+ * reads leave those out.
+ */
+export async function liveTaskIds(supabase: SupabaseClient, ids: string[]): Promise<Set<string>> {
+  const unique = [...new Set(ids)];
+  if (unique.length === 0) return new Set();
+  const { data, error } = await supabase.from('tasks').select('id').in('id', unique).is('deleted_at', null);
+  if (error) throw error;
+  return new Set((data || []).map((row: { id: string }) => row.id));
+}
+
+/** Entries with task_ids narrowed to live tasks (links to a task in Trash wait for its restore). */
+export async function withLiveTaskIds<T extends { task_ids?: string[] }>(supabase: SupabaseClient, entries: T[]): Promise<T[]> {
+  const live = await liveTaskIds(supabase, entries.flatMap((entry) => entry.task_ids ?? []));
+  return entries.map((entry) => (entry.task_ids ? { ...entry, task_ids: entry.task_ids.filter((id) => live.has(id)) } : entry));
+}
+
+/**
+ * Replaces an entry's task links with `taskIds`, keeping any link to a task in
+ * Trash: the person editing cannot see it, and restoring the task brings the
+ * link back.
+ */
+export async function replaceEntryTaskLinks(supabase: SupabaseClient, entryId: string, taskIds: string[]) {
+  const { data: links, error } = await supabase.from('time_entry_tasks').select('task_id').eq('time_entry_id', entryId);
+  if (error) throw error;
+  const linked = (links || []).map((row: { task_id: string }) => row.task_id);
+  const live = await liveTaskIds(supabase, linked);
+  const kept = linked.filter((id) => !live.has(id));
+  let removal = supabase.from('time_entry_tasks').delete().eq('time_entry_id', entryId);
+  if (kept.length) removal = removal.not('task_id', 'in', `(${kept.join(',')})`);
+  const { error: removeError } = await removal;
+  if (removeError) throw removeError;
+  const added = [...new Set(taskIds)].filter((id) => !kept.includes(id));
+  if (added.length > 0) {
+    const { error: linkError } = await supabase
+      .from('time_entry_tasks')
+      .insert(added.map((taskId) => ({ time_entry_id: entryId, task_id: taskId })));
+    if (linkError) throw linkError;
+  }
+}
+
 // Every task in the list must exist inside the given project. Used for time
 // entry task links, where cross-project references would corrupt billing
 // traceability.

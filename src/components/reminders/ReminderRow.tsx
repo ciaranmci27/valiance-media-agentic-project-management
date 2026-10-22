@@ -74,7 +74,7 @@ export function ReminderRow({ reminder, showContext = false, withinProjectId, va
       { label: 'Next Monday', icon: <CalendarDays size={14} />, onClick: () => snooze(nextMonday(new Date())) },
     ] : []),
     ...(reminder.remind_on ? [{ label: 'Remove the date', icon: <CalendarX size={14} />, onClick: () => void updateReminder(reminder.id, { remind_on: null }) }] : []),
-    ...(canDelete ? [{ label: 'Delete', icon: <Trash2 size={14} />, onClick: () => void deleteReminder(reminder.id), variant: 'danger' as const, divider: true }] : []),
+    ...(canDelete ? [{ label: 'Move to Trash', icon: <Trash2 size={14} />, onClick: () => void deleteReminder(reminder.id), variant: 'danger' as const, divider: true }] : []),
   ];
 
   // My Tasks rows: the page's one row anatomy (icon square, title over a

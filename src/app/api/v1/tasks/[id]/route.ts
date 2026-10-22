@@ -6,7 +6,7 @@ import { patchTask } from '@/lib/supabase/queries';
 import { logAudit } from '@/lib/api/audit';
 import { trashForApi } from '@/lib/api/trash';
 import { accessAllows, accessAllowsProject } from '@/lib/api/access';
-import { assertAssigneesCanOpenProject, assertBlockersInProject, assertGoalInProject } from '@/lib/api/task-guards';
+import { assertAssigneesCanOpenProject, assertBlockersInProject, assertGoalInProject, liveTaskIds } from '@/lib/api/task-guards';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 async function currentAssigneeIds(supabase: SupabaseClient, taskId: string): Promise<string[]> {
@@ -24,7 +24,10 @@ async function currentBlockerIds(supabase: SupabaseClient, taskId: string): Prom
     .select('blocked_by_task_id')
     .eq('task_id', taskId);
   if (error) throw error;
-  return (data || []).map((row: { blocked_by_task_id: string }) => row.blocked_by_task_id);
+  // A blocker in Trash blocks nothing, so a move does not carry it along.
+  const ids = (data || []).map((row: { blocked_by_task_id: string }) => row.blocked_by_task_id);
+  const live = await liveTaskIds(supabase, ids);
+  return ids.filter((blockerId) => live.has(blockerId));
 }
 
 export const GET = withApi(async ({ supabase, params }) => {

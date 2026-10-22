@@ -1,7 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { checkPortalPin, pinFailureResponse } from '@/lib/portal-pin';
-import { projectIsLive } from '@/lib/supabase/trash';
 
 export const dynamic = 'force-dynamic';
 
@@ -32,12 +31,13 @@ export async function POST(
   // Verify portal
   const { data: settings } = await supabase
     .from('portal_settings')
-    .select('id, project_id, enabled, pin, show_files')
+    .select('id, project_id, enabled, pin, show_files, project:projects!inner(id)')
     .eq('token', token)
+    // A project in Trash has no portal; it comes back when the project is restored.
+    .is('project.deleted_at', null)
     .maybeSingle();
 
-  // A project in Trash has no portal.
-  if (!settings || !settings.enabled || !(await projectIsLive(supabase, settings.project_id))) {
+  if (!settings || !settings.enabled) {
     return NextResponse.json({ error: 'Portal not found' }, { status: 404 });
   }
 

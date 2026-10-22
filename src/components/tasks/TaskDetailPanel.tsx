@@ -930,8 +930,8 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete, variant = 'pa
       <ConfirmDialog
         isOpen={!!deleteSubtaskTarget}
         onClose={() => setDeleteSubtaskTarget(null)}
-        onConfirm={() => {
-          if (deleteSubtaskTarget) deleteSubtask(task.id, deleteSubtaskTarget);
+        onConfirm={async () => {
+          if (deleteSubtaskTarget && await deleteSubtask(task.id, deleteSubtaskTarget)) toast('success', 'Subtask moved to Trash');
         }}
         title="Move subtask to Trash?"
         message="The subtask goes to Trash."
@@ -954,8 +954,8 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete, variant = 'pa
       <ConfirmDialog
         isOpen={!!deleteCommentTarget}
         onClose={() => setDeleteCommentTarget(null)}
-        onConfirm={() => {
-          if (deleteCommentTarget) deleteComment(task.id, deleteCommentTarget);
+        onConfirm={async () => {
+          if (deleteCommentTarget && await deleteComment(task.id, deleteCommentTarget)) toast('success', 'Comment moved to Trash');
         }}
         title="Move comment to Trash?"
         message="The comment goes to Trash."

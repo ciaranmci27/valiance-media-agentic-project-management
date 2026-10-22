@@ -272,12 +272,6 @@ export interface Task {
   updated_at: string;
 }
 
-/**
- * A next step that must not be forgotten, on a task, on a project, or on its
- * own. Shared (task or project) reminders are seen by anyone who can see that
- * task or project; standalone ones only by their owner. A task moved to done
- * closes its open reminders (closed_by_task) and reopens them if it moves back.
- */
 /** One record in Trash, as list_trash() returns it. */
 export interface TrashItem {
   record_type: string;
@@ -293,6 +287,12 @@ export interface TrashItem {
   blocker: string | null;
 }
 
+/**
+ * A next step that must not be forgotten, on a task, on a project, or on its
+ * own. Shared (task or project) reminders are seen by anyone who can see that
+ * task or project; standalone ones only by their owner. A task moved to done
+ * closes its open reminders (closed_by_task) and reopens them if it moves back.
+ */
 export interface Reminder {
   id: string;
   title: string;

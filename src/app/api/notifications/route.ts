@@ -120,7 +120,9 @@ async function buildVisibilityCheck(
       : accessAllows(access, 'projects.read_all');
   }
 
-  return (access, memberId) => accessAllowsEntity(service, access, memberId, entityType, entityId, 'app');
+  // A notice can be about something just moved to Trash ("Project ... was
+  // moved to Trash"), so it reaches whoever could open it before.
+  return (access, memberId) => accessAllowsEntity(service, access, memberId, entityType, entityId, 'app', { includeTrashed: true });
 }
 
 export async function POST(req: NextRequest) {

@@ -62,6 +62,7 @@ import { InvoicePdfIntegrityError } from '@/lib/invoice-pdf/resolveInvoicePdfBil
 import { DEFAULT_INVOICE_PDF_OPTIONS, type InvoicePdfData, type InvoicePdfTheme } from '@/lib/invoice-pdf/types';
 import { ensureLineItems, paidHourlyLineItemTotal, invoicedTotalsByItemType, unpaidHoursByEntry } from '@/lib/invoice-utils';
 import { resolveProjectHourlyRate } from '@/lib/supabase/queries';
+import { projectIsLive } from '@/lib/supabase/trash';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -163,9 +164,11 @@ async function getPrimaryClient(projectId: string): Promise<PrimaryClient | null
   const supabase = getServiceClient();
   const { data } = await supabase
     .from('project_contacts')
-    .select('contact_id, contact:contacts(id, name, email)')
+    .select('contact_id, contact:contacts!inner(id, name, email)')
     .eq('project_id', projectId)
     .eq('is_primary_client', true)
+    // A contact in Trash is no longer the client and gets nothing.
+    .is('contact.deleted_at', null)
     .limit(1)
     .maybeSingle();
 
@@ -422,9 +425,11 @@ async function getPrimaryContactForInvoicePdf(projectId: string): Promise<Contac
   const supabase = getServiceClient();
   const { data } = await supabase
     .from('project_contacts')
-    .select('contact:contacts(*)')
+    .select('contact:contacts!inner(*)')
     .eq('project_id', projectId)
     .eq('is_primary_client', true)
+    // A contact in Trash is no longer the one billed.
+    .is('contact.deleted_at', null)
     .limit(1)
     .maybeSingle();
   const contact = data?.contact;
@@ -1299,13 +1304,16 @@ export async function approveCommunication(
   const supabase = getServiceClient();
   const { data: row } = await supabase
     .from('client_communications')
-    .select('id, project_id, contact_id, notification_type, status, subject, rendered_html, rendered_text, slot_overrides, metadata, recipients, contact:contacts(email)')
+    .select('id, project_id, contact_id, notification_type, status, subject, rendered_html, rendered_text, slot_overrides, metadata, recipients, contact:contacts(email, deleted_at)')
     .eq('id', commId)
     .maybeSingle();
   if (!row) return { success: false, error: 'Communication not found' };
   if (row.status !== 'pending') return { success: false, error: 'Communication is not pending' };
+  // Nothing goes out for a project in Trash, or to a contact in Trash.
+  if (!(await projectIsLive(supabase, row.project_id))) return { success: false, error: 'Project not found' };
 
   const contact = row.contact as any;
+  if (contact?.deleted_at) return { success: false, error: 'The client contact is in Trash' };
   if (!contact?.email) return { success: false, error: 'Contact has no email address' };
 
   let subject = row.subject || '';

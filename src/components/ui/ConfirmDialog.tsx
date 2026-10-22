@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { AlertTriangle, Trash2 } from 'lucide-react';
 import { Button } from './Button';
 
@@ -41,7 +41,34 @@ export function ConfirmDialog({
   doubleConfirmLabel,
 }: ConfirmDialogProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
   const [step, setStep] = useState(1);
+
+  // Focus moves into the dialog on open (Cancel, the safe choice) and goes
+  // back to whatever opened it on close.
+  useEffect(() => {
+    if (!isOpen) return;
+    const opener = document.activeElement as HTMLElement | null;
+    dialogRef.current?.querySelector<HTMLElement>('button')?.focus();
+    return () => { opener?.focus?.(); };
+  }, [isOpen]);
+
+  // Tab and Shift+Tab stay inside the dialog while it is open.
+  const trapTab = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== 'Tab' || !dialogRef.current) return;
+    const buttons = [...dialogRef.current.querySelectorAll<HTMLElement>('button:not([disabled])')];
+    if (buttons.length === 0) return;
+    const first = buttons[0];
+    const last = buttons[buttons.length - 1];
+    if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  };
 
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
@@ -86,9 +113,11 @@ export function ConfirmDialog({
       <div className="absolute inset-0 bg-black/50 animate-fadeIn" />
 
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
-        aria-labelledby="confirm-dialog-title"
+        aria-labelledby={titleId}
+        onKeyDown={trapTab}
         className="relative w-full max-w-sm bg-surface-raised border border-white/10 rounded-xl shadow-[0_16px_48px_-12px_rgba(0,0,0,0.7)] transform animate-scaleIn">
         <div className="p-6">
           <div className={`w-12 h-12 rounded-full flex items-center justify-center mb-4 ${
@@ -99,7 +128,7 @@ export function ConfirmDialog({
               : <AlertTriangle size={24} aria-hidden="true" className={variant === 'danger' ? 'text-red-400' : 'text-amber-400'} />}
           </div>
 
-          <h3 id="confirm-dialog-title" className="text-lg font-semibold text-white mb-2">
+          <h3 id={titleId} className="text-lg font-semibold text-white mb-2">
             {isStep2 ? doubleConfirmTitle : title}
           </h3>
           <p className="text-sm text-zinc-400 leading-relaxed">
@@ -107,7 +136,7 @@ export function ConfirmDialog({
           </p>
           {trash && !isStep2 && (
             <p className="mt-2 text-sm text-zinc-400 leading-relaxed">
-              You can restore it any time from Settings, Trash.
+              You can restore from Settings, Trash any time.
             </p>
           )}
         </div>

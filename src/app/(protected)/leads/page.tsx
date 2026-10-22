@@ -105,7 +105,7 @@ export default function LeadsPage() {
     return [
       { label: 'Edit', icon: <Edit size={14} />, onClick: () => handleEdit(l) },
       ...(canConvert ? [{ label: 'Convert', icon: <ArrowRightCircle size={14} />, variant: 'success' as const, onClick: () => setConvertingLead(l) }] : []),
-      { label: 'Delete', icon: <Trash2 size={14} />, variant: 'danger' as const, onClick: () => setDeletingLeadId(l.id) },
+      { label: 'Move to Trash', icon: <Trash2 size={14} />, variant: 'danger' as const, onClick: () => setDeletingLeadId(l.id) },
     ];
   };
 

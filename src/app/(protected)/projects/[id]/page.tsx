@@ -316,9 +316,10 @@ export default function ProjectDetailPage() {
     if (failedIds.length === 0) {
       toast('success', verb === 'Deleted' ? `Moved ${count(saved)} to Trash` : `${verb} ${count(saved)}`);
     } else if (saved === 0) {
-      toast('error', `Couldn't ${verb === 'Deleted' ? 'delete' : 'update'} ${count(failedIds.length)}`);
+      toast('error', verb === 'Deleted' ? `Couldn't move ${count(failedIds.length)} to Trash` : `Couldn't update ${count(failedIds.length)}`);
     } else {
-      toast('error', `${verb} ${count(saved)}. ${count(failedIds.length)} failed and ${failedIds.length === 1 ? 'is' : 'are'} still selected.`);
+      const done = verb === 'Deleted' ? `Moved ${count(saved)} to Trash` : `${verb} ${count(saved)}`;
+      toast('error', `${done}. ${count(failedIds.length)} failed and ${failedIds.length === 1 ? 'is' : 'are'} still selected.`);
     }
   };
 

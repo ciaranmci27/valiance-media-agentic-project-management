@@ -6,7 +6,7 @@ import { insertTask } from '@/lib/supabase/queries';
 import { logAudit } from '@/lib/api/audit';
 import { accessAllows, accessAllowsProject } from '@/lib/api/access';
 import { forbidden, notFound } from '@/lib/api/errors';
-import { assertAssigneesCanOpenProject, assertBlockersInProject, assertGoalInProject } from '@/lib/api/task-guards';
+import { assertAssigneesCanOpenProject, assertBlockersInProject, assertGoalInProject, liveTaskIds } from '@/lib/api/task-guards';
 import { postgrestList, trashedProjectIds } from '@/lib/supabase/trash';
 
 export const GET = withApi(async ({ supabase, searchParams, access }) => {
@@ -63,6 +63,9 @@ export const GET = withApi(async ({ supabase, searchParams, access }) => {
 
   if (error) throw error;
 
+  // A blocker in Trash blocks nothing (its dependency row waits for a restore).
+  const liveBlockers = await liveTaskIds(supabase, (data || []).flatMap((t: { task_dependencies?: { blocked_by_task_id: string }[] | null }) =>
+    (t.task_dependencies || []).map((d) => d.blocked_by_task_id)));
   const tasks = (data || []).map((t: any) => ({
     ...t,
     assignee_ids: (t.task_assignees || []).map((ta: any) => ta.member_id),
@@ -71,7 +74,7 @@ export const GET = withApi(async ({ supabase, searchParams, access }) => {
       new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
     ),
     acceptance_criteria: (t.criteria || []).sort((a: any, b: any) => a.sort_order - b.sort_order),
-    blocked_by_ids: (t.task_dependencies || []).map((d: any) => d.blocked_by_task_id),
+    blocked_by_ids: (t.task_dependencies || []).map((d: any) => d.blocked_by_task_id).filter((id: string) => liveBlockers.has(id)),
     criteria: undefined,
     task_dependencies: undefined,
     task_assignees: undefined,

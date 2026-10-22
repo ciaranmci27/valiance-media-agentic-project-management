@@ -435,11 +435,8 @@ export function PortalUpdatesPanel({ projectId, isAdding, onAddingChange: setIsA
     setIsAdding(false);
   };
 
-  const executeDelete = () => {
-    if (deleteTarget) {
-      deletePortalUpdate(deleteTarget);
-      toast('success', 'Update moved to Trash');
-    }
+  const executeDelete = async () => {
+    if (deleteTarget && await deletePortalUpdate(deleteTarget)) toast('success', 'Update moved to Trash');
   };
 
   const renderAttachFileButton = (

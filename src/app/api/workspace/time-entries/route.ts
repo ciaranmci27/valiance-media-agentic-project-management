@@ -4,6 +4,7 @@ import { accessAllows, accessAllowsProject, requireSessionAccess, sanitizeTimeEn
 import { fetchMemberBillingMultiplier, resolveProjectHourlyRate } from '@/lib/supabase/queries';
 import { APPROVED_ENTRY_LOCKED_MESSAGE, lockedApprovedFields } from '@/lib/time-entry-lock';
 import { moveToTrash, postgrestList, TRASH_ERROR_STATUS, trashedProjectIds, TrashError } from '@/lib/supabase/trash';
+import { replaceEntryTaskLinks, withLiveTaskIds } from '@/lib/api/task-guards';
 
 type EntryPatch = {
   member_id?: string;
@@ -31,18 +32,6 @@ async function validateTaskLinks(
   return null;
 }
 
-// Replace the full linked-task list for an entry.
-async function replaceTaskLinks(
-  service: { from: (table: string) => any },
-  entryId: string,
-  taskIds: string[],
-): Promise<void> {
-  await service.from('time_entry_tasks').delete().eq('time_entry_id', entryId);
-  const uniqueIds = [...new Set(taskIds)];
-  if (uniqueIds.length > 0) {
-    await service.from('time_entry_tasks').insert(uniqueIds.map((taskId) => ({ time_entry_id: entryId, task_id: taskId })));
-  }
-}
 
 function withTaskIds<T extends Record<string, unknown>>(row: T): T & { task_ids: string[] } {
   const { time_entry_tasks, ...entry } = row as any;
@@ -117,8 +106,10 @@ export async function GET(request: Request) {
   } catch (error) {
     return responseError(error instanceof Error ? error.message : 'Failed to load time entries', 500);
   }
+  // Links to tasks in Trash wait for their restore; they are not shown.
+  const entries = await withLiveTaskIds(service, data.map((entry) => withTaskIds(entry)));
   return NextResponse.json({
-    data: data.map((entry) => sanitizeTimeEntryForAccess(withTaskIds(entry), access)),
+    data: entries.map((entry) => sanitizeTimeEntryForAccess(entry, access)),
   });
 }
 
@@ -201,7 +192,7 @@ export async function POST(request: Request) {
   }
   if (result.error) return responseError(result.error.message, 500);
   if (taskIds.length > 0) {
-    await replaceTaskLinks(service, result.data.id, taskIds);
+    await replaceEntryTaskLinks(service, result.data.id, taskIds);
   }
   return NextResponse.json({ data: sanitizeTimeEntryForAccess({ ...result.data, task_ids: [...new Set(taskIds)] }, access) }, { status: 201 });
 }
@@ -296,10 +287,11 @@ export async function PATCH(request: Request) {
   }
   if (result.error) return responseError(result.error.message, 500);
   if (taskIds !== undefined) {
-    await replaceTaskLinks(service, body.id, taskIds);
+    await replaceEntryTaskLinks(service, body.id, taskIds);
     return NextResponse.json({ data: sanitizeTimeEntryForAccess({ ...withTaskIds(result.data), task_ids: [...new Set(taskIds)] }, access) });
   }
-  return NextResponse.json({ data: sanitizeTimeEntryForAccess(withTaskIds(result.data), access) });
+  const [entry] = await withLiveTaskIds(service, [withTaskIds(result.data)]);
+  return NextResponse.json({ data: sanitizeTimeEntryForAccess(entry, access) });
 }
 
 export async function DELETE(request: Request) {

@@ -1817,7 +1817,7 @@ async function assertProjectLive(supabase: SupabaseClient, projectId: string | n
   if (!projectId) return;
   const { data, error } = await supabase.from('projects').select('id').eq('id', projectId).is('deleted_at', null).maybeSingle();
   if (error) throw error;
-  if (!data) throw new Error('Project not found');
+  if (!data) throw notFound('Project');
 }
 
 export async function approveTaskSuggestion(

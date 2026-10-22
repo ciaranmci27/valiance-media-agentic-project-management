@@ -8,7 +8,7 @@ import { NumberInput } from '@/components/ui/inputs/NumberInput';
 import { Button } from '@/components/ui/Button';
 import { toast } from '@/components/ui/Toast';
 import type { ProjectHourlyRate } from '@/lib/types';
-import { moveToTrash } from '@/lib/supabase/trash';
+import { moveToTrash, TrashError } from '@/lib/supabase/trash';
 
 interface HourlyRateScheduleProps {
   projectId: string;
@@ -126,8 +126,8 @@ export function HourlyRateSchedule({
     }
     try {
       await moveToTrash(supabase, 'project_hourly_rates', id);
-    } catch {
-      toast('error', 'Failed to remove scheduled rate');
+    } catch (err) {
+      toast('error', err instanceof TrashError && err.reason !== 'invalid' ? err.message : 'Failed to remove scheduled rate');
       return;
     }
     toast('success', 'Scheduled rate moved to Trash');

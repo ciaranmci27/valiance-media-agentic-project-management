@@ -78,6 +78,7 @@ function TrashPageContent() {
   const initialGroup = GROUPS.some((g) => g.key === searchParams.get('group')) ? (searchParams.get('group') as Group) : 'all';
   const [group, setGroup] = useState<Group>(initialGroup);
   const [items, setItems] = useState<TrashItem[] | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [restoring, setRestoring] = useState<string | null>(null);
   const [query, setQuery] = useState('');
 
@@ -88,8 +89,10 @@ function TrashPageContent() {
   const reload = useCallback(async () => {
     try {
       setItems(await loadTrashRef.current());
+      setLoadFailed(false);
     } catch {
-      setItems([]);
+      // Never show "Trash is empty" for a Trash that failed to load.
+      setLoadFailed(true);
       toast('error', 'Could not load Trash');
     }
   }, []);
@@ -100,10 +103,10 @@ function TrashPageContent() {
     setRestoring(item.id);
     const ok = await restoreRecord(item.record_type, item.id);
     setRestoring(null);
-    if (ok) {
-      toast('success', `${TYPES[item.record_type]?.label ?? 'Item'} restored`);
-      await reload();
-    }
+    if (ok) toast('success', `${TYPES[item.record_type]?.label ?? 'Item'} restored`);
+    // A failed restore may mean the list is stale (restored elsewhere, or a
+    // new blocker), so it reloads either way.
+    await reload();
   };
 
   const search = query.trim().toLowerCase();
@@ -152,8 +155,15 @@ function TrashPageContent() {
           )}
         />
 
-        {items === null ? (
-          <div className="glass-card rounded-xl divide-y divide-white/[0.06]" aria-busy="true" aria-label="Loading Trash">
+        {loadFailed && items === null ? (
+          <EmptyCard
+            icon={<Trash2 />}
+            title="Trash could not load"
+            description="Nothing has been lost. Check your connection and try again."
+            action={<Button size="sm" variant="secondary" icon={<RotateCcw size={14} />} onClick={() => void reload()}>Retry</Button>}
+          />
+        ) : items === null ? (
+          <div className="glass-card rounded-xl divide-y divide-white/[0.06]" role="status" aria-busy="true" aria-label="Loading Trash">
             {[0, 1, 2, 3].map((n) => (
               <div key={n} className="flex items-center gap-3 px-5 py-4">
                 <Bone className="w-8 h-8 rounded-lg" />
@@ -180,7 +190,9 @@ function TrashPageContent() {
                 {visible.map((item) => {
                   const type = TYPES[item.record_type] ?? { label: 'Item', icon: FileText };
                   const Icon = type.icon;
-                  const parentProject = item.blocker && item.project_id ? trashedProjects.get(item.project_id) : undefined;
+                  // Offer the project's restore only when the project is what blocks it.
+                  const parentProject = item.blocker?.startsWith('Restore the project') && item.project_id
+                    ? trashedProjects.get(item.project_id) : undefined;
                   return (
                     <li key={`${item.record_type}:${item.id}`} className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center">
                       <div className="flex items-start gap-3 min-w-0 flex-1">
@@ -204,9 +216,8 @@ function TrashPageContent() {
                             icon={<RotateCcw size={14} />}
                             disabled={restoring !== null}
                             onClick={() => void restore(parentProject)}
-                            aria-label={`Restore project ${parentProject.label}`}
                           >
-                            Restore project
+                            Restore project<span className="sr-only"> {parentProject.label}</span>
                           </Button>
                         ) : (
                           <Button
@@ -215,9 +226,9 @@ function TrashPageContent() {
                             icon={<RotateCcw size={14} />}
                             disabled={restoring !== null || !!item.blocker}
                             onClick={() => void restore(item)}
-                            aria-label={`Restore ${type.label.toLowerCase()} ${item.label}`}
                           >
                             {restoring === item.id ? 'Restoring...' : 'Restore'}
+                            <span className="sr-only"> {type.label.toLowerCase()} {item.label}</span>
                           </Button>
                         )}
                       </div>

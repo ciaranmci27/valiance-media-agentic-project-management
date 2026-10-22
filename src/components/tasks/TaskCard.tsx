@@ -86,7 +86,7 @@ export function TaskCard({ task, onView, onEdit, onDelete, onMove }: TaskCardPro
     { label: 'Copy link', icon: <Link2 size={14} />, onClick: () => copyText(taskUrl(task), 'Task link') },
     { label: 'Copy ID', icon: <Hash size={14} />, onClick: () => copyText(task.id, 'Task ID') },
     ...(canDelete && onDelete
-      ? [{ label: 'Delete', icon: <Trash2 size={14} />, onClick: () => onDelete(task.id), variant: 'danger' as const, divider: true }]
+      ? [{ label: 'Move to Trash', icon: <Trash2 size={14} />, onClick: () => onDelete(task.id), variant: 'danger' as const, divider: true }]
       : []),
   ];
 

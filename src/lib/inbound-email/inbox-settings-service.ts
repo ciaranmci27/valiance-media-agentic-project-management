@@ -299,7 +299,10 @@ async function projectContactAddresses(service: SupabaseClient, projectId: strin
     many<{ id: string; name: string | null }>(service.from('contacts').select('id, name').in('id', ids).is('deleted_at', null)),
   ]);
   const nameOf = new Map(contacts.map((contact) => [contact.id, contact.name?.trim() || '']));
-  return emails.map((row) => ({ address: row.email, contact_id: row.contact_id, contact_name: nameOf.get(row.contact_id) ?? '' }));
+  // A contact in Trash no longer routes mail here, so its addresses are not listed.
+  return emails
+    .filter((row) => nameOf.has(row.contact_id))
+    .map((row) => ({ address: row.email, contact_id: row.contact_id, contact_name: nameOf.get(row.contact_id) ?? '' }));
 }
 
 function presentSender(row: Row): ClientSenderAddress {

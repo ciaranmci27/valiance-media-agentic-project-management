@@ -36,10 +36,9 @@ export default function ContactsPage() {
     setIsFormOpen(true);
   };
 
-  const executeDelete = () => {
+  const executeDelete = async () => {
     if (!deletingContactId) return;
-    deleteContact(deletingContactId);
-    toast('success', 'Contact moved to Trash');
+    if (await deleteContact(deletingContactId)) toast('success', 'Contact moved to Trash');
   };
 
   const searchLower = filters.search.toLowerCase();
@@ -62,7 +61,7 @@ export default function ContactsPage() {
 
   const buildActions = (c: Contact): RowAction[] => [
     { label: 'Edit', icon: <Edit size={14} />, onClick: () => handleEdit(c) },
-    { label: 'Delete', icon: <Trash2 size={14} />, variant: 'danger', onClick: () => setDeletingContactId(c.id) },
+    { label: 'Move to Trash', icon: <Trash2 size={14} />, variant: 'danger', onClick: () => setDeletingContactId(c.id) },
   ];
 
   const mobileCard = (c: Contact) => (

@@ -4,7 +4,6 @@ import { demoPortalSettings, demoEntityFiles, demoProjects } from '@/lib/demo-da
 import { siteConfig } from '@/site-config';
 import { recordPortalEvent, getOrCreateSessionId } from '@/lib/portal-analytics';
 import { checkPortalPin, pinFailureResponse } from '@/lib/portal-pin';
-import { projectIsLive } from '@/lib/supabase/trash';
 
 function getServiceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -33,8 +32,10 @@ export async function GET(
   // Find portal settings by token
   const { data: settings, error: settingsError } = await supabase
     .from('portal_settings')
-    .select('*')
+    .select('*, project:projects!inner(id)')
     .eq('token', token)
+    // A project in Trash has no portal; it comes back when the project is restored.
+    .is('project.deleted_at', null)
     .maybeSingle();
 
   if (settingsError || !settings) {
@@ -43,11 +44,6 @@ export async function GET(
 
   if (!settings.enabled) {
     return NextResponse.json({ error: 'Portal is disabled' }, { status: 404 });
-  }
-
-  // A project in Trash has no portal.
-  if (!(await projectIsLive(supabase, settings.project_id))) {
-    return NextResponse.json({ error: 'Portal not found' }, { status: 404 });
   }
 
   const pinCheck = await checkPortalPin({ supabase, request, token, settings });

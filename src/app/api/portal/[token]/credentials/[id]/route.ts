@@ -5,7 +5,6 @@ import { encrypt, decrypt, isEncryptionConfigured } from '@/lib/api/encryption';
 import { isSensitiveKey } from '@/lib/credential-fields';
 import type { CredentialPayload } from '@/lib/types';
 import { checkPortalPin, pinFailureResponse } from '@/lib/portal-pin';
-import { projectIsLive } from '@/lib/supabase/trash';
 
 function getServiceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -32,12 +31,13 @@ export async function GET(
 
   const { data: settings } = await supabase
     .from('portal_settings')
-    .select('id, project_id, enabled, pin, show_credentials')
+    .select('id, project_id, enabled, pin, show_credentials, project:projects!inner(id)')
     .eq('token', token)
+    // A project in Trash has no portal; it comes back when the project is restored.
+    .is('project.deleted_at', null)
     .maybeSingle();
 
-  // A project in Trash has no portal.
-  if (!settings || !settings.enabled || !settings.show_credentials || !(await projectIsLive(supabase, settings.project_id))) {
+  if (!settings || !settings.enabled || !settings.show_credentials) {
     return NextResponse.json({ error: 'Portal not found' }, { status: 404 });
   }
 
@@ -89,11 +89,13 @@ export async function PATCH(
   // Verify portal
   const { data: settings } = await supabase
     .from('portal_settings')
-    .select('id, project_id, enabled, pin, show_credentials')
+    .select('id, project_id, enabled, pin, show_credentials, project:projects!inner(id)')
     .eq('token', token)
+    // A project in Trash has no portal; it comes back when the project is restored.
+    .is('project.deleted_at', null)
     .maybeSingle();
 
-  if (!settings || !settings.enabled || !(await projectIsLive(supabase, settings.project_id))) {
+  if (!settings || !settings.enabled) {
     return NextResponse.json({ error: 'Portal not found' }, { status: 404 });
   }
 

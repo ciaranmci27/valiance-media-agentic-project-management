@@ -508,15 +508,27 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
     touchedShareLinesRef.current.clear();
   };
 
-  const openAddForm = () => {
-    resetForm();
-    setEditingId(null);
+  // Fills the number field with the next free invoice number. The local guess
+  // shows at once; the database's answer replaces it unless someone already
+  // typed over it, since numbers on invoices in Trash stay taken and only the
+  // database can see those.
+  const suggestInvoiceNumber = () => {
     const maxNum = invoices.reduce((max, inv) => {
       const match = inv.invoice_number.match(/(\d+)$/);
       return match ? Math.max(max, parseInt(match[1], 10)) : max;
     }, 0);
-    const nextNum = String(maxNum + 1).padStart(3, '0');
-    setFormNumber(`INV-${nextNum}`);
+    const localGuess = `INV-${String(maxNum + 1).padStart(3, '0')}`;
+    setFormNumber(localGuess);
+    if (isDemoMode) return;
+    void retainerClient.rpc('suggest_project_invoice_number', { p_project_id: projectId }).then(({ data }) => {
+      if (typeof data === 'string') setFormNumber((current) => (current === localGuess ? data : current));
+    });
+  };
+
+  const openAddForm = () => {
+    resetForm();
+    setEditingId(null);
+    suggestInvoiceNumber();
     setFormDate(todayLocalDate);
     setIsAdding(true);
   };
@@ -1004,12 +1016,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
   const startDuplicating = (invoice: (typeof invoices)[number]) => {
     resetForm();
     setEditingId(null);
-    const maxNum = invoices.reduce((max, inv) => {
-      const match = inv.invoice_number.match(/(\d+)$/);
-      return match ? Math.max(max, parseInt(match[1], 10)) : max;
-    }, 0);
-    const nextNum = String(maxNum + 1).padStart(3, '0');
-    setFormNumber(`INV-${nextNum}`);
+    suggestInvoiceNumber();
     setFormDate(todayLocalDate);
     setFormDueDate('');
     setFormPaidDate('');
@@ -1120,11 +1127,8 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
     setIsAdding(false);
   };
 
-  const executeDelete = () => {
-    if (deleteTarget) {
-      deleteInvoice(deleteTarget);
-      toast('success', 'Invoice moved to Trash');
-    }
+  const executeDelete = async () => {
+    if (deleteTarget && await deleteInvoice(deleteTarget)) toast('success', 'Invoice moved to Trash');
   };
 
   const reviewTrackedLineItem = (lineItem: InvoiceLineItem) => {
@@ -1859,7 +1863,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
             : []),
           { label: 'Edit', icon: <Edit2 size={14} />, onClick: () => startEditing(invoice), divider: true },
           { label: 'Duplicate', icon: <Copy size={14} />, onClick: () => startDuplicating(invoice) },
-          { label: 'Delete', icon: <Trash2 size={14} />, onClick: () => setDeleteTarget(invoice.id), variant: 'danger' as const, divider: true },
+          { label: 'Move to Trash', icon: <Trash2 size={14} />, onClick: () => setDeleteTarget(invoice.id), variant: 'danger' as const, divider: true },
         ]}
       />
     </div>

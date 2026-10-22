@@ -43,8 +43,10 @@ export async function PATCH(
   const service = getServiceClient();
   const { data: row } = await service
     .from('client_communications')
-    .select('project_id, notification_type')
+    .select('project_id, notification_type, project:projects!inner(id)')
     .eq('id', commId)
+    // A project in Trash takes its pending communications with it.
+    .is('project.deleted_at', null)
     .maybeSingle();
   if (!row || row.project_id !== projectId) {
     return NextResponse.json({ error: 'Communication not found' }, { status: 404 });
