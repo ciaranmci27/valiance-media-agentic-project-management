@@ -13,16 +13,14 @@ import {
   Square,
   Timer,
   CircleDollarSign,
-  CalendarDays,
   Users,
 } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { toast } from '@/components/ui/Toast';
-import { KpiRow, KpiTile } from '@/components/ui/KpiTile';
 import { Button } from '@/components/ui/Button';
-import { EmptyCard, GroupLabel, NoMatches, RailCard, RailLayout, SubNav, TabToolbar } from '@/components/projects/TabLayout';
-import { Avatar, AvatarGroup } from '@/components/ui/Avatar';
+import { EmptyCard, GroupLabel, NoMatches, RailCard, RailLayout, Stat, SubNav, TabToolbar } from '@/components/projects/TabLayout';
+import { Avatar } from '@/components/ui/Avatar';
 import { Select } from '@/components/ui/inputs/Select';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Tooltip } from '@/components/ui/Tooltip';
@@ -34,7 +32,8 @@ import { DateInput } from '@/components/ui/inputs/DateInput';
 import { NumberInput } from '@/components/ui/inputs/NumberInput';
 import { TimeEntry, TimeSegment } from '@/lib/types';
 import { siteConfig } from '@/site-config';
-import { toLocalTimeString, toLocalDateString } from '@/lib/date-utils';
+import { toLocalTimeString, toLocalDateString, toLocalDateKey } from '@/lib/date-utils';
+import { invoiceAmountReceived } from '@/lib/invoice-payments';
 import {
   getWorkedHours,
   getWorkedMs,
@@ -331,11 +330,6 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
   // ── Computed ──
   const completedEntries = useMemo(() => entries.filter((e) => e.end_time !== null), [entries]);
 
-  const totalHours = useMemo(
-    () => completedEntries.reduce((sum, e) => sum + getWorkedHours(e), 0),
-    [completedEntries],
-  );
-
   // ── Resume after stop ──
   // Your own most recent completed entry can be reopened while its stop is
   // still fresh, the undo for an accidental Stop click. Freshness reuses the
@@ -367,30 +361,6 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
     if (reopened) toast('success', 'Timer resumed');
   };
 
-  const thisWeekHours = useMemo(() => {
-    const now = new Date();
-    const day = now.getDay();
-    const monday = new Date(now);
-    monday.setDate(now.getDate() - ((day + 6) % 7));
-    monday.setHours(0, 0, 0, 0);
-    const sunday = new Date(monday);
-    sunday.setDate(monday.getDate() + 6);
-    sunday.setHours(23, 59, 59, 999);
-    return completedEntries
-      .filter((e) => {
-        const d = new Date(e.start_time);
-        return d >= monday && d <= sunday;
-      })
-      .reduce((sum, e) => sum + getWorkedHours(e), 0);
-  }, [completedEntries]);
-
-  const uniqueMembers = useMemo(() => {
-    const ids = new Set(entries.map((e) => e.member_id));
-    return Array.from(ids)
-      .map((id) => team.find((m) => m.id === id))
-      .filter(Boolean) as typeof team;
-  }, [entries, team]);
-
   const groupedByDate = useMemo(() => {
     const completed = [...completedEntries].sort(
       (a, b) => new Date(b.start_time).getTime() - new Date(a.start_time).getTime(),
@@ -404,7 +374,7 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
     return groups;
   }, [completedEntries, tz]);
 
-  // When the tab opened: the anchor for the 7-day sparkline (render stays pure).
+  // When the tab opened: the anchor for "this week" and "this month" (render stays pure).
   const [openedAt] = useState(() => Date.now());
   const [openDescriptions, setOpenDescriptions] = useState<Set<string>>(() => new Set());
   const [sessionQuery, setSessionQuery] = useState('');
@@ -820,8 +790,8 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
 
   const dateGroups = Object.entries(groupedByDate);
 
-  // Toolbar search and period, applied to the sessions list only (the tiles
-  // always show the whole project).
+  // Toolbar search and period: they pick the sessions listed, and the Totals
+  // card adds up the same ones.
   const sessionRangeStart = (() => {
     if (sessionRange === 'all') return 0;
     const start = new Date(openedAt);
@@ -962,19 +932,6 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
       })}
     </ul>
   );
-
-  // ── Tab summary ──
-  // Daily hours for the last 7 days (oldest first), for the This week sparkline.
-  const sparkKeys = Array.from({ length: 7 }, (_, i) =>
-    getDateKey(new Date(openedAt - (6 - i) * 86_400_000).toISOString(), tz));
-  const lastSevenDays = sparkKeys.map(() => 0);
-  for (const entry of completedEntries) {
-    const index = sparkKeys.indexOf(getDateKey(entry.start_time, tz));
-    if (index >= 0) lastSevenDays[index] += getWorkedHours(entry);
-  }
-  const unpaidTimeTotal = canSeeClientBilling && isHourly
-    ? Array.from(paymentBreakdownMap.values()).reduce((sum, b) => sum + b.unpaidAmount, 0)
-    : null;
 
   const workTypeOptions = [
     { value: 'client', label: 'Client work' },
@@ -1301,6 +1258,68 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
     </RailCard>
   );
 
+  // The tab's totals sit in the rail under the tracker and follow the toolbar:
+  // they add up exactly the sessions the list shows (period and search).
+  const shownEntries = visibleDateGroups.flatMap(([, list]) => list);
+  const shownHours = shownEntries.reduce((sum, entry) => sum + getWorkedHours(entry), 0);
+  const shownPeople = new Set(shownEntries.map((entry) => entry.member_id)).size;
+  // What the shown client time is worth, and how much of it is still owed by
+  // the paid-first rule the rows use (payments cover the oldest hours first).
+  // Internal and unapproved time is not billable, so it counts in hours only.
+  // Received is different on purpose: money that came in during the period,
+  // by payment date, whichever hours it paid for, so a payment this month
+  // shows this month even when it settled last month's work.
+  const rangeStartKey = sessionRange === 'all' ? '' : toLocalDateKey(new Date(sessionRangeStart).toISOString(), tz);
+  const shownMoney = canSeeClientBilling && isHourly
+    ? {
+        ...shownEntries.reduce((sum, entry) => {
+          const breakdown = paymentBreakdownMap.get(entry.id);
+          if (breakdown) {
+            sum.billable += breakdown.paidAmount + breakdown.unpaidAmount;
+            sum.unpaid += breakdown.unpaidAmount;
+          }
+          return sum;
+        }, { billable: 0, unpaid: 0 }),
+        received: invoices
+          .filter((invoice) => invoice.status !== 'cancelled')
+          .flatMap((invoice) => invoiceAmountReceived(invoice, project?.tax_rate))
+          .filter((part) => part.date >= rangeStartKey)
+          .reduce((sum, part) => sum + part.amount, 0),
+      }
+    : null;
+  const money = (value: number) => `$${formatRate(Math.round(value))}`;
+  const rangeLabel = sessionRange === 'week' ? 'This week' : sessionRange === 'month' ? 'This month' : 'All time';
+  const totalsCard = completedEntries.length > 0 && (
+    <RailCard
+      title="Totals"
+      icon={<Clock size={16} className="text-zinc-400" aria-hidden="true" />}
+      description={sessionNeedle ? `${rangeLabel}, matching your search` : rangeLabel}
+    >
+      <div className="grid grid-cols-2 gap-4">
+        <Stat label="Hours" value={formatHM(shownHours)} />
+        {shownMoney ? (
+          <>
+            <Stat label="Billable" value={money(shownMoney.billable)} />
+            <Stat label="Received" value={money(shownMoney.received)} />
+            <Stat label="Unpaid" value={money(shownMoney.unpaid)} tone={shownMoney.unpaid > 0 ? 'warn' : undefined} />
+          </>
+        ) : (
+          <Stat label={shownEntries.length === 1 ? 'Session' : 'Sessions'} value={String(shownEntries.length)} />
+        )}
+      </div>
+      <p className="mt-3 text-xs text-zinc-500">
+        {shownEntries.length} {shownEntries.length === 1 ? 'session' : 'sessions'} by {shownPeople} {shownPeople === 1 ? 'person' : 'people'}
+        {shownMoney && '.'}
+      </p>
+      {shownMoney && (
+        <p className="mt-1 text-xs text-zinc-500">
+          Received is payments that arrived {sessionRange === 'week' ? 'this week' : sessionRange === 'month' ? 'this month' : 'so far'}
+          {sessionNeedle ? ' (the search does not narrow it)' : ''}. Unpaid is these hours not paid for yet, invoiced or not.
+        </p>
+      )}
+    </RailCard>
+  );
+
   // Teammates' live timers: read-only, in both modes.
   const teammatesCard = teammateTimers.length > 0 && (
     <RailCard title="Also tracking" icon={<Users size={16} className="text-zinc-400" aria-hidden="true" />}>
@@ -1575,46 +1594,7 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
         />
       )}
 
-      {completedEntries.length > 0 && (
-        <KpiRow className={`mb-6 ${unpaidTimeTotal !== null ? '' : 'lg:grid-cols-3'}`}>
-          <KpiTile
-            label="This week"
-            value={`${thisWeekHours.toFixed(1)}h`}
-            icon={CalendarDays}
-            context="Monday to today"
-            spark={lastSevenDays}
-          />
-          <KpiTile
-            label="All time"
-            value={`${totalHours.toFixed(1)}h`}
-            icon={Clock}
-            context={`${completedEntries.length} ${completedEntries.length === 1 ? 'session' : 'sessions'}`}
-          />
-          <KpiTile
-            label="Contributors"
-            value={uniqueMembers.length}
-            icon={Users}
-            context={
-              <AvatarGroup
-                users={uniqueMembers.map((m) => ({ id: m.id, name: m.name, avatar: m.avatar }))}
-                max={6}
-                size="xs"
-              />
-            }
-          />
-          {unpaidTimeTotal !== null && (
-            <KpiTile
-              label="Unpaid time"
-              value={`$${formatRate(Math.round(unpaidTimeTotal))}`}
-              icon={CircleDollarSign}
-              tone={unpaidTimeTotal > 0 ? 'warning' : 'default'}
-              context="Billable hours not yet paid"
-            />
-          )}
-        </KpiRow>
-      )}
-
-      <RailLayout stickyRail railFirstOnMobile rail={<>{trackCard}{teammatesCard}</>}>
+      <RailLayout stickyRail railFirstOnMobile rail={<>{trackCard}{totalsCard}{teammatesCard}</>}>
 
         {dateGroups.length > 0 && visibleDateGroups.length === 0 ? (
           <div className="glass-card rounded-xl"><NoMatches>No sessions match.</NoMatches></div>

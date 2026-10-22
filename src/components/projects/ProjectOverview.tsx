@@ -21,7 +21,7 @@ import { formatListTime } from '@/components/inbox/inbox-badges';
 import { ReminderRow } from '@/components/reminders/ReminderRow';
 import { ActivityTimeline } from '@/components/agent/ActivityTimeline';
 import { useProjectActivity } from '@/lib/use-project-activity';
-import { Bone, CardLink, GroupLabel, RailCard, Skeleton } from '@/components/projects/TabLayout';
+import { Bone, CardLink, GroupLabel, RailCard, Skeleton, Stat } from '@/components/projects/TabLayout';
 import { Avatar, AvatarGroup } from '@/components/ui/Avatar';
 import { PriorityBadge, StatusBadge } from '@/components/ui/Badge';
 import { DateInput } from '@/components/ui/inputs/DateInput';
@@ -99,15 +99,6 @@ function ProjectActivityCard({ projectId }: { projectId: string }) {
   return <ActivityTimeline projectId={projectId} listMaxHeightClass="" teamEntries={team} agentEntries={agent} loading={!loaded} failed={failed} />;
 }
 
-function Stat({ label, value, tone }: { label: string; value: string; tone?: 'warn' }) {
-  return (
-    <div>
-      <p className="text-xs text-zinc-500">{label}</p>
-      <p className={`text-xl font-semibold tabular-nums ${tone === 'warn' ? 'text-amber-300' : 'text-white'}`}>{value}</p>
-    </div>
-  );
-}
-
 /**
  * The project at a glance: what needs the viewer now, what is moving, and a
  * rail of time, billing, portal and people. Every list links into the tab
@@ -173,19 +164,24 @@ export function ProjectOverview({ projectId, onOpenTask, onOpenTab, onOpenContac
     .sort((a, b) => b.updated_at.localeCompare(a.updated_at));
 
   // ── Time ──
-  // Finished sessions only, as the Time tab counts them, so the two agree.
+  // Finished sessions only, as the Time tab counts them, so the two agree. The
+  // glance is the recent stretch; every other period lives on the Time tab.
   const timeStats = useMemo(() => {
     if (!can.time) return null;
     const entries = getTimeEntriesByProject(projectId).filter(e => e.end_time !== null);
     const weekStart = startOfWeek().getTime();
-    let total = 0;
+    const monthStart = new Date();
+    monthStart.setHours(0, 0, 0, 0);
+    monthStart.setDate(1);
     let week = 0;
+    let month = 0;
     for (const entry of entries) {
       const hours = getWorkedHours(entry);
-      total += hours;
-      if (new Date(entry.start_time).getTime() >= weekStart) week += hours;
+      const started = new Date(entry.start_time).getTime();
+      if (started >= weekStart) week += hours;
+      if (started >= monthStart.getTime()) month += hours;
     }
-    return { total, week };
+    return { week, month };
   }, [can.time, getTimeEntriesByProject, projectId]);
 
   // ── Next invoice draft (same read the Billing tab's banner uses) ──
@@ -507,7 +503,7 @@ export function ProjectOverview({ projectId, onOpenTask, onOpenTab, onOpenContac
           >
             <div className="grid grid-cols-2 gap-4">
               <Stat label="This week" value={`${formatHours(timeStats.week)}h`} />
-              <Stat label="All time" value={`${formatHours(timeStats.total)}h`} />
+              <Stat label="This month" value={`${formatHours(timeStats.month)}h`} />
             </div>
           </RailCard>
         )}
@@ -519,11 +515,14 @@ export function ProjectOverview({ projectId, onOpenTask, onOpenTab, onOpenContac
             action={<CardLink onClick={() => onOpenTab('billing')}>Open</CardLink>}
           >
             {billing && (
-              <Stat
-                label="Outstanding"
-                value={formatMoney(billing.outstanding)}
-                tone={billing.outstanding > 0 ? 'warn' : undefined}
-              />
+              <div className="grid grid-cols-2 gap-4">
+                <Stat
+                  label="Outstanding"
+                  value={formatMoney(billing.outstanding)}
+                  tone={billing.outstanding > 0 ? 'warn' : undefined}
+                />
+                <Stat label="Paid to date" value={formatMoney(billing.totalPaid)} />
+              </div>
             )}
             <p className="text-xs text-zinc-500 mt-1">
               {billing?.isHourly ? 'Includes hours not yet invoiced' : 'Invoiced and not yet paid'}

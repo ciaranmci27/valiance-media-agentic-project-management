@@ -173,6 +173,16 @@ export function RailCard({ title, icon, action, description, className, bodyClas
   );
 }
 
+/** One figure in a rail card's stat grid: a small label over a large number. */
+export function Stat({ label, value, tone }: { label: string; value: string; tone?: 'warn' }) {
+  return (
+    <div>
+      <p className="text-xs text-zinc-500">{label}</p>
+      <p className={`text-xl font-semibold tabular-nums ${tone === 'warn' ? 'text-amber-300' : 'text-white'}`}>{value}</p>
+    </div>
+  );
+}
+
 /** A card header's text link into the place that owns the content. */
 export function CardLink({ onClick, children }: { onClick: () => void; children: ReactNode }) {
   return (
