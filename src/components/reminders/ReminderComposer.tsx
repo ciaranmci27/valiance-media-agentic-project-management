@@ -18,13 +18,17 @@ interface ReminderComposerProps {
   placeholder?: string;
   /** Start with the date row showing (the Reminders page). */
   expanded?: boolean;
+  /** Focus the text field on mount (opened from an "Add reminder" row). */
+  autoFocus?: boolean;
+  /** Escape on an empty field calls this, to fold the composer away. */
+  onCancel?: () => void;
 }
 
 /**
  * Type the step, press Enter. A date and a time are optional: the date row
  * appears once there is text, with one-tap Today / Tomorrow / Monday.
  */
-export function ReminderComposer({ onAdd, placeholder = 'Add a reminder...', expanded = false }: ReminderComposerProps) {
+export function ReminderComposer({ onAdd, placeholder = 'Add a reminder...', expanded = false, autoFocus = false, onCancel }: ReminderComposerProps) {
   const [title, setTitle] = useState('');
   const [date, setDate] = useState('');
   const [time, setTime] = useState('');
@@ -56,6 +60,13 @@ export function ReminderComposer({ onAdd, placeholder = 'Add a reminder...', exp
           aria-label="New reminder"
           size="sm"
           className="flex-1"
+          autoFocus={autoFocus}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape' && onCancel && !title.trim()) {
+              e.preventDefault();
+              onCancel();
+            }
+          }}
         />
         <button
           type="submit"

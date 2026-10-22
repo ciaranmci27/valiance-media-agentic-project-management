@@ -12,6 +12,8 @@ interface HeaderProps {
   actions?: ReactNode;
   searchPlaceholder?: string;
   showFilters?: boolean;
+  /** Let a long title wrap instead of truncating (a task's title). */
+  wrapTitle?: boolean;
 }
 
 /**
@@ -20,7 +22,7 @@ interface HeaderProps {
  * renders this, so the header is consistent across the app. Global chrome
  * (notifications, user) lives in the sidebar, not here.
  */
-export function Header({ title, subtitle, actions, searchPlaceholder, showFilters = false }: HeaderProps) {
+export function Header({ title, subtitle, actions, searchPlaceholder, showFilters = false, wrapTitle = false }: HeaderProps) {
   const { filters, setFilters, team, tasks } = useApp();
   const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
 
@@ -39,8 +41,8 @@ export function Header({ title, subtitle, actions, searchPlaceholder, showFilter
 
   return (
     <div className="px-4 lg:px-6 pt-5 lg:pt-7 pb-1">
-      <div className="flex items-center justify-between gap-3 lg:gap-4 flex-wrap">
-        <div className="flex items-center gap-3 min-w-0">
+      <div className={`flex justify-between gap-3 lg:gap-4 ${wrapTitle ? 'items-start' : 'items-center flex-wrap'}`}>
+        <div className={`flex gap-3 min-w-0 ${wrapTitle ? 'flex-1 items-start' : 'items-center'}`}>
           <button
             onClick={() => window.dispatchEvent(new Event('open-sidebar'))}
             className="lg:hidden p-2 -ml-2 rounded-lg text-zinc-400 hover:text-white hover:bg-white/[0.06] transition-colors flex-shrink-0"
@@ -49,7 +51,7 @@ export function Header({ title, subtitle, actions, searchPlaceholder, showFilter
             <Menu size={20} />
           </button>
           <div className="min-w-0">
-            <h1 className="text-2xl lg:text-[26px] font-bold text-white tracking-tight leading-tight truncate">{title}</h1>
+            <h1 className={`text-2xl lg:text-[26px] font-bold text-white tracking-tight leading-tight ${wrapTitle ? 'break-words' : 'truncate'}`}>{title}</h1>
             {subtitle && <div className="text-sm text-zinc-400 mt-1">{subtitle}</div>}
           </div>
         </div>

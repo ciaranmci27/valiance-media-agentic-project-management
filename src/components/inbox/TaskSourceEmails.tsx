@@ -28,15 +28,18 @@ export function useTaskSourceEmails(taskId: string | null): TaskSourceEmailsData
   return data && data.taskId === taskId ? data.value : null;
 }
 
-export function TaskSourceEmailsSection({ data }: { data: TaskSourceEmailsData | null }) {
+/** `heading={false}` when the caller's own section supplies the title. */
+export function TaskSourceEmailsSection({ data, heading = true }: { data: TaskSourceEmailsData | null; heading?: boolean }) {
   if (!data || data.link_count === 0) return null;
   const hidden = data.link_count - data.emails.length;
   return (
     <div className="space-y-2">
-      <h3 className="flex items-center gap-2 text-sm font-medium text-zinc-300">
-        <Mail size={14} aria-hidden="true" />
-        Source emails
-      </h3>
+      {heading && (
+        <h3 className="flex items-center gap-2 text-sm font-medium text-zinc-300">
+          <Mail size={14} aria-hidden="true" />
+          Source emails
+        </h3>
+      )}
       {data.emails.length > 0 && (
         <ul className="space-y-1">
           {data.emails.map((email) => (

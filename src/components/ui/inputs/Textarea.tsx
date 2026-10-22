@@ -109,6 +109,22 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(function 
     adjustHeight();
   }, [value, adjustHeight]);
 
+  // The line count depends on the width, which can settle after mount (a
+  // flex row, a panel sliding in): measure again whenever the width changes.
+  // Height changes are ignored, since adjustHeight makes them itself.
+  useEffect(() => {
+    const el = internalRef.current;
+    if (!el || !autoResize || typeof ResizeObserver === 'undefined') return;
+    let width = el.clientWidth;
+    const observer = new ResizeObserver(() => {
+      if (el.clientWidth === width) return;
+      width = el.clientWidth;
+      adjustHeight();
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [autoResize, adjustHeight]);
+
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     onChange?.(e.target.value);
   };

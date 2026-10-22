@@ -10,13 +10,14 @@ import { Header } from '@/components/layout/Header';
 import { Button } from '@/components/ui/Button';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { TaskForm } from '@/components/tasks/TaskForm';
-import { TaskDetailPanel } from '@/components/tasks/TaskDetailPanel';
+import { TaskActionsMenu, TaskDetailPanel } from '@/components/tasks/TaskDetailPanel';
 
 /**
  * A task on its own page: everything the side panel shows, with room for it.
- * The work (description, reminders, criteria, subtasks, comments) runs down
- * the left; status, people and dates sit beside it. Opened from the panel's
- * expand button; the board's task links still open the panel.
+ * The title is the page heading, with Back and the menu beside it; the work
+ * (description, reminders, criteria, subtasks, comments) runs down the main
+ * column and the details sit beside it. Opened from the panel's menu; the
+ * board's task links still open the panel.
  */
 export default function TaskPage() {
   const params = useParams();
@@ -48,20 +49,30 @@ export default function TaskPage() {
 
   return (
     <div className="animate-fadeIn min-h-screen">
-      <Header
-        title={project?.name ?? 'Task'}
-        subtitle={
-          <Link
-            href={`${boardHref}?task=${task.id}`}
-            className="inline-flex items-center gap-1 text-zinc-400 hover:text-zinc-200 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
-          >
-            <ArrowLeft size={14} aria-hidden="true" />
-            Back to the board
-          </Link>
-        }
-      />
+      {/* One centred column, so wide screens do not leave it against the sidebar. */}
+      <div className="max-w-6xl mx-auto">
+        <Header
+          wrapTitle
+          title={task.title}
+          actions={
+            <div className="flex items-center gap-1.5">
+              <Button
+                variant="secondary"
+                size="sm"
+                href={`${boardHref}?task=${task.id}`}
+                icon={<ArrowLeft size={14} aria-hidden="true" />}
+                aria-label={`Back to ${project?.name ?? 'the project'}`}
+                title={`Back to ${project?.name ?? 'the project'}`}
+              >
+                <span className="hidden sm:inline">Back</span>
+              </Button>
+              <TaskActionsMenu task={task} onEdit={setEditingTask} onDelete={() => setConfirmDelete(true)} />
+            </div>
+          }
+        />
+      </div>
 
-      <div className="p-4 lg:p-6 max-w-6xl">
+      <div className="p-4 lg:p-6 max-w-6xl mx-auto">
         <TaskDetailPanel
           variant="page"
           task={task}
