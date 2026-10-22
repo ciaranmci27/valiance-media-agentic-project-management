@@ -2,12 +2,11 @@
 
 import { useState } from 'react';
 import { ExternalLink, Route } from 'lucide-react';
-import { Button } from '@/components/ui/Button';
 import { ProjectEmailsPanel } from '@/components/inbox/ProjectEmailsPanel';
 import { ProjectEmailRoutingModal } from '@/components/inbox/ProjectEmailRoutingModal';
 import { CommunicationHistory } from './ClientCommunicationsLogPanel';
 import { CommunicationAutomationCard, SendClientEmailButtons } from './ClientCommunicationsPanel';
-import { RailLayout, SubNav, TabToolbar, type SubNavItem } from './TabLayout';
+import { RailLayout, SubNav, TabToolbar, ToolbarButton, useKeptViews, type SubNavItem } from './TabLayout';
 
 type CommunicationView = 'inbox' | 'sent';
 
@@ -37,6 +36,7 @@ export function CommunicationTab({ projectId, view, onViewChange, canReadInbox, 
     ...(canReadSent ? [{ key: 'sent' as const, label: 'Sent' }] : []),
   ];
   const active = views.find((v) => v.key === view)?.key ?? views[0]?.key;
+  const kept = useKeptViews<CommunicationView>(active ?? 'inbox');
   if (!active) return null;
 
   return (
@@ -51,12 +51,8 @@ export function CommunicationTab({ projectId, view, onViewChange, canReadInbox, 
         actions={
           active === 'inbox' ? (
             <>
-              <Button variant="secondary" icon={<Route size={16} aria-hidden="true" />} onClick={() => setRoutingOpen(true)}>
-                Routing
-              </Button>
-              <Button variant="secondary" icon={<ExternalLink size={16} aria-hidden="true" />} href={`/inbox?project=${projectId}`}>
-                Open in Inbox
-              </Button>
+              <ToolbarButton variant="secondary" icon={<Route />} label="Routing" onClick={() => setRoutingOpen(true)} />
+              <ToolbarButton variant="secondary" icon={<ExternalLink />} label="Open in Inbox" href={`/inbox?project=${projectId}`} />
             </>
           ) : (
             <SendClientEmailButtons projectId={projectId} onSent={() => setSentRefresh((n) => n + 1)} />
@@ -64,12 +60,18 @@ export function CommunicationTab({ projectId, view, onViewChange, canReadInbox, 
         }
       />
 
-      {active === 'inbox' && <ProjectEmailsPanel projectId={projectId} onSetUpRouting={() => setRoutingOpen(true)} searchQuery={inboxQuery} />}
+      {canReadInbox && kept.has('inbox') && (
+        <div hidden={active !== 'inbox'}>
+          <ProjectEmailsPanel projectId={projectId} onSetUpRouting={() => setRoutingOpen(true)} searchQuery={inboxQuery} />
+        </div>
+      )}
 
-      {active === 'sent' && (
-        <RailLayout rail={<CommunicationAutomationCard projectId={projectId} onOpenPortal={onOpenPortal} />}>
-          <CommunicationHistory projectId={projectId} refreshSignal={sentRefresh} query={sentQuery} />
-        </RailLayout>
+      {canReadSent && kept.has('sent') && (
+        <div hidden={active !== 'sent'}>
+          <RailLayout rail={<CommunicationAutomationCard projectId={projectId} onOpenPortal={onOpenPortal} />}>
+            <CommunicationHistory projectId={projectId} refreshSignal={sentRefresh} query={sentQuery} />
+          </RailLayout>
+        </div>
       )}
 
       <ProjectEmailRoutingModal isOpen={routingOpen} onClose={() => setRoutingOpen(false)} projectId={projectId} />

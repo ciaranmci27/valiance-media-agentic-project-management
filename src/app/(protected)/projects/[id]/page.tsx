@@ -21,7 +21,7 @@ import { CredentialsPanel } from '@/components/projects/CredentialsPanel';
 import InvoicesPanel from '@/components/projects/InvoicesPanel';
 import { ProjectOverview } from '@/components/projects/ProjectOverview';
 import { ProjectTabs, projectPanelId, projectTabId, type ProjectTab } from '@/components/projects/ProjectTabs';
-import { SubNav, TabToolbar } from '@/components/projects/TabLayout';
+import { EmptyCard, NoMatches, SubNav, TabToolbar, ToolbarButton } from '@/components/projects/TabLayout';
 import { RowActionsMenu } from '@/components/ui/RowActionsMenu';
 import { FileAttachments } from '@/components/ui/FileAttachments';
 import { DateInput } from '@/components/ui/inputs/DateInput';
@@ -466,7 +466,7 @@ export default function ProjectDetailPage() {
                       Clear selection
                     </button>
                   </div>
-                  <p className="px-3 py-1.5 text-xs font-medium text-zinc-400 uppercase">Set Status</p>
+                  <p className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">Set Status</p>
                   <div className="grid grid-cols-2 gap-1 px-2 pb-1">
                     {(['todo', 'in_progress', 'in_review', 'done'] as const).map(s => (
                       <button key={s} onClick={() => bulkUpdateStatus(s)} className="text-left px-2 py-1.5 text-sm text-zinc-300 rounded-md hover:bg-white/[0.06]">
@@ -475,7 +475,7 @@ export default function ProjectDetailPage() {
                     ))}
                   </div>
                   <div className="border-t border-white/[0.06] my-1" />
-                  <p className="px-3 py-1.5 text-xs font-medium text-zinc-400 uppercase">Set Priority</p>
+                  <p className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">Set Priority</p>
                   <div className="grid grid-cols-2 gap-1 px-2 pb-1">
                     {(['low', 'medium', 'high', 'urgent'] as const).map(p => (
                       <button key={p} onClick={() => bulkUpdatePriority(p)} className="text-left px-2 py-1.5 text-sm text-zinc-300 rounded-md hover:bg-white/[0.06]">
@@ -485,7 +485,7 @@ export default function ProjectDetailPage() {
                   </div>
                   {canManageTasks && <>
                     <div className="border-t border-white/[0.06] my-1" />
-                    <p className="px-3 py-1.5 text-xs font-medium text-zinc-400 uppercase">Assign To</p>
+                    <p className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">Assign To</p>
                     {team.filter(m => canBeAssignedInProject(m, project)).map(member => (
                       <button key={member.id} onClick={() => bulkAssign(member.id)} className="w-full flex items-center gap-2 text-left px-3 py-1.5 text-sm text-zinc-300 hover:bg-white/[0.03]">
                         <Avatar name={member.name} src={member.avatar || undefined} size="xs" />
@@ -497,7 +497,7 @@ export default function ProjectDetailPage() {
                     </button>
                   </>}
                   <div className="border-t border-white/[0.06] my-1" />
-                  <p className="px-3 py-1.5 text-xs font-medium text-zinc-400 uppercase">Due Date</p>
+                  <p className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">Due Date</p>
                   <div className="px-3 pb-1.5">
                     <DateInput value="" onChange={v => { if (v) bulkSetDueDate(v); }} />
                   </div>
@@ -518,21 +518,19 @@ export default function ProjectDetailPage() {
             {allProjectTasks.length > 0 && <TaskFilterControl tasks={allProjectTasks} />}
           </>}
           primary={canCreateTasks && (
-            <Button onClick={() => setIsTaskFormOpen(true)} icon={<Plus size={16} />} className="whitespace-nowrap">
-              <span className="hidden sm:inline">Add task</span>
-            </Button>
+            <ToolbarButton icon={<Plus />} label="Add task" onClick={() => setIsTaskFormOpen(true)} />
           )}
         />
 
         {/* Task Views */}
-        {projectTasks.length === 0 ? (
-          <div className="glass-card rounded-xl flex flex-col items-center justify-center p-8 text-center">
-            <div className="w-10 h-10 rounded-full bg-white/[0.06] flex items-center justify-center mb-3">
-              <LayoutGrid size={18} className="text-zinc-500" />
-            </div>
-            <p className="text-sm font-medium text-zinc-400">No tasks yet</p>
-            <p className="text-xs text-zinc-500 mt-1">Create your first task to get started</p>
-          </div>
+        {allProjectTasks.length === 0 ? (
+          <EmptyCard
+            icon={<LayoutGrid />}
+            title="No tasks yet"
+            description={canCreateTasks ? 'Use Add task to create the first one.' : 'Tasks for this project will list here.'}
+          />
+        ) : projectTasks.length === 0 ? (
+          <div className="glass-card rounded-xl"><NoMatches>No tasks match.</NoMatches></div>
         ) : (
           <>
             {viewMode === 'board' && (

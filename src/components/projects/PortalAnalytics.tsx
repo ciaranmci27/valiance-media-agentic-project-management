@@ -12,13 +12,14 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import {
-  Activity as ActivityIcon, Monitor, Smartphone, Tablet, Loader2, ChevronDown, ChevronRight,
+  Activity as ActivityIcon, Monitor, Smartphone, Tablet, ChevronDown, ChevronRight,
   Globe, Clock, Eye, Download, FileText, Receipt, MousePointerClick, Users, ShieldAlert,
+  History, LayoutTemplate,
 } from 'lucide-react';
 import { useDemo } from '@/lib/demo-context';
 import { KpiRow, KpiTile } from '@/components/ui/KpiTile';
 import { Toggle } from '@/components/ui/inputs/Toggle';
-import { RailCard, RailLayout } from './TabLayout';
+import { Bone, NoMatches, RailCard, RailLayout, Skeleton } from './TabLayout';
 import { PORTAL_SECTION_LABELS, type PortalAnalyticsResponse } from '@/lib/types';
 import { buildDemoPortalAnalytics } from '@/lib/demo-data';
 import { Tooltip } from '@/components/ui/Tooltip';
@@ -273,13 +274,7 @@ export function PortalAnalytics({
       </div>
     );
   }
-  if (!data) {
-    return (
-      <div className="glass-card rounded-xl flex items-center justify-center py-16">
-        <Loader2 className="animate-spin text-zinc-600" size={24} aria-label="Loading portal activity" />
-      </div>
-    );
-  }
+  if (!data) return <ActivitySkeleton />;
 
   return (
     <div className={`space-y-6 transition-opacity ${loading ? 'opacity-60' : ''}`}>
@@ -307,6 +302,49 @@ export function PortalAnalytics({
   );
 }
 
+/** The KPI row, the sessions card and the rail, the shape of what loads. */
+function ActivitySkeleton() {
+  return (
+    <Skeleton label="Loading portal activity" className="space-y-6">
+      <KpiRow className="lg:grid-cols-5">
+        {[0, 1, 2, 3, 4].map((i) => (
+          <div key={i} className="glass-card rounded-xl p-4 lg:p-5 space-y-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="space-y-2.5 flex-1">
+                <Bone className="h-3 w-16" />
+                <Bone className="h-6 w-12" />
+              </div>
+              <Bone className="w-8 h-8 lg:w-9 lg:h-9 rounded-lg" />
+            </div>
+            <Bone className="h-2.5 w-20" />
+          </div>
+        ))}
+      </KpiRow>
+      <RailLayout
+        rail={[0, 1].map((i) => (
+          <div key={i} className="glass-card rounded-xl px-5 pt-4 pb-5 space-y-4">
+            <Bone className="h-3.5 w-28" />
+            {[0, 1, 2].map((j) => <Bone key={j} className={`h-3 ${j === 2 ? 'w-1/2' : 'w-full'}`} />)}
+          </div>
+        ))}
+      >
+        <div className="glass-card rounded-xl overflow-hidden">
+          <div className="px-5 pt-4 pb-3"><Bone className="h-3.5 w-20" /></div>
+          <div className="divide-y divide-white/[0.06] border-t border-white/[0.06]">
+            {[0, 1, 2, 3, 4].map((i) => (
+              <div key={i} className="flex items-center gap-4 px-5 py-3.5">
+                <Bone className="h-3 w-24" />
+                <Bone className={`h-3 flex-1 max-w-[12rem] ${i % 2 ? 'opacity-70' : ''}`} />
+                <Bone className="h-3 w-10 ml-auto" />
+              </div>
+            ))}
+          </div>
+        </div>
+      </RailLayout>
+    </Skeleton>
+  );
+}
+
 /* ── Sessions ────────────────────────────────── */
 
 function SessionsTable({
@@ -322,144 +360,153 @@ function SessionsTable({
   onClearFilters: () => void;
 }) {
   const filtersActive = hideLocal || hideTeam;
+  const empty = data.sessions.length === 0;
+  // The table runs edge to edge under the heading; empty states keep the padding.
   return (
-    <div className="space-y-6">
-      <div>
-        <h3 className="text-sm font-semibold text-zinc-100 mb-3">Sessions</h3>
-        {data.sessions.length === 0 ? (
-          filtersActive ? (
-            <FilteredEmptyState
-              hideLocal={hideLocal}
-              hideTeam={hideTeam}
-              onClearFilters={onClearFilters}
-            />
-          ) : (
-            <EmptyState message="No portal activity in this window yet." />
-          )
+    <RailCard
+      title="Sessions"
+      icon={<History size={16} className="text-zinc-400" aria-hidden="true" />}
+      className="overflow-hidden"
+      bodyClassName={empty ? '' : '@container'}
+    >
+      {empty ? (
+        filtersActive ? (
+          <FilteredEmptyState
+            hideLocal={hideLocal}
+            hideTeam={hideTeam}
+            onClearFilters={onClearFilters}
+          />
         ) : (
-          <div className="@container glass-card rounded-xl overflow-hidden">
-            <div className="grid grid-cols-[1fr_1fr_auto_24px] @xl:grid-cols-[1fr_1.4fr_0.7fr_0.6fr_24px] @3xl:grid-cols-[1fr_1.3fr_1fr_0.7fr_0.6fr_24px] gap-3 px-4 py-2.5 text-[11px] uppercase tracking-wide text-zinc-500 font-semibold bg-white/[0.03] border-b border-white/[0.06]">
-              <div>When</div>
-              <div>Device</div>
-              <div className="hidden @3xl:block">Location signal</div>
-              <div className="hidden @xl:block text-right">Duration</div>
-              <div className="text-right">Engagement</div>
-              <div />
-            </div>
-            <div className="divide-y divide-white/[0.06]">
-              {data.sessions.map((s) => {
-                const expanded = expandedSession === s.session_id;
-                const events = sessionEvents.get(s.session_id) ?? [];
-                const filesTotal = s.files_previewed + s.files_downloaded;
-                const invoicesTotal = s.invoices_viewed + s.invoice_pdfs_downloaded;
-                const hasEngagement = filesTotal > 0 || invoicesTotal > 0;
-                return (
-                  <div key={s.session_id}>
-                    <button
-                      onClick={() => onToggleSession(s.session_id)}
-                      className="w-full grid grid-cols-[1fr_1fr_auto_24px] @xl:grid-cols-[1fr_1.4fr_0.7fr_0.6fr_24px] @3xl:grid-cols-[1fr_1.3fr_1fr_0.7fr_0.6fr_24px] gap-3 px-4 py-3 items-center text-sm hover:bg-white/[0.03] transition-colors text-left focus-visible:outline-none focus-visible:bg-white/[0.03]"
-                    >
-                      <div className="flex flex-col min-w-0">
-                        <span className="text-zinc-100 font-medium truncate">{formatRelative(s.last_seen_at)}</span>
-                        <span className="text-[11px] text-zinc-500 truncate">{new Date(s.started_at).toLocaleString('en-US')}</span>
-                      </div>
-                      <div className="flex items-center gap-2 text-zinc-300 min-w-0">
-                        <span className="text-zinc-500 flex-shrink-0"><DeviceIcon type={s.device_type} /></span>
-                        <span className="truncate">
-                          {[s.browser, s.os].filter(Boolean).join(' / ') || s.user_agent || 'Unknown'}
-                        </span>
-                      </div>
-                      <div className="hidden @3xl:flex items-center gap-1.5 text-zinc-400 min-w-0">
-                        <Globe size={12} className="text-zinc-600 flex-shrink-0" />
-                        <span className="truncate">
-                          {s.timezone || s.language || '—'}
-                        </span>
-                      </div>
-                      <div className="hidden @xl:block text-right text-zinc-300 tabular-nums">
-                        <Clock size={11} className="inline mr-0.5 -mt-0.5 text-zinc-600" />
-                        {formatDuration(s.duration_seconds)}
-                      </div>
-                      <div className="flex items-center justify-end gap-2.5 text-zinc-400 text-xs tabular-nums">
-                        {filesTotal > 0 && (
-                          <Tooltip content={`${filesTotal} file ${filesTotal === 1 ? 'interaction' : 'interactions'}`}>
-                            <span className="inline-flex items-center gap-1">
-                              <FileText size={11} className="text-zinc-500" />
-                              {filesTotal}
-                            </span>
-                          </Tooltip>
-                        )}
-                        {invoicesTotal > 0 && (
-                          <Tooltip content={`${invoicesTotal} invoice ${invoicesTotal === 1 ? 'interaction' : 'interactions'}`}>
-                            <span className="inline-flex items-center gap-1">
-                              <Receipt size={11} className="text-zinc-500" />
-                              {invoicesTotal}
-                            </span>
-                          </Tooltip>
-                        )}
-                        {!hasEngagement && <span className="text-zinc-600">—</span>}
-                      </div>
-                      <div className="text-zinc-600">
-                        {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                      </div>
-                    </button>
-
-                    {expanded && (
-                      <div className="px-4 pb-4 pt-1 bg-white/[0.03] border-t border-white/[0.06]">
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1.5 mb-4 text-[12px] text-zinc-300">
-                          <Detail label="IP" value={formatIpAddress(s.ip_address)} mono />
-                          <Detail label="Fingerprint" value={s.ip_hash || '—'} mono />
-                          <Detail label="Viewport" value={s.viewport_width && s.viewport_height ? `${s.viewport_width}×${s.viewport_height}` : '—'} />
-                          <Detail label="Screen" value={s.screen_width && s.screen_height ? `${s.screen_width}×${s.screen_height}` : '—'} />
-                          <Detail label="Connection" value={s.connection_type || '—'} />
-                          <Detail label="Time zone" value={s.timezone || '—'} />
-                          <Detail label="Language" value={s.language || s.accept_language || '—'} />
-                          <Detail label="Color scheme" value={s.color_scheme || '—'} />
-                          <Detail label="Reduced motion" value={s.reduced_motion == null ? '—' : (s.reduced_motion ? 'yes' : 'no')} />
-                          {s.referrer && <Detail label="Referrer" value={s.referrer} mono />}
-                          <Detail label="User agent" value={s.user_agent || '—'} mono className="sm:col-span-2" />
-                        </div>
-                        <h4 className="text-xs font-semibold text-zinc-400 mb-2 uppercase tracking-wide">Timeline</h4>
-                        {events.length === 0 ? (
-                          <p className="text-xs text-zinc-500">Loading…</p>
-                        ) : (
-                          <ul className="space-y-1.5">
-                            {collapseHeartbeats(events).map((row) =>
-                              row.kind === 'event' ? (
-                                <li key={row.event.id} className="flex items-baseline gap-2 text-xs">
-                                  <span className="text-zinc-500 tabular-nums">
-                                    {new Date(row.event.created_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit' })}
-                                  </span>
-                                  <span
-                                    className={`w-1.5 h-1.5 rounded-full flex-shrink-0 self-center ${
-                                      row.event.event_type === 'pin_attempt' && (row.event.metadata as { success?: boolean } | null)?.success === false
-                                        ? 'bg-red-400'
-                                        : 'bg-brand-400'
-                                    }`}
-                                  />
-                                  <span className="text-zinc-300">{eventLabel(row.event)}</span>
-                                </li>
-                              ) : (
-                                <li key={row.key} className="flex items-baseline gap-2 text-xs italic text-zinc-500">
-                                  <span className="tabular-nums">
-                                    {new Date(row.startedAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
-                                  </span>
-                                  <span className="w-1.5 h-1.5 rounded-full bg-white/[0.08] flex-shrink-0 self-center" />
-                                  <span>Active for {formatDuration(row.durationSeconds)}</span>
-                                </li>
-                              ),
-                            )}
-                          </ul>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
+          <NoMatches>No portal activity in this window yet.</NoMatches>
+        )
+      ) : (
+        <>
+          <div className="grid grid-cols-[1fr_1fr_auto_24px] @xl:grid-cols-[1fr_1.4fr_0.7fr_0.6fr_24px] @3xl:grid-cols-[1fr_1.3fr_1fr_0.7fr_0.6fr_24px] gap-3 px-5 py-2.5 border-b border-white/[0.06] text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+            <div>When</div>
+            <div>Device</div>
+            <div className="hidden @3xl:block">Location signal</div>
+            <div className="hidden @xl:block text-right">Duration</div>
+            <div className="text-right">Engagement</div>
+            <div />
           </div>
-        )}
-      </div>
-    </div>
+          <div className="divide-y divide-white/[0.06]">
+            {data.sessions.map((s) => {
+              const expanded = expandedSession === s.session_id;
+              // Undefined until the session's events arrive; an empty list is a real answer.
+              const events = sessionEvents.get(s.session_id);
+              const filesTotal = s.files_previewed + s.files_downloaded;
+              const invoicesTotal = s.invoices_viewed + s.invoice_pdfs_downloaded;
+              const hasEngagement = filesTotal > 0 || invoicesTotal > 0;
+              return (
+                <div key={s.session_id}>
+                  <button
+                    onClick={() => onToggleSession(s.session_id)}
+                    className="w-full grid grid-cols-[1fr_1fr_auto_24px] @xl:grid-cols-[1fr_1.4fr_0.7fr_0.6fr_24px] @3xl:grid-cols-[1fr_1.3fr_1fr_0.7fr_0.6fr_24px] gap-3 px-5 py-3 items-center text-sm hover:bg-white/[0.03] transition-colors text-left focus-visible:outline-none focus-visible:bg-white/[0.03]"
+                  >
+                    <div className="flex flex-col min-w-0">
+                      <span className="text-zinc-100 font-medium truncate">{formatRelative(s.last_seen_at)}</span>
+                      <span className="text-[11px] text-zinc-500 truncate">{new Date(s.started_at).toLocaleString('en-US')}</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-zinc-300 min-w-0">
+                      <span className="text-zinc-500 flex-shrink-0"><DeviceIcon type={s.device_type} /></span>
+                      <span className="truncate">
+                        {[s.browser, s.os].filter(Boolean).join(' / ') || s.user_agent || 'Unknown'}
+                      </span>
+                    </div>
+                    <div className="hidden @3xl:flex items-center gap-1.5 text-zinc-400 min-w-0">
+                      <Globe size={12} className="text-zinc-600 flex-shrink-0" />
+                      <span className="truncate">
+                        {s.timezone || s.language || '—'}
+                      </span>
+                    </div>
+                    <div className="hidden @xl:block text-right text-zinc-300 tabular-nums">
+                      <Clock size={11} className="inline mr-0.5 -mt-0.5 text-zinc-600" />
+                      {formatDuration(s.duration_seconds)}
+                    </div>
+                    <div className="flex items-center justify-end gap-2.5 text-zinc-400 text-xs tabular-nums">
+                      {filesTotal > 0 && (
+                        <Tooltip content={`${filesTotal} file ${filesTotal === 1 ? 'interaction' : 'interactions'}`}>
+                          <span className="inline-flex items-center gap-1">
+                            <FileText size={11} className="text-zinc-500" />
+                            {filesTotal}
+                          </span>
+                        </Tooltip>
+                      )}
+                      {invoicesTotal > 0 && (
+                        <Tooltip content={`${invoicesTotal} invoice ${invoicesTotal === 1 ? 'interaction' : 'interactions'}`}>
+                          <span className="inline-flex items-center gap-1">
+                            <Receipt size={11} className="text-zinc-500" />
+                            {invoicesTotal}
+                          </span>
+                        </Tooltip>
+                      )}
+                      {!hasEngagement && <span className="text-zinc-600">—</span>}
+                    </div>
+                    <div className="text-zinc-600">
+                      {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                    </div>
+                  </button>
+
+                  {expanded && (
+                    <div className="px-5 pb-4 pt-1 bg-white/[0.03] border-t border-white/[0.06]">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1.5 mb-4 text-[12px] text-zinc-300">
+                        <Detail label="IP" value={formatIpAddress(s.ip_address)} mono />
+                        <Detail label="Fingerprint" value={s.ip_hash || '—'} mono />
+                        <Detail label="Viewport" value={s.viewport_width && s.viewport_height ? `${s.viewport_width}×${s.viewport_height}` : '—'} />
+                        <Detail label="Screen" value={s.screen_width && s.screen_height ? `${s.screen_width}×${s.screen_height}` : '—'} />
+                        <Detail label="Connection" value={s.connection_type || '—'} />
+                        <Detail label="Time zone" value={s.timezone || '—'} />
+                        <Detail label="Language" value={s.language || s.accept_language || '—'} />
+                        <Detail label="Color scheme" value={s.color_scheme || '—'} />
+                        <Detail label="Reduced motion" value={s.reduced_motion == null ? '—' : (s.reduced_motion ? 'yes' : 'no')} />
+                        {s.referrer && <Detail label="Referrer" value={s.referrer} mono />}
+                        <Detail label="User agent" value={s.user_agent || '—'} mono className="sm:col-span-2" />
+                      </div>
+                      <h4 className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400 mb-2">Timeline</h4>
+                      {!events ? (
+                        <Skeleton label="Loading timeline" className="space-y-2">
+                          {[0, 1, 2].map((i) => <Bone key={i} className={`h-3 ${i === 1 ? 'w-1/2' : 'w-2/3'}`} />)}
+                        </Skeleton>
+                      ) : events.length === 0 ? (
+                        <p className="text-xs text-zinc-500">No events recorded for this session.</p>
+                      ) : (
+                        <ul className="space-y-1.5">
+                          {collapseHeartbeats(events).map((row) =>
+                            row.kind === 'event' ? (
+                              <li key={row.event.id} className="flex items-baseline gap-2 text-xs">
+                                <span className="text-zinc-500 tabular-nums">
+                                  {new Date(row.event.created_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit' })}
+                                </span>
+                                <span
+                                  className={`w-1.5 h-1.5 rounded-full flex-shrink-0 self-center ${
+                                    row.event.event_type === 'pin_attempt' && (row.event.metadata as { success?: boolean } | null)?.success === false
+                                      ? 'bg-red-400'
+                                      : 'bg-brand-400'
+                                  }`}
+                                />
+                                <span className="text-zinc-300">{eventLabel(row.event)}</span>
+                              </li>
+                            ) : (
+                              <li key={row.key} className="flex items-baseline gap-2 text-xs italic text-zinc-500">
+                                <span className="tabular-nums">
+                                  {new Date(row.startedAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                                </span>
+                                <span className="w-1.5 h-1.5 rounded-full bg-white/[0.08] flex-shrink-0 self-center" />
+                                <span>Active for {formatDuration(row.durationSeconds)}</span>
+                              </li>
+                            ),
+                          )}
+                        </ul>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </RailCard>
   );
 }
 
@@ -468,7 +515,7 @@ function SessionsTable({
 function EngagementCards({ data }: { data: PortalAnalyticsResponse }) {
   return (
     <>
-      <RailCard title="Most viewed sections">
+      <RailCard title="Most viewed sections" icon={<LayoutTemplate size={16} className="text-zinc-400" aria-hidden="true" />}>
         <RankList
           emptyText="No sections viewed yet."
           items={data.top_sections.map(s => ({
@@ -479,7 +526,7 @@ function EngagementCards({ data }: { data: PortalAnalyticsResponse }) {
           }))}
         />
       </RailCard>
-      <RailCard title="Files">
+      <RailCard title="Files" icon={<FileText size={16} className="text-zinc-400" aria-hidden="true" />}>
         <RankList
           emptyText="No file previews or downloads yet."
           items={data.top_files.map(f => ({
@@ -495,7 +542,7 @@ function EngagementCards({ data }: { data: PortalAnalyticsResponse }) {
           }))}
         />
       </RailCard>
-      <RailCard title="Invoices">
+      <RailCard title="Invoices" icon={<Receipt size={16} className="text-zinc-400" aria-hidden="true" />}>
         <RankList
           emptyText="No invoice views yet."
           items={data.top_invoices.map(i => ({
@@ -578,16 +625,8 @@ function Detail({ label, value, mono, className }: {
 }) {
   return (
     <div className={`flex items-baseline gap-2 ${className ?? ''}`}>
-      <span className="text-[11px] uppercase tracking-wide text-zinc-500 font-semibold w-24 flex-shrink-0">{label}</span>
+      <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400 w-24 flex-shrink-0">{label}</span>
       <span className={`text-zinc-300 break-all ${mono ? 'font-mono text-[11px]' : ''}`}>{value}</span>
-    </div>
-  );
-}
-
-function EmptyState({ message }: { message: string }) {
-  return (
-    <div className="rounded-xl border border-dashed border-white/[0.08] px-6 py-8 text-center">
-      <p className="text-sm text-zinc-400">{message}</p>
     </div>
   );
 }
@@ -607,17 +646,14 @@ function FilteredEmptyState({
   if (hideLocal) active.push('Hide local');
   if (hideTeam) active.push('Hide team');
   return (
-    <div className="rounded-xl border border-dashed border-white/[0.08] px-6 py-8 text-center">
-      <p className="text-sm text-zinc-300 font-medium">All sessions in this window are hidden by your filters.</p>
-      <p className="text-xs text-zinc-400 mt-1">
+    <div className="px-5 py-10 text-center">
+      <p className="text-sm text-zinc-500">All sessions in this window are hidden by your filters.</p>
+      <p className="text-xs text-zinc-500 mt-1">
         Active: {active.join(' + ')}
       </p>
-      <button
-        onClick={onClearFilters}
-        className="mt-3 inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-lg bg-white/[0.06] text-zinc-300 hover:bg-white/[0.08] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-400"
-      >
+      <Button type="button" variant="secondary" size="sm" className="mt-3" onClick={onClearFilters}>
         Show everything
-      </button>
+      </Button>
     </div>
   );
 }

@@ -48,7 +48,7 @@ import {
 import Modal from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { SectionHeader } from '@/components/ui/SectionHeader';
-import { SubNav, TabToolbar } from '@/components/projects/TabLayout';
+import { Bone, EmptyCard, NoMatches, RailCard, Skeleton, SubNav, TabToolbar, ToolbarButton } from '@/components/projects/TabLayout';
 import { hasPermission } from '@/lib/access-control';
 
 interface CredentialsPanelProps {
@@ -470,17 +470,27 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
   };
 
   // ── Loading state ───────────────────────────
+  // The toolbar and a group of tiles, the shape of what loads.
   if (encryptionStatus === 'loading') {
     return (
-      <div className="glass-card rounded-xl overflow-hidden">
-        <div className="px-5 py-4 flex items-center gap-2">
-          <ShieldCheck size={18} className="text-zinc-400" />
-          <h2 className="font-semibold text-white">Credentials</h2>
+      <Skeleton label="Loading credentials">
+        <div className="flex items-center gap-3 mb-5">
+          <Bone className="h-9 flex-1 sm:flex-initial sm:w-64 rounded-lg" />
+          <Bone className="h-9 w-9 sm:w-36 ml-auto rounded-lg" />
         </div>
-        <div className="flex items-center justify-center py-12">
-          <Loader2 size={20} className="animate-spin text-zinc-600" />
+        <Bone className="h-2.5 w-16 mb-3" />
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          {[0, 1, 2, 3].map((i) => (
+            <div key={i} className="glass-card rounded-xl p-4 flex items-center gap-3">
+              <Bone className="w-9 h-9 rounded-lg flex-shrink-0" />
+              <div className="flex-1 space-y-2">
+                <Bone className={`h-3.5 ${i % 2 ? 'w-2/3' : 'w-1/2'}`} />
+                <Bone className="h-2.5 w-20" />
+              </div>
+            </div>
+          ))}
         </div>
-      </div>
+      </Skeleton>
     );
   }
 
@@ -488,25 +498,16 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
   if (encryptionStatus === 'not_configured') {
     if (!canManageCredentials) {
       return (
-        <div className="glass-card rounded-xl p-5">
-          <div className="flex items-center gap-2">
-            <Lock size={18} className="text-zinc-400" />
-            <h2 className="font-semibold text-white">Credentials unavailable</h2>
-          </div>
-          <p className="mt-2 text-sm text-zinc-400">
+        <RailCard title="Credentials unavailable" icon={<Lock size={16} className="text-zinc-400" aria-hidden="true" />}>
+          <p className="text-sm text-zinc-400">
             Credential encryption has not been configured by an authorized manager.
           </p>
-        </div>
+        </RailCard>
       );
     }
     return (
-      <div className="glass-card rounded-xl overflow-hidden">
-        <div className="px-5 py-4 border-b border-white/[0.06] flex items-center gap-2">
-          <Lock size={18} className="text-zinc-400" />
-          <h2 className="font-semibold text-white">Set Up Credential Encryption</h2>
-        </div>
-
-        <div className="p-5 space-y-4">
+      <RailCard title="Set up credential encryption" icon={<Lock size={16} className="text-zinc-400" aria-hidden="true" />}>
+        <div className="space-y-4">
           <div className="text-sm text-zinc-300 leading-relaxed">
             Generate an encryption key and add it to your{' '}
             <code className="px-1.5 py-0.5 bg-white/[0.06] rounded text-xs font-mono text-zinc-300">
@@ -517,14 +518,14 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
           </div>
 
           {!generatedKey ? (
-            <button
+            <Button
+              type="button"
               onClick={handleGenerate}
               disabled={generating}
-              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition-colors disabled:opacity-50"
+              icon={generating ? <Loader2 size={14} className="animate-spin" aria-hidden="true" /> : <KeyRound size={14} aria-hidden="true" />}
             >
-              {generating ? <Loader2 size={14} className="animate-spin" /> : <KeyRound size={14} />}
               Generate Encryption Key
-            </button>
+            </Button>
           ) : (
             <div className="space-y-3">
               {/* Key display */}
@@ -566,22 +567,18 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
               </div>
 
               {/* Verify button */}
-              <button
+              <Button
+                type="button"
                 onClick={handleVerify}
                 disabled={verifying}
-                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition-colors disabled:opacity-50"
+                icon={verifying ? <Loader2 size={14} className="animate-spin" aria-hidden="true" /> : <RefreshCw size={14} aria-hidden="true" />}
               >
-                {verifying ? (
-                  <Loader2 size={14} className="animate-spin" />
-                ) : (
-                  <RefreshCw size={14} />
-                )}
                 Verify Setup
-              </button>
+              </Button>
             </div>
           )}
         </div>
-      </div>
+      </RailCard>
     );
   }
 
@@ -695,20 +692,18 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
         />
 
         <div className="flex items-center gap-2 justify-end">
-          <button
-            onClick={handleCancel}
-            className="px-3 py-1.5 text-sm text-zinc-400 hover:text-zinc-300 transition-colors"
-          >
+          <Button type="button" variant="ghost" size="sm" onClick={handleCancel}>
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button
+            type="button"
+            size="sm"
             onClick={mode === 'add' ? handleAdd : handleSaveEdit}
             disabled={!label.trim() || saving}
-            className="inline-flex items-center gap-1.5 px-4 py-1.5 text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            icon={saving ? <Loader2 size={13} className="animate-spin" aria-hidden="true" /> : undefined}
           >
-            {saving && <Loader2 size={13} className="animate-spin" />}
             {mode === 'add' ? 'Save' : 'Update'}
-          </button>
+          </Button>
         </div>
       </div>
     );
@@ -743,23 +738,20 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
 
     if (editingId === cred.id) {
       return (
-        <li key={cred.id} className="sm:col-span-2 glass-card rounded-xl border border-brand-500/30 p-5">
-          <div className="flex items-start gap-3 mb-4">
-            <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${config.bg}`}>
-              <CategoryIcon size={16} className={config.iconColor} aria-hidden="true" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-medium text-zinc-500">Editing</p>
-              <p className="text-sm font-semibold text-white truncate">{cred.label}</p>
-            </div>
-          </div>
-          {editLoading ? (
-            <div className="flex items-center justify-center py-10">
-              <Loader2 size={18} className="animate-spin text-zinc-600" aria-hidden="true" />
-            </div>
-          ) : (
-            renderForm('edit')
-          )}
+        <li key={cred.id} className="sm:col-span-2 min-w-0">
+          <RailCard
+            title={`Edit ${cred.label}`}
+            icon={<CategoryIcon size={16} className="text-zinc-400" aria-hidden="true" />}
+            className="border border-brand-500/30"
+          >
+            {editLoading ? (
+              <div className="flex items-center justify-center py-10">
+                <Loader2 size={18} className="animate-spin text-zinc-600" aria-hidden="true" />
+              </div>
+            ) : (
+              renderForm('edit')
+            )}
+          </RailCard>
         </li>
       );
     }
@@ -910,34 +902,31 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
         }
         primary={
           canManageCredentials && (
-            <Button icon={<Plus size={16} aria-hidden="true" />} onClick={openAddForm}>
-              Add credential
-            </Button>
+            <ToolbarButton icon={<Plus />} label="Add credential" onClick={openAddForm} />
           )
         }
       />
 
       {canManageCredentials && isAdding && !editingId && (
-        <div className="glass-card rounded-xl border border-brand-500/30 p-5 mb-6">
-          <h2 className="text-sm font-semibold text-white mb-4">New credential</h2>
+        <RailCard
+          title="New credential"
+          icon={<KeyRound size={16} className="text-zinc-400" aria-hidden="true" />}
+          className="border border-brand-500/30 mb-6"
+        >
           <div className="max-w-3xl">{renderForm('add')}</div>
-        </div>
+        </RailCard>
       )}
 
       {credentials.length === 0 ? (
         !isAdding && (
-          <div className="glass-card rounded-xl flex flex-col items-center justify-center px-6 py-16 text-center">
-            <div className="w-10 h-10 rounded-full bg-white/[0.06] flex items-center justify-center mb-3">
-              <ShieldCheck size={18} className="text-zinc-500" aria-hidden="true" />
-            </div>
-            <p className="text-sm font-medium text-zinc-300">No credentials stored yet</p>
-            <p className="text-xs text-zinc-500 mt-1">
-              Client logins, API keys, cards and bank details, encrypted and revealed on click.
-            </p>
-          </div>
+          <EmptyCard
+            icon={<ShieldCheck />}
+            title="No credentials stored yet"
+            description="Client logins, API keys, cards and bank details, encrypted and revealed on click."
+          />
         )
       ) : groups.length === 0 ? (
-        <p className="py-16 text-center text-sm text-zinc-500">No credentials match.</p>
+        <div className="glass-card rounded-xl"><NoMatches>No credentials match.</NoMatches></div>
       ) : (
         <div className="space-y-8">
           {groups.map((group) => (

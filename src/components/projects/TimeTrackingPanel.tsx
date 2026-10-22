@@ -20,7 +20,8 @@ import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { toast } from '@/components/ui/Toast';
 import { KpiRow, KpiTile } from '@/components/ui/KpiTile';
-import { RailCard, RailLayout, SubNav, TabToolbar } from '@/components/projects/TabLayout';
+import { Button } from '@/components/ui/Button';
+import { EmptyCard, GroupLabel, NoMatches, RailCard, RailLayout, SubNav, TabToolbar } from '@/components/projects/TabLayout';
 import { Avatar, AvatarGroup } from '@/components/ui/Avatar';
 import { Select } from '@/components/ui/inputs/Select';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
@@ -1020,7 +1021,7 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
   );
 
   const trackCard = (
-    <RailCard title="Track time" action={modeToggle}>
+    <RailCard title="Track time" icon={<Timer size={16} className="text-zinc-400" aria-hidden="true" />} action={modeToggle}>
       {effectiveMode === 'timer' && runningTimer && (
         <div
           className="rounded-xl border p-4 space-y-4"
@@ -1118,29 +1119,17 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
 
           <div className="grid grid-cols-2 gap-2">
             {runningTimerIsPaused ? (
-              <button
-                onClick={handleResumeTimer}
-                className="px-3 py-2 rounded-lg text-white font-medium text-sm transition-all flex items-center justify-center gap-1.5 bg-brand-600 hover:bg-brand-700 active:scale-[0.97] focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
-              >
-                <Play size={13} aria-hidden="true" />
+              <Button type="button" className="w-full" onClick={handleResumeTimer} icon={<Play size={13} aria-hidden="true" />}>
                 Resume
-              </button>
+              </Button>
             ) : (
-              <button
-                onClick={handlePauseTimer}
-                className="px-3 py-2 rounded-lg font-medium text-sm transition-all flex items-center justify-center gap-1.5 bg-white/[0.06] text-zinc-300 hover:bg-white/[0.08] active:scale-[0.97] focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
-              >
-                <Pause size={13} aria-hidden="true" />
+              <Button type="button" variant="secondary" className="w-full" onClick={handlePauseTimer} icon={<Pause size={13} aria-hidden="true" />}>
                 Pause
-              </button>
+              </Button>
             )}
-            <button
-              onClick={handleStopTimer}
-              className="px-3 py-2 rounded-lg text-white font-medium text-sm transition-all flex items-center justify-center gap-1.5 bg-red-500 hover:bg-red-600 active:scale-[0.97] focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400"
-            >
-              <Square size={12} aria-hidden="true" />
+            <Button type="button" variant="danger" className="w-full" onClick={handleStopTimer} icon={<Square size={12} aria-hidden="true" />}>
               Stop
-            </button>
+            </Button>
           </div>
 
           {/* Segment breakdown for the LIVE session, visible once a pause has
@@ -1206,13 +1195,9 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
               searchable={projectTaskOptions.length > 4}
             />
           )}
-          <button
-            onClick={handleStartTimer}
-            className="w-full h-10 justify-center rounded-lg bg-brand-600 px-5 text-sm font-medium text-white transition-all flex items-center gap-2 hover:bg-brand-700 active:scale-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
-          >
-            <Play size={14} aria-hidden="true" />
+          <Button type="button" className="w-full h-10" onClick={handleStartTimer} icon={<Play size={14} aria-hidden="true" />}>
             Start timer
-          </button>
+          </Button>
         </div>
       )}
 
@@ -1308,13 +1293,9 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
               searchable={projectTaskOptions.length > 4}
             />
           )}
-          <button
-            type="submit"
-            className="w-full h-10 rounded-lg text-white text-sm font-medium transition-all flex items-center justify-center gap-2 bg-brand-600 hover:bg-brand-700 active:scale-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
-          >
-            <Plus size={16} aria-hidden="true" />
+          <Button type="submit" className="w-full h-10" icon={<Plus size={16} aria-hidden="true" />}>
             Add entry
-          </button>
+          </Button>
         </form>
       )}
     </RailCard>
@@ -1322,7 +1303,7 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
 
   // Teammates' live timers: read-only, in both modes.
   const teammatesCard = teammateTimers.length > 0 && (
-    <RailCard title="Also tracking">
+    <RailCard title="Also tracking" icon={<Users size={16} className="text-zinc-400" aria-hidden="true" />}>
       <ul className="space-y-2">
         {teammateTimers.map((entry) => {
           const member = getMember(entry.member_id);
@@ -1423,18 +1404,12 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
             />
           </div>
           <div className="flex justify-end gap-2">
-            <button
-              onClick={cancelEdit}
-              className="px-3 py-1.5 text-sm text-zinc-300 rounded-lg hover:bg-white/[0.06] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
-            >
+            <Button type="button" variant="ghost" size="sm" onClick={cancelEdit}>
               Cancel
-            </button>
-            <button
-              onClick={saveEdit}
-              className="px-3 py-1.5 text-sm font-medium text-white rounded-lg bg-brand-600 hover:bg-brand-700 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
-            >
+            </Button>
+            <Button type="button" size="sm" onClick={saveEdit}>
               Save
-            </button>
+            </Button>
           </div>
         </div>
       );
@@ -1642,10 +1617,10 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
       <RailLayout stickyRail railFirstOnMobile rail={<>{trackCard}{teammatesCard}</>}>
 
         {dateGroups.length > 0 && visibleDateGroups.length === 0 ? (
-          <p className="glass-card rounded-xl px-5 py-16 text-center text-sm text-zinc-500">No sessions match.</p>
+          <div className="glass-card rounded-xl"><NoMatches>No sessions match.</NoMatches></div>
         ) : dateGroups.length > 0 ? (
           <section className="@container glass-card rounded-xl overflow-hidden" aria-label="Sessions">
-            <div className="hidden @4xl:grid grid-cols-[minmax(0,1fr)_190px_84px_120px_84px] gap-4 pl-[60px] pr-5 py-2.5 border-b border-white/[0.06] text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+            <div className="hidden @4xl:grid grid-cols-[minmax(0,1fr)_190px_84px_120px_84px] gap-4 pl-[60px] pr-5 py-2.5 border-b border-white/[0.06] text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
               <span>Session</span>
               <span>Who and when</span>
               <span className="text-right">Duration</span>
@@ -1657,7 +1632,7 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
               return (
                 <div key={date} className="border-b border-white/[0.06] last:border-0">
                   <div className="flex items-center justify-between px-5 py-2 bg-white/[0.025]">
-                    <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">{formatDateHeader(date)}</h3>
+                    <GroupLabel as="h3" className="">{formatDateHeader(date)}</GroupLabel>
                     <span className="text-xs font-mono tabular-nums text-zinc-400">{formatHM(dayTotal)}</span>
                   </div>
                   <div className="divide-y divide-white/[0.05]">{dateEntries.map(renderEntry)}</div>
@@ -1666,17 +1641,13 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
             })}
           </section>
         ) : (
-          <div className="glass-card rounded-xl flex flex-col items-center justify-center px-6 py-16 text-center">
-            <div className="w-10 h-10 rounded-full bg-white/[0.06] flex items-center justify-center mb-3">
-              <Clock size={18} className="text-zinc-500" aria-hidden="true" />
-            </div>
-            <p className="text-sm font-medium text-zinc-300">No sessions yet</p>
-            <p className="text-xs text-zinc-500 mt-1">
-              {effectiveMode === 'timer'
-                ? 'Start the timer and your sessions will list here, day by day.'
-                : 'Log an entry and your sessions will list here, day by day.'}
-            </p>
-          </div>
+          <EmptyCard
+            icon={<Clock />}
+            title="No sessions yet"
+            description={effectiveMode === 'timer'
+              ? 'Start the timer and your sessions will list here, day by day.'
+              : 'Log an entry and your sessions will list here, day by day.'}
+          />
         )}
       </RailLayout>
 

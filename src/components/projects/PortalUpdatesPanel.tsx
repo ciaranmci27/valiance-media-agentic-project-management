@@ -4,7 +4,6 @@ import { FileInput } from '@/components/ui/inputs/FileInput';
 import { useState, useRef } from 'react';
 import {
   MessageSquarePlus,
-  Plus,
   Pencil,
   Trash2,
   X,
@@ -27,6 +26,8 @@ import { createClient } from '@/lib/supabase/client';
 import { toast } from '@/components/ui/Toast';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Tooltip } from '@/components/ui/Tooltip';
+import { Button } from '@/components/ui/Button';
+import { EmptyCard, NoMatches } from './TabLayout';
 import type { PortalUpdate, PortalUpdateType, PortalUpdateAttachment } from '@/lib/types';
 
 interface PortalUpdatesPanelProps {
@@ -460,7 +461,7 @@ export function PortalUpdatesPanel({ projectId, isAdding, onAddingChange: setIsA
         onClick={() => inputRef.current?.click()}
         className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-zinc-400 hover:text-zinc-300 bg-white/[0.06] hover:bg-white/[0.08] rounded-lg transition-colors"
       >
-        <Paperclip size={12} />
+        <Paperclip size={12} aria-hidden="true" />
         Attach
       </button>
     </>
@@ -515,22 +516,17 @@ export function PortalUpdatesPanel({ projectId, isAdding, onAddingChange: setIsA
       <div className="flex items-center gap-2 justify-between">
         {renderAttachFileButton(mode === 'add' ? addFileRef : editFileRef, mode)}
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={handleCancelEdit}
-            className="px-3 py-1.5 text-sm text-zinc-400 hover:text-zinc-200 rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
-          >
+          <Button variant="ghost" size="sm" onClick={handleCancelEdit}>
             Cancel
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
+            size="sm"
             onClick={mode === 'add' ? handleAdd : handleSaveEdit}
             disabled={!title.trim() || uploading}
-            className="px-4 py-1.5 text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-1.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+            icon={uploading ? <Loader2 size={14} className="animate-spin" aria-hidden="true" /> : undefined}
           >
-            {uploading && <Loader2 size={14} className="animate-spin" aria-hidden="true" />}
             {mode === 'add' ? 'Post update' : 'Save'}
-          </button>
+          </Button>
         </div>
       </div>
     </div>
@@ -543,7 +539,7 @@ export function PortalUpdatesPanel({ projectId, isAdding, onAddingChange: setIsA
       {isAdding && !editingId && renderForm('add')}
 
       {allUpdates.length > 0 && updates.length === 0 ? (
-        <p className="glass-card rounded-xl px-5 py-16 text-center text-sm text-zinc-500">No updates match.</p>
+        <div className="glass-card rounded-xl"><NoMatches>No updates match.</NoMatches></div>
       ) : updates.length > 0 ? (
         <section className="glass-card rounded-xl overflow-hidden" aria-label="Portal updates">
           <ul className="divide-y divide-white/[0.05]">
@@ -611,21 +607,11 @@ export function PortalUpdatesPanel({ projectId, isAdding, onAddingChange: setIsA
           </ul>
         </section>
       ) : !isAdding ? (
-        <div className="glass-card rounded-xl flex flex-col items-center justify-center px-6 py-16 text-center">
-          <div className="w-10 h-10 rounded-full bg-white/[0.06] flex items-center justify-center mb-3">
-            <MessageSquarePlus size={18} className="text-zinc-500" aria-hidden="true" />
-          </div>
-          <p className="text-sm font-medium text-zinc-300">No updates posted yet</p>
-          <p className="text-xs text-zinc-500 mt-1 mb-4">Updates show on the client&apos;s portal, newest first.</p>
-          <button
-            type="button"
-            onClick={() => setIsAdding(true)}
-            className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
-          >
-            <Plus size={16} aria-hidden="true" />
-            Post the first update
-          </button>
-        </div>
+        <EmptyCard
+          icon={<MessageSquarePlus />}
+          title="No updates posted yet"
+          description="Updates show on the client's portal, newest first. Use Add update to post one."
+        />
       ) : null}
 
       <ConfirmDialog

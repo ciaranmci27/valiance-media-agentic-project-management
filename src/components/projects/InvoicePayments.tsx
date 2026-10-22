@@ -67,7 +67,7 @@ export function InvoicePayments({ invoice, taxRate, keyNames, canRecord, today, 
   return (
     <div>
       <div className="flex items-center justify-between gap-2 mb-1.5">
-        <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
           Payments
           {total !== invoice.amount && (
             <span className="normal-case tracking-normal text-zinc-400"> (total with tax ${formatMoney(total)})</span>

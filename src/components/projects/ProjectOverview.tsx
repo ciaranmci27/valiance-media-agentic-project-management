@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import {
-  ArrowRight, Bell, CircleDot, Clock, Copy, Eye, Globe, Info, Mail, Receipt, Users,
+  Bell, CircleDot, Clock, Copy, Eye, Globe, Info, Mail, Receipt, Users,
 } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { useDemo } from '@/lib/demo-context';
@@ -20,6 +20,7 @@ import { useInboxUpdates } from '@/components/inbox/use-inbox-updates';
 import { formatListTime } from '@/components/inbox/inbox-badges';
 import { ReminderRow } from '@/components/reminders/ReminderRow';
 import { ActivityTimeline } from '@/components/agent/ActivityTimeline';
+import { Bone, CardLink, GroupLabel, RailCard, Skeleton } from '@/components/projects/TabLayout';
 import { Avatar, AvatarGroup } from '@/components/ui/Avatar';
 import { PriorityBadge, StatusBadge } from '@/components/ui/Badge';
 import { DateInput } from '@/components/ui/inputs/DateInput';
@@ -68,38 +69,6 @@ function startOfWeek(now = new Date()): Date {
   start.setHours(0, 0, 0, 0);
   start.setDate(start.getDate() - ((start.getDay() + 6) % 7));
   return start;
-}
-
-function Card({ icon, title, action, children }: { icon: ReactNode; title: string; action?: ReactNode; children: ReactNode }) {
-  return (
-    <section className="glass-card rounded-xl overflow-hidden">
-      <div className="px-5 py-4 flex items-center justify-between gap-3">
-        <h2 className="flex items-center gap-2 font-semibold text-white">
-          {icon}
-          {title}
-        </h2>
-        {action}
-      </div>
-      <div className="px-5 pb-5">{children}</div>
-    </section>
-  );
-}
-
-function CardLink({ onClick, children }: { onClick: () => void; children: ReactNode }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="flex items-center gap-1 text-xs text-zinc-400 hover:text-brand-300 transition-colors rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
-    >
-      {children}
-      <ArrowRight size={12} aria-hidden="true" />
-    </button>
-  );
-}
-
-function GroupLabel({ children }: { children: ReactNode }) {
-  return <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500 mb-1.5">{children}</p>;
 }
 
 const ROW_CLASS = 'w-full flex items-center gap-3 px-2.5 py-2 -mx-2.5 rounded-lg text-left hover:bg-white/[0.04] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500';
@@ -171,7 +140,8 @@ export function ProjectOverview({ projectId, onOpenTask, onOpenTab, onOpenContac
 
   // Client emails waiting on a person. Fetched, as the inbox is, and refreshed
   // on the same realtime ping the inbox listens to.
-  const [emails, setEmails] = useState<{ threads: InboxThreadSummary[]; total: number } | null>(null);
+  // undefined while the first answer is out, null when it failed.
+  const [emails, setEmails] = useState<{ threads: InboxThreadSummary[]; total: number } | null | undefined>(undefined);
   const loadEmails = useCallback(() => {
     if (!can.inbox) return;
     inboxClient(isDemoMode)
@@ -183,6 +153,7 @@ export function ProjectOverview({ projectId, onOpenTask, onOpenTab, onOpenContac
   useInboxUpdates(loadEmails);
 
   const emailThreads = emails?.threads ?? [];
+  const emailsLoading = can.inbox && emails === undefined;
   const needsYouCount = dueReminders.length + inReview.length + (emails?.total ?? 0) + unpaid.length;
 
   // ── Details ──
@@ -251,14 +222,24 @@ export function ProjectOverview({ projectId, onOpenTask, onOpenTab, onOpenContac
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
       <div className="lg:col-span-2 space-y-6 min-w-0">
-        <Card
-          icon={<Bell size={18} className="text-zinc-400" aria-hidden="true" />}
+        <RailCard
+          icon={<Bell size={16} className="text-zinc-400" aria-hidden="true" />}
           title="Needs you"
           action={needsYouCount > 0 ? (
             <span className="text-xs font-mono tabular-nums text-zinc-400">{needsYouCount}</span>
           ) : undefined}
         >
-          {needsYouCount === 0 ? (
+          {needsYouCount === 0 && emailsLoading ? (
+            <Skeleton label="Loading what needs you" className="space-y-3">
+              <Bone className="h-2.5 w-24" />
+              {[0, 1].map(i => (
+                <div key={i} className="flex items-center gap-3">
+                  <Bone className="w-4 h-4 rounded-full" />
+                  <Bone className={`h-3 flex-1 ${i ? 'max-w-[10rem]' : 'max-w-[14rem]'}`} />
+                </div>
+              ))}
+            </Skeleton>
+          ) : needsYouCount === 0 ? (
             <p className="text-sm text-zinc-500">Nothing is waiting on you here.</p>
           ) : (
             <div className="space-y-4">
@@ -338,10 +319,10 @@ export function ProjectOverview({ projectId, onOpenTask, onOpenTab, onOpenContac
               </div>
             </div>
           )}
-        </Card>
+        </RailCard>
 
-        <Card
-          icon={<CircleDot size={18} className="text-zinc-400" aria-hidden="true" />}
+        <RailCard
+          icon={<CircleDot size={16} className="text-zinc-400" aria-hidden="true" />}
           title="In progress"
           action={<CardLink onClick={() => onOpenTab('tasks')}>Board</CardLink>}
         >
@@ -388,14 +369,14 @@ export function ProjectOverview({ projectId, onOpenTask, onOpenTab, onOpenContac
               )}
             </>
           )}
-        </Card>
+        </RailCard>
 
         <ActivityTimeline projectId={projectId} listMaxHeightClass="" />
       </div>
 
       <div className="space-y-6 min-w-0">
-        <Card
-          icon={<Info size={18} className="text-zinc-400" aria-hidden="true" />}
+        <RailCard
+          icon={<Info size={16} className="text-zinc-400" aria-hidden="true" />}
           title="Details"
           action={can.manageProject ? <CardLink onClick={onEditProject}>Edit</CardLink> : undefined}
         >
@@ -460,10 +441,10 @@ export function ProjectOverview({ projectId, onOpenTask, onOpenTab, onOpenContac
               )}
             </dl>
           </div>
-        </Card>
+        </RailCard>
 
-        <Card
-          icon={<Users size={18} className="text-zinc-400" aria-hidden="true" />}
+        <RailCard
+          icon={<Users size={16} className="text-zinc-400" aria-hidden="true" />}
           title="People"
           action={can.contacts ? <CardLink onClick={onOpenContacts}>Contacts</CardLink> : undefined}
         >
@@ -509,11 +490,11 @@ export function ProjectOverview({ projectId, onOpenTask, onOpenTab, onOpenContac
               )}
             </div>
           )}
-        </Card>
+        </RailCard>
 
         {timeStats && (
-          <Card
-            icon={<Clock size={18} className="text-zinc-400" aria-hidden="true" />}
+          <RailCard
+            icon={<Clock size={16} className="text-zinc-400" aria-hidden="true" />}
             title="Time"
             action={<CardLink onClick={() => onOpenTab('time')}>Open</CardLink>}
           >
@@ -521,12 +502,12 @@ export function ProjectOverview({ projectId, onOpenTask, onOpenTab, onOpenContac
               <Stat label="This week" value={`${formatHours(timeStats.week)}h`} />
               <Stat label="All time" value={`${formatHours(timeStats.total)}h`} />
             </div>
-          </Card>
+          </RailCard>
         )}
 
         {can.invoices && (
-          <Card
-            icon={<Receipt size={18} className="text-zinc-400" aria-hidden="true" />}
+          <RailCard
+            icon={<Receipt size={16} className="text-zinc-400" aria-hidden="true" />}
             title="Billing"
             action={<CardLink onClick={() => onOpenTab('billing')}>Open</CardLink>}
           >
@@ -551,12 +532,12 @@ export function ProjectOverview({ projectId, onOpenTask, onOpenTab, onOpenContac
                 </p>
               </div>
             )}
-          </Card>
+          </RailCard>
         )}
 
         {can.portal && (
-          <Card
-            icon={<Globe size={18} className="text-zinc-400" aria-hidden="true" />}
+          <RailCard
+            icon={<Globe size={16} className="text-zinc-400" aria-hidden="true" />}
             title="Client portal"
             action={<CardLink onClick={() => onOpenTab('portal')}>Open</CardLink>}
           >
@@ -581,7 +562,7 @@ export function ProjectOverview({ projectId, onOpenTask, onOpenTab, onOpenContac
                 ? `${portalUpdates.length} ${portalUpdates.length === 1 ? 'update' : 'updates'}, last on ${new Date(lastUpdate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
                 : 'No updates posted yet'}
             </p>
-          </Card>
+          </RailCard>
         )}
 
       </div>

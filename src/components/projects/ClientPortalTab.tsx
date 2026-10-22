@@ -8,7 +8,7 @@ import { PortalAnalytics, PortalAnalyticsFilters, usePortalAnalyticsFilters } fr
 import { PortalSettingsPanel, portalEnablePatch } from './PortalSettingsPanel';
 import { PortalUpdatesPanel } from './PortalUpdatesPanel';
 import { PortalSectionsCard } from './PortalSectionsCard';
-import { RailLayout, SubNav, TabToolbar, type SubNavItem } from './TabLayout';
+import { EmptyCard, RailLayout, SubNav, TabToolbar, ToolbarButton, useKeptViews, type SubNavItem } from './TabLayout';
 
 type PortalView = 'portal' | 'activity';
 
@@ -40,44 +40,40 @@ export function ClientPortalTab({ projectId, view, onViewChange }: ClientPortalT
   const [addingUpdate, setAddingUpdate] = useState(false);
   const [query, setQuery] = useState('');
   const filters = usePortalAnalyticsFilters();
+  const active: PortalView = VIEWS.find((v) => v.key === view)?.key ?? 'portal';
+  const kept = useKeptViews(active);
 
   if (!settings?.enabled) {
     return (
-      <div className="glass-card rounded-xl flex flex-col items-center justify-center px-6 py-20 text-center">
-        <div className="w-12 h-12 rounded-full bg-white/[0.06] flex items-center justify-center mb-4">
-          <Globe size={20} className="text-zinc-400" aria-hidden="true" />
-        </div>
-        <h2 className="text-base font-semibold text-white">The client portal is off</h2>
-        <p className="text-sm text-zinc-400 mt-1.5 max-w-md">
-          Turn it on to give this client a private page with the project&apos;s progress, updates,
-          invoices, hours and files.
-        </p>
-        <Button
-          className="mt-5"
-          icon={<Globe size={16} aria-hidden="true" />}
-          onClick={() => upsertPortalSettings(projectId, portalEnablePatch(project?.color, !!settings?.welcome_message))}
-        >
-          Turn on client portal
-        </Button>
-      </div>
+      <EmptyCard
+        icon={<Globe />}
+        title="The client portal is off"
+        description="Turn it on to give this client a private page with the project's progress, updates, invoices, hours and files."
+        action={
+          <Button
+            icon={<Globe size={16} aria-hidden="true" />}
+            onClick={() => upsertPortalSettings(projectId, portalEnablePatch(project?.color, !!settings?.welcome_message))}
+          >
+            Turn on client portal
+          </Button>
+        }
+      />
     );
   }
 
-  const active: PortalView = VIEWS.find((v) => v.key === view)?.key ?? 'portal';
   // With the Updates section switched off the client never sees updates, so
   // posting them (and the feed, and its search) goes away too.
   const updatesOn = settings.show_updates;
   const portalUrl = settings.token ? `/portal/${settings.token}` : null;
   const openPortal = portalUrl && (
-    <Button
+    <ToolbarButton
       variant="secondary"
-      icon={<ExternalLink size={16} aria-hidden="true" />}
+      icon={<ExternalLink />}
+      label="Open portal"
       href={portalUrl}
       target="_blank"
       rel="noopener noreferrer"
-    >
-      Open portal
-    </Button>
+    />
   );
 
   return (
@@ -95,21 +91,23 @@ export function ClientPortalTab({ projectId, view, onViewChange }: ClientPortalT
         )}
         actions={openPortal}
         primary={active === 'portal' && updatesOn && (
-          <Button icon={<Plus size={16} aria-hidden="true" />} onClick={() => setAddingUpdate(true)}>
-            Add update
-          </Button>
+          <ToolbarButton icon={<Plus />} label="Add update" onClick={() => setAddingUpdate(true)} />
         )}
       />
 
-      {active === 'portal' ? (
-        <RailLayout rail={<PortalSettingsPanel projectId={projectId} />}>
-          {updatesOn && (
-            <PortalUpdatesPanel projectId={projectId} isAdding={addingUpdate} onAddingChange={setAddingUpdate} query={query} />
-          )}
-          <PortalSectionsCard projectId={projectId} />
-        </RailLayout>
-      ) : (
-        settings.id && (
+      {kept.has('portal') && (
+        <div hidden={active !== 'portal'}>
+          <RailLayout rail={<PortalSettingsPanel projectId={projectId} />}>
+            {updatesOn && (
+              <PortalUpdatesPanel projectId={projectId} isAdding={addingUpdate} onAddingChange={setAddingUpdate} query={query} />
+            )}
+            <PortalSectionsCard projectId={projectId} />
+          </RailLayout>
+        </div>
+      )}
+
+      {kept.has('activity') && settings.id && (
+        <div hidden={active !== 'activity'}>
           <PortalAnalytics
             projectId={projectId}
             portalSettingsId={settings.id}
@@ -120,7 +118,7 @@ export function ClientPortalTab({ projectId, view, onViewChange }: ClientPortalT
               filters.setHideTeam(false);
             }}
           />
-        )
+        </div>
       )}
     </>
   );

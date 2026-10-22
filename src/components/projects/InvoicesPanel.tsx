@@ -31,7 +31,7 @@ import { InvoiceLineSplit, type LineSplit } from '@/components/projects/InvoiceL
 import { InvoicePayments, formatMoney } from '@/components/projects/InvoicePayments';
 import { invoiceOutstanding, invoicePaidTotal, invoiceTotal, isPartiallyPaid } from '@/lib/invoice-payments';
 import { KpiRow, KpiTile } from '@/components/ui/KpiTile';
-import { RailCard, RailLayout, SubNav, TabToolbar } from '@/components/projects/TabLayout';
+import { Bone, CardAction, EmptyCard, NoMatches, RailCard, RailLayout, Skeleton, SubNav, TabToolbar, ToolbarButton } from '@/components/projects/TabLayout';
 import { RowActionsMenu } from '@/components/ui/RowActionsMenu';
 import { Button } from '@/components/ui/Button';
 import { computeInvoiceSummary } from '@/lib/invoice-summary';
@@ -231,6 +231,8 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
   // The next invoice that drafts itself, and what each auto draft left out
   // (time awaiting approval), for the panel's "Next draft" line and draft cards.
   const [upcomingDrafts, setUpcomingDrafts] = useState<BillingForecastItem[]>([]);
+  // False until the first forecast answers, so the card never says "nothing" while it loads.
+  const [upcomingLoaded, setUpcomingLoaded] = useState(false);
   // Which invoices the table shows: all, unpaid (sent or overdue), drafts, paid.
   const [invoiceFilter, setInvoiceFilter] = useState<'all' | 'open' | 'draft' | 'paid'>('all');
   const [invoiceQuery, setInvoiceQuery] = useState('');
@@ -555,12 +557,13 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
       .then(([forecast, runs]) => {
         if (cancelled) return;
         setUpcomingDrafts(forecast.filter((item) => item.status === 'upcoming').slice(0, 3));
+        setUpcomingLoaded(true);
         setLeftOutByInvoice(new Map(runs
           .filter((run) => run.invoice_id && run.pending_hours > 0)
           .map((run) => [run.invoice_id as string, run.pending_hours])));
       })
       // Before the billing migration is applied the reads fail: show nothing.
-      .catch(() => { if (!cancelled) { setUpcomingDrafts([]); setLeftOutByInvoice(new Map()); } });
+      .catch(() => { if (!cancelled) { setUpcomingDrafts([]); setLeftOutByInvoice(new Map()); setUpcomingLoaded(true); } });
     return () => { cancelled = true; };
   }, [billingTab, canReadInvoices, invoiceSignature, isDemoMode, projectId, retainerClient, todayLocalDate]);
 
@@ -1521,7 +1524,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
                 >
                   <div className="flex flex-wrap items-start justify-between gap-3 px-3 py-2.5">
                     <div className="min-w-0">
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-zinc-400">
+                      <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
                         Calculated selection
                       </p>
                       {selectedUnpaidDraft ? (
@@ -1652,22 +1655,18 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
               )}
 
               <div className="flex items-center justify-end gap-2 pt-0.5">
-                <button
-                  type="button"
-                  onClick={closeUnpaidPicker}
-                  className="rounded-md px-2.5 py-1.5 text-xs text-zinc-400 transition-colors hover:bg-white/[0.03] hover:text-zinc-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
-                >
+                <Button type="button" variant="ghost" size="sm" onClick={closeUnpaidPicker}>
                   Cancel
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
+                  size="sm"
                   onClick={commitUnpaidPicker}
                   disabled={!pickerSelectionIsValid}
-                  className="inline-flex items-center gap-1 rounded-md bg-brand-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-brand-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                  icon={<Plus size={12} strokeWidth={2.5} aria-hidden="true" />}
                 >
-                  <Plus size={11} strokeWidth={2.5} aria-hidden="true" />
                   Add to invoice
-                </button>
+                </Button>
               </div>
             </div>
           </div>
@@ -1736,20 +1735,17 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
       </div>
 
       <div className="flex items-center gap-2 justify-end">
-        <button
-          onClick={handleCancel}
-          className="px-3 py-1.5 text-sm text-zinc-400 hover:text-zinc-300 transition-colors"
-        >
+        <Button type="button" variant="ghost" onClick={handleCancel}>
           Cancel
-        </button>
-        <button
+        </Button>
+        <Button
+          type="button"
           onClick={mode === 'add' ? handleAdd : handleSaveEdit}
           disabled={!canSave() || saving}
-          className="inline-flex items-center gap-1.5 px-4 py-1.5 text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          icon={saving ? <Loader2 size={14} className="animate-spin" aria-hidden="true" /> : undefined}
         >
-          {saving && <Loader2 size={13} className="animate-spin" />}
           {mode === 'add' ? 'Save' : 'Update'}
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -1876,7 +1872,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
         <div className="min-w-0">
           {items.length > 0 && (
             <>
-              <h4 className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500 mb-2">
+              <h4 className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400 mb-2">
                 {items.length > 1 ? 'Line items' : 'Line item'}
               </h4>
               <ul className="rounded-lg border border-white/[0.06] divide-y divide-white/[0.05]">
@@ -1906,7 +1902,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
                 })}
                 {items.length > 1 && (
                   <li className="flex items-center justify-between px-3 py-2.5 bg-white/[0.02]">
-                    <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Total</span>
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">Total</span>
                     <span className="text-sm font-semibold tabular-nums text-white">${formatCurrency(invoice.amount)}</span>
                   </li>
                 )}
@@ -1926,13 +1922,13 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
           />
           {invoice.description && (
             <div>
-              <h4 className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500 mb-1">Notes</h4>
+              <h4 className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400 mb-1">Notes</h4>
               <p className="text-sm text-zinc-300 whitespace-pre-wrap break-words">{invoice.description}</p>
             </div>
           )}
           {invoice.file_url && (
             <div>
-              <h4 className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500 mb-1">Attachment</h4>
+              <h4 className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400 mb-1">Attachment</h4>
               <a
                 href={invoice.file_url}
                 target="_blank"
@@ -2033,20 +2029,15 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
           )
         }
         actions={
-          <Button
+          <ToolbarButton
             variant="secondary"
-            icon={<CalendarClock size={16} aria-hidden="true" />}
+            icon={<CalendarClock />}
+            label="Billing settings"
             onClick={() => setBillingTab('upcoming')}
             title="Retainers, scheduled hourly drafts, payment terms and what bills next"
-          >
-            Billing settings
-          </Button>
+          />
         }
-        primary={
-          <Button icon={<Plus size={16} aria-hidden="true" />} onClick={openAddForm}>
-            New invoice
-          </Button>
-        }
+        primary={<ToolbarButton icon={<Plus />} label="New invoice" onClick={openAddForm} />}
       />
 
       <KpiRow className={`mb-6 ${isHourly ? '' : 'lg:grid-cols-3'}`}>
@@ -2093,16 +2084,22 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
               title="Upcoming drafts"
               icon={<CalendarClock size={16} className="text-zinc-400" aria-hidden="true" />}
               action={
-                <button
-                  type="button"
-                  onClick={() => setBillingTab('upcoming')}
-                  className="text-xs text-zinc-400 hover:text-brand-300 transition-colors rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
-                >
-                  Manage
-                </button>
+                <CardAction onClick={() => setBillingTab('upcoming')}>Manage</CardAction>
               }
             >
-              {upcomingDrafts.length > 0 ? (
+              {!upcomingLoaded && !isDemoMode ? (
+                <Skeleton label="Loading upcoming drafts" className="space-y-3">
+                  {[0, 1, 2].map((i) => (
+                    <div key={i} className="space-y-1.5">
+                      <div className="flex justify-between gap-3">
+                        <Bone className="h-3.5 w-12" />
+                        <Bone className="h-3.5 w-16" />
+                      </div>
+                      <Bone className={`h-2.5 ${i % 2 ? 'w-1/2' : 'w-3/4'}`} />
+                    </div>
+                  ))}
+                </Skeleton>
+              ) : upcomingDrafts.length > 0 ? (
                 <ul className="space-y-3">
                   {upcomingDrafts.map((draft) => (
                     <li key={`${draft.date}-${draft.sources}`} className="min-w-0">
@@ -2132,14 +2129,9 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
                 title="Hourly rate"
                 icon={<Clock size={16} className="text-zinc-400" aria-hidden="true" />}
                 action={
-                  <button
-                    type="button"
-                    onClick={() => setEditingRate((open) => !open)}
-                    aria-expanded={editingRate}
-                    className="text-xs text-zinc-400 hover:text-brand-300 transition-colors rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
-                  >
+                  <CardAction onClick={() => setEditingRate((open) => !open)} aria-expanded={editingRate}>
                     {editingRate ? 'Done' : 'Change'}
-                  </button>
+                  </CardAction>
                 }
               >
                 <p className="text-2xl font-bold tabular-nums text-white">
@@ -2186,7 +2178,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
       >
         {invoices.length > 0 ? (
           <section className="@container glass-card rounded-xl overflow-hidden" aria-label="Invoices">
-            <div className={`hidden @2xl:grid ${INVOICE_COLS} gap-3 px-5 py-2.5 border-b border-white/[0.06] text-[11px] font-semibold uppercase tracking-wider text-zinc-500`}>
+            <div className={`hidden @2xl:grid ${INVOICE_COLS} gap-3 px-5 py-2.5 border-b border-white/[0.06] text-[11px] font-semibold uppercase tracking-wider text-zinc-400`}>
               <span>Status</span>
               <span>Invoice</span>
               <span>Issued</span>
@@ -2198,18 +2190,15 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
             {visibleInvoices.length > 0 ? (
               <div className="divide-y divide-white/[0.05]">{visibleInvoices.map(renderInvoiceRow)}</div>
             ) : (
-              <p className="px-5 py-10 text-center text-sm text-zinc-500">No invoices in this view.</p>
+              <NoMatches>No invoices in this view.</NoMatches>
             )}
           </section>
         ) : (
-          <div className="glass-card rounded-xl flex flex-col items-center justify-center px-6 py-16 text-center">
-            <div className="w-10 h-10 rounded-full bg-white/[0.06] flex items-center justify-center mb-3">
-              <Receipt size={18} className="text-zinc-500" aria-hidden="true" />
-            </div>
-            <p className="text-sm font-medium text-zinc-300">No invoices yet</p>
-            <p className="text-xs text-zinc-500 mt-1 mb-4">Invoices you create or that draft themselves show up here.</p>
-            <Button icon={<Plus size={16} aria-hidden="true" />} onClick={openAddForm}>New invoice</Button>
-          </div>
+          <EmptyCard
+            icon={<Receipt />}
+            title="No invoices yet"
+            description="Invoices you create or that draft themselves show up here. Use New invoice to create one."
+          />
         )}
       </RailLayout>
 

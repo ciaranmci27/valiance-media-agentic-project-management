@@ -58,14 +58,17 @@ export function TaskFilterControl({ tasks }: { tasks: Task[] }) {
   return (
     <div ref={anchorRef} className="relative">
       <button
+        type="button"
         onClick={() => setOpen(!open)}
-        className={`h-9 flex items-center gap-2 px-3 text-sm rounded-lg transition-colors ${
+        aria-label={activeCount > 0 ? `Filter, ${activeCount} active` : 'Filter'}
+        aria-expanded={open}
+        className={`h-9 flex items-center gap-2 px-3 text-sm rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${
           activeCount > 0
             ? 'bg-brand-500/15 border border-brand-500/30 text-brand-300'
             : 'liquid-glass text-zinc-300'
         }`}
       >
-        <Filter size={16} />
+        <Filter size={16} aria-hidden="true" />
         <span className="hidden sm:inline">Filter</span>
         {activeCount > 0 && (
           <span className="bg-brand-600 text-white text-xs px-1.5 py-0.5 rounded-full">{activeCount}</span>

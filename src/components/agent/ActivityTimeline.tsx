@@ -7,6 +7,7 @@ import { Activity, ChevronDown, ExternalLink } from 'lucide-react';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { Avatar } from '@/components/ui/Avatar';
 import Modal from '@/components/ui/Modal';
+import { GroupLabel, RailCard } from '@/components/projects/TabLayout';
 import { AgentActivity } from '@/lib/types';
 import { isTelemetryEvent } from '@/lib/agent-events';
 
@@ -103,18 +104,19 @@ export function ActivityTimeline({ projectId, listMaxHeightClass }: ActivityTime
   const totalCount = agentActivity.length;
 
   return (
-    <div className="glass-card rounded-xl overflow-hidden lg:flex lg:flex-col lg:h-full lg:min-h-0">
-      <div className="p-4 border-b border-white/[0.06] lg:flex-shrink-0">
-        <h2 className="font-semibold text-white">Recent Activity</h2>
-      </div>
-
-      <div className={`lg:flex-1 lg:min-h-0 overflow-y-auto board-column-scroll ${listMaxHeightClass ?? 'max-h-[400px] lg:max-h-none'}`}>
+    <>
+      <RailCard
+        title="Recent activity"
+        icon={<Activity size={16} className="text-zinc-400" aria-hidden="true" />}
+        className="overflow-hidden lg:flex lg:flex-col lg:h-full lg:min-h-0"
+        bodyClassName={`lg:flex-1 lg:min-h-0 overflow-y-auto board-column-scroll ${listMaxHeightClass ?? 'max-h-[400px] lg:max-h-none'}`}
+      >
         {grouped.length > 0 ? (
-          <div className="px-4 lg:px-5 py-3">
+          <div className="px-5 pb-5">
             {grouped.map((group) => (
               <div key={group.label} className="mb-4 last:mb-0">
                 {/* Day label */}
-                <p className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider mb-2">{group.label}</p>
+                <GroupLabel className="mb-2">{group.label}</GroupLabel>
 
                 {/* Entries */}
                 <div className="space-y-0.5">
@@ -204,7 +206,7 @@ export function ActivityTimeline({ projectId, listMaxHeightClass }: ActivityTime
             <p className="text-sm text-zinc-500">No activity yet</p>
           </div>
         )}
-      </div>
+      </RailCard>
 
       {selected && (() => {
         const agentName = getAgentName(selected.agent_id);
@@ -311,6 +313,6 @@ export function ActivityTimeline({ projectId, listMaxHeightClass }: ActivityTime
           </Modal>
         );
       })()}
-    </div>
+    </>
   );
 }

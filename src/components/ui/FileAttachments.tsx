@@ -30,8 +30,7 @@ import { FilePreviewModal } from '@/components/ui/FilePreviewModal';
 import { NewNoteModal } from '@/components/ui/NewNoteModal';
 import type { EntityFileType, EntityFile } from '@/lib/types';
 import { hasPermission } from '@/lib/access-control';
-import { Button } from '@/components/ui/Button';
-import { SubNav, TabToolbar } from '@/components/projects/TabLayout';
+import { EmptyCard, NoMatches, SubNav, TabToolbar, ToolbarButton } from '@/components/projects/TabLayout';
 
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -411,37 +410,30 @@ export function FileAttachments({ entityType, entityId, layout = 'list' }: FileA
           canUpload && (
             <>
               {fileInput}
-              <Button variant="secondary" icon={<FileText size={16} aria-hidden="true" />} onClick={newNote}>
-                New note
-              </Button>
+              <ToolbarButton variant="secondary" icon={<FileText />} label="New note" onClick={newNote} />
             </>
           )
         }
         primary={
           canUpload && (
-            <Button
-              icon={<Upload size={16} aria-hidden="true" />}
+            <ToolbarButton
+              icon={<Upload />}
+              label={uploading ? 'Uploading' : 'Upload'}
               onClick={() => fileInputRef.current?.click()}
               disabled={uploading}
-            >
-              {uploading ? 'Uploading' : 'Upload'}
-            </Button>
+            />
           )
         }
       />
 
       {files.length === 0 ? (
-        <div className="glass-card rounded-xl flex flex-col items-center justify-center px-6 py-16 text-center">
-          <div className="w-10 h-10 rounded-full bg-white/[0.06] flex items-center justify-center mb-3">
-            <Paperclip size={18} className="text-zinc-500" aria-hidden="true" />
-          </div>
-          <p className="text-sm font-medium text-zinc-300">No files yet</p>
-          <p className="text-xs text-zinc-500 mt-1">
-            {canUpload ? 'Upload files or write a note to keep them with this project.' : 'No files are available for this project.'}
-          </p>
-        </div>
+        <EmptyCard
+          icon={<Paperclip />}
+          title="No files yet"
+          description={canUpload ? 'Upload files or write a note to keep them with this project.' : 'No files are available for this project.'}
+        />
       ) : gridFiles.length === 0 ? (
-        <p className="py-16 text-center text-sm text-zinc-500">No files match.</p>
+        <div className="glass-card rounded-xl"><NoMatches>No files match.</NoMatches></div>
       ) : (
         <ul className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4">
           {gridFiles.map((file) => {

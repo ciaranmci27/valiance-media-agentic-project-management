@@ -17,7 +17,7 @@ import { Button } from '@/components/ui/Button';
 import { Select } from '@/components/ui/inputs/Select';
 import { NumberInput } from '@/components/ui/inputs/NumberInput';
 import { Toggle } from '@/components/ui/inputs/Toggle';
-import { RailCard } from '@/components/projects/TabLayout';
+import { RailCard, ToolbarButton } from '@/components/projects/TabLayout';
 import { COMM_TYPE_LABELS } from './ClientCommunicationsLogPanel';
 import ClientEmailPreviewModal from './ClientEmailPreviewModal';
 import type { ClientCommType, AlertMode } from '@/lib/types';
@@ -59,9 +59,7 @@ export function SendClientEmailButtons({ projectId, onSent }: { projectId: strin
   return (
     <>
       {SEND_ACTIONS.map(({ type, label, hint, icon: Icon }) => (
-        <Button key={type} variant="secondary" icon={<Icon size={16} aria-hidden="true" />} onClick={() => open(type)} title={hint}>
-          {label}
-        </Button>
+        <ToolbarButton key={type} variant="secondary" icon={<Icon />} label={label} onClick={() => open(type)} title={hint} />
       ))}
       {manualType && (
         <ClientEmailPreviewModal

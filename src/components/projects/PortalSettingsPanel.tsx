@@ -14,6 +14,8 @@ import {
   Camera,
   Loader2,
   X,
+  Palette,
+  MessageSquareText,
 } from 'lucide-react';
 import { useApp } from '@/lib/store';
 
@@ -26,6 +28,7 @@ import { Tooltip } from '@/components/ui/Tooltip';
 import { AvatarCropModal } from '@/components/ui/AvatarCropModal';
 import { PinInput, type PinInputRef } from '@/components/ui/PinInput';
 import { Toggle } from '@/components/ui/inputs/Toggle';
+import { Button } from '@/components/ui/Button';
 import { RailCard } from '@/components/projects/TabLayout';
 import { createClient } from '@/lib/supabase/client';
 import { siteConfig } from '@/site-config';
@@ -279,17 +282,18 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
                   autoFocus
                 />
                 {localPin.length === 4 && (
-                  <button
+                  <Button
                     type="button"
+                    size="sm"
+                    className="flex-shrink-0"
                     onClick={() => {
                       upsertPortalSettings(projectId, { pin: localPin });
                       setPinConfirmed(false);
                       toast('success', 'Portal PIN updated');
                     }}
-                    className="px-2.5 py-1.5 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition-colors flex-shrink-0"
                   >
                     Save
-                  </button>
+                  </Button>
                 )}
               </div>
             ) : (
@@ -328,7 +332,7 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
       </RailCard>
 
       {/* Branding: how it looks to the client */}
-      <RailCard title="Branding">
+      <RailCard title="Branding" icon={<Palette size={16} className="text-zinc-400" aria-hidden="true" />}>
         <div className="flex items-start gap-4">
           <div className="relative group flex-shrink-0">
             <div className="w-[72px] h-[72px] rounded-xl overflow-hidden border border-white/[0.08] bg-white/[0.03] flex items-center justify-center">
@@ -407,7 +411,7 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
         </div>
       </RailCard>
 
-      <RailCard title="Welcome message">
+      <RailCard title="Welcome message" icon={<MessageSquareText size={16} className="text-zinc-400" aria-hidden="true" />}>
         <Textarea
           aria-label="Welcome message"
           value={localWelcomeMessage}

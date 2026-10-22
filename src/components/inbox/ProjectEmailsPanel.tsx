@@ -22,10 +22,10 @@ export function ProjectEmailsPanel({ projectId, onSetUpRouting, searchQuery }: {
   const emptyState = (
     <div className="flex h-full flex-col items-center justify-center overflow-y-auto p-6 text-center">
       <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-white/[0.06]">
-        <Mail size={18} className="text-zinc-400" aria-hidden="true" />
+        <Mail size={18} className="text-zinc-500" aria-hidden="true" />
       </div>
-      <p className="text-sm font-semibold text-white">No email for this project yet</p>
-      <p className="mt-1 max-w-md text-xs text-zinc-400">Client email lands here when it comes in one of these ways.</p>
+      <p className="text-sm font-medium text-zinc-300">No email for this project yet</p>
+      <p className="mt-1 max-w-md text-xs text-zinc-500">Client email lands here when it comes in one of these ways.</p>
       <ul className="mt-5 grid w-full max-w-2xl gap-3 text-left sm:grid-cols-3">
         {ROUTES.map(({ icon: Icon, title, body }) => (
           <li key={title} className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">

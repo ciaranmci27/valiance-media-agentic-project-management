@@ -2,11 +2,13 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import {
-  History, Loader2, Eye, CheckCircle2, Clock, XCircle, X as XIcon,
+  History, Eye, CheckCircle2, Clock, XCircle, X as XIcon,
 } from 'lucide-react';
 import { useDemo } from '@/lib/demo-context';
 import { useApp } from '@/lib/store';
 import { demoClientCommunications } from '@/lib/demo-data';
+import { Button } from '@/components/ui/Button';
+import { Bone, EmptyCard, NoMatches, Skeleton } from './TabLayout';
 import ClientEmailPreviewModal from './ClientEmailPreviewModal';
 import type {
   ClientCommunication,
@@ -42,7 +44,8 @@ export function CommunicationHistory({ projectId, refreshSignal = 0, query = '' 
   const { commsRefreshSignal } = useApp();
 
   const [comms, setComms] = useState<ClientCommunication[]>([]);
-  const [loading, setLoading] = useState(false);
+  // Until the first answer the list shows its skeleton, never "No emails sent yet".
+  const [loaded, setLoaded] = useState(false);
   const [pendingModal, setPendingModal] = useState<ClientCommunication | null>(null);
   const [readonlyModal, setReadonlyModal] = useState<ClientCommunication | null>(null);
 
@@ -57,9 +60,9 @@ export function CommunicationHistory({ projectId, refreshSignal = 0, query = '' 
             return new Date(bT).getTime() - new Date(aT).getTime();
           }),
       );
+      setLoaded(true);
       return;
     }
-    setLoading(true);
     try {
       const res = await fetch(`/api/projects/${projectId}/client-communications`);
       if (res.ok) {
@@ -67,7 +70,7 @@ export function CommunicationHistory({ projectId, refreshSignal = 0, query = '' 
         setComms(data.communications || []);
       }
     } finally {
-      setLoading(false);
+      setLoaded(true);
     }
   }, [projectId, isDemoMode]);
 
@@ -85,19 +88,14 @@ export function CommunicationHistory({ projectId, refreshSignal = 0, query = '' 
 
   return (
     <>
-      {loading && comms.length === 0 ? (
-        <div className="glass-card rounded-xl flex items-center justify-center py-16 text-sm text-zinc-500">
-          <Loader2 size={16} className="animate-spin mr-2" aria-hidden="true" />
-          Loading sent emails
-        </div>
+      {!loaded ? (
+        <SentSkeleton />
       ) : comms.length === 0 ? (
-        <div className="glass-card rounded-xl flex flex-col items-center justify-center px-6 py-16 text-center">
-          <div className="w-10 h-10 rounded-full bg-white/[0.06] flex items-center justify-center mb-3">
-            <History size={18} className="text-zinc-500" aria-hidden="true" />
-          </div>
-          <p className="text-sm font-medium text-zinc-300">No emails sent yet</p>
-          <p className="text-xs text-zinc-500 mt-1">Invoices, summaries and alerts you send this client will list here.</p>
-        </div>
+        <EmptyCard
+          icon={<History />}
+          title="No emails sent yet"
+          description="Invoices, summaries and alerts you send this client will list here."
+        />
       ) : (
         <section className="@container glass-card rounded-xl overflow-hidden" aria-label="Sent emails">
           {pending.length > 0 && (
@@ -106,14 +104,14 @@ export function CommunicationHistory({ projectId, refreshSignal = 0, query = '' 
               {pending.length === 1 ? '1 alert is' : `${pending.length} alerts are`} waiting for your approval
             </div>
           )}
-          <div className={`hidden @2xl:grid ${COLS} gap-3 px-5 py-2.5 border-b border-white/[0.06] text-[11px] font-semibold uppercase tracking-wider text-zinc-500`}>
+          <div className={`hidden @2xl:grid ${COLS} gap-3 px-5 py-2.5 border-b border-white/[0.06] text-[11px] font-semibold uppercase tracking-wider text-zinc-400`}>
             <span>Status</span>
             <span>Email</span>
             <span>Sent to</span>
             <span>When</span>
             <span className="sr-only">Actions</span>
           </div>
-          {matching.length === 0 && <p className="px-5 py-10 text-center text-sm text-zinc-500">No emails match.</p>}
+          {matching.length === 0 && <NoMatches>No emails match.</NoMatches>}
           <ul className="divide-y divide-white/[0.05]">
             {[...pending, ...rest].map(c => (
               <CommRow key={c.id} comm={c} onReview={setPendingModal} onPreview={setReadonlyModal} />
@@ -141,6 +139,37 @@ export function CommunicationHistory({ projectId, refreshSignal = 0, query = '' 
         />
       )}
     </>
+  );
+}
+
+/** The Sent table's shape while the first page loads. */
+function SentSkeleton() {
+  return (
+    <Skeleton label="Loading sent emails" className="@container glass-card rounded-xl overflow-hidden">
+      <div className={`hidden @2xl:grid ${COLS} gap-3 px-5 py-3 border-b border-white/[0.06]`}>
+        {['w-12', 'w-12', 'w-14', 'w-10'].map((w, i) => <Bone key={i} className={`h-2.5 ${w}`} />)}
+      </div>
+      <ul className="divide-y divide-white/[0.05]">
+        {[0, 1, 2, 3, 4].map(i => (
+          <li key={i}>
+            <div className={`hidden @2xl:grid ${COLS} gap-3 items-center px-5 py-3.5`}>
+              <Bone className="h-3 w-14" />
+              <div className="space-y-1.5">
+                <Bone className={`h-3.5 ${i % 2 ? 'w-3/4' : 'w-2/3'}`} />
+                <Bone className="h-2.5 w-20" />
+              </div>
+              <Bone className="h-3 w-4/5" />
+              <Bone className="h-3 w-12" />
+            </div>
+            <div className="@2xl:hidden px-4 py-3 space-y-2">
+              <div className="flex justify-between"><Bone className="h-3 w-14" /><Bone className="h-3 w-10" /></div>
+              <Bone className={`h-3.5 ${i % 2 ? 'w-3/4' : 'w-2/3'}`} />
+              <Bone className="h-3 w-1/2" />
+            </div>
+          </li>
+        ))}
+      </ul>
+    </Skeleton>
   );
 }
 
@@ -175,23 +204,13 @@ function CommRow({
   const subject = comm.subject || COMM_TYPE_LABELS[comm.notification_type];
 
   const action = comm.status === 'pending' ? (
-    <button
-      type="button"
-      onClick={() => onReview(comm)}
-      className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-brand-600 text-white hover:bg-brand-700 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
-    >
-      <Eye size={13} aria-hidden="true" />
+    <Button size="sm" onClick={() => onReview(comm)} icon={<Eye size={13} aria-hidden="true" />}>
       Review
-    </button>
+    </Button>
   ) : comm.rendered_html ? (
-    <button
-      type="button"
-      onClick={() => onPreview(comm)}
-      className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg text-zinc-300 hover:text-white hover:bg-white/[0.06] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
-    >
-      <Eye size={13} aria-hidden="true" />
+    <Button variant="ghost" size="sm" onClick={() => onPreview(comm)} icon={<Eye size={13} aria-hidden="true" />}>
       Preview
-    </button>
+    </Button>
   ) : null;
 
   const statusLabel = (

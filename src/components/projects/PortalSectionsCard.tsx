@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { GripVertical, LayoutTemplate } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { Toggle } from '@/components/ui/inputs/Toggle';
+import { GroupLabel, RailCard } from '@/components/projects/TabLayout';
 import { isClientBillable } from '@/lib/time-entry-utils';
 import { DEFAULT_SECTION_ORDER, PORTAL_SECTION_LABELS, type PortalSectionKey } from '@/lib/types';
 
@@ -158,24 +159,21 @@ export function PortalSectionsCard({ projectId }: { projectId: string }) {
   };
 
   return (
-    <section className="glass-card rounded-xl">
-      <div className="px-5 pt-4 pb-1 flex items-center gap-2">
-        <LayoutTemplate size={16} className="text-zinc-400" aria-hidden="true" />
-        <h2 className="text-sm font-semibold text-white">Portal page</h2>
-      </div>
-      <p className="px-5 pb-4 text-xs text-zinc-500">
-        What your client sees and in what order. Drag to reorder within a column.
-      </p>
-      <div className="px-5 pb-5 grid grid-cols-1 md:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] gap-5">
+    <RailCard
+      title="Portal page"
+      icon={<LayoutTemplate size={16} className="text-zinc-400" aria-hidden="true" />}
+      description="What your client sees and in what order. Drag to reorder within a column."
+    >
+      <div className="grid grid-cols-1 md:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] gap-5">
         <div>
-          <h3 className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500 mb-2">Main column</h3>
+          <GroupLabel as="h3" className="mb-2">Main column</GroupLabel>
           <ul className="space-y-2">{column(true).map(renderRow)}</ul>
         </div>
         <div>
-          <h3 className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500 mb-2">Sidebar</h3>
+          <GroupLabel as="h3" className="mb-2">Sidebar</GroupLabel>
           <ul className="space-y-2">{column(false).map(renderRow)}</ul>
         </div>
       </div>
-    </section>
+    </RailCard>
   );
 }

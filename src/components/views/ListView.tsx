@@ -262,7 +262,7 @@ export function ListView({ tasks, onViewTask, onEditTask, onDeleteTask, selected
       <button
         type="button"
         onClick={() => handleSort(field)}
-        className={`flex items-center gap-1 text-left uppercase tracking-wider text-xs font-medium text-zinc-400 hover:text-zinc-300 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-500 rounded ${className}`}
+        className={`flex items-center gap-1 text-left text-[11px] font-semibold uppercase tracking-wider text-zinc-400 hover:text-zinc-300 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-500 rounded ${className}`}
       >
         {children}
         <SortIcon field={field} />
@@ -274,11 +274,11 @@ export function ListView({ tasks, onViewTask, onEditTask, onDeleteTask, selected
     <div className="glass-card rounded-xl overflow-hidden">
       {/* Header: same grid template as every row. Cell order mirrors
           TaskRowDesktop exactly. */}
-      <div className={`hidden lg:grid ${LIST_GRID_COLS} py-2.5 bg-white/[0.03] border-b border-white/[0.08]`}>
+      <div className={`hidden lg:grid ${LIST_GRID_COLS} py-2.5 border-b border-white/[0.06]`}>
         <div />
         <SortHeader field="title" hint="Sort alphabetically by title; third click returns to your manual order">Task</SortHeader>
         <Tooltip content="Who the task is assigned to">
-          <span className="text-xs font-medium text-zinc-400 uppercase tracking-wider cursor-default">Assignees</span>
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400 cursor-default">Assignees</span>
         </Tooltip>
         <SortHeader field="priority" hint="Sort by priority, urgent first">Priority</SortHeader>
         <div className="hidden xl:block">
@@ -327,7 +327,7 @@ export function ListView({ tasks, onViewTask, onEditTask, onDeleteTask, selected
               aria-hidden="true"
             />
             <span className={`w-2 h-2 rounded-full ${group.dot}`} aria-hidden="true" />
-            <span className="text-xs font-semibold text-zinc-300 uppercase tracking-wider">{group.label}</span>
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">{group.label}</span>
             <span className="text-xs text-zinc-500 tabular-nums">{group.tasks.length}</span>
           </button>
 
