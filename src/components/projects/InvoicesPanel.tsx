@@ -21,7 +21,6 @@ import {
   Send,
   Repeat,
   CalendarClock,
-  CircleCheck,
   Wallet,
 } from 'lucide-react';
 import { InvoicePreviewModal } from '@/components/projects/InvoicePreviewModal';
@@ -30,8 +29,7 @@ import BillingModal, { type BillingTab } from '@/components/projects/billing/Bil
 import { InvoiceLineSplit, type LineSplit } from '@/components/projects/InvoiceLineSplit';
 import { InvoicePayments, formatMoney } from '@/components/projects/InvoicePayments';
 import { invoiceOutstanding, invoicePaidTotal, invoiceTotal, isPartiallyPaid } from '@/lib/invoice-payments';
-import { KpiRow, KpiTile } from '@/components/ui/KpiTile';
-import { Bone, CardAction, EmptyCard, NoMatches, RailCard, RailLayout, Skeleton, SubNav, TabToolbar, ToolbarButton } from '@/components/projects/TabLayout';
+import { Bone, CardAction, EmptyCard, NoMatches, RailCard, RailLayout, Skeleton, Stat, SubNav, TabToolbar, ToolbarButton } from '@/components/projects/TabLayout';
 import { RowActionsMenu } from '@/components/ui/RowActionsMenu';
 import { Button } from '@/components/ui/Button';
 import { computeInvoiceSummary } from '@/lib/invoice-summary';
@@ -2013,6 +2011,8 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
     );
   };
 
+  const activeInvoiceCount = invoices.filter((inv) => inv.status !== 'cancelled').length;
+
   return (
     <>
       <TabToolbar
@@ -2044,46 +2044,34 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
         primary={<ToolbarButton icon={<Plus />} label="New invoice" onClick={openAddForm} />}
       />
 
-      <KpiRow className={`mb-6 ${isHourly ? '' : 'lg:grid-cols-3'}`}>
-        {isHourly && (
-          <KpiTile
-            label="Billable"
-            value={`$${formatCurrency(Math.round(billableTotal))}`}
-            icon={Clock}
-            context={`${Math.round(totalHours)}h at $${Math.round(hourlyRate)}/hr`}
-          />
-        )}
-        <KpiTile
-          label="Invoiced"
-          value={`$${formatCurrency(Math.round(totalInvoiced))}`}
-          icon={Receipt}
-          context={`${filterCounts.all - invoices.filter((inv) => inv.status === 'cancelled').length} invoices`}
-        />
-        <KpiTile
-          label="Paid"
-          value={`$${formatCurrency(Math.round(totalPaid))}`}
-          icon={CircleCheck}
-          tone="positive"
-          context={totalInvoiced > 0 ? `${paidShare}% of invoiced` : 'Nothing invoiced yet'}
-        />
-        <KpiTile
-          label="Outstanding"
-          value={`$${formatCurrency(Math.round(outstanding))}`}
-          icon={Wallet}
-          tone={outstanding > 0 ? 'warning' : 'default'}
-          context={
-            overdueTotal > 0
-              ? `$${formatCurrency(Math.round(overdueTotal))} overdue`
-              : outstanding > 0
-                ? isHourly ? 'Includes hours not yet invoiced' : 'To collect'
-                : 'All settled'
-          }
-        />
-      </KpiRow>
-
       <RailLayout
         rail={
           <>
+            {/* The project's money at a glance, at the top of the rail so the
+                invoices start at the top of the page. Whole-project figures:
+                the status filter picks invoices, not what is owed. */}
+            <RailCard title="Totals" icon={<Wallet size={16} className="text-zinc-400" aria-hidden="true" />} description="Whole project">
+              <div className="grid grid-cols-2 gap-4">
+                {isHourly && <Stat label="Billable" value={`$${formatCurrency(Math.round(billableTotal))}`} />}
+                <Stat label="Invoiced" value={`$${formatCurrency(Math.round(totalInvoiced))}`} />
+                <Stat label="Paid" value={`$${formatCurrency(Math.round(totalPaid))}`} />
+                <Stat label="Outstanding" value={`$${formatCurrency(Math.round(outstanding))}`} tone={outstanding > 0 ? 'warn' : undefined} />
+              </div>
+              <p className="mt-3 text-xs text-zinc-500">
+                {[
+                  isHourly ? `${Math.round(totalHours)}h at $${Math.round(hourlyRate)}/hr` : null,
+                  `${activeInvoiceCount} ${activeInvoiceCount === 1 ? 'invoice' : 'invoices'}`,
+                  totalInvoiced > 0 ? `${paidShare}% of invoiced paid` : 'nothing invoiced yet',
+                ].filter(Boolean).join(' · ')}
+              </p>
+              {outstanding > 0 && (
+                <p className={`mt-1 text-xs ${overdueTotal > 0 ? 'text-amber-300' : 'text-zinc-500'}`}>
+                  {overdueTotal > 0
+                    ? `$${formatCurrency(Math.round(overdueTotal))} of it is overdue.`
+                    : isHourly ? 'Outstanding includes hours not invoiced yet.' : 'Outstanding is invoiced and not yet paid.'}
+                </p>
+              )}
+            </RailCard>
             <RailCard
               title="Upcoming drafts"
               icon={<CalendarClock size={16} className="text-zinc-400" aria-hidden="true" />}
