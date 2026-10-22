@@ -38,43 +38,49 @@ export function ProjectTabs<K extends string>({ tabs, active, onChange }: Projec
     onChange(tabs[next].key);
   };
 
+  // The hairline is on the wrapper. The strip reaches 1px down over it
+  // (-mb-px pb-px), so each underline still covers the hairline but stays
+  // inside the strip: nothing overflows vertically, and a sideways swipe on a
+  // narrow screen scrolls only sideways instead of wobbling up and down.
   return (
-    <div
-      role="tablist"
-      aria-label="Project sections"
-      className="flex items-end gap-1 border-b border-white/[0.08] overflow-x-auto scrollbar-none"
-    >
-      {tabs.map((tab, index) => {
-        const selected = tab.key === active;
-        return (
-          <button
-            key={tab.key}
-            ref={(el) => { refs.current[index] = el; }}
-            type="button"
-            role="tab"
-            id={projectTabId(tab.key)}
-            aria-selected={selected}
-            aria-controls={projectPanelId(tab.key)}
-            tabIndex={selected ? 0 : -1}
-            onClick={() => onChange(tab.key)}
-            onKeyDown={(e) => onKeyDown(e, index)}
-            className={`relative flex items-center gap-1.5 whitespace-nowrap px-3 pt-2 pb-2.5 text-sm font-medium rounded-t-md transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-500 ${
-              selected ? 'text-white' : 'text-zinc-400 hover:text-zinc-200'
-            }`}
-          >
-            {tab.label}
-            {!!tab.count && (
-              <span className={`text-xs font-mono tabular-nums ${selected ? 'text-zinc-300' : 'text-zinc-500'}`}>
-                {tab.count}
-              </span>
-            )}
-            <span
-              aria-hidden="true"
-              className={`absolute inset-x-2 -bottom-px h-0.5 rounded-full transition-colors ${selected ? 'bg-brand-400' : 'bg-transparent'}`}
-            />
-          </button>
-        );
-      })}
+    <div className="border-b border-white/[0.08]">
+      <div
+        role="tablist"
+        aria-label="Project sections"
+        className="flex items-end gap-1 -mb-px pb-px overflow-x-auto overflow-y-hidden overscroll-x-contain scrollbar-none"
+      >
+        {tabs.map((tab, index) => {
+          const selected = tab.key === active;
+          return (
+            <button
+              key={tab.key}
+              ref={(el) => { refs.current[index] = el; }}
+              type="button"
+              role="tab"
+              id={projectTabId(tab.key)}
+              aria-selected={selected}
+              aria-controls={projectPanelId(tab.key)}
+              tabIndex={selected ? 0 : -1}
+              onClick={() => onChange(tab.key)}
+              onKeyDown={(e) => onKeyDown(e, index)}
+              className={`relative flex items-center gap-1.5 whitespace-nowrap px-3 pt-2 pb-2.5 text-sm font-medium rounded-t-md transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-500 ${
+                selected ? 'text-white' : 'text-zinc-400 hover:text-zinc-200'
+              }`}
+            >
+              {tab.label}
+              {!!tab.count && (
+                <span className={`text-xs font-mono tabular-nums ${selected ? 'text-zinc-300' : 'text-zinc-500'}`}>
+                  {tab.count}
+                </span>
+              )}
+              <span
+                aria-hidden="true"
+                className={`absolute inset-x-2 -bottom-px h-0.5 rounded-full transition-colors ${selected ? 'bg-brand-400' : 'bg-transparent'}`}
+              />
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
