@@ -325,7 +325,7 @@ export function HoursBillingForm({ supabase, projectId, plan, runs, hasRetainer,
       </div>
 
       <div>
-        <h4 className="text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-2">
+        <h4 className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400 mb-2">
           {dirty ? 'Next drafts with these settings' : 'Next drafts'}
         </h4>
         {previewError ? (
@@ -339,7 +339,7 @@ export function HoursBillingForm({ supabase, projectId, plan, runs, hasRetainer,
 
       {runs.length > 0 && (
         <div>
-          <h4 className="text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-2">Recent runs</h4>
+          <h4 className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400 mb-2">Recent runs</h4>
           <ul className="divide-y divide-white/[0.05] rounded-lg border border-white/[0.06]">
             {runs.map((run) => (
               <li key={run.id} className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 px-3.5 py-2 text-xs">

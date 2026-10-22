@@ -84,7 +84,7 @@ export function BillingForecastList({ items, showProject = false, continues = fa
         return (
           <section key={key} aria-label={monthLabel(monthItems[0].date)}>
             <div className="flex items-baseline justify-between gap-3 mb-2">
-              <h4 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">{monthLabel(monthItems[0].date)}</h4>
+              <h4 className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">{monthLabel(monthItems[0].date)}</h4>
               <p className="text-xs text-zinc-400 tabular-nums">
                 {money(exact)}
                 {estimated > 0 && <span className="text-zinc-500"> + {money(estimated)} est.</span>}

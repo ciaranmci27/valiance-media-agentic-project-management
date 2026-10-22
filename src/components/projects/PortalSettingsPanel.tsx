@@ -367,9 +367,20 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
                 type="button"
                 aria-label="Remove logo"
                 onClick={handleRemoveLogo}
-                className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-red-500 text-white flex items-center justify-center sm:opacity-0 sm:group-hover:opacity-100 focus-visible:opacity-100 transition-opacity hover:bg-red-600"
+                className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-red-500 text-white max-sm:hidden flex items-center justify-center sm:opacity-0 sm:group-hover:opacity-100 focus-visible:opacity-100 transition-opacity hover:bg-red-600"
               >
-                <X size={12} />
+                <X size={12} aria-hidden="true" />
+              </button>
+            )}
+            {/* Phones have no hover: a corner x on the logo was always showing, one tap from
+                removing it. There it is a plain text button under the logo instead. */}
+            {settings.logo_url && !uploadingLogo && (
+              <button
+                type="button"
+                onClick={handleRemoveLogo}
+                className="sm:hidden mt-1.5 w-[72px] py-1 text-xs text-zinc-400 hover:text-red-400 rounded transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+              >
+                Remove
               </button>
             )}
             <FileInput
