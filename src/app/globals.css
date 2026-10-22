@@ -1009,6 +1009,22 @@ a.bg-brand-500 {
   }
 }
 
+/* Tailwind v4's preflight gives native <button>s the arrow cursor, so nothing
+   clickable showed the hand. Restore the pointer for buttons and the ARIA
+   roles that act like them (as admin's globals.css does). In @layer base, so
+   cursor utilities (cursor-grab, cursor-not-allowed) still win; disabled
+   controls keep the default. */
+@layer base {
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  [role="tab"]:not([aria-disabled="true"]),
+  [role="switch"]:not(:disabled),
+  [role="menuitem"]:not([aria-disabled="true"]),
+  summary {
+    cursor: pointer;
+  }
+}
+
 /* Focus ring ; inside @layer base so Tailwind utilities (outline-none) can override it */
 @layer base {
   *:focus-visible {

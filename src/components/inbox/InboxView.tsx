@@ -34,6 +34,8 @@ interface InboxViewProps {
   embedded?: boolean;
   /** Embedded only: shown in place of both panes while nothing has arrived. */
   emptyState?: ReactNode;
+  /** Embedded only: the host's toolbar search; the list then drops its own box. */
+  searchQuery?: string;
 }
 
 /**
@@ -42,7 +44,7 @@ interface InboxViewProps {
  * minus everything that writes email: there is no compose, reply, forward or
  * New Email here, by rule.
  */
-export function InboxView({ projectId, embedded = false, emptyState }: InboxViewProps) {
+export function InboxView({ projectId, embedded = false, emptyState, searchQuery }: InboxViewProps) {
   const { isDemoMode } = useDemo();
   const { projects } = useApp();
   const client = useMemo(() => inboxClient(isDemoMode), [isDemoMode]);
@@ -110,11 +112,12 @@ export function InboxView({ projectId, embedded = false, emptyState }: InboxView
     window.history.replaceState(null, '', url.toString());
   }, [embedded, urlReady, selectedId, focusMessageId, inboxId, tab, projectFilter, lockedProject, search]);
 
-  // Search waits for a pause in typing.
+  // Search waits for a pause in typing, whichever box it is typed in.
+  const typedSearch = searchQuery ?? searchInput;
   useEffect(() => {
-    const timer = window.setTimeout(() => setSearch(searchInput), 300);
+    const timer = window.setTimeout(() => setSearch(typedSearch), 300);
     return () => window.clearTimeout(timer);
-  }, [searchInput]);
+  }, [typedSearch]);
 
   // A new filter (a new `load`) starts over from the first page; a newer
   // request always wins, so a slow page never lands on the wrong filter.
@@ -200,18 +203,20 @@ export function InboxView({ projectId, embedded = false, emptyState }: InboxView
     <div className="flex h-full min-h-0 flex-col">
       <div className="space-y-2 border-b border-white/[0.06] p-3">
         <div className="flex gap-2">
-          <div className="min-w-0 flex-1">
-            <TextInput
-              type="search"
-              value={searchInput}
-              onChange={setSearchInput}
-              placeholder="Search email"
-              leftIcon={Search}
-              size="sm"
-              aria-label="Search subject, sender or project"
-            />
-          </div>
-          <div className="w-[9.5rem] flex-shrink-0">
+          {searchQuery === undefined && (
+            <div className="min-w-0 flex-1">
+              <TextInput
+                type="search"
+                value={searchInput}
+                onChange={setSearchInput}
+                placeholder="Search email"
+                leftIcon={Search}
+                size="sm"
+                aria-label="Search subject, sender or project"
+              />
+            </div>
+          )}
+          <div className={searchQuery === undefined ? 'w-[9.5rem] flex-shrink-0' : 'w-full'}>
             <Select ariaLabel="Status" value={tab} onChange={(value) => isInboxTab(value) && setTab(value)} options={statusOptions} size="sm" />
           </div>
         </div>

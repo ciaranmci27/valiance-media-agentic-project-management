@@ -21,13 +21,20 @@ import {
   Send,
   Repeat,
   CalendarClock,
+  CircleCheck,
+  Wallet,
 } from 'lucide-react';
 import { InvoicePreviewModal } from '@/components/projects/InvoicePreviewModal';
 import ClientEmailPreviewModal from '@/components/projects/ClientEmailPreviewModal';
 import BillingModal, { type BillingTab } from '@/components/projects/billing/BillingModal';
 import { InvoiceLineSplit, type LineSplit } from '@/components/projects/InvoiceLineSplit';
 import { InvoicePayments, formatMoney } from '@/components/projects/InvoicePayments';
-import { invoiceAmountPaid, invoicePaidTotal, invoiceTotal, isPartiallyPaid } from '@/lib/invoice-payments';
+import { invoiceOutstanding, invoicePaidTotal, invoiceTotal, isPartiallyPaid } from '@/lib/invoice-payments';
+import { KpiRow, KpiTile } from '@/components/ui/KpiTile';
+import { RailCard, RailLayout, SubNav, TabToolbar } from '@/components/projects/TabLayout';
+import { RowActionsMenu } from '@/components/ui/RowActionsMenu';
+import { Button } from '@/components/ui/Button';
+import { computeInvoiceSummary } from '@/lib/invoice-summary';
 import {
   fetchBillingForecast,
   fetchProjectInvoicePayments,
@@ -61,7 +68,6 @@ import {
   type RetainerDuePeriod,
   type BillingForecastItem,
 } from '@/lib/types';
-import { getWorkedHours, isClientBillable } from '@/lib/time-entry-utils';
 import { HourlyRateSchedule } from './HourlyRateSchedule';
 import {
   ensureLineItems,
@@ -75,7 +81,6 @@ import {
   heldRangesFromInvoices,
   billedHourlyPool,
   formatUnpaidHoursDescription,
-  totalBillableAmount,
   type UnpaidHoursLineItemDraft,
 } from '@/lib/invoice-utils';
 
@@ -225,7 +230,10 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
   const retainerClient = useMemo(() => createClient(), []);
   // The next invoice that drafts itself, and what each auto draft left out
   // (time awaiting approval), for the panel's "Next draft" line and draft cards.
-  const [nextDraft, setNextDraft] = useState<BillingForecastItem | null>(null);
+  const [upcomingDrafts, setUpcomingDrafts] = useState<BillingForecastItem[]>([]);
+  // Which invoices the table shows: all, unpaid (sent or overdue), drafts, paid.
+  const [invoiceFilter, setInvoiceFilter] = useState<'all' | 'open' | 'draft' | 'paid'>('all');
+  const [invoiceQuery, setInvoiceQuery] = useState('');
   const [leftOutByInvoice, setLeftOutByInvoice] = useState<Map<string, number>>(new Map());
   // Retainer periods that are due (or were skipped) and can be added as ready lines.
   const [dueRetainerPeriods, setDueRetainerPeriods] = useState<RetainerDuePeriod[]>([]);
@@ -312,66 +320,22 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
 
   // Calculate hours from time entries
   const timeEntries = getTimeEntriesByProject(projectId);
-  const isHourly = project?.client_time_billing
-    ? project.client_time_billing === 'hourly'
-    : (project?.hourly_tracking ?? false);
-  const hourlyRate = project?.hourly_rate ?? 0;
-  const finalizedHourEntries = isHourly
-    ? timeEntries
-        .filter(isClientBillable)
-        .map((te) => ({
-          id: te.id,
-          start_time: te.start_time,
-          end_time: te.end_time,
-          hours: getWorkedHours(te),
-          hourly_rate: te.hourly_rate,
-          description: te.description,
-        }))
-    : [];
-  const totalHours = finalizedHourEntries.reduce((sum, entry) => sum + entry.hours, 0);
-  const accruedHourlyTotal = totalBillableAmount(finalizedHourEntries, hourlyRate);
-  const hasBudget = project?.budget_type != null && project?.budget_value != null;
-  const budgetType = project?.budget_type ?? null;
-  const budgetValue = project?.budget_value ?? 0;
-
-  // Aggregate totals across all active invoices' line items.
-  // Outstanding preserves the hourly-vs-non-hourly formula from lessons.md.
-  const activeInvoices = invoices.filter((inv) => inv.status !== 'cancelled');
-  const totalInvoiced = activeInvoices.reduce((sum, inv) => sum + inv.amount, 0);
-  // Part payments count their share of the amount; a paid invoice counts in full.
-  const taxRate = project?.tax_rate ?? null;
-  const totalPaid = invoices
-    .filter((inv) => inv.status !== 'cancelled')
-    .reduce((sum, inv) => sum + invoiceAmountPaid(inv, taxRate), 0);
-  let hourlyInvoiced = 0;
-  let serviceInvoiced = 0;
-  let reimbursementInvoiced = 0;
-  for (const inv of activeInvoices) {
-    for (const li of ensureLineItems(inv)) {
-      if (li.item_type === 'hourly') hourlyInvoiced += Number(li.amount) || 0;
-      else if (li.item_type === 'reimbursement') reimbursementInvoiced += Number(li.amount) || 0;
-      else serviceInvoiced += Number(li.amount) || 0;
-    }
-  }
-  const serviceLineTotal = hourlyInvoiced + serviceInvoiced;
-  // Billable = service work plus reimbursable charges the client still owes.
-  const billableTotal =
-    Math.max(accruedHourlyTotal, hourlyInvoiced) + serviceInvoiced + reimbursementInvoiced;
-  const outstanding = isHourly
-    ? Math.max(0, billableTotal - totalPaid)
-    : Math.max(0, totalInvoiced - totalPaid);
-
-  // Budget progress
-  let budgetUsed = 0;
-  if (hasBudget) {
-    if (budgetType === 'hours') {
-      budgetUsed = totalHours;
-    } else {
-      budgetUsed = isHourly ? accruedHourlyTotal : serviceLineTotal;
-    }
-  }
-  const budgetPct =
-    hasBudget && budgetValue > 0 ? Math.min(100, (budgetUsed / budgetValue) * 100) : 0;
+  const {
+    isHourly,
+    hourlyRate,
+    finalizedHourEntries,
+    totalHours,
+    hasBudget,
+    budgetType,
+    budgetValue,
+    totalInvoiced,
+    taxRate,
+    totalPaid,
+    billableTotal,
+    outstanding,
+    budgetUsed,
+    budgetPct,
+  } = computeInvoiceSummary(project, invoices, timeEntries);
 
   // Type options: non-hourly projects can't create hourly line items.
   const typeOptions = isHourly
@@ -590,13 +554,13 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
     ])
       .then(([forecast, runs]) => {
         if (cancelled) return;
-        setNextDraft(forecast.find((item) => item.status === 'upcoming') ?? null);
+        setUpcomingDrafts(forecast.filter((item) => item.status === 'upcoming').slice(0, 3));
         setLeftOutByInvoice(new Map(runs
           .filter((run) => run.invoice_id && run.pending_hours > 0)
           .map((run) => [run.invoice_id as string, run.pending_hours])));
       })
       // Before the billing migration is applied the reads fail: show nothing.
-      .catch(() => { if (!cancelled) { setNextDraft(null); setLeftOutByInvoice(new Map()); } });
+      .catch(() => { if (!cancelled) { setUpcomingDrafts([]); setLeftOutByInvoice(new Map()); } });
     return () => { cancelled = true; };
   }, [billingTab, canReadInvoices, invoiceSignature, isDemoMode, projectId, retainerClient, todayLocalDate]);
 
@@ -1790,471 +1754,464 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
     </div>
   );
 
-  return (
-    <>
-      <div className="glass-card rounded-xl overflow-hidden flex flex-col max-h-[600px]">
-        {/* Header */}
-        <div className="px-5 py-4 flex items-center justify-between flex-shrink-0 border-b border-white/[0.06]">
-          <div className="flex items-center gap-2">
-            <Receipt size={18} className="text-zinc-400" />
-            <h2 className="font-semibold text-white">
-              Invoices
-              {invoices.length > 0 && (
-                <span className="ml-1.5 text-xs font-medium text-zinc-500">
-                  ({invoices.length})
-                </span>
-              )}
-            </h2>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setBillingTab('upcoming')}
-              title="Retainers, scheduled hourly drafts, payment terms and what bills next"
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-zinc-300 border border-white/[0.08] bg-surface-raised hover:bg-white/[0.03] hover:text-white rounded-lg transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-400"
-            >
-              <CalendarClock size={14} aria-hidden="true" />
-              Billing
-            </button>
-            <button
-              onClick={openAddForm}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition-colors"
-            >
-              <Plus size={14} />
-              Add
-            </button>
-          </div>
-        </div>
+  // ── Tab layout ──
+  const sortedInvoices = [...invoices].sort((a, b) => b.date.localeCompare(a.date));
+  const isOpenInvoice = (status: InvoiceStatus) => status === 'sent' || status === 'overdue';
+  const filterCounts = {
+    all: invoices.length,
+    open: invoices.filter((inv) => isOpenInvoice(inv.status)).length,
+    draft: invoices.filter((inv) => inv.status === 'draft').length,
+    paid: invoices.filter((inv) => inv.status === 'paid').length,
+  };
+  const invoiceNeedle = invoiceQuery.trim().toLowerCase();
+  const visibleInvoices = sortedInvoices.filter((inv) =>
+    (invoiceFilter === 'all'
+      ? true
+      : invoiceFilter === 'open'
+        ? isOpenInvoice(inv.status)
+        : inv.status === invoiceFilter) &&
+    (!invoiceNeedle ||
+      inv.invoice_number.toLowerCase().includes(invoiceNeedle) ||
+      (inv.description || '').toLowerCase().includes(invoiceNeedle) ||
+      ensureLineItems(inv).some((li) => (li.description || '').toLowerCase().includes(invoiceNeedle))),
+  );
+  const overdueTotal = invoices
+    .filter((inv) => inv.status === 'overdue')
+    .reduce((sum, inv) => sum + invoiceOutstanding(inv, taxRate), 0);
+  const paidShare = totalInvoiced > 0 ? Math.round((totalPaid / totalInvoiced) * 100) : 0;
+  const budgetTone =
+    budgetPct >= 90 ? 'bg-red-400' : budgetPct >= 75 ? 'bg-amber-400' : 'bg-emerald-400';
 
-        <div className="flex-1 flex flex-col overflow-y-auto">
-          {/* Balance Summary */}
-          <div className="px-5 py-3 border-b border-white/[0.06] bg-white/[0.03] flex-shrink-0 overflow-x-auto">
-            <div className="flex gap-4 min-w-max">
-              {/* Budget (read-only, configured in project settings) */}
-              {hasBudget && (
-                <div className="shrink-0 min-w-[5.5rem]">
-                  <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">
-                    Budget
-                  </p>
-                  <div className="flex items-center gap-1.5">
-                    <p className="text-sm font-semibold text-white">
-                      {budgetType === 'hours'
-                        ? `${formatCurrency(budgetValue)} hrs`
-                        : `$${formatCurrency(budgetValue)}`}
-                    </p>
-                    {budgetValue > 0 && (
-                      <span
-                        className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${
-                          budgetPct >= 100
-                            ? 'bg-red-500/15 text-red-300'
-                            : budgetPct >= 90
-                              ? 'bg-red-500/15 text-red-400'
-                              : budgetPct >= 75
-                                ? 'bg-orange-500/15 text-orange-400'
-                                : budgetPct >= 50
-                                  ? 'bg-amber-500/15 text-amber-400'
-                                  : budgetPct >= 25
-                                    ? 'bg-emerald-500/15 text-emerald-400'
-                                    : 'bg-emerald-500/15 text-emerald-500'
-                        }`}
-                      >
-                        {Math.round(budgetPct)}%
-                      </span>
-                    )}
-                  </div>
-                </div>
-              )}
-              {isHourly && (
-                <div className="shrink-0 min-w-[5.5rem]">
-                  <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">
-                    Billable
-                  </p>
-                  <p className="text-sm font-semibold text-white">
-                    ${formatCurrency(billableTotal)}
-                  </p>
-                </div>
-              )}
-              <div className="shrink-0 min-w-[5.5rem]">
-                <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">
-                  Invoiced
-                </p>
-                <p className="text-sm font-semibold text-white">${formatCurrency(totalInvoiced)}</p>
-              </div>
-              <div className="shrink-0 min-w-[5.5rem]">
-                <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">
-                  Paid
-                </p>
-                <p className="text-sm font-semibold text-emerald-400">
-                  ${formatCurrency(totalPaid)}
-                </p>
-              </div>
-              <div className="shrink-0 min-w-[5.5rem]">
-                <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">
-                  Outstanding
-                </p>
-                <p
-                  className={`text-sm font-semibold ${outstanding > 0 ? 'text-amber-400' : 'text-zinc-500'}`}
-                >
-                  ${formatCurrency(outstanding)}
-                </p>
-              </div>
-              {isHourly && (
-                <>
-                  <div className="shrink-0 min-w-[5.5rem]">
-                    <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">
-                      Total Hours
-                    </p>
-                    <p className="text-sm font-semibold text-white">{Math.round(totalHours)}</p>
-                  </div>
-                  <div className="shrink-0 min-w-[5.5rem]">
-                    <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-0.5">
-                      Hourly Rate
-                    </p>
-                    <div className="flex items-center gap-1.5">
-                      <p className="text-sm font-semibold text-white">${Math.round(hourlyRate)}</p>
-                      <button
-                        onClick={() => setEditingRate((open) => !open)}
-                        className="p-0.5 text-zinc-500 hover:text-brand-300 transition-colors"
-                        aria-label="Manage hourly rate schedule"
-                      >
-                        <Clock size={12} />
-                      </button>
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
-            {isHourly && editingRate ? (
-              <HourlyRateSchedule
-                projectId={projectId}
-                fallbackRate={hourlyRate}
-                today={todayLocalDate}
-                timezone={
-                  currentMember?.timezone && currentMember.timezone !== 'UTC'
-                    ? currentMember.timezone
-                    : undefined
-                }
-                isDemoMode={isDemoMode}
-                onCurrentRateChange={(rate) => updateProject(projectId, { hourly_rate: rate })}
-              />
-            ) : null}
-          </div>
+  // Table columns, shared by the header and every row (container widths, so
+  // the table only goes columnar when its own box is wide enough).
+  const INVOICE_COLS =
+    '@2xl:grid-cols-[84px_minmax(0,1fr)_64px_64px_64px_104px_60px]';
 
-          {nextDraft && (
-            <button
-              type="button"
-              onClick={() => setBillingTab('upcoming')}
-              className="mx-5 mt-4 flex items-center gap-2 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3.5 py-2 text-left text-xs text-zinc-300 hover:bg-white/[0.04] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-400"
-            >
-              <CalendarClock size={14} className="text-zinc-400 flex-shrink-0" aria-hidden="true" />
-              <span className="min-w-0 truncate">
-                Next draft {new Date(`${nextDraft.date}T12:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}:{' '}
-                {nextDraft.lines.map((line) => `${line.label} ${line.estimated ? '~' : ''}$${formatCurrency(line.amount)}`).join(' + ')}
-              </span>
-              <span className="ml-auto flex-shrink-0 text-zinc-500">View</span>
-            </button>
-          )}
+  const statusControl = (invoice: (typeof invoices)[number]) => (
+    // The pill is the status menu: changing it is how an invoice is marked paid.
+    <div
+      className="relative inline-flex items-center"
+      onClick={(e) => e.stopPropagation()}
+      onKeyDown={(e) => e.stopPropagation()}
+    >
+      <span
+        className={`pointer-events-none absolute inset-0 z-10 flex items-center justify-center px-2 py-0.5 text-xs font-medium rounded-full ${statusColors[invoice.status]}`}
+      >
+        {invoice.status.charAt(0).toUpperCase() + invoice.status.slice(1)}
+      </span>
+      <div className="[&_button]:!bg-transparent [&_button]:!border-transparent [&_button]:!shadow-none [&_button]:!ring-0 [&_button]:!text-transparent [&_button]:!px-2 [&_button]:!py-0.5 [&_button]:!text-xs [&_svg]:!text-transparent [&_span]:!text-transparent">
+        <Select
+          size="sm"
+          aria-label={`Status of ${invoice.invoice_number}`}
+          value={invoice.status}
+          onChange={(v) => {
+            void updateInvoice(invoice.id, { status: v as InvoiceStatus });
+          }}
+          options={INVOICE_STATUSES.map((s) => ({
+            value: s,
+            label: s.charAt(0).toUpperCase() + s.slice(1),
+          }))}
+        />
+      </div>
+    </div>
+  );
 
-          {/* Invoice list */}
-          {invoices.length > 0 ? (
-            <div className="flex-1 overflow-y-auto p-5 space-y-3">
-              {invoices
-                .sort((a, b) => b.date.localeCompare(a.date))
-                .map((invoice) => {
-                  const items = ensureLineItems(invoice);
-                  const hasMultipleLines = items.length > 1;
-                  const singleItemType = items[0]?.item_type;
-                  const isExpanded = expandedIds.has(invoice.id);
-                  const hasDetails =
-                    items.length > 0 || !!invoice.description || !!invoice.file_url;
+  const invoiceBadges = (invoice: (typeof invoices)[number]) => {
+    const items = ensureLineItems(invoice);
+    const leftOut = leftOutByInvoice.get(invoice.id);
+    return (
+      <>
+        {isPartiallyPaid(invoice, taxRate) && (
+          <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium rounded bg-amber-500/15 text-amber-300">
+            Part paid ${formatMoney(invoicePaidTotal(invoice))} of ${formatMoney(invoiceTotal(invoice, taxRate))}
+          </span>
+        )}
+        {invoice.auto_generated && invoice.status === 'draft' && (
+          <span
+            className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium rounded bg-brand-500/15 text-brand-300"
+            title={leftOut
+              ? `Drafted automatically. ${leftOut.toFixed(2)} h awaiting approval was left out and goes on the next draft. Review and send it.`
+              : 'Drafted automatically (retainer or hours schedule). Review and send it.'}
+          >
+            <Repeat size={10} aria-hidden="true" />
+            Auto draft{leftOut ? ` · ${leftOut.toFixed(1)} h waiting` : ''}
+          </span>
+        )}
+        {items.length > 1 ? (
+          <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium rounded bg-white/[0.06] text-zinc-400">
+            {items.length} items
+          </span>
+        ) : (
+          items[0]?.item_type && items[0].item_type !== 'hourly' && (
+            <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium rounded bg-white/[0.06] text-zinc-400 capitalize">
+              {items[0].item_type}
+            </span>
+          )
+        )}
+      </>
+    );
+  };
 
+  const invoiceActions = (invoice: (typeof invoices)[number]) => (
+    <div onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+      <RowActionsMenu
+        label={`Actions for ${invoice.invoice_number}`}
+        actions={[
+          { label: 'Preview PDF', icon: <Eye size={14} />, onClick: () => setPreviewInvoiceId(invoice.id) },
+          ...(canEmailInvoices
+            ? [{ label: 'Email to client', icon: <Send size={14} />, onClick: () => openInvoiceEmailPreview(invoice.id) }]
+            : []),
+          { label: 'Edit', icon: <Edit2 size={14} />, onClick: () => startEditing(invoice), divider: true },
+          { label: 'Duplicate', icon: <Copy size={14} />, onClick: () => startDuplicating(invoice) },
+          { label: 'Delete', icon: <Trash2 size={14} />, onClick: () => setDeleteTarget(invoice.id), variant: 'danger' as const, divider: true },
+        ]}
+      />
+    </div>
+  );
+
+  const renderInvoiceDetails = (invoice: (typeof invoices)[number]) => {
+    const items = ensureLineItems(invoice);
+    return (
+      <div className="px-5 pb-5 pt-4 bg-white/[0.02] border-t border-white/[0.05] grid grid-cols-1 @2xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] gap-6">
+        <div className="min-w-0">
+          {items.length > 0 && (
+            <>
+              <h4 className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500 mb-2">
+                {items.length > 1 ? 'Line items' : 'Line item'}
+              </h4>
+              <ul className="rounded-lg border border-white/[0.06] divide-y divide-white/[0.05]">
+                {items.map((li) => {
+                  const period = fmtServicePeriod(li.service_start_date, li.service_end_date);
                   return (
-                    <div
-                      key={invoice.id}
-                      className="group rounded-lg border border-white/[0.08] hover:border-white/[0.12] transition-colors"
-                    >
-                      <div
-                        className={`p-3 ${hasDetails ? 'cursor-pointer' : ''} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 rounded-lg`}
-                        {...(hasDetails && {
-                          role: 'button',
-                          tabIndex: 0,
-                          'aria-expanded': isExpanded,
-                          'aria-label': isExpanded
-                            ? 'Hide invoice details'
-                            : 'Show invoice details',
-                          onClick: () => toggleExpanded(invoice.id),
-                          onKeyDown: (e: React.KeyboardEvent) => {
-                            if (e.key === 'Enter' || e.key === ' ') {
-                              e.preventDefault();
-                              toggleExpanded(invoice.id);
-                            }
-                          },
-                        })}
-                      >
-                        <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
-                          <div className="flex items-center gap-2 flex-wrap min-w-0">
-                            <div
-                              className="relative inline-flex items-center"
-                              onClick={(e) => e.stopPropagation()}
-                              onKeyDown={(e) => e.stopPropagation()}
-                            >
-                              <span
-                                className={`pointer-events-none absolute inset-0 z-10 flex items-center justify-center px-2 py-0.5 text-xs font-medium rounded-full ${statusColors[invoice.status]}`}
-                              >
-                                {invoice.status.charAt(0).toUpperCase() + invoice.status.slice(1)}
-                              </span>
-                              <div className="[&_button]:!bg-transparent [&_button]:!border-transparent [&_button]:!shadow-none [&_button]:!ring-0 [&_button]:!text-transparent [&_button]:!px-2 [&_button]:!py-0.5 [&_button]:!text-xs [&_svg]:!text-transparent [&_span]:!text-transparent">
-                                <Select
-                                  size="sm"
-                                  value={invoice.status}
-                                  onChange={(v) => {
-                                    void updateInvoice(invoice.id, { status: v as InvoiceStatus });
-                                  }}
-                                  options={INVOICE_STATUSES.map((s) => ({
-                                    value: s,
-                                    label: s.charAt(0).toUpperCase() + s.slice(1),
-                                  }))}
-                                />
-                              </div>
-                            </div>
-                            <span className="text-sm font-semibold text-white">
-                              {invoice.invoice_number}
-                            </span>
-                            {isPartiallyPaid(invoice, taxRate) && (
-                              <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium rounded bg-amber-500/15 text-amber-300">
-                                Partially paid ${formatMoney(invoicePaidTotal(invoice))} of ${formatMoney(invoiceTotal(invoice, taxRate))}
-                              </span>
-                            )}
-                            {invoice.auto_generated && invoice.status === 'draft' && (
-                              <span
-                                className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium rounded bg-brand-500/15 text-brand-300"
-                                title={leftOutByInvoice.get(invoice.id)
-                                  ? `Drafted automatically. ${leftOutByInvoice.get(invoice.id)!.toFixed(2)} h awaiting approval was left out and goes on the next draft. Review and send it.`
-                                  : 'Drafted automatically (retainer or hours schedule). Review and send it.'}
-                              >
-                                <Repeat size={10} aria-hidden="true" />
-                                Auto draft
-                                {leftOutByInvoice.get(invoice.id) ? ` · ${leftOutByInvoice.get(invoice.id)!.toFixed(1)} h waiting` : ''}
-                              </span>
-                            )}
-                            {hasMultipleLines ? (
-                              <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium rounded bg-white/[0.06] text-zinc-400">
-                                {items.length} items
-                              </span>
-                            ) : (
-                              singleItemType &&
-                              singleItemType !== 'hourly' && (
-                                <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium rounded bg-white/[0.06] text-zinc-400 capitalize">
-                                  {singleItemType}
-                                </span>
-                              )
-                            )}
-                          </div>
-                          <span className="text-sm font-semibold text-white">
-                            ${formatCurrency(invoice.amount)}
+                    <li key={li.id} className="flex items-start justify-between gap-4 px-3 py-2.5">
+                      <div className="min-w-0 space-y-1">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium rounded bg-white/[0.06] text-zinc-300 capitalize">
+                            {lineItemTypeLabel(li.item_type)}
                           </span>
+                          {li.item_type === 'recurring' && li.recurrence_frequency && (
+                            <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium rounded bg-amber-500/15 text-amber-300 capitalize">
+                              {li.recurrence_frequency}
+                            </span>
+                          )}
+                          {period && <span className="text-xs text-zinc-500">{period}</span>}
                         </div>
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-3 text-xs text-zinc-400 min-w-0 flex-wrap">
-                            <span>Issued: {fmtDate(invoice.date)}</span>
-                            {invoice.due_date && invoice.due_date !== invoice.date && (
-                              <span>Due: {fmtDate(invoice.due_date)}</span>
-                            )}
-                            {invoice.paid_date && (
-                              <span className="text-emerald-400">
-                                Paid: {fmtDate(invoice.paid_date)}
-                              </span>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-0.5 flex-shrink-0">
-                            <div className="flex items-center gap-0.5 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-opacity">
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setPreviewInvoiceId(invoice.id);
-                                }}
-                                aria-label="Preview invoice PDF"
-                                className="p-1.5 text-zinc-500 hover:text-brand-300 transition-colors rounded-md hover:bg-white/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
-                              >
-                                <Eye size={13} />
-                              </button>
-                              {canEmailInvoices ? (
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    openInvoiceEmailPreview(invoice.id);
-                                  }}
-                                  aria-label="Email invoice"
-                                  className="p-1.5 text-zinc-500 hover:text-brand-300 transition-colors rounded-md hover:bg-white/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
-                                >
-                                  <Send size={13} />
-                                </button>
-                              ) : null}
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  startEditing(invoice);
-                                }}
-                                aria-label="Edit invoice"
-                                className="p-1.5 text-zinc-500 hover:text-brand-300 transition-colors rounded-md hover:bg-white/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
-                              >
-                                <Edit2 size={13} />
-                              </button>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  startDuplicating(invoice);
-                                }}
-                                aria-label="Duplicate invoice"
-                                className="p-1.5 text-zinc-500 hover:text-brand-300 transition-colors rounded-md hover:bg-white/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
-                              >
-                                <Copy size={13} />
-                              </button>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setDeleteTarget(invoice.id);
-                                }}
-                                aria-label="Delete invoice"
-                                className="p-1.5 text-zinc-500 hover:text-red-500 transition-colors rounded-md hover:bg-white/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300"
-                              >
-                                <Trash2 size={13} />
-                              </button>
-                            </div>
-                            {hasDetails && (
-                              <ChevronDown
-                                size={14}
-                                aria-hidden="true"
-                                className={`hidden sm:block text-zinc-500 transition-transform duration-150 ${isExpanded ? 'rotate-180' : ''}`}
-                              />
-                            )}
-                          </div>
-                        </div>
+                        {li.description && <p className="text-sm text-zinc-300 break-words">{li.description}</p>}
                       </div>
-
-                      {isExpanded && hasDetails && (
-                        <div className="px-3 pb-3 pt-0 space-y-3 border-t border-white/[0.06] bg-white/[0.03] rounded-b-lg">
-                          {items.length > 0 && (
-                            <div className="pt-3">
-                              <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-1.5">
-                                {hasMultipleLines ? 'Line items' : 'Line item'}
-                              </p>
-                              <div className="space-y-1.5">
-                                {items.map((li) => {
-                                  const period = fmtServicePeriod(
-                                    li.service_start_date,
-                                    li.service_end_date,
-                                  );
-                                  return (
-                                    <div
-                                      key={li.id}
-                                      className="flex items-start justify-between gap-3 text-xs bg-surface-raised border border-white/[0.06] rounded-md px-2.5 py-2"
-                                    >
-                                      <div className="flex-1 min-w-0 space-y-1">
-                                        <div className="flex items-center gap-1.5 flex-wrap">
-                                          <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium rounded bg-white/[0.06] text-zinc-300 capitalize">
-                                            {lineItemTypeLabel(li.item_type)}
-                                          </span>
-                                          {li.item_type === 'recurring' &&
-                                            li.recurrence_frequency && (
-                                              <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium rounded bg-amber-500/15 text-amber-300 capitalize">
-                                                {li.recurrence_frequency}
-                                              </span>
-                                            )}
-                                          {period && (
-                                            <span className="text-[10px] text-zinc-400">
-                                              {period}
-                                            </span>
-                                          )}
-                                        </div>
-                                        {li.description && (
-                                          <p className="text-xs text-zinc-300 break-words">
-                                            {li.description}
-                                          </p>
-                                        )}
-                                      </div>
-                                      <span className="text-xs font-semibold text-white flex-shrink-0 pt-0.5">
-                                        ${formatCurrency(li.amount)}
-                                      </span>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          )}
-
-                          {(invoice.description || hasMultipleLines) && (
-                            <div className="flex items-start justify-between gap-4">
-                              {invoice.description ? (
-                                <div className="min-w-0 flex-1">
-                                  <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-1">
-                                    Notes
-                                  </p>
-                                  <p className="text-xs text-zinc-300 whitespace-pre-wrap break-words">
-                                    {invoice.description}
-                                  </p>
-                                </div>
-                              ) : (
-                                <div aria-hidden="true" />
-                              )}
-                              {hasMultipleLines && (
-                                <div className="flex-shrink-0 text-right">
-                                  <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-1">
-                                    Total
-                                  </p>
-                                  <p className="text-sm font-semibold text-white">
-                                    ${formatCurrency(invoice.amount)}
-                                  </p>
-                                </div>
-                              )}
-                            </div>
-                          )}
-
-                          <InvoicePayments
-                            invoice={invoice}
-                            taxRate={taxRate}
-                            keyNames={keyNames}
-                            canRecord={canRecordPayments}
-                            today={todayLocalDate}
-                            onRecord={(payment) => recordInvoicePayment(invoice.id, payment)}
-                            onRemove={(paymentId) => removeInvoicePayment(invoice.id, paymentId)}
-                          />
-
-                          {invoice.file_url && (
-                            <div>
-                              <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 mb-1">
-                                Attachment
-                              </p>
-                              <a
-                                href={invoice.file_url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex items-center gap-1.5 text-xs text-brand-300 hover:text-brand-300 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 rounded"
-                              >
-                                <FileDown size={12} />
-                                {invoice.file_name || 'Download'}
-                              </a>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
+                      <span className="text-sm font-medium tabular-nums text-white flex-shrink-0">
+                        ${formatCurrency(li.amount)}
+                      </span>
+                    </li>
                   );
                 })}
+                {items.length > 1 && (
+                  <li className="flex items-center justify-between px-3 py-2.5 bg-white/[0.02]">
+                    <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Total</span>
+                    <span className="text-sm font-semibold tabular-nums text-white">${formatCurrency(invoice.amount)}</span>
+                  </li>
+                )}
+              </ul>
+            </>
+          )}
+        </div>
+        <div className="min-w-0 space-y-4">
+          <InvoicePayments
+            invoice={invoice}
+            taxRate={taxRate}
+            keyNames={keyNames}
+            canRecord={canRecordPayments}
+            today={todayLocalDate}
+            onRecord={(payment) => recordInvoicePayment(invoice.id, payment)}
+            onRemove={(paymentId) => removeInvoicePayment(invoice.id, paymentId)}
+          />
+          {invoice.description && (
+            <div>
+              <h4 className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500 mb-1">Notes</h4>
+              <p className="text-sm text-zinc-300 whitespace-pre-wrap break-words">{invoice.description}</p>
             </div>
-          ) : (
-            <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
-              <div className="w-10 h-10 rounded-full bg-white/[0.06] flex items-center justify-center mb-3">
-                <Receipt size={18} className="text-zinc-500" />
-              </div>
-              <p className="text-sm font-medium text-zinc-400">No invoices yet</p>
-              <p className="text-xs text-zinc-500 mt-1">
-                Create invoices to track billing for this project
-              </p>
+          )}
+          {invoice.file_url && (
+            <div>
+              <h4 className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500 mb-1">Attachment</h4>
+              <a
+                href={invoice.file_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-sm text-brand-300 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 rounded"
+              >
+                <FileDown size={14} aria-hidden="true" />
+                {invoice.file_name || 'Download'}
+              </a>
             </div>
           )}
         </div>
       </div>
+    );
+  };
+
+  const renderInvoiceRow = (invoice: (typeof invoices)[number]) => {
+    const isExpanded = expandedIds.has(invoice.id);
+    const expandButton = (
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          toggleExpanded(invoice.id);
+        }}
+        aria-expanded={isExpanded}
+        aria-label={`${isExpanded ? 'Hide' : 'Show'} details for ${invoice.invoice_number}`}
+        className="p-1.5 rounded-lg text-zinc-500 hover:text-white hover:bg-white/[0.06] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+      >
+        <ChevronDown size={16} className={`transition-transform duration-150 ${isExpanded ? 'rotate-180' : ''}`} aria-hidden="true" />
+      </button>
+    );
+    const dueLabel = invoice.due_date && invoice.due_date !== invoice.date ? fmtDate(invoice.due_date) : null;
+    return (
+      <div key={invoice.id} className={isExpanded ? 'bg-white/[0.015]' : ''}>
+        {/* Whole row toggles details for the mouse; the chevron is the keyboard control. */}
+        <div onClick={() => toggleExpanded(invoice.id)} className="cursor-pointer hover:bg-white/[0.02] transition-colors">
+          {/* Columns, when the table box is wide enough */}
+          <div className={`hidden @2xl:grid ${INVOICE_COLS} gap-3 items-center px-5 py-3`}>
+            <div>{statusControl(invoice)}</div>
+            <div className="min-w-0">
+              <span className="text-sm font-semibold text-white">{invoice.invoice_number}</span>
+              {/* Badges get their own line so every number lines up. */}
+              <div className="flex items-center gap-1.5 flex-wrap empty:hidden mt-1">{invoiceBadges(invoice)}</div>
+            </div>
+            <span className="text-sm text-zinc-400 tabular-nums">{fmtDate(invoice.date)}</span>
+            <span className="text-sm text-zinc-400 tabular-nums">{dueLabel ?? <span className="text-zinc-600">-</span>}</span>
+            <span className="text-sm tabular-nums text-emerald-400">
+              {invoice.paid_date ? fmtDate(invoice.paid_date) : <span className="text-zinc-600">-</span>}
+            </span>
+            <span className="text-sm font-semibold tabular-nums text-white text-right">${formatCurrency(invoice.amount)}</span>
+            <div className="flex items-center justify-end gap-0.5">
+              {invoiceActions(invoice)}
+              {expandButton}
+            </div>
+          </div>
+          {/* Two-line card, when it is not */}
+          <div className="@2xl:hidden px-4 py-3 space-y-2">
+            <div className="flex items-center gap-2">
+              {statusControl(invoice)}
+              <span className="text-sm font-semibold text-white">{invoice.invoice_number}</span>
+              <span className="ml-auto text-sm font-semibold tabular-nums text-white">${formatCurrency(invoice.amount)}</span>
+            </div>
+            <div className="flex items-center gap-x-3 gap-y-1 flex-wrap text-xs text-zinc-400">
+              <span>Issued {fmtDate(invoice.date)}</span>
+              {dueLabel && <span>Due {dueLabel}</span>}
+              {invoice.paid_date && <span className="text-emerald-400">Paid {fmtDate(invoice.paid_date)}</span>}
+              {invoiceBadges(invoice)}
+              <span className="ml-auto flex items-center gap-0.5">
+                {invoiceActions(invoice)}
+                {expandButton}
+              </span>
+            </div>
+          </div>
+        </div>
+        {isExpanded && renderInvoiceDetails(invoice)}
+      </div>
+    );
+  };
+
+  return (
+    <>
+      <TabToolbar
+        search={invoices.length > 0 ? { value: invoiceQuery, onChange: setInvoiceQuery, placeholder: 'Search invoices' } : undefined}
+        filters={
+          invoices.length > 0 && (
+            <SubNav
+              label="Show invoices"
+              active={invoiceFilter}
+              onChange={setInvoiceFilter}
+              items={[
+                { key: 'all', label: 'All', count: filterCounts.all },
+                { key: 'open', label: 'Unpaid', count: filterCounts.open },
+                { key: 'draft', label: 'Drafts', count: filterCounts.draft },
+                { key: 'paid', label: 'Paid', count: filterCounts.paid },
+              ]}
+            />
+          )
+        }
+        actions={
+          <Button
+            variant="secondary"
+            icon={<CalendarClock size={16} aria-hidden="true" />}
+            onClick={() => setBillingTab('upcoming')}
+            title="Retainers, scheduled hourly drafts, payment terms and what bills next"
+          >
+            Billing settings
+          </Button>
+        }
+        primary={
+          <Button icon={<Plus size={16} aria-hidden="true" />} onClick={openAddForm}>
+            New invoice
+          </Button>
+        }
+      />
+
+      <KpiRow className={`mb-6 ${isHourly ? '' : 'lg:grid-cols-3'}`}>
+        {isHourly && (
+          <KpiTile
+            label="Billable"
+            value={`$${formatCurrency(Math.round(billableTotal))}`}
+            icon={Clock}
+            context={`${Math.round(totalHours)}h at $${Math.round(hourlyRate)}/hr`}
+          />
+        )}
+        <KpiTile
+          label="Invoiced"
+          value={`$${formatCurrency(Math.round(totalInvoiced))}`}
+          icon={Receipt}
+          context={`${filterCounts.all - invoices.filter((inv) => inv.status === 'cancelled').length} invoices`}
+        />
+        <KpiTile
+          label="Paid"
+          value={`$${formatCurrency(Math.round(totalPaid))}`}
+          icon={CircleCheck}
+          tone="positive"
+          context={totalInvoiced > 0 ? `${paidShare}% of invoiced` : 'Nothing invoiced yet'}
+        />
+        <KpiTile
+          label="Outstanding"
+          value={`$${formatCurrency(Math.round(outstanding))}`}
+          icon={Wallet}
+          tone={outstanding > 0 ? 'warning' : 'default'}
+          context={
+            overdueTotal > 0
+              ? `$${formatCurrency(Math.round(overdueTotal))} overdue`
+              : outstanding > 0
+                ? isHourly ? 'Includes hours not yet invoiced' : 'To collect'
+                : 'All settled'
+          }
+        />
+      </KpiRow>
+
+      <RailLayout
+        rail={
+          <>
+            <RailCard
+              title="Upcoming drafts"
+              icon={<CalendarClock size={16} className="text-zinc-400" aria-hidden="true" />}
+              action={
+                <button
+                  type="button"
+                  onClick={() => setBillingTab('upcoming')}
+                  className="text-xs text-zinc-400 hover:text-brand-300 transition-colors rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+                >
+                  Manage
+                </button>
+              }
+            >
+              {upcomingDrafts.length > 0 ? (
+                <ul className="space-y-3">
+                  {upcomingDrafts.map((draft) => (
+                    <li key={`${draft.date}-${draft.sources}`} className="min-w-0">
+                      <div className="flex items-baseline justify-between gap-3">
+                        <span className="text-sm font-medium text-zinc-200">
+                          {new Date(`${draft.date}T12:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                        </span>
+                        <span className="text-sm font-semibold tabular-nums text-white">
+                          {draft.estimated > 0 ? '~' : ''}${formatCurrency(Math.round((draft.exact + draft.estimated) * 100) / 100)}
+                        </span>
+                      </div>
+                      <p className="text-xs text-zinc-500 truncate">
+                        {draft.lines.map((line) => line.label).join(' + ')}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-sm text-zinc-500">
+                  Nothing drafts itself yet. Set up a retainer or hours schedule in Billing settings.
+                </p>
+              )}
+            </RailCard>
+
+            {isHourly && (
+              <RailCard
+                title="Hourly rate"
+                icon={<Clock size={16} className="text-zinc-400" aria-hidden="true" />}
+                action={
+                  <button
+                    type="button"
+                    onClick={() => setEditingRate((open) => !open)}
+                    aria-expanded={editingRate}
+                    className="text-xs text-zinc-400 hover:text-brand-300 transition-colors rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+                  >
+                    {editingRate ? 'Done' : 'Change'}
+                  </button>
+                }
+              >
+                <p className="text-2xl font-bold tabular-nums text-white">
+                  ${formatCurrency(hourlyRate)}
+                  <span className="text-sm font-medium text-zinc-500">/hr</span>
+                </p>
+                {editingRate && (
+                  <HourlyRateSchedule
+                    projectId={projectId}
+                    fallbackRate={hourlyRate}
+                    today={todayLocalDate}
+                    timezone={preferredTimezone}
+                    isDemoMode={isDemoMode}
+                    onCurrentRateChange={(rate) => updateProject(projectId, { hourly_rate: rate })}
+                  />
+                )}
+              </RailCard>
+            )}
+
+            {hasBudget && (
+              <RailCard title="Budget" icon={<Wallet size={16} className="text-zinc-400" aria-hidden="true" />}>
+                <div className="flex items-baseline justify-between gap-3">
+                  <p className="text-2xl font-bold tabular-nums text-white">{Math.round(budgetPct)}%</p>
+                  <p className="text-xs text-zinc-500 tabular-nums">
+                    {budgetType === 'hours'
+                      ? `${formatCurrency(Math.round(budgetUsed))} of ${formatCurrency(budgetValue)} hrs`
+                      : `$${formatCurrency(Math.round(budgetUsed))} of $${formatCurrency(budgetValue)}`}
+                  </p>
+                </div>
+                <div
+                  className="mt-3 h-1.5 rounded-full bg-white/[0.06] overflow-hidden"
+                  role="progressbar"
+                  aria-valuenow={Math.round(budgetPct)}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-label="Budget used"
+                >
+                  <div className={`h-full rounded-full ${budgetTone}`} style={{ width: `${budgetPct}%` }} />
+                </div>
+              </RailCard>
+            )}
+          </>
+        }
+      >
+        {invoices.length > 0 ? (
+          <section className="@container glass-card rounded-xl overflow-hidden" aria-label="Invoices">
+            <div className={`hidden @2xl:grid ${INVOICE_COLS} gap-3 px-5 py-2.5 border-b border-white/[0.06] text-[11px] font-semibold uppercase tracking-wider text-zinc-500`}>
+              <span>Status</span>
+              <span>Invoice</span>
+              <span>Issued</span>
+              <span>Due</span>
+              <span>Paid</span>
+              <span className="text-right">Amount</span>
+              <span className="sr-only">Actions</span>
+            </div>
+            {visibleInvoices.length > 0 ? (
+              <div className="divide-y divide-white/[0.05]">{visibleInvoices.map(renderInvoiceRow)}</div>
+            ) : (
+              <p className="px-5 py-10 text-center text-sm text-zinc-500">No invoices in this view.</p>
+            )}
+          </section>
+        ) : (
+          <div className="glass-card rounded-xl flex flex-col items-center justify-center px-6 py-16 text-center">
+            <div className="w-10 h-10 rounded-full bg-white/[0.06] flex items-center justify-center mb-3">
+              <Receipt size={18} className="text-zinc-500" aria-hidden="true" />
+            </div>
+            <p className="text-sm font-medium text-zinc-300">No invoices yet</p>
+            <p className="text-xs text-zinc-500 mt-1 mb-4">Invoices you create or that draft themselves show up here.</p>
+            <Button icon={<Plus size={16} aria-hidden="true" />} onClick={openAddForm}>New invoice</Button>
+          </div>
+        )}
+      </RailLayout>
 
       <Modal
         isOpen={isAdding || Boolean(editingId)}

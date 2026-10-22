@@ -7,35 +7,37 @@ import {
 import { useDemo } from '@/lib/demo-context';
 import { useApp } from '@/lib/store';
 import { demoClientCommunications } from '@/lib/demo-data';
-import { Badge } from '@/components/ui/Badge';
 import ClientEmailPreviewModal from './ClientEmailPreviewModal';
 import type {
   ClientCommunication,
   ClientCommType,
 } from '@/lib/types';
 
-interface ClientCommunicationsLogPanelProps {
+interface CommunicationHistoryProps {
   projectId: string;
-  /** Increment to force a refetch (after a send/approve from the actions panel). */
+  /** Increment to force a refetch (after a send from the tab's Send buttons). */
   refreshSignal?: number;
-  /** Fires when the log refetches after a pending review action. */
-  onChanged?: () => void;
+  /** The tab toolbar's search: subject, type or recipient. */
+  query?: string;
 }
 
-const TYPE_LABELS: Record<ClientCommType, string> = {
-  portal_welcome: 'Portal Welcome',
-  project_summary: 'Project Summary',
+export const COMM_TYPE_LABELS: Record<ClientCommType, string> = {
+  portal_welcome: 'Portal welcome',
+  project_summary: 'Project summary',
   invoice: 'Invoice',
-  budget_threshold: 'Budget Threshold',
-  dollar_interval: 'Dollar Interval',
-  budget_extended: 'Budget Updated',
+  budget_threshold: 'Budget threshold',
+  dollar_interval: 'Dollar interval',
+  budget_extended: 'Budget updated',
 };
 
-export function ClientCommunicationsLogPanel({
-  projectId,
-  refreshSignal = 0,
-  onChanged,
-}: ClientCommunicationsLogPanelProps) {
+// Columns for the header and each row, used once the list's own box is wide.
+const COLS = '@2xl:grid-cols-[88px_minmax(0,1.6fr)_minmax(0,1fr)_96px_92px]';
+
+/**
+ * Every email sent to the client from this project, newest first, with alerts
+ * waiting for approval pinned on top: the Communication tab's Sent view.
+ */
+export function CommunicationHistory({ projectId, refreshSignal = 0, query = '' }: CommunicationHistoryProps) {
   const { isDemoMode } = useDemo();
   const { commsRefreshSignal } = useApp();
 
@@ -71,51 +73,54 @@ export function ClientCommunicationsLogPanel({
 
   useEffect(() => { loadComms(); }, [loadComms, refreshSignal, commsRefreshSignal]);
 
-  const filteredComms = comms;
-
-  const handleReviewCompleted = () => {
-    loadComms();
-    onChanged?.();
-  };
+  const needle = query.trim().toLowerCase();
+  const matching = needle
+    ? comms.filter(c =>
+        (c.subject || '').toLowerCase().includes(needle) ||
+        COMM_TYPE_LABELS[c.notification_type].toLowerCase().includes(needle) ||
+        [...(c.recipients?.to ?? []), c.contact?.email ?? ''].some(r => r.toLowerCase().includes(needle)))
+    : comms;
+  const pending = matching.filter(c => c.status === 'pending');
+  const rest = matching.filter(c => c.status !== 'pending');
 
   return (
-    <div className="glass-card rounded-xl overflow-hidden flex flex-col">
-      <div className="px-5 py-4 border-b border-white/[0.06] flex flex-wrap items-center gap-x-3 gap-y-2">
-        <div className="flex items-center gap-2 min-w-0">
-          <History size={18} className="text-zinc-400 flex-shrink-0" />
-          <h2 className="font-semibold text-white truncate">Communication History</h2>
+    <>
+      {loading && comms.length === 0 ? (
+        <div className="glass-card rounded-xl flex items-center justify-center py-16 text-sm text-zinc-500">
+          <Loader2 size={16} className="animate-spin mr-2" aria-hidden="true" />
+          Loading sent emails
         </div>
-      </div>
-
-      <div className="p-5 flex-1 flex flex-col min-h-0">
-        <div className="flex-1 flex flex-col min-h-0">
-          {loading ? (
-            <div className="flex-1 flex items-center justify-center text-xs text-zinc-500">
-              <Loader2 size={14} className="animate-spin mr-2" />
-              Loading...
+      ) : comms.length === 0 ? (
+        <div className="glass-card rounded-xl flex flex-col items-center justify-center px-6 py-16 text-center">
+          <div className="w-10 h-10 rounded-full bg-white/[0.06] flex items-center justify-center mb-3">
+            <History size={18} className="text-zinc-500" aria-hidden="true" />
+          </div>
+          <p className="text-sm font-medium text-zinc-300">No emails sent yet</p>
+          <p className="text-xs text-zinc-500 mt-1">Invoices, summaries and alerts you send this client will list here.</p>
+        </div>
+      ) : (
+        <section className="@container glass-card rounded-xl overflow-hidden" aria-label="Sent emails">
+          {pending.length > 0 && (
+            <div className="flex items-center gap-2 px-5 py-3 bg-amber-500/[0.08] border-b border-amber-500/20 text-sm text-amber-300">
+              <Clock size={15} aria-hidden="true" />
+              {pending.length === 1 ? '1 alert is' : `${pending.length} alerts are`} waiting for your approval
             </div>
-          ) : filteredComms.length === 0 ? (
-            <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
-              <div className="w-10 h-10 rounded-full bg-white/[0.06] flex items-center justify-center mb-3">
-                <History size={18} className="text-zinc-500" />
-              </div>
-              <p className="text-sm font-medium text-zinc-400">No emails sent yet</p>
-              <p className="text-xs text-zinc-500 mt-1">Every client email you send will appear here</p>
-            </div>
-          ) : (
-            <ul className="space-y-2 pr-1.5 sm:pr-0 sm:space-y-0 sm:divide-y sm:divide-white/[0.06] sm:border sm:border-white/[0.08] sm:rounded-lg overflow-y-auto max-h-[400px]">
-              {filteredComms.map(c => (
-                <CommRow
-                  key={c.id}
-                  comm={c}
-                  onReview={setPendingModal}
-                  onPreview={setReadonlyModal}
-                />
-              ))}
-            </ul>
           )}
-        </div>
-      </div>
+          <div className={`hidden @2xl:grid ${COLS} gap-3 px-5 py-2.5 border-b border-white/[0.06] text-[11px] font-semibold uppercase tracking-wider text-zinc-500`}>
+            <span>Status</span>
+            <span>Email</span>
+            <span>Sent to</span>
+            <span>When</span>
+            <span className="sr-only">Actions</span>
+          </div>
+          {matching.length === 0 && <p className="px-5 py-10 text-center text-sm text-zinc-500">No emails match.</p>}
+          <ul className="divide-y divide-white/[0.05]">
+            {[...pending, ...rest].map(c => (
+              <CommRow key={c.id} comm={c} onReview={setPendingModal} onPreview={setReadonlyModal} />
+            ))}
+          </ul>
+        </section>
+      )}
 
       {pendingModal && (
         <ClientEmailPreviewModal
@@ -123,7 +128,7 @@ export function ClientCommunicationsLogPanel({
           onClose={() => setPendingModal(null)}
           projectId={projectId}
           pending={pendingModal}
-          onCompleted={handleReviewCompleted}
+          onCompleted={loadComms}
         />
       )}
 
@@ -135,9 +140,16 @@ export function ClientCommunicationsLogPanel({
           readonlyComm={readonlyModal}
         />
       )}
-    </div>
+    </>
   );
 }
+
+const STATUS = {
+  sent: { label: 'Sent', icon: CheckCircle2, color: 'text-emerald-400' },
+  pending: { label: 'Waiting', icon: Clock, color: 'text-amber-400' },
+  failed: { label: 'Failed', icon: XCircle, color: 'text-red-400' },
+  dismissed: { label: 'Dismissed', icon: XIcon, color: 'text-zinc-500' },
+} as const;
 
 function CommRow({
   comm,
@@ -148,68 +160,70 @@ function CommRow({
   onReview: (c: ClientCommunication) => void;
   onPreview: (c: ClientCommunication) => void;
 }) {
-  const statusIcon =
-    comm.status === 'sent' ? <CheckCircle2 size={12} className="text-emerald-400" /> :
-    comm.status === 'pending' ? <Clock size={12} className="text-amber-400" /> :
-    comm.status === 'failed' ? <XCircle size={12} className="text-red-400" /> :
-    <XIcon size={12} className="text-zinc-500" />;
-
-  const statusBadge =
-    comm.status === 'sent' ? <Badge variant="success">Sent</Badge> :
-    comm.status === 'pending' ? <Badge variant="warning">Pending</Badge> :
-    comm.status === 'failed' ? <Badge variant="danger">Failed</Badge> :
-    <Badge variant="default">Dismissed</Badge>;
-
+  const status = STATUS[comm.status as keyof typeof STATUS] ?? STATUS.dismissed;
+  const StatusIcon = status.icon;
   const timestamp = comm.sent_at ?? comm.dismissed_at ?? comm.created_at;
   const relTime = formatRelative(timestamp);
+  const fullTime = new Date(timestamp).toLocaleString('en-US', {
+    month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit',
+  });
 
   // Show who the email actually went to. The linked contact is only the
   // fallback for rows written before recipients were stored.
   const toList = comm.recipients?.to ?? [];
   const recipientLabel = toList.length ? toList.join(', ') : comm.contact?.email || 'unknown recipient';
+  const subject = comm.subject || COMM_TYPE_LABELS[comm.notification_type];
+
+  const action = comm.status === 'pending' ? (
+    <button
+      type="button"
+      onClick={() => onReview(comm)}
+      className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-brand-600 text-white hover:bg-brand-700 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+    >
+      <Eye size={13} aria-hidden="true" />
+      Review
+    </button>
+  ) : comm.rendered_html ? (
+    <button
+      type="button"
+      onClick={() => onPreview(comm)}
+      className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg text-zinc-300 hover:text-white hover:bg-white/[0.06] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+    >
+      <Eye size={13} aria-hidden="true" />
+      Preview
+    </button>
+  ) : null;
+
+  const statusLabel = (
+    <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${status.color}`}>
+      <StatusIcon size={14} aria-hidden="true" />
+      {status.label}
+    </span>
+  );
 
   return (
-    <li className="rounded-lg border border-white/[0.08] sm:rounded-none sm:border-0 p-3 sm:px-3 sm:py-2.5 bg-surface-raised flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3 hover:bg-white/[0.03] transition-colors">
-      <div className="flex items-start gap-3 sm:items-center min-w-0 flex-1">
-        <div className="flex-shrink-0 mt-0.5 sm:mt-0">{statusIcon}</div>
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-col gap-1 sm:flex-row sm:flex-wrap sm:items-center sm:gap-2">
-            <span className="text-sm font-medium text-zinc-100 truncate">
-              {comm.subject || TYPE_LABELS[comm.notification_type]}
-            </span>
-            <div className="flex items-center gap-2 flex-wrap">
-              <Badge variant="info" className="text-[10px]">
-                {TYPE_LABELS[comm.notification_type]}
-              </Badge>
-              {statusBadge}
-            </div>
-          </div>
-          <div className="text-[11px] text-zinc-400 mt-0.5 flex items-center gap-2 min-w-0">
-            <span className="truncate" title={recipientLabel}>{recipientLabel}</span>
-            <span className="text-zinc-600 flex-shrink-0">·</span>
-            <span className="flex-shrink-0 whitespace-nowrap">{relTime}</span>
-          </div>
+    <li className="hover:bg-white/[0.02] transition-colors">
+      <div className={`hidden @2xl:grid ${COLS} gap-3 items-center px-5 py-3`}>
+        {statusLabel}
+        <div className="min-w-0">
+          <p className="text-sm text-zinc-100 truncate" title={subject}>{subject}</p>
+          <p className="text-xs text-zinc-500">{COMM_TYPE_LABELS[comm.notification_type]}</p>
+        </div>
+        <span className="text-sm text-zinc-400 truncate" title={recipientLabel}>{recipientLabel}</span>
+        <span className="text-sm text-zinc-400 whitespace-nowrap" title={fullTime}>{relTime}</span>
+        <div className="flex justify-end">{action}</div>
+      </div>
+      <div className="@2xl:hidden px-4 py-3 space-y-1.5">
+        <div className="flex items-center gap-2">
+          {statusLabel}
+          <span className="ml-auto text-xs text-zinc-500 whitespace-nowrap" title={fullTime}>{relTime}</span>
+        </div>
+        <p className="text-sm text-zinc-100 break-words">{subject}</p>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-zinc-500 truncate min-w-0" title={recipientLabel}>{recipientLabel}</span>
+          <span className="ml-auto flex-shrink-0">{action}</span>
         </div>
       </div>
-      {comm.status === 'pending' ? (
-        <button
-          type="button"
-          onClick={() => onReview(comm)}
-          className="flex-shrink-0 inline-flex items-center justify-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-md bg-brand-600 text-white hover:bg-brand-700 transition-colors w-full sm:w-auto sm:py-1"
-        >
-          <Eye size={12} />
-          Review
-        </button>
-      ) : comm.rendered_html ? (
-        <button
-          type="button"
-          onClick={() => onPreview(comm)}
-          className="flex-shrink-0 inline-flex items-center justify-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-md border border-white/[0.08] bg-surface-raised text-zinc-300 hover:bg-white/[0.03] hover:text-white transition-colors w-full sm:w-auto sm:py-1"
-        >
-          <Eye size={12} />
-          Preview
-        </button>
-      ) : null}
     </li>
   );
 }

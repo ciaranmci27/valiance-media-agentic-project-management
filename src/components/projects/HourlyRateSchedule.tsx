@@ -134,7 +134,8 @@ export function HourlyRateSchedule({
 
   return (
     <div className="mt-4 rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+      {/* Stacked: the schedule lives in the Billing tab's 340px rail. */}
+      <div className="flex flex-col gap-3">
         <DateInput
           label="Effective date"
           value={effectiveDate}

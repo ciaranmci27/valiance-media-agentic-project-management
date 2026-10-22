@@ -8,28 +8,15 @@ import {
   Link2,
   Copy,
   Check,
-  Eye,
-  EyeOff,
   Lock,
   Pencil,
   Trash2,
   Camera,
   Loader2,
   X,
-  GripVertical,
-  Activity,
 } from 'lucide-react';
 import { useApp } from '@/lib/store';
-import { DEFAULT_SECTION_ORDER, PORTAL_SECTION_LABELS, type PortalSectionKey } from '@/lib/types';
 
-// The portal is two columns on desktop: these fill the main column, the rest sit
-// in the sidebar. The drag order applies within each column, and top to bottom on phones.
-const PORTAL_MAIN_COLUMN = new Set<PortalSectionKey>([
-  'show_progress',
-  'show_invoices',
-  'show_hours',
-  'show_updates',
-]);
 import { useDemo } from '@/lib/demo-context';
 import { toast } from '@/components/ui/Toast';
 import { TextInput } from '@/components/ui/inputs/TextInput';
@@ -38,7 +25,8 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { AvatarCropModal } from '@/components/ui/AvatarCropModal';
 import { PinInput, type PinInputRef } from '@/components/ui/PinInput';
-import { PortalAnalyticsModal } from '@/components/projects/PortalAnalyticsModal';
+import { Toggle } from '@/components/ui/inputs/Toggle';
+import { RailCard } from '@/components/projects/TabLayout';
 import { createClient } from '@/lib/supabase/client';
 import { siteConfig } from '@/site-config';
 
@@ -46,6 +34,22 @@ interface PortalSettingsPanelProps {
   projectId: string;
 }
 
+/** What turning the portal on writes: on, the project's color, a starter welcome. */
+export function portalEnablePatch(projectColor: string | undefined, hasWelcomeMessage: boolean) {
+  return {
+    enabled: true,
+    accent_color: projectColor || siteConfig.colors.brand[500],
+    ...(!hasWelcomeMessage && {
+      welcome_message: `Welcome to your project portal. Here you'll find the latest updates, files, and progress.`,
+    }),
+  };
+}
+
+/**
+ * The Client portal tab's settings, as rail cards grouped by purpose: Access
+ * (on/off, link, PIN), Branding and Welcome message. The page's sections are
+ * PortalSectionsCard, in the main column.
+ */
 export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
   const { getPortalSettings, upsertPortalSettings, updatePortalSlug, getProject } = useApp();
   const { isDemoMode } = useDemo();
@@ -59,7 +63,6 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
   const [pinConfirmed, setPinConfirmed] = useState(false);
   const [showPinConfirm, setShowPinConfirm] = useState(false);
   const [showDeletePinConfirm, setShowDeletePinConfirm] = useState(false);
-  const [analyticsOpen, setAnalyticsOpen] = useState(false);
   const pinInputRef = useRef<PinInputRef>(null);
   const logoInputRef = useRef<HTMLInputElement>(null);
 
@@ -72,72 +75,18 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
     settings?.accent_color || siteConfig.colors.brand[500],
   );
   const [localWelcomeMessage, setLocalWelcomeMessage] = useState(settings?.welcome_message || '');
-  const [sectionOrder, setSectionOrder] = useState<PortalSectionKey[]>(
-    settings?.section_order ?? [...DEFAULT_SECTION_ORDER],
-  );
-  const [draggedKey, setDraggedKey] = useState<PortalSectionKey | null>(null);
-  const dragKeyRef = useRef<PortalSectionKey | null>(null);
-  const lastTargetRef = useRef<PortalSectionKey | null>(null);
-  const sectionOrderRef = useRef(sectionOrder);
-  sectionOrderRef.current = sectionOrder;
-
   // Sync local state when settings change externally
   useEffect(() => {
     setLocalSlug(settings?.token || '');
     setLocalPin(settings?.pin || '');
     setLocalAccentColor(settings?.accent_color || siteConfig.colors.brand[500]);
     setLocalWelcomeMessage(settings?.welcome_message || '');
-    setSectionOrder(settings?.section_order ?? [...DEFAULT_SECTION_ORDER]);
   }, [
     settings?.token,
     settings?.pin,
     settings?.accent_color,
     settings?.welcome_message,
-    settings?.section_order,
   ]);
-
-  // Pointer-event based drag for section reordering
-  const handleSectionDragStart = useCallback(
-    (key: PortalSectionKey, e: React.PointerEvent) => {
-      e.preventDefault();
-      dragKeyRef.current = key;
-      lastTargetRef.current = null;
-      setDraggedKey(key);
-
-      const handleMove = (moveEvent: PointerEvent) => {
-        const el = document.elementFromPoint(moveEvent.clientX, moveEvent.clientY);
-        const target = el?.closest('[data-section-key]');
-        const targetKey = target?.getAttribute('data-section-key') as PortalSectionKey | null;
-        if (!targetKey || targetKey === dragKeyRef.current || targetKey === lastTargetRef.current)
-          return;
-        lastTargetRef.current = targetKey;
-
-        setSectionOrder((prev) => {
-          const dragged = dragKeyRef.current!;
-          const fromIdx = prev.indexOf(dragged);
-          const toIdx = prev.indexOf(targetKey);
-          if (fromIdx === -1 || toIdx === -1 || fromIdx === toIdx) return prev;
-          const next = [...prev];
-          next.splice(fromIdx, 1);
-          next.splice(toIdx, 0, dragged);
-          return next;
-        });
-      };
-
-      const handleUp = () => {
-        document.removeEventListener('pointermove', handleMove);
-        document.removeEventListener('pointerup', handleUp);
-        setDraggedKey(null);
-        dragKeyRef.current = null;
-        lastTargetRef.current = null;
-        upsertPortalSettings(projectId, { section_order: sectionOrderRef.current });
-      };
-
-      document.addEventListener('pointermove', handleMove);
-      document.addEventListener('pointerup', handleUp);
-    },
-    [projectId, upsertPortalSettings],
-  );
 
   // Debounced save helper
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -171,15 +120,10 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
   };
 
   const handleToggleEnabled = () => {
-    const turning_on = !isEnabled;
-    const needsDefaultMessage = turning_on && !settings?.welcome_message;
-    upsertPortalSettings(projectId, {
-      enabled: turning_on,
-      accent_color: project?.color || siteConfig.colors.brand[500],
-      ...(needsDefaultMessage && {
-        welcome_message: `Welcome to your project portal. Here you'll find the latest updates, files, and progress.`,
-      }),
-    });
+    upsertPortalSettings(
+      projectId,
+      isEnabled ? { enabled: false } : portalEnablePatch(project?.color, !!settings?.welcome_message),
+    );
   };
 
   const handleCopyLink = () => {
@@ -239,319 +183,245 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
     toast('success', 'Logo removed');
   };
 
+  if (!settings) return null;
+
+  const iconButton =
+    'p-2 rounded-lg text-zinc-400 hover:text-brand-300 hover:bg-white/[0.06] transition-colors flex-shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500';
+
   return (
-    <div className="glass-card rounded-xl overflow-hidden flex flex-col max-h-[600px]">
-      {/* Header with toggle */}
-      <div
-        className={`px-5 py-4 flex items-center justify-between flex-shrink-0 ${isEnabled ? 'border-b border-white/[0.06]' : ''}`}
-      >
-        <div className="flex items-center gap-2">
-          <Globe size={18} className="text-zinc-400" />
-          <h2 className="font-semibold text-white">Client Portal</h2>
-        </div>
-        <button
-          onClick={handleToggleEnabled}
-          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0 ${
-            isEnabled ? 'bg-brand-600' : 'bg-white/[0.08]'
-          }`}
-        >
-          <span
-            className={`inline-block h-4 w-4 transform rounded-full bg-surface-raised transition-transform shadow-sm ${
-              isEnabled ? 'translate-x-6' : 'translate-x-1'
-            }`}
+    <>
+      {/* Access: who can open it, and where */}
+      <RailCard
+        title="Access"
+        icon={<Globe size={16} className="text-zinc-400" aria-hidden="true" />}
+        action={
+          <Toggle
+            size="sm"
+            checked={isEnabled}
+            onChange={handleToggleEnabled}
+            label={isEnabled ? 'Live' : 'Off'}
           />
-        </button>
-      </div>
-
-      {isEnabled && settings && (
-        <div className="p-5 space-y-5 flex-1 overflow-y-auto">
-          {/* Portal Logo + Link + PIN + Color */}
-          <div className="flex flex-col sm:flex-row items-start gap-4">
-            {/* Logo */}
-            <div className="relative group flex-shrink-0">
-              <div className="w-[88px] h-[88px] rounded-xl overflow-hidden border border-white/[0.08] bg-white/[0.03] flex items-center justify-center">
-                {settings.logo_url ? (
-                  <img src={settings.logo_url} alt="Logo" className="w-full h-full object-cover" />
-                ) : (
-                  <div
-                    className="w-full h-full flex items-center justify-center text-white text-lg font-bold"
-                    style={{
-                      backgroundColor: settings.accent_color || siteConfig.colors.brand[500],
-                    }}
-                  >
-                    {project?.name?.charAt(0) || 'P'}
-                  </div>
-                )}
-              </div>
-              {!uploadingLogo && (
-                <button
-                  type="button"
-                  onClick={() => logoInputRef.current?.click()}
-                  className="absolute inset-0 rounded-xl bg-black/30 sm:bg-black/0 sm:group-hover:bg-black/40 sm:focus-visible:bg-black/40 flex items-center justify-center transition-all cursor-pointer"
-                >
-                  <Camera
-                    size={16}
-                    className="text-white sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 transition-opacity"
-                  />
-                </button>
-              )}
-              {uploadingLogo && (
-                <div className="absolute inset-0 rounded-xl bg-black/40 flex items-center justify-center">
-                  <Loader2 size={16} className="text-white animate-spin" />
-                </div>
-              )}
-              {settings.logo_url && !uploadingLogo && (
-                <button
-                  type="button"
-                  onClick={handleRemoveLogo}
-                  className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-red-500 text-white flex items-center justify-center sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 transition-opacity hover:bg-red-600"
-                >
-                  <X size={12} />
-                </button>
-              )}
-              <FileInput
-                ref={logoInputRef}
-                accept="image/jpeg,image/png,image/webp"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) {
-                    setLogoCropFile(file);
-                    e.target.value = '';
-                  }
-                }}
-                className="hidden"
-              />
-            </div>
-
-            {/* Link + PIN + Color */}
-            <div className="flex-1 min-w-0 w-full space-y-3">
-              {/* Portal Link */}
-              <div className="flex items-center gap-2">
-                {editingSlug ? (
-                  <div className="flex-1 flex items-center gap-2 px-3 py-2 bg-surface-raised border border-brand-500/30 ring-2 ring-brand-500/30 rounded-lg text-sm min-w-0">
-                    <Link2 size={14} className="text-zinc-500 flex-shrink-0" />
-                    <div className="flex-1 flex items-center min-w-0">
-                      <span className="text-zinc-500 flex-shrink-0">{origin}/portal/</span>
-                      <input
-                        ref={slugInputRef}
-                        type="text"
-                        value={localSlug}
-                        onChange={(e) =>
-                          setLocalSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))
-                        }
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') handleSlugSave();
-                          if (e.key === 'Escape') {
-                            setLocalSlug(settings?.token || '');
-                            setEditingSlug(false);
-                          }
-                        }}
-                        className="flex-1 min-w-0 bg-transparent text-zinc-100 outline-none placeholder:text-zinc-600"
-                        placeholder="project-slug"
-                        autoFocus
-                      />
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex-1 flex items-center gap-2 px-3 py-2 bg-white/[0.03] border border-white/[0.08] rounded-lg text-sm text-zinc-300 min-w-0">
-                    <Link2 size={14} className="text-zinc-500 flex-shrink-0" />
-                    <span className="truncate">{portalUrl}</span>
-                  </div>
-                )}
-                <Tooltip content={editingSlug ? 'Save slug' : 'Edit slug'}>
-                  <button
-                    onClick={() => {
-                      if (editingSlug) {
-                        handleSlugSave();
-                      } else {
-                        setLocalSlug(settings?.token || '');
-                        setEditingSlug(true);
+        }
+      >
+        <div className="space-y-4">
+          <div>
+            <p className="text-xs text-zinc-500 mb-1.5">Link</p>
+            {editingSlug ? (
+              <div className="space-y-1.5">
+                <p className="text-xs text-zinc-500 truncate">{origin}/portal/</p>
+                <div className="flex items-center gap-1">
+                  <input
+                    ref={slugInputRef}
+                    type="text"
+                    aria-label="Portal link ending"
+                    value={localSlug}
+                    onChange={(e) => setLocalSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleSlugSave();
+                      if (e.key === 'Escape') {
+                        setLocalSlug(settings.token || '');
+                        setEditingSlug(false);
                       }
                     }}
-                    className={`p-2 rounded-lg transition-colors ${editingSlug ? 'text-brand-300 hover:bg-brand-500/15' : 'text-zinc-400 hover:text-brand-300 hover:bg-brand-500/15'}`}
+                    className="flex-1 min-w-0 px-3 py-2 bg-surface-raised border border-brand-500/30 ring-2 ring-brand-500/30 rounded-lg text-sm text-zinc-100 outline-none placeholder:text-zinc-600"
+                    placeholder="project-slug"
+                    autoFocus
+                  />
+                  <Tooltip content="Save link">
+                    <button type="button" aria-label="Save link" onClick={handleSlugSave} className={iconButton}>
+                      <Check size={16} />
+                    </button>
+                  </Tooltip>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1">
+                <div className="flex-1 min-w-0 flex items-center gap-2 px-3 py-2 bg-white/[0.03] border border-white/[0.08] rounded-lg text-sm text-zinc-300">
+                  <Link2 size={14} className="text-zinc-500 flex-shrink-0" aria-hidden="true" />
+                  <span className="truncate" title={portalUrl}>{portalUrl.replace(/^https?:\/\//, '')}</span>
+                </div>
+                <Tooltip content="Edit link">
+                  <button
+                    type="button"
+                    aria-label="Edit link"
+                    onClick={() => {
+                      setLocalSlug(settings.token || '');
+                      setEditingSlug(true);
+                    }}
+                    className={iconButton}
                   >
-                    {editingSlug ? <Check size={16} /> : <Pencil size={16} />}
+                    <Pencil size={15} />
                   </button>
                 </Tooltip>
                 <Tooltip content="Copy link">
-                  <button
-                    onClick={handleCopyLink}
-                    className="p-2 text-zinc-400 hover:text-brand-300 hover:bg-brand-500/15 rounded-lg transition-colors"
-                  >
-                    {copied ? <Check size={16} className="text-green-400" /> : <Copy size={16} />}
-                  </button>
-                </Tooltip>
-                <Tooltip content="View portal">
-                  <button
-                    onClick={() =>
-                      portalUrl && window.open(portalUrl, '_blank', 'noopener,noreferrer')
-                    }
-                    className="p-2 text-zinc-400 hover:text-brand-300 hover:bg-brand-500/15 rounded-lg transition-colors"
-                  >
-                    <Eye size={16} />
-                  </button>
-                </Tooltip>
-                <Tooltip content="View activity">
-                  <button
-                    onClick={() => setAnalyticsOpen(true)}
-                    className="p-2 text-zinc-400 hover:text-brand-300 hover:bg-brand-500/15 rounded-lg transition-colors"
-                  >
-                    <Activity size={16} />
+                  <button type="button" aria-label="Copy link" onClick={handleCopyLink} className={iconButton}>
+                    {copied ? <Check size={15} className="text-emerald-400" /> : <Copy size={15} />}
                   </button>
                 </Tooltip>
               </div>
+            )}
+          </div>
 
-              {/* Accent Color + PIN */}
-              <div className="flex items-center gap-3">
-                <ColorInput
-                  ariaLabel="Portal accent color"
-                  value={localAccentColor}
-                  onChange={(nextValue) => {
-                    setLocalAccentColor(nextValue);
-                    debouncedSettingChange('accent_color', nextValue);
+          <div>
+            <p className="text-xs text-zinc-500 mb-1.5">PIN</p>
+            {pinConfirmed ? (
+              <div className="flex items-center gap-2">
+                <PinInput
+                  ref={pinInputRef}
+                  value={localPin}
+                  onChange={setLocalPin}
+                  onSubmit={(val) => {
+                    upsertPortalSettings(projectId, { pin: val });
+                    setPinConfirmed(false);
+                    toast('success', 'Portal PIN updated');
                   }}
+                  size="sm"
+                  autoFocus
                 />
-                <div className="w-24">
-                  <TextInput
-                    value={localAccentColor}
-                    onChange={(v) => {
-                      setLocalAccentColor(v);
-                      debouncedSettingChange('accent_color', v);
+                {localPin.length === 4 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      upsertPortalSettings(projectId, { pin: localPin });
+                      setPinConfirmed(false);
+                      toast('success', 'Portal PIN updated');
                     }}
-                  />
-                </div>
-                <div className="h-5 w-px bg-white/[0.08] flex-shrink-0" />
-                {pinConfirmed ? (
-                  <div className="flex items-center gap-2">
-                    <PinInput
-                      ref={pinInputRef}
-                      value={localPin}
-                      onChange={setLocalPin}
-                      onSubmit={(val) => {
-                        upsertPortalSettings(projectId, { pin: val });
-                        setPinConfirmed(false);
-                        toast('success', 'Portal PIN updated');
-                      }}
-                      size="sm"
-                      autoFocus
-                    />
-                    {localPin.length === 4 && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          upsertPortalSettings(projectId, { pin: localPin });
-                          setPinConfirmed(false);
-                          toast('success', 'Portal PIN updated');
-                        }}
-                        className="px-2.5 py-1.5 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition-colors flex-shrink-0"
-                      >
-                        Save
-                      </button>
-                    )}
-                  </div>
-                ) : (
+                    className="px-2.5 py-1.5 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition-colors flex-shrink-0"
+                  >
+                    Save
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm text-zinc-300">
+                  {localPin ? 'Clients enter a 4-digit PIN' : 'Anyone with the link can open it'}
+                </p>
+                <div className="flex items-center gap-1 flex-shrink-0">
                   <button
                     type="button"
                     onClick={() => setShowPinConfirm(true)}
-                    className="inline-flex h-9 items-center gap-1.5 px-3 text-sm bg-surface-raised border border-white/[0.08] rounded-lg hover:border-white/[0.12] transition-colors flex-shrink-0"
+                    className="inline-flex h-8 items-center gap-1.5 px-2.5 text-sm bg-surface-raised border border-white/[0.08] rounded-lg hover:border-white/[0.12] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
                   >
-                    <Lock size={13} className="text-zinc-500" />
-                    <span
-                      className={
-                        localPin ? 'text-zinc-300 font-medium tracking-wider' : 'text-zinc-500'
-                      }
-                    >
+                    <Lock size={13} className="text-zinc-500" aria-hidden="true" />
+                    <span className={localPin ? 'text-zinc-300 font-medium tracking-wider' : 'text-zinc-400'}>
                       {localPin ? '••••' : 'Set PIN'}
                     </span>
                   </button>
-                )}
-                {localPin && !pinConfirmed && (
-                  <Tooltip content="Remove PIN">
-                    <button
-                      type="button"
-                      onClick={() => setShowDeletePinConfirm(true)}
-                      className="p-1.5 text-zinc-600 hover:text-red-500 rounded-md transition-colors flex-shrink-0"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </Tooltip>
-                )}
+                  {localPin && (
+                    <Tooltip content="Remove PIN">
+                      <button
+                        type="button"
+                        aria-label="Remove PIN"
+                        onClick={() => setShowDeletePinConfirm(true)}
+                        className="p-1.5 text-zinc-500 hover:text-red-400 rounded-md transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </Tooltip>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </RailCard>
+
+      {/* Branding: how it looks to the client */}
+      <RailCard title="Branding">
+        <div className="flex items-start gap-4">
+          <div className="relative group flex-shrink-0">
+            <div className="w-[72px] h-[72px] rounded-xl overflow-hidden border border-white/[0.08] bg-white/[0.03] flex items-center justify-center">
+              {settings.logo_url ? (
+                <img src={settings.logo_url} alt="Portal logo" className="w-full h-full object-cover" />
+              ) : (
+                <div
+                  className="w-full h-full flex items-center justify-center text-white text-lg font-bold"
+                  style={{ backgroundColor: settings.accent_color || siteConfig.colors.brand[500] }}
+                >
+                  {project?.name?.charAt(0) || 'P'}
+                </div>
+              )}
+            </div>
+            {!uploadingLogo && (
+              <button
+                type="button"
+                aria-label={settings.logo_url ? 'Change logo' : 'Upload logo'}
+                onClick={() => logoInputRef.current?.click()}
+                className="absolute inset-0 rounded-xl bg-black/30 sm:bg-black/0 sm:group-hover:bg-black/40 sm:focus-visible:bg-black/40 flex items-center justify-center transition-all cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+              >
+                <Camera size={16} className="text-white sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-visible:opacity-100 transition-opacity" />
+              </button>
+            )}
+            {uploadingLogo && (
+              <div className="absolute inset-0 rounded-xl bg-black/40 flex items-center justify-center">
+                <Loader2 size={16} className="text-white animate-spin" aria-hidden="true" />
+              </div>
+            )}
+            {settings.logo_url && !uploadingLogo && (
+              <button
+                type="button"
+                aria-label="Remove logo"
+                onClick={handleRemoveLogo}
+                className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-red-500 text-white flex items-center justify-center sm:opacity-0 sm:group-hover:opacity-100 focus-visible:opacity-100 transition-opacity hover:bg-red-600"
+              >
+                <X size={12} />
+              </button>
+            )}
+            <FileInput
+              ref={logoInputRef}
+              accept="image/jpeg,image/png,image/webp"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) {
+                  setLogoCropFile(file);
+                  e.target.value = '';
+                }
+              }}
+              className="hidden"
+            />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-xs text-zinc-500 mb-1.5">Accent color</p>
+            <div className="flex items-center gap-2">
+              <ColorInput
+                ariaLabel="Portal accent color"
+                value={localAccentColor}
+                onChange={(nextValue) => {
+                  setLocalAccentColor(nextValue);
+                  debouncedSettingChange('accent_color', nextValue);
+                }}
+              />
+              <div className="w-24">
+                <TextInput
+                  aria-label="Accent color hex"
+                  value={localAccentColor}
+                  onChange={(v) => {
+                    setLocalAccentColor(v);
+                    debouncedSettingChange('accent_color', v);
+                  }}
+                />
               </div>
             </div>
           </div>
-
-          {/* Welcome Message */}
-          <div className="space-y-2">
-            <Textarea
-              label="Welcome Message"
-              value={localWelcomeMessage}
-              onChange={(v) => {
-                setLocalWelcomeMessage(v);
-                debouncedSettingChange('welcome_message', v);
-              }}
-              placeholder="Welcome to your project portal! Here you can track progress and download shared files."
-              rows={3}
-              size="sm"
-            />
-          </div>
-
-          {/* Visibility Toggles (drag to reorder) */}
-          <div className="space-y-2">
-            <label className="block text-xs font-medium text-zinc-400 uppercase tracking-wide">
-              Visible Sections
-            </label>
-            <div className="flex flex-wrap gap-2">
-              {sectionOrder
-                .filter((key) => key !== 'show_hours' || project?.hourly_tracking)
-                .map((key) => {
-                  const isActive = (settings as any)[key];
-                  const isDragging = draggedKey === key;
-                  return (
-                    <div
-                      key={key}
-                      data-section-key={key}
-                      className={`flex items-center rounded-lg border transition-all ${
-                        isActive
-                          ? 'bg-brand-500/15 border-brand-500/30 text-brand-300'
-                          : 'bg-white/[0.03] border-white/[0.08] text-zinc-500'
-                      } ${isDragging ? 'shadow-md ring-2 ring-brand-500/30 z-10 opacity-70' : ''}`}
-                    >
-                      <span
-                        onPointerDown={(e) => handleSectionDragStart(key, e)}
-                        className="pl-2 pr-0.5 py-1.5 cursor-grab active:cursor-grabbing touch-none select-none"
-                      >
-                        <GripVertical
-                          size={12}
-                          className={isActive ? 'text-brand-300' : 'text-zinc-600'}
-                        />
-                      </span>
-                      <button
-                        onClick={() => handleSettingChange(key, !isActive)}
-                        className="pr-3 pl-0.5 py-1.5 text-sm flex items-center gap-1.5"
-                      >
-                        {isActive ? <Eye size={13} /> : <EyeOff size={13} />}
-                        {PORTAL_SECTION_LABELS[key]}
-                      </button>
-                      <span className="ml-auto pr-2.5 font-mono text-[10px] uppercase tracking-wider text-zinc-500">
-                        {PORTAL_MAIN_COLUMN.has(key) ? 'Main' : 'Sidebar'}
-                      </span>
-                    </div>
-                  );
-                })}
-            </div>
-            <p className="mt-2 text-[11px] leading-relaxed text-zinc-500">
-              On desktop the portal is two columns: Progress, Invoices, Hours, and Updates fill the
-              main column, and Files and Credentials sit in the sidebar. The order above applies
-              within each column, and top to bottom on phones.
-            </p>
-          </div>
         </div>
-      )}
-      <AvatarCropModal
-        file={logoCropFile}
-        onCrop={handleLogoCropped}
-        onCancel={() => setLogoCropFile(null)}
-      />
+      </RailCard>
+
+      <RailCard title="Welcome message">
+        <Textarea
+          aria-label="Welcome message"
+          value={localWelcomeMessage}
+          onChange={(v) => {
+            setLocalWelcomeMessage(v);
+            debouncedSettingChange('welcome_message', v);
+          }}
+          placeholder="Welcome to your project portal! Here you can track progress and download shared files."
+          rows={4}
+          size="sm"
+        />
+      </RailCard>
+
+      <AvatarCropModal file={logoCropFile} onCrop={handleLogoCropped} onCancel={() => setLogoCropFile(null)} />
       <ConfirmDialog
         isOpen={showPinConfirm}
         onClose={() => setShowPinConfirm(false)}
@@ -580,15 +450,6 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
         confirmLabel="Remove PIN"
         variant="default"
       />
-      {settings?.id && (
-        <PortalAnalyticsModal
-          isOpen={analyticsOpen}
-          onClose={() => setAnalyticsOpen(false)}
-          projectId={projectId}
-          portalSettingsId={settings.id}
-          accentColor={localAccentColor}
-        />
-      )}
-    </div>
+    </>
   );
 }

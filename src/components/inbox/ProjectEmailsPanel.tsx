@@ -1,14 +1,9 @@
 'use client';
 
-import { useState } from 'react';
-import Link from 'next/link';
-import { AtSign, ExternalLink, Globe, Mail, Route, Users } from 'lucide-react';
+import { AtSign, Globe, Mail, Route, Users } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
+import { useFillHeight } from '@/lib/use-fill-height';
 import { InboxView } from './InboxView';
-import { ProjectEmailRoutingModal } from './ProjectEmailRoutingModal';
-
-const HEADER_BUTTON =
-  'inline-flex items-center gap-1.5 rounded-lg border border-white/[0.08] bg-surface-raised px-3 py-1.5 text-sm font-medium text-zinc-300 transition-colors hover:bg-white/[0.03] hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-400';
 
 const ROUTES = [
   { icon: Users, title: 'From a contact', body: 'Anyone on this project’s contact list.' },
@@ -16,9 +11,13 @@ const ROUTES = [
   { icon: AtSign, title: 'To the project’s address', body: 'Its own address, like project@yourdomain.' },
 ];
 
-/** The project's client email: the Inbox, locked to this project. */
-export function ProjectEmailsPanel({ projectId }: { projectId: string }) {
-  const [routingOpen, setRoutingOpen] = useState(false);
+/**
+ * The project's client email: the Inbox, locked to this project. It fills the
+ * rest of the screen on desktop, like the Inbox page, so the list and the
+ * open thread each scroll on their own. Its toolbar lives in the tab.
+ */
+export function ProjectEmailsPanel({ projectId, onSetUpRouting, searchQuery }: { projectId: string; onSetUpRouting: () => void; searchQuery: string }) {
+  const { ref: fillRef, style: fillStyle } = useFillHeight<HTMLElement>({ min: 520 });
 
   const emptyState = (
     <div className="flex h-full flex-col items-center justify-center overflow-y-auto p-6 text-center">
@@ -39,7 +38,7 @@ export function ProjectEmailsPanel({ projectId }: { projectId: string }) {
         ))}
       </ul>
       <div className="mt-5">
-        <Button variant="secondary" size="sm" icon={<Route size={14} aria-hidden="true" />} onClick={() => setRoutingOpen(true)}>
+        <Button variant="secondary" size="sm" icon={<Route size={14} aria-hidden="true" />} onClick={onSetUpRouting}>
           Set up email routing
         </Button>
       </div>
@@ -47,25 +46,13 @@ export function ProjectEmailsPanel({ projectId }: { projectId: string }) {
   );
 
   return (
-    <section aria-labelledby={`project-emails-${projectId}`} className="glass-card mt-6 flex h-[600px] flex-col overflow-hidden rounded-xl">
-      <div className="flex flex-shrink-0 items-center justify-between gap-3 border-b border-white/[0.06] px-5 py-4">
-        <div className="flex items-center gap-2">
-          <Mail size={18} className="text-zinc-400" aria-hidden="true" />
-          <h2 id={`project-emails-${projectId}`} className="font-semibold text-white">Emails</h2>
-        </div>
-        <div className="flex items-center gap-2">
-          <button type="button" onClick={() => setRoutingOpen(true)} className={HEADER_BUTTON}>
-            <Route size={14} aria-hidden="true" />
-            Routing
-          </button>
-          <Link href={`/inbox?project=${projectId}`} className={HEADER_BUTTON}>
-            <ExternalLink size={14} aria-hidden="true" />
-            Open in Inbox
-          </Link>
-        </div>
-      </div>
-      <InboxView projectId={projectId} embedded emptyState={emptyState} />
-      <ProjectEmailRoutingModal isOpen={routingOpen} onClose={() => setRoutingOpen(false)} projectId={projectId} />
+    <section
+      ref={fillRef}
+      style={fillStyle}
+      aria-label="Client email"
+      className="glass-card flex h-[600px] lg:h-[var(--fill-h,600px)] flex-col overflow-hidden rounded-xl"
+    >
+      <InboxView projectId={projectId} embedded emptyState={emptyState} searchQuery={searchQuery} />
     </section>
   );
 }

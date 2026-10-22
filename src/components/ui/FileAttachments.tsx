@@ -30,6 +30,8 @@ import { FilePreviewModal } from '@/components/ui/FilePreviewModal';
 import { NewNoteModal } from '@/components/ui/NewNoteModal';
 import type { EntityFileType, EntityFile } from '@/lib/types';
 import { hasPermission } from '@/lib/access-control';
+import { Button } from '@/components/ui/Button';
+import { SubNav, TabToolbar } from '@/components/projects/TabLayout';
 
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -48,9 +50,12 @@ function getFileIcon(mimeType: string) {
 interface FileAttachmentsProps {
   entityType: EntityFileType;
   entityId: string;
+  /** 'list' (default): a compact card for a detail page's side panel.
+   *  'grid': a whole tab of its own, with a toolbar and thumbnail cards. */
+  layout?: 'list' | 'grid';
 }
 
-export function FileAttachments({ entityType, entityId }: FileAttachmentsProps) {
+export function FileAttachments({ entityType, entityId, layout = 'list' }: FileAttachmentsProps) {
   const {
     getEntityFiles,
     addEntityFile,
@@ -73,6 +78,8 @@ export function FileAttachments({ entityType, entityId }: FileAttachmentsProps) 
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [menuPos, setMenuPos] = useState({ top: 0, left: 0, openAbove: false });
   const [previewFile, setPreviewFile] = useState<EntityFile | null>(null);
+  const [gridQuery, setGridQuery] = useState('');
+  const [gridKind, setGridKind] = useState<'all' | 'images' | 'docs' | 'portal'>('all');
   const [showNewNote, setShowNewNote] = useState(false);
   const [noteEditMode, setNoteEditMode] = useState<
     { initialFileName: string; initialContent: string; fileId: string } | undefined
@@ -305,8 +312,193 @@ export function FileAttachments({ entityType, entityId }: FileAttachmentsProps) 
 
   const currentMenuFile = openMenuId ? files.find((f) => f.id === openMenuId) : null;
 
-  return (
+  const renameInput = (file: EntityFile) => (
+    <input
+      autoFocus
+      type="text"
+      aria-label="File name"
+      value={editingFileName}
+      onChange={(e) => setEditingFileName(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          (e.target as HTMLInputElement).blur();
+        } else if (e.key === 'Escape') {
+          renameCancelledRef.current = true;
+          setEditingFileId(null);
+        }
+      }}
+      onBlur={() => {
+        if (renameCancelledRef.current) {
+          renameCancelledRef.current = false;
+          return;
+        }
+        const trimmed = editingFileName.trim();
+        if (trimmed && trimmed !== file.name) {
+          renameEntityFile(file.id, trimmed);
+          toast('success', 'File renamed');
+        }
+        setEditingFileId(null);
+      }}
+      className="text-sm text-zinc-300 bg-surface-raised border border-brand-500/30 rounded px-1.5 py-0.5 outline-none focus:ring-2 focus:ring-brand-500/30 min-w-0 w-full"
+    />
+  );
+
+  const menuTrigger = (file: EntityFile, className: string) => (
+    <button
+      ref={(el) => {
+        triggerRefs.current[file.id] = el;
+      }}
+      type="button"
+      aria-label={`Actions for ${file.name}`}
+      aria-haspopup="menu"
+      aria-expanded={openMenuId === file.id}
+      onClick={() => setOpenMenuId(openMenuId === file.id ? null : file.id)}
+      className={className}
+      data-open={openMenuId === file.id || undefined}
+    >
+      <MoreHorizontal size={16} />
+    </button>
+  );
+
+  const fileInput = (
+    <FileInput ref={fileInputRef} className="hidden" onChange={handleFileUpload} disabled={uploading} />
+  );
+
+  const newNote = () => {
+    setNoteEditMode(undefined);
+    setShowNewNote(true);
+  };
+
+  // ── Grid: the Files tab ──
+  const isImage = (file: EntityFile) => file.mime_type.startsWith('image/');
+  const matchesKind = (file: EntityFile) =>
+    gridKind === 'all'
+      ? true
+      : gridKind === 'images'
+        ? isImage(file)
+        : gridKind === 'portal'
+          ? file.visibility === 'external'
+          : !isImage(file);
+  const query = gridQuery.trim().toLowerCase();
+  const gridFiles = files.filter((f) => matchesKind(f) && (!query || f.name.toLowerCase().includes(query)));
+  const kindCounts = {
+    all: files.length,
+    images: files.filter(isImage).length,
+    docs: files.filter((f) => !isImage(f)).length,
+    portal: files.filter((f) => f.visibility === 'external').length,
+  };
+
+  const gridBody = (
     <>
+      <TabToolbar
+        search={files.length > 0 ? { value: gridQuery, onChange: setGridQuery, placeholder: 'Search files' } : undefined}
+        filters={
+          files.length > 0 && (
+            <SubNav
+              label="Show files"
+              active={gridKind}
+              onChange={setGridKind}
+              items={[
+                { key: 'all', label: 'All', count: kindCounts.all },
+                { key: 'images', label: 'Images', count: kindCounts.images },
+                { key: 'docs', label: 'Documents', count: kindCounts.docs },
+                ...(isProject ? [{ key: 'portal' as const, label: 'On portal', count: kindCounts.portal }] : []),
+              ]}
+            />
+          )
+        }
+        actions={
+          canUpload && (
+            <>
+              {fileInput}
+              <Button variant="secondary" icon={<FileText size={16} aria-hidden="true" />} onClick={newNote}>
+                New note
+              </Button>
+            </>
+          )
+        }
+        primary={
+          canUpload && (
+            <Button
+              icon={<Upload size={16} aria-hidden="true" />}
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+            >
+              {uploading ? 'Uploading' : 'Upload'}
+            </Button>
+          )
+        }
+      />
+
+      {files.length === 0 ? (
+        <div className="glass-card rounded-xl flex flex-col items-center justify-center px-6 py-16 text-center">
+          <div className="w-10 h-10 rounded-full bg-white/[0.06] flex items-center justify-center mb-3">
+            <Paperclip size={18} className="text-zinc-500" aria-hidden="true" />
+          </div>
+          <p className="text-sm font-medium text-zinc-300">No files yet</p>
+          <p className="text-xs text-zinc-500 mt-1">
+            {canUpload ? 'Upload files or write a note to keep them with this project.' : 'No files are available for this project.'}
+          </p>
+        </div>
+      ) : gridFiles.length === 0 ? (
+        <p className="py-16 text-center text-sm text-zinc-500">No files match.</p>
+      ) : (
+        <ul className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4">
+          {gridFiles.map((file) => {
+            const FileIcon = getFileIcon(file.mime_type);
+            const showThumb = isImage(file) && file.file_url && file.file_url !== '#';
+            const isExternal = file.visibility === 'external';
+            return (
+              <li key={file.id} className="group glass-card rounded-xl overflow-hidden flex flex-col min-w-0">
+                <button
+                  type="button"
+                  onClick={() => setPreviewFile(file)}
+                  aria-label={`Preview ${file.name}`}
+                  className="relative aspect-[4/3] bg-white/[0.03] flex items-center justify-center overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-500"
+                >
+                  {showThumb ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={file.file_url}
+                      alt=""
+                      loading="lazy"
+                      className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.03] motion-reduce:transition-none"
+                    />
+                  ) : (
+                    <FileIcon size={28} className="text-zinc-500" aria-hidden="true" />
+                  )}
+                  {isExternal && (
+                    <span className="absolute top-2 left-2 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-black/60 text-[10px] font-medium text-white">
+                      <Globe size={10} aria-hidden="true" />
+                      On portal
+                    </span>
+                  )}
+                </button>
+                <div className="flex items-start gap-2 px-3 py-2.5">
+                  <div className="min-w-0 flex-1">
+                    {editingFileId === file.id ? renameInput(file) : (
+                      <p className="text-sm text-zinc-200 truncate" title={file.name}>{file.name}</p>
+                    )}
+                    <p className="text-xs text-zinc-500 mt-0.5">
+                      {formatFileSize(file.file_size)} ·{' '}
+                      {new Date(file.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                    </p>
+                  </div>
+                  {editingFileId !== file.id &&
+                    menuTrigger(
+                      file,
+                      'p-1 -mr-1 text-zinc-500 hover:text-zinc-200 rounded-md hover:bg-white/[0.08] transition-all flex-shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500',
+                    )}
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </>
+  );
+
+  const listBody = (
       <div className="glass-card rounded-xl flex flex-col max-h-[600px]">
         <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.08] flex-shrink-0">
           <div className="flex items-center gap-2">
@@ -316,22 +508,14 @@ export function FileAttachments({ entityType, entityId }: FileAttachmentsProps) 
           {canUpload && (
             <div className="flex items-center gap-2">
               <button
-                onClick={() => {
-                  setNoteEditMode(undefined);
-                  setShowNewNote(true);
-                }}
+                onClick={newNote}
                 className="liquid-glass inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors"
               >
                 <FileText size={14} />
                 Note
               </button>
               <label className="cursor-pointer">
-                <FileInput
-                  ref={fileInputRef}
-                  className="hidden"
-                  onChange={handleFileUpload}
-                  disabled={uploading}
-                />
+                {fileInput}
                 <span className="liquid-primary inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white rounded-lg transition-colors cursor-pointer">
                   <Upload size={14} />
                   <span className="hidden min-[400px]:inline">
@@ -349,7 +533,6 @@ export function FileAttachments({ entityType, entityId }: FileAttachmentsProps) 
               const FileIcon = getFileIcon(file.mime_type);
               const isEditing = editingFileId === file.id;
               const isExternal = file.visibility === 'external';
-              const isMenuOpen = openMenuId === file.id;
               return (
                 <div
                   key={file.id}
@@ -359,35 +542,7 @@ export function FileAttachments({ entityType, entityId }: FileAttachmentsProps) 
                     <FileIcon size={14} className="text-zinc-500" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    {isEditing ? (
-                      <input
-                        autoFocus
-                        type="text"
-                        value={editingFileName}
-                        onChange={(e) => setEditingFileName(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            (e.target as HTMLInputElement).blur();
-                          } else if (e.key === 'Escape') {
-                            renameCancelledRef.current = true;
-                            setEditingFileId(null);
-                          }
-                        }}
-                        onBlur={() => {
-                          if (renameCancelledRef.current) {
-                            renameCancelledRef.current = false;
-                            return;
-                          }
-                          const trimmed = editingFileName.trim();
-                          if (trimmed && trimmed !== file.name) {
-                            renameEntityFile(file.id, trimmed);
-                            toast('success', 'File renamed');
-                          }
-                          setEditingFileId(null);
-                        }}
-                        className="text-sm text-zinc-300 bg-surface-raised border border-brand-500/30 rounded px-1.5 py-0.5 outline-none focus:ring-2 focus:ring-brand-500/30 min-w-0 w-full"
-                      />
-                    ) : (
+                    {isEditing ? renameInput(file) : (
                       <p className="text-sm text-zinc-300 truncate">{file.name}</p>
                     )}
                     <p className="text-xs text-zinc-500">
@@ -417,18 +572,11 @@ export function FileAttachments({ entityType, entityId }: FileAttachmentsProps) 
                       </button>
                     </Tooltip>
                   )}
-                  {!isEditing && (
-                    <button
-                      ref={(el) => {
-                        triggerRefs.current[file.id] = el;
-                      }}
-                      onClick={() => setOpenMenuId(isMenuOpen ? null : file.id)}
-                      className="p-1.5 text-zinc-600 hover:text-zinc-300 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 data-[open]:opacity-100 transition-all rounded-md hover:bg-white/[0.08]"
-                      data-open={isMenuOpen || undefined}
-                    >
-                      <MoreHorizontal size={16} />
-                    </button>
-                  )}
+                  {!isEditing &&
+                    menuTrigger(
+                      file,
+                      'p-1.5 text-zinc-600 hover:text-zinc-300 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 data-[open]:opacity-100 transition-all rounded-md hover:bg-white/[0.08]',
+                    )}
                 </div>
               );
             })}
@@ -447,6 +595,11 @@ export function FileAttachments({ entityType, entityId }: FileAttachmentsProps) 
           </div>
         )}
       </div>
+  );
+
+  return (
+    <>
+      {layout === 'grid' ? gridBody : listBody}
 
       {/* Portalled context menu */}
       {openMenuId &&

@@ -9,11 +9,10 @@ import { useAuth } from '@/lib/auth-context';
 import { canManageAllTasks } from '@/lib/access-control';
 import { RowActionsMenu, type RowAction } from '@/components/ui/RowActionsMenu';
 import { TextInput } from '@/components/ui/inputs/TextInput';
-import { DateInput } from '@/components/ui/inputs/DateInput';
-import { TimeInput } from '@/components/ui/inputs/TimeInput';
+import { ReminderWhenEditor } from './ReminderWhenEditor';
 import { Avatar } from '@/components/ui/Avatar';
 import { Tooltip } from '@/components/ui/Tooltip';
-import { addDays, dayKey, nextMonday, reminderGroup, toTimeInput, whenLabel } from '@/lib/reminders';
+import { addDays, dayKey, nextMonday, reminderGroup, whenLabel } from '@/lib/reminders';
 
 const WHEN_TONE = {
   overdue: 'text-red-400',
@@ -41,8 +40,6 @@ export function ReminderRow({ reminder, showContext = false, withinProjectId, va
   const [editingTitle, setEditingTitle] = useState(false);
   const [title, setTitle] = useState(reminder.title);
   const [editingWhen, setEditingWhen] = useState(false);
-  const [date, setDate] = useState(reminder.remind_on ?? '');
-  const [time, setTime] = useState(toTimeInput(reminder.remind_at));
 
   const done = reminder.status === 'done';
   const group = reminderGroup(reminder);
@@ -59,15 +56,10 @@ export function ReminderRow({ reminder, showContext = false, withinProjectId, va
     setEditingTitle(false);
   };
 
-  const openWhenEditor = () => {
-    setDate(reminder.remind_on ?? '');
-    setTime(toTimeInput(reminder.remind_at));
-    setEditingWhen(true);
-  };
+  const openWhenEditor = () => setEditingWhen(true);
 
-  const saveWhen = (e: React.FormEvent) => {
-    e.preventDefault();
-    void updateReminder(reminder.id, { remind_on: date || null, remind_at: date && time ? `${time}:00` : null });
+  const saveWhen = (when: { remind_on: string | null; remind_at: string | null }) => {
+    void updateReminder(reminder.id, when);
     setEditingWhen(false);
   };
 
@@ -127,16 +119,12 @@ export function ReminderRow({ reminder, showContext = false, withinProjectId, va
             <span className={`block text-sm font-medium truncate ${done ? 'text-zinc-500 line-through' : 'text-white'}`}>{reminder.title}</span>
           )}
           {editingWhen ? (
-            <form onSubmit={saveWhen} className="mt-1.5 flex flex-wrap items-center gap-1.5">
-              <DateInput value={date} onChange={(v) => { setDate(v); if (!v) setTime(''); }} placeholder="No date" ariaLabel="Reminder date" size="sm" clearable className="w-36" />
-              {date && <TimeInput value={time} onChange={setTime} placeholder="Any time" size="sm" minuteStep={15} className="w-28" />}
-              <button type="submit" className="px-2 py-1 rounded-md text-xs font-medium bg-brand-500/20 text-brand-200 hover:bg-brand-500/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
-                Save
-              </button>
-              <button type="button" onClick={() => setEditingWhen(false)} className="px-2 py-1 rounded-md text-xs text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.06] focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
-                Cancel
-              </button>
-            </form>
+            <ReminderWhenEditor
+              remindOn={reminder.remind_on}
+              remindAt={reminder.remind_at}
+              onSave={saveWhen}
+              onCancel={() => setEditingWhen(false)}
+            />
           ) : (
             <span className="flex items-center gap-1.5 mt-0.5 min-w-0 text-xs text-zinc-500">
               {bandProject && (
@@ -201,16 +189,12 @@ export function ReminderRow({ reminder, showContext = false, withinProjectId, va
         )}
 
         {editingWhen ? (
-          <form onSubmit={saveWhen} className="mt-1.5 flex flex-wrap items-center gap-1.5">
-            <DateInput value={date} onChange={(v) => { setDate(v); if (!v) setTime(''); }} placeholder="No date" ariaLabel="Reminder date" size="sm" clearable className="w-36" />
-            {date && <TimeInput value={time} onChange={setTime} placeholder="Any time" size="sm" minuteStep={15} className="w-28" />}
-            <button type="submit" className="px-2 py-1 rounded-md text-xs font-medium bg-brand-500/20 text-brand-200 hover:bg-brand-500/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
-              Save
-            </button>
-            <button type="button" onClick={() => setEditingWhen(false)} className="px-2 py-1 rounded-md text-xs text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.06] focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
-              Cancel
-            </button>
-          </form>
+          <ReminderWhenEditor
+            remindOn={reminder.remind_on}
+            remindAt={reminder.remind_at}
+            onSave={saveWhen}
+            onCancel={() => setEditingWhen(false)}
+          />
         ) : (when || done || task || project || owner) && (
           <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
             {done ? (

@@ -1,58 +1,51 @@
 'use client';
 
-import { useState, useMemo, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, type ReactNode } from 'react';
 import { Popover } from '@/components/ui/Popover';
 import { TaskFilterControl, UNASSIGNED_FILTER_ID } from '@/components/tasks/TaskFilterControl';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useApp, defaultFilters } from '@/lib/store';
 import { Header } from '@/components/layout/Header';
 import { BoardView } from '@/components/views/BoardView';
-import { ProjectReminders } from '@/components/reminders/ProjectReminders';
 import { ListView } from '@/components/views/ListView';
 import { CalendarView } from '@/components/views/CalendarView';
 import { TaskForm } from '@/components/tasks/TaskForm';
 import { TaskDetailPanel } from '@/components/tasks/TaskDetailPanel';
 import { ProjectForm } from '@/components/projects/ProjectForm';
 import { ProjectContactsPanel } from '@/components/projects/ProjectContactsPanel';
-import { PortalSettingsPanel } from '@/components/projects/PortalSettingsPanel';
-import { ClientCommunicationsPanel } from '@/components/projects/ClientCommunicationsPanel';
-import { ClientCommunicationsLogPanel } from '@/components/projects/ClientCommunicationsLogPanel';
-import { ProjectEmailsPanel } from '@/components/inbox/ProjectEmailsPanel';
-import { PortalUpdatesPanel } from '@/components/projects/PortalUpdatesPanel';
+import { ClientPortalTab } from '@/components/projects/ClientPortalTab';
+import { CommunicationTab } from '@/components/projects/CommunicationTab';
 import { TimeTrackingPanel } from '@/components/projects/TimeTrackingPanel';
 import { CredentialsPanel } from '@/components/projects/CredentialsPanel';
 import InvoicesPanel from '@/components/projects/InvoicesPanel';
+import { ProjectOverview } from '@/components/projects/ProjectOverview';
+import { ProjectTabs, projectPanelId, projectTabId, type ProjectTab } from '@/components/projects/ProjectTabs';
+import { SubNav, TabToolbar } from '@/components/projects/TabLayout';
+import { RowActionsMenu } from '@/components/ui/RowActionsMenu';
 import { FileAttachments } from '@/components/ui/FileAttachments';
 import { DateInput } from '@/components/ui/inputs/DateInput';
 import { Button } from '@/components/ui/Button';
-import { StatusBadge } from '@/components/ui/Badge';
-import { Avatar, AvatarGroup } from '@/components/ui/Avatar';
+import { Avatar } from '@/components/ui/Avatar';
 import { toast } from '@/components/ui/Toast';
 import { useTaskUrlParam } from '@/lib/use-task-url';
 import {
   Plus, LayoutGrid, List, Calendar,
-  Edit, Trash2, CalendarDays, Clock, Users, UserCircle, ChevronRight,
+  Edit, ChevronRight,
 } from 'lucide-react';
-import { Task, ViewMode, TeamMember } from '@/lib/types';
+import { Task, ViewMode } from '@/lib/types';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import { Tooltip } from '@/components/ui/Tooltip';
 import { useAuth } from '@/lib/auth-context';
 import { hasPermission, canEditTask, canManageAllTasks, canBeAssignedInProject } from '@/lib/access-control';
-import { parseDateOnly } from '@/lib/date-utils';
 
-function ReadOnlyDate({ value }: { value: string | null | undefined }) {
-  if (!value) return <p className="text-sm text-zinc-500 py-0.5">Not set</p>;
-  return (
-    <p className="text-sm text-zinc-200 py-0.5">
-      {parseDateOnly(value).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-    </p>
-  );
-}
+type ProjectTabKey = 'overview' | 'tasks' | 'time' | 'communication' | 'portal' | 'billing' | 'files' | 'credentials';
+const DEFAULT_TAB: ProjectTabKey = 'overview';
 
 export default function ProjectDetailPage() {
   const params = useParams();
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const projectId = params.id as string;
   const { access, teamMemberId } = useAuth();
   const canManageProject = hasPermission(access, 'projects.manage');
@@ -72,16 +65,15 @@ export default function ProjectDetailPage() {
   const canReadTime = hasPermission(access, 'time.manage_own') || hasPermission(access, 'time.read_all') || hasPermission(access, 'time.manage_all');
 
   const {
-    getProject, getTasksByProject, getTeamMember,
-    getContactsByProject, team,
-    deleteTask, deleteProject, updateTask, reorderTasks, updateProject, filters, setFilters,
+    getProject, getTasksByProject,
+    team,
+    deleteTask, deleteProject, updateTask, reorderTasks, filters, setFilters,
     tasks, loading,
   } = useApp();
 
   useEffect(() => { setFilters(defaultFilters); }, []);
 
   const [viewMode, setViewMode] = useState<ViewMode>('board');
-  const [commsRefreshKey, setCommsRefreshKey] = useState(0);
   const [isTaskFormOpen, setIsTaskFormOpen] = useState(false);
   const [isEditProjectOpen, setIsEditProjectOpen] = useState(false);
   const [isContactsPanelOpen, setIsContactsPanelOpen] = useState(false);
@@ -90,21 +82,90 @@ export default function ProjectDetailPage() {
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
   const [showBulkMenu, setShowBulkMenu] = useState(false);
   const bulkMenuRef = useRef<HTMLDivElement>(null);
+  const [taskFormDueDate, setTaskFormDueDate] = useState<string | null>(null);
+  // Clearing due dates wipes data with no undo, so it confirms first; it
+  // already cost real due dates to an accidental click.
+  const [confirmClearDueDates, setConfirmClearDueDates] = useState(false);
+  // Tabs mount on first visit and then stay mounted (hidden), so a half-typed
+  // timer note or an open email thread survives a trip to another tab.
+  const [visitedTabs, setVisitedTabs] = useState<Set<ProjectTabKey>>(() => new Set());
 
   const project = getProject(projectId);
 
   // Unfiltered tasks for stats / progress bar
   const allProjectTasks = getTasksByProject(projectId);
 
+  // Tabs the viewer can open. A tab with nothing they may read is left out,
+  // rather than shown empty.
+  const timeTrackingOn = !!project && (project.time_tracking_enabled ?? project.hourly_tracking) && canReadTime;
+  // Ordered by how a project is run: the work, the client, the money, then
+  // the project's assets.
+  const allTabs: (ProjectTab<ProjectTabKey> & { visible: boolean })[] = [
+    { key: 'overview', label: 'Overview', visible: true },
+    { key: 'tasks', label: 'Tasks', visible: true },
+    { key: 'time', label: 'Time tracking', visible: !!timeTrackingOn },
+    { key: 'communication', label: 'Communication', visible: canReadInbox || canReadCommunications },
+    { key: 'portal', label: 'Client portal', visible: canReadPortal },
+    { key: 'billing', label: 'Billing', visible: canReadInvoices },
+    { key: 'files', label: 'Files', visible: canReadFiles },
+    { key: 'credentials', label: 'Credentials', visible: canReadCredentials },
+  ];
+  const tabs: ProjectTab<ProjectTabKey>[] = allTabs.filter(t => t.visible);
+
+  // The open tab is the URL's ?tab=, so a tab can be linked to and survives a
+  // reload. An unknown or hidden tab falls back to the default.
+  const requestedTab = searchParams.get('tab');
+  const activeTab = tabs.find(t => t.key === requestedTab)?.key ?? DEFAULT_TAB;
+
+  // Native pushState, which Next syncs into useSearchParams: a tab switch is
+  // instant and adds a history entry, with no server round trip for the page.
+  const pushQuery = (next: URLSearchParams) => {
+    const query = next.toString();
+    window.history.pushState(null, '', query ? `${pathname}?${query}` : pathname);
+  };
+  // `view` picks a view inside a tab (Communication's Inbox or Sent); it only
+  // means something to the tab it was set for, so a tab switch drops it.
+  const setActiveTab = (key: ProjectTabKey, view?: string) => {
+    const next = new URLSearchParams(searchParams.toString());
+    if (key === DEFAULT_TAB) next.delete('tab');
+    else next.set('tab', key);
+    if (view) next.set('view', view);
+    else next.delete('view');
+    pushQuery(next);
+  };
+  const activeView = searchParams.get('view');
+  const setActiveView = (view: string) => {
+    const next = new URLSearchParams(searchParams.toString());
+    next.set('view', view);
+    pushQuery(next);
+  };
+
+  // Recorded during render (React's "adjust state on change" pattern), so a
+  // tab reached by the back button is remembered too, not only clicked ones.
+  if (!visitedTabs.has(activeTab)) setVisitedTabs(new Set(visitedTabs).add(activeTab));
+
+  // Renders a tab's panel once it has been opened, hidden while another tab is.
+  const tabPanel = (key: ProjectTabKey, children: ReactNode) =>
+    (key === activeTab || visitedTabs.has(key)) && (
+      <div
+        role="tabpanel"
+        id={projectPanelId(key)}
+        aria-labelledby={projectTabId(key)}
+        hidden={key !== activeTab}
+        className="px-4 lg:px-6 pt-5 pb-4 lg:pb-6"
+      >
+        {children}
+      </div>
+    );
+
   // The open task is the URL's ?task=, so every task link opens the panel,
   // here or from anywhere else, and the address bar can be copied as a link.
   const { taskId: viewingTaskId, openTask: setViewingTaskId, closeTask: closeViewingTask } = useTaskUrlParam();
 
   // Derive viewingTask from store so it stays in sync with subtask/comment changes
-  const viewingTask = useMemo(() => {
-    if (!viewingTaskId) return null;
-    return allProjectTasks.find(t => t.id === viewingTaskId) || null;
-  }, [viewingTaskId, allProjectTasks]);
+  const viewingTask = viewingTaskId
+    ? allProjectTasks.find(t => t.id === viewingTaskId) || null
+    : null;
 
   useEffect(() => {
     if (!viewingTaskId || loading || allProjectTasks.some(t => t.id === viewingTaskId)) return;
@@ -155,16 +216,6 @@ export default function ProjectDetailPage() {
       </div>
     );
   }
-
-  // Derived data
-  const projectMembers = (project.member_ids || [])
-    .map(id => getTeamMember(id))
-    .filter(Boolean) as TeamMember[];
-  const projectContactsList = getContactsByProject(projectId);
-  const doneTasks = allProjectTasks.filter(t => t.status === 'done').length;
-  const progressPercent = allProjectTasks.length > 0
-    ? Math.round((doneTasks / allProjectTasks.length) * 100)
-    : 0;
 
   const handleViewTask = (task: Task) => {
     setViewingTaskId(task.id);
@@ -227,16 +278,10 @@ export default function ProjectDetailPage() {
     reorderColumn(taskId, task.status, newIndex);
   };
 
-  const [taskFormDueDate, setTaskFormDueDate] = useState<string | null>(null);
-
   const handleCloseTaskForm = () => {
     setIsTaskFormOpen(false);
     setEditingTask(null);
     setTaskFormDueDate(null);
-  };
-
-  const handleDeleteProject = () => {
-    setConfirmDelete({ type: 'project', id: projectId });
   };
 
   const toggleTaskSelection = (taskId: string) => {
@@ -293,10 +338,6 @@ export default function ProjectDetailPage() {
     setConfirmDelete({ type: 'bulk', id: 'bulk' });
   };
 
-  // Clearing due dates wipes data with no undo, so it confirms first; it
-  // already cost real due dates to an accidental click.
-  const [confirmClearDueDates, setConfirmClearDueDates] = useState(false);
-
   const clearSelection = () => {
     setSelectedTaskIds(new Set());
     setShowBulkMenu(false);
@@ -323,182 +364,68 @@ export default function ProjectDetailPage() {
 
   return (
     <div className="animate-fadeIn min-h-screen">
-      {/* Header */}
+      {/* Header: the name and the actions that apply on every tab. Status,
+          dates, people and progress are on the Overview. */}
       <Header
         title={project.name}
-        searchPlaceholder="Search tasks"
-        subtitle={
-          <div className="flex flex-wrap items-center gap-2 text-sm">
-            {project.color && (
-              <span
-                className="hidden md:inline-block w-2.5 h-2.5 rounded-full flex-shrink-0"
-                style={{ backgroundColor: project.color }}
+        actions={
+          <>
+            {canManageProject && (
+              <RowActionsMenu
+                label="Project actions"
+                triggerClassName="liquid-glass !p-0 w-9 h-9 flex items-center justify-center !text-zinc-300"
+                // No Delete here: the delete route hard-deletes and cascades
+                // through tasks, time, invoices and credentials. It comes back
+                // as a soft delete (archive + restore) once that exists.
+                actions={[
+                  { label: 'Edit project', icon: <Edit size={14} />, onClick: () => setIsEditProjectOpen(true) },
+                ]}
               />
             )}
-            <StatusBadge status={project.status} />
-            {project.description && (
-              <span className="hidden md:inline text-zinc-400">
-                {project.description}
-              </span>
-            )}
-          </div>
+          </>
         }
-        actions={canManageProject ?
-          <Button
-            variant="secondary"
-            icon={<Edit size={16} />}
-            onClick={() => setIsEditProjectOpen(true)}
-          >
-            <span className="hidden sm:inline">Edit</span>
-          </Button>
-        : undefined}
       />
 
-      {/* Overview Card */}
-      <div className="px-4 lg:px-6 pt-4 lg:pt-6">
-        <div className="glass-card rounded-xl p-5 lg:p-6">
-          {/* Info Grid */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-0">
-            {/* Start Date */}
-            <div className="flex items-center gap-2.5 lg:pr-5">
-              <div className="p-1.5 bg-white/[0.06] rounded-md">
-                <CalendarDays size={14} className="text-zinc-400" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-xs text-zinc-400 font-medium">Start Date</p>
-                {canManageProject ? (
-                  <DateInput
-                    value={project.start_date || ''}
-                    onChange={(v) => updateProject(projectId, { start_date: v || null })}
-                    placeholder="Not set"
-                    size="sm"
-                    clearable
-                    inputClassName="!w-fit !justify-start !gap-1 !border-transparent !bg-transparent !shadow-none hover:!bg-white/[0.06] focus:!ring-0 focus:!border-transparent !px-1.5 !-mx-1.5 !py-0.5 !rounded-md"
-                  />
-                ) : (
-                  <ReadOnlyDate value={project.start_date} />
-                )}
-              </div>
-            </div>
 
-            {/* Due Date */}
-            <div className="flex items-center gap-2.5 lg:border-l lg:border-white/[0.08] lg:pl-5 lg:pr-5">
-              <div className="p-1.5 bg-white/[0.06] rounded-md">
-                <Clock size={14} className="text-zinc-400" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-xs text-zinc-400 font-medium">Due Date</p>
-                {canManageProject ? (
-                  <DateInput
-                    value={project.due_date || ''}
-                    onChange={(v) => updateProject(projectId, { due_date: v || null })}
-                    placeholder="Not set"
-                    size="sm"
-                    minDate={project.start_date || undefined}
-                    clearable
-                    inputClassName="!w-fit !justify-start !gap-1 !border-transparent !bg-transparent !shadow-none hover:!bg-white/[0.06] focus:!ring-0 focus:!border-transparent !px-1.5 !-mx-1.5 !py-0.5 !rounded-md"
-                  />
-                ) : (
-                  <ReadOnlyDate value={project.due_date} />
-                )}
-              </div>
-            </div>
-
-            {/* Team */}
-            <div className="flex items-center gap-2.5 lg:border-l lg:border-white/[0.08] lg:pl-5 lg:pr-5">
-              <div className="p-1.5 bg-white/[0.06] rounded-md">
-                <Users size={14} className="text-zinc-400" />
-              </div>
-              <div>
-                <p className="text-xs text-zinc-400 font-medium">Team</p>
-                {projectMembers.length > 0 ? (
-                  canOpenProjectForm ? (
-                    <button onClick={() => setIsEditProjectOpen(true)} className="group" aria-label="Edit project members">
-                      <AvatarGroup
-                        users={projectMembers.map(m => ({ id: m.id, name: m.name, avatar: m.avatar }))}
-                        max={4}
-                        size="xs"
-                      />
-                    </button>
-                  ) : (
-                    <AvatarGroup
-                      users={projectMembers.map(m => ({ id: m.id, name: m.name, avatar: m.avatar }))}
-                      max={4}
-                      size="xs"
-                    />
-                  )
-                ) : canOpenProjectForm ? (
-                  <button
-                    onClick={() => setIsEditProjectOpen(true)}
-                    className="text-sm text-zinc-500 hover:text-brand-300 transition-colors"
-                  >
-                    Add members...
-                  </button>
-                ) : (
-                  <p className="text-sm text-zinc-500">No members</p>
-                )}
-              </div>
-            </div>
-
-            {/* Contacts */}
-            <div className="flex items-center gap-2.5 lg:border-l lg:border-white/[0.08] lg:pl-5">
-              <div className="p-1.5 bg-white/[0.06] rounded-md">
-                <UserCircle size={14} className="text-zinc-400" />
-              </div>
-              <div>
-                <p className="text-xs text-zinc-400 font-medium">Contacts</p>
-                {projectContactsList.length > 0 ? (
-                  <button onClick={() => setIsContactsPanelOpen(true)} className="group">
-                    <div className="flex items-center -space-x-1.5">
-                      {projectContactsList.slice(0, 4).map((pc) => (
-                        <Tooltip key={pc.id} content={`${pc.contact?.name || 'Contact'} (${pc.role})`}>
-                          <Avatar name={pc.contact?.name || '?'} src={pc.contact?.avatar_url || undefined} size="sm" className="ring-2 ring-surface-raised" />
-                        </Tooltip>
-                      ))}
-                      {projectContactsList.length > 4 && (
-                        <div className="w-6 h-6 rounded-full flex items-center justify-center bg-white/[0.08] text-zinc-300 text-[10px] font-medium ring-2 ring-surface-raised">
-                          +{projectContactsList.length - 4}
-                        </div>
-                      )}
-                    </div>
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => setIsContactsPanelOpen(true)}
-                    className="text-sm text-zinc-500 hover:text-brand-300 transition-colors"
-                  >
-                    Add contacts...
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-
-        </div>
+      <div className="px-4 lg:px-6 pt-4">
+        <ProjectTabs tabs={tabs} active={activeTab} onChange={setActiveTab} />
       </div>
 
-      {/* Tasks Section */}
-      <div className="px-4 lg:px-6 pt-4 lg:pt-6 pb-4 lg:pb-6">
-        {/* Tasks Section Header */}
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-          <div className="flex items-center gap-3">
-            <h2 className="text-base font-semibold text-white">
-              Tasks ({allProjectTasks.length})
-            </h2>
-            {allProjectTasks.length > 0 && (
-              <div className="hidden lg:flex items-center gap-2">
-                <div className="w-20 h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
-                  <div
-                    className="h-full rounded-full transition-all duration-500"
-                    style={{
-                      width: `${progressPercent}%`,
-                      backgroundColor: project.color || '#A1A1AA',
-                    }}
-                  />
-                </div>
-                <span className="text-xs text-zinc-500">{progressPercent}%</span>
-              </div>
-            )}
+      {tabPanel('overview', (
+        <ProjectOverview
+          projectId={projectId}
+          onOpenTask={setViewingTaskId}
+          onOpenTab={setActiveTab}
+          onOpenContacts={() => setIsContactsPanelOpen(true)}
+          onEditProject={() => setIsEditProjectOpen(true)}
+          can={{
+            manageProject: canManageProject,
+            time: timeTrackingOn,
+            inbox: canReadInbox,
+            invoices: canReadInvoices,
+            portal: canReadPortal,
+            contacts: canReadContacts,
+          }}
+        />
+      ))}
+
+      {tabPanel('tasks', <>
+        {/* Tasks toolbar: the shared tab toolbar, search first */}
+        <TabToolbar
+          search={{
+            value: filters.search,
+            onChange: v => setFilters({ ...filters, search: v }),
+            placeholder: 'Search tasks',
+          }}
+          filters={allProjectTasks.length > 0 && (
+            <SubNav
+              label="Task view"
+              active={viewMode}
+              onChange={setViewMode}
+              items={viewModes.map(mode => ({ key: mode.id, label: mode.label, icon: mode.icon, hideLabelOnMobile: true }))}
+            />
+          )}
+          extra={<>
             {/* Selection is a desktop-only gesture: the mobile cards have no
                 checkboxes, so offering Select all there would select rows the
                 user cannot see or unpick individually. */}
@@ -510,8 +437,6 @@ export default function ProjectDetailPage() {
                 {allSelectableSelected ? 'Deselect all' : 'Select all'}
               </button>
             )}
-          </div>
-          <div className="flex items-center gap-2">
             {/* Bulk Actions (desktop-only, like the selection that feeds it) */}
             {selectedTaskIds.size > 0 && (
               <div ref={bulkMenuRef} className="relative hidden lg:block">
@@ -526,7 +451,7 @@ export default function ProjectDetailPage() {
                   anchorRef={bulkMenuRef}
                   open={showBulkMenu}
                   onClose={() => setShowBulkMenu(false)}
-                  align="end"
+                  align="start"
                   width={248}
                   className="bg-surface-raised rounded-lg shadow-xl border border-white/[0.08] py-1 max-h-[70vh] overflow-y-auto"
                 >
@@ -588,37 +513,16 @@ export default function ProjectDetailPage() {
                 </Popover>
               </div>
             )}
-
-            {/* The project's follow-ups and every task's next step, one click away. */}
-            <ProjectReminders projectId={projectId} />
-
+          </>}
+          actions={<>
             {allProjectTasks.length > 0 && <TaskFilterControl tasks={allProjectTasks} />}
-
-            {/* View Mode Toggle */}
-            {allProjectTasks.length > 0 && (
-              <div className="seg-track overflow-x-auto">
-                {viewModes.map((mode) => (
-                  <button
-                    key={mode.id}
-                    onClick={() => setViewMode(mode.id)}
-                    className={`seg-item flex items-center gap-1.5 whitespace-nowrap ${viewMode === mode.id ? 'is-active' : ''}`}
-                  >
-                    <mode.icon size={16} />
-                    <span className="hidden sm:inline">{mode.label}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {canCreateTasks && <Button
-              onClick={() => setIsTaskFormOpen(true)}
-              icon={<Plus size={16} />}
-              className="whitespace-nowrap h-9"
-            >
-              <span className="hidden sm:inline">Add Task</span>
-            </Button>}
-          </div>
-        </div>
+          </>}
+          primary={canCreateTasks && (
+            <Button onClick={() => setIsTaskFormOpen(true)} icon={<Plus size={16} />} className="whitespace-nowrap">
+              <span className="hidden sm:inline">Add task</span>
+            </Button>
+          )}
+        />
 
         {/* Task Views */}
         {projectTasks.length === 0 ? (
@@ -665,51 +569,34 @@ export default function ProjectDetailPage() {
             )}
           </>
         )}
-      </div>
+      </>)}
 
-      {/* Management sections: 2-column grid when time tracking enabled */}
-      <div className="px-4 lg:px-6 pb-4 lg:pb-6">
-        <div className={`grid grid-cols-1 ${(project.time_tracking_enabled ?? project.hourly_tracking) && canReadTime ? 'lg:grid-cols-2' : ''} gap-6 items-stretch`}>
-          {(project.time_tracking_enabled ?? project.hourly_tracking) && canReadTime && (
-            <TimeTrackingPanel projectId={projectId} projectColor={project.color} />
-          )}
+      {tabPanel('time', <TimeTrackingPanel projectId={projectId} projectColor={project.color} />)}
 
-          {canReadFiles && <FileAttachments entityType="project" entityId={projectId} />}
-        </div>
+      {tabPanel('communication', (
+        <CommunicationTab
+          projectId={projectId}
+          view={activeTab === 'communication' ? activeView : null}
+          onViewChange={setActiveView}
+          canReadInbox={canReadInbox}
+          canReadSent={canReadCommunications}
+          onOpenPortal={() => setActiveTab('portal')}
+        />
+      ))}
 
-        {canReadPortal && <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch mt-6">
-          <PortalSettingsPanel projectId={projectId} />
-          <PortalUpdatesPanel projectId={projectId} />
-        </div>}
+      {tabPanel('portal', (
+        <ClientPortalTab
+          projectId={projectId}
+          view={activeTab === 'portal' ? activeView : null}
+          onViewChange={setActiveView}
+        />
+      ))}
 
-        {canReadCommunications && <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch mt-6">
-          <ClientCommunicationsPanel
-            projectId={projectId}
-            onSent={() => setCommsRefreshKey(k => k + 1)}
-          />
-          <ClientCommunicationsLogPanel
-            projectId={projectId}
-            refreshSignal={commsRefreshKey}
-          />
-        </div>}
+      {tabPanel('billing', <InvoicesPanel projectId={projectId} projectColor={project.color} />)}
 
-        {canReadInbox && <ProjectEmailsPanel projectId={projectId} />}
+      {tabPanel('files', <FileAttachments entityType="project" entityId={projectId} layout="grid" />)}
 
-        {(canReadCredentials || canReadInvoices) && <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch mt-6">
-          {canReadCredentials && <CredentialsPanel projectId={projectId} />}
-          {canReadInvoices && <InvoicesPanel projectId={projectId} projectColor={project.color} />}
-        </div>}
-
-      </div>
-
-      {/* Delete Project */}
-      {canManageProject && <div className="px-4 lg:px-6 pb-6">
-        <div className="flex justify-end">
-          <Button variant="danger" onClick={handleDeleteProject} icon={<Trash2 size={16} />}>
-            Delete Project
-          </Button>
-        </div>
-      </div>}
+      {tabPanel('credentials', <CredentialsPanel projectId={projectId} />)}
 
       {/* Edit Project Modal */}
       {canOpenProjectForm && <ProjectForm

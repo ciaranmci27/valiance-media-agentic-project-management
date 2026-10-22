@@ -47,6 +47,8 @@ import {
 } from '@/lib/types';
 import Modal from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
+import { SectionHeader } from '@/components/ui/SectionHeader';
+import { SubNav, TabToolbar } from '@/components/projects/TabLayout';
 import { hasPermission } from '@/lib/access-control';
 
 interface CredentialsPanelProps {
@@ -239,6 +241,8 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editLoading, setEditLoading] = useState(false);
+  const [search, setSearch] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState<'all' | CredentialCategory>('all');
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [revealedData, setRevealedData] = useState<Record<string, CredentialPayload>>({});
   const [revealingId, setRevealingId] = useState<string | null>(null);
@@ -637,15 +641,11 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
     const defs = fieldsForCategory(category);
     return (
       <div
-        className={
-          mode === 'add'
-            ? 'border border-brand-500/30 bg-brand-500/15 rounded-xl p-4 space-y-3'
-            : 'space-y-3'
-        }
+        className="space-y-3"
       >
         {/* Type selector; each type has its own set of fields. Edit renders
             inside a narrow card, so drop to two columns there. */}
-        <div className={`grid gap-1.5 ${mode === 'add' ? 'grid-cols-3' : 'grid-cols-2'}`}>
+        <div className={`grid gap-1.5 ${mode === 'add' ? 'grid-cols-3 lg:grid-cols-6' : 'grid-cols-2 sm:grid-cols-3'}`}>
           {CREDENTIAL_CATEGORIES.map((cat) => {
             const cfg = CATEGORY_CONFIG[cat];
             const TypeIcon = cfg.icon;
@@ -714,216 +714,242 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
     );
   };
 
-  return (
-    <div className="glass-card rounded-xl overflow-hidden flex flex-col max-h-[600px]">
-      {/* Header */}
-      <div className="px-5 py-4 flex items-center justify-between flex-shrink-0 border-b border-white/[0.06]">
-        <div className="flex items-center gap-2">
-          <ShieldCheck size={18} className="text-zinc-400" />
-          <h2 className="font-semibold text-white">
-            Credentials
-            {credentials.length > 0 && (
-              <span className="ml-1.5 text-xs font-medium text-zinc-500">
-                ({credentials.length})
-              </span>
-            )}
-          </h2>
-        </div>
-        {canManageCredentials && (
-          <button
-            onClick={() => {
-              editTargetRef.current = null;
-              resetForm();
-              setEditingId(null);
-              setEditLoading(false);
-              setIsAdding(true);
-            }}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition-colors"
-          >
-            <Plus size={14} />
-            Add
-          </button>
-        )}
-      </div>
+  const openAddForm = () => {
+    editTargetRef.current = null;
+    resetForm();
+    setEditingId(null);
+    setEditLoading(false);
+    setIsAdding(true);
+  };
 
-      <div className="flex-1 flex flex-col overflow-y-auto">
-        {/* Add form */}
-        {canManageCredentials && isAdding && !editingId && (
-          <div className="mx-5 mt-5">{renderForm('add')}</div>
-        )}
+  const presentCategories = [...new Set(credentials.map((c) => c.category))];
+  const query = search.trim().toLowerCase();
+  const visibleCredentials = credentials.filter((c) =>
+    (categoryFilter === 'all' || c.category === categoryFilter) &&
+    (!query || c.label.toLowerCase().includes(query) || categoryConfig(c.category).label.toLowerCase().includes(query)));
+  // Already sorted by category, so grouping keeps the category order.
+  const groups: { category: CredentialCategory; items: typeof credentials }[] = [];
+  for (const cred of visibleCredentials) {
+    const last = groups[groups.length - 1];
+    if (last && last.category === cred.category) last.items.push(cred);
+    else groups.push({ category: cred.category, items: [cred] });
+  }
 
-        {/* Credentials grid */}
-        {credentials.length > 0 ? (
-          <div className="p-5 grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {credentials.map((cred) => {
-              const config = categoryConfig(cred.category);
-              const CategoryIcon = config.icon;
-              const isEditing = editingId === cred.id;
-              const isRevealed = !!revealedData[cred.id];
-              const isRevealing = revealingId === cred.id;
+  const renderCard = (cred: (typeof credentials)[number]) => {
+    const config = categoryConfig(cred.category);
+    const CategoryIcon = config.icon;
+    const isRevealed = !!revealedData[cred.id];
+    const isRevealing = revealingId === cred.id;
 
-              if (isEditing) {
-                return (
-                  <div
-                    key={cred.id}
-                    className="relative rounded-xl border border-brand-500/30 bg-surface-raised overflow-hidden"
+    if (editingId === cred.id) {
+      return (
+        <li key={cred.id} className="sm:col-span-2 glass-card rounded-xl border border-brand-500/30 p-5">
+          <div className="flex items-start gap-3 mb-4">
+            <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${config.bg}`}>
+              <CategoryIcon size={16} className={config.iconColor} aria-hidden="true" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-medium text-zinc-500">Editing</p>
+              <p className="text-sm font-semibold text-white truncate">{cred.label}</p>
+            </div>
+          </div>
+          {editLoading ? (
+            <div className="flex items-center justify-center py-10">
+              <Loader2 size={18} className="animate-spin text-zinc-600" aria-hidden="true" />
+            </div>
+          ) : (
+            renderForm('edit')
+          )}
+        </li>
+      );
+    }
+
+    return (
+      <li
+        key={cred.id}
+        className="group relative glass-card rounded-xl hover:border-white/[0.14] transition-colors cursor-pointer min-w-0"
+        onClick={() => handleReveal(cred.id)}
+      >
+        <div className="p-4 min-w-0">
+          <div className="flex items-center gap-3">
+            <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${config.bg}`}>
+              {isRevealing ? (
+                <Loader2 size={16} className={`animate-spin ${config.iconColor}`} aria-hidden="true" />
+              ) : (
+                <CategoryIcon size={16} className={config.iconColor} aria-hidden="true" />
+              )}
+            </div>
+            <div className="flex-1 min-w-0">
+              {/* The name is the reveal control for keyboard users. */}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleReveal(cred.id);
+                }}
+                aria-expanded={isRevealed}
+                className="block max-w-full text-left text-sm font-semibold text-white truncate rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+              >
+                {cred.label}
+              </button>
+              <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                {cred.submitted_by_client && (
+                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold rounded bg-teal-500/15 text-teal-300">
+                    <UserIcon size={9} aria-hidden="true" />
+                    {cred.submitted_by_name || 'Client'}
+                  </span>
+                )}
+                <span className="text-xs text-zinc-500">
+                  {isRevealed ? 'Click to hide' : `Added ${timeAgo(cred.created_at)}`}
+                </span>
+              </div>
+            </div>
+            {canManageCredentials && (
+              // Floats over the card's corner so it never narrows the name.
+              <div
+                className="absolute top-2.5 right-2.5 flex items-center gap-0.5 rounded-lg bg-surface-raised/95 shadow-sm ring-1 ring-white/[0.08] p-0.5 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-opacity"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <Tooltip content="Share with team">
+                  <button
+                    type="button"
+                    aria-label={`Share ${cred.label} with team`}
+                    onClick={() => openSharing(cred)}
+                    className="p-1.5 text-zinc-500 hover:text-brand-300 transition-colors rounded-md hover:bg-white/[0.06]"
                   >
-                    <div className="p-4">
-                      {/* Card header ; matches normal cards */}
-                      <div className="flex items-start gap-3 mb-3">
-                        <div
-                          className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${config.bg}`}
-                        >
-                          <CategoryIcon size={16} className={config.iconColor} />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-medium text-zinc-500">Editing</p>
-                          <p className="text-sm font-semibold text-white truncate">{cred.label}</p>
-                        </div>
-                      </div>
-                      {editLoading ? (
-                        <div className="flex items-center justify-center py-10">
-                          <Loader2 size={18} className="animate-spin text-zinc-600" />
-                        </div>
-                      ) : (
-                        renderForm('edit')
-                      )}
-                    </div>
-                  </div>
-                );
-              }
+                    <Users size={14} />
+                  </button>
+                </Tooltip>
+                <Tooltip content="Edit">
+                  <button
+                    type="button"
+                    aria-label={`Edit ${cred.label}`}
+                    onClick={() => handleStartEdit(cred)}
+                    className="p-1.5 text-zinc-500 hover:text-brand-300 transition-colors rounded-md hover:bg-white/[0.06]"
+                  >
+                    <Pencil size={14} />
+                  </button>
+                </Tooltip>
+                <Tooltip content="Delete">
+                  <button
+                    type="button"
+                    aria-label={`Delete ${cred.label}`}
+                    onClick={() => setDeleteTarget(cred.id)}
+                    className="p-1.5 text-zinc-500 hover:text-red-400 transition-colors rounded-md hover:bg-white/[0.06]"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </Tooltip>
+              </div>
+            )}
+          </div>
 
+          {/* Revealed data: field order follows the category's definitions;
+              legacy keys from older rows render after */}
+          {isRevealed &&
+            revealedData[cred.id] &&
+            (() => {
+              const payload = revealedData[cred.id];
+              const defs = fieldsForCategory(cred.category);
+              const defKeys = new Set(defs.map((d) => d.key));
+              const extraKeys = Object.keys(payload).filter(
+                (k) => k !== 'notes' && !defKeys.has(k) && payload[k],
+              );
+              const hasAnyValue = Object.values(payload).some(Boolean);
               return (
                 <div
-                  key={cred.id}
-                  className="group relative rounded-xl border border-white/[0.08] bg-surface-raised hover:border-white/[0.12] hover:shadow-sm transition-all overflow-hidden cursor-pointer min-w-0"
-                  onClick={() => handleReveal(cred.id)}
+                  className="mt-3 px-3 py-2.5 bg-white/[0.03] border border-white/[0.06] rounded-lg space-y-0.5 overflow-hidden cursor-auto"
+                  onClick={(e) => e.stopPropagation()}
                 >
-                  <div className="p-4 min-w-0">
-                    {/* Header */}
-                    <div className="flex items-center gap-3 mb-3">
-                      <div
-                        className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${config.bg}`}
-                      >
-                        {isRevealing ? (
-                          <Loader2 size={16} className={`animate-spin ${config.iconColor}`} />
-                        ) : (
-                          <CategoryIcon size={16} className={config.iconColor} />
-                        )}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-white truncate">{cred.label}</p>
-                        <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-                          <span
-                            className={`inline-flex items-center px-1.5 py-0.5 text-[10px] font-semibold rounded ${config.bg} ${config.text}`}
-                          >
-                            {config.label}
-                          </span>
-                          {cred.submitted_by_client && (
-                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold rounded bg-teal-500/15 text-teal-300">
-                              <UserIcon size={9} />
-                              {cred.submitted_by_name || 'Client'}
-                            </span>
-                          )}
-                          <span className="text-[10px] text-zinc-500">
-                            {timeAgo(cred.created_at)}
-                          </span>
-                        </div>
-                      </div>
-                      <div
-                        className="flex items-center gap-0.5 flex-shrink-0 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-opacity"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        {canManageCredentials && (
-                          <Tooltip content="Share with team">
-                            <button
-                              onClick={() => openSharing(cred)}
-                              className="p-1.5 text-zinc-500 hover:text-brand-300 transition-colors rounded-md hover:bg-white/[0.03]"
-                            >
-                              <Users size={14} />
-                            </button>
-                          </Tooltip>
-                        )}
-                        {canManageCredentials && (
-                          <>
-                            <Tooltip content="Edit">
-                              <button
-                                onClick={() => handleStartEdit(cred)}
-                                className="p-1.5 text-zinc-500 hover:text-brand-300 transition-colors rounded-md hover:bg-white/[0.03]"
-                              >
-                                <Pencil size={14} />
-                              </button>
-                            </Tooltip>
-                            <Tooltip content="Delete">
-                              <button
-                                onClick={() => setDeleteTarget(cred.id)}
-                                className="p-1.5 text-zinc-500 hover:text-red-500 transition-colors rounded-md hover:bg-white/[0.03]"
-                              >
-                                <Trash2 size={14} />
-                              </button>
-                            </Tooltip>
-                          </>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Revealed data: field order follows the category's
-                        definitions; legacy keys from older rows render after */}
-                    {isRevealed &&
-                      revealedData[cred.id] &&
-                      (() => {
-                        const payload = revealedData[cred.id];
-                        const defs = fieldsForCategory(cred.category);
-                        const defKeys = new Set(defs.map((d) => d.key));
-                        const extraKeys = Object.keys(payload).filter(
-                          (k) => k !== 'notes' && !defKeys.has(k) && payload[k],
-                        );
-                        const hasAnyValue = Object.values(payload).some(Boolean);
-                        return (
-                          <div
-                            className="mb-3 px-3 py-2.5 bg-white/[0.03] border border-white/[0.06] rounded-lg space-y-0.5 overflow-hidden"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            {defs.map((def) => (
-                              <RevealedField
-                                key={def.key}
-                                label={def.label}
-                                value={payload[def.key] ?? ''}
-                                isSensitive={def.sensitive}
-                              />
-                            ))}
-                            {extraKeys.map((key) => (
-                              <RevealedField
-                                key={key}
-                                label={credentialFieldLabel(cred.category, key)}
-                                value={payload[key]}
-                                isSensitive={isSensitiveKey(key)}
-                              />
-                            ))}
-                            <RevealedField label="Notes" value={payload.notes ?? ''} />
-                            {!hasAnyValue && (
-                              <p className="text-xs text-zinc-500 italic">No fields stored</p>
-                            )}
-                          </div>
-                        );
-                      })()}
-                  </div>
+                  {defs.map((def) => (
+                    <RevealedField
+                      key={def.key}
+                      label={def.label}
+                      value={payload[def.key] ?? ''}
+                      isSensitive={def.sensitive}
+                    />
+                  ))}
+                  {extraKeys.map((key) => (
+                    <RevealedField
+                      key={key}
+                      label={credentialFieldLabel(cred.category, key)}
+                      value={payload[key]}
+                      isSensitive={isSensitiveKey(key)}
+                    />
+                  ))}
+                  <RevealedField label="Notes" value={payload.notes ?? ''} />
+                  {!hasAnyValue && <p className="text-xs text-zinc-500 italic">No fields stored</p>}
                 </div>
               );
-            })}
-          </div>
-        ) : !isAdding ? (
-          <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
+            })()}
+        </div>
+      </li>
+    );
+  };
+
+  return (
+    <>
+      <TabToolbar
+        search={credentials.length > 0 ? { value: search, onChange: setSearch, placeholder: 'Search credentials' } : undefined}
+        filters={
+          presentCategories.length > 1 && (
+            <SubNav
+              label="Show credentials"
+              active={categoryFilter}
+              onChange={setCategoryFilter}
+              items={[
+                { key: 'all', label: 'All', count: credentials.length },
+                ...presentCategories.map((cat) => ({
+                  key: cat,
+                  label: categoryConfig(cat).label,
+                  count: credentials.filter((c) => c.category === cat).length,
+                })),
+              ]}
+            />
+          )
+        }
+        primary={
+          canManageCredentials && (
+            <Button icon={<Plus size={16} aria-hidden="true" />} onClick={openAddForm}>
+              Add credential
+            </Button>
+          )
+        }
+      />
+
+      {canManageCredentials && isAdding && !editingId && (
+        <div className="glass-card rounded-xl border border-brand-500/30 p-5 mb-6">
+          <h2 className="text-sm font-semibold text-white mb-4">New credential</h2>
+          <div className="max-w-3xl">{renderForm('add')}</div>
+        </div>
+      )}
+
+      {credentials.length === 0 ? (
+        !isAdding && (
+          <div className="glass-card rounded-xl flex flex-col items-center justify-center px-6 py-16 text-center">
             <div className="w-10 h-10 rounded-full bg-white/[0.06] flex items-center justify-center mb-3">
-              <ShieldCheck size={18} className="text-zinc-500" />
+              <ShieldCheck size={18} className="text-zinc-500" aria-hidden="true" />
             </div>
-            <p className="text-sm font-medium text-zinc-400">No credentials stored yet</p>
+            <p className="text-sm font-medium text-zinc-300">No credentials stored yet</p>
             <p className="text-xs text-zinc-500 mt-1">
-              Add client logins, API keys, and other credentials
+              Client logins, API keys, cards and bank details, encrypted and revealed on click.
             </p>
           </div>
-        ) : null}
-      </div>
+        )
+      ) : groups.length === 0 ? (
+        <p className="py-16 text-center text-sm text-zinc-500">No credentials match.</p>
+      ) : (
+        <div className="space-y-8">
+          {groups.map((group) => (
+            <section key={group.category} aria-label={categoryConfig(group.category).label}>
+              <SectionHeader label={categoryConfig(group.category).label} count={group.items.length} />
+              <ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 items-start">
+                {group.items.map(renderCard)}
+              </ul>
+            </section>
+          ))}
+        </div>
+      )}
 
       <ConfirmDialog
         isOpen={!!deleteTarget}
@@ -985,6 +1011,6 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
           </div>
         </div>
       </Modal>
-    </div>
+    </>
   );
 }

@@ -3,6 +3,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { Task } from '@/lib/types';
 import { TaskCard } from '@/components/tasks/TaskCard';
+import { useFillHeight } from '@/lib/use-fill-height';
 
 // Edge auto-scroll: browsers do not reliably scroll styled inner containers
 // during a native HTML5 drag, so a card being dragged toward a column edge
@@ -56,6 +57,9 @@ export function BoardView({ tasks, onViewTask, onEditTask, onDeleteTask, onStatu
   const draggedTaskIdRef = useRef<string | null>(null);
   const dropIndicatorRef = useRef<DropIndicator | null>(null);
   const boardRef = useRef<HTMLDivElement | null>(null);
+  // The board fills the rest of the viewport on desktop, so columns scroll
+  // inside it and the page does not scroll a second time around them.
+  const { style: fillStyle } = useFillHeight({ min: 400 }, boardRef);
   const scrollAreasRef = useRef<Record<string, HTMLDivElement | null>>({});
   const dragPointerRef = useRef<{ x: number; y: number } | null>(null);
   const autoScrollRafRef = useRef<number | null>(null);
@@ -251,7 +255,11 @@ export function BoardView({ tasks, onViewTask, onEditTask, onDeleteTask, onStatu
   const draggedTask = isDragging ? tasks.find(t => t.id === draggedTaskId) : null;
 
   return (
-    <div ref={boardRef} className="flex flex-col lg:flex-row gap-6 pb-4 lg:pb-0 lg:overflow-x-auto lg:h-[calc(100vh-320px)] lg:min-h-[400px]">
+    <div
+      ref={boardRef}
+      style={fillStyle}
+      className="flex flex-col lg:flex-row gap-6 pb-4 lg:pb-0 lg:overflow-x-auto lg:h-[var(--fill-h,calc(100vh-320px))]"
+    >
       {BOARD_COLUMNS.map((column) => {
         const columnTasks = getColumnTasks(column.id);
         const isOverDifferentColumn = isDragging && dropIndicator?.columnId === column.id && draggedTask?.status !== column.id;

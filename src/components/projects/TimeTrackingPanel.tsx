@@ -13,15 +13,20 @@ import {
   Square,
   Timer,
   CircleDollarSign,
+  CalendarDays,
+  Users,
 } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { toast } from '@/components/ui/Toast';
+import { KpiRow, KpiTile } from '@/components/ui/KpiTile';
+import { RailCard, RailLayout, SubNav, TabToolbar } from '@/components/projects/TabLayout';
 import { Avatar, AvatarGroup } from '@/components/ui/Avatar';
 import { Select } from '@/components/ui/inputs/Select';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { TextInput } from '@/components/ui/inputs/TextInput';
+import { Textarea } from '@/components/ui/inputs/Textarea';
 import { MultiSelect } from '@/components/ui/inputs/MultiSelect';
 import { TimeInput } from '@/components/ui/inputs/TimeInput';
 import { DateInput } from '@/components/ui/inputs/DateInput';
@@ -397,6 +402,19 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
     }
     return groups;
   }, [completedEntries, tz]);
+
+  // When the tab opened: the anchor for the 7-day sparkline (render stays pure).
+  const [openedAt] = useState(() => Date.now());
+  const [openDescriptions, setOpenDescriptions] = useState<Set<string>>(() => new Set());
+  const [sessionQuery, setSessionQuery] = useState('');
+  const [sessionRange, setSessionRange] = useState<'all' | 'week' | 'month'>('all');
+  const toggleDescription = (id: string) =>
+    setOpenDescriptions((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   const getMember = (id: string) => team.find((m) => m.id === id);
   const getTaskTitle = (id: string | null | undefined) =>
@@ -801,6 +819,27 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
 
   const dateGroups = Object.entries(groupedByDate);
 
+  // Toolbar search and period, applied to the sessions list only (the tiles
+  // always show the whole project).
+  const sessionRangeStart = (() => {
+    if (sessionRange === 'all') return 0;
+    const start = new Date(openedAt);
+    start.setHours(0, 0, 0, 0);
+    if (sessionRange === 'week') start.setDate(start.getDate() - ((start.getDay() + 6) % 7));
+    else start.setDate(1);
+    return start.getTime();
+  })();
+  const sessionNeedle = sessionQuery.trim().toLowerCase();
+  const sessionMatches = (entry: TimeEntry) =>
+    new Date(entry.start_time).getTime() >= sessionRangeStart &&
+    (!sessionNeedle ||
+      (entry.description || '').toLowerCase().includes(sessionNeedle) ||
+      (getMember(entry.member_id)?.name || '').toLowerCase().includes(sessionNeedle) ||
+      (entry.task_ids || []).some((id) => (getTaskTitle(id) || '').toLowerCase().includes(sessionNeedle)));
+  const visibleDateGroups = dateGroups
+    .map(([date, list]) => [date, list.filter(sessionMatches)] as [string, TimeEntry[]])
+    .filter(([, list]) => list.length > 0);
+
   // Segment breakdown list, shared by the live timer card and history rows.
   // The open (still running) segment shows "start – now" with a live
   // duration; its START is editable like any other row, but it has no end
@@ -923,795 +962,723 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
     </ul>
   );
 
+  // ── Tab summary ──
+  // Daily hours for the last 7 days (oldest first), for the This week sparkline.
+  const sparkKeys = Array.from({ length: 7 }, (_, i) =>
+    getDateKey(new Date(openedAt - (6 - i) * 86_400_000).toISOString(), tz));
+  const lastSevenDays = sparkKeys.map(() => 0);
+  for (const entry of completedEntries) {
+    const index = sparkKeys.indexOf(getDateKey(entry.start_time, tz));
+    if (index >= 0) lastSevenDays[index] += getWorkedHours(entry);
+  }
+  const unpaidTimeTotal = canSeeClientBilling && isHourly
+    ? Array.from(paymentBreakdownMap.values()).reduce((sum, b) => sum + b.unpaidAmount, 0)
+    : null;
+
+  const workTypeOptions = [
+    { value: 'client', label: 'Client work' },
+    { value: 'internal', label: 'Internal work' },
+  ];
+  const memberSelectOptions = memberOptions.map((m) => ({
+    value: m.id,
+    label: m.name,
+    icon: <Avatar name={m.name} src={m.avatar} size="xs" />,
+  }));
+
   /* ================================================================
      RENDER
+     A tab of its own: the tracker sits in a sticky right rail (first on
+     phones), the summary and every session fill the main column.
   ================================================================ */
-  return (
-    <div className="glass-card rounded-xl flex flex-col max-h-[600px]">
-      {/* ── Header ── */}
-      <div className="flex items-center justify-between gap-2 px-5 py-3 border-b border-white/[0.08] flex-shrink-0">
-        <div className="flex items-center gap-2 min-w-0">
-          <Clock size={18} className="text-zinc-400 flex-shrink-0" />
-          <h2 className="font-semibold text-white truncate">Time Tracking</h2>
-        </div>
-        <div className="seg-track seg-sm">
-          <button
-            onClick={() => {
-              if (effectiveMode !== 'timer') toggleMode();
-            }}
-            className={`seg-item flex items-center gap-1.5 ${effectiveMode === 'timer' ? 'is-active' : ''}`}
-          >
-            <Timer size={12} />
-            Timer
-          </button>
-          <button
-            onClick={() => {
-              if (effectiveMode !== 'manual') toggleMode();
-            }}
-            className={`seg-item flex items-center gap-1.5 ${effectiveMode === 'manual' ? 'is-active' : ''}`}
-          >
-            <Clock size={12} />
-            Manual
-          </button>
-        </div>
-      </div>
+  const modeToggle = (
+    <div className="seg-track seg-sm" role="tablist" aria-label="Tracking mode">
+      <button
+        type="button"
+        role="tab"
+        aria-selected={effectiveMode === 'timer'}
+        onClick={() => {
+          if (effectiveMode !== 'timer') toggleMode();
+        }}
+        className={`seg-item flex items-center gap-1.5 ${effectiveMode === 'timer' ? 'is-active' : ''}`}
+      >
+        <Timer size={12} aria-hidden="true" />
+        Timer
+      </button>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={effectiveMode === 'manual'}
+        onClick={() => {
+          if (effectiveMode !== 'manual') toggleMode();
+        }}
+        className={`seg-item flex items-center gap-1.5 ${effectiveMode === 'manual' ? 'is-active' : ''}`}
+      >
+        <Clock size={12} aria-hidden="true" />
+        Manual
+      </button>
+    </div>
+  );
 
-      <div className="flex-1 overflow-y-auto">
-        {/* ═══════════════════════════════════════════════════════
-             STATS ROW
-           ═══════════════════════════════════════════════════════ */}
-        {completedEntries.length > 0 && (
-          <div className="px-5 pt-4 pb-2 flex items-end gap-6">
-            <div>
-              <p className="text-xs text-zinc-400 font-medium mb-0.5">Total Hours</p>
-              <p className="text-2xl font-bold tabular-nums leading-none text-white">
-                {totalHours.toFixed(1)}
-              </p>
+  const trackCard = (
+    <RailCard title="Track time" action={modeToggle}>
+      {effectiveMode === 'timer' && runningTimer && (
+        <div
+          className="rounded-xl border p-4 space-y-4"
+          style={{
+            borderColor: runningTimerIsPaused ? 'var(--color-surface-border)' : projectColor + '30',
+            backgroundColor: runningTimerIsPaused ? 'rgba(var(--ink), 0.04)' : projectColor + '06',
+          }}
+        >
+          <div className="flex items-center gap-3">
+            <div className="flex-shrink-0 relative">
+              <Avatar
+                name={getMember(runningTimer.member_id)?.name || '?'}
+                src={getMember(runningTimer.member_id)?.avatar}
+                size="sm"
+              />
+              <span
+                className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ring-2 ring-surface-raised ${runningTimerIsPaused ? '' : 'motion-safe:animate-pulse'}`}
+                style={{ backgroundColor: runningTimerIsPaused ? 'var(--color-zinc-400)' : projectColor }}
+              />
             </div>
-            <div>
-              <p className="text-xs text-zinc-400 font-medium mb-0.5">This Week</p>
-              <p className="text-2xl font-bold tabular-nums leading-none text-white">
-                {thisWeekHours.toFixed(1)}
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-zinc-100 truncate">
+                {getMember(runningTimer.member_id)?.name}
+                {runningTimerIsPaused && <span className="ml-1.5 text-xs font-normal text-zinc-500">· Paused</span>}
               </p>
-            </div>
-            {uniqueMembers.length > 0 && (
-              <div>
-                <p className="text-xs text-zinc-400 font-medium mb-1.5">Contributors</p>
-                <AvatarGroup
-                  users={uniqueMembers.map((m) => ({ id: m.id, name: m.name, avatar: m.avatar }))}
-                  max={3}
-                  size="xs"
-                />
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ═══════════════════════════════════════════════════════
-             LIVE TIMER MODE
-           ═══════════════════════════════════════════════════════ */}
-        {effectiveMode === 'timer' && (
-          <div className="mx-4 mt-3 mb-2">
-            {runningTimer ? (
-              <div
-                className="rounded-xl border p-4 space-y-3"
-                style={{
-                  borderColor: runningTimerIsPaused
-                    ? 'var(--color-surface-border)'
-                    : projectColor + '30',
-                  backgroundColor: runningTimerIsPaused
-                    ? 'rgba(var(--ink), 0.04)'
-                    : projectColor + '06',
-                }}
-              >
-                {/* Top row: avatar, info, elapsed badge */}
-                <div className="flex items-center gap-3">
-                  <div className="flex-shrink-0 relative">
-                    <Avatar
-                      name={getMember(runningTimer.member_id)?.name || '?'}
-                      src={getMember(runningTimer.member_id)?.avatar}
-                      size="md"
-                    />
-                    <span
-                      className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ring-2 ring-surface-raised ${runningTimerIsPaused ? '' : 'animate-pulse'}`}
-                      style={{
-                        backgroundColor: runningTimerIsPaused
-                          ? 'var(--color-zinc-400)'
-                          : projectColor,
-                      }}
-                    />
+              {/* "Started X" (and its adjust pencil) is the single-segment
+                  affordance. Once a pause splits the session, the segment
+                  list below carries the same fact with its editor. */}
+              {runningTimer.segments.length > 1 ? null : adjustingStart ? (
+                <div className="flex items-center gap-1.5 mt-1">
+                  <div className="w-[120px]">
+                    <TimeInput size="sm" value={adjustStartTime} onChange={setAdjustStartTime} />
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-zinc-100 truncate">
-                      {getMember(runningTimer.member_id)?.name}
-                      {runningTimerIsPaused && (
-                        <span className="ml-1.5 text-xs font-normal text-zinc-500">· Paused</span>
-                      )}
-                    </p>
-                    {/* "Started X" (and its adjust pencil) is the single-
-                        segment affordance. Once a pause splits the session,
-                        the segment list below carries the same fact on its
-                        first row along with the editor, so the line here
-                        would be a duplicate. */}
-                    {runningTimer.segments.length > 1 ? null : adjustingStart ? (
-                      <div className="flex items-center gap-1.5 mt-1">
-                        <div className="w-[120px]">
-                          <TimeInput
-                            size="sm"
-                            value={adjustStartTime}
-                            onChange={setAdjustStartTime}
-                          />
-                        </div>
-                        <button
-                          type="button"
-                          onClick={handleAdjustStart}
-                          className="p-1 text-emerald-400 hover:bg-emerald-500/15 rounded transition-colors flex-shrink-0"
-                        >
-                          <Check size={13} />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setAdjustingStart(false);
-                            setAdjustStartTime('');
-                          }}
-                          className="p-1 text-zinc-500 hover:bg-white/[0.06] rounded transition-colors flex-shrink-0"
-                        >
-                          <X size={13} />
-                        </button>
-                      </div>
-                    ) : (
-                      <p className="text-xs text-zinc-500 flex items-center gap-1 mt-0.5">
-                        Started {formatTime(runningTimer.start_time, tz)}
-                        <button
-                          type="button"
-                          aria-label="Adjust start time"
-                          onClick={() => {
-                            setAdjustingStart(true);
-                            setAdjustStartTime(toLocalTimeString(runningTimer.start_time, tz));
-                          }}
-                          className="text-zinc-600 hover:text-zinc-400 transition-colors flex-shrink-0"
-                        >
-                          <Pencil size={11} />
-                        </button>
-                      </p>
-                    )}
-                  </div>
-                  <span
-                    className="text-lg font-bold tabular-nums tracking-tight flex-shrink-0"
-                    style={{ color: runningTimerIsPaused ? 'var(--color-zinc-400)' : projectColor }}
-                  >
-                    {formatElapsed(Math.floor(getWorkedMs(runningTimer) / 1000))}
-                  </span>
-                </div>
-
-                {/* Description + pause/resume + stop */}
-                <div className="space-y-2 sm:space-y-0 sm:flex sm:gap-2">
-                  <div className="flex-1">
-                    <TextInput
-                      value={timerDescription}
-                      onChange={(val) => {
-                        setTimerDescription(val);
-                        if (descDebounceRef.current) clearTimeout(descDebounceRef.current);
-                        descDebounceRef.current = setTimeout(() => {
-                          updateTimeEntry(runningTimer.id, { description: val });
-                        }, 500);
-                      }}
-                      placeholder="What are you working on?"
-                    />
-                  </div>
-                  <div className="flex gap-2">
-                    {runningTimerIsPaused ? (
-                      <button
-                        onClick={handleResumeTimer}
-                        className="flex-1 sm:flex-none px-3 py-2 rounded-lg text-white font-medium text-sm transition-all flex items-center justify-center gap-1.5 flex-shrink-0 bg-brand-600 hover:bg-brand-700 active:scale-[0.97]"
-                      >
-                        <Play size={12} />
-                        Resume
-                      </button>
-                    ) : (
-                      <button
-                        onClick={handlePauseTimer}
-                        className="flex-1 sm:flex-none px-3 py-2 rounded-lg font-medium text-sm transition-all flex items-center justify-center gap-1.5 flex-shrink-0 bg-white/[0.06] text-zinc-300 hover:bg-white/[0.08] active:scale-[0.97]"
-                      >
-                        <Pause size={12} />
-                        Pause
-                      </button>
-                    )}
-                    <button
-                      onClick={handleStopTimer}
-                      className="flex-1 sm:flex-none px-3 py-2 rounded-lg text-white font-medium text-sm transition-all flex items-center justify-center gap-1.5 flex-shrink-0 bg-red-500 hover:bg-red-600 active:scale-[0.97]"
-                    >
-                      <Square size={12} />
-                      Stop
-                    </button>
-                  </div>
-                </div>
-
-                {/* Segment breakdown for the LIVE session, visible once a
-                    pause has split it, so each worked block can be reviewed
-                    and corrected without stopping the timer. */}
-                {runningTimer.segments.length > 1 &&
-                  renderSegmentList(runningTimer, canManageAllTime || canManageOwnTime, '')}
-
-                {/* Task links on the LIVE session. The running entry is the
-                    source of truth (not local state), and changes write
-                    through immediately: unlike the description there is no
-                    typing to debounce. Done tasks already linked stay in the
-                    options so a change cannot silently drop them. */}
-                {(projectTaskOptions.length > 0 || (runningTimer.task_ids || []).length > 0) && (
-                  <MultiSelect
-                    options={[
-                      ...projectTaskOptions,
-                      ...(runningTimer.task_ids || [])
-                        .filter((id) => !projectTaskOptions.some((o) => o.value === id))
-                        .map((id) => ({ value: id, label: getTaskTitle(id) || 'Removed task' })),
-                    ]}
-                    value={runningTimer.task_ids || []}
-                    onChange={(v) => updateTimeEntry(runningTimer.id, { task_ids: v })}
-                    placeholder="Link tasks (optional)"
-                    searchable={projectTaskOptions.length > 4}
-                  />
-                )}
-              </div>
-            ) : (
-              <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-4 space-y-3">
-                <div
-                  className={`grid grid-cols-1 gap-2 ${canManageAllTime ? 'sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]' : 'sm:grid-cols-[minmax(0,1fr)_auto]'}`}
-                >
-                  {canManageAllTime && (
-                    <div className="min-w-0">
-                      <Select
-                        value={timerMemberId || teamMemberId || ''}
-                        onChange={setTimerMemberId}
-                        options={memberOptions.map((m) => ({
-                          value: m.id,
-                          label: m.name,
-                          icon: <Avatar name={m.name} src={m.avatar} size="xs" />,
-                        }))}
-                        placeholder="Select member"
-                      />
-                    </div>
-                  )}
-                  <Select
-                    value={timerWorkType}
-                    onChange={(value) => setTimerWorkType(value as 'client' | 'internal')}
-                    options={[
-                      { value: 'client', label: 'Client work' },
-                      { value: 'internal', label: 'Internal work' },
-                    ]}
-                  />
                   <button
-                    onClick={handleStartTimer}
-                    className="h-[38px] justify-center rounded-lg bg-brand-600 px-5 text-sm font-medium text-white transition-all flex items-center gap-2 hover:bg-brand-700 active:scale-[0.97]"
+                    type="button"
+                    aria-label="Save start time"
+                    onClick={handleAdjustStart}
+                    className="p-1 text-emerald-400 hover:bg-emerald-500/15 rounded transition-colors flex-shrink-0"
                   >
-                    <Play size={14} />
-                    Start
+                    <Check size={13} />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Cancel start time change"
+                    onClick={() => {
+                      setAdjustingStart(false);
+                      setAdjustStartTime('');
+                    }}
+                    className="p-1 text-zinc-500 hover:bg-white/[0.06] rounded transition-colors flex-shrink-0"
+                  >
+                    <X size={13} />
                   </button>
                 </div>
-                <TextInput
-                  value={timerDescription}
-                  onChange={setTimerDescription}
-                  placeholder="What are you working on?"
+              ) : (
+                <p className="text-xs text-zinc-500 flex items-center gap-1 mt-0.5">
+                  Started {formatTime(runningTimer.start_time, tz)}
+                  <button
+                    type="button"
+                    aria-label="Adjust start time"
+                    onClick={() => {
+                      setAdjustingStart(true);
+                      setAdjustStartTime(toLocalTimeString(runningTimer.start_time, tz));
+                    }}
+                    className="text-zinc-600 hover:text-zinc-400 transition-colors flex-shrink-0"
+                  >
+                    <Pencil size={11} />
+                  </button>
+                </p>
+              )}
+            </div>
+          </div>
+
+          <p
+            className="text-4xl font-bold font-mono tabular-nums tracking-tight leading-none"
+            style={{ color: runningTimerIsPaused ? 'var(--color-zinc-400)' : projectColor }}
+            aria-live="off"
+          >
+            {formatElapsed(Math.floor(getWorkedMs(runningTimer) / 1000))}
+          </p>
+
+          <Textarea
+            autoResize
+            maxHeight={168}
+            aria-label="What are you working on?"
+            value={timerDescription}
+            onChange={(val) => {
+              setTimerDescription(val);
+              if (descDebounceRef.current) clearTimeout(descDebounceRef.current);
+              descDebounceRef.current = setTimeout(() => {
+                updateTimeEntry(runningTimer.id, { description: val });
+              }, 500);
+            }}
+            placeholder="What are you working on?"
+          />
+
+          <div className="grid grid-cols-2 gap-2">
+            {runningTimerIsPaused ? (
+              <button
+                onClick={handleResumeTimer}
+                className="px-3 py-2 rounded-lg text-white font-medium text-sm transition-all flex items-center justify-center gap-1.5 bg-brand-600 hover:bg-brand-700 active:scale-[0.97] focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+              >
+                <Play size={13} aria-hidden="true" />
+                Resume
+              </button>
+            ) : (
+              <button
+                onClick={handlePauseTimer}
+                className="px-3 py-2 rounded-lg font-medium text-sm transition-all flex items-center justify-center gap-1.5 bg-white/[0.06] text-zinc-300 hover:bg-white/[0.08] active:scale-[0.97] focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+              >
+                <Pause size={13} aria-hidden="true" />
+                Pause
+              </button>
+            )}
+            <button
+              onClick={handleStopTimer}
+              className="px-3 py-2 rounded-lg text-white font-medium text-sm transition-all flex items-center justify-center gap-1.5 bg-red-500 hover:bg-red-600 active:scale-[0.97] focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400"
+            >
+              <Square size={12} aria-hidden="true" />
+              Stop
+            </button>
+          </div>
+
+          {/* Segment breakdown for the LIVE session, visible once a pause has
+              split it, so each worked block can be corrected without stopping. */}
+          {runningTimer.segments.length > 1 &&
+            renderSegmentList(runningTimer, canManageAllTime || canManageOwnTime, '')}
+
+          {/* Task links on the LIVE session write through immediately. Done
+              tasks already linked stay in the options so a change cannot
+              silently drop them. */}
+          {(projectTaskOptions.length > 0 || (runningTimer.task_ids || []).length > 0) && (
+            <MultiSelect
+              options={[
+                ...projectTaskOptions,
+                ...(runningTimer.task_ids || [])
+                  .filter((id) => !projectTaskOptions.some((o) => o.value === id))
+                  .map((id) => ({ value: id, label: getTaskTitle(id) || 'Removed task' })),
+              ]}
+              value={runningTimer.task_ids || []}
+              onChange={(v) => updateTimeEntry(runningTimer.id, { task_ids: v })}
+              placeholder="Link tasks (optional)"
+              searchable={projectTaskOptions.length > 4}
+            />
+          )}
+        </div>
+      )}
+
+      {effectiveMode === 'timer' && !runningTimer && (
+        <div className="space-y-3">
+          <Textarea
+            autoResize
+            maxHeight={168}
+            aria-label="What are you working on?"
+            value={timerDescription}
+            onChange={setTimerDescription}
+            placeholder="What are you working on?"
+          />
+          <div className={`grid gap-2 ${canManageAllTime ? 'grid-cols-2' : 'grid-cols-1'}`}>
+            {canManageAllTime && (
+              <div className="min-w-0">
+                <Select
+                  value={timerMemberId || teamMemberId || ''}
+                  onChange={setTimerMemberId}
+                  options={memberSelectOptions}
+                  placeholder="Select member"
                 />
-                {projectTaskOptions.length > 0 && (
-                  <MultiSelect
-                    options={projectTaskOptions}
-                    value={timerTaskIds}
-                    onChange={setTimerTaskIds}
-                    placeholder="Link tasks (optional)"
-                    searchable={projectTaskOptions.length > 4}
-                  />
-                )}
+              </div>
+            )}
+            <div className="min-w-0">
+              <Select
+                value={timerWorkType}
+                onChange={(value) => setTimerWorkType(value as 'client' | 'internal')}
+                options={workTypeOptions}
+              />
+            </div>
+          </div>
+          {projectTaskOptions.length > 0 && (
+            <MultiSelect
+              options={projectTaskOptions}
+              value={timerTaskIds}
+              onChange={setTimerTaskIds}
+              placeholder="Link tasks (optional)"
+              searchable={projectTaskOptions.length > 4}
+            />
+          )}
+          <button
+            onClick={handleStartTimer}
+            className="w-full h-10 justify-center rounded-lg bg-brand-600 px-5 text-sm font-medium text-white transition-all flex items-center gap-2 hover:bg-brand-700 active:scale-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+          >
+            <Play size={14} aria-hidden="true" />
+            Start timer
+          </button>
+        </div>
+      )}
+
+      {effectiveMode === 'manual' && (
+        <form onSubmit={handleManualAdd} className="space-y-3">
+          <div className={`grid gap-2 ${canManageAllTime ? 'grid-cols-2' : 'grid-cols-1'}`}>
+            <div className="min-w-0">
+              <DateInput value={manualDate} onChange={setManualDate} placeholder="Date" />
+            </div>
+            {canManageAllTime && (
+              <div className="min-w-0">
+                <Select
+                  value={manualMemberId}
+                  onChange={setManualMemberId}
+                  options={memberSelectOptions}
+                  placeholder="Team member"
+                />
               </div>
             )}
           </div>
-        )}
 
-        {/* ═══════════════════════════════════════════════════════
-             TEAMMATE LIVE TIMERS (display-only, both modes)
-           ═══════════════════════════════════════════════════════ */}
-        {teammateTimers.length > 0 && (
-          <div className="mx-4 mt-1 mb-2 space-y-1.5">
-            <p className="text-[10px] uppercase tracking-wide font-medium text-zinc-500 px-1">
-              Also tracking
-            </p>
-            {teammateTimers.map((entry) => {
-              const member = getMember(entry.member_id);
-              const paused = isPaused(entry);
-              const elapsedSec = Math.floor(getWorkedMs(entry) / 1000);
-              return (
-                <div
-                  key={entry.id}
-                  className="rounded-lg border border-white/[0.06] bg-surface-raised px-3 py-2 flex items-center gap-2.5"
-                >
-                  <div className="flex-shrink-0 relative">
-                    <Avatar name={member?.name || '?'} src={member?.avatar} size="sm" />
-                    <span
-                      className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full ring-2 ring-surface-raised ${paused ? '' : 'animate-pulse'}`}
-                      style={{ backgroundColor: paused ? 'var(--color-zinc-400)' : projectColor }}
-                    />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-medium text-zinc-300 truncate">
-                      {member?.name || 'Unknown'}
-                      {paused && (
-                        <span className="ml-1 text-[10px] font-normal text-zinc-500">· Paused</span>
-                      )}
-                    </p>
-                    <p className="text-[11px] text-zinc-500 truncate">
-                      {entry.description || (
-                        <span className="italic text-zinc-600">No description</span>
-                      )}
-                    </p>
-                  </div>
-                  <span
-                    className="text-xs font-semibold tabular-nums tracking-tight flex-shrink-0"
-                    style={{ color: paused ? 'var(--color-zinc-400)' : projectColor }}
-                  >
-                    {formatElapsed(elapsedSec)}
-                  </span>
-                </div>
-              );
-            })}
+          <div className="seg-track seg-sm w-full" role="tablist" aria-label="Entry type">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={manualEntryMode === 'range'}
+              onClick={() => setManualEntryMode('range')}
+              className={`seg-item flex-1 ${manualEntryMode === 'range' ? 'is-active' : ''}`}
+            >
+              Time range
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={manualEntryMode === 'duration'}
+              onClick={() => setManualEntryMode('duration')}
+              className={`seg-item flex-1 ${manualEntryMode === 'duration' ? 'is-active' : ''}`}
+            >
+              Duration
+            </button>
           </div>
-        )}
-
-        {/* ═══════════════════════════════════════════════════════
-             MANUAL ENTRY MODE
-           ═══════════════════════════════════════════════════════ */}
-        {effectiveMode === 'manual' && (
-          <form
-            onSubmit={handleManualAdd}
-            className="mx-4 mt-3 mb-2 rounded-xl bg-white/[0.03] border border-white/[0.06] p-4 space-y-3"
-          >
-            {/* Date and, for time managers only, the team member */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
-              <div className={canManageAllTime ? 'md:col-span-2' : 'md:col-span-4'}>
-                <DateInput value={manualDate} onChange={setManualDate} placeholder="Date" />
+          {manualEntryMode === 'duration' ? (
+            <div className="space-y-2">
+              <TimeInput value={manualStartTime} onChange={setManualStartTime} placeholder="Start time" />
+              <div className="grid grid-cols-2 gap-2">
+                <NumberInput
+                  value={manualDurationHours}
+                  onChange={setManualDurationHours}
+                  min={0}
+                  max={23}
+                  placeholder="0"
+                  suffix="hr"
+                  showButtons={false}
+                />
+                <NumberInput
+                  value={manualDurationMinutes}
+                  onChange={setManualDurationMinutes}
+                  min={0}
+                  max={59}
+                  step={5}
+                  placeholder="0"
+                  suffix="min"
+                  showButtons={false}
+                />
               </div>
-              {canManageAllTime && (
-                <div className="md:col-span-2">
-                  <Select
-                    value={manualMemberId}
-                    onChange={setManualMemberId}
-                    options={memberOptions.map((m) => ({
-                      value: m.id,
-                      label: m.name,
-                      icon: <Avatar name={m.name} src={m.avatar} size="xs" />,
-                    }))}
-                    placeholder="Team member"
-                  />
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-2">
+              <TimeInput value={manualStartTime} onChange={setManualStartTime} placeholder="Start time" />
+              <TimeInput value={manualEndTime} onChange={setManualEndTime} placeholder="End time" />
+            </div>
+          )}
+
+          <Textarea
+            autoResize
+            maxHeight={168}
+            aria-label="What did you work on?"
+            value={manualDescription}
+            onChange={setManualDescription}
+            placeholder="What did you work on?"
+          />
+          <Select
+            value={manualWorkType}
+            onChange={(value) => setManualWorkType(value as 'client' | 'internal')}
+            options={workTypeOptions}
+          />
+          {projectTaskOptions.length > 0 && (
+            <MultiSelect
+              options={projectTaskOptions}
+              value={manualTaskIds}
+              onChange={setManualTaskIds}
+              placeholder="Link tasks (optional)"
+              searchable={projectTaskOptions.length > 4}
+            />
+          )}
+          <button
+            type="submit"
+            className="w-full h-10 rounded-lg text-white text-sm font-medium transition-all flex items-center justify-center gap-2 bg-brand-600 hover:bg-brand-700 active:scale-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+          >
+            <Plus size={16} aria-hidden="true" />
+            Add entry
+          </button>
+        </form>
+      )}
+    </RailCard>
+  );
+
+  // Teammates' live timers: read-only, in both modes.
+  const teammatesCard = teammateTimers.length > 0 && (
+    <RailCard title="Also tracking">
+      <ul className="space-y-2">
+        {teammateTimers.map((entry) => {
+          const member = getMember(entry.member_id);
+          const paused = isPaused(entry);
+          return (
+            <li key={entry.id} className="flex items-center gap-2.5">
+              <div className="flex-shrink-0 relative">
+                <Avatar name={member?.name || '?'} src={member?.avatar} size="sm" />
+                <span
+                  className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full ring-2 ring-surface-raised ${paused ? '' : 'motion-safe:animate-pulse'}`}
+                  style={{ backgroundColor: paused ? 'var(--color-zinc-400)' : projectColor }}
+                />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-zinc-200 truncate">
+                  {member?.name || 'Unknown'}
+                  {paused && <span className="ml-1 text-xs font-normal text-zinc-500">· Paused</span>}
+                </p>
+                <p className="text-xs text-zinc-500 truncate">
+                  {entry.description || <span className="italic text-zinc-600">No description</span>}
+                </p>
+              </div>
+              <span
+                className="text-sm font-semibold font-mono tabular-nums flex-shrink-0"
+                style={{ color: paused ? 'var(--color-zinc-400)' : projectColor }}
+              >
+                {formatElapsed(Math.floor(getWorkedMs(entry) / 1000))}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+    </RailCard>
+  );
+
+  const renderEntry = (entry: TimeEntry) => {
+    const member = getMember(entry.member_id);
+    const canModifyEntry =
+      canManageAllTime ||
+      (canManageOwnTime && entry.member_id === teamMemberId && entry.approval_status !== 'approved');
+    const isEditing = canModifyEntry && editingId === entry.id;
+    const hours = getWorkedHours(entry);
+    const hasMultipleSegments = entry.segments && entry.segments.length > 1;
+
+    if (isEditing && editState) {
+      return (
+        <div key={entry.id} className="px-5 py-4 bg-white/[0.03] space-y-3">
+          <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_auto_minmax(0,1fr)] gap-2 sm:items-center">
+            <DateInput value={editState.date} onChange={(v) => setEditState({ ...editState, date: v })} />
+            <div className="grid grid-cols-2 gap-2 items-center sm:contents">
+              <TimeInput
+                value={editState.startTime}
+                onChange={(v) => setEditState({ ...editState, startTime: v })}
+                placeholder="Start"
+              />
+              <span className="hidden sm:inline text-xs text-zinc-500 font-medium select-none">to</span>
+              <TimeInput
+                value={editState.endTime}
+                onChange={(v) => setEditState({ ...editState, endTime: v })}
+                placeholder="End"
+              />
+            </div>
+          </div>
+          <TextInput
+            value={editState.description}
+            onChange={(v) => setEditState({ ...editState, description: v })}
+            placeholder="Description"
+          />
+          <div className={`grid grid-cols-1 gap-2 ${canManageAllTime ? 'lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)]' : 'lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]'}`}>
+            {/* Options include the entry's linked tasks even when done, or the
+                picker would silently drop them on save. */}
+            {(projectTaskOptions.length > 0 || editState.taskIds.length > 0) ? (
+              <MultiSelect
+                options={[
+                  ...projectTaskOptions,
+                  ...editState.taskIds
+                    .filter((id) => !projectTaskOptions.some((o) => o.value === id))
+                    .map((id) => ({ value: id, label: getTaskTitle(id) || 'Removed task' })),
+                ]}
+                value={editState.taskIds}
+                onChange={(v) => setEditState({ ...editState, taskIds: v })}
+                placeholder="Link tasks (optional)"
+                searchable={projectTaskOptions.length > 4}
+              />
+            ) : <div className="hidden lg:block" />}
+            {canManageAllTime && (
+              <Select
+                value={editState.memberId}
+                onChange={(v) => setEditState({ ...editState, memberId: v })}
+                options={memberSelectOptions}
+                placeholder="Team member"
+              />
+            )}
+            <Select
+              value={editState.workType}
+              onChange={(v) => setEditState({ ...editState, workType: v as 'client' | 'internal' })}
+              options={workTypeOptions}
+            />
+          </div>
+          <div className="flex justify-end gap-2">
+            <button
+              onClick={cancelEdit}
+              className="px-3 py-1.5 text-sm text-zinc-300 rounded-lg hover:bg-white/[0.06] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={saveEdit}
+              className="px-3 py-1.5 text-sm font-medium text-white rounded-lg bg-brand-600 hover:bg-brand-700 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+            >
+              Save
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    const breakdown = canSeeClientBilling ? paymentBreakdownMap.get(entry.id) : undefined;
+    const payment = breakdown
+      ? breakdown.status === 'paid'
+        ? { color: 'text-emerald-400', label: 'Paid' }
+        : breakdown.status === 'partial'
+          ? { color: 'text-amber-400', label: 'Partly paid' }
+          : { color: 'text-zinc-500', label: 'Unpaid' }
+      : null;
+    const paymentAmounts = breakdown
+      ? [
+          breakdown.paidAmount > 0 ? `$${formatRate(breakdown.paidAmount)} paid` : null,
+          breakdown.unpaidAmount > 0 ? `$${formatRate(breakdown.unpaidAmount)} unpaid` : null,
+        ].filter((part): part is string => Boolean(part)).join(' · ')
+      : '';
+    // Descriptions here run long (a day's work joined with +): two lines by
+    // default, the rest one click away.
+    const longDescription = (entry.description || '').length > 160;
+    const descriptionOpen = openDescriptions.has(entry.id);
+    const linkedTasks = (entry.task_ids || [])
+      .map((linkedTaskId) => ({ id: linkedTaskId, title: getTaskTitle(linkedTaskId) }))
+      .filter((linked): linked is { id: string; title: string } => !!linked.title);
+
+    return (
+      <div key={entry.id} className="group/entry px-5 py-3.5 flex gap-3 hover:bg-white/[0.02] transition-colors">
+        <div className="flex-shrink-0 mt-0.5">
+          <Avatar name={member?.name || '?'} src={member?.avatar} size="sm" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="@4xl:grid @4xl:grid-cols-[minmax(0,1fr)_190px_84px_120px_84px] @4xl:gap-4 @4xl:items-start">
+            {/* Session: what was done, its badges and every linked task */}
+            <div className="min-w-0">
+              <p className={`text-sm text-zinc-200 break-words ${longDescription && !descriptionOpen ? 'line-clamp-2' : ''}`}>
+                {entry.description || <span className="text-zinc-500 italic">No description</span>}
+                {entry.work_type === 'internal' && (
+                  <span className="ml-2 align-middle rounded bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-medium text-sky-300">
+                    Internal
+                  </span>
+                )}
+                {entry.approval_status && entry.approval_status !== 'approved' && (
+                  <span
+                    className={`ml-2 align-middle rounded px-1.5 py-0.5 text-[10px] font-medium ${entry.approval_status === 'rejected' ? 'bg-red-500/15 text-red-300' : 'bg-amber-500/15 text-amber-300'}`}
+                  >
+                    {entry.approval_status === 'pending' ? 'Awaiting approval' : entry.approval_status}
+                  </span>
+                )}
+              </p>
+              {longDescription && (
+                <button
+                  type="button"
+                  onClick={() => toggleDescription(entry.id)}
+                  aria-expanded={descriptionOpen}
+                  className="mt-0.5 text-xs text-zinc-500 hover:text-brand-300 transition-colors rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+                >
+                  {descriptionOpen ? 'Show less' : 'Show more'}
+                </button>
+              )}
+              {linkedTasks.length > 0 && (
+                <div className="flex flex-wrap gap-1 mt-1.5">
+                  {linkedTasks.map((linked) => (
+                    <span
+                      key={linked.id}
+                      className="inline-flex max-w-[260px] items-center gap-1 rounded-full border border-white/[0.06] bg-white/[0.04] px-1.5 py-0.5 text-[11px] font-medium text-zinc-400"
+                    >
+                      <span className="h-1 w-1 flex-shrink-0 rounded-full" style={{ backgroundColor: projectColor }} aria-hidden="true" />
+                      <span className="truncate">{linked.title}</span>
+                    </span>
+                  ))}
                 </div>
               )}
             </div>
 
-            {/* Time mode tabs + fields */}
-            <div className="seg-track seg-sm mb-3">
-              <button
-                type="button"
-                onClick={() => setManualEntryMode('range')}
-                className={`seg-item ${manualEntryMode === 'range' ? 'is-active' : ''}`}
-              >
-                Time Range
-              </button>
-              <button
-                type="button"
-                onClick={() => setManualEntryMode('duration')}
-                className={`seg-item ${manualEntryMode === 'duration' ? 'is-active' : ''}`}
-              >
-                Duration
-              </button>
+            {/* The rest: one wrapping meta line on phones, columns on desktop */}
+            <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 @4xl:contents">
+              <p className="text-xs text-zinc-500 @4xl:mt-0.5 min-w-0 truncate">
+                <span className="text-zinc-400">{member?.name}</span>
+                <span className="mx-1">·</span>
+                {formatTime(entry.start_time, tz)} – {entry.end_time ? formatTime(entry.end_time, tz) : '...'}
+              </p>
+              <div className="@4xl:text-right">
+                <span
+                  className="inline-block text-xs font-semibold tabular-nums px-1.5 py-0.5 rounded-md"
+                  style={{ color: projectColor, backgroundColor: projectColor + '14' }}
+                >
+                  {formatHM(hours)}
+                </span>
+              </div>
+              <div className="flex items-center gap-2 text-xs @4xl:mt-0.5 min-w-0">
+                {canSeeClientBilling && isHourly && (
+                  <span className="tabular-nums text-zinc-500">${formatRate(entry.hourly_rate ?? hourlyRate)}/hr</span>
+                )}
+                {payment && (
+                  <Tooltip content={paymentAmounts || payment.label}>
+                    <span className={`inline-flex items-center gap-1 ${payment.color}`}>
+                      <CircleDollarSign size={12} aria-hidden="true" />
+                      {payment.label}
+                    </span>
+                  </Tooltip>
+                )}
+              </div>
+              {canModifyEntry ? (
+                <div className="flex items-center justify-end gap-0.5 ml-auto @4xl:ml-0 @4xl:opacity-0 @4xl:group-hover/entry:opacity-100 @4xl:focus-within:opacity-100 @4xl:group-has-[.seg-zone:hover]/entry:!opacity-0 transition-opacity">
+                  {entry.id === resumableEntryId && (
+                    <Tooltip content="Resume this session">
+                      <button
+                        aria-label="Resume this session"
+                        onClick={() => handleResumeStopped(entry.id)}
+                        className="p-1.5 rounded-md text-zinc-500 hover:text-emerald-400 hover:bg-white/[0.06] transition-colors"
+                      >
+                        <Play size={13} aria-hidden="true" />
+                      </button>
+                    </Tooltip>
+                  )}
+                  <Tooltip content="Edit">
+                    <button
+                      aria-label="Edit entry"
+                      onClick={() => startEdit(entry)}
+                      className="p-1.5 rounded-md text-zinc-500 hover:text-brand-300 hover:bg-white/[0.06] transition-colors"
+                    >
+                      <Pencil size={13} aria-hidden="true" />
+                    </button>
+                  </Tooltip>
+                  <Tooltip content="Delete">
+                    <button
+                      aria-label="Delete entry"
+                      onClick={() => setDeleteTarget(entry.id)}
+                      className="p-1.5 rounded-md text-zinc-500 hover:text-red-400 hover:bg-white/[0.06] transition-colors"
+                    >
+                      <Trash2 size={13} aria-hidden="true" />
+                    </button>
+                  </Tooltip>
+                </div>
+              ) : <span className="hidden @4xl:block" />}
             </div>
-            {manualEntryMode === 'duration' ? (
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
-                <div className="md:col-span-2">
-                  <TimeInput
-                    value={manualStartTime}
-                    onChange={setManualStartTime}
-                    placeholder="Start time"
-                  />
-                </div>
-                <div className="grid grid-cols-2 md:contents gap-2">
-                  <NumberInput
-                    value={manualDurationHours}
-                    onChange={setManualDurationHours}
-                    min={0}
-                    max={23}
-                    placeholder="0"
-                    suffix="hr"
-                    showButtons={false}
-                  />
-                  <NumberInput
-                    value={manualDurationMinutes}
-                    onChange={setManualDurationMinutes}
-                    min={0}
-                    max={59}
-                    step={5}
-                    placeholder="0"
-                    suffix="min"
-                    showButtons={false}
-                  />
-                </div>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
-                <div className="md:col-span-2">
-                  <TimeInput
-                    value={manualStartTime}
-                    onChange={setManualStartTime}
-                    placeholder="Start time"
-                  />
-                </div>
-                <div className="md:col-span-2">
-                  <TimeInput
-                    value={manualEndTime}
-                    onChange={setManualEndTime}
-                    placeholder="End time"
-                  />
-                </div>
-              </div>
-            )}
+          </div>
+          {hasMultipleSegments && renderSegmentList(entry, canModifyEntry, 'mt-2.5 w-fit min-w-[240px] max-w-full')}
+        </div>
+      </div>
+    );
+  };
 
-            {/* Description + submit */}
-            <div className="flex gap-2">
-              <div className="flex-1">
-                <TextInput
-                  value={manualDescription}
-                  onChange={setManualDescription}
-                  placeholder="What did you work on?"
-                />
-              </div>
-              <button
-                type="submit"
-                className="w-[38px] h-[38px] rounded-lg text-white transition-all flex-shrink-0 flex items-center justify-center bg-brand-600 hover:bg-brand-700 active:scale-95"
-              >
-                <Plus size={18} strokeWidth={2.5} />
-              </button>
-            </div>
-            <Select
-              value={manualWorkType}
-              onChange={(value) => setManualWorkType(value as 'client' | 'internal')}
-              options={[
-                { value: 'client', label: 'Client work' },
-                { value: 'internal', label: 'Internal work' },
+  return (
+    <>
+      {completedEntries.length > 0 && (
+        <TabToolbar
+          search={{ value: sessionQuery, onChange: setSessionQuery, placeholder: 'Search sessions' }}
+          filters={
+            <SubNav
+              label="Sessions from"
+              active={sessionRange}
+              onChange={setSessionRange}
+              items={[
+                { key: 'all', label: 'All time' },
+                { key: 'week', label: 'This week' },
+                { key: 'month', label: 'This month' },
               ]}
             />
-            {projectTaskOptions.length > 0 && (
-              <MultiSelect
-                options={projectTaskOptions}
-                value={manualTaskIds}
-                onChange={setManualTaskIds}
-                placeholder="Link tasks (optional)"
-                searchable={projectTaskOptions.length > 4}
+          }
+        />
+      )}
+
+      {completedEntries.length > 0 && (
+        <KpiRow className={`mb-6 ${unpaidTimeTotal !== null ? '' : 'lg:grid-cols-3'}`}>
+          <KpiTile
+            label="This week"
+            value={`${thisWeekHours.toFixed(1)}h`}
+            icon={CalendarDays}
+            context="Monday to today"
+            spark={lastSevenDays}
+          />
+          <KpiTile
+            label="All time"
+            value={`${totalHours.toFixed(1)}h`}
+            icon={Clock}
+            context={`${completedEntries.length} ${completedEntries.length === 1 ? 'session' : 'sessions'}`}
+          />
+          <KpiTile
+            label="Contributors"
+            value={uniqueMembers.length}
+            icon={Users}
+            context={
+              <AvatarGroup
+                users={uniqueMembers.map((m) => ({ id: m.id, name: m.name, avatar: m.avatar }))}
+                max={6}
+                size="xs"
               />
-            )}
-          </form>
-        )}
+            }
+          />
+          {unpaidTimeTotal !== null && (
+            <KpiTile
+              label="Unpaid time"
+              value={`$${formatRate(Math.round(unpaidTimeTotal))}`}
+              icon={CircleDollarSign}
+              tone={unpaidTimeTotal > 0 ? 'warning' : 'default'}
+              context="Billable hours not yet paid"
+            />
+          )}
+        </KpiRow>
+      )}
 
-        {/* ═══════════════════════════════════════════════════════
-             ENTRY LIST (shared between modes)
-           ═══════════════════════════════════════════════════════ */}
-        {dateGroups.length > 0 ? (
-          <div className="p-5 pt-3 space-y-4">
-            {dateGroups.map(([date, dateEntries]) => (
-              <div key={date}>
-                <p className="text-xs uppercase tracking-wide font-medium text-zinc-500 mb-2">
-                  {formatDateHeader(date)}
-                </p>
-                <div className="divide-y divide-white/[0.06]">
-                  {dateEntries.map((entry) => {
-                    const member = getMember(entry.member_id);
-                    const canModifyEntry =
-                      canManageAllTime ||
-                      (canManageOwnTime &&
-                        entry.member_id === teamMemberId &&
-                        entry.approval_status !== 'approved');
-                    const isEditing = canModifyEntry && editingId === entry.id;
-                    const hours = getWorkedHours(entry);
-                    const hasMultipleSegments = entry.segments && entry.segments.length > 1;
+      <RailLayout stickyRail railFirstOnMobile rail={<>{trackCard}{teammatesCard}</>}>
 
-                    if (isEditing && editState) {
-                      return (
-                        <div
-                          key={entry.id}
-                          className="py-3 space-y-2 rounded-lg bg-white/[0.03] -mx-1 px-3 border border-white/[0.06]"
-                        >
-                          {/* Date + time range. On mobile: date full width, then start/end
-                              inputs share a row (no "to" label since they're adjacent).
-                              On sm+: everything on one row via sm:contents trick. */}
-                          <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto_1fr] gap-2 sm:items-center pt-1">
-                            <DateInput
-                              value={editState.date}
-                              onChange={(v) => setEditState({ ...editState, date: v })}
-                            />
-                            <div className="grid grid-cols-2 gap-2 items-center sm:contents">
-                              <TimeInput
-                                value={editState.startTime}
-                                onChange={(v) => setEditState({ ...editState, startTime: v })}
-                                placeholder="Start"
-                              />
-                              <span className="hidden sm:inline text-xs text-zinc-600 font-medium select-none">
-                                to
-                              </span>
-                              <TimeInput
-                                value={editState.endTime}
-                                onChange={(v) => setEditState({ ...editState, endTime: v })}
-                                placeholder="End"
-                              />
-                            </div>
-                          </div>
-                          <TextInput
-                            value={editState.description}
-                            onChange={(v) => setEditState({ ...editState, description: v })}
-                            placeholder="Description"
-                          />
-                          {/* Task links are editable like every other field. Options
-                              include the entry's currently-linked tasks even when they
-                              are done (the common case for old entries), or the picker
-                              would silently drop them on save. */}
-                          {(projectTaskOptions.length > 0 || editState.taskIds.length > 0) && (
-                            <MultiSelect
-                              options={[
-                                ...projectTaskOptions,
-                                ...editState.taskIds
-                                  .filter((id) => !projectTaskOptions.some((o) => o.value === id))
-                                  .map((id) => ({
-                                    value: id,
-                                    label: getTaskTitle(id) || 'Removed task',
-                                  })),
-                              ]}
-                              value={editState.taskIds}
-                              onChange={(v) => setEditState({ ...editState, taskIds: v })}
-                              placeholder="Link tasks (optional)"
-                              searchable={projectTaskOptions.length > 4}
-                            />
-                          )}
-                          <div className="flex flex-col gap-2 pb-1 sm:flex-row sm:items-center">
-                            <div
-                              className={`grid min-w-0 flex-1 gap-2 ${canManageAllTime ? 'grid-cols-2' : 'grid-cols-1'}`}
-                            >
-                              {canManageAllTime && (
-                                <Select
-                                  value={editState.memberId}
-                                  onChange={(v) => setEditState({ ...editState, memberId: v })}
-                                  options={memberOptions.map((m) => ({
-                                    value: m.id,
-                                    label: m.name,
-                                    icon: <Avatar name={m.name} src={m.avatar} size="xs" />,
-                                  }))}
-                                  placeholder="Team member"
-                                />
-                              )}
-                              <Select
-                                value={editState.workType}
-                                onChange={(v) =>
-                                  setEditState({
-                                    ...editState,
-                                    workType: v as 'client' | 'internal',
-                                  })
-                                }
-                                options={[
-                                  { value: 'client', label: 'Client work' },
-                                  { value: 'internal', label: 'Internal work' },
-                                ]}
-                              />
-                            </div>
-                            <div className="flex items-center justify-end gap-0.5">
-                              <button
-                                aria-label="Save time entry changes"
-                                onClick={saveEdit}
-                                className="p-1.5 text-emerald-400 hover:bg-emerald-500/15 rounded-md transition-colors"
-                              >
-                                <Check size={14} />
-                              </button>
-                              <button
-                                aria-label="Cancel time entry changes"
-                                onClick={cancelEdit}
-                                className="p-1.5 text-zinc-500 hover:bg-white/[0.06] rounded-md transition-colors"
-                              >
-                                <X size={14} />
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    }
-
-                    return (
-                      <div key={entry.id} className="flex items-start gap-3 py-2 group/entry">
-                        <div className="flex-shrink-0 mt-0.5">
-                          <Avatar name={member?.name || '?'} src={member?.avatar} size="sm" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm text-zinc-300 truncate">
-                            {entry.description || (
-                              <span className="text-zinc-500 italic">No description</span>
-                            )}
-                          </p>
-                          <div className="flex items-center gap-1.5 text-xs text-zinc-500">
-                            <span className="truncate">
-                              {member?.name} &middot; {formatTime(entry.start_time, tz)} –{' '}
-                              {entry.end_time ? formatTime(entry.end_time, tz) : '...'}
-                            </span>
-                            <span
-                              className="font-semibold tabular-nums px-1.5 py-0.5 rounded-md flex-shrink-0"
-                              style={{ color: projectColor, backgroundColor: projectColor + '14' }}
-                            >
-                              {formatHM(hours)}
-                            </span>
-                            {canSeeClientBilling && isHourly ? (
-                              <span className="flex-shrink-0 tabular-nums text-zinc-500">
-                                ${formatRate(entry.hourly_rate ?? hourlyRate)}/hr
-                              </span>
-                            ) : null}
-                            {canSeeClientBilling &&
-                              (() => {
-                                const breakdown = paymentBreakdownMap.get(entry.id);
-                                if (!breakdown) return null;
-                                const cfg =
-                                  breakdown.status === 'paid'
-                                    ? { color: 'text-emerald-500', label: 'Paid' }
-                                    : breakdown.status === 'partial'
-                                      ? { color: 'text-amber-500', label: 'Partially paid' }
-                                      : { color: 'text-zinc-600', label: 'Unpaid' };
-                                const amountParts = [
-                                  breakdown.paidAmount > 0
-                                    ? `$${formatRate(breakdown.paidAmount)} paid`
-                                    : null,
-                                  breakdown.unpaidAmount > 0
-                                    ? `$${formatRate(breakdown.unpaidAmount)} unpaid`
-                                    : null,
-                                ].filter((part): part is string => Boolean(part));
-                                const amountLabel = amountParts.join(' · ');
-                                return (
-                                  <Tooltip
-                                    content={
-                                      <div className="space-y-0.5">
-                                        <p>{cfg.label}</p>
-                                        <p className="font-normal text-zinc-400 tabular-nums">
-                                          {amountLabel}
-                                        </p>
-                                      </div>
-                                    }
-                                  >
-                                    <CircleDollarSign
-                                      size={11}
-                                      className={`flex-shrink-0 ${cfg.color}`}
-                                      aria-label={`${cfg.label}: ${amountParts.join(', ')}`}
-                                    />
-                                  </Tooltip>
-                                );
-                              })()}
-                            {(() => {
-                              // Linked tasks live inline after the paid marker so
-                              // every entry stays a two-line row; one truncating
-                              // chip plus a +N tooltip carries any overflow.
-                              const linkedTasks = (entry.task_ids || [])
-                                .map((linkedTaskId) => ({
-                                  id: linkedTaskId,
-                                  title: getTaskTitle(linkedTaskId),
-                                }))
-                                .filter(
-                                  (linked): linked is { id: string; title: string } =>
-                                    !!linked.title,
-                                );
-                              if (linkedTasks.length === 0) return null;
-                              const [firstTask, ...restTasks] = linkedTasks;
-                              return (
-                                <span className="flex min-w-0 items-center gap-1">
-                                  <Tooltip content={firstTask.title} className="min-w-0">
-                                    <span className="inline-flex min-w-0 max-w-[200px] items-center gap-1 rounded-full border border-white/[0.06] bg-white/[0.04] px-1 py-0 text-[10px] font-medium text-zinc-400">
-                                      <span
-                                        className="h-1 w-1 flex-shrink-0 rounded-full"
-                                        style={{ backgroundColor: projectColor }}
-                                        aria-hidden="true"
-                                      />
-                                      <span className="truncate">{firstTask.title}</span>
-                                    </span>
-                                  </Tooltip>
-                                  {restTasks.length > 0 && (
-                                    <Tooltip
-                                      content={
-                                        <div className="space-y-1 py-0.5">
-                                          <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
-                                            Also on
-                                          </p>
-                                          {restTasks.map((linked) => (
-                                            <p
-                                              key={linked.id}
-                                              className="flex items-center gap-1.5"
-                                            >
-                                              <span
-                                                className="h-1 w-1 flex-shrink-0 rounded-full"
-                                                style={{ backgroundColor: projectColor }}
-                                                aria-hidden="true"
-                                              />
-                                              <span className="max-w-[240px] truncate font-normal text-zinc-200">
-                                                {linked.title}
-                                              </span>
-                                            </p>
-                                          ))}
-                                        </div>
-                                      }
-                                    >
-                                      <span className="inline-flex flex-shrink-0 items-center rounded-full border border-white/[0.06] bg-white/[0.04] px-1 py-0 text-[10px] font-medium text-zinc-400">
-                                        +{restTasks.length}
-                                      </span>
-                                    </Tooltip>
-                                  )}
-                                </span>
-                              );
-                            })()}
-                            {entry.work_type === 'internal' && (
-                              <span className="flex-shrink-0 rounded bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-medium text-sky-300">
-                                Internal
-                              </span>
-                            )}
-                            {entry.approval_status && entry.approval_status !== 'approved' && (
-                              <span
-                                className={`flex-shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${entry.approval_status === 'rejected' ? 'bg-red-500/15 text-red-300' : 'bg-amber-500/15 text-amber-300'}`}
-                              >
-                                {entry.approval_status === 'pending'
-                                  ? 'Awaiting approval'
-                                  : entry.approval_status}
-                              </span>
-                            )}
-                            {canModifyEntry ? (
-                              <div className="flex items-center gap-0.5 sm:opacity-0 sm:group-hover/entry:opacity-100 sm:group-has-[.seg-zone:hover]/entry:!opacity-0 transition-opacity flex-shrink-0">
-                                {entry.id === resumableEntryId && (
-                                  <Tooltip content="Resume this session">
-                                    <button
-                                      aria-label="Resume this session"
-                                      onClick={() => handleResumeStopped(entry.id)}
-                                      className="p-1 text-zinc-600 hover:text-emerald-400 transition-colors"
-                                    >
-                                      <Play size={12} aria-hidden="true" />
-                                    </button>
-                                  </Tooltip>
-                                )}
-                                <Tooltip content="Edit">
-                                  <button
-                                    onClick={() => startEdit(entry)}
-                                    className="p-1 text-zinc-600 hover:text-brand-300 transition-colors"
-                                  >
-                                    <Pencil size={12} />
-                                  </button>
-                                </Tooltip>
-                                <Tooltip content="Delete">
-                                  <button
-                                    onClick={() => setDeleteTarget(entry.id)}
-                                    className="p-1 text-zinc-600 hover:text-red-500 transition-colors"
-                                  >
-                                    <Trash2 size={12} />
-                                  </button>
-                                </Tooltip>
-                              </div>
-                            ) : null}
-                          </div>
-                          {hasMultipleSegments && renderSegmentList(entry, canModifyEntry)}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : !runningTimer && teammateTimers.length === 0 ? (
-          <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
-            <div className="w-10 h-10 rounded-full bg-white/[0.06] flex items-center justify-center mb-3">
-              <Clock size={18} className="text-zinc-500" />
+        {dateGroups.length > 0 && visibleDateGroups.length === 0 ? (
+          <p className="glass-card rounded-xl px-5 py-16 text-center text-sm text-zinc-500">No sessions match.</p>
+        ) : dateGroups.length > 0 ? (
+          <section className="@container glass-card rounded-xl overflow-hidden" aria-label="Sessions">
+            <div className="hidden @4xl:grid grid-cols-[minmax(0,1fr)_190px_84px_120px_84px] gap-4 pl-[60px] pr-5 py-2.5 border-b border-white/[0.06] text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+              <span>Session</span>
+              <span>Who and when</span>
+              <span className="text-right">Duration</span>
+              <span>Billing</span>
+              <span className="sr-only">Actions</span>
             </div>
-            <p className="text-sm font-medium text-zinc-400">No hours logged yet</p>
+            {visibleDateGroups.map(([date, dateEntries]) => {
+              const dayTotal = dateEntries.reduce((sum, e) => sum + getWorkedHours(e), 0);
+              return (
+                <div key={date} className="border-b border-white/[0.06] last:border-0">
+                  <div className="flex items-center justify-between px-5 py-2 bg-white/[0.025]">
+                    <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">{formatDateHeader(date)}</h3>
+                    <span className="text-xs font-mono tabular-nums text-zinc-400">{formatHM(dayTotal)}</span>
+                  </div>
+                  <div className="divide-y divide-white/[0.05]">{dateEntries.map(renderEntry)}</div>
+                </div>
+              );
+            })}
+          </section>
+        ) : (
+          <div className="glass-card rounded-xl flex flex-col items-center justify-center px-6 py-16 text-center">
+            <div className="w-10 h-10 rounded-full bg-white/[0.06] flex items-center justify-center mb-3">
+              <Clock size={18} className="text-zinc-500" aria-hidden="true" />
+            </div>
+            <p className="text-sm font-medium text-zinc-300">No sessions yet</p>
             <p className="text-xs text-zinc-500 mt-1">
               {effectiveMode === 'timer'
-                ? 'Start a timer to begin tracking'
-                : 'Use the form above to log your first entry'}
+                ? 'Start the timer and your sessions will list here, day by day.'
+                : 'Log an entry and your sessions will list here, day by day.'}
             </p>
           </div>
-        ) : null}
-      </div>
+        )}
+      </RailLayout>
 
       <ConfirmDialog
         isOpen={!!deleteTarget}
@@ -1732,6 +1699,6 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
         confirmLabel="Delete"
         variant="danger"
       />
-    </div>
+    </>
   );
 }

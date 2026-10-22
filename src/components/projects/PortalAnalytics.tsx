@@ -1,46 +1,36 @@
 'use client';
 
 /**
- * Admin-side portal analytics dashboard. Reads from
- * GET /api/projects/[id]/portal-analytics and renders four tabs:
+ * Portal analytics: the Client portal tab's Activity view. Reads from
+ * GET /api/projects/[id]/portal-analytics. Headline tiles on top, the
+ * sessions table as the main column, and the light reads in the rail: what
+ * clients opened most (sections, files, invoices) and failed PIN attempts.
  *
- *   Activity   — headline numbers, daily views chart, sessions table.
- *   Engagement — what clients actually interacted with (sections, files, invoices).
- *   Files      — per-file preview/download breakdown.
- *   Security   — failed PIN attempts and the IPs they came from.
- *
- * Demo mode pulls from demoPortalEvents in lib/demo-data so the modal is
- * populated without hitting the API.
+ * Styled with the app's own palette: the portal's accent color belongs to
+ * the client-facing portal only. Demo mode builds data locally.
  */
 
 import { useCallback, useEffect, useState } from 'react';
 import {
-  X, Activity as ActivityIcon, TrendingUp, ShieldAlert,
-  Monitor, Smartphone, Tablet, Loader2, ChevronDown, ChevronRight,
-  Globe, Clock, Eye, Download, FileText, Receipt,
+  Activity as ActivityIcon, Monitor, Smartphone, Tablet, Loader2, ChevronDown, ChevronRight,
+  Globe, Clock, Eye, Download, FileText, Receipt, MousePointerClick, Users, ShieldAlert,
 } from 'lucide-react';
 import { useDemo } from '@/lib/demo-context';
-import { siteConfig } from '@/site-config';
-import { PORTAL_SECTION_LABELS, type PortalAnalyticsResponse, type PortalSessionSummary } from '@/lib/types';
+import { KpiRow, KpiTile } from '@/components/ui/KpiTile';
+import { Toggle } from '@/components/ui/inputs/Toggle';
+import { RailCard, RailLayout } from './TabLayout';
+import { PORTAL_SECTION_LABELS, type PortalAnalyticsResponse } from '@/lib/types';
 import { buildDemoPortalAnalytics } from '@/lib/demo-data';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { Button } from '@/components/ui/Button';
 
-interface PortalAnalyticsModalProps {
-  isOpen: boolean;
-  onClose: () => void;
+interface PortalAnalyticsProps {
   projectId: string;
   portalSettingsId: string;
-  accentColor?: string;
+  hideLocal: boolean;
+  hideTeam: boolean;
+  onClearFilters: () => void;
 }
-
-type Tab = 'activity' | 'engagement' | 'security';
-
-const TABS: { id: Tab; label: string; icon: typeof ActivityIcon }[] = [
-  { id: 'activity',   label: 'Activity',   icon: ActivityIcon },
-  { id: 'engagement', label: 'Engagement', icon: TrendingUp },
-  { id: 'security',   label: 'Security',   icon: ShieldAlert },
-];
 
 interface SessionEvent {
   id: string;
@@ -142,46 +132,26 @@ function collapseHeartbeats(events: SessionEvent[]): TimelineRow[] {
   return out;
 }
 
-/** Compact pill-shaped toggle used in the modal header for the two IP
- *  filters. Tinted with the portal accent when active. The title attribute
- *  gives admins the rule-of-thumb on hover. Renders disabled (non-interactive
- *  + dimmed) when a parent passes `disabled` — used in demo mode where the
- *  underlying data doesn't actually honor the toggles. */
-function FilterToggle({
-  label, tooltip, active, accent, onChange, disabled,
-}: {
-  label: string;
-  tooltip: string;
-  active: boolean;
-  accent: string;
-  onChange: (next: boolean) => void;
-  disabled?: boolean;
+/**
+ * The two IP filters, for the tab toolbar: hide local network visits and hide
+ * the team's own IPs. Inactive in demo mode, where the data ignores them.
+ */
+export function PortalAnalyticsFilters({ hideLocal, onHideLocal, hideTeam, onHideTeam }: {
+  hideLocal: boolean;
+  onHideLocal: (next: boolean) => void;
+  hideTeam: boolean;
+  onHideTeam: (next: boolean) => void;
 }) {
+  const { isDemoMode } = useDemo();
   return (
-    <Tooltip content={disabled ? 'Filters are inactive in demo mode' : tooltip}>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={active}
-        aria-disabled={disabled || undefined}
-        onClick={() => { if (!disabled) onChange(!active); }}
-        className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-lg border transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 ${
-          disabled ? 'cursor-not-allowed opacity-50' : ''
-        }`}
-        style={{
-          borderColor: active ? accent : 'var(--color-input-border)',
-          backgroundColor: active ? `${accent}14` : 'transparent',
-          color: active ? accent : 'var(--color-input-text-subtle)',
-          outlineColor: accent,
-        }}
-      >
-        <span
-          className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-          style={{ backgroundColor: active ? accent : 'var(--color-input-text-placeholder)' }}
-        />
-        {label}
-      </button>
-    </Tooltip>
+    <div className="flex items-center gap-4">
+      <Tooltip content={isDemoMode ? 'Filters are inactive in demo mode' : 'Excludes loopback, RFC1918 private ranges and link-local addresses.'}>
+        <Toggle size="sm" label="Hide local" checked={hideLocal} onChange={onHideLocal} disabled={isDemoMode} />
+      </Tooltip>
+      <Tooltip content={isDemoMode ? 'Filters are inactive in demo mode' : 'Excludes IPs listed under Settings, Analytics Exclusions.'}>
+        <Toggle size="sm" label="Hide team" checked={hideTeam} onChange={onHideTeam} disabled={isDemoMode} />
+      </Tooltip>
+    </div>
   );
 }
 
@@ -223,29 +193,32 @@ function writeToggle(key: string, value: boolean): void {
   try { localStorage.setItem(key, String(value)); } catch { /* ignore */ }
 }
 
-export function PortalAnalyticsModal({
-  isOpen,
-  onClose,
+/** The IP filters, both on by default (the real-clients view), remembered per browser. */
+export function usePortalAnalyticsFilters() {
+  const [hideLocal, setHideLocalState] = useState(() => readToggle(TOGGLE_KEYS.hideLocal, true));
+  const [hideTeam, setHideTeamState] = useState(() => readToggle(TOGGLE_KEYS.hideTeam, true));
+  const setHideLocal = (next: boolean) => { setHideLocalState(next); writeToggle(TOGGLE_KEYS.hideLocal, next); };
+  const setHideTeam = (next: boolean) => { setHideTeamState(next); writeToggle(TOGGLE_KEYS.hideTeam, next); };
+  return { hideLocal, setHideLocal, hideTeam, setHideTeam };
+}
+
+export function PortalAnalytics({
   projectId,
   portalSettingsId,
-  accentColor,
-}: PortalAnalyticsModalProps) {
+  hideLocal,
+  hideTeam,
+  onClearFilters,
+}: PortalAnalyticsProps) {
   const { isDemoMode } = useDemo();
-  const accent = accentColor || siteConfig.colors.brand[500];
 
-  const [tab, setTab] = useState<Tab>('activity');
   const [data, setData] = useState<PortalAnalyticsResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expandedSession, setExpandedSession] = useState<string | null>(null);
   const [sessionEvents, setSessionEvents] = useState<Map<string, SessionEvent[]>>(new Map());
 
-  // Filter toggles. Defaulting both to ON means a freshly opened modal shows
-  // the "real clients" view — flipping a toggle off triggers a refetch with
-  // the corresponding query param so all aggregations stay consistent.
-  const [hideLocal, setHideLocal] = useState(() => readToggle(TOGGLE_KEYS.hideLocal, true));
-  const [hideTeam,  setHideTeam]  = useState(() => readToggle(TOGGLE_KEYS.hideTeam,  true));
-
+  // Flipping a filter refetches with the matching query param, so every
+  // aggregation stays consistent with what is shown.
   const load = useCallback(async () => {
     if (isDemoMode) {
       setData(buildDemoPortalAnalytics(portalSettingsId, projectId));
@@ -267,28 +240,7 @@ export function PortalAnalyticsModal({
     }
   }, [projectId, portalSettingsId, isDemoMode, hideLocal, hideTeam]);
 
-  // Persist toggle state and refetch whenever it changes.
-  useEffect(() => { writeToggle(TOGGLE_KEYS.hideLocal, hideLocal); }, [hideLocal]);
-  useEffect(() => { writeToggle(TOGGLE_KEYS.hideTeam, hideTeam); }, [hideTeam]);
-
-  useEffect(() => {
-    if (!isOpen) return;
-    setTab('activity');
-    setExpandedSession(null);
-    setSessionEvents(new Map());
-    load();
-  }, [isOpen, load]);
-
-  useEffect(() => {
-    if (!isOpen) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    document.addEventListener('keydown', onKey);
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.removeEventListener('keydown', onKey);
-      document.body.style.overflow = '';
-    };
-  }, [isOpen, onClose]);
+  useEffect(() => { load(); }, [load]);
 
   const toggleSession = useCallback(async (sessionId: string) => {
     if (expandedSession === sessionId) {
@@ -313,159 +265,55 @@ export function PortalAnalyticsModal({
     } catch { /* silent */ }
   }, [expandedSession, sessionEvents, projectId, isDemoMode, data]);
 
-  if (!isOpen) return null;
+  if (error && !loading) {
+    return (
+      <div className="glass-card rounded-xl flex flex-col items-center justify-center py-16 gap-3">
+        <p className="text-sm text-zinc-400">{error}</p>
+        <Button variant="secondary" size="sm" onClick={load}>Try again</Button>
+      </div>
+    );
+  }
+  if (!data) {
+    return (
+      <div className="glass-card rounded-xl flex items-center justify-center py-16">
+        <Loader2 className="animate-spin text-zinc-600" size={24} aria-label="Loading portal activity" />
+      </div>
+    );
+  }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      onClick={(e) => e.target === e.currentTarget && onClose()}
-    >
-      <div className="absolute inset-0 bg-black/50" style={{ animation: 'fadeIn 0.2s ease both' }} />
+    <div className={`space-y-6 transition-opacity ${loading ? 'opacity-60' : ''}`}>
+      {/* Headline numbers, last 30 days */}
+      <KpiRow className="lg:grid-cols-5">
+        <KpiTile size="compact" label="Sessions" value={data.totals.total_sessions} icon={ActivityIcon} context="Last 30 days" />
+        <KpiTile size="compact" label="Total events" value={data.totals.total_events} icon={MousePointerClick} context="Views, clicks, downloads" />
+        <KpiTile size="compact" label="Unique visitors" value={data.totals.unique_ip_hashes} icon={Users} context="IP + browser fingerprint" />
+        <KpiTile size="compact" label="Avg duration" value={formatDuration(data.totals.avg_duration_seconds)} icon={Clock} context="Per session" />
+        <KpiTile size="compact" label="Last seen" value={data.totals.last_seen_at ? formatRelative(data.totals.last_seen_at) : '-'} icon={Eye} context="Most recent visit" />
+      </KpiRow>
 
-      <div
-        className="relative w-full max-w-6xl max-h-[88vh] bg-surface-raised rounded-2xl shadow-2xl flex flex-col overflow-hidden"
-        style={{ animation: 'scaleIn 0.2s ease both' }}
-      >
-        {/* Header — title + close on one row always; filter toggles inline
-            with them on desktop, stacked below on mobile so they don't
-            crowd the title text. */}
-        {(() => {
-          const toggles = (
-            <>
-              <FilterToggle
-                label="Hide local"
-                tooltip="Excludes loopback, RFC1918 private ranges, and link-local addresses."
-                active={hideLocal}
-                accent={accent}
-                onChange={setHideLocal}
-                disabled={isDemoMode}
-              />
-              <FilterToggle
-                label="Hide team"
-                tooltip="Excludes IPs you've added under Settings → Analytics Exclusions."
-                active={hideTeam}
-                accent={accent}
-                onChange={setHideTeam}
-                disabled={isDemoMode}
-              />
-            </>
-          );
-          return (
-            <div className="px-6 py-4 border-b border-white/[0.06] flex-shrink-0">
-              <div className="flex items-center justify-between gap-4">
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <div
-                    className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
-                    style={{ backgroundColor: `${accent}18`, color: accent }}
-                  >
-                    <ActivityIcon size={16} />
-                  </div>
-                  <div className="min-w-0">
-                    <h2 className="text-base font-semibold text-white leading-tight">Portal activity</h2>
-                    <p className="text-xs text-zinc-400">Last 30 days</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-1.5 flex-shrink-0">
-                  <div className="hidden sm:flex items-center gap-1.5">
-                    {toggles}
-                  </div>
-                  <button
-                    onClick={onClose}
-                    className="sm:ml-1 p-2 rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.06] transition-colors"
-                    aria-label="Close"
-                  >
-                    <X size={18} />
-                  </button>
-                </div>
-              </div>
-              {/* Mobile-only toggle row, full width below the title. */}
-              <div className="flex sm:hidden flex-wrap items-center gap-1.5 mt-3">
-                {toggles}
-              </div>
-            </div>
-          );
-        })()}
-
-        {/* Tabs — horizontally scrollable on narrow screens so the labels
-            stay readable instead of crushing into each other. */}
-        <div className="flex border-b border-white/[0.06] flex-shrink-0 px-6 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          {TABS.map((t) => {
-            const active = tab === t.id;
-            return (
-              <button
-                key={t.id}
-                onClick={() => setTab(t.id)}
-                className={`relative flex items-center gap-2 px-4 py-3 text-sm font-medium whitespace-nowrap flex-shrink-0 transition-colors rounded-t focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 ${
-                  active ? 'text-white' : 'text-zinc-400 hover:text-zinc-100'
-                }`}
-                style={{ outlineColor: accent }}
-              >
-                <t.icon size={14} />
-                {t.label}
-                {active && (
-                  <span
-                    className="absolute left-0 right-0 -bottom-px h-0.5 rounded-full"
-                    style={{ backgroundColor: accent }}
-                  />
-                )}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Body */}
-        <div className="flex-1 overflow-y-auto px-6 py-5">
-          {error && !loading ? (
-            <div className="flex flex-col items-center justify-center py-20 gap-3">
-              <p className="text-sm text-zinc-400">{error}</p>
-              <Button variant="secondary" size="sm" onClick={load}>
-                Try again
-              </Button>
-            </div>
-          ) : loading || !data ? (
-            <div className="flex items-center justify-center py-20">
-              <Loader2 className="animate-spin text-zinc-600" size={28} />
-            </div>
-          ) : (
-            <>
-              {tab === 'activity' && (
-                <ActivityTab
-                  data={data}
-                  accent={accent}
-                  expandedSession={expandedSession}
-                  sessionEvents={sessionEvents}
-                  onToggleSession={toggleSession}
-                  hideLocal={hideLocal}
-                  hideTeam={hideTeam}
-                  onClearFilters={() => { setHideLocal(false); setHideTeam(false); }}
-                />
-              )}
-              {tab === 'engagement' && <EngagementTab data={data} accent={accent} />}
-              {tab === 'security' && <SecurityTab data={data} />}
-            </>
-          )}
-        </div>
-      </div>
-
-      <style jsx>{`
-        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-        @keyframes scaleIn {
-          from { opacity: 0; transform: scale(0.96); }
-          to   { opacity: 1; transform: scale(1); }
-        }
-      `}</style>
+      <RailLayout rail={<><EngagementCards data={data} /><SecurityCard data={data} /></>}>
+        <SessionsTable
+          data={data}
+          expandedSession={expandedSession}
+          sessionEvents={sessionEvents}
+          onToggleSession={toggleSession}
+          hideLocal={hideLocal}
+          hideTeam={hideTeam}
+          onClearFilters={onClearFilters}
+        />
+      </RailLayout>
     </div>
   );
 }
 
-/* ── Activity tab ────────────────────────────────── */
+/* ── Sessions ────────────────────────────────── */
 
-function ActivityTab({
-  data, accent, expandedSession, sessionEvents, onToggleSession,
+function SessionsTable({
+  data, expandedSession, sessionEvents, onToggleSession,
   hideLocal, hideTeam, onClearFilters,
 }: {
   data: PortalAnalyticsResponse;
-  accent: string;
   expandedSession: string | null;
   sessionEvents: Map<string, SessionEvent[]>;
   onToggleSession: (id: string) => void;
@@ -476,16 +324,6 @@ function ActivityTab({
   const filtersActive = hideLocal || hideTeam;
   return (
     <div className="space-y-6">
-      {/* Headline numbers */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-        <Stat label="Sessions"        value={data.totals.total_sessions} />
-        <Stat label="Total events"    value={data.totals.total_events} />
-        <Stat label="Unique visitors" value={data.totals.unique_ip_hashes} hint="ip + browser fingerprint" />
-        <Stat label="Avg duration"    value={formatDuration(data.totals.avg_duration_seconds)} />
-        <Stat label="Last seen"       value={data.totals.last_seen_at ? formatRelative(data.totals.last_seen_at) : '—'} />
-      </div>
-
-      {/* Sessions table */}
       <div>
         <h3 className="text-sm font-semibold text-zinc-100 mb-3">Sessions</h3>
         {data.sessions.length === 0 ? (
@@ -499,12 +337,12 @@ function ActivityTab({
             <EmptyState message="No portal activity in this window yet." />
           )
         ) : (
-          <div className="rounded-xl border border-white/[0.06] overflow-hidden">
-            <div className="grid grid-cols-[1fr_1fr_auto_24px] sm:grid-cols-[1.4fr_1.2fr_1fr_0.8fr_0.8fr_24px] gap-3 px-4 py-2.5 text-[11px] uppercase tracking-wide text-zinc-500 font-semibold bg-white/[0.03] border-b border-white/[0.06]">
+          <div className="@container glass-card rounded-xl overflow-hidden">
+            <div className="grid grid-cols-[1fr_1fr_auto_24px] @xl:grid-cols-[1fr_1.4fr_0.7fr_0.6fr_24px] @3xl:grid-cols-[1fr_1.3fr_1fr_0.7fr_0.6fr_24px] gap-3 px-4 py-2.5 text-[11px] uppercase tracking-wide text-zinc-500 font-semibold bg-white/[0.03] border-b border-white/[0.06]">
               <div>When</div>
               <div>Device</div>
-              <div className="hidden sm:block">Location signal</div>
-              <div className="hidden sm:block text-right">Duration</div>
+              <div className="hidden @3xl:block">Location signal</div>
+              <div className="hidden @xl:block text-right">Duration</div>
               <div className="text-right">Engagement</div>
               <div />
             </div>
@@ -519,7 +357,7 @@ function ActivityTab({
                   <div key={s.session_id}>
                     <button
                       onClick={() => onToggleSession(s.session_id)}
-                      className="w-full grid grid-cols-[1fr_1fr_auto_24px] sm:grid-cols-[1.4fr_1.2fr_1fr_0.8fr_0.8fr_24px] gap-3 px-4 py-3 items-center text-sm hover:bg-white/[0.03] transition-colors text-left focus-visible:outline-none focus-visible:bg-white/[0.03]"
+                      className="w-full grid grid-cols-[1fr_1fr_auto_24px] @xl:grid-cols-[1fr_1.4fr_0.7fr_0.6fr_24px] @3xl:grid-cols-[1fr_1.3fr_1fr_0.7fr_0.6fr_24px] gap-3 px-4 py-3 items-center text-sm hover:bg-white/[0.03] transition-colors text-left focus-visible:outline-none focus-visible:bg-white/[0.03]"
                     >
                       <div className="flex flex-col min-w-0">
                         <span className="text-zinc-100 font-medium truncate">{formatRelative(s.last_seen_at)}</span>
@@ -531,13 +369,13 @@ function ActivityTab({
                           {[s.browser, s.os].filter(Boolean).join(' / ') || s.user_agent || 'Unknown'}
                         </span>
                       </div>
-                      <div className="hidden sm:flex items-center gap-1.5 text-zinc-400 min-w-0">
+                      <div className="hidden @3xl:flex items-center gap-1.5 text-zinc-400 min-w-0">
                         <Globe size={12} className="text-zinc-600 flex-shrink-0" />
                         <span className="truncate">
                           {s.timezone || s.language || '—'}
                         </span>
                       </div>
-                      <div className="hidden sm:block text-right text-zinc-300 tabular-nums">
+                      <div className="hidden @xl:block text-right text-zinc-300 tabular-nums">
                         <Clock size={11} className="inline mr-0.5 -mt-0.5 text-zinc-600" />
                         {formatDuration(s.duration_seconds)}
                       </div>
@@ -573,6 +411,7 @@ function ActivityTab({
                           <Detail label="Viewport" value={s.viewport_width && s.viewport_height ? `${s.viewport_width}×${s.viewport_height}` : '—'} />
                           <Detail label="Screen" value={s.screen_width && s.screen_height ? `${s.screen_width}×${s.screen_height}` : '—'} />
                           <Detail label="Connection" value={s.connection_type || '—'} />
+                          <Detail label="Time zone" value={s.timezone || '—'} />
                           <Detail label="Language" value={s.language || s.accept_language || '—'} />
                           <Detail label="Color scheme" value={s.color_scheme || '—'} />
                           <Detail label="Reduced motion" value={s.reduced_motion == null ? '—' : (s.reduced_motion ? 'yes' : 'no')} />
@@ -594,13 +433,8 @@ function ActivityTab({
                                     className={`w-1.5 h-1.5 rounded-full flex-shrink-0 self-center ${
                                       row.event.event_type === 'pin_attempt' && (row.event.metadata as { success?: boolean } | null)?.success === false
                                         ? 'bg-red-400'
-                                        : ''
+                                        : 'bg-brand-400'
                                     }`}
-                                    style={
-                                      row.event.event_type === 'pin_attempt' && (row.event.metadata as { success?: boolean } | null)?.success === false
-                                        ? undefined
-                                        : { backgroundColor: accent }
-                                    }
                                   />
                                   <span className="text-zinc-300">{eventLabel(row.event)}</span>
                                 </li>
@@ -629,148 +463,110 @@ function ActivityTab({
   );
 }
 
-/* ── Engagement tab ──────────────────────────────── */
+/* ── Rail: what was opened, and security ─────────── */
 
-function EngagementTab({ data, accent }: { data: PortalAnalyticsResponse; accent: string }) {
+function EngagementCards({ data }: { data: PortalAnalyticsResponse }) {
   return (
-    <div className="space-y-6">
-      <PanelList
-        title="Top sections"
-        emptyText="No sections viewed yet."
-        items={data.top_sections.map(s => ({
-          key: s.section,
-          label: PORTAL_SECTION_LABELS[s.section as keyof typeof PORTAL_SECTION_LABELS] ?? s.section,
-          right: `${s.views} view${s.views === 1 ? '' : 's'}`,
-          fillRatio: s.views,
-        }))}
-        accent={accent}
-      />
-      <PanelList
-        title="Top files"
-        emptyText="No file activity yet."
-        items={data.top_files.map(f => ({
-          key: f.file_id,
-          label: f.name ?? `File ${f.file_id.slice(0, 8)}…`,
-          right: (
-            <span className="flex items-center gap-3 text-xs text-zinc-400 tabular-nums">
-              <span className="flex items-center gap-1"><Eye size={11} /> {f.previews}</span>
-              <span className="flex items-center gap-1"><Download size={11} /> {f.downloads}</span>
-            </span>
-          ),
-          fillRatio: f.previews + f.downloads,
-        }))}
-        accent={accent}
-      />
-      <PanelList
-        title="Top invoices"
-        emptyText="No invoice activity yet."
-        items={data.top_invoices.map(i => ({
-          key: i.invoice_id,
-          label: i.invoice_number ?? `Invoice ${i.invoice_id.slice(0, 8)}…`,
-          right: (
-            <span className="flex items-center gap-3 text-xs text-zinc-400 tabular-nums">
-              <span className="flex items-center gap-1"><Eye size={11} /> {i.views}</span>
-              <span className="flex items-center gap-1"><Download size={11} /> {i.pdf_downloads}</span>
-            </span>
-          ),
-          fillRatio: i.views + i.pdf_downloads,
-        }))}
-        accent={accent}
-      />
-    </div>
+    <>
+      <RailCard title="Most viewed sections">
+        <RankList
+          emptyText="No sections viewed yet."
+          items={data.top_sections.map(s => ({
+            key: s.section,
+            label: PORTAL_SECTION_LABELS[s.section as keyof typeof PORTAL_SECTION_LABELS] ?? s.section,
+            right: `${s.views} view${s.views === 1 ? '' : 's'}`,
+            fillRatio: s.views,
+          }))}
+        />
+      </RailCard>
+      <RailCard title="Files">
+        <RankList
+          emptyText="No file previews or downloads yet."
+          items={data.top_files.map(f => ({
+            key: f.file_id,
+            label: f.name ?? `File ${f.file_id.slice(0, 8)}...`,
+            right: (
+              <span className="flex items-center gap-3 text-xs text-zinc-400 tabular-nums">
+                <span className="flex items-center gap-1" title="Previews"><Eye size={11} aria-hidden="true" /> {f.previews}</span>
+                <span className="flex items-center gap-1" title="Downloads"><Download size={11} aria-hidden="true" /> {f.downloads}</span>
+              </span>
+            ),
+            fillRatio: f.previews + f.downloads,
+          }))}
+        />
+      </RailCard>
+      <RailCard title="Invoices">
+        <RankList
+          emptyText="No invoice views yet."
+          items={data.top_invoices.map(i => ({
+            key: i.invoice_id,
+            label: i.invoice_number ?? `Invoice ${i.invoice_id.slice(0, 8)}...`,
+            right: (
+              <span className="flex items-center gap-3 text-xs text-zinc-400 tabular-nums">
+                <span className="flex items-center gap-1" title="Views"><Eye size={11} aria-hidden="true" /> {i.views}</span>
+                <span className="flex items-center gap-1" title="PDF downloads"><Download size={11} aria-hidden="true" /> {i.pdf_downloads}</span>
+              </span>
+            ),
+            fillRatio: i.views + i.pdf_downloads,
+          }))}
+        />
+      </RailCard>
+    </>
   );
 }
 
-/* ── Security tab ───────────────────────────────── */
-
-function SecurityTab({ data }: { data: PortalAnalyticsResponse }) {
+function SecurityCard({ data }: { data: PortalAnalyticsResponse }) {
+  const failures = data.totals.total_pin_failures;
   return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-        <Stat label="Failed PIN attempts" value={data.totals.total_pin_failures} accent={data.totals.total_pin_failures > 0 ? '#EF4444' : undefined} />
-        <Stat label="Unique visitors" value={data.totals.unique_ip_hashes} hint="ip + browser" />
-        <Stat label="Sessions tracked" value={data.totals.total_sessions} />
-      </div>
-      <div>
-        <h3 className="text-sm font-semibold text-zinc-100 mb-3">Failed PIN attempts</h3>
-        {data.pin_failures.length === 0 ? (
-          <EmptyState message="No failed PIN attempts in this window. Looks clean." />
-        ) : (
-          <div className="rounded-xl border border-white/[0.06] overflow-hidden">
-            <div className="grid grid-cols-[1fr_1fr_1.5fr_1fr] gap-3 px-4 py-2.5 text-[11px] uppercase tracking-wide text-zinc-500 font-semibold bg-white/[0.03] border-b border-white/[0.06]">
-              <div>When</div>
-              <div>IP</div>
-              <div>User agent</div>
-              <div>Fingerprint</div>
-            </div>
-            <div className="divide-y divide-white/[0.06]">
-              {data.pin_failures.map((p, i) => (
-                <div key={`${p.created_at}-${i}`} className="grid grid-cols-[1fr_1fr_1.5fr_1fr] gap-3 px-4 py-3 items-center text-xs text-zinc-300">
-                  <span className="text-zinc-300 font-medium">{formatRelative(p.created_at)}</span>
-                  <span className="font-mono">{formatIpAddress(p.ip_address)}</span>
-                  <span className="truncate text-zinc-400">{p.user_agent || '—'}</span>
-                  <span className="font-mono text-zinc-500">{p.ip_hash || '—'}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-      <p className="text-xs text-zinc-500 leading-relaxed">
-        A failed PIN attempt fires whenever a client submits an incorrect PIN.
-        Multiple attempts from the same fingerprint are worth investigating.
+    <RailCard title="Security" icon={<ShieldAlert size={16} className={failures > 0 ? 'text-amber-300' : 'text-zinc-400'} aria-hidden="true" />}>
+      <p className={`text-sm ${failures > 0 ? 'text-amber-300' : 'text-zinc-300'}`}>
+        {failures === 0
+          ? 'No failed PIN attempts in 30 days.'
+          : `${failures} failed PIN ${failures === 1 ? 'attempt' : 'attempts'} in 30 days`}
       </p>
-    </div>
+      {data.pin_failures.length > 0 && (
+        <ul className="mt-3 divide-y divide-white/[0.06] rounded-lg border border-white/[0.06]">
+          {data.pin_failures.map((p, i) => (
+            <li key={`${p.created_at}-${i}`} className="px-3 py-2 text-xs">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-zinc-200 font-medium">{formatRelative(p.created_at)}</span>
+                <span className="font-mono text-zinc-400">{formatIpAddress(p.ip_address)}</span>
+              </div>
+              <p className="text-zinc-500 truncate mt-0.5" title={p.user_agent || undefined}>{p.user_agent || '-'}</p>
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className="mt-3 text-xs text-zinc-500 leading-relaxed">
+        Counts wrong PINs entered on the portal. Repeats from one fingerprint are worth a look.
+      </p>
+    </RailCard>
   );
 }
 
 /* ── Building blocks ────────────────────────────── */
 
-function Stat({ label, value, hint, accent }: {
-  label: string;
-  value: string | number;
-  hint?: string;
-  accent?: string;
-}) {
-  return (
-    <div className="rounded-xl border border-white/[0.06] px-4 py-3">
-      <div className="text-[11px] uppercase tracking-wide text-zinc-500 font-semibold">{label}</div>
-      <div className="mt-1 text-2xl font-semibold text-white tabular-nums" style={accent ? { color: accent } : undefined}>
-        {value}
-      </div>
-      {hint && <div className="text-[10px] text-zinc-500 mt-0.5">{hint}</div>}
-    </div>
-  );
-}
-
-function PanelList({ title, emptyText, items, accent }: {
-  title: string;
+/** A ranked list with a bar per row, sized against the top item. */
+function RankList({ emptyText, items }: {
   emptyText: string;
   items: { key: string; label: string; right: React.ReactNode; fillRatio: number }[];
-  accent: string;
 }) {
+  if (items.length === 0) return <p className="text-sm text-zinc-500">{emptyText}</p>;
   const max = Math.max(1, ...items.map(i => i.fillRatio));
   return (
-    <div>
-      <h3 className="text-sm font-semibold text-zinc-100 mb-3">{title}</h3>
-      {items.length === 0 ? (
-        <EmptyState message={emptyText} />
-      ) : (
-        <div className="rounded-xl border border-white/[0.06] divide-y divide-white/[0.06]">
-          {items.map((it) => (
-            <div key={it.key} className="px-4 py-3">
-              <div className="flex items-center justify-between gap-3 mb-2">
-                <span className="text-sm text-zinc-100 truncate">{it.label}</span>
-                <span className="flex-shrink-0">{typeof it.right === 'string' ? <span className="text-xs text-zinc-400 tabular-nums">{it.right}</span> : it.right}</span>
-              </div>
-              <div className="h-1 rounded-full bg-white/[0.06] overflow-hidden">
-                <div className="h-full rounded-full" style={{ width: `${(it.fillRatio / max) * 100}%`, backgroundColor: accent }} />
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
+    <ul className="space-y-3">
+      {items.map((it) => (
+        <li key={it.key}>
+          <div className="flex items-center justify-between gap-3 mb-1.5">
+            <span className="text-sm text-zinc-200 truncate">{it.label}</span>
+            <span className="flex-shrink-0">{typeof it.right === 'string' ? <span className="text-xs text-zinc-400 tabular-nums">{it.right}</span> : it.right}</span>
+          </div>
+          <div className="h-1 rounded-full bg-white/[0.06] overflow-hidden">
+            <div className="h-full rounded-full bg-brand-400" style={{ width: `${(it.fillRatio / max) * 100}%` }} />
+          </div>
+        </li>
+      ))}
+    </ul>
   );
 }
 

@@ -31,6 +31,12 @@ import type { PortalUpdate, PortalUpdateType, PortalUpdateAttachment } from '@/l
 
 interface PortalUpdatesPanelProps {
   projectId: string;
+  /** The tab's "Add update" button opens the form; the panel closes it. */
+  isAdding: boolean;
+  onAddingChange: (adding: boolean) => void;
+  /** The tab toolbar's search and type filter. */
+  query?: string;
+  typeFilter?: 'all' | PortalUpdateType;
 }
 
 interface PendingFile {
@@ -256,7 +262,8 @@ function PendingFileChips({
   );
 }
 
-export function PortalUpdatesPanel({ projectId }: PortalUpdatesPanelProps) {
+/** The Client portal tab's main column: every update the client sees. */
+export function PortalUpdatesPanel({ projectId, isAdding, onAddingChange: setIsAdding, query = '', typeFilter = 'all' }: PortalUpdatesPanelProps) {
   const {
     getPortalUpdates,
     addPortalUpdate,
@@ -271,9 +278,12 @@ export function PortalUpdatesPanel({ projectId }: PortalUpdatesPanelProps) {
 
   const portalSettings = getPortalSettings(projectId);
   const isPortalEnabled = portalSettings?.enabled ?? false;
-  const updates = getPortalUpdates(projectId);
+  const allUpdates = getPortalUpdates(projectId);
+  const needle = query.trim().toLowerCase();
+  const updates = allUpdates.filter((u) =>
+    (typeFilter === 'all' || u.update_type === typeFilter) &&
+    (!needle || u.title.toLowerCase().includes(needle) || (u.content || '').toLowerCase().includes(needle)));
 
-  const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -456,221 +466,165 @@ export function PortalUpdatesPanel({ projectId }: PortalUpdatesPanelProps) {
     </>
   );
 
-  return (
-    <div className="glass-card rounded-xl overflow-hidden flex flex-col max-h-[600px]">
-      {/* Header */}
-      <div
-        className={`px-5 py-4 flex items-center justify-between flex-shrink-0 ${isPortalEnabled ? 'border-b border-white/[0.06]' : ''}`}
-      >
-        <div className="flex items-center gap-2">
-          <MessageSquarePlus size={18} className="text-zinc-400" />
-          <h2 className="font-semibold text-white">
-            Portal Updates
-            {updates.length > 0 && (
-              <span className="ml-1.5 text-xs font-medium text-zinc-500">({updates.length})</span>
-            )}
-          </h2>
-        </div>
-        {isPortalEnabled && (
-          <button
-            onClick={() => setIsAdding(true)}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition-colors"
-          >
-            <Plus size={14} />
-            Add
-          </button>
-        )}
+  const typeOptions = [
+    { value: 'general', label: 'General' },
+    { value: 'milestone', label: 'Milestone' },
+    { value: 'deliverable', label: 'Deliverable' },
+    { value: 'note', label: 'Note' },
+  ];
+
+  // One form for posting and editing; edit mode also lists existing attachments.
+  const renderForm = (mode: 'add' | 'edit', existing: PortalUpdateAttachment[] = []) => (
+    <div className="glass-card rounded-xl border border-brand-500/30 p-5 space-y-3">
+      <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_160px] gap-2">
+        <TextInput
+          autoFocus
+          aria-label="Update title"
+          value={title}
+          onChange={setTitle}
+          placeholder="What happened?"
+        />
+        <Select
+          aria-label="Update type"
+          value={updateType}
+          onChange={(v) => setUpdateType(v as PortalUpdateType)}
+          options={typeOptions}
+        />
       </div>
+      <Textarea
+        aria-label="Update details"
+        value={content}
+        onChange={setContent}
+        placeholder="Add details for the client (optional)"
+        rows={3}
+      />
+      {mode === 'edit' && (
+        <AttachmentChips
+          attachments={existing}
+          onRemove={(id) => setRemovedAttachmentIds((prev) => [...prev, id])}
+        />
+      )}
+      <PendingFileChips
+        files={mode === 'add' ? pendingFiles : editPendingFiles}
+        onRemove={(id) =>
+          mode === 'add'
+            ? setPendingFiles((f) => f.filter((p) => p.id !== id))
+            : setEditPendingFiles((f) => f.filter((p) => p.id !== id))
+        }
+      />
+      <div className="flex items-center gap-2 justify-between">
+        {renderAttachFileButton(mode === 'add' ? addFileRef : editFileRef, mode)}
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handleCancelEdit}
+            className="px-3 py-1.5 text-sm text-zinc-400 hover:text-zinc-200 rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={mode === 'add' ? handleAdd : handleSaveEdit}
+            disabled={!title.trim() || uploading}
+            className="px-4 py-1.5 text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-1.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+          >
+            {uploading && <Loader2 size={14} className="animate-spin" aria-hidden="true" />}
+            {mode === 'add' ? 'Post update' : 'Save'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 
-      {isPortalEnabled ? (
-        <div className="flex-1 flex flex-col overflow-y-auto">
-          {/* Add form */}
-          {isAdding && !editingId && (
-            <div className="mx-5 mt-5 border border-brand-500/30 bg-brand-500/15 rounded-lg p-4 space-y-3">
-              <div className="flex gap-2">
-                <TextInput
-                  autoFocus
-                  value={title}
-                  onChange={setTitle}
-                  placeholder="Update title"
-                  size="sm"
-                />
-                <div className="w-[140px] flex-shrink-0">
-                  <Select
-                    value={updateType}
-                    onChange={(v) => setUpdateType(v as PortalUpdateType)}
-                    options={[
-                      { value: 'general', label: 'General' },
-                      { value: 'milestone', label: 'Milestone' },
-                      { value: 'deliverable', label: 'Deliverable' },
-                      { value: 'note', label: 'Note' },
-                    ]}
-                    size="sm"
-                  />
-                </div>
-              </div>
-              <Textarea
-                value={content}
-                onChange={setContent}
-                placeholder="Add details (optional)"
-                rows={3}
-                size="sm"
-              />
-              {/* Pending files */}
-              <PendingFileChips
-                files={pendingFiles}
-                onRemove={(id) => setPendingFiles((f) => f.filter((p) => p.id !== id))}
-              />
-              <div className="flex items-center gap-2 justify-between">
-                {renderAttachFileButton(addFileRef, 'add')}
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={handleCancelEdit}
-                    className="px-3 py-1.5 text-sm text-zinc-400 hover:text-zinc-300 transition-colors"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleAdd}
-                    disabled={!title.trim() || uploading}
-                    className="px-4 py-1.5 text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-1.5"
-                  >
-                    {uploading && <Loader2 size={14} className="animate-spin" />}
-                    Post
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
+  if (!isPortalEnabled) return null;
 
-          {/* Updates list */}
-          {updates.length > 0 ? (
-            <div className="p-5 space-y-2">
-              {updates.map((update) => {
-                const config = TYPE_CONFIG[update.update_type];
-                const author = update.author_id ? getTeamMember(update.author_id) : null;
-                const isEditing = editingId === update.id;
-                const attachments = getPortalUpdateAttachments(update.id);
+  return (
+    <>
+      {isAdding && !editingId && renderForm('add')}
 
-                if (isEditing) {
-                  const visibleExisting = attachments.filter(
-                    (a) => !removedAttachmentIds.includes(a.id),
-                  );
+      {allUpdates.length > 0 && updates.length === 0 ? (
+        <p className="glass-card rounded-xl px-5 py-16 text-center text-sm text-zinc-500">No updates match.</p>
+      ) : updates.length > 0 ? (
+        <section className="glass-card rounded-xl overflow-hidden" aria-label="Portal updates">
+          <ul className="divide-y divide-white/[0.05]">
+            {updates.map((update) => {
+              const config = TYPE_CONFIG[update.update_type];
+              const author = update.author_id ? getTeamMember(update.author_id) : null;
+              const attachments = getPortalUpdateAttachments(update.id);
 
-                  return (
-                    <div
-                      key={update.id}
-                      className="border border-brand-500/30 bg-brand-500/15 rounded-lg p-4 space-y-3"
-                    >
-                      <div className="flex gap-2">
-                        <TextInput autoFocus value={title} onChange={setTitle} size="sm" />
-                        <div className="w-[140px] flex-shrink-0">
-                          <Select
-                            value={updateType}
-                            onChange={(v) => setUpdateType(v as PortalUpdateType)}
-                            options={[
-                              { value: 'general', label: 'General' },
-                              { value: 'milestone', label: 'Milestone' },
-                              { value: 'deliverable', label: 'Deliverable' },
-                              { value: 'note', label: 'Note' },
-                            ]}
-                            size="sm"
-                          />
-                        </div>
-                      </div>
-                      <Textarea value={content} onChange={setContent} rows={3} size="sm" />
-                      {/* Existing attachments (removable) */}
-                      <AttachmentChips
-                        attachments={visibleExisting}
-                        onRemove={(id) => setRemovedAttachmentIds((prev) => [...prev, id])}
-                      />
-                      {/* Newly picked files */}
-                      <PendingFileChips
-                        files={editPendingFiles}
-                        onRemove={(id) => setEditPendingFiles((f) => f.filter((p) => p.id !== id))}
-                      />
-                      <div className="flex items-center gap-2 justify-between">
-                        {renderAttachFileButton(editFileRef, 'edit')}
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={handleCancelEdit}
-                            className="px-3 py-1.5 text-sm text-zinc-400 hover:text-zinc-300 transition-colors"
-                          >
-                            Cancel
-                          </button>
-                          <button
-                            onClick={handleSaveEdit}
-                            disabled={!title.trim() || uploading}
-                            className="px-4 py-1.5 text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-1.5"
-                          >
-                            {uploading && <Loader2 size={14} className="animate-spin" />}
-                            Save
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                }
-
+              if (editingId === update.id) {
                 return (
-                  <div
-                    key={update.id}
-                    className="flex items-start gap-3 px-4 py-3.5 bg-white/[0.03] rounded-lg group"
-                  >
-                    <div
-                      className={`w-2.5 h-2.5 rounded-full mt-1.5 flex-shrink-0 ${config.dot}`}
-                    />
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-                        <p className="text-sm font-semibold text-white">{update.title}</p>
-                        <span
-                          className={`inline-flex items-center px-1.5 py-0.5 text-[10px] font-semibold rounded ${config.bg} ${config.text}`}
-                        >
+                  <li key={update.id} className="p-3">
+                    {renderForm('edit', attachments.filter((a) => !removedAttachmentIds.includes(a.id)))}
+                  </li>
+                );
+              }
+
+              return (
+                <li key={update.id} className="group flex items-start gap-4 px-5 py-4 hover:bg-white/[0.02] transition-colors">
+                  <span className={`w-2.5 h-2.5 rounded-full mt-1.5 flex-shrink-0 ${config.dot}`} aria-hidden="true" />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex items-center gap-2 flex-wrap min-w-0">
+                        <h3 className="text-sm font-semibold text-white">{update.title}</h3>
+                        <span className={`inline-flex items-center px-1.5 py-0.5 text-[10px] font-semibold rounded ${config.bg} ${config.text}`}>
                           {config.label}
                         </span>
                       </div>
-                      {update.content && (
-                        <p className="text-sm text-zinc-400 leading-relaxed line-clamp-2">
-                          {update.content}
-                        </p>
-                      )}
-                      {/* Read-only attachments */}
-                      <AttachmentChips attachments={attachments} />
-                      <p className="text-xs text-zinc-500 mt-1">
-                        {author?.name || 'Team'} &middot; {timeAgo(update.created_at)}
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        <span className="text-xs text-zinc-500 whitespace-nowrap">{timeAgo(update.created_at)}</span>
+                        <div className="flex items-center sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-opacity">
+                          <Tooltip content="Edit">
+                            <button
+                              type="button"
+                              aria-label={`Edit ${update.title}`}
+                              onClick={() => handleStartEdit(update)}
+                              className="p-1.5 rounded-md text-zinc-500 hover:text-brand-300 hover:bg-white/[0.06] transition-colors"
+                            >
+                              <Pencil size={14} />
+                            </button>
+                          </Tooltip>
+                          <Tooltip content="Delete">
+                            <button
+                              type="button"
+                              aria-label={`Delete ${update.title}`}
+                              onClick={() => setDeleteTarget(update.id)}
+                              className="p-1.5 rounded-md text-zinc-500 hover:text-red-400 hover:bg-white/[0.06] transition-colors"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </Tooltip>
+                        </div>
+                      </div>
+                    </div>
+                    {update.content && (
+                      <p className="mt-1 text-sm text-zinc-400 leading-relaxed whitespace-pre-wrap break-words line-clamp-4">
+                        {update.content}
                       </p>
-                    </div>
-                    <div className="flex items-center gap-1 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-opacity flex-shrink-0">
-                      <Tooltip content="Edit">
-                        <button
-                          onClick={() => handleStartEdit(update)}
-                          className="p-1.5 text-zinc-500 hover:text-brand-300 transition-colors"
-                        >
-                          <Pencil size={14} />
-                        </button>
-                      </Tooltip>
-                      <Tooltip content="Delete">
-                        <button
-                          onClick={() => setDeleteTarget(update.id)}
-                          className="p-1.5 text-zinc-500 hover:text-red-500 transition-colors"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </Tooltip>
-                    </div>
+                    )}
+                    <AttachmentChips attachments={attachments} />
+                    <p className="text-xs text-zinc-500 mt-2">Posted by {author?.name || 'Team'}</p>
                   </div>
-                );
-              })}
-            </div>
-          ) : !isAdding ? (
-            <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
-              <div className="w-10 h-10 rounded-full bg-white/[0.06] flex items-center justify-center mb-3">
-                <MessageSquarePlus size={18} className="text-zinc-500" />
-              </div>
-              <p className="text-sm font-medium text-zinc-400">No updates yet</p>
-              <p className="text-xs text-zinc-500 mt-1">Post one to keep your client informed</p>
-            </div>
-          ) : null}
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      ) : !isAdding ? (
+        <div className="glass-card rounded-xl flex flex-col items-center justify-center px-6 py-16 text-center">
+          <div className="w-10 h-10 rounded-full bg-white/[0.06] flex items-center justify-center mb-3">
+            <MessageSquarePlus size={18} className="text-zinc-500" aria-hidden="true" />
+          </div>
+          <p className="text-sm font-medium text-zinc-300">No updates posted yet</p>
+          <p className="text-xs text-zinc-500 mt-1 mb-4">Updates show on the client&apos;s portal, newest first.</p>
+          <button
+            type="button"
+            onClick={() => setIsAdding(true)}
+            className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+          >
+            <Plus size={16} aria-hidden="true" />
+            Post the first update
+          </button>
         </div>
       ) : null}
 
@@ -683,6 +637,6 @@ export function PortalUpdatesPanel({ projectId }: PortalUpdatesPanelProps) {
         confirmLabel="Delete"
         variant="danger"
       />
-    </div>
+    </>
   );
 }
