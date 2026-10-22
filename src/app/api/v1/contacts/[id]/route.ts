@@ -3,12 +3,14 @@ import { success } from '@/lib/api/response';
 import { updateContactSchema } from '@/lib/schemas';
 import { notFound } from '@/lib/api/errors';
 import { logAudit } from '@/lib/api/audit';
+import { trashForApi } from '@/lib/api/trash';
 
 export const GET = withApi(async ({ supabase, params }) => {
   const { data, error } = await supabase
     .from('contacts')
     .select('*')
     .eq('id', (params as any).id)
+    .is('deleted_at', null)
     .maybeSingle();
 
   if (error) throw error;
@@ -18,11 +20,12 @@ export const GET = withApi(async ({ supabase, params }) => {
 
 export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemberId }) => {
   const id = (params as any).id;
-  const { data: before } = await supabase.from('contacts').select('*').eq('id', id).maybeSingle();
+  const { data: before } = await supabase.from('contacts').select('*').eq('id', id).is('deleted_at', null).maybeSingle();
   const { data, error } = await supabase
     .from('contacts')
     .update(body)
     .eq('id', id)
+    .is('deleted_at', null)
     .select()
     .maybeSingle();
 
@@ -34,15 +37,10 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
 
 export const DELETE = withApi(async ({ supabase, params, apiKeyId, teamMemberId }) => {
   const id = (params as any).id;
-  const { data: before } = await supabase.from('contacts').select('*').eq('id', id).maybeSingle();
+  const { data: before } = await supabase.from('contacts').select('*').eq('id', id).is('deleted_at', null).maybeSingle();
   if (!before) throw notFound('Contact');
 
-  const { error } = await supabase
-    .from('contacts')
-    .delete()
-    .eq('id', id);
-
-  if (error) throw error;
+  await trashForApi(supabase, 'contacts', id, teamMemberId, 'Contact');
   logAudit(supabase, { method: 'DELETE', endpoint: `/api/v1/contacts/${id}`, entityType: 'contact', entityId: id, apiKeyId, teamMemberId, beforeSnapshot: before, statusCode: 200 });
   return success({ deleted: true });
 });

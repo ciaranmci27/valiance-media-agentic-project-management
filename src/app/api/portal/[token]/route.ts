@@ -17,6 +17,7 @@ import { buildInvoiceData } from '@/lib/invoice-pdf/buildInvoiceData';
 import { InvoicePdfIntegrityError } from '@/lib/invoice-pdf/resolveInvoicePdfBilling';
 import { recordPortalEvent, getOrCreateSessionId } from '@/lib/portal-analytics';
 import { checkPortalPin, pinFailureResponse } from '@/lib/portal-pin';
+import { projectIsLive } from '@/lib/supabase/trash';
 import { resolveProjectHourlyRate } from '@/lib/supabase/queries';
 
 /**
@@ -109,6 +110,11 @@ export async function GET(
     return NextResponse.json({ error: 'Portal is disabled' }, { status: 404 });
   }
 
+  // A project in Trash has no portal; it comes back when the project is restored.
+  if (!(await projectIsLive(supabase, settings.project_id))) {
+    return NextResponse.json({ error: 'Portal not found' }, { status: 404 });
+  }
+
   const pinCheck = await checkPortalPin({ supabase, request, token, settings });
   if (!pinCheck.ok) {
     // Minimal branding for the PIN screen
@@ -116,6 +122,7 @@ export async function GET(
       .from('projects')
       .select('name')
       .eq('id', settings.project_id)
+      .is('deleted_at', null)
       .single();
 
     return pinFailureResponse(pinCheck, {
@@ -134,6 +141,7 @@ export async function GET(
     .from('projects')
     .select('id, name, color, description, start_date, due_date, status, hourly_tracking, hourly_rate, tax_rate, billing_address, billing_email, invoice_pdf_options')
     .eq('id', settings.project_id)
+    .is('deleted_at', null)
     .single();
 
   if (!project) {
@@ -155,6 +163,7 @@ export async function GET(
       .eq('entity_type', 'project')
       .eq('entity_id', settings.project_id)
       .eq('visibility', 'external')
+      .is('deleted_at', null)
       .order('created_at', { ascending: false });
 
     files = (entityFiles || []).map((f: any) => ({
@@ -176,6 +185,8 @@ export async function GET(
       .select('*, invoice_time_entry_allocations(*), invoice_payments(*)')
       .eq('project_id', settings.project_id)
       .neq('status', 'draft')
+      .is('deleted_at', null)
+      .is('invoice_payments.deleted_at', null)
       .order('date', { ascending: false });
     allInvoices = (invoiceData || []).map((row) => ({
       ...row,
@@ -206,6 +217,7 @@ export async function GET(
       .select('id, start_time, end_time, segments, description, member_id, hourly_rate, work_type, approval_status')
       .eq('project_id', settings.project_id)
       .not('end_time', 'is', null)
+      .is('deleted_at', null)
       .order('start_time', { ascending: false });
 
     portalTimeEntries = (stoppedEntries ?? []) as unknown as TimeEntry[];
@@ -260,6 +272,7 @@ export async function GET(
       .select('id, label, category, created_at, updated_at')
       .eq('project_id', settings.project_id)
       .eq('submitted_by_client', true)
+      .is('deleted_at', null)
       .order('created_at', { ascending: false });
     credentials_submitted = (creds || []).map((c: any) => ({
       id: c.id,
@@ -349,6 +362,7 @@ export async function GET(
       .from('portal_updates')
       .select('id, title, content, update_type, author_id, pinned, created_at')
       .eq('project_id', settings.project_id)
+      .is('deleted_at', null)
       .order('created_at', { ascending: false });
 
     if (portalUpdates && portalUpdates.length > 0) {
@@ -365,6 +379,7 @@ export async function GET(
         .from('portal_update_attachments')
         .select('id, update_id, name, file_url, file_size, mime_type')
         .in('update_id', updateIds)
+        .is('deleted_at', null)
         .order('created_at', { ascending: true });
 
       const attachmentMap = new Map<string, typeof allAttachments>();

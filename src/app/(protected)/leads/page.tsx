@@ -80,7 +80,7 @@ export default function LeadsPage() {
   const executeDelete = async () => {
     if (!deletingLeadId) return;
     const ok = await deleteLead(deletingLeadId);
-    if (ok) toast('success', 'Lead deleted');
+    if (ok) toast('success', 'Lead moved to Trash');
   };
 
   const handleCloseForm = () => {
@@ -308,10 +308,10 @@ export default function LeadsPage() {
         isOpen={!!deletingLeadId}
         onClose={() => setDeletingLeadId(null)}
         onConfirm={executeDelete}
-        title="Delete Lead"
-        message="This will permanently delete this lead. This action cannot be undone."
-        confirmLabel="Delete"
+        title="Move lead to Trash?"
+        message="The lead goes to Trash with its interactions and proposals."
         variant="danger"
+        trash
       />
     </div>
   );

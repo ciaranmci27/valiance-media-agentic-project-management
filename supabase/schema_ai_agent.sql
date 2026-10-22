@@ -15,11 +15,12 @@ ALTER TABLE public.api_keys
 CREATE INDEX IF NOT EXISTS idx_api_keys_team_member_id ON public.api_keys(team_member_id);
 
 -- 1c. Add 'suggestion', 'goal', and 'question' to team_member_notifications entity_type
+-- (the full current list, same as schema.sql: 'invoice' and 'reminder' came later).
 ALTER TABLE public.team_member_notifications
   DROP CONSTRAINT IF EXISTS team_member_notifications_entity_type_check;
 ALTER TABLE public.team_member_notifications
   ADD CONSTRAINT team_member_notifications_entity_type_check
-    CHECK (entity_type IN ('task', 'project', 'lead', 'comment', 'member', 'contact', 'suggestion', 'goal', 'question'));
+    CHECK (entity_type IN ('task', 'project', 'lead', 'comment', 'member', 'contact', 'suggestion', 'goal', 'question', 'invoice', 'reminder'));
 
 -- ============================================================
 -- 2. PROJECT GOALS
@@ -357,7 +358,8 @@ CREATE TABLE public.api_audit_log (
   after_snapshot jsonb,
   status_code integer NOT NULL,
   error text,
-  via text NOT NULL DEFAULT 'rest' CHECK (via IN ('rest', 'mcp'))
+  -- app: a Trash move or restore in the app, written by the database.
+  via text NOT NULL DEFAULT 'rest' CHECK (via IN ('rest', 'mcp', 'app'))
 );
 
 CREATE INDEX idx_api_audit_log_timestamp ON public.api_audit_log(timestamp DESC);
@@ -398,3 +400,15 @@ ALTER TABLE public.task_suggestions
 ALTER TABLE public.projects
   ADD COLUMN IF NOT EXISTS deployment_policy text NOT NULL DEFAULT 'production'
     CHECK (deployment_policy IN ('playground', 'production'));
+
+-- ------------------------------------------------------------
+-- Soft delete (migration 20261022035227_soft_delete_records.sql):
+-- what belongs to a project in Trash is out of reach with it.
+-- project_is_live() is defined in schema.sql.
+-- ------------------------------------------------------------
+CREATE POLICY project_goals_parent_live ON public.project_goals AS RESTRICTIVE FOR ALL TO authenticated
+  USING (public.project_is_live(project_id));
+CREATE POLICY task_suggestions_parent_live ON public.task_suggestions AS RESTRICTIVE FOR ALL TO authenticated
+  USING (public.project_is_live(project_id));
+CREATE POLICY agent_activities_parent_live ON public.agent_activities AS RESTRICTIVE FOR ALL TO authenticated
+  USING (project_id IS NULL OR public.project_is_live(project_id));

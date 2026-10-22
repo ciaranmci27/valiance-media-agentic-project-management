@@ -1,7 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, useRef, ReactNode, type SetStateAction } from 'react';
-import { AiReadiness, Project, Task, TeamMember, FilterState, ViewMode, Subtask, AcceptanceCriterion, Comment, Contact, ContactEmail, ContactEmailDraft, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, Activity, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, EntityFileType, ApiKey, NotificationCategory, ProjectGoal, TaskSuggestion, AgentActivity, TimeEntry, ProjectCredentialListItem, CredentialPayload, CredentialCategory, ProjectInvoice, InvoiceStatus, InvoicePaymentMethod, BusinessSettings, EmployeeEarningsData, Reminder, DEFAULT_SECTION_ORDER } from './types';
+import { AiReadiness, Project, Task, TeamMember, FilterState, ViewMode, Subtask, AcceptanceCriterion, Comment, Contact, ContactEmail, ContactEmailDraft, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, Activity, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, EntityFileType, ApiKey, NotificationCategory, ProjectGoal, TaskSuggestion, AgentActivity, TimeEntry, ProjectCredentialListItem, CredentialPayload, CredentialCategory, ProjectInvoice, InvoicePaymentMethod, BusinessSettings, EmployeeEarningsData, Reminder, TrashItem, DEFAULT_SECTION_ORDER } from './types';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
@@ -32,7 +32,6 @@ import {
   removeComment,
   fetchTeamMembers,
   insertTeamMember,
-  removeTeamMember,
   fetchContacts,
   fetchContactEmails,
   insertContactEmail,
@@ -89,6 +88,7 @@ import {
   insertReminder as insertReminderQuery,
   patchReminder as patchReminderQuery,
   deleteReminder as deleteReminderQuery,
+  fetchTrash,
   type ReminderFields,
   insertGoal as insertGoalQuery,
   patchGoal as patchGoalQuery,
@@ -120,6 +120,13 @@ import { loadRetainerFinanceInputs } from '@/lib/finance/use-retainer-finance';
 import { rollbackScope } from '@/lib/optimistic';
 import { INBOX_UPDATED_EVENT } from '@/lib/inbound-email/inbox-types';
 import { parsePaymentRuleError } from '@/lib/invoice-payments';
+import { restoreFromTrash, TRASH_TABLES, TrashError, type TrashTable } from '@/lib/supabase/trash';
+
+// A refused move to Trash says why (time on an invoice, payments from an
+// accounting connection, no permission); anything else gets the fallback.
+function trashFailure(error: unknown, fallback: string): string {
+  return error instanceof TrashError && (error.reason === 'blocked' || error.reason === 'forbidden') ? error.message : fallback;
+}
 
 // Best-effort nudge so the webhook dispatcher runs right after an invoice
 // change, delivering the event immediately. The DB trigger already enqueued
@@ -291,7 +298,7 @@ interface AppContextType {
   addProject: (project: Omit<Project, 'id' | 'created_at' | 'updated_at'>) => Promise<Project | undefined>;
   /** Resolves true once saved; false after a failure (already toasted and rolled back). */
   updateProject: (id: string, updates: Partial<Project>) => Promise<boolean>;
-  deleteProject: (id: string) => void;
+  deleteProject: (id: string) => Promise<boolean>;
 
   // Task CRUD
   /** Resolves true once the task is saved; false after a failure (already toasted and rolled back). */
@@ -416,6 +423,10 @@ interface AppContextType {
   addReminder: (fields: ReminderFields) => Promise<Reminder | undefined>;
   updateReminder: (id: string, updates: Partial<ReminderFields>) => Promise<void>;
   deleteReminder: (id: string) => Promise<void>;
+  /** Everything in Trash the member may restore, newest first. */
+  loadTrash: () => Promise<TrashItem[]>;
+  /** Brings a record back from Trash; false after a refusal (already toasted with the reason). */
+  restoreRecord: (recordType: string, id: string) => Promise<boolean>;
 
   // Task Suggestion review actions
   approveSuggestion: (id: string, taskOverrides: { priority?: string; assigned_to?: string | null; due_date?: string | null; project_id?: string; task_type?: string | null; ai_readiness?: AiReadiness | null }, reviewedBy: string) => Promise<boolean>;
@@ -615,6 +626,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   // Helper: get actor name for notification messages
+  // Demo mode has no database, so Trash lives here: each delete records what
+  // it removed and how to put it back, and Restore runs that.
+  // A ref, so the Trash page reads the list as it is right after a restore.
+  const demoTrash = useRef<{ item: TrashItem; putBack: () => void }[]>([]);
+  const trashInDemo = (recordType: string, id: string, label: string, context: string | null, projectId: string | null, putBack: () => void) => {
+    demoTrash.current = [{
+      item: {
+        record_type: recordType, id, label, context, project_id: projectId,
+        deleted_at: new Date().toISOString(), deleted_by: teamMemberId ?? null, deleted_by_name: actorName(), blocker: null,
+      },
+      putBack,
+    }, ...demoTrash.current.filter(entry => entry.item.id !== id)];
+  };
+  const projectName = (projectId: string | null | undefined) => projects.find(p => p.id === projectId)?.name ?? null;
+
   const actorName = () => {
     const actor = team.find(m => m.id === teamMemberId);
     return actor?.name || 'Someone';
@@ -1256,7 +1282,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const deleteProject = async (id: string) => {
+  const deleteProject = async (id: string): Promise<boolean> => {
     const prev = projects;
     const prevTasks = tasks;
     const prevPc = projectContacts;
@@ -1264,22 +1290,32 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setProjects(p => p.filter(proj => proj.id !== id));
     setTasks(t => t.filter(task => task.project_id !== id));
     setProjectContacts(pc => pc.filter(p => p.project_id !== id));
-    if (skipSupabase) return;
+    if (skipSupabase) {
+      trashInDemo('projects', id, deletedProject?.name ?? 'Project', null, id, () => {
+        setProjects(rollbackScope(prev, proj => proj.id === id));
+        setTasks(rollbackScope(prevTasks, task => task.project_id === id));
+        setProjectContacts(rollbackScope(prevPc, pc => pc.project_id === id));
+      });
+      return true;
+    }
 
     try {
       const response = await fetch(`/api/workspace/projects?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
       if (!response.ok) {
         const payload = await response.json();
+        if (response.status === 403 || response.status === 409) throw new TrashError(response.status === 403 ? 'forbidden' : 'blocked', payload.error);
         throw new Error(payload.error || 'Failed to delete project');
       }
       if (deletedProject) {
-        notify(allMemberIds(), `Project "${deletedProject.name}" was archived`, `${actorName()} archived the project.`, '/projects', 'project', id, 'project_deleted');
+        notify(allMemberIds(), `Project "${deletedProject.name}" was moved to Trash`, `${actorName()} moved the project to Trash.`, '/projects', 'project', id, 'project_deleted');
       }
+      return true;
     } catch (err) {
       setProjects(rollbackScope(prev, proj => proj.id === id));
       setTasks(rollbackScope(prevTasks, task => task.project_id === id));
       setProjectContacts(rollbackScope(prevPc, pc => pc.project_id === id));
-      toast('error', 'Failed to delete project');
+      toast('error', trashFailure(err, 'Failed to delete project'));
+      return false;
     }
   };
 
@@ -1415,17 +1451,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const prev = tasks;
     const deletedTask = tasks.find(t => t.id === id);
     setTasks(t => t.filter(task => task.id !== id));
-    if (skipSupabase) return true;
+    if (skipSupabase) {
+      trashInDemo('tasks', id, deletedTask?.title ?? 'Task', projectName(deletedTask?.project_id), deletedTask?.project_id ?? null,
+        () => setTasks(rollbackScope(prev, task => task.id === id)));
+      return true;
+    }
 
     try {
       await removeTask(supabase, id);
       if (deletedTask) {
-        notify(allMemberIds(), `Task "${deletedTask.title}" was deleted`, `${actorName()} deleted a task.`, deletedTask.project_id ? `/projects/${deletedTask.project_id}` : null, 'task', id, 'task_deleted');
+        notify(allMemberIds(), `Task "${deletedTask.title}" was moved to Trash`, `${actorName()} moved a task to Trash.`, deletedTask.project_id ? `/projects/${deletedTask.project_id}` : null, 'task', id, 'task_deleted');
       }
       return true;
-    } catch {
+    } catch (err) {
       setTasks(rollbackScope(prev, task => task.id === id));
-      if (!options?.silent) toast('error', 'Failed to delete task');
+      if (!options?.silent) toast('error', trashFailure(err, 'Failed to delete task'));
       return false;
     }
   };
@@ -1546,7 +1586,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
         ? { ...task, subtasks: task.subtasks.filter(s => s.id !== subtaskId), updated_at: new Date().toISOString() }
         : task
     ));
-    if (skipSupabase) return;
+    if (skipSupabase) {
+      const parent = prev.find(t => t.id === taskId);
+      trashInDemo('task_subtasks', subtaskId, parent?.subtasks.find(s => s.id === subtaskId)?.title ?? 'Subtask', parent?.title ?? null,
+        parent?.project_id ?? null, () => setTasks(rollbackScope(prev, task => task.id === taskId)));
+      return;
+    }
 
     try {
       await removeSubtask(supabase, subtaskId);
@@ -1734,13 +1779,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
         ? { ...task, comments: task.comments.filter(c => c.id !== commentId), updated_at: new Date().toISOString() }
         : task
     ));
-    if (skipSupabase) return;
+    if (skipSupabase) {
+      const parent = prev.find(t => t.id === taskId);
+      trashInDemo('task_comments', commentId, (parent?.comments.find(c => c.id === commentId)?.text ?? 'Comment').slice(0, 120),
+        parent?.title ?? null, parent?.project_id ?? null, () => setTasks(rollbackScope(prev, task => task.id === taskId)));
+      return;
+    }
 
     try {
       await removeComment(supabase, commentId);
       const task = tasks.find(t => t.id === taskId);
       if (task) {
-        notify(allMemberIds(), `Comment removed on "${task.title}"`, `${actorName()} deleted a comment.`, `/projects/${task.project_id}`, 'task', taskId, 'task_comments');
+        notify(allMemberIds(), `Comment removed on "${task.title}"`, `${actorName()} moved a comment to Trash.`, `/projects/${task.project_id}`, 'task', taskId, 'task_comments');
       }
     } catch (err) {
       setTasks(rollbackScope(prev, task => task.id === taskId));
@@ -1798,11 +1848,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const deleteTeamMember = async (id: string) => {
     const prev = team;
     const removedMember = team.find(m => m.id === id);
-    setTeam(t => t.filter(m => m.id !== id));
+    // Members are suspended, never deleted: they keep their history.
+    setTeam(t => t.map(m => (m.id === id ? { ...m, status: 'suspended' } : m)));
     if (skipSupabase) return;
 
     try {
-      await removeTeamMember(supabase, id);
+      // The same route the Team page uses to suspend, with its permission checks.
+      const response = await fetch(`/api/workspace/team-members/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'suspended' }),
+      });
+      if (!response.ok) {
+        const payload = await response.json();
+        throw new Error(payload.error || 'Failed to remove team member');
+      }
       if (removedMember) {
         notify(allMemberIds(), `${removedMember.name} was removed from the team`, `${actorName()} removed a team member.`, '/team', 'member', id, 'team_members');
       }
@@ -1881,12 +1941,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const prev = contacts;
     const deletedContact = contacts.find(c => c.id === id);
     setContacts(c => c.filter(contact => contact.id !== id));
-    if (skipSupabase) return;
+    if (skipSupabase) {
+      trashInDemo('contacts', id, deletedContact?.name ?? 'Contact', null, null, () => setContacts(rollbackScope(prev, contact => contact.id === id)));
+      return;
+    }
 
     try {
       await removeContact(supabase, id);
       if (deletedContact) {
-        notify(allMemberIds(), `Contact "${deletedContact.name}" was deleted`, `${actorName()} removed a contact.`, null, 'contact', id, 'contact_deleted');
+        notify(allMemberIds(), `Contact "${deletedContact.name}" was moved to Trash`, `${actorName()} moved a contact to Trash.`, null, 'contact', id, 'contact_deleted');
       }
     } catch (err) {
       setContacts(rollbackScope(prev, contact => contact.id === id));
@@ -2208,12 +2271,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setLeadProposals(p => p.filter(prop => prop.lead_id !== id));
     setLeadFields(f => f.filter(field => field.lead_id !== id));
     setLeadContacts(lc => lc.filter(c => c.lead_id !== id));
-    if (skipSupabase) return true;
+    if (skipSupabase) {
+      trashInDemo('leads', id, deletedLead?.name ?? 'Lead', null, null, () => {
+        setLeads(rollbackScope(prev, lead => lead.id === id));
+        setLeadInteractions(rollbackScope(prevInteractions, int => int.lead_id === id));
+        setLeadProposals(rollbackScope(prevProposals, prop => prop.lead_id === id));
+        setLeadFields(rollbackScope(prevFields, field => field.lead_id === id));
+        setLeadContacts(rollbackScope(prevLeadContacts, c => c.lead_id === id));
+      });
+      return true;
+    }
 
     try {
       await removeLead(supabase, id);
       if (deletedLead) {
-        notify(allMemberIds(), `Lead "${deletedLead.name}" was deleted`, `${actorName()} removed a lead.`, null, 'lead', id, 'lead_deleted');
+        notify(allMemberIds(), `Lead "${deletedLead.name}" was moved to Trash`, `${actorName()} moved a lead to Trash.`, null, 'lead', id, 'lead_deleted');
       }
       return true;
     } catch (err) {
@@ -2389,14 +2461,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const prev = leadInteractions;
     const deletedInteraction = leadInteractions.find(i => i.id === id);
     setLeadInteractions(i => i.filter(int => int.id !== id));
-    if (skipSupabase) return true;
+    if (skipSupabase) {
+      trashInDemo('lead_interactions', id, deletedInteraction?.title ?? 'Interaction',
+        leads.find(l => l.id === deletedInteraction?.lead_id)?.name ?? null, null, () => setLeadInteractions(rollbackScope(prev, int => int.id === id)));
+      return true;
+    }
 
     try {
       await removeLeadInteraction(supabase, id);
       if (deletedInteraction) {
         const lead = leads.find(l => l.id === deletedInteraction.lead_id);
         if (lead) {
-          notify(allMemberIds(), `Lead "${lead.name}" interaction removed`, `${actorName()} deleted an interaction.`, `/leads/${lead.id}`, 'lead', lead.id, 'lead_interactions');
+          notify(allMemberIds(), `Lead "${lead.name}" interaction removed`, `${actorName()} moved an interaction to Trash.`, `/leads/${lead.id}`, 'lead', lead.id, 'lead_interactions');
         }
       }
       return true;
@@ -2462,14 +2538,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const prev = leadProposals;
     const deletedProposal = leadProposals.find(p => p.id === id);
     setLeadProposals(p => p.filter(prop => prop.id !== id));
-    if (skipSupabase) return true;
+    if (skipSupabase) {
+      trashInDemo('lead_proposals', id, deletedProposal?.title ?? 'Proposal',
+        leads.find(l => l.id === deletedProposal?.lead_id)?.name ?? null, null, () => setLeadProposals(rollbackScope(prev, prop => prop.id === id)));
+      return true;
+    }
 
     try {
       await removeLeadProposal(supabase, id);
       if (deletedProposal) {
         const lead = leads.find(l => l.id === deletedProposal.lead_id);
         if (lead) {
-          notify(allMemberIds(), `Lead "${lead.name}" proposal removed`, `${actorName()} deleted a proposal.`, `/leads/${lead.id}`, 'lead', lead.id, 'lead_proposals');
+          notify(allMemberIds(), `Lead "${lead.name}" proposal removed`, `${actorName()} moved a proposal to Trash.`, `/leads/${lead.id}`, 'lead', lead.id, 'lead_proposals');
         }
       }
       return true;
@@ -2534,7 +2614,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const deleteLeadFieldAction = async (id: string, leadId: string) => {
     const prev = leadFields;
     setLeadFields(f => f.filter(field => field.id !== id));
-    if (skipSupabase) return;
+    if (skipSupabase) {
+      const field = prev.find(f => f.id === id);
+      trashInDemo('lead_fields', id, field ? `${field.field_key}: ${field.value}` : 'Lead field', leads.find(l => l.id === leadId)?.name ?? null, null,
+        () => setLeadFields(rollbackScope(prev, f => f.id === id)));
+      return;
+    }
 
     try {
       await removeLeadFieldQuery(supabase, id);
@@ -2928,12 +3013,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const existing = portalUpdates.find(u => u.id === id);
     setPortalUpdates(u => u.filter(upd => upd.id !== id));
     setPortalUpdateAttachments(a => a.filter(att => att.update_id !== id));
-    if (skipSupabase) return;
+    if (skipSupabase) {
+      trashInDemo('portal_updates', id, existing?.title ?? 'Portal update', projectName(existing?.project_id), existing?.project_id ?? null, () => {
+        setPortalUpdates(rollbackScope(prev, upd => upd.id === id));
+        setPortalUpdateAttachments(rollbackScope(prevAttachments, att => att.update_id === id));
+      });
+      return;
+    }
 
     try {
       await removePortalUpdateQuery(supabase, id);
       if (existing) {
-        notify(allMemberIds(), 'Portal update deleted', `${actorName()} removed a portal update.`, `/projects/${existing.project_id}`, 'project', existing.project_id, 'portal_updates');
+        notify(allMemberIds(), 'Portal update moved to Trash', `${actorName()} moved a portal update to Trash.`, `/projects/${existing.project_id}`, 'project', existing.project_id, 'portal_updates');
       }
     } catch (err) {
       setPortalUpdates(rollbackScope(prev, upd => upd.id === id));
@@ -2946,7 +3037,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const prev = portalUpdateAttachments;
     const existing = portalUpdateAttachments.find(a => a.id === id);
     setPortalUpdateAttachments(a => a.filter(att => att.id !== id));
-    if (skipSupabase) return;
+    if (skipSupabase) {
+      trashInDemo('portal_update_attachments', id, existing?.name ?? 'Attachment', portalUpdates.find(u => u.id === existing?.update_id)?.title ?? null, null,
+        () => setPortalUpdateAttachments(rollbackScope(prev, att => att.id === id)));
+      return;
+    }
 
     try {
       await removePortalUpdateAttachmentQuery(supabase, id);
@@ -3038,14 +3133,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const prev = projectCredentials;
     const existing = projectCredentials.find(c => c.id === id);
     setProjectCredentials(creds => creds.filter(c => c.id !== id));
-    if (skipSupabase) return;
+    if (skipSupabase) {
+      trashInDemo('project_credentials', id, existing?.label ?? 'Credential', projectName(existing?.project_id), existing?.project_id ?? null,
+        () => setProjectCredentials(rollbackScope(prev, c => c.id === id)));
+      return;
+    }
 
     try {
       const res = await fetch(`/api/credentials/${id}`, { method: 'DELETE' });
       if (!res.ok) throw new Error();
       if (existing) {
         const project = projects.find(p => p.id === existing.project_id);
-        notify(allMemberIds(), 'Credential deleted', `${actorName()} removed a credential from "${project?.name || 'project'}".`, `/projects/${existing.project_id}`, 'project', existing.project_id, 'portal_settings');
+        notify(allMemberIds(), 'Credential moved to Trash', `${actorName()} moved a credential on "${project?.name || 'project'}" to Trash.`, `/projects/${existing.project_id}`, 'project', existing.project_id, 'portal_settings');
       }
     } catch {
       setProjectCredentials(rollbackScope(prev, c => c.id === id));
@@ -3137,13 +3236,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const prev = entityFiles;
     const existing = entityFiles.find(f => f.id === id);
     setEntityFiles(f => f.filter(file => file.id !== id));
-    if (skipSupabase) return;
+    if (skipSupabase) {
+      trashInDemo('entity_files', id, existing?.name ?? 'File', existing?.entity_type === 'project' ? projectName(existing.entity_id) : null,
+        existing?.entity_type === 'project' ? existing.entity_id : null, () => setEntityFiles(rollbackScope(prev, file => file.id === id)));
+      return;
+    }
 
     try {
       await removeEntityFileQuery(supabase, id);
       if (existing) {
         const link = existing.entity_type === 'project' ? `/projects/${existing.entity_id}` : existing.entity_type === 'lead' ? `/leads/${existing.entity_id}` : `/contacts/${existing.entity_id}`;
-        notify(allMemberIds(), `File removed from ${existing.entity_type}`, `${actorName()} deleted an attachment.`, link, existing.entity_type, existing.entity_id, 'entity_files');
+        notify(allMemberIds(), `File removed from ${existing.entity_type}`, `${actorName()} moved an attachment to Trash.`, link, existing.entity_type, existing.entity_id, 'entity_files');
       }
     } catch (err) {
       setEntityFiles(rollbackScope(prev, file => file.id === id));
@@ -3290,7 +3393,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const deleteTimeEntry = async (id: string) => {
     const existing = timeEntries.find(te => te.id === id);
     if (skipSupabase) {
+      const prev = timeEntries;
       setTimeEntries(te => te.filter(entry => entry.id !== id));
+      trashInDemo('project_time_entries', id, existing?.description?.trim() || 'Time entry', projectName(existing?.project_id), existing?.project_id ?? null,
+        () => setTimeEntries(rollbackScope(prev, entry => entry.id === id)));
       return true;
     }
 
@@ -3298,16 +3404,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const response = await fetch(`/api/workspace/time-entries?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
       if (!response.ok) {
         const payload = await response.json();
+        if (response.status === 403 || response.status === 409) throw new TrashError(response.status === 403 ? 'forbidden' : 'blocked', payload.error);
         throw new Error(payload.error || 'Failed to delete time entry');
       }
       setTimeEntries(te => te.filter(entry => entry.id !== id));
       if (existing) {
           const project = projects.find(p => p.id === existing.project_id);
-          notify(allMemberIds(), `Time entry deleted on "${project?.name || 'project'}"`, `${actorName()} removed a time entry.`, `/projects/${existing.project_id}`, 'project', existing.project_id, 'time_entries');
+          notify(allMemberIds(), `Time entry moved to Trash on "${project?.name || 'project'}"`, `${actorName()} moved a time entry to Trash.`, `/projects/${existing.project_id}`, 'project', existing.project_id, 'time_entries');
       }
       return true;
     } catch (err) {
-      toast('error', 'Failed to delete time entry');
+      toast('error', trashFailure(err, 'Failed to delete time entry'));
       return false;
     }
   };
@@ -3971,10 +4078,52 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const loadTrash = async (): Promise<TrashItem[]> => {
+    if (skipSupabase) {
+      // A record whose project is in Trash too comes back after its project.
+      const trashedProjects = new Set(demoTrash.current.filter(entry => entry.item.record_type === 'projects').map(entry => entry.item.id));
+      return demoTrash.current.map(({ item }) => ({
+        ...item,
+        blocker: item.record_type !== 'projects' && item.project_id && trashedProjects.has(item.project_id)
+          ? 'Restore the project it belongs to first.' : null,
+      }));
+    }
+    return fetchTrash(supabase);
+  };
+
+  const restoreRecord = async (recordType: string, id: string): Promise<boolean> => {
+    if (!(TRASH_TABLES as readonly string[]).includes(recordType)) return false;
+    if (skipSupabase) {
+      const entry = demoTrash.current.find(e => e.item.record_type === recordType && e.item.id === id);
+      if (!entry) return false;
+      entry.putBack();
+      demoTrash.current = demoTrash.current.filter(e => e !== entry);
+      return true;
+    }
+    try {
+      await restoreFromTrash(supabase, recordType as TrashTable, id);
+    } catch (err) {
+      toast('error', err instanceof TrashError && err.reason !== 'invalid' ? err.message : 'Failed to restore');
+      return false;
+    }
+    // Live sync would catch up on its own; refetch now so it shows at once. A
+    // project brings back everything it owns, so it refreshes every slice.
+    const slices = recordType === 'projects'
+      ? ALL_REALTIME_SLICES
+      : [REALTIME_TABLE_SLICES[recordType === 'invoice_payments' ? 'project_invoices' : recordType]].filter(Boolean);
+    await Promise.all(slices.map(slice => refreshSlice(slice)));
+    return true;
+  };
+
   const deleteReminderAction = async (id: string) => {
     const before = reminders;
     setReminders(prev => prev.filter(r => r.id !== id));
-    if (skipSupabase) return;
+    if (skipSupabase) {
+      const reminder = before.find(r => r.id === id);
+      trashInDemo('reminders', id, reminder?.title ?? 'Reminder', projectName(reminder?.project_id), reminder?.project_id ?? null,
+        () => setReminders(rollbackScope(before, r => r.id === id)));
+      return;
+    }
     try {
       await deleteReminderQuery(supabase, id);
     } catch (err) {
@@ -4078,26 +4227,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const prev = projectInvoices;
     const existing = projectInvoices.find(i => i.id === id);
     setProjectInvoices(invoices => invoices.filter(i => i.id !== id));
-    if (skipSupabase) return;
+    if (skipSupabase) {
+      trashInDemo('project_invoices', id, existing?.invoice_number ?? 'Invoice', projectName(existing?.project_id), existing?.project_id ?? null,
+        () => setProjectInvoices(rollbackScope(prev, i => i.id === id)));
+      return;
+    }
 
     try {
-      // Remove file from storage if present
-      if (existing?.file_url) {
-        const path = existing.file_url.split('/entity-files/')[1];
-        if (path) {
-          supabase.storage.from('entity-files').remove([decodeURIComponent(path)]).then(() => {}, () => {});
-        }
-      }
+      // The invoice keeps its attached file in Trash, so a restore brings it back.
       await removeProjectInvoiceQuery(supabase, id);
       if (existing) {
         const project = projects.find(p => p.id === existing.project_id);
-        notify(allMemberIds(), `Invoice deleted from "${project?.name || 'project'}"`, `${actorName()} removed invoice ${existing.invoice_number}.`, `/projects/${existing.project_id}`, 'project', existing.project_id, 'portal_settings');
+        notify(allMemberIds(), `Invoice moved to Trash on "${project?.name || 'project'}"`, `${actorName()} moved invoice ${existing.invoice_number} to Trash.`, `/projects/${existing.project_id}`, 'project', existing.project_id, 'portal_settings');
         // Deleting a paid invoice enqueues an invoice.deleted webhook event.
         if (existing.status === 'paid') kickWebhookDispatch();
       }
     } catch (error) {
       setProjectInvoices(rollbackScope(prev, i => i.id === id));
-      toast('error', parsePaymentRuleError((error as { message?: string })?.message)?.text ?? 'Failed to delete invoice');
+      toast('error', trashFailure(error, 'Failed to delete invoice'));
     }
   };
 
@@ -4290,6 +4437,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       addReminder: addReminderAction,
       updateReminder: updateReminderAction,
       deleteReminder: deleteReminderAction,
+      loadTrash,
+      restoreRecord,
       approveSuggestion: approveSuggestionAction,
     approveSuggestionBundle: approveSuggestionBundleAction,
     bundleSuggestions: bundleSuggestionsAction,

@@ -2,8 +2,9 @@ import { after } from 'next/server';
 import { withApi } from '@/lib/api/middleware';
 import { success } from '@/lib/api/response';
 import { updateInvoiceSchema } from '@/lib/schemas';
-import { badRequest, notFound } from '@/lib/api/errors';
+import { ApiError, badRequest, notFound } from '@/lib/api/errors';
 import { logAudit } from '@/lib/api/audit';
+import { trashForApi } from '@/lib/api/trash';
 import { runDispatch } from '@/lib/webhooks/dispatch';
 import { paymentRuleError } from '@/lib/api/invoice-payments';
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -21,6 +22,7 @@ async function fetchInvoice(supabase: SupabaseClient, projectId: string, invoice
     .select('*, invoice_time_entry_allocations(*)')
     .eq('id', invoiceId)
     .eq('project_id', projectId)
+    .is('deleted_at', null)
     .maybeSingle();
   if (error) throw error;
   if (!data) throw notFound('Invoice');
@@ -80,14 +82,16 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
 
 export const DELETE = withApi(async ({ supabase, params, apiKeyId, teamMemberId }) => {
   const before = await fetchInvoice(supabase, params.id, params.invoiceId);
-  const { error } = await supabase
-    .from('project_invoices')
-    .delete()
-    .eq('id', params.invoiceId)
-    .eq('project_id', params.id);
-  const ruleError = paymentRuleError(error);
-  if (ruleError) throw ruleError;
-  if (error) throw error;
+  try {
+    await trashForApi(supabase, 'project_invoices', params.invoiceId, teamMemberId, 'Invoice');
+  } catch (error) {
+    // The only rule that keeps an invoice out of Trash: payments recorded by an
+    // accounting connection pin it. It answers with its payment code, as before.
+    if (error instanceof ApiError && error.statusCode === 409) {
+      throw new ApiError(409, 'PAYMENT_RECORDED_ELSEWHERE', error.message);
+    }
+    throw error;
+  }
 
   logAudit(supabase, {
     method: 'DELETE',

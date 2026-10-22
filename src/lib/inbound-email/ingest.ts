@@ -7,6 +7,7 @@ import { resolveMapping, threadProjectDecision } from './mapping';
 import type { InboundEmail, InboundFile } from './normalized';
 import { prepareEmail, readableBody, type PreparedEmail } from './prepare';
 import { chooseThread, referencedIds, THREAD_SUBJECT_WINDOW_DAYS, type SubjectThread } from './threading';
+import { trashedProjectIds } from '@/lib/supabase/trash';
 
 /**
  * The provider-agnostic ingestion core. A transport hands it one received
@@ -152,7 +153,12 @@ async function matchInboxes(supabase: SupabaseClient, prepared: PreparedEmail): 
     existing.position = Math.min(existing.position, position);
     if (!existing.target.projectAddress && projectAddress) existing.target.projectAddress = projectAddress;
   };
-  for (const row of projectAddresses) reach(inboxes.get(row.inbox_id), rank(row.routing_address), row);
+  // Mail to the address of a project in Trash still lands in the inbox (never
+  // lost), just not filed to that project.
+  const trashed = projectAddresses.length ? new Set(await trashedProjectIds(supabase)) : new Set<string>();
+  for (const row of projectAddresses) {
+    reach(inboxes.get(row.inbox_id), rank(row.routing_address), trashed.has(row.project_id) ? null : row);
+  }
   for (const inbox of (direct.data ?? []) as InboxRow[]) reach(inbox, rank(inbox.routing_address), null);
   return [...targets.values()].sort((a, b) => a.position - b.position).map((entry) => entry.target);
 }
@@ -497,7 +503,7 @@ async function finalize(
 
   // Mapping: every contact that has a mapping address, its domain, and the exact address on a project.
   const { data: contactRows, error: contactError } = people.length
-    ? await supabase.from('contact_emails').select('contact_id, email').in('email', people)
+    ? await supabase.from('contact_emails').select('contact_id, email, contact:contacts!inner(id)').in('email', people).is('contact.deleted_at', null)
     : { data: [], error: null };
   if (contactError) throw contactError;
   const contactsByAddress = new Map<string, Set<string>>();
@@ -526,9 +532,9 @@ async function finalize(
   if (senderProjects.error) throw senderProjects.error;
   const projectIdsOf = (result: { data: unknown }) => ((result.data ?? []) as { project_id: string }[]).map((row) => row.project_id);
   const everyProject = [...new Set([...projectIdsOf(contactProjects), ...projectIdsOf(domainProjects), ...projectIdsOf(senderProjects)])];
-  // Archived projects take no new mail.
+  // Archived projects, and projects in Trash, take no new mail.
   const { data: liveProjects, error: projectError } = everyProject.length
-    ? await supabase.from('projects').select('id, status, archived_at').in('id', everyProject)
+    ? await supabase.from('projects').select('id, status, archived_at').in('id', everyProject).is('deleted_at', null)
     : { data: [], error: null };
   if (projectError) throw projectError;
   const live = new Set(((liveProjects ?? []) as { id: string; status: string; archived_at: string | null }[])

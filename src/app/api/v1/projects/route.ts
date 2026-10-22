@@ -15,7 +15,9 @@ export const GET = withApi(async ({ supabase, searchParams, access }) => {
   const status = searchParams.get('status');
   const includeArchived = searchParams.get('include_archived') === 'true';
 
-  let query = supabase.from('projects').select('*, project_members(member_id)', { count: 'exact' });
+  // Archived projects are finished but readable; projects in Trash are deleted
+  // and never listed, whatever include_archived says.
+  let query = supabase.from('projects').select('*, project_members(member_id)', { count: 'exact' }).is('deleted_at', null);
   if (!accessAllows(access, 'projects.read_all', 'api')) {
     if (access.project_ids.length === 0) return paginated([], { page, limit, total: 0 });
     query = query.in('id', access.project_ids);

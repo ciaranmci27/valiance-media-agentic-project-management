@@ -278,6 +278,21 @@ export interface Task {
  * task or project; standalone ones only by their owner. A task moved to done
  * closes its open reminders (closed_by_task) and reopens them if it moves back.
  */
+/** One record in Trash, as list_trash() returns it. */
+export interface TrashItem {
+  record_type: string;
+  id: string;
+  label: string;
+  /** Where it lived: its project, task or lead, when it had one. */
+  context: string | null;
+  project_id: string | null;
+  deleted_at: string;
+  deleted_by: string | null;
+  deleted_by_name: string | null;
+  /** What must happen before it can come back; null when nothing blocks it. */
+  blocker: string | null;
+}
+
 export interface Reminder {
   id: string;
   title: string;

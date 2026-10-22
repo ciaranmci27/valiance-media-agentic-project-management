@@ -4,6 +4,7 @@ import { demoPortalSettings, demoEntityFiles, demoProjects } from '@/lib/demo-da
 import { siteConfig } from '@/site-config';
 import { recordPortalEvent, getOrCreateSessionId } from '@/lib/portal-analytics';
 import { checkPortalPin, pinFailureResponse } from '@/lib/portal-pin';
+import { projectIsLive } from '@/lib/supabase/trash';
 
 function getServiceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -44,12 +45,18 @@ export async function GET(
     return NextResponse.json({ error: 'Portal is disabled' }, { status: 404 });
   }
 
+  // A project in Trash has no portal.
+  if (!(await projectIsLive(supabase, settings.project_id))) {
+    return NextResponse.json({ error: 'Portal not found' }, { status: 404 });
+  }
+
   const pinCheck = await checkPortalPin({ supabase, request, token, settings });
   if (!pinCheck.ok) {
     const { data: proj } = await supabase
       .from('projects')
       .select('name')
       .eq('id', settings.project_id)
+      .is('deleted_at', null)
       .single();
 
     return pinFailureResponse(pinCheck, {
@@ -69,6 +76,7 @@ export async function GET(
     .eq('entity_type', 'project')
     .eq('entity_id', settings.project_id)
     .eq('visibility', 'external')
+    .is('deleted_at', null)
     .maybeSingle();
 
   if (!file) {

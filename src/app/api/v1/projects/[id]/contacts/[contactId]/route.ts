@@ -9,9 +9,10 @@ export const GET = withApi(async ({ supabase, params }) => {
   const { id, contactId } = params as any;
   const { data, error } = await supabase
     .from('project_contacts')
-    .select('*, contact:contacts(*)')
+    .select('*, contact:contacts!inner(*)')
     .eq('id', contactId)
     .eq('project_id', id)
+    .is('contact.deleted_at', null)
     .maybeSingle();
 
   if (error) throw error;

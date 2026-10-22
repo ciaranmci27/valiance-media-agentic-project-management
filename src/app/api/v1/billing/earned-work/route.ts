@@ -41,7 +41,7 @@ export const GET = withApi(async ({ supabase, searchParams, access }) => {
   const projectIds = [...new Set(rows.map((row) => row.project_id))];
   const [{ data: projects, error: projectError }, { data: zone, error: zoneError }] = await Promise.all([
     projectIds.length
-      ? supabase.from('projects').select('id, name').in('id', projectIds)
+      ? supabase.from('projects').select('id, name').in('id', projectIds).is('deleted_at', null)
       : Promise.resolve({ data: [], error: null }),
     supabase.rpc('workspace_timezone'),
   ]);
@@ -51,6 +51,8 @@ export const GET = withApi(async ({ supabase, searchParams, access }) => {
 
   const byProject = new Map<string, { project: { id: string; name: string }; time: unknown[]; scheduled: unknown[] }>();
   for (const row of rows) {
+    // Work in a project in Trash went to Trash with it.
+    if (!names.has(row.project_id)) continue;
     let entry = byProject.get(row.project_id);
     if (!entry) {
       entry = { project: { id: row.project_id, name: names.get(row.project_id) ?? '' }, time: [], scheduled: [] };

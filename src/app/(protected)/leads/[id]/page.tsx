@@ -139,7 +139,7 @@ export default function LeadDetailPage() {
   const handleDelete = async () => {
     router.push('/leads');
     const ok = await deleteLead(leadId);
-    if (ok) toast('success', 'Lead deleted');
+    if (ok) toast('success', 'Lead moved to Trash');
   };
 
   const handleMarkFollowUpComplete = async (interaction: LeadInteraction) => {
@@ -160,13 +160,13 @@ export default function LeadDetailPage() {
   const executeDeleteInteraction = async () => {
     if (!deletingInteractionId) return;
     const ok = await deleteLeadInteraction(deletingInteractionId);
-    if (ok) toast('success', 'Interaction deleted');
+    if (ok) toast('success', 'Interaction moved to Trash');
   };
 
   const executeDeleteProposal = async () => {
     if (!deletingProposalId) return;
     const ok = await deleteLeadProposal(deletingProposalId);
-    if (ok) toast('success', 'Proposal deleted');
+    if (ok) toast('success', 'Proposal moved to Trash');
   };
 
   const isOverdue = (scheduledAt: string) => new Date(scheduledAt) < new Date();
@@ -569,30 +569,30 @@ export default function LeadDetailPage() {
         isOpen={isDeleteOpen}
         onClose={() => setIsDeleteOpen(false)}
         onConfirm={handleDelete}
-        title="Delete Lead"
-        message="This will permanently delete this lead and all its interactions and proposals. This action cannot be undone."
-        confirmLabel="Delete"
+        title="Move lead to Trash?"
+        message="The lead goes to Trash with its interactions and proposals."
         variant="danger"
+        trash
       />
 
       <ConfirmDialog
         isOpen={!!deletingInteractionId}
         onClose={() => setDeletingInteractionId(null)}
         onConfirm={executeDeleteInteraction}
-        title="Delete Interaction"
-        message="This will permanently delete this interaction. This action cannot be undone."
-        confirmLabel="Delete"
+        title="Move interaction to Trash?"
+        message="The interaction goes to Trash."
         variant="danger"
+        trash
       />
 
       <ConfirmDialog
         isOpen={!!deletingProposalId}
         onClose={() => setDeletingProposalId(null)}
         onConfirm={executeDeleteProposal}
-        title="Delete Proposal"
-        message="This will permanently delete this proposal. This action cannot be undone."
-        confirmLabel="Delete"
+        title="Move proposal to Trash?"
+        message="The proposal goes to Trash."
         variant="danger"
+        trash
       />
     </div>
   );

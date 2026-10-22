@@ -17,7 +17,7 @@ export const GET = withApi(async ({ supabase, params, searchParams, access, team
   const { page, limit, offset } = parsePagination(searchParams);
 
   // Verify project exists
-  const { data: project } = await supabase.from('projects').select('id').eq('id', id).maybeSingle();
+  const { data: project } = await supabase.from('projects').select('id').eq('id', id).is('deleted_at', null).maybeSingle();
   if (!project) throw notFound('Project');
 
   // Optional filters
@@ -34,6 +34,7 @@ export const GET = withApi(async ({ supabase, params, searchParams, access, team
     .from('project_time_entries')
     .select(`*, ${taskJoin}`, { count: 'exact' })
     .eq('project_id', id)
+    .is('deleted_at', null)
     .order('start_time', { ascending: false });
 
   if (memberId) query = query.eq('member_id', memberId);
@@ -97,7 +98,7 @@ export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMembe
   };
 
   // Verify project exists
-  const { data: project } = await supabase.from('projects').select('id, hourly_tracking, time_tracking_enabled').eq('id', id).maybeSingle();
+  const { data: project } = await supabase.from('projects').select('id, hourly_tracking, time_tracking_enabled').eq('id', id).is('deleted_at', null).maybeSingle();
   if (!project) throw notFound('Project');
   if (!(project as any).time_tracking_enabled && !project.hourly_tracking) {
     throw badRequest('Time tracking is not enabled for this project');
@@ -125,6 +126,7 @@ export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMembe
       .eq('project_id', id)
       .eq('member_id', entry.member_id)
       .is('end_time', null)
+      .is('deleted_at', null)
       .maybeSingle();
 
     if (existing) throw badRequest('A timer is already running for this member on this project');

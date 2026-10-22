@@ -5,8 +5,9 @@ import { parsePagination, sanitizeSearch, validateSort } from '@/lib/api/paginat
 import { insertTask } from '@/lib/supabase/queries';
 import { logAudit } from '@/lib/api/audit';
 import { accessAllows, accessAllowsProject } from '@/lib/api/access';
-import { forbidden } from '@/lib/api/errors';
+import { forbidden, notFound } from '@/lib/api/errors';
 import { assertAssigneesCanOpenProject, assertBlockersInProject, assertGoalInProject } from '@/lib/api/task-guards';
+import { postgrestList, trashedProjectIds } from '@/lib/supabase/trash';
 
 export const GET = withApi(async ({ supabase, searchParams, access }) => {
   const { page, limit, offset } = parsePagination(searchParams);
@@ -27,11 +28,17 @@ export const GET = withApi(async ({ supabase, searchParams, access }) => {
     comments:task_comments(id, task_id, user_id, text, created_at),
     criteria:task_acceptance_criteria(id, task_id, criterion, satisfied, sort_order),
     task_dependencies!task_dependencies_task_id_fkey(blocked_by_task_id)
-  `, { count: 'exact' });
+  `, { count: 'exact' })
+    .is('deleted_at', null)
+    .is('subtasks.deleted_at', null)
+    .is('comments.deleted_at', null);
   if (!accessAllows(access, 'projects.read_all', 'api')) {
     if (access.project_ids.length === 0) return paginated([], { page, limit, total: 0 });
     query = query.in('project_id', access.project_ids);
   }
+  // Tasks of a project in Trash went to Trash with it.
+  const trashed = await trashedProjectIds(supabase);
+  if (trashed.length) query = query.not('project_id', 'in', postgrestList(trashed));
 
   if (status) query = query.eq('status', status);
   if (priority) query = query.eq('priority', priority);
@@ -78,6 +85,13 @@ export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId, acc
   if (!taskData.project_id || !accessAllowsProject(access, taskData.project_id, 'api')) {
     throw forbidden('Project scope denied');
   }
+  const { data: liveProject } = await supabase
+    .from('projects')
+    .select('id')
+    .eq('id', taskData.project_id)
+    .is('deleted_at', null)
+    .maybeSingle();
+  if (!liveProject) throw notFound('Project');
   const canAssignOthers = scopes.includes('tasks.manage_all') && accessAllows(access, 'tasks.manage_all', 'api');
   const requestedAssignees = Array.isArray(assignee_ids) ? assignee_ids : [];
   if (!canAssignOthers && requestedAssignees.some((id: string) => id !== teamMemberId)) {

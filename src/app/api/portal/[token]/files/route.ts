@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { checkPortalPin, pinFailureResponse } from '@/lib/portal-pin';
+import { projectIsLive } from '@/lib/supabase/trash';
 
 export const dynamic = 'force-dynamic';
 
@@ -35,7 +36,8 @@ export async function POST(
     .eq('token', token)
     .maybeSingle();
 
-  if (!settings || !settings.enabled) {
+  // A project in Trash has no portal.
+  if (!settings || !settings.enabled || !(await projectIsLive(supabase, settings.project_id))) {
     return NextResponse.json({ error: 'Portal not found' }, { status: 404 });
   }
 

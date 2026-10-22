@@ -40,7 +40,8 @@ export const GET = withApi(async ({ supabase, searchParams, access, teamMemberId
     .from('entity_files')
     .select('*', { count: 'exact' })
     .eq('entity_type', entityType)
-    .eq('entity_id', entityId);
+    .eq('entity_id', entityId)
+    .is('deleted_at', null);
 
   if (visibility) {
     query = query.eq('visibility', visibility);

@@ -4,6 +4,7 @@ import { updateTaskSchema } from '@/lib/schemas';
 import { forbidden, notFound } from '@/lib/api/errors';
 import { patchTask } from '@/lib/supabase/queries';
 import { logAudit } from '@/lib/api/audit';
+import { trashForApi } from '@/lib/api/trash';
 import { accessAllows, accessAllowsProject } from '@/lib/api/access';
 import { assertAssigneesCanOpenProject, assertBlockersInProject, assertGoalInProject } from '@/lib/api/task-guards';
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -37,19 +38,27 @@ export const GET = withApi(async ({ supabase, params }) => {
       criteria:task_acceptance_criteria(id, task_id, criterion, satisfied, sort_order),
       reviews:task_reviews(id, round, verdict, summary, pr_url, head_sha, reviewer_member_id, created_at),
       task_dependencies!task_dependencies_task_id_fkey(
-        blocker:tasks!task_dependencies_blocked_by_task_id_fkey(id, title, status)
+        blocker:tasks!task_dependencies_blocked_by_task_id_fkey(id, title, status, deleted_at)
       )
     `)
     .eq('id', (params as any).id)
+    .is('deleted_at', null)
+    .is('subtasks.deleted_at', null)
+    .is('comments.deleted_at', null)
     .maybeSingle();
 
   if (error) throw error;
   if (!data) throw notFound('Task');
 
-  const rawDependencies = data.task_dependencies || [];
+  // A blocker in Trash blocks nothing, as deleting it used to remove the
+  // dependency. (The same project, so it cannot be in a trashed project.)
+  type Blocker = { id: string; title: string; status: string; deleted_at: string | null };
+  const rawDependencies = ((data.task_dependencies || []) as { blocker: Blocker | null }[])
+    .filter((d) => !d.blocker?.deleted_at);
   const blockedBy = rawDependencies
-    .map((d: any) => d.blocker)
-    .filter(Boolean);
+    .map((d) => d.blocker)
+    .filter((blocker): blocker is Blocker => !!blocker)
+    .map((blocker) => ({ id: blocker.id, title: blocker.title, status: blocker.status }));
   // A blocker the caller cannot resolve is still a blocker. filter(Boolean)
   // drops rows whose joined task is hidden by project scoping or RLS, and
   // .every() on what survives then reports dependencies_met: true. The agent
@@ -89,7 +98,7 @@ export const GET = withApi(async ({ supabase, params }) => {
 
 export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemberId, access, scopes }) => {
   const id = (params as any).id;
-  const { data: before } = await supabase.from('tasks').select('*').eq('id', id).maybeSingle();
+  const { data: before } = await supabase.from('tasks').select('*').eq('id', id).is('deleted_at', null).maybeSingle();
   if (!before) throw notFound('Task');
   const { assignee_ids, acceptance_criteria, blocked_by_ids, ...updates } = body as any;
   const canManageAll = scopes.includes('tasks.manage_all') && accessAllows(access, 'tasks.manage_all', 'api');
@@ -115,6 +124,14 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
         hint: 'Assign the linked member to the destination project, or grant projects.read_all.',
       });
     }
+    // A task cannot move into a project in Trash.
+    const { data: liveTarget } = await supabase
+      .from('projects')
+      .select('id')
+      .eq('id', targetProjectId)
+      .is('deleted_at', null)
+      .maybeSingle();
+    if (!liveTarget) throw notFound('Project');
   }
 
   const effectiveBlockerIds = blockedByIds ?? (isMove ? await currentBlockerIds(supabase, id) : []);
@@ -143,15 +160,10 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
 
 export const DELETE = withApi(async ({ supabase, params, apiKeyId, teamMemberId }) => {
   const id = (params as any).id;
-  const { data: before } = await supabase.from('tasks').select('*').eq('id', id).maybeSingle();
+  const { data: before } = await supabase.from('tasks').select('*').eq('id', id).is('deleted_at', null).maybeSingle();
   if (!before) throw notFound('Task');
 
-  const { error } = await supabase
-    .from('tasks')
-    .delete()
-    .eq('id', id);
-
-  if (error) throw error;
+  await trashForApi(supabase, 'tasks', id, teamMemberId, 'Task');
   logAudit(supabase, { method: 'DELETE', endpoint: `/api/v1/tasks/${id}`, entityType: 'task', entityId: id, apiKeyId, teamMemberId, beforeSnapshot: before, statusCode: 200 });
   return success({ deleted: true });
 });

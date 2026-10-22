@@ -16,7 +16,8 @@ export const GET = withApi(async ({ supabase, searchParams, access, teamMemberId
   const assignedTo = searchParams.get('assigned_to');
   const includeArchived = searchParams.get('include_archived') === 'true';
 
-  let query = supabase.from('leads').select('*, lead_members(member_id)', { count: 'exact' });
+  // A lead in Trash is left out whatever include_archived says.
+  let query = supabase.from('leads').select('*, lead_members(member_id)', { count: 'exact' }).is('deleted_at', null);
   if (!accessAllows(access, 'leads.read_all', 'api')) {
     const { data: memberships } = await supabase.from('lead_members').select('lead_id').eq('member_id', teamMemberId);
     const leadIds = (memberships || []).map((row) => row.lead_id);

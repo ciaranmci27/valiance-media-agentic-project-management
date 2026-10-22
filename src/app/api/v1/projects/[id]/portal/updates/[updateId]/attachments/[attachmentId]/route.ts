@@ -1,8 +1,8 @@
 import { withApi } from '@/lib/api/middleware';
 import { success } from '@/lib/api/response';
 import { notFound } from '@/lib/api/errors';
-import { removePortalUpdateAttachment } from '@/lib/supabase/queries';
 import { logAudit } from '@/lib/api/audit';
+import { trashForApi } from '@/lib/api/trash';
 
 export const DELETE = withApi(async ({ supabase, params, apiKeyId, teamMemberId }) => {
   const { id, updateId, attachmentId } = params as any;
@@ -13,6 +13,7 @@ export const DELETE = withApi(async ({ supabase, params, apiKeyId, teamMemberId 
     .select('id')
     .eq('id', updateId)
     .eq('project_id', id)
+    .is('deleted_at', null)
     .maybeSingle();
   if (!update) throw notFound('Portal update');
 
@@ -22,10 +23,11 @@ export const DELETE = withApi(async ({ supabase, params, apiKeyId, teamMemberId 
     .select('*')
     .eq('id', attachmentId)
     .eq('update_id', updateId)
+    .is('deleted_at', null)
     .maybeSingle();
   if (!before) throw notFound('Attachment');
 
-  await removePortalUpdateAttachment(supabase, attachmentId);
+  await trashForApi(supabase, 'portal_update_attachments', attachmentId, teamMemberId, 'Attachment');
 
   logAudit(supabase, {
     method: 'DELETE',

@@ -14,6 +14,7 @@ export const GET = withApi(async ({ supabase, params }) => {
     .from('project_hourly_rates')
     .select('*')
     .eq('project_id', params.id)
+    .is('deleted_at', null)
     .order('effective_at', { ascending: false });
 
   if (error) throw error;

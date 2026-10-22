@@ -17,6 +17,8 @@ export const GET = withApi(async ({ supabase, access }) => {
     .from('billing_draft_notices')
     .select('invoice_id, project_id, summary, created_at, project_invoices(invoice_number, amount, status, date, due_date)')
     .is('relayed_at', null)
+    // A draft in Trash comes back without its invoice and is left out below.
+    .is('project_invoices.deleted_at', null)
     .order('created_at');
   if (error) throw error;
   type Row = {
@@ -27,11 +29,12 @@ export const GET = withApi(async ({ supabase, access }) => {
     .filter((row) => row.project_invoices?.status === 'draft' && accessAllowsProject(access, row.project_id, 'api'));
   const projectIds = [...new Set(rows.map((row) => row.project_id))];
   const { data: projects, error: projectsError } = projectIds.length
-    ? await supabase.from('projects').select('id, name').in('id', projectIds)
+    ? await supabase.from('projects').select('id, name').in('id', projectIds).is('deleted_at', null)
     : { data: [], error: null };
   if (projectsError) throw projectsError;
   const names = new Map((projects ?? []).map((project) => [project.id as string, project.name as string]));
-  return success(rows.map((row) => ({
+  // Drafts in a project in Trash went to Trash with it.
+  return success(rows.filter((row) => names.has(row.project_id)).map((row) => ({
     invoice_id: row.invoice_id,
     invoice_number: row.project_invoices?.invoice_number ?? null,
     project_id: row.project_id,

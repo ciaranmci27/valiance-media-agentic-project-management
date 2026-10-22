@@ -233,6 +233,8 @@ async function getProject(projectId: string): Promise<ProjectRow | null> {
     .from('projects')
     .select('id, name, hourly_tracking, hourly_rate, budget_type, budget_value, created_by')
     .eq('id', projectId)
+    // A project in Trash sends its client nothing.
+    .is('deleted_at', null)
     .maybeSingle();
   const project = (data as ProjectRow | null) ?? null;
   if (!project || !project.hourly_tracking) return project;
@@ -391,6 +393,7 @@ async function getInvoiceWithAllocations(
     .select('*, invoice_time_entry_allocations(*)')
     .eq('id', invoiceId)
     .eq('project_id', projectId)
+    .is('deleted_at', null)
     .maybeSingle();
   if (error) return { error: error.message };
   if (!data) return { error: 'Invoice not found' };
@@ -407,6 +410,8 @@ async function getProjectForInvoicePdf(projectId: string): Promise<Project | Ren
       project_hourly_rates ( hourly_rate, effective_at )
     `)
     .eq('id', projectId)
+    .is('deleted_at', null)
+    .is('project_hourly_rates.deleted_at', null)
     .maybeSingle();
   if (error) return { error: error.message };
   if (!data) return { error: 'Project not found' };
@@ -442,6 +447,7 @@ async function getProjectInvoicesForPdf(projectId: string): Promise<ProjectInvoi
     .from('project_invoices')
     .select('*, invoice_time_entry_allocations(*)')
     .eq('project_id', projectId)
+    .is('deleted_at', null)
     .order('date', { ascending: false });
   return (data || []).map(row => hydrateInvoiceRow(row as unknown as UnknownRow));
 }
@@ -452,6 +458,7 @@ async function getProjectTimeEntriesForPdf(projectId: string): Promise<TimeEntry
     .from('project_time_entries')
     .select('*')
     .eq('project_id', projectId)
+    .is('deleted_at', null)
     .order('start_time', { ascending: false });
   return (data || []) as TimeEntry[];
 }
@@ -624,7 +631,8 @@ async function getBudgetUsage(project: ProjectRow): Promise<BudgetUsage> {
     .from('project_time_entries')
     .select('segments, end_time, hourly_rate')
     .eq('project_id', project.id)
-    .not('end_time', 'is', null);
+    .not('end_time', 'is', null)
+    .is('deleted_at', null);
 
   const totalHours = (entries || []).reduce(
     (sum, e) => sum + getWorkedHoursFromSegments(e.segments || []),
@@ -648,7 +656,8 @@ async function getBudgetUsage(project: ProjectRow): Promise<BudgetUsage> {
         .from('project_invoices')
         .select('id, amount, status, invoice_type, line_items')
         .eq('project_id', project.id)
-        .neq('status', 'draft');
+        .neq('status', 'draft')
+        .is('deleted_at', null);
       const totals = invoicedTotalsByItemType((invoices || []) as ProjectInvoice[]);
       currentUsage = totals.hourly + totals.fixed + totals.recurring;
     }
@@ -731,13 +740,15 @@ export async function renderCommunication(
       .from('project_invoices')
       .select('*')
       .eq('project_id', projectId)
-      .neq('status', 'draft');
+      .neq('status', 'draft')
+      .is('deleted_at', null);
     const activeInvoices = (invoices || []) as ProjectInvoice[];
 
     const { data: entries } = await supabase
       .from('project_time_entries')
       .select('id, start_time, end_time, segments, hourly_rate')
-      .eq('project_id', projectId);
+      .eq('project_id', projectId)
+      .is('deleted_at', null);
     const allEntries = entries || [];
 
     const totalInvoiced = activeInvoices.reduce((sum, inv) => sum + inv.amount, 0);

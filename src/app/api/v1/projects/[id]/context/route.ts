@@ -12,6 +12,7 @@ export const GET = withApi(async ({ supabase, params, searchParams }) => {
     .from('projects')
     .select('id')
     .eq('id', projectId)
+    .is('deleted_at', null)
     .maybeSingle();
   if (!project) throw notFound('Project');
 
@@ -54,6 +55,7 @@ export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMembe
     .from('projects')
     .select('id')
     .eq('id', projectId)
+    .is('deleted_at', null)
     .maybeSingle();
   if (!project) throw notFound('Project');
 

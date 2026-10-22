@@ -45,19 +45,24 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
   return success(data);
 }, { schema: updateTeamMemberSchema });
 
+// Team members are never deleted: their time, comments and pay history would
+// go with them. Removing someone suspends them, which ends their access and
+// keeps everything they did.
 export const DELETE = withApi(async ({ supabase, params, apiKeyId, teamMemberId, access }) => {
   const id = params.id;
-  if (access.role !== 'owner') throw forbidden('Only an Owner can permanently delete a team member');
+  if (access.role !== 'owner') throw forbidden('Only an Owner can remove a team member');
   const { data: before } = await supabase.from('team_members').select('*').eq('id', id).maybeSingle();
   if (!before) throw notFound('Team member');
   if (before.role === 'owner') throw forbidden('The Owner account is immutable');
 
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('team_members')
-    .delete()
-    .eq('id', id);
+    .update({ status: 'suspended' })
+    .eq('id', id)
+    .select()
+    .maybeSingle();
 
   if (error) throw error;
-  logAudit(supabase, { method: 'DELETE', endpoint: `/api/v1/team-members/${id}`, entityType: 'team_member', entityId: id, apiKeyId, teamMemberId, beforeSnapshot: before, statusCode: 200 });
-  return success({ deleted: true });
+  logAudit(supabase, { method: 'DELETE', endpoint: `/api/v1/team-members/${id}`, entityType: 'team_member', entityId: id, apiKeyId, teamMemberId, beforeSnapshot: before, afterSnapshot: data, statusCode: 200 });
+  return success({ deleted: false, suspended: true });
 });

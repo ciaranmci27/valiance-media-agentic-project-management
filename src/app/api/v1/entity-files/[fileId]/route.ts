@@ -5,11 +5,12 @@ import { notFound } from '@/lib/api/errors';
 import { logAudit } from '@/lib/api/audit';
 import { forbidden } from '@/lib/api/errors';
 import { accessAllowsEntity } from '@/lib/api/access';
+import { trashForApi } from '@/lib/api/trash';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { AccessContext } from '@/lib/access-control';
 
 async function requireFileScope(supabase: SupabaseClient, fileId: string, access: AccessContext, teamMemberId: string) {
-  const { data, error } = await supabase.from('entity_files').select('*').eq('id', fileId).maybeSingle();
+  const { data, error } = await supabase.from('entity_files').select('*').eq('id', fileId).is('deleted_at', null).maybeSingle();
   if (error) throw error;
   if (!data) throw notFound('Entity file');
   if (!await accessAllowsEntity(supabase, access, teamMemberId, data.entity_type, data.entity_id, 'api')) {
@@ -33,6 +34,7 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
     .from('entity_files')
     .update(body as Record<string, unknown>)
     .eq('id', fileId)
+    .is('deleted_at', null)
     .select()
     .single();
 
@@ -59,12 +61,8 @@ export const DELETE = withApi(async ({ supabase, params, apiKeyId, teamMemberId,
 
   const before = await requireFileScope(supabase, fileId, access, teamMemberId);
 
-  const { error } = await supabase
-    .from('entity_files')
-    .delete()
-    .eq('id', fileId);
-
-  if (error) throw error;
+  // The Storage object stays: the record in Trash keeps its file for a restore.
+  await trashForApi(supabase, 'entity_files', fileId, teamMemberId, 'Entity file');
 
   logAudit(supabase, {
     method: 'DELETE',

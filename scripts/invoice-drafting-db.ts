@@ -54,7 +54,8 @@ export async function createDraftingDatabase(extraMigrations: string[] = []): Pr
       created_at timestamptz NOT NULL DEFAULT now()
     );
     CREATE TABLE public.projects (
-      id uuid PRIMARY KEY, name text NOT NULL, status text NOT NULL DEFAULT 'active', archived_at timestamptz
+      id uuid PRIMARY KEY, name text NOT NULL, status text NOT NULL DEFAULT 'active', archived_at timestamptz,
+      deleted_at timestamptz, deleted_by uuid
     );
     CREATE TABLE public.project_time_entries (
       id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -62,8 +63,10 @@ export async function createDraftingDatabase(extraMigrations: string[] = []): Pr
       member_id uuid, start_time timestamptz NOT NULL, end_time timestamptz,
       segments jsonb NOT NULL DEFAULT '[]'::jsonb, hourly_rate numeric(10,2) NOT NULL DEFAULT 0,
       work_type text NOT NULL DEFAULT 'client', approval_status text NOT NULL DEFAULT 'approved',
-      compensation_rate numeric
+      compensation_rate numeric, deleted_at timestamptz, deleted_by uuid
     );
+    CREATE FUNCTION public.project_is_live(uuid) RETURNS boolean LANGUAGE sql
+      AS $$ SELECT EXISTS (SELECT 1 FROM public.projects WHERE id = $1 AND deleted_at IS NULL) $$;
     CREATE TABLE public.notifications_log (user_id uuid, title text, message text, link text,
       entity_type text ${notificationTypeCheck()}, entity_id text);
     CREATE FUNCTION public.upsert_notification(uuid, text, text, text, text, text) RETURNS void LANGUAGE sql

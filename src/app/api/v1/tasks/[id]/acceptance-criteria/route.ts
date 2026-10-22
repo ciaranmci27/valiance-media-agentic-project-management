@@ -24,7 +24,7 @@ export const GET = withApi(async ({ supabase, params, searchParams }) => {
 export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMemberId }) => {
   const { id } = params as any;
 
-  const { data: task } = await supabase.from('tasks').select('id').eq('id', id).maybeSingle();
+  const { data: task } = await supabase.from('tasks').select('id').eq('id', id).is('deleted_at', null).maybeSingle();
   if (!task) throw notFound('Task');
 
   const criterion = await insertAcceptanceCriterion(supabase, id, (body as any).criterion);

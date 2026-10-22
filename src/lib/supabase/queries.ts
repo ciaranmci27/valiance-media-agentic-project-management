@@ -1,5 +1,5 @@
 import { SupabaseClient } from '@supabase/supabase-js';
-import type { AiReadiness, Project, Task, TeamMember, Subtask, AcceptanceCriterion, Comment, Activity, Contact, ContactEmail, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, ApiKey, ProjectGoal, TaskSuggestion, AgentActivity, FleetAgentActivity, ApiAuditEntry, TimeEntry, ProjectCredential, ProjectCredentialListItem, ProjectInvoice, InvoicePayment, InvoicePaymentMethod, BusinessSettings, InvoiceTimeEntryAllocation, WebhookEndpoint, WebhookDelivery, ProjectRetainer, ProjectRetainerAmount, ProjectRetainerShare, ProjectRetainerPeriod, RetainerDuePeriod, InvoiceLineShare, ProjectBillingPlan, ProjectBillingRun, BillingForecastItem, Reminder } from '@/lib/types';
+import type { AiReadiness, Project, Task, TeamMember, Subtask, AcceptanceCriterion, Comment, Activity, Contact, ContactEmail, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, ApiKey, ProjectGoal, TaskSuggestion, AgentActivity, FleetAgentActivity, ApiAuditEntry, TimeEntry, ProjectCredential, ProjectCredentialListItem, ProjectInvoice, InvoicePayment, InvoicePaymentMethod, BusinessSettings, InvoiceTimeEntryAllocation, WebhookEndpoint, WebhookDelivery, ProjectRetainer, ProjectRetainerAmount, ProjectRetainerShare, ProjectRetainerPeriod, RetainerDuePeriod, InvoiceLineShare, ProjectBillingPlan, ProjectBillingRun, BillingForecastItem, Reminder, TrashItem } from '@/lib/types';
 import { fetchAllRows } from '@/lib/supabase/fetch-all';
 import { notFound } from '@/lib/api/errors';
 import { siteConfig } from '@/site-config';
@@ -7,6 +7,7 @@ import { generatePortalSlug } from '@/lib/portal-slug';
 import { ensureLineItems } from '@/lib/invoice-utils';
 import { TELEMETRY_EVENT_TYPES } from '@/lib/agent-events';
 import { activitiesFromWindow, type AnalyticsWindowPayload } from '@/lib/agent-analytics-window';
+import { moveToTrash, postgrestList, trashedProjectIds } from '@/lib/supabase/trash';
 
 // ============================================================
 // PROJECTS
@@ -20,6 +21,8 @@ export async function fetchProjects(supabase: SupabaseClient) {
       project_members ( member_id ),
       project_hourly_rates ( hourly_rate, effective_at )
     `)
+    .is('deleted_at', null)
+    .is('project_hourly_rates.deleted_at', null)
     .order('created_at', { ascending: false });
 
   if (error) throw error;
@@ -110,8 +113,8 @@ export async function patchProject(
   delete dbUpdates.project_members;
 
   const projectQuery = Object.keys(dbUpdates).length > 0
-    ? supabase.from('projects').update(dbUpdates).eq('id', id).select().single()
-    : supabase.from('projects').select('*').eq('id', id).single();
+    ? supabase.from('projects').update(dbUpdates).eq('id', id).is('deleted_at', null).select().single()
+    : supabase.from('projects').select('*').eq('id', id).is('deleted_at', null).single();
   const { data, error } = await projectQuery;
 
   if (error) throw error;
@@ -139,9 +142,8 @@ export async function patchProject(
   return { ...data, member_ids: resolvedMemberIds } as Project;
 }
 
-export async function removeProject(supabase: SupabaseClient, id: string) {
-  const { error } = await supabase.from('projects').delete().eq('id', id);
-  if (error) throw error;
+export async function removeProject(supabase: SupabaseClient, id: string, actor?: string | null) {
+  await moveToTrash(supabase, 'projects', id, actor);
 }
 
 // ============================================================
@@ -160,6 +162,9 @@ export async function fetchTasks(supabase: SupabaseClient) {
       reviews:task_reviews ( id, round, verdict, summary, pr_url, head_sha, reviewer_member_id, created_at ),
       task_dependencies!task_dependencies_task_id_fkey ( blocked_by_task_id )
     `, { count })
+    .is('deleted_at', null)
+    .is('subtasks.deleted_at', null)
+    .is('comments.deleted_at', null)
     .order('created_at', { ascending: false })
     .order('id')
     .range(from, to));
@@ -275,12 +280,8 @@ export async function patchTask(
   return saved.task;
 }
 
-export async function removeTask(supabase: SupabaseClient, id: string) {
-  // RLS turns a delete the caller may not make into zero rows and no error;
-  // that is a failure, or the task vanishes locally while it still exists.
-  const { data, error } = await supabase.from('tasks').delete().eq('id', id).select('id');
-  if (error) throw error;
-  if (!data || data.length === 0) throw new Error('Task not deleted: not found or not permitted');
+export async function removeTask(supabase: SupabaseClient, id: string, actor?: string | null) {
+  await moveToTrash(supabase, 'tasks', id, actor);
 }
 
 export async function reorderTasks(
@@ -289,7 +290,7 @@ export async function reorderTasks(
 ) {
   const results = await Promise.all(
     orders.map(({ id, sort_order }) =>
-      supabase.from('tasks').update({ sort_order }).eq('id', id)
+      supabase.from('tasks').update({ sort_order }).eq('id', id).is('deleted_at', null)
     )
   );
   const failed = results.find(r => r.error);
@@ -310,6 +311,7 @@ export async function insertSubtask(
     .from('task_subtasks')
     .select('sort_order')
     .eq('task_id', taskId)
+    .is('deleted_at', null)
     .order('sort_order', { ascending: false })
     .limit(1);
 
@@ -333,7 +335,8 @@ export async function toggleSubtaskCompleted(
   const { error } = await supabase
     .from('task_subtasks')
     .update({ completed })
-    .eq('id', subtaskId);
+    .eq('id', subtaskId)
+    .is('deleted_at', null);
 
   if (error) throw error;
 }
@@ -344,7 +347,7 @@ export async function reorderSubtasks(
 ) {
   // Update sort_order for each subtask
   const updates = subtaskIds.map((id, index) =>
-    supabase.from('task_subtasks').update({ sort_order: index }).eq('id', id)
+    supabase.from('task_subtasks').update({ sort_order: index }).eq('id', id).is('deleted_at', null)
   );
   const results = await Promise.all(updates);
   const failed = results.find(r => r.error);
@@ -359,14 +362,14 @@ export async function patchSubtask(
   const { error } = await supabase
     .from('task_subtasks')
     .update(updates)
-    .eq('id', subtaskId);
+    .eq('id', subtaskId)
+    .is('deleted_at', null);
 
   if (error) throw error;
 }
 
-export async function removeSubtask(supabase: SupabaseClient, subtaskId: string) {
-  const { error } = await supabase.from('task_subtasks').delete().eq('id', subtaskId);
-  if (error) throw error;
+export async function removeSubtask(supabase: SupabaseClient, subtaskId: string, actor?: string | null) {
+  await moveToTrash(supabase, 'task_subtasks', subtaskId, actor);
 }
 
 // ============================================================
@@ -444,14 +447,14 @@ export async function patchComment(
   const { error } = await supabase
     .from('task_comments')
     .update({ text })
-    .eq('id', commentId);
+    .eq('id', commentId)
+    .is('deleted_at', null);
 
   if (error) throw error;
 }
 
-export async function removeComment(supabase: SupabaseClient, commentId: string) {
-  const { error } = await supabase.from('task_comments').delete().eq('id', commentId);
-  if (error) throw error;
+export async function removeComment(supabase: SupabaseClient, commentId: string, actor?: string | null) {
+  await moveToTrash(supabase, 'task_comments', commentId, actor);
 }
 
 // ============================================================
@@ -506,11 +509,6 @@ export async function patchTeamMember(
   return data as TeamMember;
 }
 
-export async function removeTeamMember(supabase: SupabaseClient, id: string) {
-  const { error } = await supabase.from('team_members').delete().eq('id', id);
-  if (error) throw error;
-}
-
 // ============================================================
 // ACTIVITIES
 // ============================================================
@@ -548,6 +546,7 @@ export async function fetchContacts(supabase: SupabaseClient) {
   const { data, error } = await supabase
     .from('contacts')
     .select('*')
+    .is('deleted_at', null)
     .order('created_at', { ascending: false });
 
   if (error) throw error;
@@ -586,6 +585,7 @@ export async function patchContact(
     .from('contacts')
     .update(updates)
     .eq('id', id)
+    .is('deleted_at', null)
     .select()
     .single();
 
@@ -593,9 +593,8 @@ export async function patchContact(
   return data as Contact;
 }
 
-export async function removeContact(supabase: SupabaseClient, id: string) {
-  const { error } = await supabase.from('contacts').delete().eq('id', id);
-  if (error) throw error;
+export async function removeContact(supabase: SupabaseClient, id: string, actor?: string | null) {
+  await moveToTrash(supabase, 'contacts', id, actor);
 }
 
 // ============================================================
@@ -726,6 +725,7 @@ export async function fetchLeads(supabase: SupabaseClient) {
       *,
       lead_members ( member_id )
     `)
+    .is('deleted_at', null)
     .order('created_at', { ascending: false });
 
   if (error) throw error;
@@ -816,6 +816,7 @@ export async function patchLead(
     .from('leads')
     .update(dbUpdates)
     .eq('id', id)
+    .is('deleted_at', null)
     .select()
     .single();
 
@@ -846,9 +847,8 @@ export async function patchLead(
   return { ...data, member_ids: resolvedMemberIds } as Lead;
 }
 
-export async function removeLead(supabase: SupabaseClient, id: string) {
-  const { error } = await supabase.from('leads').delete().eq('id', id);
-  if (error) throw error;
+export async function removeLead(supabase: SupabaseClient, id: string, actor?: string | null) {
+  await moveToTrash(supabase, 'leads', id, actor);
 }
 
 // ============================================================
@@ -859,6 +859,7 @@ export async function fetchLeadInteractions(supabase: SupabaseClient) {
   const { data, error } = await supabase
     .from('lead_interactions')
     .select('*')
+    .is('deleted_at', null)
     .order('occurred_at', { ascending: false });
 
   if (error) throw error;
@@ -870,6 +871,7 @@ export async function fetchLeadInteractionsByLeadId(supabase: SupabaseClient, le
     .from('lead_interactions')
     .select('*')
     .eq('lead_id', leadId)
+    .is('deleted_at', null)
     .order('occurred_at', { ascending: false });
 
   if (error) throw error;
@@ -908,6 +910,7 @@ export async function patchLeadInteraction(
     .from('lead_interactions')
     .update(updates)
     .eq('id', id)
+    .is('deleted_at', null)
     .select()
     .single();
 
@@ -915,9 +918,8 @@ export async function patchLeadInteraction(
   return data as LeadInteraction;
 }
 
-export async function removeLeadInteraction(supabase: SupabaseClient, id: string) {
-  const { error } = await supabase.from('lead_interactions').delete().eq('id', id);
-  if (error) throw error;
+export async function removeLeadInteraction(supabase: SupabaseClient, id: string, actor?: string | null) {
+  await moveToTrash(supabase, 'lead_interactions', id, actor);
 }
 
 // ============================================================
@@ -928,6 +930,7 @@ export async function fetchLeadProposals(supabase: SupabaseClient) {
   const { data, error } = await supabase
     .from('lead_proposals')
     .select('*')
+    .is('deleted_at', null)
     .order('created_at', { ascending: false });
 
   if (error) throw error;
@@ -939,6 +942,7 @@ export async function fetchLeadProposalsByLeadId(supabase: SupabaseClient, leadI
     .from('lead_proposals')
     .select('*')
     .eq('lead_id', leadId)
+    .is('deleted_at', null)
     .order('created_at', { ascending: false });
 
   if (error) throw error;
@@ -976,6 +980,7 @@ export async function patchLeadProposal(
     .from('lead_proposals')
     .update(updates)
     .eq('id', id)
+    .is('deleted_at', null)
     .select()
     .single();
 
@@ -983,9 +988,8 @@ export async function patchLeadProposal(
   return data as LeadProposal;
 }
 
-export async function removeLeadProposal(supabase: SupabaseClient, id: string) {
-  const { error } = await supabase.from('lead_proposals').delete().eq('id', id);
-  if (error) throw error;
+export async function removeLeadProposal(supabase: SupabaseClient, id: string, actor?: string | null) {
+  await moveToTrash(supabase, 'lead_proposals', id, actor);
 }
 
 // ============================================================
@@ -996,6 +1000,7 @@ export async function fetchLeadFields(supabase: SupabaseClient) {
   const { data, error } = await supabase
     .from('lead_fields')
     .select('*')
+    .is('deleted_at', null)
     .order('created_at', { ascending: true });
 
   if (error) throw error;
@@ -1008,22 +1013,38 @@ export async function upsertLeadField(
   fieldKey: string,
   value: string
 ) {
-  const { data, error } = await supabase
+  // A key is unique among live fields only (a field in Trash keeps its row),
+  // so: change the live field, or add it. Two writers adding the same key at
+  // once collide on the live-key index; the loser then changes the winner's.
+  const updateLive = () => supabase
     .from('lead_fields')
-    .upsert(
-      { lead_id: leadId, field_key: fieldKey, value },
-      { onConflict: 'lead_id,field_key' }
-    )
+    .update({ value })
+    .eq('lead_id', leadId)
+    .eq('field_key', fieldKey)
+    .is('deleted_at', null)
+    .select()
+    .maybeSingle();
+
+  const updated = await updateLive();
+  if (updated.error) throw updated.error;
+  if (updated.data) return updated.data as LeadField;
+
+  const inserted = await supabase
+    .from('lead_fields')
+    .insert({ lead_id: leadId, field_key: fieldKey, value })
     .select()
     .single();
-
-  if (error) throw error;
-  return data as LeadField;
+  if (inserted.error?.code === '23505') {
+    const retried = await updateLive();
+    if (retried.error) throw retried.error;
+    if (retried.data) return retried.data as LeadField;
+  }
+  if (inserted.error) throw inserted.error;
+  return inserted.data as LeadField;
 }
 
-export async function removeLeadField(supabase: SupabaseClient, id: string) {
-  const { error } = await supabase.from('lead_fields').delete().eq('id', id);
-  if (error) throw error;
+export async function removeLeadField(supabase: SupabaseClient, id: string, actor?: string | null) {
+  await moveToTrash(supabase, 'lead_fields', id, actor);
 }
 
 // ============================================================
@@ -1135,7 +1156,7 @@ export async function convertLead(
   // Two follow-up reads; the contact comes embedded in the primary
   // project_contact and the lead's final state is fully known locally.
   const [projectRes, pcRes] = await Promise.all([
-    supabase.from('projects').select('id, name, description, color, status, start_date, due_date, hourly_tracking, time_tracking_enabled, created_by, created_at, updated_at, archived_at').eq('id', projectId).single(),
+    supabase.from('projects').select('id, name, description, color, status, start_date, due_date, hourly_tracking, time_tracking_enabled, created_by, created_at, updated_at, archived_at').eq('id', projectId).is('deleted_at', null).single(),
     supabase.from('project_contacts').select('*, contact:contacts(*)').eq('project_id', projectId),
   ]);
 
@@ -1221,6 +1242,7 @@ export async function upsertPortalSettings(
       .from('projects')
       .select('name')
       .eq('id', projectId)
+      .is('deleted_at', null)
       .single();
 
     let token = generatePortalSlug(project?.name || projectId);
@@ -1335,6 +1357,7 @@ export async function fetchAllPortalUpdates(supabase: SupabaseClient) {
   const { data, error } = await supabase
     .from('portal_updates')
     .select('*')
+    .is('deleted_at', null)
     .order('created_at', { ascending: false });
 
   if (error) throw error;
@@ -1346,6 +1369,7 @@ export async function fetchPortalUpdates(supabase: SupabaseClient, projectId: st
     .from('portal_updates')
     .select('*')
     .eq('project_id', projectId)
+    .is('deleted_at', null)
     .order('created_at', { ascending: false });
 
   if (error) throw error;
@@ -1382,6 +1406,7 @@ export async function patchPortalUpdate(
     .from('portal_updates')
     .update(updates)
     .eq('id', id)
+    .is('deleted_at', null)
     .select()
     .single();
 
@@ -1389,9 +1414,8 @@ export async function patchPortalUpdate(
   return data as PortalUpdate;
 }
 
-export async function removePortalUpdate(supabase: SupabaseClient, id: string) {
-  const { error } = await supabase.from('portal_updates').delete().eq('id', id);
-  if (error) throw error;
+export async function removePortalUpdate(supabase: SupabaseClient, id: string, actor?: string | null) {
+  await moveToTrash(supabase, 'portal_updates', id, actor);
 }
 
 // ============================================================
@@ -1402,6 +1426,7 @@ export async function fetchAllPortalUpdateAttachments(supabase: SupabaseClient) 
   const { data, error } = await supabase
     .from('portal_update_attachments')
     .select('*')
+    .is('deleted_at', null)
     .order('created_at', { ascending: true });
 
   if (error) throw error;
@@ -1428,9 +1453,8 @@ export async function insertPortalUpdateAttachments(
   return (data || []) as PortalUpdateAttachment[];
 }
 
-export async function removePortalUpdateAttachment(supabase: SupabaseClient, id: string) {
-  const { error } = await supabase.from('portal_update_attachments').delete().eq('id', id);
-  if (error) throw error;
+export async function removePortalUpdateAttachment(supabase: SupabaseClient, id: string, actor?: string | null) {
+  await moveToTrash(supabase, 'portal_update_attachments', id, actor);
 }
 
 // ============================================================
@@ -1441,6 +1465,7 @@ export async function fetchAllEntityFiles(supabase: SupabaseClient) {
   const { data, error } = await supabase
     .from('entity_files')
     .select('*')
+    .is('deleted_at', null)
     .order('created_at', { ascending: false });
 
   if (error) throw error;
@@ -1475,6 +1500,7 @@ export async function renameEntityFile(supabase: SupabaseClient, id: string, nam
     .from('entity_files')
     .update({ name })
     .eq('id', id)
+    .is('deleted_at', null)
     .select()
     .single();
   if (error) throw error;
@@ -1492,15 +1518,15 @@ export async function replaceEntityFileContent(
     .from('entity_files')
     .update(content)
     .eq('id', id)
+    .is('deleted_at', null)
     .select()
     .single();
   if (error) throw error;
   return data as EntityFile;
 }
 
-export async function removeEntityFile(supabase: SupabaseClient, id: string) {
-  const { error } = await supabase.from('entity_files').delete().eq('id', id);
-  if (error) throw error;
+export async function removeEntityFile(supabase: SupabaseClient, id: string, actor?: string | null) {
+  await moveToTrash(supabase, 'entity_files', id, actor);
 }
 
 export async function updateEntityFileVisibility(supabase: SupabaseClient, id: string, visibility: 'internal' | 'external') {
@@ -1508,6 +1534,7 @@ export async function updateEntityFileVisibility(supabase: SupabaseClient, id: s
     .from('entity_files')
     .update({ visibility })
     .eq('id', id)
+    .is('deleted_at', null)
     .select()
     .single();
   if (error) throw error;
@@ -1622,6 +1649,7 @@ export async function fetchReminders(supabase: SupabaseClient) {
     supabase
       .from('reminders')
       .select('*', { count })
+      .is('deleted_at', null)
       .or(`status.eq.open,completed_at.gte.${since}`)
       .order('created_at', { ascending: true })
       .order('id', { ascending: true })
@@ -1635,14 +1663,13 @@ export async function insertReminder(supabase: SupabaseClient, reminder: Reminde
 }
 
 export async function patchReminder(supabase: SupabaseClient, id: string, updates: Partial<ReminderFields>) {
-  const { data, error } = await supabase.from('reminders').update(updates).eq('id', id).select().single();
+  const { data, error } = await supabase.from('reminders').update(updates).eq('id', id).is('deleted_at', null).select().single();
   if (error) throw error;
   return data as Reminder;
 }
 
-export async function deleteReminder(supabase: SupabaseClient, id: string) {
-  const { error } = await supabase.from('reminders').delete().eq('id', id);
-  if (error) throw error;
+export async function deleteReminder(supabase: SupabaseClient, id: string, actor?: string | null) {
+  await moveToTrash(supabase, 'reminders', id, actor);
 }
 
 // ============================================================
@@ -1785,6 +1812,14 @@ export async function patchTaskSuggestion(
   return data as TaskSuggestion;
 }
 
+/** Refuses work for a project that is missing or in Trash. */
+async function assertProjectLive(supabase: SupabaseClient, projectId: string | null | undefined) {
+  if (!projectId) return;
+  const { data, error } = await supabase.from('projects').select('id').eq('id', projectId).is('deleted_at', null).maybeSingle();
+  if (error) throw error;
+  if (!data) throw new Error('Project not found');
+}
+
 export async function approveTaskSuggestion(
   supabase: SupabaseClient,
   id: string,
@@ -1795,9 +1830,11 @@ export async function approveTaskSuggestion(
   // exactly (a needs_info suggestion must not silently become pending).
   const { data: before } = await supabase
     .from('task_suggestions')
-    .select('status, reviewed_by, reviewed_at')
+    .select('status, reviewed_by, reviewed_at, project_id')
     .eq('id', id)
     .maybeSingle();
+  // No new task goes into a project in Trash.
+  await assertProjectLive(supabase, taskOverrides.project_id ?? before?.project_id);
 
   // Claim the suggestion with a compare-and-set on its status so two
   // concurrent approvals can't both create a task.
@@ -1951,6 +1988,7 @@ export async function approveTaskSuggestionBundle(
   if (list.length !== ids.length) throw new Error('Some bundle members no longer exist');
   const projectIds = new Set(list.map(s => s.project_id));
   if (projectIds.size !== 1) throw new Error('Bundle members must share one project');
+  await assertProjectLive(supabase, [...projectIds][0]);
 
   // Claim each member; losers of a concurrent race are excluded, not fatal.
   const claimed: TaskSuggestion[] = [];
@@ -2405,6 +2443,7 @@ export async function resolveProjectHourlyRate(
     .from('project_hourly_rates')
     .select('hourly_rate')
     .eq('project_id', projectId)
+    .is('deleted_at', null)
     .lte('effective_at', startTime)
     .order('effective_at', { ascending: false })
     .limit(1)
@@ -2416,6 +2455,7 @@ export async function resolveProjectHourlyRate(
     .from('projects')
     .select('hourly_rate')
     .eq('id', projectId)
+    .is('deleted_at', null)
     .single();
   if (projectError) throw projectError;
   return Number(project.hourly_rate) || 0;
@@ -2464,6 +2504,7 @@ export async function fetchAllTimeEntries(supabase: SupabaseClient) {
   const { data, error } = await supabase
     .from('project_time_entries')
     .select(TIME_ENTRY_SELECT)
+    .is('deleted_at', null)
     .order('start_time', { ascending: false });
 
   if (error) throw error;
@@ -2475,6 +2516,7 @@ export async function fetchTimeEntriesByProject(supabase: SupabaseClient, projec
     .from('project_time_entries')
     .select(TIME_ENTRY_SELECT)
     .eq('project_id', projectId)
+    .is('deleted_at', null)
     .order('start_time', { ascending: false });
 
   if (error) throw error;
@@ -2527,6 +2569,7 @@ export async function patchTimeEntry(
       .from('project_time_entries')
       .select('project_id')
       .eq('id', id)
+      .is('deleted_at', null)
       .single();
     if (existingError) throw existingError;
     patch.hourly_rate = await resolveProjectHourlyRate(supabase, existing.project_id, updates.start_time);
@@ -2535,6 +2578,7 @@ export async function patchTimeEntry(
     .from('project_time_entries')
     .update(patch)
     .eq('id', id)
+    .is('deleted_at', null)
     .select(TIME_ENTRY_SELECT)
     .single();
 
@@ -2546,9 +2590,8 @@ export async function patchTimeEntry(
   return mapTimeEntryRow(data);
 }
 
-export async function removeTimeEntry(supabase: SupabaseClient, id: string) {
-  const { error } = await supabase.from('project_time_entries').delete().eq('id', id);
-  if (error) throw error;
+export async function removeTimeEntry(supabase: SupabaseClient, id: string, actor?: string | null) {
+  await moveToTrash(supabase, 'project_time_entries', id, actor);
 }
 
 // ============================================================
@@ -2561,6 +2604,7 @@ export async function fetchAllProjectCredentials(supabase: SupabaseClient) {
   const { data, error } = await supabase
     .from('project_credentials')
     .select(CREDENTIAL_LIST_COLUMNS)
+    .is('deleted_at', null)
     .order('created_at', { ascending: false });
   if (error) throw error;
   return (data || []) as ProjectCredentialListItem[];
@@ -2571,14 +2615,19 @@ export async function fetchProjectCredentials(supabase: SupabaseClient, projectI
     .from('project_credentials')
     .select(CREDENTIAL_LIST_COLUMNS)
     .eq('project_id', projectId)
+    .is('deleted_at', null)
     .order('created_at', { ascending: false });
   if (error) throw error;
   return (data || []) as ProjectCredentialListItem[];
 }
 
 export async function fetchCredentialWithEncryptedData(supabase: SupabaseClient, id: string, projectId?: string) {
-  let query = supabase.from('project_credentials').select('*').eq('id', id);
+  let query = supabase.from('project_credentials').select('*').eq('id', id).is('deleted_at', null);
   if (projectId) query = query.eq('project_id', projectId);
+  // Server routes reach a credential by its id alone, so one whose project is
+  // in Trash must not answer either.
+  const trashed = await trashedProjectIds(supabase);
+  if (trashed.length) query = query.not('project_id', 'in', postgrestList(trashed));
   const { data, error } = await query.single();
   if (error) throw error;
   return data as ProjectCredential;
@@ -2616,19 +2665,24 @@ export async function patchProjectCredential(
     iv?: string;
   },
 ) {
-  const { data, error } = await supabase
+  // Reached by id alone from a server route: a credential whose project is in
+  // Trash is not editable either.
+  const trashed = await trashedProjectIds(supabase);
+  let query = supabase
     .from('project_credentials')
     .update(updates)
     .eq('id', id)
+    .is('deleted_at', null);
+  if (trashed.length) query = query.not('project_id', 'in', postgrestList(trashed));
+  const { data, error } = await query
     .select(CREDENTIAL_LIST_COLUMNS)
     .single();
   if (error) throw error;
   return data as ProjectCredentialListItem;
 }
 
-export async function removeProjectCredential(supabase: SupabaseClient, id: string) {
-  const { error } = await supabase.from('project_credentials').delete().eq('id', id);
-  if (error) throw error;
+export async function removeProjectCredential(supabase: SupabaseClient, id: string, actor?: string | null) {
+  await moveToTrash(supabase, 'project_credentials', id, actor);
 }
 
 // ============================================================
@@ -2656,7 +2710,13 @@ function hydrateInvoice(row: Record<string, unknown>): ProjectInvoice {
 
 /** One invoice re-read after a change the database made around it (payments, status). */
 export async function fetchProjectInvoice(supabase: SupabaseClient, id: string) {
-  const { data, error } = await supabase.from('project_invoices').select(INVOICE_COLUMNS).eq('id', id).maybeSingle();
+  const { data, error } = await supabase
+    .from('project_invoices')
+    .select(INVOICE_COLUMNS)
+    .eq('id', id)
+    .is('deleted_at', null)
+    .is('invoice_payments.deleted_at', null)
+    .maybeSingle();
   if (error) throw error;
   return data ? hydrateInvoice(data as Record<string, unknown>) : null;
 }
@@ -2665,6 +2725,8 @@ export async function fetchAllProjectInvoices(supabase: SupabaseClient) {
   const data = await fetchAllRows((from, to, count) => supabase
     .from('project_invoices')
     .select(INVOICE_COLUMNS, { count })
+    .is('deleted_at', null)
+    .is('invoice_payments.deleted_at', null)
     .order('date', { ascending: false })
     .order('id')
     .range(from, to));
@@ -2720,9 +2782,8 @@ export async function patchProjectInvoice(
   return fresh;
 }
 
-export async function removeProjectInvoice(supabase: SupabaseClient, id: string) {
-  const { error } = await supabase.from('project_invoices').delete().eq('id', id);
-  if (error) throw error;
+export async function removeProjectInvoice(supabase: SupabaseClient, id: string, actor?: string | null) {
+  await moveToTrash(supabase, 'project_invoices', id, actor);
 }
 
 /** A project's payments with the name of the API key that recorded each. */
@@ -2771,13 +2832,14 @@ export async function fetchProjectRetainers(
     .from('project_retainers')
     .select('*')
     .eq('project_id', projectId)
+    .is('deleted_at', null)
     .order('created_at');
   if (error) throw error;
   const ids = (retainers || []).map((retainer) => retainer.id);
   if (ids.length === 0) return { retainers: [], amounts: [], periods: [], shares: [] };
 
   const [amounts, periods, shares] = await Promise.all([
-    supabase.from('project_retainer_amounts').select('*').in('retainer_id', ids).order('effective_date'),
+    supabase.from('project_retainer_amounts').select('*').in('retainer_id', ids).is('deleted_at', null).order('effective_date'),
     supabase.from('project_retainer_periods').select('*').in('retainer_id', ids).order('period_start'),
     includeShares
       ? supabase.from('project_retainer_shares').select('*').in('retainer_id', ids).order('effective_from')
@@ -2823,9 +2885,8 @@ export async function saveProjectRetainer(
   return data as ProjectRetainer;
 }
 
-export async function removeProjectRetainer(supabase: SupabaseClient, retainerId: string) {
-  const { error } = await supabase.from('project_retainers').delete().eq('id', retainerId);
-  if (error) throw error;
+export async function removeProjectRetainer(supabase: SupabaseClient, retainerId: string, actor?: string | null) {
+  await moveToTrash(supabase, 'project_retainers', retainerId, actor);
 }
 
 export async function scheduleRetainerAmount(
@@ -2842,9 +2903,8 @@ export async function scheduleRetainerAmount(
   if (error) throw error;
 }
 
-export async function removeRetainerAmount(supabase: SupabaseClient, amountId: string) {
-  const { error } = await supabase.from('project_retainer_amounts').delete().eq('id', amountId);
-  if (error) throw error;
+export async function removeRetainerAmount(supabase: SupabaseClient, amountId: string, actor?: string | null) {
+  await moveToTrash(supabase, 'project_retainer_amounts', amountId, actor);
 }
 
 export async function setRetainerShares(
@@ -3025,4 +3085,15 @@ export async function patchBusinessSettings(
     .single();
   if (error) throw error;
   return data as BusinessSettings;
+}
+
+// ============================================================
+// TRASH
+// ============================================================
+
+/** Everything in Trash the signed-in member may restore, newest first. */
+export async function fetchTrash(supabase: SupabaseClient): Promise<TrashItem[]> {
+  const { data, error } = await supabase.rpc('list_trash');
+  if (error) throw error;
+  return ((data || []) as TrashItem[]).sort((a, b) => b.deleted_at.localeCompare(a.deleted_at));
 }

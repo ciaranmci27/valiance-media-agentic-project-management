@@ -5,6 +5,7 @@ import { encrypt, isEncryptionConfigured } from '@/lib/api/encryption';
 import type { CredentialPayload } from '@/lib/types';
 import { recordPortalEvent, getOrCreateSessionId } from '@/lib/portal-analytics';
 import { checkPortalPin, pinFailureResponse } from '@/lib/portal-pin';
+import { projectIsLive } from '@/lib/supabase/trash';
 
 function getServiceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -35,7 +36,8 @@ export async function POST(
     .eq('token', token)
     .maybeSingle();
 
-  if (!settings || !settings.enabled) {
+  // A project in Trash has no portal.
+  if (!settings || !settings.enabled || !(await projectIsLive(supabase, settings.project_id))) {
     return NextResponse.json({ error: 'Portal not found' }, { status: 404 });
   }
 

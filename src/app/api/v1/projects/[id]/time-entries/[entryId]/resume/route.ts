@@ -14,6 +14,7 @@ export const POST = withApi(async ({ supabase, params, apiKeyId, teamMemberId, a
     .select('*')
     .eq('id', entryId)
     .eq('project_id', id)
+    .is('deleted_at', null)
     .maybeSingle();
 
   if (!before) throw notFound('Time entry');
@@ -45,6 +46,7 @@ export const POST = withApi(async ({ supabase, params, apiKeyId, teamMemberId, a
       .update({ end_time: last.end })
       .eq('id', entryId)
       .eq('project_id', id)
+      .is('deleted_at', null)
       .select()
       .single();
     if (finalizeErr) throw finalizeErr;
@@ -71,6 +73,7 @@ export const POST = withApi(async ({ supabase, params, apiKeyId, teamMemberId, a
     .update({ segments: newSegments })
     .eq('id', entryId)
     .eq('project_id', id)
+    .is('deleted_at', null)
     .select()
     .single();
 

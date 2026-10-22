@@ -296,7 +296,7 @@ async function projectContactAddresses(service: SupabaseClient, projectId: strin
   if (ids.length === 0) return [];
   const [emails, contacts] = await Promise.all([
     many<{ contact_id: string; email: string }>(service.from('contact_emails').select('contact_id, email').in('contact_id', ids)),
-    many<{ id: string; name: string | null }>(service.from('contacts').select('id, name').in('id', ids)),
+    many<{ id: string; name: string | null }>(service.from('contacts').select('id, name').in('id', ids).is('deleted_at', null)),
   ]);
   const nameOf = new Map(contacts.map((contact) => [contact.id, contact.name?.trim() || '']));
   return emails.map((row) => ({ address: row.email, contact_id: row.contact_id, contact_name: nameOf.get(row.contact_id) ?? '' }));
@@ -382,7 +382,7 @@ function presentAddress(row: Row): ProjectEmailAddress {
 
 async function requireExistingProject(ctx: InboxContext, projectId: string): Promise<string> {
   const id = requireProject(ctx, projectId);
-  const { data, error } = await ctx.service.from('projects').select('id').eq('id', id).maybeSingle();
+  const { data, error } = await ctx.service.from('projects').select('id').eq('id', id).is('deleted_at', null).maybeSingle();
   if (error) throw error;
   if (!data) throw new InboxError(404, 'Project not found');
   return id;

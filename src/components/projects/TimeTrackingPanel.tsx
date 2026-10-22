@@ -815,7 +815,7 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
       return;
     }
     const deleted = await deleteTimeEntry(deleteTarget);
-    if (deleted) toast('success', 'Time entry removed');
+    if (deleted) toast('success', 'Time entry moved to Trash');
   };
 
   const dateGroups = Object.entries(groupedByDate);
@@ -1655,10 +1655,10 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
         isOpen={!!deleteTarget}
         onClose={() => setDeleteTarget(null)}
         onConfirm={executeDelete}
-        title="Delete Time Entry"
-        message="Are you sure you want to remove this time entry?"
-        confirmLabel="Delete"
+        title="Move time entry to Trash?"
+        message="The time entry goes to Trash."
         variant="danger"
+        trash
       />
 
       <ConfirmDialog

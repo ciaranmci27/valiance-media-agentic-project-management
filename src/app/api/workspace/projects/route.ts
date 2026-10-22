@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { accessAllows, requireSessionAccess, sanitizeProjectForAccess } from '@/lib/api/access';
 import { insertProject, patchProject } from '@/lib/supabase/queries';
+import { moveToTrash, TRASH_ERROR_STATUS, TrashError } from '@/lib/supabase/trash';
 
 const BILLING_FIELDS = ['hourly_rate', 'budget_type', 'budget_value', 'billing_address', 'billing_email', 'tax_rate', 'invoice_pdf_options', 'client_time_billing'] as const;
 const AGENT_FIELDS = ['autonomous_enabled', 'auto_merge_enabled', 'integration_branch', 'production_branch', 'suggestions_per_cycle', 'suggestion_queue_cap', 'audit_interval_hours', 'sensitive_paths', 'repo_path'] as const;
@@ -38,6 +39,7 @@ export async function GET() {
   let query = service
     .from('projects')
     .select('*, project_members(member_id)')
+    .is('deleted_at', null)
     .order('created_at', { ascending: false });
   if (!accessAllows(access, 'projects.read_all', 'app')) {
     if (access.project_ids.length === 0) return NextResponse.json({ data: [] });
@@ -128,11 +130,20 @@ export async function PATCH(request: Request) {
 export async function DELETE(request: Request) {
   const auth = await requireSessionAccess({ permission: 'projects.manage' });
   if (auth.error) return auth.error;
-  const { access, service } = auth.data;
+  const { access, client } = auth.data;
   const id = new URL(request.url).searchParams.get('id');
   if (!id) return errorResponse('Project id is required');
   if (!accessAllows(access, 'projects.read_all', 'app') && !access.project_ids.includes(id)) return errorResponse('Project access denied', 403);
-  const { error } = await service.from('projects').delete().eq('id', id);
-  if (error) return errorResponse(error.message, 500);
+  // Moves the project to Trash as the signed-in member: the database checks
+  // their delete permission, stamps them and writes the audit row. Everything
+  // the project owns stays as it was, out of reach until it is restored.
+  try {
+    await moveToTrash(client, 'projects', id);
+  } catch (error) {
+    if (error instanceof TrashError) {
+      return errorResponse(error.message, TRASH_ERROR_STATUS[error.reason]);
+    }
+    return errorResponse(error instanceof Error ? error.message : 'Failed to delete project', 500);
+  }
   return new NextResponse(null, { status: 204 });
 }

@@ -77,6 +77,7 @@ function routing(message: Row, forwarders: Map<string, string>) {
 async function projectNames(supabase: SupabaseClient, ids: string[]): Promise<Map<string, string>> {
   const unique = [...new Set(ids.filter(Boolean))];
   if (unique.length === 0) return new Map();
+  // includes-deleted: names for an email's history, which keeps its project even in Trash.
   const found = await rows<{ id: string; name: string }>(supabase.from('projects').select('id, name').in('id', unique));
   return new Map(found.map((project) => [project.id, project.name]));
 }
@@ -210,7 +211,7 @@ export async function messageDetail(supabase: SupabaseClient, message: Accessibl
   ]);
   const taskIds = [...new Set(links.map((link) => link.task_id as string))];
   const tasks = taskIds.length
-    ? await rows<Row>(supabase.from('tasks').select('id, title, status, ai_readiness, project_id').in('id', taskIds))
+    ? await rows<Row>(supabase.from('tasks').select('id, title, status, ai_readiness, project_id').in('id', taskIds).is('deleted_at', null))
     : [];
   const [names, addresses, forwarders] = await Promise.all([
     projectNames(supabase, [thread.data.project_id, ...candidates.map((row) => row.project_id as string)]),

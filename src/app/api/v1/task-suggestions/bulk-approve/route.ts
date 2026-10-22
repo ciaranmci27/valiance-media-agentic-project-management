@@ -18,6 +18,9 @@ export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId, acc
     try {
       const { data: suggestion } = await supabase.from('task_suggestions').select('status, project_id').eq('id', id).maybeSingle();
       if (!suggestion) { results.push({ id, success: false, error: 'Suggestion not found' }); continue; }
+      // A suggestion in a project in Trash is out of reach with it.
+      const { data: liveProject } = await supabase.from('projects').select('id').eq('id', suggestion.project_id).is('deleted_at', null).maybeSingle();
+      if (!liveProject) { results.push({ id, success: false, error: 'Suggestion not found' }); continue; }
       if (!accessAllowsProject(access, suggestion.project_id, 'api')) { results.push({ id, success: false, error: 'Project scope denied' }); continue; }
       if (suggestion.status !== 'pending' && suggestion.status !== 'needs_info') { results.push({ id, success: false, error: `Cannot approve a suggestion with status "${suggestion.status}"` }); continue; }
       const result = await approveTaskSuggestion(supabase, id, {}, reviewedBy);

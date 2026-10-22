@@ -39,7 +39,7 @@ export default function ContactsPage() {
   const executeDelete = () => {
     if (!deletingContactId) return;
     deleteContact(deletingContactId);
-    toast('success', 'Contact deleted');
+    toast('success', 'Contact moved to Trash');
   };
 
   const searchLower = filters.search.toLowerCase();
@@ -213,10 +213,10 @@ export default function ContactsPage() {
         isOpen={!!deletingContactId}
         onClose={() => setDeletingContactId(null)}
         onConfirm={executeDelete}
-        title="Delete Contact"
-        message="This will permanently delete this contact and remove them from all projects. This action cannot be undone."
-        confirmLabel="Delete"
+        title="Move contact to Trash?"
+        message="The contact goes to Trash."
         variant="danger"
+        trash
       />
     </div>
   );

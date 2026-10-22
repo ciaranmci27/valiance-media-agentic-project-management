@@ -11,7 +11,7 @@ export const GET = withApi(async ({ supabase, searchParams, access }) => {
   const order = searchParams.get('order') === 'asc';
   const search = searchParams.get('search');
 
-  let query = supabase.from('contacts').select('*', { count: 'exact' });
+  let query = supabase.from('contacts').select('*', { count: 'exact' }).is('deleted_at', null);
   if (!accessAllows(access, 'contacts.read_all', 'api')) {
     if (access.project_ids.length === 0) return paginated([], { page, limit, total: 0 });
     const { data: links } = await supabase.from('project_contacts').select('contact_id').in('project_id', access.project_ids);

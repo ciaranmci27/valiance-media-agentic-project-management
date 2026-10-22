@@ -17,7 +17,7 @@ import { routeTool, type PmTool } from './core';
  *
  * Left out on purpose: credentials, client emails (outbound, and the inbound
  * inbox at /api/v1/inbound-emails, which has its own plugin tools), invoices, rates, time
- * approval, team writes, every hard delete, the unscoped app activity feed,
+ * approval, team writes, every delete (move to Trash), the unscoped app activity feed,
  * suggestion approve/decline, and agent health.
  */
 

@@ -1123,7 +1123,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
   const executeDelete = () => {
     if (deleteTarget) {
       deleteInvoice(deleteTarget);
-      toast('success', 'Invoice deleted');
+      toast('success', 'Invoice moved to Trash');
     }
   };
 
@@ -2217,10 +2217,10 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
         isOpen={!!deleteTarget}
         onClose={() => setDeleteTarget(null)}
         onConfirm={executeDelete}
-        title="Delete Invoice"
-        message="Are you sure you want to delete this invoice? This action cannot be undone."
-        confirmLabel="Delete"
+        title="Move invoice to Trash?"
+        message="The invoice goes to Trash. Its hours become free to invoice again."
         variant="danger"
+        trash
       />
 
       <InvoicePreviewModal invoiceId={previewInvoiceId} onClose={() => setPreviewInvoiceId(null)} />

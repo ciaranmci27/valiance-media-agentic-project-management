@@ -13,6 +13,8 @@ export const GET = withApi(async ({ supabase, params, searchParams }) => {
     .from('portal_updates')
     .select('*, portal_update_attachments(id, name, file_url, file_size, mime_type, uploaded_by, created_at)', { count: 'exact' })
     .eq('project_id', id)
+    .is('deleted_at', null)
+    .is('portal_update_attachments.deleted_at', null)
     .order('created_at', { ascending: false })
     .range(offset, offset + limit - 1);
 

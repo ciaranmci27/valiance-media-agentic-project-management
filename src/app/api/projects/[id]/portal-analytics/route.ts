@@ -279,14 +279,16 @@ export async function GET(
           .select('id, name, mime_type')
           .eq('entity_type', 'project')
           .eq('entity_id', projectId)
-          .in('id', fileIds),
+          .in('id', fileIds)
+          .is('deleted_at', null),
     invoiceIds.length === 0
       ? { data: [] as { id: string; invoice_number: string; amount: number }[] }
       : service
           .from('project_invoices')
           .select('id, invoice_number, amount')
           .eq('project_id', projectId)
-          .in('id', invoiceIds),
+          .in('id', invoiceIds)
+          .is('deleted_at', null),
   ]);
   const fileMeta = new Map((fileRows ?? []).map(f => [f.id, f]));
   const invoiceMeta = new Map((invoiceRows ?? []).map(i => [i.id, i]));

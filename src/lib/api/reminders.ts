@@ -67,11 +67,28 @@ export function visibleReminderFilter(access: AccessContext, memberId: string): 
   return projects.length ? `${own},project_id.in.(${projects.join(',')})` : own;
 }
 
+/** False when the reminder's task or project is in Trash: it goes out of reach with them. */
+async function placeIsLive(supabase: SupabaseClient, row: Pick<ReminderRow, 'task_id' | 'project_id'>): Promise<boolean> {
+  if (row.task_id) {
+    const { data, error } = await supabase.from('tasks').select('id').eq('id', row.task_id).is('deleted_at', null).maybeSingle();
+    if (error) throw error;
+    if (!data) return false;
+  }
+  if (row.project_id) {
+    const { data, error } = await supabase.from('projects').select('id').eq('id', row.project_id).is('deleted_at', null).maybeSingle();
+    if (error) throw error;
+    if (!data) return false;
+  }
+  return true;
+}
+
 export async function loadReminder(supabase: SupabaseClient, access: AccessContext, memberId: string, id: string) {
-  const { data, error } = await supabase.from('reminders').select(REMINDER_SELECT).eq('id', id).maybeSingle();
+  const { data, error } = await supabase.from('reminders').select(REMINDER_SELECT).eq('id', id).is('deleted_at', null).maybeSingle();
   if (error) throw error;
-  // Hidden and missing read the same, so ids cannot be probed.
-  if (!data || !canSeeReminder(access, memberId, data as ReminderRow)) throw notFound('Reminder');
+  // Hidden, trashed and missing read the same, so ids cannot be probed.
+  if (!data || !canSeeReminder(access, memberId, data as ReminderRow) || !(await placeIsLive(supabase, data as ReminderRow))) {
+    throw notFound('Reminder');
+  }
   return data as ReminderRow & Record<string, unknown>;
 }
 
@@ -85,9 +102,10 @@ export async function resolveReminderPlace(
   input: { task_id?: string | null; project_id?: string | null },
 ): Promise<{ task_id: string | null; project_id: string | null }> {
   if (input.task_id) {
-    const { data: task, error } = await supabase.from('tasks').select('id, project_id').eq('id', input.task_id).maybeSingle();
+    const { data: task, error } = await supabase.from('tasks').select('id, project_id').eq('id', input.task_id).is('deleted_at', null).maybeSingle();
     if (error) throw error;
     if (!task || !accessAllowsProject(access, task.project_id, 'api')) throw notFound('Task');
+    if (!(await placeIsLive(supabase, { task_id: null, project_id: task.project_id }))) throw notFound('Task');
     if (input.project_id && input.project_id !== task.project_id) {
       throw badRequest('project_id does not match the task\'s project; send task_id alone');
     }
@@ -95,6 +113,7 @@ export async function resolveReminderPlace(
   }
   if (input.project_id) {
     if (!accessAllowsProject(access, input.project_id, 'api')) throw notFound('Project');
+    if (!(await placeIsLive(supabase, { task_id: null, project_id: input.project_id }))) throw notFound('Project');
     return { task_id: null, project_id: input.project_id };
   }
   return { task_id: null, project_id: null };

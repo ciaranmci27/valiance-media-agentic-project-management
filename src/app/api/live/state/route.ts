@@ -42,8 +42,10 @@ export async function GET() {
       supabase.from('team_members').select('id, name, title, avatar').eq('role', 'agent'),
       supabase
         .from('tasks')
-        .select('id, title, status, priority, updated_at, ai_readiness, task_assignees(member_id)')
+        .select('id, title, status, priority, updated_at, ai_readiness, task_assignees(member_id), project:projects!inner(id)')
         .neq('status', 'done')
+        .is('deleted_at', null)
+        .is('project.deleted_at', null)
         .order('updated_at', { ascending: false })
         .limit(50),
       supabase
@@ -67,6 +69,7 @@ export async function GET() {
         .from('projects')
         .select('id, name, integration_branch')
         .eq('autonomous_enabled', true)
+        .is('deleted_at', null)
         .limit(1),
       supabase
         .from('agent_health')

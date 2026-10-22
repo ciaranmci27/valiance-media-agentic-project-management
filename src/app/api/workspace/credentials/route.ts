@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { accessAllows, accessAllowsProject, requireSessionAccess } from '@/lib/api/access';
+import { postgrestList, trashedProjectIds } from '@/lib/supabase/trash';
 
 export async function GET(request: Request) {
   const auth = await requireSessionAccess();
@@ -13,8 +14,12 @@ export async function GET(request: Request) {
   let query = service
     .from('project_credentials')
     .select('id, project_id, label, category, submitted_by_client, submitted_by_name, created_by, created_at, updated_at')
+    .is('deleted_at', null)
     .order('created_at', { ascending: false });
   if (projectId) query = query.eq('project_id', projectId);
+  // A credential of a project in Trash goes out of reach with it.
+  const trashed = await trashedProjectIds(service);
+  if (trashed.length) query = query.not('project_id', 'in', postgrestList(trashed));
 
   if (!accessAllows(access, 'credentials.manage', 'app')) {
     const { data: grants } = await service

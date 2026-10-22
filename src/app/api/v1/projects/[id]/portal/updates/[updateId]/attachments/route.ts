@@ -17,6 +17,7 @@ export const GET = withApi(async ({ supabase, params, searchParams }) => {
     .select('id')
     .eq('id', updateId)
     .eq('project_id', id)
+    .is('deleted_at', null)
     .maybeSingle();
   if (!update) throw notFound('Portal update');
 
@@ -24,6 +25,7 @@ export const GET = withApi(async ({ supabase, params, searchParams }) => {
     .from('portal_update_attachments')
     .select('*', { count: 'exact' })
     .eq('update_id', updateId)
+    .is('deleted_at', null)
     .order('created_at', { ascending: true })
     .range(offset, offset + limit - 1);
 
@@ -41,6 +43,7 @@ export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMembe
     .select('id')
     .eq('id', updateId)
     .eq('project_id', id)
+    .is('deleted_at', null)
     .maybeSingle();
   if (!update) throw notFound('Portal update');
 

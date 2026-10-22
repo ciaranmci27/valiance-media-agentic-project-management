@@ -4,12 +4,14 @@ import { updateLeadSchema } from '@/lib/schemas';
 import { notFound } from '@/lib/api/errors';
 import { patchLead } from '@/lib/supabase/queries';
 import { logAudit } from '@/lib/api/audit';
+import { trashForApi } from '@/lib/api/trash';
 
 export const GET = withApi(async ({ supabase, params }) => {
   const { data, error } = await supabase
     .from('leads')
     .select('*, lead_members(member_id)')
     .eq('id', (params as any).id)
+    .is('deleted_at', null)
     .maybeSingle();
 
   if (error) throw error;
@@ -26,7 +28,7 @@ export const GET = withApi(async ({ supabase, params }) => {
 
 export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemberId }) => {
   const id = (params as any).id;
-  const { data: before } = await supabase.from('leads').select('*').eq('id', id).maybeSingle();
+  const { data: before } = await supabase.from('leads').select('*').eq('id', id).is('deleted_at', null).maybeSingle();
   if (!before) throw notFound('Lead');
   const { member_ids, ...updates } = body as any;
   const lead = await patchLead(supabase, id, updates, member_ids);
@@ -36,17 +38,10 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
 
 export const DELETE = withApi(async ({ supabase, params, apiKeyId, teamMemberId }) => {
   const id = (params as any).id;
-  const { data: before } = await supabase.from('leads').select('*').eq('id', id).maybeSingle();
-  // Soft delete: set archived_at
-  const { data, error } = await supabase
-    .from('leads')
-    .update({ archived_at: new Date().toISOString() })
-    .eq('id', id)
-    .select()
-    .maybeSingle();
-
-  if (error) throw error;
-  if (!data) throw notFound('Lead');
-  logAudit(supabase, { method: 'DELETE', endpoint: `/api/v1/leads/${id}`, entityType: 'lead', entityId: id, apiKeyId, teamMemberId, beforeSnapshot: before, afterSnapshot: data, statusCode: 200 });
-  return success({ archived: true, archived_at: data.archived_at });
+  const { data: before } = await supabase.from('leads').select('*').eq('id', id).is('deleted_at', null).maybeSingle();
+  if (!before) throw notFound('Lead');
+  // Moves the lead to Trash; archiving is its own action (POST /leads/:id/archive).
+  await trashForApi(supabase, 'leads', id, teamMemberId, 'Lead');
+  logAudit(supabase, { method: 'DELETE', endpoint: `/api/v1/leads/${id}`, entityType: 'lead', entityId: id, apiKeyId, teamMemberId, beforeSnapshot: before, statusCode: 200 });
+  return success({ deleted: true });
 });

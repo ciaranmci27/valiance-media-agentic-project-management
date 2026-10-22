@@ -5,6 +5,7 @@ import { parsePagination } from '@/lib/api/pagination';
 import { accessAllows } from '@/lib/api/access';
 import { invoiceTotals, normalizedInvoiceLines, outstandingOf, serializePayment } from '@/lib/api/invoice-payments';
 import { INVOICE_STATUSES, type ProjectInvoice } from '@/lib/types';
+import { postgrestList, trashedProjectIds } from '@/lib/supabase/trash';
 
 export const dynamic = 'force-dynamic';
 
@@ -38,8 +39,13 @@ export const GET = withApi(async ({ supabase, searchParams, access }) => {
 
   let query = supabase
     .from('project_invoices')
-    .select('*, invoice_payments(*), projects(id, name, billing_email, tax_rate)', { count: 'exact' });
+    .select('*, invoice_payments(*), projects(id, name, billing_email, tax_rate)', { count: 'exact' })
+    .is('deleted_at', null)
+    .is('invoice_payments.deleted_at', null);
   if (projectIds) query = query.in('project_id', projectIds);
+  // Invoices of a project in Trash went to Trash with it.
+  const trashed = await trashedProjectIds(supabase);
+  if (trashed.length) query = query.not('project_id', 'in', postgrestList(trashed));
   if (statuses.length) query = query.in('status', statuses);
   if (updatedSince) query = query.gte('updated_at', new Date(updatedSince).toISOString());
   const { data, count, error } = await query
@@ -58,6 +64,8 @@ export const GET = withApi(async ({ supabase, searchParams, access }) => {
           .select('project_id, contact_id, contact:contacts(id, name, email, company)')
           .eq('is_primary_client', true)
           .in('project_id', pageProjects)
+          // A contact in Trash is no longer the customer.
+          .is('contact.deleted_at', null)
       : Promise.resolve({ data: [], error: null }),
   ]);
   if (contacts.error) throw contacts.error;

@@ -16,6 +16,12 @@ export async function createPaymentsDatabase(options: {
   extraMigrations?: string[];
   /** Apply the Invoice payments section of schema.sql instead of the migration. */
   fromSchema?: boolean;
+  /**
+   * Also the Trash pieces an invoice DELETE runs through (soft_delete_record
+   * and the guard that refuses an invoice pinned by connection payments),
+   * from schema.sql. Needs fromSchema, so the payments are the current ones.
+   */
+  softDelete?: boolean;
 } = {}): Promise<PGlite> {
   const db = await createDraftingDatabase();
   const canonical = await readSql('../supabase/schema.sql');
@@ -83,6 +89,16 @@ export async function createPaymentsDatabase(options: {
     const sql = await readSql(path);
     await db.exec(sql);
     await db.exec(sql); // safe to re-run
+  }
+  if (options.softDelete) {
+    assert.ok(options.fromSchema, 'softDelete needs fromSchema');
+    // After the extra migrations: an older one may bring back a pre-Trash
+    // invoice_payment_totals, which would count payments in Trash.
+    for (const name of ['trash_record_types', 'trash_delete_blocker', 'guard_trash', 'soft_delete_record', 'invoice_payment_totals']) {
+      await db.exec(fn(name));
+    }
+    await db.exec(`CREATE TRIGGER guard_trash BEFORE UPDATE OF deleted_at ON public.project_invoices
+      FOR EACH ROW EXECUTE FUNCTION public.guard_trash();`);
   }
   await db.exec(`
     GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;

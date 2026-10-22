@@ -3,6 +3,7 @@ import { withApi } from '@/lib/api/middleware';
 import { success } from '@/lib/api/response';
 import { badRequest, forbidden } from '@/lib/api/errors';
 import { logAudit } from '@/lib/api/audit';
+import { trashForApi } from '@/lib/api/trash';
 import { canDeleteReminder, loadReminder, REMINDER_SELECT, updateReminderSchema } from '@/lib/api/reminders';
 
 export const GET = withApi(async ({ supabase, params, teamMemberId, access }) => {
@@ -30,7 +31,7 @@ export const PATCH = withApi(async ({ supabase, params, body, teamMemberId, acce
   // The service client has no signed-in member, so who ticked it off is set here.
   if (input.status === 'done' && before.status !== 'done') patch.completed_by = teamMemberId;
 
-  const { data, error } = await supabase.from('reminders').update(patch).eq('id', id).select(REMINDER_SELECT).single();
+  const { data, error } = await supabase.from('reminders').update(patch).eq('id', id).is('deleted_at', null).select(REMINDER_SELECT).single();
   if (error) throw error;
 
   logAudit(supabase, { method: 'PATCH', endpoint: `/api/v1/reminders/${id}`, entityType: 'reminder', entityId: id, apiKeyId, teamMemberId, requestBody: body, beforeSnapshot: before, afterSnapshot: data, statusCode: 200 });
@@ -44,8 +45,7 @@ export const DELETE = withApi(async ({ supabase, params, teamMemberId, access, a
   if (!canDeleteReminder(access, teamMemberId, before)) {
     throw forbidden('Only the reminder\'s owner, its writer or a task manager can delete it; tick it off instead');
   }
-  const { error } = await supabase.from('reminders').delete().eq('id', id);
-  if (error) throw error;
+  await trashForApi(supabase, 'reminders', id, teamMemberId, 'Reminder');
 
   logAudit(supabase, { method: 'DELETE', endpoint: `/api/v1/reminders/${id}`, entityType: 'reminder', entityId: id, apiKeyId, teamMemberId, beforeSnapshot: before, statusCode: 200 });
   return success({ deleted: true });

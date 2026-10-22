@@ -45,10 +45,9 @@ function ProjectsContent() {
     setIsFormOpen(true);
   };
 
-  const executeDelete = () => {
+  const executeDelete = async () => {
     if (!deletingProjectId) return;
-    deleteProject(deletingProjectId);
-    toast('success', 'Project deleted');
+    if (await deleteProject(deletingProjectId)) toast('success', 'Project moved to Trash');
   };
 
   const handleCloseForm = () => {
@@ -259,9 +258,14 @@ function ProjectsContent() {
         subtitle={<span className="hidden sm:inline">{projects.length} total projects</span>}
         searchPlaceholder="Search projects..."
         actions={canManageProjects ? (
-          <Button onClick={() => setIsFormOpen(true)} icon={<Plus size={16} />}>
-            New Project
-          </Button>
+          <>
+            <Button href="/settings/trash?group=projects" variant="secondary" icon={<Trash2 size={16} />}>
+              Deleted
+            </Button>
+            <Button onClick={() => setIsFormOpen(true)} icon={<Plus size={16} />}>
+              New Project
+            </Button>
+          </>
         ) : undefined}
       />
 
@@ -294,10 +298,10 @@ function ProjectsContent() {
         isOpen={!!deletingProjectId}
         onClose={() => setDeletingProjectId(null)}
         onConfirm={executeDelete}
-        title="Delete Project"
-        message="This will permanently delete the project and all its tasks. This action cannot be undone."
-        confirmLabel="Delete"
+        title="Move project to Trash?"
+        message="The project goes to Trash with everything in it: tasks, time, invoices, files and the client portal."
         variant="danger"
+        trash
       />
     </>
   );

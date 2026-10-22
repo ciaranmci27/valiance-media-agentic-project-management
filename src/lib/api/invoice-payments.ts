@@ -75,6 +75,7 @@ export async function invoiceInProject(supabase: SupabaseClient, projectId: stri
     .select('id, project_id, status, amount, paid_date')
     .eq('id', invoiceId)
     .eq('project_id', projectId)
+    .is('deleted_at', null)
     .maybeSingle();
   if (error) throw error;
   if (!data) throw notFound('Invoice');

@@ -8,6 +8,7 @@ import { NumberInput } from '@/components/ui/inputs/NumberInput';
 import { Button } from '@/components/ui/Button';
 import { toast } from '@/components/ui/Toast';
 import type { ProjectHourlyRate } from '@/lib/types';
+import { moveToTrash } from '@/lib/supabase/trash';
 
 interface HourlyRateScheduleProps {
   projectId: string;
@@ -123,12 +124,13 @@ export function HourlyRateSchedule({
       toast('error', 'Keep at least one rate in the schedule');
       return;
     }
-    const { error } = await supabase.from('project_hourly_rates').delete().eq('id', id);
-    if (error) {
+    try {
+      await moveToTrash(supabase, 'project_hourly_rates', id);
+    } catch {
       toast('error', 'Failed to remove scheduled rate');
       return;
     }
-    toast('success', 'Scheduled rate removed');
+    toast('success', 'Scheduled rate moved to Trash');
     await loadRates();
   };
 

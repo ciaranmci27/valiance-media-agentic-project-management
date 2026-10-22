@@ -30,7 +30,9 @@ export async function GET() {
   let shareEarningsQuery = service.from('team_member_share_earnings').select('*').is('voided_at', null);
   // Every entry, paged: this is all-time history behind Earned and Owed.
   const entriesPage = (from: number, to: number, count: 'exact' | undefined) => {
-    let query = service.from('project_time_entries').select('id, project_id, member_id, start_time, end_time, segments, description, compensation_rate, work_type, approval_status, submitted_at, approved_at, billing_multiplier, billing_converted_at', { count }).not('end_time', 'is', null);
+    // Time moved to Trash earns nothing. Time on a project in Trash still
+    // counts: pay belongs to the person and survives a deleted project.
+    let query = service.from('project_time_entries').select('id, project_id, member_id, start_time, end_time, segments, description, compensation_rate, work_type, approval_status, submitted_at, approved_at, billing_multiplier, billing_converted_at', { count }).not('end_time', 'is', null).is('deleted_at', null);
     if (entryTargetMember) query = query.eq('member_id', entryTargetMember);
     if (!accessAllows(access, 'projects.read_all', 'app')) {
       // Other people's time is scoped to the projects the caller can open. The
@@ -99,7 +101,7 @@ export async function POST(request: Request) {
     if (!accessAllows(access, 'time.approve', 'app')) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     const entryIds = Array.isArray(body.entry_ids) ? body.entry_ids.map(String) : [];
     if (entryIds.length === 0) return NextResponse.json({ error: 'Select at least one time entry' }, { status: 422 });
-    const { data: reviewEntries, error: reviewError } = await service.from('project_time_entries').select('id, project_id, member_id').in('id', entryIds);
+    const { data: reviewEntries, error: reviewError } = await service.from('project_time_entries').select('id, project_id, member_id').in('id', entryIds).is('deleted_at', null);
     if (reviewError) return NextResponse.json({ error: reviewError.message }, { status: 500 });
     if ((reviewEntries || []).length !== entryIds.length) return NextResponse.json({ error: 'One or more time entries were not found' }, { status: 404 });
     if (reviewEntries?.some((entry) => entry.member_id === memberId)) return NextResponse.json({ error: 'You cannot approve your own time' }, { status: 409 });

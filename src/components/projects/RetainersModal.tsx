@@ -321,7 +321,7 @@ export default function RetainersModal({
     setBusy(true);
     try {
       await removeProjectRetainer(supabase, deleteTarget.id);
-      toast('success', 'Retainer deleted');
+      toast('success', 'Retainer moved to Trash');
       setDeleteTarget(null);
       await load();
       onChanged?.();
@@ -738,10 +738,10 @@ export default function RetainersModal({
         isOpen={!!deleteTarget}
         onClose={() => setDeleteTarget(null)}
         onConfirm={() => void confirmDelete()}
-        title="Delete retainer"
-        message={`Delete ${deleteTarget?.name ?? 'this retainer'}? Invoices already created stay as they are, and earnings already recorded are kept.`}
-        confirmLabel="Delete"
+        title="Move retainer to Trash?"
+        message={`${deleteTarget?.name ?? 'This retainer'} goes to Trash with its amounts. Invoices already created stay as they are, and earnings already recorded are kept.`}
         variant="danger"
+        trash
       />
     </>
   );

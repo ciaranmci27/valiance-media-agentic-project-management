@@ -14,6 +14,7 @@ export const GET = withApi(async ({ supabase, params, searchParams }) => {
     .from('lead_fields')
     .select('*', { count: 'exact' })
     .eq('lead_id', id)
+    .is('deleted_at', null)
     .order('created_at', { ascending: true })
     .range(offset, offset + limit - 1);
 
@@ -24,7 +25,7 @@ export const GET = withApi(async ({ supabase, params, searchParams }) => {
 export const PUT = withApi(async ({ supabase, params, body, apiKeyId, teamMemberId }) => {
   const { id } = params as any;
 
-  const { data: lead } = await supabase.from('leads').select('id').eq('id', id).maybeSingle();
+  const { data: lead } = await supabase.from('leads').select('id').eq('id', id).is('deleted_at', null).maybeSingle();
   if (!lead) throw notFound('Lead');
 
   const { fields } = body as any;

@@ -128,6 +128,7 @@ function projectLabel(ctx: InboxContext, names: Map<string, string>, id: string)
 }
 
 function ctxSelect(service: SupabaseClient, table: string, columns: string, count: 'exact' | undefined) {
+  // trash-checked: callers name the table; project names for email history include projects in Trash.
   return service.from(table).select(columns, count ? { count } : undefined);
 }
 
@@ -606,7 +607,7 @@ export async function setThreadProject(ctx: InboxContext, threadId: string, requ
   for (const id of allProjectIds) {
     if (!accessAllowsProject(ctx.access, id)) throw new InboxError(403, 'You cannot assign email to that project');
   }
-  const projects = await many<{ id: string; name: string }>(ctx.service.from('projects').select('id, name').in('id', allProjectIds));
+  const projects = await many<{ id: string; name: string }>(ctx.service.from('projects').select('id, name').in('id', allProjectIds).is('deleted_at', null));
   if (projects.length !== allProjectIds.length) throw new InboxError(404, 'Project not found');
 
   let sender: RememberableSender | null = null;
@@ -732,7 +733,7 @@ export async function sendBackToAgent(ctx: InboxContext, threadId: string, messa
 /** The emails a task came from. link_count covers every link, readable or not. */
 export async function taskSourceEmails(ctx: InboxContext, taskId: string): Promise<TaskSourceEmails> {
   const id = assertId(taskId, 'task id');
-  const task = await one<{ id: string; project_id: string }>(ctx.service.from('tasks').select('id, project_id').eq('id', id).maybeSingle());
+  const task = await one<{ id: string; project_id: string }>(ctx.service.from('tasks').select('id, project_id').eq('id', id).is('deleted_at', null).maybeSingle());
   if (!task || !accessAllowsProject(ctx.access, task.project_id)) throw new InboxError(404, 'Task not found');
   const links = await many<{ message_id: string; relation: 'created' | 'updated'; created_at: string }>(ctx.service.from('email_task_links')
     .select('message_id, relation, created_at').eq('task_id', id).order('created_at'));

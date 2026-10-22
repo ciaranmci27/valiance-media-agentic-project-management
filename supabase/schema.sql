@@ -51,7 +51,11 @@ create table public.contacts (
   avatar_url text not null default '',
   created_by uuid references public.team_members(id) on delete set null,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  -- Trash: when it was deleted and by whom (null = live). Rows are never
+  -- removed; see the Soft delete section.
+  deleted_at timestamptz,
+  deleted_by uuid references public.team_members(id) on delete set null
 );
 
 -- ============================================================
@@ -104,7 +108,11 @@ create table public.projects (
   created_by uuid references public.team_members(id) on delete set null,
   archived_at timestamptz default null,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  -- Trash: when it was deleted and by whom (null = live). Rows are never
+  -- removed; see the Soft delete section.
+  deleted_at timestamptz,
+  deleted_by uuid references public.team_members(id) on delete set null
 );
 
 -- ============================================================
@@ -171,7 +179,11 @@ create table public.tasks (
   -- 'ai_ready': specced; the dev agent may claim it (the only claimable value).
   ai_readiness text check (ai_readiness in ('ai_ready', 'needs_spec', 'human_only') or ai_readiness is null),
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  -- Trash: when it was deleted and by whom (null = live). Rows are never
+  -- removed; see the Soft delete section.
+  deleted_at timestamptz,
+  deleted_by uuid references public.team_members(id) on delete set null
 );
 
 -- ============================================================
@@ -193,7 +205,11 @@ create table public.task_subtasks (
   completed boolean not null default false,
   sort_order int not null default 0,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  -- Trash: when it was deleted and by whom (null = live). Rows are never
+  -- removed; see the Soft delete section.
+  deleted_at timestamptz,
+  deleted_by uuid references public.team_members(id) on delete set null
 );
 
 -- ============================================================
@@ -315,7 +331,11 @@ create table public.task_comments (
   task_id uuid not null references public.tasks(id) on delete cascade,
   user_id uuid not null references public.team_members(id) on delete cascade,
   text text not null,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  -- Trash: when it was deleted and by whom (null = live). Rows are never
+  -- removed; see the Soft delete section.
+  deleted_at timestamptz,
+  deleted_by uuid references public.team_members(id) on delete set null
 );
 
 -- ============================================================
@@ -349,7 +369,11 @@ create table public.leads (
   created_by uuid references public.team_members(id) on delete set null,
   archived_at timestamptz default null,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  -- Trash: when it was deleted and by whom (null = live). Rows are never
+  -- removed; see the Soft delete section.
+  deleted_at timestamptz,
+  deleted_by uuid references public.team_members(id) on delete set null
 );
 
 -- ============================================================
@@ -366,7 +390,11 @@ create table public.lead_interactions (
   completed boolean not null default false,
   created_by uuid references public.team_members(id) on delete set null,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  -- Trash: when it was deleted and by whom (null = live). Rows are never
+  -- removed; see the Soft delete section.
+  deleted_at timestamptz,
+  deleted_by uuid references public.team_members(id) on delete set null
 );
 
 -- ============================================================
@@ -382,7 +410,11 @@ create table public.lead_proposals (
   sent_at timestamptz,
   created_by uuid references public.team_members(id) on delete set null,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  -- Trash: when it was deleted and by whom (null = live). Rows are never
+  -- removed; see the Soft delete section.
+  deleted_at timestamptz,
+  deleted_by uuid references public.team_members(id) on delete set null
 );
 
 -- ============================================================
@@ -395,8 +427,15 @@ create table public.lead_fields (
   value text not null default '',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  unique (lead_id, field_key)
+  -- Trash: when it was deleted and by whom (null = live). Rows are never
+  -- removed; see the Soft delete section.
+  deleted_at timestamptz,
+  deleted_by uuid references public.team_members(id) on delete set null
 );
+
+-- Among live fields: a field in Trash does not block setting it again.
+CREATE UNIQUE INDEX lead_fields_live_key
+  ON public.lead_fields (lead_id, field_key) WHERE deleted_at IS NULL;
 
 -- ============================================================
 -- 15. LEAD MEMBERS (junction: lead <-> team_member)
@@ -509,7 +548,11 @@ create table public.entity_files (
   visibility text not null default 'internal' check (visibility in ('internal', 'external')),
   uploaded_by uuid references public.team_members(id) on delete set null,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  -- Trash: when it was deleted and by whom (null = live). Rows are never
+  -- removed; see the Soft delete section.
+  deleted_at timestamptz,
+  deleted_by uuid references public.team_members(id) on delete set null
 );
 
 -- ============================================================
@@ -643,7 +686,11 @@ create table public.project_time_entries (
   -- Immutable raw clock data captured immediately before billing conversion.
   raw_time_snapshot jsonb check (raw_time_snapshot is null or jsonb_typeof(raw_time_snapshot) = 'object'),
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  -- Trash: when it was deleted and by whom (null = live). Rows are never
+  -- removed; see the Soft delete section.
+  deleted_at timestamptz,
+  deleted_by uuid references public.team_members(id) on delete set null
 );
 
 -- One work session can span multiple tasks (billing traceability for
@@ -668,13 +715,20 @@ create table public.project_hourly_rates (
   effective_at timestamptz not null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  unique (project_id, effective_at)
+  -- Trash: when it was deleted and by whom (null = live). Rows are never
+  -- removed; see the Soft delete section.
+  deleted_at timestamptz,
+  deleted_by uuid references public.team_members(id) on delete set null
 );
+
+-- Among live rows: a row in Trash does not block a new one.
+CREATE UNIQUE INDEX project_hourly_rates_live_effective_key
+  ON public.project_hourly_rates (project_id, effective_at) WHERE deleted_at IS NULL;
 
 -- Only one running timer per (project, member) at a time — each teammate can
 -- track their own live session on the same project simultaneously.
 create unique index idx_project_time_entries_running
-  on public.project_time_entries (project_id, member_id) where end_time is null;
+  on public.project_time_entries (project_id, member_id) where end_time is null and deleted_at is null;
 
 -- ============================================================
 -- 22. PORTAL UPDATES (team-posted timeline updates for client portal)
@@ -688,7 +742,11 @@ create table public.portal_updates (
   author_id uuid references public.team_members(id) on delete set null,
   pinned boolean not null default false,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  -- Trash: when it was deleted and by whom (null = live). Rows are never
+  -- removed; see the Soft delete section.
+  deleted_at timestamptz,
+  deleted_by uuid references public.team_members(id) on delete set null
 );
 
 -- ============================================================
@@ -703,7 +761,11 @@ create table public.portal_update_attachments (
   mime_type   text not null default 'application/octet-stream',
   uploaded_by uuid references public.team_members(id) on delete set null,
   created_at  timestamptz not null default now(),
-  updated_at  timestamptz not null default now()
+  updated_at  timestamptz not null default now(),
+  -- Trash: when it was deleted and by whom (null = live). Rows are never
+  -- removed; see the Soft delete section.
+  deleted_at timestamptz,
+  deleted_by uuid references public.team_members(id) on delete set null
 );
 
 -- ============================================================
@@ -756,7 +818,11 @@ create table public.project_credentials (
   submitted_by_name text not null default '',
   created_by uuid references public.team_members(id) on delete set null,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  -- Trash: when it was deleted and by whom (null = live). Rows are never
+  -- removed; see the Soft delete section.
+  deleted_at timestamptz,
+  deleted_by uuid references public.team_members(id) on delete set null
 );
 
 -- ============================================================
@@ -788,7 +854,11 @@ create table public.project_invoices (
   auto_generated boolean not null default false,
   created_by uuid references public.team_members(id) on delete set null,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  -- Trash: when it was deleted and by whom (null = live). Rows are never
+  -- removed; see the Soft delete section.
+  deleted_at timestamptz,
+  deleted_by uuid references public.team_members(id) on delete set null
 );
 
 -- Exact time-session portions represented by generated hourly line items.
@@ -1321,6 +1391,7 @@ begin
   where te.project_id = new.project_id
     and te.member_id = v_member
     and te.end_time is null
+    and te.deleted_at is null
     and jsonb_array_length(te.segments) > 0
     and te.segments -> -1 ->> 'end' is null
   on conflict do nothing;
@@ -1511,6 +1582,7 @@ AS $$
   FROM public.project_invoices invoice
   WHERE invoice.project_id = p_project_id
     AND invoice.status = 'paid'
+    AND invoice.deleted_at IS NULL
     AND invoice.id IS DISTINCT FROM p_exclude_invoice_id
 $$;
 
@@ -1542,6 +1614,7 @@ AS $$
     FROM public.project_invoices invoice
     WHERE invoice.project_id = p_project_id
       AND invoice.status IN ('draft', 'sent', 'overdue')
+      AND invoice.deleted_at IS NULL
       AND invoice.id IS DISTINCT FROM p_exclude_invoice_id
   ), 0)
 $$;
@@ -1578,6 +1651,7 @@ BEGIN
       AND e.end_time IS NOT NULL
       AND e.work_type <> 'internal'
       AND e.approval_status = 'approved'
+      AND e.deleted_at IS NULL
     ORDER BY e.start_time, e.id
   LOOP
     IF entry.hourly_rate IS NULL OR entry.hourly_rate <= 0 THEN CONTINUE; END IF;
@@ -1603,6 +1677,7 @@ BEGIN
       JOIN public.project_invoices i ON i.id = a.invoice_id
       WHERE a.time_entry_id = entry.id
         AND i.status IN ('draft', 'sent', 'overdue')
+        AND i.deleted_at IS NULL
         AND i.id IS DISTINCT FROM p_exclude_invoice_id
     ), '{}'::nummultirange);
 
@@ -1791,6 +1866,7 @@ BEGIN
         OR entry.project_id IS DISTINCT FROM invoice.project_id
         OR entry.end_time IS NULL
         OR entry.hourly_rate <= 0
+        OR entry.deleted_at IS NOT NULL
       )
   ) THEN
     RAISE EXCEPTION 'Invoice allocation points to an invalid time session';
@@ -1841,7 +1917,7 @@ BEGIN
     RAISE EXCEPTION 'A time session is billed more than once on the same invoice';
   END IF;
 
-  -- A cancelled invoice holds nothing; a live one must not share a slice
+  -- A cancelled or trashed invoice holds nothing; a live one must not share a slice
   -- with another live invoice (a margin under a millionth of an hour is
   -- rounding, not a clash).
   SELECT other.invoice_number INTO clash
@@ -1853,6 +1929,7 @@ BEGIN
   WHERE mine.invoice_id = target_invoice_id
     AND me.status <> 'cancelled'
     AND other.status <> 'cancelled'
+    AND other.deleted_at IS NULL
     AND mine.start_offset_hours < theirs.start_offset_hours + theirs.allocated_hours - 0.000001
     AND theirs.start_offset_hours < mine.start_offset_hours + mine.allocated_hours - 0.000001
   LIMIT 1;
@@ -1906,6 +1983,9 @@ begin
     if target_project_id is null then
       raise exception 'Invoice project is required';
     end if;
+    if not public.project_is_live(target_project_id) then
+      raise exception 'Project not found';
+    end if;
     if coalesce(auth.role(), '') <> 'service_role'
       and not public.can_access_project(target_project_id) then
       raise exception 'Project access denied';
@@ -1936,7 +2016,8 @@ begin
   else
     select * into existing_invoice
     from public.project_invoices
-    where id = p_invoice_id;
+    where id = p_invoice_id
+      and deleted_at is null;
 
     if not found then
       raise exception 'Invoice not found';
@@ -1948,6 +2029,9 @@ begin
     end;
     if target_project_id is null then
       raise exception 'Invoice project is required';
+    end if;
+    if not public.project_is_live(target_project_id) then
+      raise exception 'Project not found';
     end if;
     if coalesce(auth.role(), '') <> 'service_role'
       and (
@@ -2220,6 +2304,21 @@ begin
       perform public.emit_invoice_webhook_event(OLD, 'invoice.deleted');
     end if;
     return OLD;
+  end if;
+
+  -- Moved to Trash: what a delete used to send. Restored: what creating it
+  -- would send. Edits while it is in Trash send nothing.
+  if v_op = 'UPDATE' and NEW.deleted_at is not null then
+    if OLD.deleted_at is null and v_was_paid then
+      perform public.emit_invoice_webhook_event(OLD, 'invoice.deleted');
+    end if;
+    return NEW;
+  end if;
+  if v_op = 'UPDATE' and OLD.deleted_at is not null then
+    if v_is_paid then
+      perform public.emit_invoice_webhook_event(NEW, 'invoice.paid');
+    end if;
+    return NEW;
   end if;
 
   if v_op = 'INSERT' then
@@ -3104,7 +3203,11 @@ CREATE TABLE public.project_retainers (
   lead_days integer NOT NULL DEFAULT 1 CHECK (lead_days BETWEEN 0 AND 28),
   created_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now()
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  -- Trash: when it was deleted and by whom (null = live). Rows are never
+  -- removed; see the Soft delete section.
+  deleted_at timestamptz,
+  deleted_by uuid references public.team_members(id) on delete set null
 );
 
 -- Dated amount history, same shape as team_member_hourly_rates. A period bills
@@ -3116,8 +3219,15 @@ CREATE TABLE public.project_retainer_amounts (
   effective_date date NOT NULL,
   created_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (retainer_id, effective_date)
+  -- Trash: when it was deleted and by whom (null = live). Rows are never
+  -- removed; see the Soft delete section.
+  deleted_at timestamptz,
+  deleted_by uuid references public.team_members(id) on delete set null
 );
+
+-- Among live rows: a row in Trash does not block a new one.
+CREATE UNIQUE INDEX project_retainer_amounts_live_effective_key
+  ON public.project_retainer_amounts (retainer_id, effective_date) WHERE deleted_at IS NULL;
 
 -- Who shares in a retainer, and from when. A line takes the split effective on
 -- its period start.
@@ -3357,13 +3467,16 @@ STABLE
 SECURITY DEFINER
 SET search_path = public
 AS $$
-  SELECT public.has_permission('projects.read_all', 'app')
-    OR (
-      public.has_permission('projects.read', 'app')
-      AND EXISTS (
-        SELECT 1 FROM public.project_members
-        WHERE project_id = p_project_id
-          AND member_id = public.current_team_member_id()
+  SELECT EXISTS (SELECT 1 FROM public.projects WHERE id = p_project_id AND deleted_at IS NULL)
+    AND (
+      public.has_permission('projects.read_all', 'app')
+      OR (
+        public.has_permission('projects.read', 'app')
+        AND EXISTS (
+          SELECT 1 FROM public.project_members
+          WHERE project_id = p_project_id
+            AND member_id = public.current_team_member_id()
+        )
       )
     )
 $$;
@@ -3421,7 +3534,7 @@ SET search_path = public
 AS $$
   SELECT EXISTS (
     SELECT 1 FROM public.tasks
-    WHERE id = p_task_id AND public.can_read_task_row(id, project_id, created_by)
+    WHERE id = p_task_id AND deleted_at IS NULL AND public.can_read_task_row(id, project_id, created_by)
   )
 $$;
 
@@ -3432,7 +3545,16 @@ STABLE
 SECURITY DEFINER
 SET search_path = public
 AS $$
-  SELECT public.has_permission('credentials.manage', 'app')
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.project_credentials credential
+    JOIN public.projects project ON project.id = credential.project_id
+    WHERE credential.id = p_credential_id
+      AND credential.deleted_at IS NULL
+      AND project.deleted_at IS NULL
+  )
+  AND (
+    public.has_permission('credentials.manage', 'app')
     OR (
       public.has_permission('credentials.reveal_shared', 'app')
       AND EXISTS (
@@ -3444,6 +3566,7 @@ AS $$
           AND public.can_access_project(credential.project_id)
       )
     )
+  )
 $$;
 
 CREATE OR REPLACE FUNCTION public.get_my_access_context()
@@ -3527,6 +3650,7 @@ AS $$
   )
   FROM public.project_time_entries entry
   WHERE (p_project_id IS NULL OR entry.project_id = p_project_id)
+    AND entry.deleted_at IS NULL
     AND public.can_access_project(entry.project_id)
     AND (
       public.has_permission('time.read_all', 'app')
@@ -3697,7 +3821,7 @@ DECLARE
   v_multiplier numeric;
   v_billed_end timestamptz;
 BEGIN
-  SELECT * INTO v_entry FROM public.project_time_entries WHERE id = p_entry_id;
+  SELECT * INTO v_entry FROM public.project_time_entries WHERE id = p_entry_id AND deleted_at IS NULL;
   IF NOT FOUND THEN RETURN; END IF;
   SELECT role INTO v_role FROM public.team_members WHERE id = v_entry.member_id;
   IF v_role IS DISTINCT FROM 'agent' THEN RETURN; END IF;
@@ -3854,7 +3978,7 @@ BEGIN
     IF allocation_row.time_entry_id IS NOT NULL THEN
       SELECT
         CASE
-          WHEN entry.approval_status = 'approved' AND entry.end_time IS NOT NULL THEN
+          WHEN entry.approval_status = 'approved' AND entry.end_time IS NOT NULL AND entry.deleted_at IS NULL THEN
             ROUND(
               COALESCE((
                 SELECT SUM(
@@ -4071,7 +4195,7 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
   WITH retainer AS (
-    SELECT * FROM public.project_retainers WHERE id = p_retainer_id
+    SELECT * FROM public.project_retainers WHERE id = p_retainer_id AND deleted_at IS NULL
   ),
   months AS (
     SELECT month_start::date AS month_start,
@@ -4095,10 +4219,11 @@ AS $$
     SELECT bounds.*,
       COALESCE(
         (SELECT history.amount FROM public.project_retainer_amounts history
-         WHERE history.retainer_id = p_retainer_id AND history.effective_date <= bounds.period_start
+         WHERE history.retainer_id = p_retainer_id AND history.deleted_at IS NULL
+           AND history.effective_date <= bounds.period_start
          ORDER BY history.effective_date DESC LIMIT 1),
         (SELECT history.amount FROM public.project_retainer_amounts history
-         WHERE history.retainer_id = p_retainer_id
+         WHERE history.retainer_id = p_retainer_id AND history.deleted_at IS NULL
          ORDER BY history.effective_date ASC LIMIT 1),
         0
       ) AS full_amount
@@ -4162,6 +4287,9 @@ AS $$
     (p_as_of + retainer.lead_days + 31)
   ) period
   WHERE (p_project_id IS NULL OR retainer.project_id = p_project_id)
+    AND retainer.deleted_at IS NULL
+    AND EXISTS (SELECT 1 FROM public.projects project
+        WHERE project.id = retainer.project_id AND project.deleted_at IS NULL)
     AND period.bill_date - retainer.lead_days <= p_as_of
     AND NOT EXISTS (
       SELECT 1 FROM public.project_retainer_periods handled
@@ -4211,6 +4339,7 @@ BEGIN
   JOIN public.project_retainers retainer ON retainer.id = handled.retainer_id
   CROSS JOIN LATERAL public.retainer_periods(retainer.id, handled.period_start, handled.period_start) period
   WHERE retainer.project_id = p_project_id
+    AND retainer.deleted_at IS NULL
     AND handled.status = 'skipped'
     AND period.period_start = handled.period_start
   ORDER BY 4, 2;
@@ -4404,7 +4533,8 @@ DECLARE
   period record;
   handled public.project_retainer_periods;
 BEGIN
-  SELECT * INTO retainer FROM public.project_retainers WHERE id = p_retainer_id;
+  SELECT * INTO retainer FROM public.project_retainers
+  WHERE id = p_retainer_id AND deleted_at IS NULL AND public.project_is_live(project_id);
   IF NOT FOUND THEN RAISE EXCEPTION 'Retainer not found'; END IF;
 
   IF COALESCE(auth.role(), '') <> 'service_role'
@@ -4516,7 +4646,8 @@ BEGIN
     public.workspace_today()
   );
 
-  IF invoice.status = 'paid' THEN
+  -- A trashed invoice earns nothing; restoring it earns again.
+  IF invoice.status = 'paid' AND invoice.deleted_at IS NULL THEN
     SELECT COALESCE(jsonb_agg(jsonb_build_object(
       'line_item_id', line.value->>'id',
       'member_id', share.member_id,
@@ -4555,7 +4686,8 @@ BEGIN
     ELSE
       PERFORM public.retire_share_earning(
         earning.id,
-        CASE WHEN invoice.status = 'paid' THEN 'invoice changed' ELSE 'invoice no longer paid' END
+        CASE WHEN invoice.deleted_at IS NOT NULL THEN 'invoice deleted'
+             WHEN invoice.status = 'paid' THEN 'invoice changed' ELSE 'invoice no longer paid' END
       );
     END IF;
   END LOOP;
@@ -4598,6 +4730,23 @@ DECLARE
   period_key date;
   newly_linked boolean;
 BEGIN
+  -- Moved to Trash: what deleting it used to do. Its retainer periods are
+  -- let go (skipped) and its split earnings retired. Restoring runs the
+  -- rest of this function, which links them again, after checking its
+  -- hours did not go on another invoice in the meantime.
+  IF NEW.deleted_at IS NOT NULL THEN
+    IF TG_OP = 'UPDATE' AND OLD.deleted_at IS NULL THEN
+      UPDATE public.project_retainer_periods
+      SET status = 'skipped', invoice_id = NULL, line_item_id = NULL
+      WHERE invoice_id = NEW.id;
+      PERFORM public.sync_invoice_share_earnings(NEW.id);
+    END IF;
+    RETURN NULL;
+  END IF;
+  IF TG_OP = 'UPDATE' AND OLD.deleted_at IS NOT NULL THEN
+    PERFORM public.validate_invoice_time_allocations(NEW.id);
+  END IF;
+
   -- Let go of periods whose line is gone, or whose invoice was cancelled.
   UPDATE public.project_retainer_periods period
   SET status = 'skipped', invoice_id = NULL, line_item_id = NULL
@@ -4624,8 +4773,9 @@ BEGIN
     LOOP
       CONTINUE WHEN NULLIF(line->>'retainer_id', '') IS NULL;
 
-      SELECT * INTO retainer FROM public.project_retainers WHERE id::text = line->>'retainer_id';
-      -- A deleted retainer leaves a dangling id on old lines; that is fine.
+      SELECT * INTO retainer FROM public.project_retainers
+      WHERE id::text = line->>'retainer_id' AND deleted_at IS NULL;
+      -- A retainer in Trash leaves a dangling id on old lines; that is fine.
       CONTINUE WHEN NOT FOUND;
       IF retainer.project_id <> NEW.project_id THEN
         RAISE EXCEPTION 'An invoice line points to a retainer on another project';
@@ -4688,39 +4838,9 @@ $$;
 
 DROP TRIGGER IF EXISTS reconcile_invoice_retainer_lines ON public.project_invoices;
 CREATE TRIGGER reconcile_invoice_retainer_lines
-  AFTER INSERT OR UPDATE OF line_items, status, paid_date, invoice_number, project_id
+  AFTER INSERT OR UPDATE OF line_items, status, paid_date, invoice_number, project_id, deleted_at
   ON public.project_invoices
   FOR EACH ROW EXECUTE FUNCTION public.reconcile_invoice_retainer_lines();
-
--- BEFORE, so the earnings and periods still point at the invoice.
-CREATE OR REPLACE FUNCTION public.release_invoice_retainer_links()
-RETURNS trigger
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public
-AS $$
-DECLARE
-  earning_id uuid;
-BEGIN
-  FOR earning_id IN
-    SELECT id FROM public.team_member_share_earnings
-    WHERE invoice_id = OLD.id AND voided_at IS NULL AND reversed_at IS NULL
-  LOOP
-    PERFORM public.retire_share_earning(earning_id, 'invoice deleted');
-  END LOOP;
-
-  UPDATE public.project_retainer_periods
-  SET status = 'skipped', invoice_id = NULL, line_item_id = NULL
-  WHERE invoice_id = OLD.id;
-
-  RETURN OLD;
-END;
-$$;
-
-DROP TRIGGER IF EXISTS release_invoice_retainer_links ON public.project_invoices;
-CREATE TRIGGER release_invoice_retainer_links
-  BEFORE DELETE ON public.project_invoices
-  FOR EACH ROW EXECUTE FUNCTION public.release_invoice_retainer_links();
 
 CREATE OR REPLACE FUNCTION public.sync_share_earnings_from_line_shares()
 RETURNS trigger
@@ -4756,6 +4876,7 @@ begin
     select invoice.*
     from public.project_invoices invoice
     where invoice.status = 'paid'
+      and invoice.deleted_at is null
       and invoice.id in (select distinct invoice_id from changed_rows)
   loop
     perform public.emit_invoice_webhook_event(v_invoice, 'invoice.updated');
@@ -4865,7 +4986,7 @@ BEGIN
   IF p_retainer_id IS NULL THEN
     target_project := (p_retainer->>'project_id')::uuid;
   ELSE
-    SELECT project_id INTO target_project FROM public.project_retainers WHERE id = p_retainer_id;
+    SELECT project_id INTO target_project FROM public.project_retainers WHERE id = p_retainer_id AND deleted_at IS NULL;
     IF NOT FOUND THEN RAISE EXCEPTION 'Retainer not found'; END IF;
   END IF;
 
@@ -4928,6 +5049,7 @@ BEGIN
         FROM jsonb_array_elements(invoice.line_items) WITH ORDINALITY AS line(value, ordinality)
       )
       WHERE invoice.project_id = saved.project_id
+        AND invoice.deleted_at IS NULL
         AND jsonb_typeof(invoice.line_items) = 'array'
         AND jsonb_array_length(invoice.line_items) > 0
         AND invoice.id::text IN (
@@ -4967,7 +5089,7 @@ DECLARE
   saved public.project_retainer_amounts;
   target_project uuid;
 BEGIN
-  SELECT project_id INTO target_project FROM public.project_retainers WHERE id = p_retainer_id;
+  SELECT project_id INTO target_project FROM public.project_retainers WHERE id = p_retainer_id AND deleted_at IS NULL;
   IF NOT FOUND THEN RAISE EXCEPTION 'Retainer not found'; END IF;
 
   IF COALESCE(auth.role(), '') <> 'service_role'
@@ -4980,7 +5102,7 @@ BEGIN
 
   INSERT INTO public.project_retainer_amounts (retainer_id, amount, effective_date, created_by)
   VALUES (p_retainer_id, p_amount, p_effective_date, public.current_team_member_id())
-  ON CONFLICT (retainer_id, effective_date) DO UPDATE SET amount = EXCLUDED.amount
+  ON CONFLICT (retainer_id, effective_date) WHERE deleted_at IS NULL DO UPDATE SET amount = EXCLUDED.amount
   RETURNING * INTO saved;
 
   RETURN saved;
@@ -5002,7 +5124,7 @@ AS $$
 DECLARE
   target_project uuid;
 BEGIN
-  SELECT project_id INTO target_project FROM public.project_retainers WHERE id = p_retainer_id;
+  SELECT project_id INTO target_project FROM public.project_retainers WHERE id = p_retainer_id AND deleted_at IS NULL;
   IF NOT FOUND THEN RAISE EXCEPTION 'Retainer not found'; END IF;
 
   IF COALESCE(auth.role(), '') <> 'service_role'
@@ -5045,7 +5167,7 @@ DECLARE
   invoice public.project_invoices;
   share record;
 BEGIN
-  SELECT * INTO invoice FROM public.project_invoices WHERE id = p_invoice_id;
+  SELECT * INTO invoice FROM public.project_invoices WHERE id = p_invoice_id AND deleted_at IS NULL;
   IF NOT FOUND THEN RAISE EXCEPTION 'Invoice not found'; END IF;
 
   IF COALESCE(auth.role(), '') <> 'service_role'
@@ -5147,6 +5269,9 @@ AS $$
   CROSS JOIN public.project_retainers retainer
   CROSS JOIN LATERAL public.retainer_periods(retainer.id, clock.today, clock.today) period
   WHERE retainer.status = 'active'
+    AND retainer.deleted_at IS NULL
+    AND EXISTS (SELECT 1 FROM public.projects project
+        WHERE project.id = retainer.project_id AND project.deleted_at IS NULL)
     AND clock.today BETWEEN period.period_start AND period.period_end
     AND (clock.is_service OR (public.has_permission('invoices.read', 'app') AND public.can_access_project(retainer.project_id)))
     AND NOT EXISTS (
@@ -5693,20 +5818,23 @@ STABLE
 SECURITY DEFINER
 SET search_path = public
 AS $$
-  SELECT public.has_permission('leads.read_all', 'app')
-    OR (
-      public.has_permission('leads.read', 'app')
-      AND EXISTS (
-        SELECT 1 FROM public.leads lead
-        WHERE lead.id = p_lead_id
-          AND (
-            lead.assigned_to = public.current_team_member_id()
-            OR EXISTS (
-              SELECT 1 FROM public.lead_members assignment
-              WHERE assignment.lead_id = lead.id
-                AND assignment.member_id = public.current_team_member_id()
+  SELECT EXISTS (SELECT 1 FROM public.leads WHERE id = p_lead_id AND deleted_at IS NULL)
+    AND (
+      public.has_permission('leads.read_all', 'app')
+      OR (
+        public.has_permission('leads.read', 'app')
+        AND EXISTS (
+          SELECT 1 FROM public.leads lead
+          WHERE lead.id = p_lead_id
+            AND (
+              lead.assigned_to = public.current_team_member_id()
+              OR EXISTS (
+                SELECT 1 FROM public.lead_members assignment
+                WHERE assignment.lead_id = lead.id
+                  AND assignment.member_id = public.current_team_member_id()
+              )
             )
-          )
+        )
       )
     )
 $$;
@@ -5722,13 +5850,16 @@ AS $$
     WHEN 'project' THEN public.can_access_project(p_entity_id)
     WHEN 'lead' THEN public.can_access_lead(p_entity_id)
     WHEN 'contact' THEN
-      public.has_permission('contacts.read_all', 'app')
-      OR (
-        public.has_permission('contacts.read', 'app')
-        AND EXISTS (
-          SELECT 1 FROM public.project_contacts link
-          WHERE link.contact_id = p_entity_id
-            AND public.can_access_project(link.project_id)
+      EXISTS (SELECT 1 FROM public.contacts WHERE id = p_entity_id AND deleted_at IS NULL)
+      AND (
+        public.has_permission('contacts.read_all', 'app')
+        OR (
+          public.has_permission('contacts.read', 'app')
+          AND EXISTS (
+            SELECT 1 FROM public.project_contacts link
+            WHERE link.contact_id = p_entity_id
+              AND public.can_access_project(link.project_id)
+          )
         )
       )
     ELSE false
@@ -5866,7 +5997,8 @@ BEGIN
       updated_at = now()
   WHERE entry.id = ANY(p_entry_ids)
     AND entry.approval_status IN ('pending', 'rejected')
-    AND entry.end_time IS NOT NULL;
+    AND entry.end_time IS NOT NULL
+    AND entry.deleted_at IS NULL;
 
   -- Approved agent entries convert to their billed continuous slot here,
   -- optionally with the reviewer's adjusted worked minutes per entry id.
@@ -5882,7 +6014,7 @@ BEGIN
   END IF;
 
   RETURN QUERY
-  SELECT * FROM public.project_time_entries WHERE id = ANY(p_entry_ids);
+  SELECT * FROM public.project_time_entries WHERE id = ANY(p_entry_ids) AND deleted_at IS NULL;
 END;
 $$;
 
@@ -6300,7 +6432,7 @@ BEGIN
   IF COALESCE(array_length(p_entry_ids, 1), 0) = 0 THEN RAISE EXCEPTION 'Select at least one time entry'; END IF;
   IF p_decision NOT IN ('approved', 'rejected') THEN RAISE EXCEPTION 'Invalid review decision'; END IF;
   IF NOT EXISTS (SELECT 1 FROM public.team_members WHERE id = p_reviewer_id AND status = 'active') THEN RAISE EXCEPTION 'Active reviewer not found'; END IF;
-  IF (SELECT count(*) FROM public.project_time_entries WHERE id = ANY(p_entry_ids)) <> cardinality(p_entry_ids) THEN RAISE EXCEPTION 'One or more time entries were not found'; END IF;
+  IF (SELECT count(*) FROM public.project_time_entries WHERE id = ANY(p_entry_ids) AND deleted_at IS NULL) <> cardinality(p_entry_ids) THEN RAISE EXCEPTION 'One or more time entries were not found'; END IF;
   IF EXISTS (SELECT 1 FROM public.project_time_entries WHERE id = ANY(p_entry_ids) AND project_id IS DISTINCT FROM p_project_id) THEN RAISE EXCEPTION 'Time entry does not belong to the project'; END IF;
   IF EXISTS (SELECT 1 FROM public.project_time_entries WHERE id = ANY(p_entry_ids) AND member_id = p_reviewer_id) THEN RAISE EXCEPTION 'Time entries cannot be self-approved'; END IF;
   IF p_decision = 'approved' AND EXISTS (
@@ -8152,6 +8284,7 @@ AS $$
     AND e.end_time IS NOT NULL
     AND e.work_type <> 'internal'
     AND e.approval_status NOT IN ('approved', 'rejected')
+    AND e.deleted_at IS NULL
     AND (p_through IS NULL OR e.start_time < p_through)
 $$;
 
@@ -8288,7 +8421,7 @@ BEGIN
 
   IF p_combine THEN
     SELECT * INTO target FROM public.project_invoices i
-    WHERE i.project_id = p_project_id AND i.status = 'draft' AND i.auto_generated
+    WHERE i.project_id = p_project_id AND i.status = 'draft' AND i.auto_generated AND i.deleted_at IS NULL
       AND i.date = to_char(p_date, 'YYYY-MM-DD')
       AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(i.line_items) l WHERE l->>'item_type' = 'hourly')
     ORDER BY i.created_at
@@ -8449,7 +8582,7 @@ BEGIN
     SELECT p.* FROM public.project_billing_plans p
     JOIN public.projects project ON project.id = p.project_id
     WHERE p.hours_trigger <> 'manual' AND NOT p.paused
-      AND project.archived_at IS NULL AND COALESCE(project.status, 'active') NOT IN ('completed', 'archived', 'cancelled')
+      AND project.archived_at IS NULL AND project.deleted_at IS NULL AND COALESCE(project.status, 'active') NOT IN ('completed', 'archived', 'cancelled')
   LOOP
     BEGIN
       total := total + public.run_project_billing(plan, as_of);
@@ -8578,13 +8711,13 @@ BEGIN
   END IF;
 
   -- Retainers: each period whose bill date falls in the window.
-  FOR r IN SELECT * FROM public.project_retainers WHERE project_id = p_project_id ORDER BY start_date LOOP
+  FOR r IN SELECT * FROM public.project_retainers WHERE project_id = p_project_id AND deleted_at IS NULL ORDER BY start_date LOOP
     FOR p IN SELECT * FROM public.retainer_periods(r.id, p_from - 62, p_until) LOOP
       CONTINUE WHEN p.bill_date < p_from OR p.bill_date > p_until;
       inv_id := NULL; inv_number := NULL; inv_status := NULL; period_status := NULL;
       SELECT rp.status, i.id, i.invoice_number, i.status INTO period_status, inv_id, inv_number, inv_status
       FROM public.project_retainer_periods rp
-      LEFT JOIN public.project_invoices i ON i.id = rp.invoice_id
+      LEFT JOIN public.project_invoices i ON i.id = rp.invoice_id AND i.deleted_at IS NULL
       WHERE rp.retainer_id = r.id AND rp.period_start = p.period_start;
       items := items || jsonb_build_object(
         'date', p.bill_date,
@@ -8612,18 +8745,22 @@ BEGIN
   INTO pace
   FROM public.project_time_entries e
   WHERE e.project_id = p_project_id AND e.end_time IS NOT NULL AND e.work_type <> 'internal'
-    AND e.approval_status = 'approved' AND e.start_time >= now() - interval '90 days';
+    AND e.approval_status = 'approved' AND e.deleted_at IS NULL AND e.start_time >= now() - interval '90 days';
   so_far := public.invoice_hours_draft_internal(p_project_id, 'all');
 
   IF plan.project_id IS NOT NULL AND plan.hours_trigger IN ('days_of_month', 'every_weeks') THEN
     prev := public.workspace_today();
     FOR d IN SELECT * FROM public.billing_plan_dates(plan, p_from, p_until) LOOP
-      SELECT r2.* INTO handled FROM public.project_billing_runs r2 WHERE r2.project_id = p_project_id AND r2.run_key = 'day:' || to_char(d, 'YYYY-MM-DD');
+      -- A drafted invoice since moved to Trash reads as if it was deleted.
+      SELECT r2.*, i.id AS live_invoice_id, i.status AS live_status, i.invoice_number AS live_number INTO handled
+      FROM public.project_billing_runs r2
+      LEFT JOIN public.project_invoices i ON i.id = r2.invoice_id AND i.deleted_at IS NULL
+      WHERE r2.project_id = p_project_id AND r2.run_key = 'day:' || to_char(d, 'YYYY-MM-DD');
       IF FOUND THEN
         items := items || jsonb_build_object('date', d, 'source', 'hours',
-          'status', CASE WHEN handled.invoice_id IS NOT NULL THEN COALESCE((SELECT status FROM public.project_invoices WHERE id = handled.invoice_id), 'drafted') ELSE handled.outcome END,
-          'invoice_id', handled.invoice_id,
-          'invoice_number', (SELECT invoice_number FROM public.project_invoices WHERE id = handled.invoice_id),
+          'status', CASE WHEN handled.live_invoice_id IS NOT NULL THEN handled.live_status ELSE handled.outcome END,
+          'invoice_id', handled.live_invoice_id,
+          'invoice_number', handled.live_number,
           'line', jsonb_build_object('kind', 'hours', 'label', 'Hours', 'amount', handled.amount, 'estimated', false,
             'note', CASE WHEN handled.pending_hours > 0 THEN round(handled.pending_hours, 2) || ' h awaiting approval left out' END));
         CONTINUE;
@@ -8727,8 +8864,9 @@ BEGIN
   FOR project IN
     SELECT pr.id, pr.name FROM public.projects pr
     WHERE pr.archived_at IS NULL
+      AND pr.deleted_at IS NULL
       AND (COALESCE(auth.role(), '') = 'service_role' OR public.can_access_project(pr.id))
-      AND (EXISTS (SELECT 1 FROM public.project_retainers rt WHERE rt.project_id = pr.id)
+      AND (EXISTS (SELECT 1 FROM public.project_retainers rt WHERE rt.project_id = pr.id AND rt.deleted_at IS NULL)
         OR EXISTS (SELECT 1 FROM public.project_billing_plans bp WHERE bp.project_id = pr.id AND bp.hours_trigger <> 'manual'))
     ORDER BY pr.name
   LOOP
@@ -8793,8 +8931,15 @@ CREATE TABLE IF NOT EXISTS public.invoice_payments (
   created_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (invoice_id, external_id)
+  -- Trash: when it was deleted and by whom (null = live). Rows are never
+  -- removed; see the Soft delete section.
+  deleted_at timestamptz,
+  deleted_by uuid references public.team_members(id) on delete set null
 );
+
+-- Among live rows: a row in Trash does not block a new one.
+CREATE UNIQUE INDEX invoice_payments_live_external_key
+  ON public.invoice_payments (invoice_id, external_id) WHERE deleted_at IS NULL;
 
 DROP TRIGGER IF EXISTS set_invoice_payments_updated_at ON public.invoice_payments;
 CREATE TRIGGER set_invoice_payments_updated_at
@@ -8913,7 +9058,7 @@ AS $$
   )
   FROM (
     SELECT COALESCE(sum(amount), 0) AS total
-    FROM public.invoice_payments WHERE invoice_id = p_invoice.id
+    FROM public.invoice_payments WHERE invoice_id = p_invoice.id AND deleted_at IS NULL
   ) paid
 $$;
 
@@ -8939,11 +9084,12 @@ BEGIN
   FROM public.project_invoices
   WHERE id = CASE WHEN TG_OP = 'DELETE' THEN OLD.invoice_id ELSE NEW.invoice_id END
   FOR UPDATE;
-  -- Gone: the invoice delete is cascading to its payments.
   IF NOT FOUND THEN RETURN NULL; END IF;
+  -- A payment edited while it is in Trash changes nothing.
+  IF TG_OP = 'UPDATE' AND OLD.deleted_at IS NOT NULL AND NEW.deleted_at IS NOT NULL THEN RETURN NULL; END IF;
 
   SELECT COALESCE(sum(amount), 0), max(paid_date) INTO v_paid, v_last
-  FROM public.invoice_payments WHERE invoice_id = v_invoice.id;
+  FROM public.invoice_payments WHERE invoice_id = v_invoice.id AND deleted_at IS NULL;
 
   v_row := v_invoice;
   IF v_invoice.status IN ('sent', 'overdue', 'paid') AND v_paid > 0 AND v_paid >= public.invoice_total(v_invoice) THEN
@@ -8965,8 +9111,12 @@ BEGIN
 
   -- The payment event first, carrying the status it leads to; then at most
   -- one invoice.paid or invoice.updated from the row change below.
-  IF TG_OP = 'INSERT' THEN
+  -- Moving a payment to Trash removes it; restoring it records it again.
+  IF (TG_OP = 'INSERT' AND NEW.deleted_at IS NULL)
+     OR (TG_OP = 'UPDATE' AND OLD.deleted_at IS NOT NULL AND NEW.deleted_at IS NULL) THEN
     PERFORM public.emit_invoice_webhook_event(v_row, 'invoice.payment_recorded', public.invoice_payment_event_data(NEW, v_row));
+  ELSIF TG_OP = 'UPDATE' AND OLD.deleted_at IS NULL AND NEW.deleted_at IS NOT NULL THEN
+    PERFORM public.emit_invoice_webhook_event(v_row, 'invoice.payment_removed', public.invoice_payment_event_data(NEW, v_row));
   ELSIF TG_OP = 'DELETE' THEN
     PERFORM public.emit_invoice_webhook_event(v_row, 'invoice.payment_removed', public.invoice_payment_event_data(OLD, v_row));
   END IF;
@@ -9023,7 +9173,7 @@ BEGIN
          count(*) FILTER (WHERE recorded_via = 'app'),
          COALESCE(sum(amount), 0), max(paid_date)
   INTO v_api, v_app, v_paid, v_last
-  FROM public.invoice_payments WHERE invoice_id = OLD.id;
+  FROM public.invoice_payments WHERE invoice_id = OLD.id AND deleted_at IS NULL;
 
   IF NEW.status = 'paid' THEN
     v_on := COALESCE(public.invoice_text_date(NEW.paid_date), public.workspace_today());
@@ -9032,7 +9182,7 @@ BEGIN
     -- invoice. A payment with a method, reference or external_id was recorded
     -- on purpose and is never rewritten.
     IF OLD.status = 'paid' AND v_api = 0 AND v_app = 1 THEN
-      SELECT * INTO v_payment FROM public.invoice_payments WHERE invoice_id = OLD.id;
+      SELECT * INTO v_payment FROM public.invoice_payments WHERE invoice_id = OLD.id AND deleted_at IS NULL;
       v_follows := v_payment.method IS NULL AND v_payment.reference IS NULL AND v_payment.external_id IS NULL;
     END IF;
     IF OLD.status = 'paid' AND v_api + v_app > 0 AND NOT v_follows THEN
@@ -9057,9 +9207,12 @@ BEGIN
       IF v_total > 0 THEN
         UPDATE public.invoice_payments
         SET amount = v_total, paid_date = v_on
-        WHERE invoice_id = NEW.id AND (amount <> v_total OR paid_date <> v_on);
+        WHERE invoice_id = NEW.id AND deleted_at IS NULL AND (amount <> v_total OR paid_date <> v_on);
       ELSE
-        FOR v_payment IN DELETE FROM public.invoice_payments WHERE invoice_id = NEW.id RETURNING * LOOP
+        -- Let go payments move to Trash, as removing one by hand does.
+        FOR v_payment IN UPDATE public.invoice_payments
+          SET deleted_at = now(), deleted_by = public.current_team_member_id()
+          WHERE invoice_id = NEW.id AND deleted_at IS NULL RETURNING * LOOP
           PERFORM public.emit_invoice_webhook_event(NEW, 'invoice.payment_removed', public.invoice_payment_event_data(v_payment, NEW));
         END LOOP;
       END IF;
@@ -9080,7 +9233,9 @@ BEGIN
       RAISE EXCEPTION 'PAYMENT_RECORDED_ELSEWHERE: This invoice has payments recorded by an accounting connection. Remove them there first.';
     END IF;
     PERFORM set_config('app.invoice_payment_sync', 'on', true);
-    FOR v_payment IN DELETE FROM public.invoice_payments WHERE invoice_id = NEW.id RETURNING * LOOP
+    FOR v_payment IN UPDATE public.invoice_payments
+      SET deleted_at = now(), deleted_by = public.current_team_member_id()
+      WHERE invoice_id = NEW.id AND deleted_at IS NULL RETURNING * LOOP
       PERFORM public.emit_invoice_webhook_event(NEW, 'invoice.payment_removed', public.invoice_payment_event_data(v_payment, NEW));
     END LOOP;
     PERFORM set_config('app.invoice_payment_sync', '', true);
@@ -9143,29 +9298,6 @@ CREATE TRIGGER apply_payment_for_paid_invoice
   AFTER INSERT ON public.project_invoices
   FOR EACH ROW EXECUTE FUNCTION public.record_payment_for_paid_invoice();
 
--- Payments recorded by an accounting connection pin the invoice. A project
--- delete cascading through its invoices is let through (the project row is
--- already gone), as retire_share_earning allows.
-CREATE OR REPLACE FUNCTION public.guard_invoice_payments_on_delete()
-RETURNS trigger
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public
-AS $$
-BEGIN
-  IF EXISTS (SELECT 1 FROM public.projects WHERE id = OLD.project_id)
-     AND EXISTS (SELECT 1 FROM public.invoice_payments WHERE invoice_id = OLD.id AND recorded_via = 'api') THEN
-    RAISE EXCEPTION 'PAYMENT_RECORDED_ELSEWHERE: This invoice has payments recorded by an accounting connection. Remove them there first.';
-  END IF;
-  RETURN OLD;
-END;
-$$;
-
-DROP TRIGGER IF EXISTS guard_invoice_payments_on_delete ON public.project_invoices;
-CREATE TRIGGER guard_invoice_payments_on_delete
-  BEFORE DELETE ON public.project_invoices
-  FOR EACH ROW EXECUTE FUNCTION public.guard_invoice_payments_on_delete();
-
 -- -- Recording and removing -------------------------------------------------
 
 -- One payment on one invoice. p_payment: amount, paid_date, method,
@@ -9199,7 +9331,8 @@ BEGIN
   END IF;
 
   SELECT * INTO v_invoice FROM public.project_invoices WHERE id = p_invoice_id FOR UPDATE;
-  IF NOT FOUND OR (NOT v_service AND NOT public.can_access_project(v_invoice.project_id)) THEN
+  IF NOT FOUND OR v_invoice.deleted_at IS NOT NULL OR NOT public.project_is_live(v_invoice.project_id)
+     OR (NOT v_service AND NOT public.can_access_project(v_invoice.project_id)) THEN
     RAISE EXCEPTION 'INVOICE_NOT_FOUND: Invoice not found';
   END IF;
 
@@ -9221,7 +9354,7 @@ BEGIN
 
   IF v_external IS NOT NULL THEN
     SELECT * INTO v_existing FROM public.invoice_payments
-    WHERE invoice_id = p_invoice_id AND external_id = v_external;
+    WHERE invoice_id = p_invoice_id AND external_id = v_external AND deleted_at IS NULL;
     IF FOUND THEN
       IF v_existing.amount = v_amount AND v_existing.paid_date = v_date
          AND v_existing.method IS NOT DISTINCT FROM v_method
@@ -9235,7 +9368,8 @@ BEGIN
   IF v_invoice.status NOT IN ('sent', 'overdue', 'paid') THEN
     RAISE EXCEPTION 'INVOICE_NOT_PAYABLE: Only a sent, overdue or paid invoice takes payments (this one is %)', v_invoice.status;
   END IF;
-  SELECT COALESCE(sum(amount), 0) INTO v_paid FROM public.invoice_payments WHERE invoice_id = p_invoice_id;
+  SELECT COALESCE(sum(amount), 0) INTO v_paid FROM public.invoice_payments
+  WHERE invoice_id = p_invoice_id AND deleted_at IS NULL;
   v_total := public.invoice_total(v_invoice);
   IF v_amount > v_total - v_paid THEN
     RAISE EXCEPTION 'PAYMENT_EXCEEDS_OUTSTANDING: The payment is more than the % outstanding', GREATEST(v_total - v_paid, 0);
@@ -9272,8 +9406,10 @@ BEGIN
   IF NOT v_service AND NOT (public.has_permission('invoices.record_payments') OR public.has_permission('invoices.manage')) THEN
     RAISE EXCEPTION 'PAYMENT_FORBIDDEN: Missing permission to remove invoice payments';
   END IF;
-  SELECT * INTO v_payment FROM public.invoice_payments WHERE id = p_payment_id;
-  SELECT project_id INTO v_project FROM public.project_invoices WHERE id = v_payment.invoice_id FOR UPDATE;
+  SELECT * INTO v_payment FROM public.invoice_payments WHERE id = p_payment_id AND deleted_at IS NULL;
+  SELECT project_id INTO v_project FROM public.project_invoices
+  WHERE id = v_payment.invoice_id AND deleted_at IS NULL AND public.project_is_live(project_id)
+  FOR UPDATE;
   IF v_project IS NULL OR (NOT v_service AND NOT public.can_access_project(v_project)) THEN
     RAISE EXCEPTION 'PAYMENT_NOT_FOUND: Payment not found';
   END IF;
@@ -9282,7 +9418,11 @@ BEGIN
       THEN 'This payment was recorded by an accounting connection. Remove it there.'
       ELSE 'This payment was recorded by hand in the app. Remove it there.' END;
   END IF;
-  DELETE FROM public.invoice_payments WHERE id = p_payment_id;
+  -- Removed means moved to Trash; the status trigger sends payment_removed.
+  UPDATE public.invoice_payments
+  SET deleted_at = now(), deleted_by = public.current_team_member_id()
+  WHERE id = p_payment_id
+  RETURNING * INTO v_payment;
   RETURN to_jsonb(v_payment);
 END;
 $$;
@@ -9324,6 +9464,8 @@ BEGIN
   JOIN public.project_invoices invoice ON invoice.id = payment.invoice_id
   LEFT JOIN public.api_keys key ON key.id = payment.api_key_id
   WHERE invoice.project_id = p_project_id
+    AND invoice.deleted_at IS NULL
+    AND payment.deleted_at IS NULL
   ORDER BY payment.paid_date, payment.created_at;
 END;
 $$;
@@ -9337,7 +9479,6 @@ REVOKE ALL ON FUNCTION public.invoice_payment_event_data(public.invoice_payments
 REVOKE ALL ON FUNCTION public.sync_invoice_payment_status() FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.sync_invoice_payments_from_invoice() FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.record_payment_for_paid_invoice() FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.guard_invoice_payments_on_delete() FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.record_invoice_payment(uuid, jsonb) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.remove_invoice_payment(uuid, text) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.project_invoice_payments(uuid) FROM PUBLIC, anon;
@@ -9384,6 +9525,8 @@ BEGIN
     FROM public.project_time_entries entry
     JOIN public.projects project ON project.id = entry.project_id
     WHERE project.client_time_billing = 'hourly'
+      AND project.deleted_at IS NULL
+      AND entry.deleted_at IS NULL
       AND entry.end_time IS NOT NULL
       AND entry.work_type <> 'internal'
       AND entry.approval_status = 'approved'
@@ -9421,6 +9564,8 @@ BEGIN
       ON handled.retainer_id = retainer.id AND handled.period_start = period.period_start
     LEFT JOIN public.project_invoices invoice ON invoice.id = handled.invoice_id
     WHERE retainer.status = 'active'
+      AND retainer.deleted_at IS NULL
+      AND public.project_is_live(retainer.project_id)
       AND period.period_start <= today
       AND period.period_end >= p_from
       AND period.amount > 0
@@ -9445,7 +9590,7 @@ SET search_path = public
 AS $$
   SELECT COALESCE(jsonb_object_agg(invoice.id, jsonb_build_object(
     'total', public.invoice_total(invoice),
-    'paid_total', COALESCE((SELECT sum(payment.amount) FROM public.invoice_payments payment WHERE payment.invoice_id = invoice.id), 0)
+    'paid_total', COALESCE((SELECT sum(payment.amount) FROM public.invoice_payments payment WHERE payment.invoice_id = invoice.id AND payment.deleted_at IS NULL), 0)
   )), '{}'::jsonb)
   FROM public.project_invoices invoice
   WHERE invoice.id::text IN (SELECT jsonb_array_elements_text(p_invoice_ids))
@@ -9497,7 +9642,11 @@ CREATE TABLE IF NOT EXISTS public.reminders (
   updated_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT reminders_time_needs_date CHECK (remind_at IS NULL OR remind_on IS NOT NULL),
   CONSTRAINT reminders_done_has_completed_at CHECK ((status = 'done') = (completed_at IS NOT NULL)),
-  CONSTRAINT reminders_closed_by_task_is_done CHECK (NOT closed_by_task OR status = 'done')
+  CONSTRAINT reminders_closed_by_task_is_done CHECK (NOT closed_by_task OR status = 'done'),
+  -- Trash: when it was deleted and by whom (null = live). Rows are never
+  -- removed; see the Soft delete section.
+  deleted_at timestamptz,
+  deleted_by uuid references public.team_members(id) on delete set null
 );
 
 CREATE INDEX IF NOT EXISTS idx_reminders_owner_status ON public.reminders (owner_id, status);
@@ -9608,9 +9757,13 @@ STABLE
 SECURITY DEFINER
 SET search_path = public
 AS $$
-  SELECT p_owner_id = public.current_team_member_id()
-    OR (p_task_id IS NOT NULL AND public.can_access_task(p_task_id))
-    OR (p_task_id IS NULL AND p_project_id IS NOT NULL AND public.can_access_project(p_project_id))
+  SELECT (p_task_id IS NULL OR EXISTS (SELECT 1 FROM public.tasks WHERE id = p_task_id AND deleted_at IS NULL))
+    AND (p_project_id IS NULL OR EXISTS (SELECT 1 FROM public.projects WHERE id = p_project_id AND deleted_at IS NULL))
+    AND (
+      p_owner_id = public.current_team_member_id()
+      OR (p_task_id IS NOT NULL AND public.can_access_task(p_task_id))
+      OR (p_task_id IS NULL AND p_project_id IS NOT NULL AND public.can_access_project(p_project_id))
+    )
 $$;
 
 REVOKE ALL ON FUNCTION public.can_see_reminder(uuid, uuid, uuid) FROM PUBLIC, anon;
@@ -9677,6 +9830,9 @@ BEGIN
     LEFT JOIN public.tasks t ON t.id = r.task_id
     LEFT JOIN public.projects p ON p.id = r.project_id
     WHERE r.status = 'open'
+      AND r.deleted_at IS NULL
+      AND (r.task_id IS NULL OR t.deleted_at IS NULL)
+      AND (r.project_id IS NULL OR p.deleted_at IS NULL)
       AND r.notified_at IS NULL
       AND r.remind_on IS NOT NULL
       AND (r.remind_on + COALESCE(r.remind_at, time '08:00')) AT TIME ZONE zone <= p_now
@@ -9718,3 +9874,1031 @@ BEGIN
   PERFORM cron.schedule('reminders-due', '*/5 * * * *', $job$SELECT public.send_due_reminders();$job$);
 END;
 $do$;
+
+-- ---------------------------------------------------------------------------
+-- Soft delete (migration 20261022035227_soft_delete_records.sql)
+-- ---------------------------------------------------------------------------
+-- Records are never permanently deleted. "Delete" moves a record to Trash
+-- (deleted_at / deleted_by) and Restore brings it back. DELETE and TRUNCATE
+-- are refused on these tables for every role. A deleted project, task, lead
+-- or contact puts everything under it out of reach (the access helpers and
+-- the *_parent_live policies) without touching the children, so a restore
+-- brings everything back exactly as it was. Team members are deactivated
+-- (status), never deleted.
+
+-- Trash lists deleted rows newest first; live reads never use these.
+CREATE INDEX IF NOT EXISTS idx_projects_deleted_at ON public.projects (deleted_at DESC) WHERE deleted_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_tasks_deleted_at ON public.tasks (deleted_at DESC) WHERE deleted_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_task_subtasks_deleted_at ON public.task_subtasks (deleted_at DESC) WHERE deleted_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_task_comments_deleted_at ON public.task_comments (deleted_at DESC) WHERE deleted_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_reminders_deleted_at ON public.reminders (deleted_at DESC) WHERE deleted_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_project_credentials_deleted_at ON public.project_credentials (deleted_at DESC) WHERE deleted_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_entity_files_deleted_at ON public.entity_files (deleted_at DESC) WHERE deleted_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_portal_updates_deleted_at ON public.portal_updates (deleted_at DESC) WHERE deleted_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_portal_update_attachments_deleted_at ON public.portal_update_attachments (deleted_at DESC) WHERE deleted_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_contacts_deleted_at ON public.contacts (deleted_at DESC) WHERE deleted_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_leads_deleted_at ON public.leads (deleted_at DESC) WHERE deleted_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_lead_interactions_deleted_at ON public.lead_interactions (deleted_at DESC) WHERE deleted_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_lead_proposals_deleted_at ON public.lead_proposals (deleted_at DESC) WHERE deleted_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_lead_fields_deleted_at ON public.lead_fields (deleted_at DESC) WHERE deleted_at IS NOT NULL;
+
+CREATE OR REPLACE FUNCTION public.forbid_hard_delete()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  RAISE EXCEPTION 'Rows in % are never permanently deleted. Move them to Trash instead.', TG_TABLE_NAME
+    USING ERRCODE = 'P0001', HINT = 'Use soft_delete_record(), or deactivate a team member.';
+END;
+$$;
+
+CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON public.projects
+  FOR EACH ROW EXECUTE FUNCTION public.forbid_hard_delete();
+CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON public.projects
+  FOR EACH STATEMENT EXECUTE FUNCTION public.forbid_hard_delete();
+CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON public.tasks
+  FOR EACH ROW EXECUTE FUNCTION public.forbid_hard_delete();
+CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON public.tasks
+  FOR EACH STATEMENT EXECUTE FUNCTION public.forbid_hard_delete();
+CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON public.task_subtasks
+  FOR EACH ROW EXECUTE FUNCTION public.forbid_hard_delete();
+CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON public.task_subtasks
+  FOR EACH STATEMENT EXECUTE FUNCTION public.forbid_hard_delete();
+CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON public.task_comments
+  FOR EACH ROW EXECUTE FUNCTION public.forbid_hard_delete();
+CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON public.task_comments
+  FOR EACH STATEMENT EXECUTE FUNCTION public.forbid_hard_delete();
+CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON public.reminders
+  FOR EACH ROW EXECUTE FUNCTION public.forbid_hard_delete();
+CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON public.reminders
+  FOR EACH STATEMENT EXECUTE FUNCTION public.forbid_hard_delete();
+CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON public.project_credentials
+  FOR EACH ROW EXECUTE FUNCTION public.forbid_hard_delete();
+CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON public.project_credentials
+  FOR EACH STATEMENT EXECUTE FUNCTION public.forbid_hard_delete();
+CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON public.entity_files
+  FOR EACH ROW EXECUTE FUNCTION public.forbid_hard_delete();
+CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON public.entity_files
+  FOR EACH STATEMENT EXECUTE FUNCTION public.forbid_hard_delete();
+CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON public.portal_updates
+  FOR EACH ROW EXECUTE FUNCTION public.forbid_hard_delete();
+CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON public.portal_updates
+  FOR EACH STATEMENT EXECUTE FUNCTION public.forbid_hard_delete();
+CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON public.portal_update_attachments
+  FOR EACH ROW EXECUTE FUNCTION public.forbid_hard_delete();
+CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON public.portal_update_attachments
+  FOR EACH STATEMENT EXECUTE FUNCTION public.forbid_hard_delete();
+CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON public.contacts
+  FOR EACH ROW EXECUTE FUNCTION public.forbid_hard_delete();
+CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON public.contacts
+  FOR EACH STATEMENT EXECUTE FUNCTION public.forbid_hard_delete();
+CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON public.leads
+  FOR EACH ROW EXECUTE FUNCTION public.forbid_hard_delete();
+CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON public.leads
+  FOR EACH STATEMENT EXECUTE FUNCTION public.forbid_hard_delete();
+CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON public.lead_interactions
+  FOR EACH ROW EXECUTE FUNCTION public.forbid_hard_delete();
+CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON public.lead_interactions
+  FOR EACH STATEMENT EXECUTE FUNCTION public.forbid_hard_delete();
+CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON public.lead_proposals
+  FOR EACH ROW EXECUTE FUNCTION public.forbid_hard_delete();
+CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON public.lead_proposals
+  FOR EACH STATEMENT EXECUTE FUNCTION public.forbid_hard_delete();
+CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON public.lead_fields
+  FOR EACH ROW EXECUTE FUNCTION public.forbid_hard_delete();
+CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON public.lead_fields
+  FOR EACH STATEMENT EXECUTE FUNCTION public.forbid_hard_delete();
+CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON public.team_members
+  FOR EACH ROW EXECUTE FUNCTION public.forbid_hard_delete();
+CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON public.team_members
+  FOR EACH STATEMENT EXECUTE FUNCTION public.forbid_hard_delete();
+CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON public.client_communications
+  FOR EACH ROW EXECUTE FUNCTION public.forbid_hard_delete();
+CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON public.client_communications
+  FOR EACH STATEMENT EXECUTE FUNCTION public.forbid_hard_delete();
+
+-- Signed-in members never see or change a deleted row. RESTRICTIVE, so it
+-- narrows every policy above, including the FOR ALL manage policies.
+CREATE POLICY projects_not_deleted ON public.projects AS RESTRICTIVE FOR ALL TO authenticated
+  USING (deleted_at IS NULL) WITH CHECK (deleted_at IS NULL);
+CREATE POLICY tasks_not_deleted ON public.tasks AS RESTRICTIVE FOR ALL TO authenticated
+  USING (deleted_at IS NULL) WITH CHECK (deleted_at IS NULL);
+CREATE POLICY task_subtasks_not_deleted ON public.task_subtasks AS RESTRICTIVE FOR ALL TO authenticated
+  USING (deleted_at IS NULL) WITH CHECK (deleted_at IS NULL);
+CREATE POLICY task_comments_not_deleted ON public.task_comments AS RESTRICTIVE FOR ALL TO authenticated
+  USING (deleted_at IS NULL) WITH CHECK (deleted_at IS NULL);
+CREATE POLICY reminders_not_deleted ON public.reminders AS RESTRICTIVE FOR ALL TO authenticated
+  USING (deleted_at IS NULL) WITH CHECK (deleted_at IS NULL);
+CREATE POLICY project_credentials_not_deleted ON public.project_credentials AS RESTRICTIVE FOR ALL TO authenticated
+  USING (deleted_at IS NULL) WITH CHECK (deleted_at IS NULL);
+CREATE POLICY entity_files_not_deleted ON public.entity_files AS RESTRICTIVE FOR ALL TO authenticated
+  USING (deleted_at IS NULL) WITH CHECK (deleted_at IS NULL);
+CREATE POLICY portal_updates_not_deleted ON public.portal_updates AS RESTRICTIVE FOR ALL TO authenticated
+  USING (deleted_at IS NULL) WITH CHECK (deleted_at IS NULL);
+CREATE POLICY portal_update_attachments_not_deleted ON public.portal_update_attachments AS RESTRICTIVE FOR ALL TO authenticated
+  USING (deleted_at IS NULL) WITH CHECK (deleted_at IS NULL);
+CREATE POLICY contacts_not_deleted ON public.contacts AS RESTRICTIVE FOR ALL TO authenticated
+  USING (deleted_at IS NULL) WITH CHECK (deleted_at IS NULL);
+CREATE POLICY leads_not_deleted ON public.leads AS RESTRICTIVE FOR ALL TO authenticated
+  USING (deleted_at IS NULL) WITH CHECK (deleted_at IS NULL);
+CREATE POLICY lead_interactions_not_deleted ON public.lead_interactions AS RESTRICTIVE FOR ALL TO authenticated
+  USING (deleted_at IS NULL) WITH CHECK (deleted_at IS NULL);
+CREATE POLICY lead_proposals_not_deleted ON public.lead_proposals AS RESTRICTIVE FOR ALL TO authenticated
+  USING (deleted_at IS NULL) WITH CHECK (deleted_at IS NULL);
+CREATE POLICY lead_fields_not_deleted ON public.lead_fields AS RESTRICTIVE FOR ALL TO authenticated
+  USING (deleted_at IS NULL) WITH CHECK (deleted_at IS NULL);
+
+-- Children of a deleted parent are out of reach, whatever else allows them.
+-- Not covered on purpose: team member earnings (pay survives a deleted
+-- project), email threads, triage and recipients (the inbox's own record),
+-- and a lead whose linked contact was deleted.
+CREATE OR REPLACE FUNCTION public.project_is_live(p_project_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT EXISTS (SELECT 1 FROM public.projects WHERE id = p_project_id AND deleted_at IS NULL)
+$$;
+
+CREATE OR REPLACE FUNCTION public.task_is_live(p_task_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.tasks task
+    JOIN public.projects project ON project.id = task.project_id
+    WHERE task.id = p_task_id AND task.deleted_at IS NULL AND project.deleted_at IS NULL
+  )
+$$;
+
+CREATE OR REPLACE FUNCTION public.lead_is_live(p_lead_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT EXISTS (SELECT 1 FROM public.leads WHERE id = p_lead_id AND deleted_at IS NULL)
+$$;
+
+CREATE OR REPLACE FUNCTION public.contact_is_live(p_contact_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT EXISTS (SELECT 1 FROM public.contacts WHERE id = p_contact_id AND deleted_at IS NULL)
+$$;
+
+CREATE OR REPLACE FUNCTION public.credential_is_live(p_credential_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.project_credentials credential
+    JOIN public.projects project ON project.id = credential.project_id
+    WHERE credential.id = p_credential_id AND credential.deleted_at IS NULL AND project.deleted_at IS NULL
+  )
+$$;
+
+CREATE OR REPLACE FUNCTION public.portal_update_is_live(p_update_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.portal_updates update_row
+    JOIN public.projects project ON project.id = update_row.project_id
+    WHERE update_row.id = p_update_id AND update_row.deleted_at IS NULL AND project.deleted_at IS NULL
+  )
+$$;
+
+CREATE OR REPLACE FUNCTION public.file_entity_is_live(p_entity_type text, p_entity_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT CASE p_entity_type
+    WHEN 'project' THEN public.project_is_live(p_entity_id)
+    WHEN 'lead' THEN public.lead_is_live(p_entity_id)
+    WHEN 'contact' THEN public.contact_is_live(p_entity_id)
+    ELSE true
+  END
+$$;
+
+CREATE POLICY tasks_parent_live ON public.tasks AS RESTRICTIVE FOR ALL TO authenticated
+  USING (public.project_is_live(project_id));
+CREATE POLICY project_time_entries_parent_live ON public.project_time_entries AS RESTRICTIVE FOR ALL TO authenticated
+  USING (public.project_is_live(project_id));
+CREATE POLICY project_invoices_parent_live ON public.project_invoices AS RESTRICTIVE FOR ALL TO authenticated
+  USING (public.project_is_live(project_id));
+CREATE POLICY project_members_parent_live ON public.project_members AS RESTRICTIVE FOR ALL TO authenticated
+  USING (public.project_is_live(project_id));
+CREATE POLICY project_credentials_parent_live ON public.project_credentials AS RESTRICTIVE FOR ALL TO authenticated
+  USING (public.project_is_live(project_id));
+CREATE POLICY portal_settings_parent_live ON public.portal_settings AS RESTRICTIVE FOR ALL TO authenticated
+  USING (public.project_is_live(project_id));
+CREATE POLICY portal_updates_parent_live ON public.portal_updates AS RESTRICTIVE FOR ALL TO authenticated
+  USING (public.project_is_live(project_id));
+CREATE POLICY portal_events_parent_live ON public.portal_events AS RESTRICTIVE FOR ALL TO authenticated
+  USING (public.project_is_live(project_id));
+CREATE POLICY client_communications_parent_live ON public.client_communications AS RESTRICTIVE FOR ALL TO authenticated
+  USING (public.project_is_live(project_id));
+CREATE POLICY project_hourly_rates_parent_live ON public.project_hourly_rates AS RESTRICTIVE FOR ALL TO authenticated
+  USING (public.project_is_live(project_id));
+CREATE POLICY project_retainers_parent_live ON public.project_retainers AS RESTRICTIVE FOR ALL TO authenticated
+  USING (public.project_is_live(project_id));
+CREATE POLICY project_billing_plans_parent_live ON public.project_billing_plans AS RESTRICTIVE FOR ALL TO authenticated
+  USING (public.project_is_live(project_id));
+CREATE POLICY project_billing_runs_parent_live ON public.project_billing_runs AS RESTRICTIVE FOR ALL TO authenticated
+  USING (public.project_is_live(project_id));
+CREATE POLICY project_budget_history_parent_live ON public.project_budget_history AS RESTRICTIVE FOR ALL TO authenticated
+  USING (public.project_is_live(project_id));
+CREATE POLICY project_context_parent_live ON public.project_context AS RESTRICTIVE FOR ALL TO authenticated
+  USING (public.project_is_live(project_id));
+CREATE POLICY email_client_addresses_parent_live ON public.email_client_addresses AS RESTRICTIVE FOR ALL TO authenticated
+  USING (public.project_is_live(project_id));
+CREATE POLICY email_client_domains_parent_live ON public.email_client_domains AS RESTRICTIVE FOR ALL TO authenticated
+  USING (public.project_is_live(project_id));
+CREATE POLICY email_project_addresses_parent_live ON public.email_project_addresses AS RESTRICTIVE FOR ALL TO authenticated
+  USING (public.project_is_live(project_id));
+CREATE POLICY email_message_candidates_parent_live ON public.email_message_candidates AS RESTRICTIVE FOR ALL TO authenticated
+  USING (public.project_is_live(project_id));
+CREATE POLICY project_contacts_parent_live ON public.project_contacts AS RESTRICTIVE FOR ALL TO authenticated
+  USING (public.project_is_live(project_id) AND public.contact_is_live(contact_id));
+CREATE POLICY task_subtasks_parent_live ON public.task_subtasks AS RESTRICTIVE FOR ALL TO authenticated
+  USING (public.task_is_live(task_id));
+CREATE POLICY task_comments_parent_live ON public.task_comments AS RESTRICTIVE FOR ALL TO authenticated
+  USING (public.task_is_live(task_id));
+CREATE POLICY task_acceptance_criteria_parent_live ON public.task_acceptance_criteria AS RESTRICTIVE FOR ALL TO authenticated
+  USING (public.task_is_live(task_id));
+CREATE POLICY task_assignees_parent_live ON public.task_assignees AS RESTRICTIVE FOR ALL TO authenticated
+  USING (public.task_is_live(task_id));
+CREATE POLICY task_dependencies_parent_live ON public.task_dependencies AS RESTRICTIVE FOR ALL TO authenticated
+  USING (public.task_is_live(task_id) AND public.task_is_live(blocked_by_task_id));
+CREATE POLICY task_reviews_parent_live ON public.task_reviews AS RESTRICTIVE FOR ALL TO authenticated
+  USING (public.task_is_live(task_id));
+CREATE POLICY task_reopens_parent_live ON public.task_reopens AS RESTRICTIVE FOR ALL TO authenticated
+  USING (public.task_is_live(task_id));
+CREATE POLICY email_task_links_parent_live ON public.email_task_links AS RESTRICTIVE FOR ALL TO authenticated
+  USING (public.task_is_live(task_id));
+CREATE POLICY reminders_parent_live ON public.reminders AS RESTRICTIVE FOR ALL TO authenticated
+  USING ((task_id IS NULL OR public.task_is_live(task_id)) AND (project_id IS NULL OR public.project_is_live(project_id)));
+CREATE POLICY lead_interactions_parent_live ON public.lead_interactions AS RESTRICTIVE FOR ALL TO authenticated
+  USING (public.lead_is_live(lead_id));
+CREATE POLICY lead_proposals_parent_live ON public.lead_proposals AS RESTRICTIVE FOR ALL TO authenticated
+  USING (public.lead_is_live(lead_id));
+CREATE POLICY lead_fields_parent_live ON public.lead_fields AS RESTRICTIVE FOR ALL TO authenticated
+  USING (public.lead_is_live(lead_id));
+CREATE POLICY lead_members_parent_live ON public.lead_members AS RESTRICTIVE FOR ALL TO authenticated
+  USING (public.lead_is_live(lead_id));
+CREATE POLICY lead_contacts_parent_live ON public.lead_contacts AS RESTRICTIVE FOR ALL TO authenticated
+  USING (public.lead_is_live(lead_id) AND public.contact_is_live(contact_id));
+CREATE POLICY contact_emails_parent_live ON public.contact_emails AS RESTRICTIVE FOR ALL TO authenticated
+  USING (public.contact_is_live(contact_id));
+CREATE POLICY project_credential_members_parent_live ON public.project_credential_members AS RESTRICTIVE FOR ALL TO authenticated
+  USING (public.credential_is_live(credential_id));
+CREATE POLICY portal_update_attachments_parent_live ON public.portal_update_attachments AS RESTRICTIVE FOR ALL TO authenticated
+  USING (public.portal_update_is_live(update_id));
+CREATE POLICY entity_files_parent_live ON public.entity_files AS RESTRICTIVE FOR ALL TO authenticated
+  USING (public.file_entity_is_live(entity_type, entity_id));
+
+-- Move to Trash and Restore. Signed-in members need the record's delete
+-- permission (the same people the old DELETE policies allowed); server
+-- routes (service role) check permissions themselves and pass the actor.
+CREATE OR REPLACE FUNCTION public.trash_record_types()
+RETURNS text[]
+LANGUAGE sql
+IMMUTABLE
+AS $$
+  SELECT ARRAY[
+    'projects', 'tasks', 'task_subtasks', 'task_comments', 'reminders', 'project_credentials',
+    'entity_files', 'portal_updates', 'portal_update_attachments', 'contacts', 'leads',
+    'lead_interactions', 'lead_proposals', 'lead_fields',
+    'project_time_entries', 'project_invoices', 'invoice_payments', 'project_hourly_rates',
+    'project_retainers', 'project_retainer_amounts'
+  ]
+$$;
+
+CREATE OR REPLACE FUNCTION public.can_trash_record(p_table text, p_id uuid)
+RETURNS boolean
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  me uuid := public.current_team_member_id();
+  allowed boolean := false;
+BEGIN
+  IF me IS NULL THEN
+    RETURN false;
+  END IF;
+  CASE p_table
+    WHEN 'projects' THEN
+      SELECT public.has_permission('projects.manage') AND (
+        public.has_permission('projects.read_all')
+        OR EXISTS (SELECT 1 FROM public.project_members WHERE project_id = p_id AND member_id = me)
+      ) INTO allowed;
+    WHEN 'tasks' THEN
+      SELECT public.has_permission('tasks.manage_all') AND public.can_access_project(project_id)
+      INTO allowed FROM public.tasks WHERE id = p_id;
+    WHEN 'task_subtasks' THEN
+      SELECT public.can_access_task(task_id) AND (
+        public.has_permission('tasks.manage_all') OR (
+          public.has_permission('tasks.manage_assigned') AND EXISTS (
+            SELECT 1 FROM public.task_assignees assignment
+            WHERE assignment.task_id = task_subtasks.task_id AND assignment.member_id = me
+          )
+        )
+      ) INTO allowed FROM public.task_subtasks WHERE id = p_id;
+    WHEN 'task_comments' THEN
+      SELECT public.can_access_task(task_id) AND (user_id = me OR public.has_permission('tasks.manage_all'))
+      INTO allowed FROM public.task_comments WHERE id = p_id;
+    WHEN 'reminders' THEN
+      SELECT public.can_see_reminder(owner_id, project_id, task_id)
+        AND (owner_id = me OR created_by = me OR public.has_permission('tasks.manage_all'))
+      INTO allowed FROM public.reminders WHERE id = p_id;
+    WHEN 'project_credentials' THEN
+      SELECT public.has_permission('credentials.manage') AND public.can_access_project(project_id)
+      INTO allowed FROM public.project_credentials WHERE id = p_id;
+    WHEN 'entity_files' THEN
+      SELECT public.can_access_file_entity(entity_type, entity_id) AND (
+        public.has_permission('files.manage') OR (uploaded_by = me AND visibility = 'internal')
+      ) INTO allowed FROM public.entity_files WHERE id = p_id;
+    WHEN 'portal_updates' THEN
+      SELECT public.has_permission('portal.manage') AND public.can_access_project(project_id)
+      INTO allowed FROM public.portal_updates WHERE id = p_id;
+    WHEN 'portal_update_attachments' THEN
+      SELECT public.has_permission('portal.manage') AND public.can_access_project(update_row.project_id)
+      INTO allowed
+      FROM public.portal_update_attachments attachment
+      JOIN public.portal_updates update_row ON update_row.id = attachment.update_id
+      WHERE attachment.id = p_id AND update_row.deleted_at IS NULL;
+    WHEN 'contacts' THEN
+      SELECT public.has_permission('contacts.manage') INTO allowed;
+    WHEN 'leads' THEN
+      SELECT public.has_permission('leads.manage') INTO allowed;
+    WHEN 'lead_interactions' THEN
+      SELECT public.has_permission('leads.manage') AND public.can_access_lead(lead_id)
+      INTO allowed FROM public.lead_interactions WHERE id = p_id;
+    WHEN 'lead_proposals' THEN
+      SELECT public.has_permission('leads.manage') AND public.can_access_lead(lead_id)
+      INTO allowed FROM public.lead_proposals WHERE id = p_id;
+    WHEN 'lead_fields' THEN
+      SELECT public.has_permission('leads.manage') AND public.can_access_lead(lead_id)
+      INTO allowed FROM public.lead_fields WHERE id = p_id;
+    WHEN 'project_time_entries' THEN
+      SELECT public.can_access_project(project_id) AND (
+        public.has_permission('time.manage_all') OR (
+          public.has_permission('time.manage_own')
+          AND member_id = me
+          AND approval_status IN ('draft', 'pending', 'rejected')
+        )
+      ) INTO allowed FROM public.project_time_entries WHERE id = p_id;
+    WHEN 'project_invoices' THEN
+      SELECT public.has_permission('invoices.manage') AND public.can_access_project(project_id)
+      INTO allowed FROM public.project_invoices WHERE id = p_id;
+    WHEN 'invoice_payments' THEN
+      -- People remove only payments recorded by hand, as remove_invoice_payment.
+      SELECT (public.has_permission('invoices.record_payments') OR public.has_permission('invoices.manage'))
+        AND public.can_access_project(invoice.project_id)
+        AND invoice.deleted_at IS NULL
+        AND payment.recorded_via = 'app'
+      INTO allowed
+      FROM public.invoice_payments payment
+      JOIN public.project_invoices invoice ON invoice.id = payment.invoice_id
+      WHERE payment.id = p_id;
+    WHEN 'project_hourly_rates' THEN
+      SELECT public.has_permission('billing.manage') AND public.can_access_project(project_id)
+      INTO allowed FROM public.project_hourly_rates WHERE id = p_id;
+    WHEN 'project_retainers' THEN
+      SELECT public.has_permission('invoices.manage') AND public.can_access_project(project_id)
+      INTO allowed FROM public.project_retainers WHERE id = p_id;
+    WHEN 'project_retainer_amounts' THEN
+      SELECT public.has_permission('invoices.manage') AND public.can_access_project(retainer.project_id)
+        AND retainer.deleted_at IS NULL
+      INTO allowed
+      FROM public.project_retainer_amounts amount
+      JOIN public.project_retainers retainer ON retainer.id = amount.retainer_id
+      WHERE amount.id = p_id;
+    ELSE
+      allowed := false;
+  END CASE;
+  RETURN coalesce(allowed, false);
+END;
+$$;
+
+-- What must still exist before a record can come back from Trash, or what it
+-- would clash with that was added while it was away, as a sentence for the
+-- person restoring it; null when nothing blocks it.
+CREATE OR REPLACE FUNCTION public.trash_restore_blocker(p_table text, p_id uuid)
+RETURNS text
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  project_gone boolean := false;
+  task_gone boolean := false;
+  lead_gone boolean := false;
+  parent_gone boolean := false;
+  payment public.invoice_payments;
+  invoice public.project_invoices;
+BEGIN
+  CASE p_table
+    WHEN 'tasks' THEN
+      SELECT p.deleted_at IS NOT NULL INTO project_gone
+      FROM public.tasks t JOIN public.projects p ON p.id = t.project_id WHERE t.id = p_id;
+    WHEN 'task_subtasks', 'task_comments' THEN
+      EXECUTE format('SELECT t.deleted_at IS NOT NULL, p.deleted_at IS NOT NULL
+        FROM public.%I c JOIN public.tasks t ON t.id = c.task_id JOIN public.projects p ON p.id = t.project_id
+        WHERE c.id = $1', p_table)
+      INTO task_gone, project_gone USING p_id;
+    WHEN 'reminders' THEN
+      SELECT coalesce(t.deleted_at IS NOT NULL, false), coalesce(p.deleted_at IS NOT NULL, false)
+      INTO task_gone, project_gone
+      FROM public.reminders r
+      LEFT JOIN public.tasks t ON t.id = r.task_id
+      LEFT JOIN public.projects p ON p.id = r.project_id
+      WHERE r.id = p_id;
+    WHEN 'project_credentials', 'portal_updates', 'project_time_entries', 'project_invoices',
+         'project_hourly_rates', 'project_retainers' THEN
+      EXECUTE format('SELECT p.deleted_at IS NOT NULL FROM public.%I c
+        JOIN public.projects p ON p.id = c.project_id WHERE c.id = $1', p_table)
+      INTO project_gone USING p_id;
+    WHEN 'portal_update_attachments' THEN
+      SELECT u.deleted_at IS NOT NULL INTO parent_gone
+      FROM public.portal_update_attachments a JOIN public.portal_updates u ON u.id = a.update_id WHERE a.id = p_id;
+      IF parent_gone THEN
+        RETURN 'Restore the portal update it belongs to first.';
+      END IF;
+    WHEN 'invoice_payments' THEN
+      SELECT p.deleted_at IS NOT NULL, i.deleted_at IS NOT NULL INTO project_gone, parent_gone
+      FROM public.invoice_payments pay
+      JOIN public.project_invoices i ON i.id = pay.invoice_id
+      JOIN public.projects p ON p.id = i.project_id
+      WHERE pay.id = p_id;
+      IF parent_gone AND NOT project_gone THEN
+        RETURN 'Restore the invoice it belongs to first.';
+      END IF;
+    WHEN 'project_retainer_amounts' THEN
+      SELECT p.deleted_at IS NOT NULL, r.deleted_at IS NOT NULL INTO project_gone, parent_gone
+      FROM public.project_retainer_amounts a
+      JOIN public.project_retainers r ON r.id = a.retainer_id
+      JOIN public.projects p ON p.id = r.project_id
+      WHERE a.id = p_id;
+      IF parent_gone AND NOT project_gone THEN
+        RETURN 'Restore the retainer it belongs to first.';
+      END IF;
+    WHEN 'entity_files' THEN
+      SELECT CASE f.entity_type
+          WHEN 'project' THEN EXISTS (SELECT 1 FROM public.projects WHERE id = f.entity_id AND deleted_at IS NOT NULL)
+          WHEN 'lead' THEN EXISTS (SELECT 1 FROM public.leads WHERE id = f.entity_id AND deleted_at IS NOT NULL)
+          WHEN 'contact' THEN EXISTS (SELECT 1 FROM public.contacts WHERE id = f.entity_id AND deleted_at IS NOT NULL)
+          ELSE false
+        END
+      INTO parent_gone
+      FROM public.entity_files f WHERE f.id = p_id;
+      IF parent_gone THEN
+        RETURN 'Restore the project, lead or contact this file belongs to first.';
+      END IF;
+    WHEN 'lead_interactions', 'lead_proposals', 'lead_fields' THEN
+      EXECUTE format('SELECT l.deleted_at IS NOT NULL FROM public.%I c
+        JOIN public.leads l ON l.id = c.lead_id WHERE c.id = $1', p_table)
+      INTO lead_gone USING p_id;
+    ELSE
+      NULL;
+  END CASE;
+  IF coalesce(project_gone, false) THEN
+    RETURN 'Restore the project it belongs to first.';
+  ELSIF coalesce(task_gone, false) THEN
+    RETURN 'Restore the task it belongs to first.';
+  ELSIF coalesce(lead_gone, false) THEN
+    RETURN 'Restore the lead it belongs to first.';
+  END IF;
+
+  -- Clashes with what was added while it was in Trash.
+  CASE p_table
+    WHEN 'project_time_entries' THEN
+      IF EXISTS (
+        SELECT 1 FROM public.project_time_entries entry
+        JOIN public.project_time_entries other
+          ON other.project_id = entry.project_id AND other.member_id = entry.member_id AND other.id <> entry.id
+        WHERE entry.id = p_id AND entry.end_time IS NULL
+          AND other.end_time IS NULL AND other.deleted_at IS NULL
+      ) THEN
+        RETURN 'This timer is still running and a newer one is running on the same project. Stop that one first.';
+      END IF;
+    WHEN 'project_hourly_rates' THEN
+      IF EXISTS (
+        SELECT 1 FROM public.project_hourly_rates rate
+        JOIN public.project_hourly_rates other
+          ON other.project_id = rate.project_id AND other.effective_at = rate.effective_at AND other.id <> rate.id
+        WHERE rate.id = p_id AND other.deleted_at IS NULL
+      ) THEN
+        RETURN 'Another rate now starts at the same time. Change or delete that one first.';
+      END IF;
+    WHEN 'lead_fields' THEN
+      IF EXISTS (
+        SELECT 1 FROM public.lead_fields field
+        JOIN public.lead_fields other
+          ON other.lead_id = field.lead_id AND other.field_key = field.field_key AND other.id <> field.id
+        WHERE field.id = p_id AND other.deleted_at IS NULL
+      ) THEN
+        RETURN 'This field has been set again since. Change or delete that one first.';
+      END IF;
+    WHEN 'project_retainer_amounts' THEN
+      IF EXISTS (
+        SELECT 1 FROM public.project_retainer_amounts amount
+        JOIN public.project_retainer_amounts other
+          ON other.retainer_id = amount.retainer_id AND other.effective_date = amount.effective_date AND other.id <> amount.id
+        WHERE amount.id = p_id AND other.deleted_at IS NULL
+      ) THEN
+        RETURN 'Another amount now starts on the same date. Change or delete that one first.';
+      END IF;
+    WHEN 'invoice_payments' THEN
+      SELECT * INTO payment FROM public.invoice_payments WHERE id = p_id;
+      SELECT * INTO invoice FROM public.project_invoices WHERE id = payment.invoice_id;
+      IF invoice.status NOT IN ('sent', 'overdue', 'paid') THEN
+        RETURN 'Its invoice is ' || invoice.status || ' now, so it cannot take a payment.';
+      END IF;
+      IF payment.amount > public.invoice_total(invoice) - COALESCE((
+        SELECT sum(other.amount) FROM public.invoice_payments other
+        WHERE other.invoice_id = invoice.id AND other.deleted_at IS NULL
+      ), 0) + 0.005 THEN
+        RETURN 'Its invoice no longer has enough outstanding for this payment.';
+      END IF;
+      IF payment.external_id IS NOT NULL AND EXISTS (
+        SELECT 1 FROM public.invoice_payments other
+        WHERE other.invoice_id = payment.invoice_id AND other.external_id = payment.external_id
+          AND other.deleted_at IS NULL AND other.id <> payment.id
+      ) THEN
+        RETURN 'This payment was recorded again after it was removed.';
+      END IF;
+    ELSE
+      NULL;
+  END CASE;
+  RETURN NULL;
+END;
+$$;
+
+-- The audit log's name for a record type (the same names the API logs).
+CREATE OR REPLACE FUNCTION public.trash_entity_type(p_table text)
+RETURNS text
+LANGUAGE sql
+IMMUTABLE
+AS $$
+  SELECT CASE p_table
+    WHEN 'projects' THEN 'project'
+    WHEN 'tasks' THEN 'task'
+    WHEN 'task_subtasks' THEN 'subtask'
+    WHEN 'task_comments' THEN 'comment'
+    WHEN 'reminders' THEN 'reminder'
+    WHEN 'project_credentials' THEN 'credential'
+    WHEN 'entity_files' THEN 'entity_file'
+    WHEN 'portal_updates' THEN 'portal_update'
+    WHEN 'portal_update_attachments' THEN 'portal_update_attachment'
+    WHEN 'contacts' THEN 'contact'
+    WHEN 'leads' THEN 'lead'
+    WHEN 'lead_interactions' THEN 'lead_interaction'
+    WHEN 'lead_proposals' THEN 'lead_proposal'
+    WHEN 'lead_fields' THEN 'lead_field'
+    WHEN 'project_time_entries' THEN 'time_entry'
+    WHEN 'project_invoices' THEN 'invoice'
+    WHEN 'invoice_payments' THEN 'invoice_payment'
+    WHEN 'project_hourly_rates' THEN 'project_hourly_rate'
+    WHEN 'project_retainers' THEN 'retainer'
+    WHEN 'project_retainer_amounts' THEN 'retainer_amount'
+    ELSE p_table
+  END
+$$;
+
+-- One audit row for a Trash move or restore by a signed-in member (the app).
+-- Server routes on the service role log their own, with the API key.
+CREATE OR REPLACE FUNCTION public.audit_trash_change(
+  p_table text, p_id uuid, p_restore boolean, p_before jsonb, p_after jsonb
+)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  INSERT INTO public.api_audit_log (
+    method, endpoint, entity_type, entity_id, team_member_id, before_snapshot, after_snapshot, status_code, via
+  ) VALUES (
+    CASE WHEN p_restore THEN 'POST' ELSE 'DELETE' END,
+    '/app/trash/' || p_table || '/' || p_id::text || CASE WHEN p_restore THEN '/restore' ELSE '' END,
+    public.trash_entity_type(p_table), p_id, public.current_team_member_id(), p_before, p_after, 200, 'app'
+  );
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.soft_delete_record(p_table text, p_id uuid, p_actor uuid DEFAULT NULL)
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  is_service boolean := coalesce(auth.role(), '') = 'service_role';
+  actor uuid;
+  changed integer;
+  found_row boolean;
+  before jsonb;
+  after jsonb;
+BEGIN
+  IF NOT p_table = ANY (public.trash_record_types()) THEN
+    RAISE EXCEPTION 'Trash does not handle %', p_table USING ERRCODE = '22023';
+  END IF;
+  EXECUTE format('SELECT EXISTS (SELECT 1 FROM public.%I WHERE id = $1)', p_table) INTO found_row USING p_id;
+  IF NOT found_row THEN
+    RAISE EXCEPTION 'Record not found' USING ERRCODE = 'P0002';
+  END IF;
+  IF is_service THEN
+    actor := p_actor;
+  ELSE
+    IF NOT public.can_trash_record(p_table, p_id) THEN
+      RAISE EXCEPTION 'You do not have permission to delete this' USING ERRCODE = '42501';
+    END IF;
+    actor := public.current_team_member_id();
+  END IF;
+  EXECUTE format('SELECT to_jsonb(t) FROM public.%I t WHERE id = $1', p_table) INTO before USING p_id;
+  EXECUTE format('UPDATE public.%I t SET deleted_at = now(), deleted_by = $1 WHERE id = $2 AND deleted_at IS NULL RETURNING to_jsonb(t)', p_table)
+    INTO after USING actor, p_id;
+  changed := CASE WHEN after IS NULL THEN 0 ELSE 1 END;
+  IF changed > 0 AND NOT is_service THEN
+    PERFORM public.audit_trash_change(p_table, p_id, false, before, after);
+  END IF;
+  RETURN changed > 0;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.restore_record(p_table text, p_id uuid, p_actor uuid DEFAULT NULL)
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  is_service boolean := coalesce(auth.role(), '') = 'service_role';
+  blocker text;
+  changed integer;
+  found_row boolean;
+  before jsonb;
+  after jsonb;
+BEGIN
+  IF NOT p_table = ANY (public.trash_record_types()) THEN
+    RAISE EXCEPTION 'Trash does not handle %', p_table USING ERRCODE = '22023';
+  END IF;
+  EXECUTE format('SELECT EXISTS (SELECT 1 FROM public.%I WHERE id = $1)', p_table) INTO found_row USING p_id;
+  IF NOT found_row THEN
+    RAISE EXCEPTION 'Record not found' USING ERRCODE = 'P0002';
+  END IF;
+  blocker := public.trash_restore_blocker(p_table, p_id);
+  IF blocker IS NOT NULL THEN
+    RAISE EXCEPTION '%', blocker USING ERRCODE = '55000';
+  END IF;
+  IF NOT is_service AND NOT public.can_trash_record(p_table, p_id) THEN
+    RAISE EXCEPTION 'You do not have permission to restore this' USING ERRCODE = '42501';
+  END IF;
+  -- Restoring re-runs the record's own rules (an invoice links its hours
+  -- and retainer period again); a clash with what happened meanwhile
+  -- refuses it, saying why.
+  EXECUTE format('SELECT to_jsonb(t) FROM public.%I t WHERE id = $1', p_table) INTO before USING p_id;
+  BEGIN
+    EXECUTE format('UPDATE public.%I t SET deleted_at = NULL, deleted_by = NULL WHERE id = $1 AND deleted_at IS NOT NULL RETURNING to_jsonb(t)', p_table)
+      INTO after USING p_id;
+    changed := CASE WHEN after IS NULL THEN 0 ELSE 1 END;
+  EXCEPTION WHEN raise_exception THEN
+    RAISE EXCEPTION 'It cannot come back as it was: %', SQLERRM USING ERRCODE = '55000';
+  END;
+  IF changed > 0 AND NOT is_service THEN
+    PERFORM public.audit_trash_change(p_table, p_id, true, before, after);
+  END IF;
+  RETURN changed > 0;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.project_is_live(uuid) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.task_is_live(uuid) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.lead_is_live(uuid) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.contact_is_live(uuid) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.credential_is_live(uuid) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.portal_update_is_live(uuid) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.file_entity_is_live(text, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.project_is_live(uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.task_is_live(uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.lead_is_live(uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.contact_is_live(uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.credential_is_live(uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.portal_update_is_live(uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.file_entity_is_live(text, uuid) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.forbid_hard_delete() FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.trash_record_types() FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.can_trash_record(text, uuid) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.trash_restore_blocker(text, uuid) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.soft_delete_record(text, uuid, uuid) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.restore_record(text, uuid, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.trash_record_types() TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.can_trash_record(text, uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.trash_restore_blocker(text, uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.soft_delete_record(text, uuid, uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.restore_record(text, uuid, uuid) TO authenticated, service_role;
+
+-- ---------------------------------------------------------------------------
+-- Soft delete, billing (migration 20261022041249_soft_delete_billing.sql)
+-- ---------------------------------------------------------------------------
+-- Time entries, invoices, payments, project hourly rates, retainers and
+-- retainer amounts go to Trash the same way. An invoice in Trash lets go of
+-- its hours and retainer period and retires its split earnings (see
+-- reconcile_invoice_retainer_lines); restoring links them again. Time on an
+-- invoice or in a payout, and an invoice with payments recorded by an
+-- accounting connection, cannot go to Trash (guard_trash).
+
+CREATE INDEX IF NOT EXISTS idx_project_time_entries_deleted_at ON public.project_time_entries (deleted_at DESC) WHERE deleted_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_project_invoices_deleted_at ON public.project_invoices (deleted_at DESC) WHERE deleted_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_invoice_payments_deleted_at ON public.invoice_payments (deleted_at DESC) WHERE deleted_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_project_hourly_rates_deleted_at ON public.project_hourly_rates (deleted_at DESC) WHERE deleted_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_project_retainers_deleted_at ON public.project_retainers (deleted_at DESC) WHERE deleted_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_project_retainer_amounts_deleted_at ON public.project_retainer_amounts (deleted_at DESC) WHERE deleted_at IS NOT NULL;
+
+CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON public.project_time_entries
+  FOR EACH ROW EXECUTE FUNCTION public.forbid_hard_delete();
+CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON public.project_time_entries
+  FOR EACH STATEMENT EXECUTE FUNCTION public.forbid_hard_delete();
+CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON public.project_invoices
+  FOR EACH ROW EXECUTE FUNCTION public.forbid_hard_delete();
+CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON public.project_invoices
+  FOR EACH STATEMENT EXECUTE FUNCTION public.forbid_hard_delete();
+CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON public.invoice_payments
+  FOR EACH ROW EXECUTE FUNCTION public.forbid_hard_delete();
+CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON public.invoice_payments
+  FOR EACH STATEMENT EXECUTE FUNCTION public.forbid_hard_delete();
+CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON public.project_hourly_rates
+  FOR EACH ROW EXECUTE FUNCTION public.forbid_hard_delete();
+CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON public.project_hourly_rates
+  FOR EACH STATEMENT EXECUTE FUNCTION public.forbid_hard_delete();
+CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON public.project_retainers
+  FOR EACH ROW EXECUTE FUNCTION public.forbid_hard_delete();
+CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON public.project_retainers
+  FOR EACH STATEMENT EXECUTE FUNCTION public.forbid_hard_delete();
+CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON public.project_retainer_amounts
+  FOR EACH ROW EXECUTE FUNCTION public.forbid_hard_delete();
+CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON public.project_retainer_amounts
+  FOR EACH STATEMENT EXECUTE FUNCTION public.forbid_hard_delete();
+
+CREATE POLICY project_time_entries_not_deleted ON public.project_time_entries AS RESTRICTIVE FOR ALL TO authenticated
+  USING (deleted_at IS NULL) WITH CHECK (deleted_at IS NULL);
+CREATE POLICY project_invoices_not_deleted ON public.project_invoices AS RESTRICTIVE FOR ALL TO authenticated
+  USING (deleted_at IS NULL) WITH CHECK (deleted_at IS NULL);
+CREATE POLICY invoice_payments_not_deleted ON public.invoice_payments AS RESTRICTIVE FOR ALL TO authenticated
+  USING (deleted_at IS NULL) WITH CHECK (deleted_at IS NULL);
+CREATE POLICY project_hourly_rates_not_deleted ON public.project_hourly_rates AS RESTRICTIVE FOR ALL TO authenticated
+  USING (deleted_at IS NULL) WITH CHECK (deleted_at IS NULL);
+CREATE POLICY project_retainers_not_deleted ON public.project_retainers AS RESTRICTIVE FOR ALL TO authenticated
+  USING (deleted_at IS NULL) WITH CHECK (deleted_at IS NULL);
+CREATE POLICY project_retainer_amounts_not_deleted ON public.project_retainer_amounts AS RESTRICTIVE FOR ALL TO authenticated
+  USING (deleted_at IS NULL) WITH CHECK (deleted_at IS NULL);
+
+CREATE OR REPLACE FUNCTION public.invoice_is_live(p_invoice_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.project_invoices invoice
+    JOIN public.projects project ON project.id = invoice.project_id
+    WHERE invoice.id = p_invoice_id AND invoice.deleted_at IS NULL AND project.deleted_at IS NULL
+  )
+$$;
+
+CREATE OR REPLACE FUNCTION public.time_entry_is_live(p_entry_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.project_time_entries entry
+    JOIN public.projects project ON project.id = entry.project_id
+    WHERE entry.id = p_entry_id AND entry.deleted_at IS NULL AND project.deleted_at IS NULL
+  )
+$$;
+
+CREATE OR REPLACE FUNCTION public.retainer_is_live(p_retainer_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.project_retainers retainer
+    JOIN public.projects project ON project.id = retainer.project_id
+    WHERE retainer.id = p_retainer_id AND retainer.deleted_at IS NULL AND project.deleted_at IS NULL
+  )
+$$;
+
+CREATE POLICY invoice_payments_parent_live ON public.invoice_payments AS RESTRICTIVE FOR ALL TO authenticated
+  USING (public.invoice_is_live(invoice_id));
+CREATE POLICY invoice_time_entry_allocations_parent_live ON public.invoice_time_entry_allocations AS RESTRICTIVE FOR ALL TO authenticated
+  USING (public.invoice_is_live(invoice_id));
+CREATE POLICY invoice_line_shares_parent_live ON public.invoice_line_shares AS RESTRICTIVE FOR ALL TO authenticated
+  USING (public.invoice_is_live(invoice_id));
+CREATE POLICY billing_draft_notices_parent_live ON public.billing_draft_notices AS RESTRICTIVE FOR ALL TO authenticated
+  USING (public.project_is_live(project_id) AND public.invoice_is_live(invoice_id));
+CREATE POLICY project_retainer_amounts_parent_live ON public.project_retainer_amounts AS RESTRICTIVE FOR ALL TO authenticated
+  USING (public.retainer_is_live(retainer_id));
+CREATE POLICY project_retainer_shares_parent_live ON public.project_retainer_shares AS RESTRICTIVE FOR ALL TO authenticated
+  USING (public.retainer_is_live(retainer_id));
+CREATE POLICY project_retainer_periods_parent_live ON public.project_retainer_periods AS RESTRICTIVE FOR ALL TO authenticated
+  USING (public.retainer_is_live(retainer_id));
+CREATE POLICY time_entry_tasks_parent_live ON public.time_entry_tasks AS RESTRICTIVE FOR ALL TO authenticated
+  USING (public.task_is_live(task_id) AND public.time_entry_is_live(time_entry_id));
+
+-- Why a record cannot go to Trash, as a sentence for the person deleting
+-- it; null when nothing stops it. The rules the foreign keys and DELETE
+-- triggers used to enforce.
+CREATE OR REPLACE FUNCTION public.trash_delete_blocker(p_table text, p_id uuid)
+RETURNS text
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_number text;
+BEGIN
+  CASE p_table
+    WHEN 'project_time_entries' THEN
+      SELECT invoice.invoice_number INTO v_number
+      FROM public.invoice_time_entry_allocations allocation
+      JOIN public.project_invoices invoice ON invoice.id = allocation.invoice_id
+      WHERE allocation.time_entry_id = p_id AND invoice.deleted_at IS NULL
+      ORDER BY invoice.created_at
+      LIMIT 1;
+      IF FOUND THEN
+        RETURN 'This time is on invoice ' || v_number || '. Take it off the invoice first.';
+      END IF;
+      IF EXISTS (
+        SELECT 1 FROM public.team_member_payout_allocations allocation
+        JOIN public.team_member_payouts payout ON payout.id = allocation.payout_id
+        WHERE allocation.time_entry_id = p_id AND payout.voided_at IS NULL
+      ) THEN
+        RETURN 'This time is in a team member payout. Void the payout first.';
+      END IF;
+    WHEN 'project_invoices' THEN
+      IF EXISTS (
+        SELECT 1 FROM public.invoice_payments
+        WHERE invoice_id = p_id AND recorded_via = 'api' AND deleted_at IS NULL
+      ) THEN
+        RETURN 'PAYMENT_RECORDED_ELSEWHERE: This invoice has payments recorded by an accounting connection. Remove them there first.';
+      END IF;
+    ELSE
+      NULL;
+  END CASE;
+  RETURN NULL;
+END;
+$$;
+
+-- Every way into Trash (the RPC, a server route, a trigger) meets the same
+-- rules, so time on an invoice or an invoice pinned by an accounting
+-- connection cannot slip in through a direct update.
+CREATE OR REPLACE FUNCTION public.guard_trash()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  blocker text;
+BEGIN
+  IF OLD.deleted_at IS NULL AND NEW.deleted_at IS NOT NULL THEN
+    blocker := public.trash_delete_blocker(TG_TABLE_NAME, OLD.id);
+    IF blocker IS NOT NULL THEN
+      RAISE EXCEPTION '%', blocker USING ERRCODE = '55000';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER guard_trash BEFORE UPDATE OF deleted_at ON public.project_time_entries
+  FOR EACH ROW EXECUTE FUNCTION public.guard_trash();
+CREATE TRIGGER guard_trash BEFORE UPDATE OF deleted_at ON public.project_invoices
+  FOR EACH ROW EXECUTE FUNCTION public.guard_trash();
+
+REVOKE ALL ON FUNCTION public.invoice_is_live(uuid) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.time_entry_is_live(uuid) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.retainer_is_live(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.invoice_is_live(uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.time_entry_is_live(uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.retainer_is_live(uuid) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.trash_delete_blocker(text, uuid) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.guard_trash() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.trash_delete_blocker(text, uuid) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.trash_entity_type(text) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.audit_trash_change(text, uuid, boolean, jsonb, jsonb) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.trash_entity_type(text) TO authenticated, service_role;
+
+-- ---------------------------------------------------------------------------
+-- The Trash list (migration 20261022053626_list_trash.sql): what the caller
+-- may restore, with where it lived, who deleted it and what blocks a restore.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.list_trash(p_types text[] DEFAULT NULL, p_limit integer DEFAULT 500)
+RETURNS TABLE (
+  record_type text,
+  id uuid,
+  label text,
+  context text,
+  project_id uuid,
+  deleted_at timestamptz,
+  deleted_by uuid,
+  deleted_by_name text,
+  blocker text
+)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  spec record;
+  is_service boolean := coalesce(auth.role(), '') = 'service_role';
+BEGIN
+  IF NOT is_service AND public.current_team_member_id() IS NULL THEN
+    RETURN;
+  END IF;
+  FOR spec IN
+    SELECT * FROM (VALUES
+      ('projects', 'r.name', 'NULL', 'r.id', ''),
+      ('tasks', 'r.title', 'p.name', 'r.project_id', 'LEFT JOIN public.projects p ON p.id = r.project_id'),
+      ('task_subtasks', 'r.title', 't.title', 't.project_id', 'LEFT JOIN public.tasks t ON t.id = r.task_id'),
+      ('task_comments', 'left(r.text, 120)', 't.title', 't.project_id', 'LEFT JOIN public.tasks t ON t.id = r.task_id'),
+      ('reminders', 'r.title', 'coalesce(t.title, p.name)', 'r.project_id',
+        'LEFT JOIN public.tasks t ON t.id = r.task_id LEFT JOIN public.projects p ON p.id = r.project_id'),
+      ('project_credentials', 'r.label', 'p.name', 'r.project_id', 'LEFT JOIN public.projects p ON p.id = r.project_id'),
+      ('entity_files', 'r.name',
+        'CASE r.entity_type WHEN ''project'' THEN (SELECT name FROM public.projects WHERE id = r.entity_id)
+           WHEN ''lead'' THEN (SELECT name FROM public.leads WHERE id = r.entity_id)
+           WHEN ''contact'' THEN (SELECT name FROM public.contacts WHERE id = r.entity_id) END',
+        'CASE WHEN r.entity_type = ''project'' THEN r.entity_id END', ''),
+      ('portal_updates', 'r.title', 'p.name', 'r.project_id', 'LEFT JOIN public.projects p ON p.id = r.project_id'),
+      ('portal_update_attachments', 'r.name', 'u.title', 'u.project_id', 'LEFT JOIN public.portal_updates u ON u.id = r.update_id'),
+      ('contacts', 'r.name', 'NULL', 'NULL', ''),
+      ('leads', 'r.name', 'NULL', 'NULL', ''),
+      ('lead_interactions', 'r.title', 'l.name', 'NULL', 'LEFT JOIN public.leads l ON l.id = r.lead_id'),
+      ('lead_proposals', 'r.title', 'l.name', 'NULL', 'LEFT JOIN public.leads l ON l.id = r.lead_id'),
+      ('lead_fields', 'r.field_key || '': '' || left(r.value, 80)', 'l.name', 'NULL', 'LEFT JOIN public.leads l ON l.id = r.lead_id'),
+      ('project_time_entries',
+        'coalesce(nullif(btrim(r.description), ''''), ''Time entry'') || '' ('' || to_char(r.start_time AT TIME ZONE public.workspace_timezone(), ''Mon FMDD, YYYY'') || '')''',
+        'p.name', 'r.project_id', 'LEFT JOIN public.projects p ON p.id = r.project_id'),
+      ('project_invoices', 'r.invoice_number || '' ($'' || to_char(r.amount, ''FM999,999,990.00'') || '')''', 'p.name', 'r.project_id',
+        'LEFT JOIN public.projects p ON p.id = r.project_id'),
+      ('invoice_payments', '''Payment of $'' || to_char(r.amount, ''FM999,999,990.00'') || '' on '' || i.invoice_number', 'p.name', 'i.project_id',
+        'LEFT JOIN public.project_invoices i ON i.id = r.invoice_id LEFT JOIN public.projects p ON p.id = i.project_id'),
+      ('project_hourly_rates', '''$'' || to_char(r.hourly_rate, ''FM999,990.00'') || ''/hr from '' || to_char(r.effective_at AT TIME ZONE public.workspace_timezone(), ''Mon FMDD, YYYY'')',
+        'p.name', 'r.project_id', 'LEFT JOIN public.projects p ON p.id = r.project_id'),
+      ('project_retainers', 'r.name', 'p.name', 'r.project_id', 'LEFT JOIN public.projects p ON p.id = r.project_id'),
+      ('project_retainer_amounts', 'rt.name || '': $'' || to_char(r.amount, ''FM999,999,990.00'') || '' from '' || to_char(r.effective_date, ''Mon FMDD, YYYY'')',
+        'p.name', 'rt.project_id',
+        'LEFT JOIN public.project_retainers rt ON rt.id = r.retainer_id LEFT JOIN public.projects p ON p.id = rt.project_id')
+    ) AS specs(record_type, label_sql, context_sql, project_sql, join_sql)
+  LOOP
+    CONTINUE WHEN p_types IS NOT NULL AND NOT spec.record_type = ANY (p_types);
+    RETURN QUERY EXECUTE format(
+      'SELECT %L::text, r.id, (%s)::text, (%s)::text, (%s)::uuid, r.deleted_at, r.deleted_by, m.name::text,
+              public.trash_restore_blocker(%L, r.id)
+       FROM public.%I r %s
+       LEFT JOIN public.team_members m ON m.id = r.deleted_by
+       WHERE r.deleted_at IS NOT NULL AND ($1 OR public.can_trash_record(%L, r.id))
+       ORDER BY r.deleted_at DESC
+       LIMIT %s',
+      spec.record_type, spec.label_sql, spec.context_sql, spec.project_sql, spec.record_type,
+      spec.record_type, spec.join_sql, spec.record_type, greatest(1, least(coalesce(p_limit, 500), 2000)))
+    USING is_service;
+  END LOOP;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.list_trash(text[], integer) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.list_trash(text[], integer) TO authenticated, service_role;

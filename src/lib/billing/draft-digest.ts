@@ -3,6 +3,7 @@ import { sendTransactional } from '@/lib/email/send-mail';
 import { buildNotificationEmail } from '@/lib/email/templates/team/notification';
 import { emailCategoryEnabled } from '@/lib/notification-defaults';
 import type { NotificationPreferences } from '@/lib/types';
+import { trashedProjectIds } from '@/lib/supabase/trash';
 
 /**
  * The morning email about auto drafts (retainer and scheduled hours) made
@@ -22,7 +23,7 @@ interface NoticeRow {
   invoice_id: string;
   project_id: string;
   summary: string;
-  project_invoices: { invoice_number: string; amount: number | string; status: string } | null;
+  project_invoices: { invoice_number: string; amount: number | string; status: string; deleted_at: string | null } | null;
 }
 
 type Send = typeof sendTransactional;
@@ -34,14 +35,17 @@ function money(value: number): string {
 export async function runDraftDigest(service: SupabaseClient, send: Send = sendTransactional): Promise<DraftDigestResult> {
   const { data, error } = await service
     .from('billing_draft_notices')
-    .select('invoice_id, project_id, summary, project_invoices(invoice_number, amount, status)')
+    .select('invoice_id, project_id, summary, project_invoices(invoice_number, amount, status, deleted_at)')
     .is('emailed_at', null)
     .order('created_at');
   if (error) throw error;
   const notices = (data ?? []) as unknown as NoticeRow[];
   if (notices.length === 0) return { drafts: 0, recipients: 0, emailed: 0, outcome: 'nothing_new' };
 
-  const live = notices.filter((notice) => notice.project_invoices?.status === 'draft');
+  // A draft moved to Trash, or on a project in Trash, is not waiting for anyone.
+  const trashed = new Set(await trashedProjectIds(service));
+  const live = notices.filter((notice) => notice.project_invoices?.status === 'draft'
+    && !notice.project_invoices.deleted_at && !trashed.has(notice.project_id));
   const markAll = async () => {
     const { error: markError } = await service
       .from('billing_draft_notices')
@@ -75,7 +79,7 @@ export async function runDraftDigest(service: SupabaseClient, send: Send = sendT
     ? live[0].summary
     : `${money(total)} in drafts, waiting for you to review and send. Nothing has been sent to a client.`;
   const projectIds = [...new Set(live.map((notice) => notice.project_id))];
-  const { data: projects, error: projectsError } = await service.from('projects').select('id, name').in('id', projectIds);
+  const { data: projects, error: projectsError } = await service.from('projects').select('id, name').in('id', projectIds).is('deleted_at', null);
   if (projectsError) throw projectsError;
   const projectName = new Map((projects ?? []).map((project) => [project.id as string, project.name as string]));
   const { html, text } = buildNotificationEmail({

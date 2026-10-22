@@ -38,7 +38,7 @@ async function seedAccess(db: PGlite) {
     CREATE TABLE IF NOT EXISTS public.business_settings (id serial PRIMARY KEY, api_enabled boolean NOT NULL DEFAULT true);
     INSERT INTO public.business_settings DEFAULT VALUES;
     CREATE TABLE public.team_member_permissions (member_id uuid, permission_key text, access_channel text, effect text);
-    CREATE TABLE public.project_members (member_id uuid, project_id uuid);
+    CREATE TABLE public.project_members (member_id uuid, project_id uuid REFERENCES public.projects(id));
     CREATE TABLE public.api_audit_log (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), method text, endpoint text, entity_type text,
       entity_id uuid, api_key_id uuid, team_member_id uuid, request_body jsonb, before_snapshot jsonb, after_snapshot jsonb,
       status_code integer, error text, via text NOT NULL DEFAULT 'rest', created_at timestamptz NOT NULL DEFAULT now());
@@ -53,7 +53,6 @@ async function seedAccess(db: PGlite) {
   for (const key of ['projects.read', 'invoices.read', 'invoices.record_payments']) {
     await db.query("INSERT INTO team_member_permissions VALUES ($1, $2, 'api', 'allow')", [MEMBER, key]);
   }
-  await db.query('INSERT INTO project_members VALUES ($1, $2)', [MEMBER, P1]);
 }
 
 async function insertKey(db: PGlite, member: string, scopes: string[], name: string) {
@@ -75,7 +74,8 @@ function monthEnd(offset: number) {
 
 async function main() {
   process.env.TZ = 'UTC';
-  const db = await createPaymentsDatabase({ extraMigrations: [EARNED_MIGRATION] });
+  // The current payments and Trash definitions from schema.sql, the way the routes run today.
+  const db = await createPaymentsDatabase({ fromSchema: true, softDelete: true, extraMigrations: [EARNED_MIGRATION] });
   await seedAccess(db);
   const server = await startFakePostgrest(db);
   Object.assign(process.env, { NEXT_PUBLIC_SUPABASE_URL: server.url, SUPABASE_SERVICE_ROLE_KEY: 'fake-service-key' });
@@ -114,6 +114,7 @@ async function main() {
     // -- Seed ---------------------------------------------------------------
     await q(`INSERT INTO projects(id, name, billing_email, client_time_billing, tax_rate) VALUES
       ($1, 'Alpha site', 'ap@alpha.test', 'hourly', NULL), ($2, 'Beta retainer', NULL, 'included', NULL), ($3, 'Gamma hours', NULL, 'hourly', NULL)`, [P1, P2, P3]);
+    await q('INSERT INTO project_members VALUES ($1, $2)', [MEMBER, P1]);
     const contact = randomUUID();
     await q("INSERT INTO contacts(id, name, email, company) VALUES ($1, 'Ada Client', 'ada@alpha.test', 'Alpha LLC')", [contact]);
     await q('INSERT INTO project_contacts(project_id, contact_id, is_primary_client) VALUES ($1, $2, true)', [P1, contact]);

@@ -37,6 +37,7 @@ export const POST = withApi<any, { id: string }>(async ({ supabase, params, body
     .from('projects')
     .select('id')
     .eq('id', projectId)
+    .is('deleted_at', null)
     .maybeSingle();
   if (projErr || !project) throw notFound('Project');
 

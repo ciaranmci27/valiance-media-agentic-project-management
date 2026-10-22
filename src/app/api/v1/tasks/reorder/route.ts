@@ -18,9 +18,18 @@ export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId, acc
     .from('tasks')
     .select('id, project_id, status, sort_order, task_assignees(member_id)')
     .eq('id', task_id)
+    .is('deleted_at', null)
     .maybeSingle();
 
   if (!task) throw notFound('Task');
+  // A task in a project in Trash reads as missing too.
+  const { data: liveProject } = await supabase
+    .from('projects')
+    .select('id')
+    .eq('id', task.project_id)
+    .is('deleted_at', null)
+    .maybeSingle();
+  if (!liveProject) throw notFound('Task');
   if (!accessAllowsProject(access, task.project_id, 'api')) throw forbidden('Project scope denied');
   const canManageAll = scopes.includes('tasks.manage_all') && accessAllows(access, 'tasks.manage_all', 'api');
   const assigned = (task.task_assignees || []).some((row: { member_id: string }) => row.member_id === teamMemberId);
@@ -38,6 +47,7 @@ export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId, acc
     .select('id, sort_order')
     .eq('project_id', task.project_id)
     .eq('status', task.status)
+    .is('deleted_at', null)
     .order('sort_order')
     .order('created_at');
 
@@ -55,7 +65,8 @@ export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId, acc
       const { error: updateErr } = await supabase
         .from('tasks')
         .update({ sort_order: u.sort_order })
-        .eq('id', u.id);
+        .eq('id', u.id)
+        .is('deleted_at', null);
       if (updateErr) console.error(`[reorder] Failed to update task ${u.id}:`, updateErr);
     }
   }

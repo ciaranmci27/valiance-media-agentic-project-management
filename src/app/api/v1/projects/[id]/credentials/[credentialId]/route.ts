@@ -4,7 +4,8 @@ import { updateCredentialSchema, payloadFromBody } from '@/lib/schemas/credentia
 import { forbidden, notFound, badRequest } from '@/lib/api/errors';
 import { logAudit } from '@/lib/api/audit';
 import { encrypt, decrypt, isEncryptionConfigured } from '@/lib/api/encryption';
-import { fetchCredentialWithEncryptedData, patchProjectCredential, removeProjectCredential } from '@/lib/supabase/queries';
+import { fetchCredentialWithEncryptedData, patchProjectCredential } from '@/lib/supabase/queries';
+import { trashForApi } from '@/lib/api/trash';
 import type { CredentialPayload } from '@/lib/types';
 import { z } from 'zod';
 import { apiKeyAllows } from '@/lib/api/access';
@@ -17,6 +18,7 @@ export const GET = withApi(async ({ supabase, params, access, scopes, teamMember
     .select('id, project_id, label, category, submitted_by_client, submitted_by_name, created_by, created_at, updated_at')
     .eq('id', credentialId)
     .eq('project_id', id)
+    .is('deleted_at', null)
     .maybeSingle();
 
   if (!data) throw notFound('Credential');
@@ -41,6 +43,7 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
     .select('id, project_id, label, category, submitted_by_client, submitted_by_name, created_by, created_at, updated_at')
     .eq('id', credentialId)
     .eq('project_id', id)
+    .is('deleted_at', null)
     .maybeSingle();
   if (!existing) throw notFound('Credential');
 
@@ -94,10 +97,11 @@ export const DELETE = withApi(async ({ supabase, params, apiKeyId, teamMemberId 
     .select('id, label')
     .eq('id', credentialId)
     .eq('project_id', id)
+    .is('deleted_at', null)
     .maybeSingle();
   if (!existing) throw notFound('Credential');
 
-  await removeProjectCredential(supabase, credentialId);
+  await trashForApi(supabase, 'project_credentials', credentialId, teamMemberId, 'Credential');
 
   logAudit(supabase, {
     method: 'DELETE',

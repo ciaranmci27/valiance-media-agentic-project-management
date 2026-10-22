@@ -14,6 +14,7 @@ export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMembe
     .from('leads')
     .select('*, lead_members(member_id)')
     .eq('id', id)
+    .is('deleted_at', null)
     .maybeSingle();
 
   if (leadError) throw leadError;

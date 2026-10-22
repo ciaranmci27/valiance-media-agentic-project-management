@@ -47,6 +47,7 @@ export const GET = withApi<unknown, { id: string; aid: string }>(async ({ supaba
       agent_readable_types: readable,
     });
   }
+  // trash-checked: a Storage bucket, not a table.
   const { data: signed, error: signError } = await supabase.storage
     .from(INBOUND_EMAIL_BUCKET)
     .createSignedUrl(attachment.storage_path, SIGNED_URL_SECONDS);

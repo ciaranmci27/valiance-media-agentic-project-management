@@ -5,6 +5,7 @@ import { encrypt, decrypt, isEncryptionConfigured } from '@/lib/api/encryption';
 import { isSensitiveKey } from '@/lib/credential-fields';
 import type { CredentialPayload } from '@/lib/types';
 import { checkPortalPin, pinFailureResponse } from '@/lib/portal-pin';
+import { projectIsLive } from '@/lib/supabase/trash';
 
 function getServiceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -35,7 +36,8 @@ export async function GET(
     .eq('token', token)
     .maybeSingle();
 
-  if (!settings || !settings.enabled || !settings.show_credentials) {
+  // A project in Trash has no portal.
+  if (!settings || !settings.enabled || !settings.show_credentials || !(await projectIsLive(supabase, settings.project_id))) {
     return NextResponse.json({ error: 'Portal not found' }, { status: 404 });
   }
 
@@ -46,6 +48,7 @@ export async function GET(
     .from('project_credentials')
     .select('id, project_id, submitted_by_client, encrypted_data, iv')
     .eq('id', id)
+    .is('deleted_at', null)
     .single();
 
   if (credError || !credential || credential.project_id !== settings.project_id || !credential.submitted_by_client) {
@@ -90,7 +93,7 @@ export async function PATCH(
     .eq('token', token)
     .maybeSingle();
 
-  if (!settings || !settings.enabled) {
+  if (!settings || !settings.enabled || !(await projectIsLive(supabase, settings.project_id))) {
     return NextResponse.json({ error: 'Portal not found' }, { status: 404 });
   }
 
@@ -106,6 +109,7 @@ export async function PATCH(
     .from('project_credentials')
     .select('id, project_id, submitted_by_client, encrypted_data, iv')
     .eq('id', id)
+    .is('deleted_at', null)
     .single();
 
   if (credError || !credential) {
@@ -160,6 +164,7 @@ export async function PATCH(
     .from('project_credentials')
     .update(updates)
     .eq('id', id)
+    .is('deleted_at', null)
     .select('id, label, category, created_at, updated_at')
     .single();
 

@@ -31,7 +31,7 @@ import { toast } from '@/components/ui/Toast';
 import { useTaskUrlParam } from '@/lib/use-task-url';
 import {
   Plus, LayoutGrid, List, Calendar,
-  Edit, ChevronRight,
+  Edit, ChevronRight, Trash2,
 } from 'lucide-react';
 import { Task, ViewMode } from '@/lib/types';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
@@ -314,7 +314,7 @@ export default function ProjectDetailPage() {
     const count = (n: number) => `${n} ${n === 1 ? 'task' : 'tasks'}`;
     setSelectedTaskIds(new Set(failedIds));
     if (failedIds.length === 0) {
-      toast('success', `${verb} ${count(saved)}`);
+      toast('success', verb === 'Deleted' ? `Moved ${count(saved)} to Trash` : `${verb} ${count(saved)}`);
     } else if (saved === 0) {
       toast('error', `Couldn't ${verb === 'Deleted' ? 'delete' : 'update'} ${count(failedIds.length)}`);
     } else {
@@ -350,9 +350,10 @@ export default function ProjectDetailPage() {
     } else if (confirmDelete.type === 'bulk') {
       void runBulk('Deleted', id => deleteTask(id, { silent: true }));
     } else {
-      deleteProject(confirmDelete.id);
-      toast('success', 'Project deleted');
       router.push('/projects');
+      void deleteProject(confirmDelete.id).then((moved) => {
+        if (moved) toast('success', 'Project moved to Trash');
+      });
     }
   };
 
@@ -374,11 +375,11 @@ export default function ProjectDetailPage() {
               <RowActionsMenu
                 label="Project actions"
                 triggerClassName="liquid-glass !p-0 w-9 h-9 flex items-center justify-center !text-zinc-300"
-                // No Delete here: the delete route hard-deletes and cascades
-                // through tasks, time, invoices and credentials. It comes back
-                // as a soft delete (archive + restore) once that exists.
+                // Delete moves the project to Trash with everything in it,
+                // restorable from Settings, Trash.
                 actions={[
                   { label: 'Edit project', icon: <Edit size={14} />, onClick: () => setIsEditProjectOpen(true) },
+                  { label: 'Move to Trash', icon: <Trash2 size={14} />, variant: 'danger', divider: true, onClick: () => setConfirmDelete({ type: 'project', id: project.id }) },
                 ]}
               />
             )}
@@ -632,16 +633,16 @@ export default function ProjectDetailPage() {
         isOpen={!!confirmDelete}
         onClose={() => setConfirmDelete(null)}
         onConfirm={executeDelete}
-        title={confirmDelete?.type === 'project' ? 'Delete Project' : confirmDelete?.type === 'bulk' ? 'Delete Selected Tasks' : 'Delete Task'}
+        title={confirmDelete?.type === 'project' ? 'Move project to Trash?' : confirmDelete?.type === 'bulk' ? 'Move tasks to Trash?' : 'Move task to Trash?'}
         message={
           confirmDelete?.type === 'project'
-            ? 'This will permanently delete the project and all its tasks. This action cannot be undone.'
+            ? 'The project goes to Trash with everything in it: tasks, time, invoices, files and the client portal.'
             : confirmDelete?.type === 'bulk'
-            ? `This will permanently delete ${selectedTaskIds.size} selected tasks. This action cannot be undone.`
-            : 'This will permanently delete this task and all its subtasks and comments. This action cannot be undone.'
+            ? `The ${selectedTaskIds.size} selected ${selectedTaskIds.size === 1 ? 'task goes' : 'tasks go'} to Trash with their subtasks and comments.`
+            : 'The task goes to Trash with its subtasks and comments.'
         }
-        confirmLabel="Delete"
         variant="danger"
+        trash
       />
 
       {/* Confirm Clear Due Dates: destructive but recoverable by re-entering

@@ -272,10 +272,10 @@ function LeadFieldItem({ definition, value, isEditing, onStartEdit, onStopEdit, 
           isOpen={showDeleteConfirm}
           onClose={() => setShowDeleteConfirm(false)}
           onConfirm={onRemove}
-          title="Delete Field"
-          message={`Remove the "${definition.label}" field from this lead?`}
-          confirmLabel="Delete"
+          title="Move field to Trash?"
+          message={`The "${definition.label}" field on this lead goes to Trash with its value.`}
           variant="danger"
+          trash
         />}
       </div>
     );

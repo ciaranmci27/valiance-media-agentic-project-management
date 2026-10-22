@@ -68,7 +68,7 @@ export async function createEmailDatabase(
       email text NOT NULL DEFAULT '', role text NOT NULL, status text NOT NULL DEFAULT 'active',
       agent_profile text NOT NULL DEFAULT 'generic');
     CREATE TABLE public.projects (id uuid PRIMARY KEY, name text NOT NULL, status text NOT NULL DEFAULT 'active',
-      archived_at timestamptz, created_by uuid);
+      archived_at timestamptz, created_by uuid, deleted_at timestamptz, deleted_by uuid);
     CREATE TABLE public.project_members (project_id uuid NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
       member_id uuid NOT NULL REFERENCES public.team_members(id) ON DELETE CASCADE, PRIMARY KEY (project_id, member_id));
     CREATE TABLE public.business_settings (id serial PRIMARY KEY, api_enabled boolean NOT NULL DEFAULT true);

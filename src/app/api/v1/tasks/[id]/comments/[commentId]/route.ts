@@ -3,11 +3,12 @@ import { success } from '@/lib/api/response';
 import { updateCommentSchema } from '@/lib/schemas';
 import { forbidden, notFound } from '@/lib/api/errors';
 import { logAudit } from '@/lib/api/audit';
+import { trashForApi } from '@/lib/api/trash';
 import { accessAllows } from '@/lib/api/access';
 
 export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemberId, access, scopes }) => {
   const { id, commentId } = params as any;
-  const { data: before } = await supabase.from('task_comments').select('*').eq('id', commentId).eq('task_id', id).maybeSingle();
+  const { data: before } = await supabase.from('task_comments').select('*').eq('id', commentId).eq('task_id', id).is('deleted_at', null).maybeSingle();
   if (!before) throw notFound('Comment');
   if (before.user_id !== teamMemberId && !(scopes.includes('tasks.manage_all') && accessAllows(access, 'tasks.manage_all', 'api'))) {
     throw forbidden('This API key can only edit its own comments');
@@ -18,6 +19,7 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
     .update(body)
     .eq('id', commentId)
     .eq('task_id', id)
+    .is('deleted_at', null)
     .select()
     .maybeSingle();
 
@@ -29,19 +31,13 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
 
 export const DELETE = withApi(async ({ supabase, params, apiKeyId, teamMemberId, access, scopes }) => {
   const { id, commentId } = params as any;
-  const { data: before } = await supabase.from('task_comments').select('*').eq('id', commentId).eq('task_id', id).maybeSingle();
+  const { data: before } = await supabase.from('task_comments').select('*').eq('id', commentId).eq('task_id', id).is('deleted_at', null).maybeSingle();
   if (!before) throw notFound('Comment');
   if (before.user_id !== teamMemberId && !(scopes.includes('tasks.manage_all') && accessAllows(access, 'tasks.manage_all', 'api'))) {
     throw forbidden('This API key can only delete its own comments');
   }
 
-  const { error } = await supabase
-    .from('task_comments')
-    .delete()
-    .eq('id', commentId)
-    .eq('task_id', id);
-
-  if (error) throw error;
+  await trashForApi(supabase, 'task_comments', commentId, teamMemberId, 'Comment');
   logAudit(supabase, { method: 'DELETE', endpoint: `/api/v1/tasks/${id}/comments/${commentId}`, entityType: 'comment', entityId: commentId, apiKeyId, teamMemberId, beforeSnapshot: before, statusCode: 200 });
   return success({ deleted: true });
 });

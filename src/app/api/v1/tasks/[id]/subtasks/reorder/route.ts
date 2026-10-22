@@ -14,7 +14,8 @@ export const PUT = withApi(async ({ supabase, params, body, apiKeyId, teamMember
     .from('task_subtasks')
     .select('id')
     .eq('task_id', taskId)
-    .in('id', subtask_ids);
+    .in('id', subtask_ids)
+    .is('deleted_at', null);
 
   if (!existing || existing.length !== subtask_ids.length) {
     throw badRequest('One or more subtask IDs do not belong to this task');

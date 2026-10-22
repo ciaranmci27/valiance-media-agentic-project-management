@@ -3,10 +3,11 @@ import { created, paginated } from '@/lib/api/response';
 import { createSuggestionSchema } from '@/lib/schemas';
 import { requireAgentsEnabled } from '@/lib/api/agents';
 import { parsePagination } from '@/lib/api/pagination';
-import { forbidden, badRequest } from '@/lib/api/errors';
+import { forbidden, badRequest, notFound } from '@/lib/api/errors';
 import { insertTaskSuggestion } from '@/lib/supabase/queries';
 import { logAudit } from '@/lib/api/audit';
 import { accessAllows, accessAllowsProject } from '@/lib/api/access';
+import { postgrestList, trashedProjectIds } from '@/lib/supabase/trash';
 
 export const GET = withApi(async ({ supabase, searchParams, access }) => {
   requireAgentsEnabled();
@@ -25,6 +26,9 @@ export const GET = withApi(async ({ supabase, searchParams, access }) => {
     if (access.project_ids.length === 0) return paginated([], { page, limit, total: 0 });
     query = query.in('project_id', access.project_ids);
   }
+  // Suggestions in a project in Trash are out of reach with it.
+  const trashed = await trashedProjectIds(supabase);
+  if (trashed.length) query = query.not('project_id', 'in', postgrestList(trashed));
 
   if (status) query = query.eq('status', status);
   if (projectId) query = query.eq('project_id', projectId);
@@ -63,6 +67,13 @@ export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId, acc
   if (!accessAllowsProject(access, suggestionInput.project_id, 'api')) {
     throw forbidden('Project scope denied');
   }
+  const { data: liveProject } = await supabase
+    .from('projects')
+    .select('id')
+    .eq('id', suggestionInput.project_id)
+    .is('deleted_at', null)
+    .maybeSingle();
+  if (!liveProject) throw notFound('Project');
   const { data: goal } = await supabase
     .from('project_goals')
     .select('id')

@@ -4,7 +4,8 @@
  * of admin/scripts/fake-postgrest.ts). It serves only plain requests: rpc
  * calls; selects with eq/neq/is/gte/lte/gt/lt/in/cs (jsonb)/or and not.<op> filters,
  * order, limit and offset, exact counts (Prefer: count=exact) and one level
- * of embedded resources found through a foreign key; inserts, updates and
+ * of embedded resources found through a foreign key (filtered by
+ * `alias.column`, and `!inner` keeps only parents with a match); inserts, updates and
  * deletes. `handle` can serve other paths (a Storage stand-in). Every request
  * runs in its own transaction as service_role with service_role claims and no
  * user, the way PostgREST runs a service-key request. Requests are serialized
@@ -92,15 +93,15 @@ function splitSelect(value: string): string[] {
   return parts;
 }
 
-type Embed = { key: string; table: string; columns: string };
+type Embed = { key: string; table: string; columns: string; inner: boolean };
 
 function parseSelect(value: string | null): { columns: string[] | null; embeds: Embed[] } {
   if (!value || value === "*") return { columns: null, embeds: [] };
   const columns: string[] = [];
   const embeds: Embed[] = [];
   for (const part of splitSelect(value)) {
-    const embed = /^(?:([a-z_][a-z0-9_]*):)?([a-z_][a-z0-9_]*)(?:![a-z0-9_]+)?\((.*)\)$/.exec(part);
-    if (embed) embeds.push({ key: embed[1] ?? embed[2], table: embed[2], columns: embed[3] });
+    const embed = /^(?:([a-z_][a-z0-9_]*):)?([a-z_][a-z0-9_]*)(?:!([a-z0-9_]+))?\((.*)\)$/.exec(part);
+    if (embed) embeds.push({ key: embed[1] ?? embed[2], table: embed[2], columns: embed[4], inner: embed[3] === "inner" });
     else if (part === "*") columns.push("*");
     else columns.push(part);
   }
@@ -137,7 +138,7 @@ export async function startFakePostgrest(db: PGlite, options: { maxRows?: number
   const asService = <T>(work: () => Promise<T>) =>
     serialized(async () => {
       await db.exec("RESET ROLE; BEGIN; SET LOCAL ROLE service_role;");
-      await db.query("SELECT set_config('request.jwt.claims',$1,true), set_config('request.jwt.claim.sub','',true)", [
+      await db.query("SELECT set_config('request.jwt.claims',$1,true), set_config('request.jwt.claim.sub','',true), set_config('request.jwt.claim.role','service_role',true)", [
         JSON.stringify({ role: "service_role" }),
       ]);
       try {
@@ -193,8 +194,18 @@ export async function startFakePostgrest(db: PGlite, options: { maxRows?: number
         let limit = maxRows;
         let offset = 0;
         const select = parseSelect(url.searchParams.get("select"));
+        // `alias.column=op.value` filters an embed: its rows, or with !inner the
+        // parent rows that have a match, as PostgREST does.
+        const embedFilters = new Map<string, Array<[string, string]>>();
         for (const [key, value] of url.searchParams) {
           if (key === "select") continue;
+          const dot = key.indexOf(".");
+          if (dot > 0 && select.embeds.some((embed) => embed.key === key.slice(0, dot))) {
+            const list = embedFilters.get(key.slice(0, dot)) ?? [];
+            list.push([key.slice(dot + 1), value]);
+            embedFilters.set(key.slice(0, dot), list);
+            continue;
+          }
           else if (key === "order")
             order =
               " ORDER BY " +
@@ -208,7 +219,8 @@ export async function startFakePostgrest(db: PGlite, options: { maxRows?: number
           else if (key === "limit") limit = Math.min(maxRows, Number(value));
           else if (key === "offset") offset = Number(value);
           else if (key === "or") {
-            const parts = value.replace(/^\(|\)$/g, "").split(",");
+            // Split at top-level commas: `col.not.in.(a,b)` keeps its list.
+            const parts = splitSelect(value.replace(/^\(|\)$/g, ""));
             where.push(
               "(" +
                 parts
@@ -221,31 +233,47 @@ export async function startFakePostgrest(db: PGlite, options: { maxRows?: number
             );
           } else where.push(filter(key, value, params));
         }
-        const whereSql = where.length ? " WHERE " + where.join(" AND ") : "";
         const counted = (request.headers.prefer ?? "").includes("count=exact");
         const { rows, total } = await asService(async () => {
+          const fk = async (from: string, to: string) =>
+            (await db.query<{ from_col: string; to_col: string }>(
+              `SELECT a.attname AS from_col, af.attname AS to_col FROM pg_constraint c
+               JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = c.conkey[1]
+               JOIN pg_attribute af ON af.attrelid = c.confrelid AND af.attnum = c.confkey[1]
+               WHERE c.contype = 'f' AND c.conrelid = $1::regclass AND c.confrelid = $2::regclass LIMIT 1`,
+              [`public.${from}`, `public.${to}`],
+            )).rows[0];
+          // How each embed joins: the child column and the parent column it matches.
+          const joins = new Map<string, { childCol: string; parentCol: string; many: boolean }>();
+          for (const embed of select.embeds) {
+            const many = await fk(embed.table, rest);
+            const one = many ? undefined : await fk(rest, embed.table);
+            if (!many && !one) throw new Error(`No relationship between ${rest} and ${embed.table}`);
+            joins.set(embed.key, many
+              ? { childCol: many.from_col, parentCol: many.to_col, many: true }
+              : { childCol: one!.to_col, parentCol: one!.from_col, many: false });
+            const filters = embedFilters.get(embed.key) ?? [];
+            if (embed.inner) {
+              const join = joins.get(embed.key)!;
+              const conditions = filters.map(([column, expression]) => filter(column, expression, params));
+              where.push(`EXISTS (SELECT 1 FROM public.${ident(embed.table)} WHERE ${ident(join.childCol)}::text = public.${table}.${ident(join.parentCol)}::text${
+                conditions.map((condition) => ` AND ${condition}`).join("")})`);
+            }
+          }
+          const whereSql = where.length ? " WHERE " + where.join(" AND ") : "";
           const found = (await db.query<Record<string, unknown>>(`SELECT * FROM public.${table}${whereSql}${order} LIMIT ${limit} OFFSET ${offset}`, params)).rows;
           for (const embed of select.embeds) {
             const child = ident(embed.table);
             const childColumns = embed.columns === "*" ? "*" : embed.columns.split(",").map((c) => ident(c.trim())).join(", ");
-            const fk = async (from: string, to: string) =>
-              (await db.query<{ from_col: string; to_col: string }>(
-                `SELECT a.attname AS from_col, af.attname AS to_col FROM pg_constraint c
-                 JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = c.conkey[1]
-                 JOIN pg_attribute af ON af.attrelid = c.confrelid AND af.attnum = c.confkey[1]
-                 WHERE c.contype = 'f' AND c.conrelid = $1::regclass AND c.confrelid = $2::regclass LIMIT 1`,
-                [`public.${from}`, `public.${to}`],
-              )).rows[0];
-            const many = await fk(embed.table, rest);
-            const one = many ? undefined : await fk(rest, embed.table);
-            if (!many && !one) throw new Error(`No relationship between ${rest} and ${embed.table}`);
+            const join = joins.get(embed.key)!;
             for (const row of found) {
-              if (many) {
-                row[embed.key] = (await db.query(`SELECT ${childColumns} FROM public.${child} WHERE ${ident(many.from_col)}::text = $1`, [String(row[many.to_col])])).rows;
-              } else if (one) {
-                const value = row[one.from_col];
-                row[embed.key] = value == null ? null : (await db.query(`SELECT ${childColumns} FROM public.${child} WHERE ${ident(one.to_col)}::text = $1`, [String(value)])).rows[0] ?? null;
-              }
+              const value = row[join.parentCol];
+              if (value == null) { row[embed.key] = join.many ? [] : null; continue; }
+              const childParams: unknown[] = [String(value)];
+              const conditions = (embedFilters.get(embed.key) ?? []).map(([column, expression]) => filter(column, expression, childParams));
+              const childRows = (await db.query(`SELECT ${childColumns} FROM public.${child} WHERE ${ident(join.childCol)}::text = $1${
+                conditions.map((condition) => ` AND ${condition}`).join("")}`, childParams)).rows;
+              row[embed.key] = join.many ? childRows : childRows[0] ?? null;
             }
           }
           const total = counted

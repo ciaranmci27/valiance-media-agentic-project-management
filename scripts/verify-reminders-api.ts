@@ -47,15 +47,15 @@ async function seed(db: PGlite) {
     CREATE TABLE public.business_settings (id serial PRIMARY KEY, api_enabled boolean NOT NULL DEFAULT true);
     CREATE TABLE public.role_permissions (role text, permission_key text, access_channel text, PRIMARY KEY (role, permission_key, access_channel));
     CREATE TABLE public.team_member_permissions (member_id uuid, permission_key text, access_channel text, effect text);
-    CREATE TABLE public.project_members (member_id uuid, project_id uuid);
     CREATE TABLE public.api_audit_log (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), method text, endpoint text, entity_type text,
       entity_id uuid, api_key_id uuid, team_member_id uuid, request_body jsonb, before_snapshot jsonb, after_snapshot jsonb,
       status_code integer, error text, via text NOT NULL DEFAULT 'rest');
     CREATE FUNCTION public.consume_api_rate_limit(p_api_key_id uuid, p_limit integer, p_window_seconds integer) RETURNS jsonb
       LANGUAGE sql AS $$ SELECT jsonb_build_object('allowed', true, 'remaining', p_limit - 1, 'reset_at', now() + make_interval(secs => p_window_seconds)) $$;
-    CREATE TABLE public.projects (id uuid PRIMARY KEY, name text NOT NULL);
+    CREATE TABLE public.projects (id uuid PRIMARY KEY, name text NOT NULL, deleted_at timestamptz);
+    CREATE TABLE public.project_members (member_id uuid, project_id uuid REFERENCES public.projects(id));
     CREATE TABLE public.tasks (id uuid PRIMARY KEY, project_id uuid NOT NULL REFERENCES public.projects(id), title text NOT NULL,
-      status text NOT NULL DEFAULT 'todo');
+      status text NOT NULL DEFAULT 'todo', deleted_at timestamptz);
     CREATE TABLE public.team_member_notifications (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid NOT NULL, title text NOT NULL,
       message text, link text, is_read boolean NOT NULL DEFAULT false, entity_type text, entity_id text, created_at timestamptz NOT NULL DEFAULT now());
     -- What the reminders migration leans on (RLS helpers the service role bypasses anyway).
@@ -70,6 +70,19 @@ async function seed(db: PGlite) {
   await db.exec(readFileSync(MIGRATION, 'utf8'));
   await db.exec(readFileSync(PERMISSION_MIGRATION, 'utf8'));
   await db.exec(readFileSync(PERMISSION_MIGRATION, 'utf8'));
+  // Trash (the soft delete migrations add these to the real tables).
+  await db.exec('ALTER TABLE public.reminders ADD COLUMN deleted_at timestamptz, ADD COLUMN deleted_by uuid;');
+  // DELETE moves a reminder to Trash through the real function (service-role path).
+  await db.exec(`CREATE SCHEMA IF NOT EXISTS auth;
+    CREATE OR REPLACE FUNCTION auth.role() RETURNS text LANGUAGE sql STABLE
+      AS $$ SELECT nullif(current_setting('request.jwt.claim.role', true), '') $$;
+    GRANT USAGE ON SCHEMA auth TO service_role;`);
+  const schema = readFileSync(join(__dirname, '..', 'supabase', 'schema.sql'), 'utf8').replace(/\r\n/g, '\n');
+  for (const name of ['trash_record_types', 'soft_delete_record']) {
+    const sql = schema.match(new RegExp('^CREATE OR REPLACE FUNCTION public\\.' + name + '\\([\\s\\S]*?^\\$\\$;', 'm'))?.[0];
+    if (!sql) throw new Error(`function ${name} in schema.sql`);
+    await db.exec(sql);
+  }
   await db.exec('GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role; GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO service_role;');
   await db.query(
     "INSERT INTO team_members(id,name,role) VALUES ($1,'Ciaran','owner'),($2,'Ashley','agent'),($3,'Mate','member'),($4,'Outsider','member')",
@@ -183,6 +196,10 @@ async function main() {
     check('a teammate who neither owns nor wrote it cannot delete it', mateDelete.status === 403, mateDelete);
     const agentDelete = await call(keys.agent, 'DELETE', `/api/v1/reminders/${standalone.json.data.id}`);
     check('the writer can delete it', agentDelete.status === 200 && agentDelete.json.data.deleted === true, agentDelete);
+    const trashed = await db.query<{ deleted_at: string | null }>('SELECT deleted_at FROM reminders WHERE id = $1', [standalone.json.data.id]);
+    check('it went to Trash, not away', !!trashed.rows[0]?.deleted_at, trashed.rows);
+    const afterDelete = await call(keys.agent, 'GET', `/api/v1/reminders/${standalone.json.data.id}`);
+    check('and then reads as missing', afterDelete.status === 404, afterDelete);
 
     await db.query("UPDATE tasks SET status = 'done' WHERE id = $1", [T1]);
     const closed = await call(keys.owner, 'GET', `/api/v1/reminders/${r1.id}`);

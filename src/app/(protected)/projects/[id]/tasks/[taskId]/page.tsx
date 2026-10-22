@@ -85,10 +85,10 @@ export default function TaskPage() {
           deleteTask(task.id);
           router.replace(boardHref);
         }}
-        title="Delete Task"
-        message="This will permanently delete this task and all its subtasks and comments. This action cannot be undone."
-        confirmLabel="Delete"
+        title="Move task to Trash?"
+        message="The task goes to Trash with its subtasks and comments."
         variant="danger"
+        trash
       />
     </div>
   );

@@ -4,6 +4,7 @@ import { success } from '@/lib/api/response';
 import { updateTimeEntrySchema } from '@/lib/schemas';
 import { notFound, badRequest } from '@/lib/api/errors';
 import { logAudit } from '@/lib/api/audit';
+import { trashForApi } from '@/lib/api/trash';
 import { evaluateBudgetAlerts } from '@/lib/email/client-notifications';
 import type { TimeSegment } from '@/lib/types';
 import { resolveProjectHourlyRate, TIME_ENTRY_SELECT, mapTimeEntryRow } from '@/lib/supabase/queries';
@@ -19,6 +20,7 @@ export const GET = withApi(async ({ supabase, params, access, teamMemberId, scop
     .select(TIME_ENTRY_SELECT)
     .eq('id', entryId)
     .eq('project_id', id)
+    .is('deleted_at', null)
     .maybeSingle();
 
   if (error) throw error;
@@ -37,6 +39,7 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
     .select('*')
     .eq('id', entryId)
     .eq('project_id', id)
+    .is('deleted_at', null)
     .maybeSingle();
 
   if (!before) throw notFound('Time entry');
@@ -114,6 +117,7 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
       .update(patch as any)
       .eq('id', entryId)
       .eq('project_id', id)
+      .is('deleted_at', null)
       .select(TIME_ENTRY_SELECT)
       .single();
     if (error) throw error;
@@ -124,6 +128,7 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
       .select(TIME_ENTRY_SELECT)
       .eq('id', entryId)
       .eq('project_id', id)
+      .is('deleted_at', null)
       .single();
     if (error) throw error;
     updated = data;
@@ -171,6 +176,7 @@ export const DELETE = withApi(async ({ supabase, params, apiKeyId, teamMemberId,
     .select('*')
     .eq('id', entryId)
     .eq('project_id', id)
+    .is('deleted_at', null)
     .maybeSingle();
 
   if (!before) throw notFound('Time entry');
@@ -181,13 +187,7 @@ export const DELETE = withApi(async ({ supabase, params, apiKeyId, teamMemberId,
     throw badRequest('Approved time cannot be deleted');
   }
 
-  const { error } = await supabase
-    .from('project_time_entries')
-    .delete()
-    .eq('id', entryId)
-    .eq('project_id', id);
-
-  if (error) throw error;
+  await trashForApi(supabase, 'project_time_entries', entryId, teamMemberId, 'Time entry');
 
   logAudit(supabase, {
     method: 'DELETE',

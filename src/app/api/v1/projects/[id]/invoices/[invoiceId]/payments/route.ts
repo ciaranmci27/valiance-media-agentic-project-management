@@ -19,6 +19,7 @@ export const GET = withApi(async ({ supabase, params }) => {
     .from('invoice_payments')
     .select('*')
     .eq('invoice_id', params.invoiceId)
+    .is('deleted_at', null)
     .order('paid_date')
     .order('created_at');
   if (error) throw error;

@@ -439,7 +439,7 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
         delete next[deleteTarget];
         return next;
       });
-      toast('success', 'Credential deleted');
+      toast('success', 'Credential moved to Trash');
     }
   };
 
@@ -944,10 +944,10 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
         isOpen={!!deleteTarget}
         onClose={() => setDeleteTarget(null)}
         onConfirm={executeDelete}
-        title="Delete Credential"
-        message="Are you sure you want to delete this credential? This action cannot be undone."
-        confirmLabel="Delete"
+        title="Move credential to Trash?"
+        message="The credential goes to Trash."
         variant="danger"
+        trash
       />
       <Modal
         isOpen={Boolean(shareTarget)}

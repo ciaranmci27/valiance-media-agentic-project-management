@@ -923,10 +923,10 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete, variant = 'pa
         onConfirm={() => {
           if (deleteSubtaskTarget) deleteSubtask(task.id, deleteSubtaskTarget);
         }}
-        title="Delete Subtask"
-        message="Are you sure you want to delete this subtask?"
-        confirmLabel="Delete"
+        title="Move subtask to Trash?"
+        message="The subtask goes to Trash."
         variant="danger"
+        trash
       />
 
       <ConfirmDialog
@@ -947,10 +947,10 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete, variant = 'pa
         onConfirm={() => {
           if (deleteCommentTarget) deleteComment(task.id, deleteCommentTarget);
         }}
-        title="Delete Comment"
-        message="Are you sure you want to delete this comment?"
-        confirmLabel="Delete"
+        title="Move comment to Trash?"
+        message="The comment goes to Trash."
         variant="danger"
+        trash
       />
     </>
   );

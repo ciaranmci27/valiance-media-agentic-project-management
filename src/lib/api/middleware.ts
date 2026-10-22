@@ -5,7 +5,7 @@ import type { AccessContext, PermissionKey } from '@/lib/access-control';
 import { getServiceClient } from './supabase-service';
 import { hashApiKey } from './crypto';
 import { checkRateLimit } from './rate-limit';
-import { ApiError, unauthorized, forbidden, tooManyRequests, badRequest } from './errors';
+import { ApiError, unauthorized, forbidden, tooManyRequests, badRequest, notFound } from './errors';
 import { errorResponse } from './response';
 import { accessAllows, accessAllowsProject, resolveMemberAccess } from './access';
 import { apiRequestContext } from './request-context';
@@ -233,14 +233,24 @@ export function withApi<TBody = unknown, TParams = Record<string, string>>(
       }
 
       const projectId = (resolvedParams as Record<string, string>).id;
-      if (projectId && request.nextUrl.pathname.includes('/projects/')
-        && !accessAllowsProject(access, projectId, 'api')) {
-        throw forbidden('Project scope denied', {
-          reason: 'project_scope',
-          grant_on: 'project_membership',
-          project_id: projectId,
-          hint: 'Assign the linked member to this project, or grant projects.read_all.',
-        });
+      if (projectId && request.nextUrl.pathname.includes('/projects/')) {
+        if (!accessAllowsProject(access, projectId, 'api')) {
+          throw forbidden('Project scope denied', {
+            reason: 'project_scope',
+            grant_on: 'project_membership',
+            project_id: projectId,
+            hint: 'Assign the linked member to this project, or grant projects.read_all.',
+          });
+        }
+        // A project in Trash takes everything under it out of reach, so no
+        // nested route can read or change what belongs to it.
+        const { data: liveProject } = await supabase
+          .from('projects')
+          .select('id')
+          .eq('id', projectId)
+          .is('deleted_at', null)
+          .maybeSingle();
+        if (!liveProject) throw notFound('Project');
       }
 
       // `reorder` is a collection action, not a task id; its handler authorizes
@@ -250,10 +260,13 @@ export function withApi<TBody = unknown, TParams = Record<string, string>>(
       const taskMatch = request.nextUrl.pathname.match(/^\/api\/v1\/tasks\/([^/]+)/);
       if (taskMatch && !TASK_COLLECTION_ACTIONS.has(taskMatch[1])) {
         const taskId = taskMatch[1];
+        // A task in Trash, or in a project in Trash, reads as missing.
         const { data: task } = await supabase
           .from('tasks')
-          .select('id, project_id, task_assignees(member_id)')
+          .select('id, project_id, task_assignees(member_id), project:projects!inner(id)')
           .eq('id', taskId)
+          .is('deleted_at', null)
+          .is('project.deleted_at', null)
           .maybeSingle();
         if (!task) throw forbidden('Task scope denied', { reason: 'not_found_or_forbidden', resource: 'task' });
         if (!accessAllowsProject(access, task.project_id, 'api')) {
@@ -279,15 +292,19 @@ export function withApi<TBody = unknown, TParams = Record<string, string>>(
       }
 
       const leadMatch = request.nextUrl.pathname.match(/^\/api\/v1\/leads\/([^/]+)/);
-      if (leadMatch && !accessAllows(access, 'leads.read_all', 'api')) {
+      if (leadMatch) {
+        // A lead in Trash reads as missing, and takes everything under it along.
         const { data: lead } = await supabase
           .from('leads')
           .select('id, assigned_to, lead_members(member_id)')
           .eq('id', leadMatch[1])
+          .is('deleted_at', null)
           .maybeSingle();
+        const readAll = accessAllows(access, 'leads.read_all', 'api');
+        if (!lead && readAll) throw notFound('Lead');
         const assigned = lead?.assigned_to === keyRow.team_member_id
           || (lead?.lead_members || []).some((row: { member_id: string }) => row.member_id === keyRow.team_member_id);
-        if (!assigned) {
+        if (!readAll && !assigned) {
           throw forbidden('Lead scope denied', {
             reason: 'lead_scope',
             grant_on: 'lead_assignment',
@@ -297,6 +314,15 @@ export function withApi<TBody = unknown, TParams = Record<string, string>>(
       }
 
       const contactMatch = request.nextUrl.pathname.match(/^\/api\/v1\/contacts\/([^/]+)/);
+      if (contactMatch) {
+        const { data: liveContact } = await supabase
+          .from('contacts')
+          .select('id')
+          .eq('id', contactMatch[1])
+          .is('deleted_at', null)
+          .maybeSingle();
+        if (!liveContact) throw notFound('Contact');
+      }
       if (contactMatch && !accessAllows(access, 'contacts.read_all', 'api')) {
         const contactScopeDenied = {
           reason: 'contact_scope',

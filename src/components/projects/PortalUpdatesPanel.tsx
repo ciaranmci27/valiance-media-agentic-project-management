@@ -438,7 +438,7 @@ export function PortalUpdatesPanel({ projectId, isAdding, onAddingChange: setIsA
   const executeDelete = () => {
     if (deleteTarget) {
       deletePortalUpdate(deleteTarget);
-      toast('success', 'Update deleted');
+      toast('success', 'Update moved to Trash');
     }
   };
 
@@ -618,10 +618,10 @@ export function PortalUpdatesPanel({ projectId, isAdding, onAddingChange: setIsA
         isOpen={!!deleteTarget}
         onClose={() => setDeleteTarget(null)}
         onConfirm={executeDelete}
-        title="Delete Update"
-        message="Are you sure you want to delete this update? This will remove it from the client portal."
-        confirmLabel="Delete"
+        title="Move update to Trash?"
+        message="The update and its attachments go to Trash and leave the client portal."
         variant="danger"
+        trash
       />
     </>
   );

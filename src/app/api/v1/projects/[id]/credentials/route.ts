@@ -14,13 +14,14 @@ export const GET = withApi(async ({ supabase, params, searchParams, access, scop
   const { id } = params as any;
   const { page, limit, offset } = parsePagination(searchParams);
 
-  const { data: project } = await supabase.from('projects').select('id').eq('id', id).maybeSingle();
+  const { data: project } = await supabase.from('projects').select('id').eq('id', id).is('deleted_at', null).maybeSingle();
   if (!project) throw notFound('Project');
 
   let query = supabase
     .from('project_credentials')
     .select('id, project_id, label, category, submitted_by_client, submitted_by_name, created_by, created_at, updated_at', { count: 'exact' })
-    .eq('project_id', id);
+    .eq('project_id', id)
+    .is('deleted_at', null);
 
   if (!apiKeyAllows(access, scopes, 'credentials.manage')) {
     const { data: grants, error: grantError } = await supabase
@@ -45,7 +46,7 @@ export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMembe
   const { id } = params as any;
   const entry = body as z.infer<typeof createCredentialSchema>;
 
-  const { data: project } = await supabase.from('projects').select('id').eq('id', id).maybeSingle();
+  const { data: project } = await supabase.from('projects').select('id').eq('id', id).is('deleted_at', null).maybeSingle();
   if (!project) throw notFound('Project');
 
   if (!isEncryptionConfigured()) {

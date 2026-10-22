@@ -19,7 +19,7 @@ export const GET = withApi<unknown, { id: string; goalId: string }>(async ({ sup
   // Rollup stats
   const [suggestionsResult, tasksResult] = await Promise.all([
     supabase.from('task_suggestions').select('status', { count: 'exact' }).eq('goal_id', params.goalId),
-    supabase.from('tasks').select('status', { count: 'exact' }).eq('project_goal_id', params.goalId),
+    supabase.from('tasks').select('status', { count: 'exact' }).eq('project_goal_id', params.goalId).is('deleted_at', null),
   ]);
 
   const suggestions = suggestionsResult.data || [];

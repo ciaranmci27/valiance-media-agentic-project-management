@@ -75,10 +75,9 @@ export default function ContactDetailPage() {
     setDeletingProjectId(id);
   };
 
-  const executeDeleteProject = () => {
+  const executeDeleteProject = async () => {
     if (!deletingProjectId) return;
-    deleteProject(deletingProjectId);
-    toast('success', 'Project deleted');
+    if (await deleteProject(deletingProjectId)) toast('success', 'Project moved to Trash');
   };
 
   const handleCloseProjectForm = () => {
@@ -394,10 +393,10 @@ export default function ContactDetailPage() {
         isOpen={!!deletingProjectId}
         onClose={() => setDeletingProjectId(null)}
         onConfirm={executeDeleteProject}
-        title="Delete Project"
-        message="This will permanently delete the project and all its tasks. This action cannot be undone."
-        confirmLabel="Delete"
+        title="Move project to Trash?"
+        message="The project goes to Trash with everything in it: tasks, time, invoices, files and the client portal."
         variant="danger"
+        trash
       />
     </div>
   );

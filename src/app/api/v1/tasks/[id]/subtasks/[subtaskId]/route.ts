@@ -3,10 +3,11 @@ import { success } from '@/lib/api/response';
 import { updateSubtaskSchema } from '@/lib/schemas';
 import { notFound } from '@/lib/api/errors';
 import { logAudit } from '@/lib/api/audit';
+import { trashForApi } from '@/lib/api/trash';
 
 export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemberId }) => {
   const { id, subtaskId } = params as any;
-  const { data: before } = await supabase.from('task_subtasks').select('*').eq('id', subtaskId).eq('task_id', id).maybeSingle();
+  const { data: before } = await supabase.from('task_subtasks').select('*').eq('id', subtaskId).eq('task_id', id).is('deleted_at', null).maybeSingle();
   if (!before) throw notFound('Subtask');
 
   const { data, error } = await supabase
@@ -14,6 +15,7 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
     .update(body)
     .eq('id', subtaskId)
     .eq('task_id', id)
+    .is('deleted_at', null)
     .select()
     .maybeSingle();
 
@@ -25,16 +27,10 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
 
 export const DELETE = withApi(async ({ supabase, params, apiKeyId, teamMemberId }) => {
   const { id, subtaskId } = params as any;
-  const { data: before } = await supabase.from('task_subtasks').select('*').eq('id', subtaskId).eq('task_id', id).maybeSingle();
+  const { data: before } = await supabase.from('task_subtasks').select('*').eq('id', subtaskId).eq('task_id', id).is('deleted_at', null).maybeSingle();
   if (!before) throw notFound('Subtask');
 
-  const { error } = await supabase
-    .from('task_subtasks')
-    .delete()
-    .eq('id', subtaskId)
-    .eq('task_id', id);
-
-  if (error) throw error;
+  await trashForApi(supabase, 'task_subtasks', subtaskId, teamMemberId, 'Subtask');
   logAudit(supabase, { method: 'DELETE', endpoint: `/api/v1/tasks/${id}/subtasks/${subtaskId}`, entityType: 'subtask', entityId: subtaskId, apiKeyId, teamMemberId, beforeSnapshot: before, statusCode: 200 });
   return success({ deleted: true });
 });

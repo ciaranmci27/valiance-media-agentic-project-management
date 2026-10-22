@@ -91,6 +91,7 @@ async function buildVisibilityCheck(
       .from('tasks')
       .select('project_id, created_by, task_assignees(member_id)')
       .eq('id', entityId)
+      .is('deleted_at', null)
       .maybeSingle();
     if (task) {
       const assigneeIds = (task.task_assignees || []).map((row: { member_id: string }) => row.member_id);

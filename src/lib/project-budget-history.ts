@@ -109,6 +109,7 @@ export async function getCurrentBudgetSnapshot(
       .from('projects')
       .select('budget_type, budget_value')
       .eq('id', projectId)
+      .is('deleted_at', null)
       .maybeSingle();
     if (error || !data) return null;
     return {

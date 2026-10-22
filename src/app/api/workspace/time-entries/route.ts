@@ -3,6 +3,7 @@ import { fetchAllRows } from '@/lib/supabase/fetch-all';
 import { accessAllows, accessAllowsProject, requireSessionAccess, sanitizeTimeEntryForAccess } from '@/lib/api/access';
 import { fetchMemberBillingMultiplier, resolveProjectHourlyRate } from '@/lib/supabase/queries';
 import { APPROVED_ENTRY_LOCKED_MESSAGE, lockedApprovedFields } from '@/lib/time-entry-lock';
+import { moveToTrash, postgrestList, TRASH_ERROR_STATUS, trashedProjectIds, TrashError } from '@/lib/supabase/trash';
 
 type EntryPatch = {
   member_id?: string;
@@ -22,7 +23,7 @@ async function validateTaskLinks(
 ): Promise<string | null> {
   const uniqueIds = [...new Set(taskIds)];
   if (uniqueIds.length === 0) return null;
-  const { data: tasks } = await service.from('tasks').select('id, project_id').in('id', uniqueIds);
+  const { data: tasks } = await service.from('tasks').select('id, project_id').in('id', uniqueIds).is('deleted_at', null);
   const found = new Map((tasks || []).map((t: { id: string; project_id: string }) => [t.id, t.project_id]));
   for (const id of uniqueIds) {
     if (found.get(id) !== projectId) return 'task_ids must reference existing tasks in this project';
@@ -99,8 +100,11 @@ export async function GET(request: Request) {
 
   const scopedToProjects = !accessAllows(access, 'projects.read_all', 'app');
   if (scopedToProjects && access.project_ids.length === 0) return NextResponse.json({ data: [] });
+  // Time moved to Trash, or on a project in Trash, is out of reach.
+  const trashed = await trashedProjectIds(service);
   const entriesPage = (from: number, to: number, count: 'exact' | undefined) => {
-    let query = service.from('project_time_entries').select('*, time_entry_tasks ( task_id )', { count });
+    let query = service.from('project_time_entries').select('*, time_entry_tasks ( task_id )', { count }).is('deleted_at', null);
+    if (trashed.length) query = query.not('project_id', 'in', postgrestList(trashed));
     if (projectId) query = query.eq('project_id', projectId);
     if (!canReadAll) query = query.eq('member_id', memberId);
     if (scopedToProjects) query = query.in('project_id', access.project_ids);
@@ -133,6 +137,7 @@ export async function POST(request: Request) {
     .from('projects')
     .select('id, hourly_tracking, time_tracking_enabled, hourly_rate')
     .eq('id', body.project_id)
+    .is('deleted_at', null)
     .maybeSingle();
   if (projectError || !project) return responseError('Project not found', 404);
   if (!(project as { time_tracking_enabled?: boolean }).time_tracking_enabled && !project.hourly_tracking) {
@@ -160,6 +165,7 @@ export async function POST(request: Request) {
       .eq('project_id', body.project_id)
       .eq('member_id', targetMemberId)
       .is('end_time', null)
+      .is('deleted_at', null)
       .limit(1)
       .maybeSingle();
     if (alreadyRunning) return responseError('A timer is already running for this member on this project', 409);
@@ -212,6 +218,7 @@ export async function PATCH(request: Request) {
     .from('project_time_entries')
     .select('id, project_id, member_id, approval_status, work_type, start_time, end_time, segments')
     .eq('id', body.id)
+    .is('deleted_at', null)
     .maybeSingle();
   if (!existing) return responseError('Time entry not found', 404);
   const canManageAll = accessAllows(access, 'time.manage_all', 'app');
@@ -240,6 +247,7 @@ export async function PATCH(request: Request) {
       .eq('project_id', existing.project_id)
       .eq('member_id', existing.member_id)
       .is('end_time', null)
+      .is('deleted_at', null)
       .neq('id', existing.id)
       .limit(1)
       .maybeSingle();
@@ -279,12 +287,12 @@ export async function PATCH(request: Request) {
   // Same empty-patch guard as the v1 route: a task_ids-only edit (the entry
   // editor's task picker) must not send an empty update.
   let result = Object.keys(patch).length > 0
-    ? await service.from('project_time_entries').update(patch).eq('id', body.id).select('*, time_entry_tasks ( task_id )').single()
-    : await service.from('project_time_entries').select('*, time_entry_tasks ( task_id )').eq('id', body.id).single();
+    ? await service.from('project_time_entries').update(patch).eq('id', body.id).is('deleted_at', null).select('*, time_entry_tasks ( task_id )').single()
+    : await service.from('project_time_entries').select('*, time_entry_tasks ( task_id )').eq('id', body.id).is('deleted_at', null).single();
   if (result.error?.message.includes('work_type')) {
     const legacyPatch: typeof patch = { ...patch };
     delete legacyPatch.work_type;
-    result = await service.from('project_time_entries').update(legacyPatch).eq('id', body.id).select('*, time_entry_tasks ( task_id )').single();
+    result = await service.from('project_time_entries').update(legacyPatch).eq('id', body.id).is('deleted_at', null).select('*, time_entry_tasks ( task_id )').single();
   }
   if (result.error) return responseError(result.error.message, 500);
   if (taskIds !== undefined) {
@@ -297,7 +305,7 @@ export async function PATCH(request: Request) {
 export async function DELETE(request: Request) {
   const auth = await requireSessionAccess();
   if (auth.error) return auth.error;
-  const { access, memberId, service } = auth.data;
+  const { access, memberId, service, client } = auth.data;
   if (!accessAllows(access, 'time.manage_own', 'app') && !accessAllows(access, 'time.manage_all', 'app')) return responseError('Forbidden', 403);
   const id = new URL(request.url).searchParams.get('id');
   if (!id) return responseError('Time entry id is required');
@@ -306,13 +314,23 @@ export async function DELETE(request: Request) {
     .from('project_time_entries')
     .select('id, project_id, member_id, approval_status')
     .eq('id', id)
+    .is('deleted_at', null)
     .maybeSingle();
   if (!existing) return responseError('Time entry not found', 404);
   const canManageAll = accessAllows(access, 'time.manage_all', 'app');
   if (!canManageAll && existing.member_id !== memberId) return responseError('Forbidden', 403);
   if (!canManageAll && existing.approval_status === 'approved') return responseError('Approved time cannot be deleted', 409);
   if (!accessAllowsProject(access, existing.project_id)) return responseError('Project access denied', 403);
-  const { error } = await service.from('project_time_entries').delete().eq('id', id);
-  if (error) return responseError(error.message, 500);
+  // Moves it to Trash as the signed-in member (the database checks the same
+  // rules, stamps them and writes the audit row). Time on an invoice or in a
+  // payout is refused with the reason.
+  try {
+    await moveToTrash(client, 'project_time_entries', id);
+  } catch (error) {
+    if (error instanceof TrashError) {
+      return responseError(error.message, TRASH_ERROR_STATUS[error.reason]);
+    }
+    return responseError(error instanceof Error ? error.message : 'Failed to delete time entry', 500);
+  }
   return new NextResponse(null, { status: 204 });
 }

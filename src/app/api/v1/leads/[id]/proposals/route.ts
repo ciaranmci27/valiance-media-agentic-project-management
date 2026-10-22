@@ -14,7 +14,8 @@ export const GET = withApi(async ({ supabase, params, searchParams }) => {
   let query = supabase
     .from('lead_proposals')
     .select('*', { count: 'exact' })
-    .eq('lead_id', id);
+    .eq('lead_id', id)
+    .is('deleted_at', null);
 
   if (status) query = query.eq('status', status);
 
@@ -29,7 +30,7 @@ export const GET = withApi(async ({ supabase, params, searchParams }) => {
 export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMemberId }) => {
   const { id } = params as any;
 
-  const { data: lead } = await supabase.from('leads').select('id').eq('id', id).maybeSingle();
+  const { data: lead } = await supabase.from('leads').select('id').eq('id', id).is('deleted_at', null).maybeSingle();
   if (!lead) throw notFound('Lead');
 
   const proposal = await insertLeadProposal(supabase, { ...body as any, lead_id: id, created_by: teamMemberId || null });

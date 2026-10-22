@@ -14,6 +14,7 @@ export const GET = withApi(async ({ supabase, params, searchParams }) => {
     .from('task_comments')
     .select('*', { count: 'exact' })
     .eq('task_id', id)
+    .is('deleted_at', null)
     .order('created_at', { ascending: true })
     .range(offset, offset + limit - 1);
 
@@ -24,7 +25,7 @@ export const GET = withApi(async ({ supabase, params, searchParams }) => {
 export const POST = withApi(async ({ supabase, params, body, apiKeyId, teamMemberId }) => {
   const { id } = params as any;
 
-  const { data: task } = await supabase.from('tasks').select('id').eq('id', id).maybeSingle();
+  const { data: task } = await supabase.from('tasks').select('id').eq('id', id).is('deleted_at', null).maybeSingle();
   if (!task) throw notFound('Task');
 
   const { text } = body as any;

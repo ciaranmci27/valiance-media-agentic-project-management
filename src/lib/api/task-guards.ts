@@ -15,7 +15,8 @@ export async function assertTasksInProject(
   const { data: tasks, error } = await supabase
     .from('tasks')
     .select('id, project_id')
-    .in('id', uniqueIds);
+    .in('id', uniqueIds)
+    .is('deleted_at', null);
   if (error) throw error;
   const found = new Map((tasks || []).map((t: { id: string; project_id: string }) => [t.id, t.project_id]));
   for (const id of uniqueIds) {
@@ -77,7 +78,8 @@ export async function assertBlockersInProject(
   const { data: blockers, error } = await supabase
     .from('tasks')
     .select('id, project_id')
-    .in('id', uniqueIds);
+    .in('id', uniqueIds)
+    .is('deleted_at', null);
   if (error) throw error;
   const found = new Map((blockers || []).map((b: { id: string; project_id: string }) => [b.id, b.project_id]));
   for (const id of uniqueIds) {

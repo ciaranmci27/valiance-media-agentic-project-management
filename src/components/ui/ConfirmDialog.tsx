@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, Trash2 } from 'lucide-react';
 import { Button } from './Button';
 
 interface ConfirmDialogProps {
@@ -19,6 +19,11 @@ interface ConfirmDialogProps {
   doubleConfirmMessage?: string;
   /** Custom button label for the second confirmation step */
   doubleConfirmLabel?: string;
+  /**
+   * A delete that moves the record to Trash: nothing is lost, so one step is
+   * enough, the button says so, and the dialog says where to restore it.
+   */
+  trash?: boolean;
 }
 
 export function ConfirmDialog({
@@ -27,9 +32,10 @@ export function ConfirmDialog({
   onConfirm,
   title,
   message,
-  confirmLabel = 'Delete',
+  trash = false,
+  confirmLabel = trash ? 'Move to Trash' : 'Delete',
   variant = 'danger',
-  doubleConfirm = variant === 'danger',
+  doubleConfirm = variant === 'danger' && !trash,
   doubleConfirmTitle = 'Are you absolutely sure?',
   doubleConfirmMessage = 'This action is permanent and cannot be undone.',
   doubleConfirmLabel,
@@ -79,20 +85,31 @@ export function ConfirmDialog({
     >
       <div className="absolute inset-0 bg-black/50 animate-fadeIn" />
 
-      <div className="relative w-full max-w-sm bg-surface-raised border border-white/10 rounded-xl shadow-[0_16px_48px_-12px_rgba(0,0,0,0.7)] transform animate-scaleIn">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="confirm-dialog-title"
+        className="relative w-full max-w-sm bg-surface-raised border border-white/10 rounded-xl shadow-[0_16px_48px_-12px_rgba(0,0,0,0.7)] transform animate-scaleIn">
         <div className="p-6">
           <div className={`w-12 h-12 rounded-full flex items-center justify-center mb-4 ${
             variant === 'danger' ? 'bg-red-500/15' : 'bg-amber-500/15'
           }`}>
-            <AlertTriangle size={24} className={variant === 'danger' ? 'text-red-400' : 'text-amber-400'} />
+            {trash
+              ? <Trash2 size={22} aria-hidden="true" className={variant === 'danger' ? 'text-red-400' : 'text-amber-400'} />
+              : <AlertTriangle size={24} aria-hidden="true" className={variant === 'danger' ? 'text-red-400' : 'text-amber-400'} />}
           </div>
 
-          <h3 className="text-lg font-semibold text-white mb-2">
+          <h3 id="confirm-dialog-title" className="text-lg font-semibold text-white mb-2">
             {isStep2 ? doubleConfirmTitle : title}
           </h3>
           <p className="text-sm text-zinc-400 leading-relaxed">
             {isStep2 ? doubleConfirmMessage : message}
           </p>
+          {trash && !isStep2 && (
+            <p className="mt-2 text-sm text-zinc-400 leading-relaxed">
+              You can restore it any time from Settings, Trash.
+            </p>
+          )}
         </div>
 
         <div className="flex items-center gap-3 px-6 pb-6">

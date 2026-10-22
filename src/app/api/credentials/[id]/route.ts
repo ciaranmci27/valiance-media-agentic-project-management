@@ -13,7 +13,9 @@ export async function DELETE(
   if (auth.error) return auth.error;
 
   try {
-    await removeProjectCredential(auth.data.service, id);
+    // As the signed-in member: the database checks their access to the
+    // credential's project, moves it to Trash and writes the audit row.
+    await removeProjectCredential(auth.data.client, id);
     return NextResponse.json({ success: true, deleted: true });
   } catch {
     return NextResponse.json({ error: 'Credential not found' }, { status: 404 });

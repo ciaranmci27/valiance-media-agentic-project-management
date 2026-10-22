@@ -105,7 +105,7 @@ export const POST = withApi<TriageRequest, { id: string }>(async ({ supabase, pa
       if (candidates.length > 0 && !candidates.includes(body.project_id)) {
         throw unprocessable('project_id must be one of the candidate projects', { candidate_project_ids: candidates });
       }
-      const { data: project, error } = await supabase.from('projects').select('id, status, archived_at').eq('id', body.project_id).maybeSingle();
+      const { data: project, error } = await supabase.from('projects').select('id, status, archived_at').eq('id', body.project_id).is('deleted_at', null).maybeSingle();
       if (error) throw error;
       if (!project) throw unprocessable('project_id does not name a project');
       if (!accessAllowsProject(access, body.project_id, 'api')) {
@@ -131,7 +131,7 @@ export const POST = withApi<TriageRequest, { id: string }>(async ({ supabase, pa
       throw unprocessable('Links need a project: this thread has none, so pass project_id');
     }
     const taskIds = [...new Set(links.map((link) => link.task_id))];
-    const { data: tasks, error } = await supabase.from('tasks').select('id, project_id').in('id', taskIds);
+    const { data: tasks, error } = await supabase.from('tasks').select('id, project_id, project:projects!inner(id)').in('id', taskIds).is('deleted_at', null).is('project.deleted_at', null);
     if (error) throw error;
     const byId = new Map(((tasks ?? []) as { id: string; project_id: string }[]).map((task) => [task.id, task]));
     for (const link of links) {

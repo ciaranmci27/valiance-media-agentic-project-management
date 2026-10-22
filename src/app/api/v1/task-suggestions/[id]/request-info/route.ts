@@ -16,6 +16,9 @@ export const POST = withApi<any, { id: string }>(async ({ supabase, params, body
     .eq('id', params.id)
     .maybeSingle();
   if (!before) throw notFound('Suggestion');
+  // A suggestion in a project in Trash is out of reach with it.
+  const { data: liveProject } = await supabase.from('projects').select('id').eq('id', before.project_id).is('deleted_at', null).maybeSingle();
+  if (!liveProject) throw notFound('Suggestion');
   if (!accessAllowsProject(access, before.project_id, 'api')) throw forbidden('Project scope denied');
   if (before.status !== 'pending') {
     throw badRequest(`Cannot request info on a suggestion with status "${before.status}"`);

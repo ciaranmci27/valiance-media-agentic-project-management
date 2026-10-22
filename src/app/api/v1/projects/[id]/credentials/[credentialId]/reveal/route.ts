@@ -19,6 +19,7 @@ export const GET = withApi(async ({ supabase, params, apiKeyId, teamMemberId, ac
     .select('id')
     .eq('id', credentialId)
     .eq('project_id', id)
+    .is('deleted_at', null)
     .maybeSingle();
   if (!check) throw notFound('Credential');
   if (!apiKeyAllows(access, scopes, 'credentials.manage')) {

@@ -20,7 +20,8 @@ export const GET = withApi(async ({ supabase, params, searchParams }) => {
   let query = supabase
     .from('project_invoices')
     .select('*, invoice_time_entry_allocations(*)', { count: 'exact' })
-    .eq('project_id', params.id);
+    .eq('project_id', params.id)
+    .is('deleted_at', null);
   if (status) query = query.eq('status', status);
 
   const { data, count, error } = await query

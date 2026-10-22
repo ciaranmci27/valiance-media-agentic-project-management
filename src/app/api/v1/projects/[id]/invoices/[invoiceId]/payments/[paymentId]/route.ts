@@ -26,6 +26,7 @@ export const DELETE = withApi(async ({ supabase, params, apiKeyId, teamMemberId 
     .select('*')
     .eq('id', params.paymentId)
     .eq('invoice_id', params.invoiceId)
+    .is('deleted_at', null)
     .maybeSingle();
   if (readError) throw readError;
   if (!before) throw notFound('Payment');

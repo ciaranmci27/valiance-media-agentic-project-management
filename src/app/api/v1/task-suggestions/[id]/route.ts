@@ -17,6 +17,9 @@ export const GET = withApi<unknown, { id: string }>(async ({ supabase, params, a
     .maybeSingle();
 
   if (error || !data) throw notFound('Suggestion');
+  // A suggestion in a project in Trash is out of reach with it.
+  const { data: liveProject } = await supabase.from('projects').select('id').eq('id', data.project_id).is('deleted_at', null).maybeSingle();
+  if (!liveProject) throw notFound('Suggestion');
   if (!accessAllowsProject(access, data.project_id, 'api')) throw forbidden('Project scope denied');
   return success(data);
 }, { permission: ['suggestions.create', 'suggestions.manage'] });
@@ -30,6 +33,9 @@ export const PATCH = withApi<any, { id: string }>(async ({ supabase, params, bod
     .eq('id', params.id)
     .maybeSingle();
   if (!before) throw notFound('Suggestion');
+  // A suggestion in a project in Trash is out of reach with it.
+  const { data: liveProject } = await supabase.from('projects').select('id').eq('id', before.project_id).is('deleted_at', null).maybeSingle();
+  if (!liveProject) throw notFound('Suggestion');
   if (!accessAllowsProject(access, before.project_id, 'api')) throw forbidden('Project scope denied');
   const canReview = scopes.includes('suggestions.manage')
     && accessAllows(access, 'suggestions.manage', 'api');

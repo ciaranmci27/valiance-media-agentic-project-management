@@ -203,7 +203,7 @@ export function FileAttachments({ entityType, entityId, layout = 'list' }: FileA
   const executeDeleteFile = () => {
     if (deleteFileTarget) {
       deleteEntityFile(deleteFileTarget);
-      toast('success', 'File removed');
+      toast('success', 'File moved to Trash');
     }
   };
 
@@ -681,10 +681,10 @@ export function FileAttachments({ entityType, entityId, layout = 'list' }: FileA
         isOpen={!!deleteFileTarget}
         onClose={() => setDeleteFileTarget(null)}
         onConfirm={executeDeleteFile}
-        title="Delete File"
-        message="Are you sure you want to remove this file?"
-        confirmLabel="Delete"
+        title="Move file to Trash?"
+        message="The file goes to Trash."
         variant="danger"
+        trash
       />
 
       <FilePreviewModal

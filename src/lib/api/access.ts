@@ -105,7 +105,13 @@ async function accessForMember(
       .eq('member_id', memberId)
       .order('access_channel')
       .order('permission_key'),
-    service.from('project_members').select('project_id').eq('member_id', memberId).order('project_id'),
+    // A project in Trash grants nothing: it is out of reach until restored.
+    service
+      .from('project_members')
+      .select('project_id, project:projects!inner(id)')
+      .eq('member_id', memberId)
+      .is('project.deleted_at', null)
+      .order('project_id'),
   ]);
 
   // An admin running against the pre-migration schema should retain the legacy
@@ -242,14 +248,27 @@ export async function accessAllowsEntity(
   entityId: string,
   channel: 'app' | 'api' = 'api',
 ): Promise<boolean> {
-  if (entityType === 'project') return accessAllowsProject(access, entityId, channel);
+  // What is in Trash (or belongs to something in Trash) is out of reach.
+  if (entityType === 'project') {
+    if (!accessAllowsProject(access, entityId, channel)) return false;
+    const { data: project } = await service.from('projects').select('id').eq('id', entityId).is('deleted_at', null).maybeSingle();
+    return Boolean(project);
+  }
 
   if (entityType === 'task') {
-    const { data: task } = await service.from('tasks').select('project_id').eq('id', entityId).maybeSingle();
+    const { data: task } = await service
+      .from('tasks')
+      .select('project_id, project:projects!inner(id)')
+      .eq('id', entityId)
+      .is('deleted_at', null)
+      .is('project.deleted_at', null)
+      .maybeSingle();
     return Boolean(task && accessAllowsProject(access, task.project_id, channel));
   }
 
   if (entityType === 'contact') {
+    const { data: contact } = await service.from('contacts').select('id').eq('id', entityId).is('deleted_at', null).maybeSingle();
+    if (!contact) return false;
     if (accessAllows(access, 'contacts.read_all', channel)) return true;
     if (!accessAllows(access, 'contacts.read', channel) || access.project_ids.length === 0) return false;
     const { data: link } = await service
@@ -263,10 +282,11 @@ export async function accessAllowsEntity(
   }
 
   if (entityType === 'lead') {
+    const { data: lead } = await service.from('leads').select('assigned_to').eq('id', entityId).is('deleted_at', null).maybeSingle();
+    if (!lead) return false;
     if (accessAllows(access, 'leads.read_all', channel)) return true;
     if (!accessAllows(access, 'leads.read', channel)) return false;
-    const { data: lead } = await service.from('leads').select('assigned_to').eq('id', entityId).maybeSingle();
-    if (lead?.assigned_to === memberId) return true;
+    if (lead.assigned_to === memberId) return true;
     const { data: membership } = await service
       .from('lead_members')
       .select('lead_id')
