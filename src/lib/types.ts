@@ -443,15 +443,24 @@ export interface FilterState {
 
 export type ViewMode = 'list' | 'board' | 'calendar';
 
-export interface Activity {
+/**
+ * One thing a person on the team did, from the team activity log. Database
+ * triggers write it (agents log to AgentActivity instead). `description` is
+ * a sentence composed when it happened, starting with its verb; `metadata`
+ * carries ids for links (task_id, lead_id, member_id, ...).
+ */
+export interface TeamActivity {
   id: string;
-  type: 'task_completed' | 'task_updated' | 'task_created' | 'comment_added' | 'project_updated' | 'member_added';
+  type: string;
+  entity_type: string;
   entity_id: string;
-  entity_type: 'task' | 'project' | 'comment' | 'member';
-  user_id: string;
+  project_id: string | null;
+  user_id: string | null;
   description: string;
-  metadata?: Record<string, any>;
+  metadata: Record<string, unknown>;
+  source: 'app' | 'api' | 'mcp' | 'backfill';
   created_at: string;
+  updated_at: string;
 }
 
 // ============================================================

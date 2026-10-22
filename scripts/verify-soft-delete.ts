@@ -18,7 +18,7 @@ import { join } from 'node:path';
 import type { PGlite } from '@electric-sql/pglite';
 import { actAs, createFullSchemaDatabase } from './full-schema-db';
 
-const MIGRATIONS = ['20261022035227_soft_delete_records.sql', '20261022041249_soft_delete_billing.sql', '20261022044708_trash_audit.sql', '20261022052745_lead_field_keys_live.sql', '20261022053626_list_trash.sql', '20261022063149_soft_delete_review_fixes.sql']
+const MIGRATIONS = ['20261022035227_soft_delete_records.sql', '20261022041249_soft_delete_billing.sql', '20261022044708_trash_audit.sql', '20261022052745_lead_field_keys_live.sql', '20261022053626_list_trash.sql', '20261022063149_soft_delete_review_fixes.sql', '20261022074722_team_activity_log.sql']
   .map((name) => join(__dirname, '..', 'supabase', 'migrations', name));
 /** The schema files as they were before this change (the branch point from main). */
 const BASE_REF = execFileSync('git', ['merge-base', 'HEAD', 'origin/main'], { encoding: 'utf8' }).trim();
@@ -357,8 +357,10 @@ async function main() {
   const migrated = await createFullSchemaDatabase({ schemaSql: atBase('schema.sql'), agentSchemaSql: atBase('schema_ai_agent.sql') });
   await migrated.exec('RESET ROLE');
   for (const path of MIGRATIONS) {
-    await migrated.exec(readFileSync(path, 'utf8'));
-    await migrated.exec(readFileSync(path, 'utf8'));
+    // Same line endings as the schema files (applySchema strips CRLF), or every function body differs.
+    const sql = readFileSync(path, 'utf8').replace(/\r\n/g, '\n');
+    await migrated.exec(sql);
+    await migrated.exec(sql);
   }
   check('the migrations run twice on the schema before them', true);
 

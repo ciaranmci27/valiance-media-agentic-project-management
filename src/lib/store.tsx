@@ -1,7 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, useRef, ReactNode, type SetStateAction } from 'react';
-import { AiReadiness, Project, Task, TeamMember, FilterState, ViewMode, Subtask, AcceptanceCriterion, Comment, Contact, ContactEmail, ContactEmailDraft, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, Activity, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, EntityFileType, ApiKey, NotificationCategory, ProjectGoal, TaskSuggestion, AgentActivity, TimeEntry, ProjectCredentialListItem, CredentialPayload, CredentialCategory, ProjectInvoice, InvoicePaymentMethod, BusinessSettings, EmployeeEarningsData, Reminder, TrashItem, DEFAULT_SECTION_ORDER } from './types';
+import { AiReadiness, Project, Task, TeamMember, FilterState, ViewMode, Subtask, AcceptanceCriterion, Comment, Contact, ContactEmail, ContactEmailDraft, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, TeamActivity, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, EntityFileType, ApiKey, NotificationCategory, ProjectGoal, TaskSuggestion, AgentActivity, TimeEntry, ProjectCredentialListItem, CredentialPayload, CredentialCategory, ProjectInvoice, InvoicePaymentMethod, BusinessSettings, EmployeeEarningsData, Reminder, TrashItem, DEFAULT_SECTION_ORDER } from './types';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
@@ -283,7 +283,7 @@ interface AppContextType {
   leadProposals: LeadProposal[];
   leadFields: LeadField[];
   leadContacts: LeadContact[];
-  activities: Activity[];
+  activities: TeamActivity[];
   portalSettings: PortalSettings[];
   portalUpdates: PortalUpdate[];
   entityFiles: EntityFile[];
@@ -544,7 +544,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [leadProposals, setLeadProposalsState] = useState<LeadProposal[]>([]);
   const [leadFields, setLeadFieldsState] = useState<LeadField[]>([]);
   const [leadContacts, setLeadContactsState] = useState<LeadContact[]>([]);
-  const [activities, setActivitiesState] = useState<Activity[]>([]);
+  const [activities, setActivitiesState] = useState<TeamActivity[]>([]);
   const [portalSettings, setPortalSettingsState] = useState<PortalSettings[]>([]);
   const [portalUpdates, setPortalUpdatesState] = useState<PortalUpdate[]>([]);
   const [portalUpdateAttachments, setPortalUpdateAttachmentsState] = useState<PortalUpdateAttachment[]>([]);
@@ -594,7 +594,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const setLeadProposals = (value: SetStateAction<LeadProposal[]>) => { markSliceMutated('leads'); setLeadProposalsState(value); };
   const setLeadFields = (value: SetStateAction<LeadField[]>) => { markSliceMutated('leads'); setLeadFieldsState(value); };
   const setLeadContacts = (value: SetStateAction<LeadContact[]>) => { markSliceMutated('leads'); setLeadContactsState(value); };
-  const setActivities = (value: SetStateAction<Activity[]>) => { markSliceMutated('activities'); setActivitiesState(value); };
+  const setActivities = (value: SetStateAction<TeamActivity[]>) => { markSliceMutated('activities'); setActivitiesState(value); };
   const setPortalSettings = (value: SetStateAction<PortalSettings[]>) => { markSliceMutated('portal'); setPortalSettingsState(value); };
   const setPortalUpdates = (value: SetStateAction<PortalUpdate[]>) => { markSliceMutated('portal'); setPortalUpdatesState(value); };
   const setPortalUpdateAttachments = (value: SetStateAction<PortalUpdateAttachment[]>) => { markSliceMutated('portal'); setPortalUpdateAttachmentsState(value); };
@@ -710,7 +710,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setLeadProposals([...demoLeadProposals]);
       setLeadFields([...demoLeadFields]);
       setLeadContacts([...demoLeadContacts]);
-      setActivities([...demoActivities]);
+      // Newest first, as the live query returns it.
+      setActivities([...demoActivities].sort((a, b) => b.created_at.localeCompare(a.created_at)));
       setPortalSettings([...demoPortalSettings]);
       setPortalUpdates([...demoPortalUpdates]);
       setPortalUpdateAttachments([...demoPortalUpdateAttachments]);

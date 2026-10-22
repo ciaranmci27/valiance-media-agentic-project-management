@@ -135,11 +135,12 @@ export async function startFakePostgrest(db: PGlite, options: { maxRows?: number
     return arrayColumns.get(table)!.has(column) ? value : scalar(value);
   };
 
-  const asService = <T>(work: () => Promise<T>) =>
+  // Like PostgREST, the request's headers are readable as request.headers.
+  const asService = <T>(headers: IncomingMessage["headers"], work: () => Promise<T>) =>
     serialized(async () => {
       await db.exec("RESET ROLE; BEGIN; SET LOCAL ROLE service_role;");
-      await db.query("SELECT set_config('request.jwt.claims',$1,true), set_config('request.jwt.claim.sub','',true), set_config('request.jwt.claim.role','service_role',true)", [
-        JSON.stringify({ role: "service_role" }),
+      await db.query("SELECT set_config('request.jwt.claims',$1,true), set_config('request.jwt.claim.sub','',true), set_config('request.jwt.claim.role','service_role',true), set_config('request.headers',$2,true)", [
+        JSON.stringify({ role: "service_role" }), JSON.stringify(headers),
       ]);
       try {
         const result = await work();
@@ -182,7 +183,7 @@ export async function startFakePostgrest(db: PGlite, options: { maxRows?: number
         const sql = setReturning.rows[0]?.s
           ? `SELECT coalesce(json_agg(t), '[]'::json) AS r FROM ${call} t`
           : `SELECT ${call} AS r`;
-        const result = await asService(() => db.query<{ r: unknown }>(sql, params));
+        const result = await asService(request.headers, () => db.query<{ r: unknown }>(sql, params));
         return send(200, result.rows[0]?.r ?? null);
       }
 
@@ -234,7 +235,7 @@ export async function startFakePostgrest(db: PGlite, options: { maxRows?: number
           } else where.push(filter(key, value, params));
         }
         const counted = (request.headers.prefer ?? "").includes("count=exact");
-        const { rows, total } = await asService(async () => {
+        const { rows, total } = await asService(request.headers, async () => {
           const fk = async (from: string, to: string) =>
             (await db.query<{ from_col: string; to_col: string }>(
               `SELECT a.attname AS from_col, af.attname AS to_col FROM pg_constraint c
@@ -307,7 +308,7 @@ export async function startFakePostgrest(db: PGlite, options: { maxRows?: number
           if (key === "select" || key === "columns") continue;
           where.push(filter(key, value, params));
         }
-        const rows = (await asService(() => db.query(`DELETE FROM public.${table}${where.length ? " WHERE " + where.join(" AND ") : ""} RETURNING *`, params))).rows;
+        const rows = (await asService(request.headers, () => db.query(`DELETE FROM public.${table}${where.length ? " WHERE " + where.join(" AND ") : ""} RETURNING *`, params))).rows;
         const returning = (request.headers.prefer ?? "").includes("return=representation");
         return returning ? send(200, rows) : send(204);
       }
@@ -317,7 +318,7 @@ export async function startFakePostgrest(db: PGlite, options: { maxRows?: number
         const records = Array.isArray(payload) ? payload : [payload];
         const returning = (request.headers.prefer ?? "").includes("return=representation");
         const out: unknown[] = [];
-        await asService(async () => {
+        await asService(request.headers, async () => {
           for (const record of records) {
             const keys = Object.keys(record);
             const params = await Promise.all(keys.map((key) => columnValue(rest, key, record[key])));
@@ -343,7 +344,7 @@ export async function startFakePostgrest(db: PGlite, options: { maxRows?: number
         const sql = `UPDATE public.${table} SET ${keys.map((key, i) => `${ident(key)} = $${i + 1}`).join(", ")}${
           where.length ? " WHERE " + where.join(" AND ") : ""
         } RETURNING *`;
-        const rows = (await asService(() => db.query(sql, params))).rows;
+        const rows = (await asService(request.headers, () => db.query(sql, params))).rows;
         if ((request.headers.accept ?? "").includes("vnd.pgrst.object+json")) {
           if (rows.length !== 1)
             return send(406, {

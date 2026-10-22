@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server';
 import { ZodSchema, ZodError } from 'zod';
 import { SupabaseClient } from '@supabase/supabase-js';
 import type { AccessContext, PermissionKey } from '@/lib/access-control';
-import { getServiceClient } from './supabase-service';
+import { getActorClient, getServiceClient } from './supabase-service';
 import { hashApiKey } from './crypto';
 import { checkRateLimit } from './rate-limit';
 import { ApiError, unauthorized, forbidden, tooManyRequests, badRequest, notFound } from './errors';
@@ -364,7 +364,8 @@ export function withApi<TBody = unknown, TParams = Record<string, string>>(
       // The MCP server marks its in-process calls; a header could be sent by anyone.
       const via = apiRequestContext.getStore()?.via ?? 'rest';
       const response = await apiRequestContext.run({ via }, () => handler({
-        supabase,
+        // Writes are logged as the key's member (agents are left out by the database).
+        supabase: getActorClient(keyRow.team_member_id, via === 'mcp' ? 'mcp' : 'api'),
         params: resolvedParams,
         body,
         searchParams: request.nextUrl.searchParams,

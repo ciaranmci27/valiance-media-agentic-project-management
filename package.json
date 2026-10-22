@@ -20,6 +20,7 @@
     "test:webhook-retries": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-webhook-retries.ts",
     "test:telemetry": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-agent-telemetry-ingest.ts",
     "test:soft-delete": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-soft-delete.ts",
+    "test:team-activity": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-team-activity.ts",
     "test:soft-delete-api": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-soft-delete-api.ts",
     "test:soft-delete-reads":"tsx --tsconfig tsconfig.mcp-test.json scripts/verify-soft-delete-reads.ts",
     "test:inbound-email": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-inbound-email-lib.ts && tsx --tsconfig tsconfig.mcp-test.json scripts/verify-inbound-email.ts && tsx --tsconfig tsconfig.mcp-test.json scripts/verify-inbound-email-retention.ts",

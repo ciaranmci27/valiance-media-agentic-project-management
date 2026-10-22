@@ -158,7 +158,8 @@ export function RailCard({ title, icon, action, description, className, bodyClas
   );
   return (
     <section className={`glass-card rounded-xl ${className ?? ''}`}>
-      <div className={`px-5 pt-4 pb-3 flex ${description ? 'items-start' : 'items-center'} justify-between gap-3`}>
+      {/* Wraps on a narrow screen, so a wide action (a filter) drops below the title instead of squeezing it. */}
+      <div className={`px-5 pt-4 pb-3 flex flex-wrap ${description ? 'items-start' : 'items-center'} justify-between gap-3`}>
         {description ? (
           <div className="min-w-0">
             {heading}

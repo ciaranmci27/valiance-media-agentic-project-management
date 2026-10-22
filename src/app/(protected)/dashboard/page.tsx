@@ -18,6 +18,7 @@ import { computeCompanyFinanceSummary, computeMemberEarningsSummary } from '@/li
 import { useRetainerFinanceInputs } from '@/lib/finance/use-retainer-finance';
 import { toDateKey } from '@/lib/finance/vesting';
 import { isRunning } from '@/lib/time-entry-utils';
+import { activityAfterName, teamActivityHref } from '@/lib/team-activity';
 
 const fmtMoney = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n);
@@ -452,15 +453,28 @@ export default function DashboardPage() {
             </div>
             <div className="divide-y divide-white/[0.06] max-h-72 overflow-y-auto">
               {activities.slice(0, 10).map((activity) => {
-                const member = getTeamMember(activity.user_id);
-                return (
-                  <div key={activity.id} className="flex items-start gap-3 p-3 lg:p-4">
-                    <Avatar name={member?.name || 'System'} src={member?.avatar || undefined} size="sm" />
+                const member = activity.user_id ? getTeamMember(activity.user_id) : undefined;
+                const name = member?.name || 'Someone';
+                const href = teamActivityHref(activity);
+                const body = (
+                  <>
+                    <Avatar name={name} src={member?.avatar || undefined} size="sm" />
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm text-zinc-300"><span className="font-medium text-white">{member?.name || 'System'}</span> {activity.description}</p>
+                      <p className="text-sm text-zinc-300"><span className="font-medium text-white">{name}</span> {activityAfterName(activity.description)}</p>
                       <p className="text-xs text-zinc-500 mt-0.5">{getTimeAgo(activity.created_at)}</p>
                     </div>
-                  </div>
+                  </>
+                );
+                return href ? (
+                  <Link
+                    key={activity.id}
+                    href={href}
+                    className="flex items-start gap-3 p-3 lg:p-4 hover:bg-white/[0.03] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-500"
+                  >
+                    {body}
+                  </Link>
+                ) : (
+                  <div key={activity.id} className="flex items-start gap-3 p-3 lg:p-4">{body}</div>
                 );
               })}
             </div>

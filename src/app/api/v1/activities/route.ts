@@ -7,9 +7,11 @@ export const GET = withApi(async ({ supabase, searchParams }) => {
   const entityType = searchParams.get('entity_type');
   const entityId = searchParams.get('entity_id');
   const type = searchParams.get('type');
+  const projectId = searchParams.get('project_id');
 
   let query = supabase.from('activities').select('*', { count: 'exact' });
 
+  if (projectId) query = query.eq('project_id', projectId);
   if (entityType) query = query.eq('entity_type', entityType);
   if (entityId) query = query.eq('entity_id', entityId);
   if (type) query = query.eq('type', type);

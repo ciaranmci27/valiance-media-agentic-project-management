@@ -1,5 +1,5 @@
 import { SupabaseClient } from '@supabase/supabase-js';
-import type { AiReadiness, Project, Task, TeamMember, Subtask, AcceptanceCriterion, Comment, Activity, Contact, ContactEmail, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, ApiKey, ProjectGoal, TaskSuggestion, AgentActivity, FleetAgentActivity, ApiAuditEntry, TimeEntry, ProjectCredential, ProjectCredentialListItem, ProjectInvoice, InvoicePayment, InvoicePaymentMethod, BusinessSettings, InvoiceTimeEntryAllocation, WebhookEndpoint, WebhookDelivery, ProjectRetainer, ProjectRetainerAmount, ProjectRetainerShare, ProjectRetainerPeriod, RetainerDuePeriod, InvoiceLineShare, ProjectBillingPlan, ProjectBillingRun, BillingForecastItem, Reminder, TrashItem } from '@/lib/types';
+import type { AiReadiness, Project, Task, TeamMember, Subtask, AcceptanceCriterion, Comment, TeamActivity, Contact, ContactEmail, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, ApiKey, ProjectGoal, TaskSuggestion, AgentActivity, FleetAgentActivity, ApiAuditEntry, TimeEntry, ProjectCredential, ProjectCredentialListItem, ProjectInvoice, InvoicePayment, InvoicePaymentMethod, BusinessSettings, InvoiceTimeEntryAllocation, WebhookEndpoint, WebhookDelivery, ProjectRetainer, ProjectRetainerAmount, ProjectRetainerShare, ProjectRetainerPeriod, RetainerDuePeriod, InvoiceLineShare, ProjectBillingPlan, ProjectBillingRun, BillingForecastItem, Reminder, TrashItem } from '@/lib/types';
 import { fetchAllRows } from '@/lib/supabase/fetch-all';
 import { notFound } from '@/lib/api/errors';
 import { siteConfig } from '@/site-config';
@@ -120,11 +120,24 @@ export async function patchProject(
   if (error) throw error;
 
   if (memberIds !== undefined) {
-    await supabase.from('project_members').delete().eq('project_id', id);
-    if (memberIds.length > 0) {
+    // Only who came and went changes, so the activity log (and anyone reading
+    // between the two writes) never sees everyone removed and added again.
+    const { data: current, error: currentError } = await supabase
+      .from('project_members')
+      .select('member_id')
+      .eq('project_id', id);
+    if (currentError) throw currentError;
+    const currentIds = (current || []).map((row: { member_id: string }) => row.member_id);
+    const removed = currentIds.filter((mid) => !memberIds.includes(mid));
+    const added = [...new Set(memberIds)].filter((mid) => !currentIds.includes(mid));
+    if (removed.length > 0) {
+      const { error: removeError } = await supabase.from('project_members').delete().eq('project_id', id).in('member_id', removed);
+      if (removeError) throw removeError;
+    }
+    if (added.length > 0) {
       const { error: junctionError } = await supabase
         .from('project_members')
-        .insert(memberIds.map(mid => ({ project_id: id, member_id: mid })));
+        .insert(added.map(mid => ({ project_id: id, member_id: mid })));
       if (junctionError) throw junctionError;
     }
   }
@@ -513,6 +526,7 @@ export async function patchTeamMember(
 // ACTIVITIES
 // ============================================================
 
+// The team activity log: written only by database triggers, read under RLS.
 export async function fetchActivities(supabase: SupabaseClient) {
   const { data, error } = await supabase
     .from('activities')
@@ -521,21 +535,20 @@ export async function fetchActivities(supabase: SupabaseClient) {
     .limit(50);
 
   if (error) throw error;
-  return (data || []) as Activity[];
+  return (data || []) as TeamActivity[];
 }
 
-export async function insertActivity(
-  supabase: SupabaseClient,
-  activity: Omit<Activity, 'id' | 'created_at'>
-) {
+/** One project's team activity, newest first. */
+export async function fetchProjectTeamActivity(supabase: SupabaseClient, projectId: string, limit = 100) {
   const { data, error } = await supabase
     .from('activities')
-    .insert(activity)
-    .select()
-    .single();
+    .select('*')
+    .eq('project_id', projectId)
+    .order('created_at', { ascending: false })
+    .limit(limit);
 
   if (error) throw error;
-  return data as Activity;
+  return (data || []) as TeamActivity[];
 }
 
 // ============================================================

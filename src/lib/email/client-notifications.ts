@@ -13,7 +13,8 @@
  * plus the automation evaluators used by time-entry and project PATCH hooks.
  */
 
-import { getServiceClient } from '@/lib/api/supabase-service';
+import { getActorClient, getServiceClient } from '@/lib/api/supabase-service';
+import { currentActorVia } from '@/lib/api/request-context';
 import { sendTransactional } from './send-mail';
 import {
   buildPortalWelcomeEmail,
@@ -1029,7 +1030,7 @@ type InsertOutcome =
  * process is handling it" and abort sending.
  */
 async function insertCommunication(args: InsertRowArgs): Promise<InsertOutcome> {
-  const supabase = getServiceClient();
+  const supabase = getActorClient(args.triggeredBy, currentActorVia());
   const { data, error } = await supabase
     .from('client_communications')
     .insert({
@@ -1301,7 +1302,7 @@ export async function approveCommunication(
   slotOverrides?: Record<string, string>,
   recipientsOverride?: Partial<Recipients>,
 ): Promise<SendResult> {
-  const supabase = getServiceClient();
+  const supabase = getActorClient(triggeredBy, currentActorVia());
   const { data: row } = await supabase
     .from('client_communications')
     .select('id, project_id, contact_id, notification_type, status, subject, rendered_html, rendered_text, slot_overrides, metadata, recipients, contact:contacts(email, deleted_at)')
@@ -1463,7 +1464,7 @@ export async function dismissCommunication(
   commId: string,
   triggeredBy: string | null,
 ): Promise<SendResult> {
-  const supabase = getServiceClient();
+  const supabase = getActorClient(triggeredBy, currentActorVia());
   const { error } = await supabase
     .from('client_communications')
     .update({

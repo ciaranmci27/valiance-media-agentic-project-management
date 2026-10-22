@@ -7,30 +7,76 @@ import { Activity, ChevronDown, ExternalLink } from 'lucide-react';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { Avatar } from '@/components/ui/Avatar';
 import Modal from '@/components/ui/Modal';
-import { GroupLabel, RailCard } from '@/components/projects/TabLayout';
-import { AgentActivity } from '@/lib/types';
+import { Bone, GroupLabel, RailCard, SubNav } from '@/components/projects/TabLayout';
+import { AgentActivity, TeamActivity } from '@/lib/types';
 import { isTelemetryEvent } from '@/lib/agent-events';
+import { activityAfterName, teamActivityHref } from '@/lib/team-activity';
 
 const MAX_VISIBLE = 15;
+
+type FeedFilter = 'all' | 'team' | 'agents';
+const FEED_FILTERS: FeedFilter[] = ['all', 'team', 'agents'];
+// Per viewer and per browser: which feed they last chose.
+const FEED_FILTER_KEY = 'project-activity-filter';
+
+function readFeedFilter(): FeedFilter {
+  if (typeof window === 'undefined') return 'all';
+  try {
+    const saved = window.localStorage.getItem(FEED_FILTER_KEY) as FeedFilter | null;
+    if (saved && FEED_FILTERS.includes(saved)) return saved;
+  } catch { /* storage blocked: start on All */ }
+  return 'all';
+}
+
+type FeedItem =
+  | { kind: 'agent'; id: string; created_at: string; entry: AgentActivity }
+  | { kind: 'team'; id: string; created_at: string; entry: TeamActivity };
 
 interface ActivityTimelineProps {
   /** Scope the feed to one project (also hides the redundant project label). */
   projectId?: string;
   /** Bound the list height, e.g. on pages where the card must not grow the page. */
   listMaxHeightClass?: string;
+  /**
+   * What people on the team did. Given, the feed blends it with the agents'
+   * activity and offers All / Team / Agents; without it the feed is agents only.
+   */
+  teamEntries?: TeamActivity[];
+  /** Agent rows already read by the caller (scoped to the project), instead of the store's feed. */
+  agentEntries?: AgentActivity[];
+  /** The caller is still reading the rows: shows placeholders, not an empty state. */
+  loading?: boolean;
+  /** The caller could not read the rows: says so instead of claiming there is nothing. */
+  failed?: boolean;
 }
 
-export function ActivityTimeline({ projectId, listMaxHeightClass }: ActivityTimelineProps = {}) {
-  const { agentActivity: allActivity, team, projects } = useApp();
+export function ActivityTimeline({ projectId, listMaxHeightClass, teamEntries, agentEntries, loading = false, failed = false }: ActivityTimelineProps = {}) {
+  const { agentActivity: storeActivity, team, projects } = useApp();
+  const blended = teamEntries !== undefined;
   // Telemetry (token counters, turn runtimes) is machine measurement at a volume
   // that buries the narrative. The store already excludes it; this filter keeps
   // the guarantee local so a future data source cannot quietly flood the feed.
   const agentActivity = useMemo(
-    () => allActivity.filter(a =>
+    () => (agentEntries ?? storeActivity).filter(a =>
       !isTelemetryEvent(a.activity_type) && (!projectId || a.project_id === projectId)
     ),
-    [allActivity, projectId],
+    [agentEntries, storeActivity, projectId],
   );
+  const [filter, setFilter] = useState<FeedFilter>(readFeedFilter);
+  const chooseFilter = (next: FeedFilter) => {
+    setFilter(next);
+    try { window.localStorage.setItem(FEED_FILTER_KEY, next); } catch { /* not remembered */ }
+  };
+  // The filter only means something when both kinds are there to choose from.
+  const showFilter = blended && agentActivity.length > 0;
+  const activeFilter: FeedFilter = showFilter ? filter : 'all';
+  const feed = useMemo<FeedItem[]>(() => {
+    const agentItems: FeedItem[] = agentActivity.map(entry => ({ kind: 'agent', id: `agent:${entry.id}`, created_at: entry.created_at, entry }));
+    const teamItems: FeedItem[] = (teamEntries ?? []).map(entry => ({ kind: 'team', id: `team:${entry.id}`, created_at: entry.created_at, entry }));
+    if (activeFilter === 'team') return teamItems;
+    if (activeFilter === 'agents') return agentItems;
+    return [...teamItems, ...agentItems];
+  }, [agentActivity, teamEntries, activeFilter]);
   const [showAll, setShowAll] = useState(false);
   const [selected, setSelected] = useState<AgentActivity | null>(null);
 
@@ -80,7 +126,7 @@ export function ActivityTimeline({ projectId, listMaxHeightClass }: ActivityTime
 
   // Group by day
   const grouped = useMemo(() => {
-    const sorted = [...agentActivity].sort(
+    const sorted = [...feed].sort(
       (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
     );
 
@@ -99,19 +145,45 @@ export function ActivityTimeline({ projectId, listMaxHeightClass }: ActivityTime
     }
 
     return groups;
-  }, [agentActivity, showAll]);
+  }, [feed, showAll]);
 
-  const totalCount = agentActivity.length;
+  const totalCount = feed.length;
+  const emptyLabel = failed ? 'Activity could not load. Reload the page to try again.' : activeFilter === 'team' || (blended && agentActivity.length === 0) ? 'No team activity yet'
+    : activeFilter === 'agents' || !blended ? 'No agent activity yet' : 'No activity yet';
 
   return (
     <>
       <RailCard
         title="Recent activity"
         icon={<Activity size={16} className="text-zinc-400" aria-hidden="true" />}
+        action={showFilter ? (
+          <SubNav
+            label="Show activity from"
+            items={[
+              { key: 'all', label: 'All', count: agentActivity.length + (teamEntries?.length ?? 0) },
+              { key: 'team', label: 'Team', count: teamEntries?.length ?? 0 },
+              { key: 'agents', label: 'Agents', count: agentActivity.length },
+            ]}
+            active={activeFilter}
+            onChange={chooseFilter}
+          />
+        ) : undefined}
         className="overflow-hidden lg:flex lg:flex-col lg:h-full lg:min-h-0"
         bodyClassName={`lg:flex-1 lg:min-h-0 overflow-y-auto board-column-scroll ${listMaxHeightClass ?? 'max-h-[400px] lg:max-h-none'}`}
       >
-        {grouped.length > 0 ? (
+        {loading ? (
+          <div className="px-5 pb-5 space-y-3" role="status" aria-label="Loading activity">
+            {[0, 1, 2, 3].map((n) => (
+              <div key={n} className="flex items-start gap-2.5">
+                <Bone className="w-6 h-6 rounded-full" />
+                <div className="flex-1 space-y-1.5">
+                  <Bone className="h-3 w-3/4" />
+                  <Bone className="h-2.5 w-1/3" />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : grouped.length > 0 ? (
           <div className="px-5 pb-5">
             {grouped.map((group) => (
               <div key={group.label} className="mb-4 last:mb-0">
@@ -120,7 +192,55 @@ export function ActivityTimeline({ projectId, listMaxHeightClass }: ActivityTime
 
                 {/* Entries */}
                 <div className="space-y-0.5">
-                  {group.entries.map((entry) => {
+                  {group.entries.map((item) => {
+                    if (item.kind === 'team') {
+                      const entry = item.entry;
+                      const member = entry.user_id ? team.find(m => m.id === entry.user_id) : undefined;
+                      const name = member?.name || 'Someone';
+                      const projectName = projectId ? null : getProjectName(entry.project_id);
+                      const detail = typeof entry.metadata?.preview === 'string' ? entry.metadata.preview
+                        : typeof entry.metadata?.note === 'string' ? entry.metadata.note : '';
+                      const href = teamActivityHref(entry);
+                      const teamInner = (
+                        <>
+                          <div className="flex-shrink-0 mt-0.5" aria-hidden="true">
+                            <Avatar name={name} src={member?.avatar || undefined} size="xs" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs text-zinc-300 leading-relaxed break-words">
+                              <span className="font-medium">{name}</span>{' '}
+                              <span className="text-zinc-400">{activityAfterName(entry.description)}</span>
+                            </p>
+                            {(projectName || detail) && (
+                              <p className="text-[10px] text-zinc-500 mt-0.5 truncate">
+                                {[projectName, detail].filter(Boolean).join(' · ')}
+                              </p>
+                            )}
+                          </div>
+                          <time
+                            dateTime={entry.created_at}
+                            title={formatFullTimestamp(entry.created_at)}
+                            className="text-[10px] text-zinc-600 flex-shrink-0 mt-0.5"
+                          >
+                            {formatTime(entry.created_at)}
+                          </time>
+                        </>
+                      );
+                      const rowClass = 'w-full text-left flex items-start gap-2.5 py-1.5 px-1 -mx-1 rounded-md';
+                      // A person's action names the thing it touched, so it goes straight there.
+                      return href ? (
+                        <Link
+                          key={item.id}
+                          href={href}
+                          className={`${rowClass} hover:bg-white/[0.04] focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-500 transition-colors`}
+                        >
+                          {teamInner}
+                        </Link>
+                      ) : (
+                        <div key={item.id} className={rowClass}>{teamInner}</div>
+                      );
+                    }
+                    const entry = item.entry;
                     // Identity is the read pattern once several agents interleave:
                     // "who did what" beats "what type of event was this", so the
                     // marker is the agent, not the activity type. Identity comes
@@ -176,7 +296,7 @@ export function ActivityTimeline({ projectId, listMaxHeightClass }: ActivityTime
                     // project stays one click away inside the modal.
                     return (
                       <button
-                        key={entry.id}
+                        key={item.id}
                         type="button"
                         onClick={() => setSelected(entry)}
                         className="w-full text-left flex items-start gap-2.5 py-1.5 px-1 -mx-1 rounded-md group/entry hover:bg-white/[0.04] focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-500 transition-colors"
@@ -203,7 +323,7 @@ export function ActivityTimeline({ projectId, listMaxHeightClass }: ActivityTime
         ) : (
           <div className="py-8 text-center">
             <Activity className="mx-auto mb-2 text-zinc-600" size={24} />
-            <p className="text-sm text-zinc-500">No activity yet</p>
+            <p className="text-sm text-zinc-500">{emptyLabel}</p>
           </div>
         )}
       </RailCard>

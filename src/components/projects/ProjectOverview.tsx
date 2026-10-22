@@ -20,6 +20,7 @@ import { useInboxUpdates } from '@/components/inbox/use-inbox-updates';
 import { formatListTime } from '@/components/inbox/inbox-badges';
 import { ReminderRow } from '@/components/reminders/ReminderRow';
 import { ActivityTimeline } from '@/components/agent/ActivityTimeline';
+import { useProjectActivity } from '@/lib/use-project-activity';
 import { Bone, CardLink, GroupLabel, RailCard, Skeleton } from '@/components/projects/TabLayout';
 import { Avatar, AvatarGroup } from '@/components/ui/Avatar';
 import { PriorityBadge, StatusBadge } from '@/components/ui/Badge';
@@ -91,6 +92,12 @@ function RowBody({ icon, title, detail, end }: { icon: ReactNode; title: string;
 const INLINE_DATE_CLASS = '!w-fit !justify-start !gap-1 !border-transparent !bg-transparent !shadow-none hover:!bg-white/[0.06] focus:!ring-0 focus:!border-transparent !px-1.5 !-mx-1.5 !py-0.5 !rounded-md';
 
 const PERSON_CHIP = 'inline-flex items-center gap-1.5 max-w-full pl-1 pr-2.5 py-1 rounded-full bg-white/[0.04] border border-white/[0.06] text-sm text-zinc-200';
+
+/** Recent activity: what the team did on this project, blended with the agents' log. */
+function ProjectActivityCard({ projectId }: { projectId: string }) {
+  const { team, agent, loaded, failed } = useProjectActivity(projectId);
+  return <ActivityTimeline projectId={projectId} listMaxHeightClass="" teamEntries={team} agentEntries={agent} loading={!loaded} failed={failed} />;
+}
 
 function Stat({ label, value, tone }: { label: string; value: string; tone?: 'warn' }) {
   return (
@@ -371,7 +378,7 @@ export function ProjectOverview({ projectId, onOpenTask, onOpenTab, onOpenContac
           )}
         </RailCard>
 
-        <ActivityTimeline projectId={projectId} listMaxHeightClass="" />
+        <ProjectActivityCard projectId={projectId} />
       </div>
 
       <div className="space-y-6 min-w-0">

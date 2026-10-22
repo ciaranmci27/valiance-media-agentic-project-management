@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server';
 import type { AccessContext, PermissionKey, TeamRole } from '@/lib/access-control';
 import { createClient } from '@/lib/supabase/server';
 import { sessionUser, type SessionUser } from '@/lib/supabase/session-user';
-import { getServiceClient } from '@/lib/api/supabase-service';
+import { getActorClient, getServiceClient } from '@/lib/api/supabase-service';
 
 export interface SessionAccessResult {
   user: SessionUser;
@@ -448,7 +448,8 @@ export async function requireSessionAccess(options?: {
   }
 
   return {
-    data: { user, memberId: member.id, memberRow, access, service, client: sessionClient },
+    // Writes through `service` are logged as this member's in the team activity log.
+    data: { user, memberId: member.id, memberRow, access, service: getActorClient(member.id, 'app'), client: sessionClient },
     error: null,
   };
 }

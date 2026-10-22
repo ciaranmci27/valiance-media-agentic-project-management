@@ -1,4 +1,4 @@
-import type { TeamMember, Contact, ContactEmail, Project, ProjectContact, Task, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, Activity, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, TimeEntry, Notification, ProjectGoal, TaskSuggestion, AgentActivity, ProjectInvoice, ClientCommunication, PortalAnalyticsResponse, PortalSessionSummary, EmployeeEarningsData, Reminder } from './types';
+import type { TeamMember, Contact, ContactEmail, Project, ProjectContact, Task, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, TeamActivity, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, TimeEntry, Notification, ProjectGoal, TaskSuggestion, AgentActivity, ProjectInvoice, ClientCommunication, PortalAnalyticsResponse, PortalSessionSummary, EmployeeEarningsData, Reminder } from './types';
 import { DEFAULT_SECTION_ORDER } from './types';
 import { siteConfig } from '@/site-config';
 
@@ -410,37 +410,50 @@ export const demoLeads: Lead[] = [
 ];
 
 // ---------------------------------------------------------------------------
-// 7. ACTIVITIES
+// 7. TEAM ACTIVITY (what people did; agents log to demoAgentActivity)
 // ---------------------------------------------------------------------------
-export const demoActivities: Activity[] = [
-  { id: '99990001-0001-4000-8000-000000000001', type: 'task_completed',  entity_id: 'e5e5e5e5-0001-4000-8000-000000000001', entity_type: 'task',    user_id: TM1, description: 'Completed "Discovery & brand audit"',                        metadata: { project: 'Crest Financial Rebrand' },           created_at: daysAgo(20) },
-  { id: '99990001-0002-4000-8000-000000000002', type: 'task_completed',  entity_id: 'e5e5e5e5-0002-4000-8000-000000000002', entity_type: 'task',    user_id: TM3, description: 'Completed "Logo concepts — round 1"',                       metadata: { project: 'Crest Financial Rebrand' },           created_at: daysAgo(14) },
-  { id: '99990001-0003-4000-8000-000000000003', type: 'project_updated', entity_id: 'c3c3c3c3-0005-4000-8000-000000000005', entity_type: 'project', user_id: TM3, description: 'Marked "Peak Outdoor Shopify Migration" as completed',       metadata: {},                                               created_at: daysAgo(34) },
-  { id: '99990001-0004-4000-8000-000000000004', type: 'task_created',    entity_id: 'e5e5e5e5-0010-4000-8000-000000000010', entity_type: 'task',    user_id: TM1, description: 'Created "Auth & onboarding screens"',                       metadata: { project: 'Bloomwell Health App' },              created_at: daysAgo(10) },
-  { id: '99990001-0005-4000-8000-000000000005', type: 'comment_added',   entity_id: 'aabbccdd-0010-4000-8000-000000000010', entity_type: 'comment', user_id: TM2, description: 'Commented on "Homepage & landing page design"',              metadata: { task: 'Homepage & landing page design' },       created_at: daysAgo(3) },
-  { id: '99990001-0006-4000-8000-000000000006', type: 'task_updated',    entity_id: 'e5e5e5e5-0009-4000-8000-000000000009', entity_type: 'task',    user_id: TM3, description: 'Moved "UI kit & design system" to In Review',                metadata: { project: 'Bloomwell Health App' },              created_at: daysAgo(1) },
-  { id: '99990001-0007-4000-8000-000000000007', type: 'task_completed',  entity_id: 'e5e5e5e5-0008-4000-8000-000000000008', entity_type: 'task',    user_id: TM1, description: 'Completed "User flow & IA mapping"',                        metadata: { project: 'Bloomwell Health App' },              created_at: daysAgo(7) },
-  { id: '99990001-0008-4000-8000-000000000008', type: 'task_completed',  entity_id: 'e5e5e5e5-0014-4000-8000-000000000014', entity_type: 'task',    user_id: TM2, description: 'Completed "Content strategy & copywriting"',                  metadata: { project: 'NeoForge Website' },                  created_at: daysAgo(12) },
-  { id: '99990001-0009-4000-8000-000000000009', type: 'member_added',    entity_id: 'a1a1a1a1-0005-4000-8000-000000000005', entity_type: 'member',  user_id: TM1, description: 'Added Priya Patel to the team',                             metadata: {},                                               created_at: daysAgo(45) },
-  { id: '99990001-0010-4000-8000-000000000010', type: 'task_created',    entity_id: 'e5e5e5e5-0019-4000-8000-000000000019', entity_type: 'task',    user_id: TM1, description: 'Created "IDX/MLS integration research"',                     metadata: { project: 'Solstice Realty Platform' },          created_at: daysAgo(5) },
-  { id: '99990001-0011-4000-8000-000000000011', type: 'comment_added',   entity_id: 'aabbccdd-0013-4000-8000-000000000013', entity_type: 'comment', user_id: TM1, description: 'Commented on "IDX/MLS integration research"',                 metadata: { task: 'IDX/MLS integration research' },         created_at: hoursAgo(6) },
-  { id: '99990001-0012-4000-8000-000000000012', type: 'task_completed',  entity_id: 'e5e5e5e5-0024-4000-8000-000000000024', entity_type: 'task',    user_id: TM4, description: 'Completed "Shopify Plus theme development"',                  metadata: { project: 'Peak Outdoor Shopify Migration' },    created_at: daysAgo(50) },
-  { id: '99990001-0013-4000-8000-000000000013', type: 'task_completed',  entity_id: 'e5e5e5e5-0025-4000-8000-000000000025', entity_type: 'task',    user_id: TM3, description: 'Completed "Product data migration"',                           metadata: { project: 'Peak Outdoor Shopify Migration' },    created_at: daysAgo(40) },
-  { id: '99990001-0014-4000-8000-000000000014', type: 'task_completed',  entity_id: 'e5e5e5e5-0026-4000-8000-000000000026', entity_type: 'task',    user_id: TM3, description: 'Completed "Checkout & payments testing"',                      metadata: { project: 'Peak Outdoor Shopify Migration' },    created_at: daysAgo(30) },
-  { id: '99990001-0015-4000-8000-000000000015', type: 'task_created',    entity_id: 'e5e5e5e5-0020-4000-8000-000000000020', entity_type: 'task',    user_id: TM1, description: 'Created "Property search UI"',                                 metadata: { project: 'Solstice Realty Platform' },          created_at: daysAgo(9) },
-  { id: '99990001-0016-4000-8000-000000000016', type: 'comment_added',   entity_id: 'aabbccdd-0024-4000-8000-000000000024', entity_type: 'comment', user_id: TM2, description: 'Commented on "Property search UI"',                             metadata: { task: 'Property search UI' },                   created_at: daysAgo(7) },
-  { id: '99990001-0017-4000-8000-000000000017', type: 'task_updated',    entity_id: 'e5e5e5e5-0003-4000-8000-000000000003', entity_type: 'task',    user_id: TM3, description: 'Updated "Brand guidelines document" — completed typography subtask', metadata: { project: 'Crest Financial Rebrand' },     created_at: daysAgo(2) },
-  { id: '99990001-0018-4000-8000-000000000018', type: 'comment_added',   entity_id: 'aabbccdd-0022-4000-8000-000000000022', entity_type: 'comment', user_id: TM2, description: 'Commented on "Inner pages design"',                              metadata: { task: 'Inner pages design' },                   created_at: daysAgo(4) },
-  { id: '99990001-0019-4000-8000-000000000019', type: 'task_created',    entity_id: 'e5e5e5e5-0011-4000-8000-000000000011', entity_type: 'task',    user_id: TM1, description: 'Created "Appointment booking module"',                         metadata: { project: 'Bloomwell Health App' },              created_at: daysAgo(10) },
-  { id: '99990001-0020-4000-8000-000000000020', type: 'task_created',    entity_id: 'e5e5e5e5-0012-4000-8000-000000000012', entity_type: 'task',    user_id: TM1, description: 'Created "Secure messaging implementation"',                    metadata: { project: 'Bloomwell Health App' },              created_at: daysAgo(10) },
-  { id: '99990001-0021-4000-8000-000000000021', type: 'comment_added',   entity_id: 'aabbccdd-0019-4000-8000-000000000019', entity_type: 'comment', user_id: TM4, description: 'Commented on "Appointment booking module"',                     metadata: { task: 'Appointment booking module' },           created_at: daysAgo(8) },
-  { id: '99990001-0022-4000-8000-000000000022', type: 'task_updated',    entity_id: 'e5e5e5e5-0016-4000-8000-000000000016', entity_type: 'task',    user_id: TM2, description: 'Updated "Inner pages design" — completed pricing subtask',        metadata: { project: 'NeoForge Website' },                  created_at: daysAgo(5) },
-  { id: '99990001-0023-4000-8000-000000000023', type: 'project_updated', entity_id: 'c3c3c3c3-0006-4000-8000-000000000006', entity_type: 'project', user_id: TM1, description: 'Archived "UrbanPulse Brand Package"',                           metadata: {},                                               created_at: daysAgo(80) },
-  { id: '99990001-0024-4000-8000-000000000024', type: 'member_added',    entity_id: 'a1a1a1a1-0004-4000-8000-000000000004', entity_type: 'member',  user_id: TM1, description: 'Added Jake Thompson to the team',                              metadata: {},                                               created_at: daysAgo(60) },
-  { id: '99990001-0025-4000-8000-000000000025', type: 'comment_added',   entity_id: 'aabbccdd-0025-4000-8000-000000000025', entity_type: 'comment', user_id: TM1, description: 'Commented on "Lead capture & CRM integration"',                 metadata: { task: 'Lead capture & CRM integration' },       created_at: daysAgo(5) },
-  { id: '99990001-0026-4000-8000-000000000026', type: 'task_completed',  entity_id: 'e5e5e5e5-0014-4000-8000-000000000014', entity_type: 'task',    user_id: TM2, description: 'Completed "Content strategy & copywriting"',                  metadata: { project: 'NeoForge Website' },                  created_at: daysAgo(12) },
-  { id: '99990001-0027-4000-8000-000000000027', type: 'comment_added',   entity_id: 'aabbccdd-0003-4000-8000-000000000003', entity_type: 'comment', user_id: TM1, description: 'Commented on "Brand guidelines document"',                     metadata: { task: 'Brand guidelines document' },            created_at: daysAgo(1) },
-  { id: '99990001-0028-4000-8000-000000000028', type: 'comment_added',   entity_id: 'aabbccdd-0007-4000-8000-000000000007', entity_type: 'comment', user_id: TM1, description: 'Commented on "UI kit & design system"',                       metadata: { task: 'UI kit & design system' },               created_at: hoursAgo(12) },
+const P_CREST = 'c3c3c3c3-0001-4000-8000-000000000001';
+const P_BLOOM = 'c3c3c3c3-0002-4000-8000-000000000002';
+const P_NEO = 'c3c3c3c3-0003-4000-8000-000000000003';
+const P_SOLSTICE = 'c3c3c3c3-0004-4000-8000-000000000004';
+const P_PEAK = 'c3c3c3c3-0005-4000-8000-000000000005';
+const P_URBAN = 'c3c3c3c3-0006-4000-8000-000000000006';
+
+const teamActivity = (
+  n: number, type: string, entityType: string, entityId: string, projectId: string | null,
+  userId: string, description: string, metadata: Record<string, unknown>, createdAt: string,
+): TeamActivity => ({
+  id: `99990001-${String(n).padStart(4, '0')}-4000-8000-${String(n).padStart(12, '0')}`,
+  type, entity_type: entityType, entity_id: entityId, project_id: projectId, user_id: userId,
+  description, metadata, source: 'app', created_at: createdAt, updated_at: createdAt,
+});
+
+const task = (id: number, title: string) => ({ task_id: `e5e5e5e5-${String(id).padStart(4, '0')}-4000-8000-${String(id).padStart(12, '0')}`, task_title: title });
+const taskId = (id: number) => task(id, '').task_id;
+
+export const demoActivities: TeamActivity[] = [
+  teamActivity(1, 'task.completed', 'task', taskId(1), P_CREST, TM1, 'Completed task "Discovery & brand audit"', task(1, 'Discovery & brand audit'), daysAgo(20)),
+  teamActivity(2, 'task.completed', 'task', taskId(2), P_CREST, TM3, 'Completed task "Logo concepts — round 1"', task(2, 'Logo concepts — round 1'), daysAgo(14)),
+  teamActivity(3, 'project.status', 'project', P_PEAK, P_PEAK, TM3, 'Marked project "Peak Outdoor Shopify Migration" completed', { project_name: 'Peak Outdoor Shopify Migration' }, daysAgo(34)),
+  teamActivity(4, 'task.created', 'task', taskId(10), P_BLOOM, TM1, 'Created task "Auth & onboarding screens"', task(10, 'Auth & onboarding screens'), daysAgo(10)),
+  teamActivity(5, 'comment.added', 'comment', 'aabbccdd-0010-4000-8000-000000000010', P_NEO, TM2, 'Commented on "Homepage & landing page design"', { ...task(15, 'Homepage & landing page design'), preview: 'Hero copy is in, waiting on the client photo shoot.' }, daysAgo(3)),
+  teamActivity(6, 'task.moved', 'task', taskId(9), P_BLOOM, TM3, 'Moved task "UI kit & design system" to In review', task(9, 'UI kit & design system'), daysAgo(1)),
+  teamActivity(7, 'task.completed', 'task', taskId(8), P_BLOOM, TM1, 'Completed task "User flow & IA mapping"', task(8, 'User flow & IA mapping'), daysAgo(7)),
+  teamActivity(8, 'task.completed', 'task', taskId(14), P_NEO, TM2, 'Completed task "Content strategy & copywriting"', task(14, 'Content strategy & copywriting'), daysAgo(12)),
+  teamActivity(9, 'member.added', 'member', TM4, P_SOLSTICE, TM1, 'Added Jake Thompson to project "Solstice Realty Platform"', { member_id: TM4, project_name: 'Solstice Realty Platform' }, daysAgo(45)),
+  teamActivity(10, 'task.created', 'task', taskId(19), P_SOLSTICE, TM1, 'Created task "IDX/MLS integration research"', task(19, 'IDX/MLS integration research'), daysAgo(5)),
+  teamActivity(11, 'comment.added', 'comment', 'aabbccdd-0013-4000-8000-000000000013', P_SOLSTICE, TM1, 'Commented on "IDX/MLS integration research"', { ...task(19, 'IDX/MLS integration research'), preview: 'Spark API looks like the cleanest fit.' }, hoursAgo(6)),
+  teamActivity(12, 'task.completed', 'task', taskId(24), P_PEAK, TM4, 'Completed task "Shopify Plus theme development"', task(24, 'Shopify Plus theme development'), daysAgo(50)),
+  teamActivity(13, 'time.logged', 'time_entry', 'f7f7f7f7-0001-4000-8000-000000000001', P_CREST, TM3, 'Logged 2h 30m', { member_id: TM3, hours: 2.5, note: 'Typography pairing options', project_name: 'Crest Financial Rebrand' }, hoursAgo(20)),
+  teamActivity(14, 'invoice.sent', 'invoice', 'f8f8f8f8-0002-4000-8000-000000000002', P_CREST, TM1, 'Sent invoice INV-002', { invoice_number: 'INV-002' }, daysAgo(6)),
+  teamActivity(15, 'task.assigned', 'task', taskId(3), P_CREST, TM1, 'Assigned Emily Rodriguez to task "Brand guidelines document"', { ...task(3, 'Brand guidelines document'), member_id: TM3 }, daysAgo(9)),
+  teamActivity(16, 'subtask.completed', 'subtask', 'abab0003-0002-4000-8000-000000000002', P_CREST, TM3, 'Checked off "Select brand typefaces (heading + body)" on "Brand guidelines document"', task(3, 'Brand guidelines document'), daysAgo(2)),
+  teamActivity(17, 'comment.added', 'comment', 'aabbccdd-0003-4000-8000-000000000003', P_CREST, TM1, 'Commented on "Brand guidelines document"', { ...task(3, 'Brand guidelines document'), preview: 'Love the Fraunces pairing.' }, daysAgo(1)),
+  teamActivity(18, 'file.uploaded', 'file', 'f9f9f9f9-0001-4000-8000-000000000001', P_CREST, TM3, 'Uploaded "crest-logo-v3.pdf"', { file_name: 'crest-logo-v3.pdf', entity_type: 'project', entity_id: P_CREST }, daysAgo(4)),
+  teamActivity(19, 'task.created', 'task', taskId(20), P_SOLSTICE, TM1, 'Created task "Property search UI"', task(20, 'Property search UI'), daysAgo(9)),
+  teamActivity(20, 'project.status', 'project', P_URBAN, P_URBAN, TM1, 'Archived project "UrbanPulse Brand Package"', { project_name: 'UrbanPulse Brand Package' }, daysAgo(80)),
+  teamActivity(21, 'comment.added', 'comment', 'aabbccdd-0007-4000-8000-000000000007', P_BLOOM, TM1, 'Commented on "UI kit & design system"', { ...task(9, 'UI kit & design system'), preview: 'Tokens look good, ship it.' }, hoursAgo(12)),
+  teamActivity(22, 'portal_update.posted', 'portal_update', 'fafafafa-0001-4000-8000-000000000001', P_CREST, TM1, 'Posted portal update "Logo direction locked"', {}, daysAgo(8)),
 ];
 
 // ---------------------------------------------------------------------------

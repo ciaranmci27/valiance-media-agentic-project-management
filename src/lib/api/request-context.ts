@@ -16,3 +16,9 @@ export const apiRequestContext = new AsyncLocalStorage<ApiRequestContext>();
 export function currentApiVia(): ApiRequestContext['via'] {
   return apiRequestContext.getStore()?.via ?? 'rest';
 }
+
+/** Where a write made on someone's behalf came from, for the team activity log. */
+export function currentActorVia(): 'app' | 'api' | 'mcp' {
+  const via = apiRequestContext.getStore()?.via;
+  return via === 'mcp' ? 'mcp' : via === 'rest' ? 'api' : 'app';
+}
