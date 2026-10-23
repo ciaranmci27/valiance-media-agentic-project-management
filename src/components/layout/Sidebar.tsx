@@ -27,6 +27,7 @@ import { useDemo } from '@/lib/demo-context';
 import { Avatar } from '@/components/ui/Avatar';
 import { Logo } from '@/components/ui/Logo';
 import { Tooltip } from '@/components/ui/Tooltip';
+import { LivePulse } from '@/components/ui/LivePulse';
 import { createClient } from '@/lib/supabase/client';
 import { demoNotifications } from '@/lib/demo-data';
 import { isRunning } from '@/lib/time-entry-utils';
@@ -365,14 +366,7 @@ export function Sidebar() {
                         <span className="text-sm truncate flex-1 min-w-0">{project.name}</span>
                         {isClockedIn && (
                           <Tooltip content="Time tracker is active" position="right">
-                            <span
-                              role="status"
-                              aria-label="Time tracker is active for this project"
-                              className="relative inline-flex h-2 w-2 flex-shrink-0"
-                            >
-                              <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75 motion-safe:animate-ping" aria-hidden="true" />
-                              <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" aria-hidden="true" />
-                            </span>
+                            <LivePulse label="Time tracker is active for this project" />
                           </Tooltip>
                         )}
                       </Link>

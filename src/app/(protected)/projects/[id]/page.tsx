@@ -36,6 +36,7 @@ import {
 import { Task, ViewMode } from '@/lib/types';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useAuth } from '@/lib/auth-context';
+import { isRunning } from '@/lib/time-entry-utils';
 import { hasPermission, canEditTask, canManageAllTasks, canBeAssignedInProject } from '@/lib/access-control';
 
 type ProjectTabKey = 'overview' | 'tasks' | 'time' | 'communication' | 'portal' | 'billing' | 'files' | 'credentials';
@@ -68,7 +69,7 @@ export default function ProjectDetailPage() {
     getProject, getTasksByProject,
     team,
     deleteTask, deleteProject, updateTask, reorderTasks, filters, setFilters,
-    tasks, loading,
+    tasks, loading, timeEntries,
   } = useApp();
 
   useEffect(() => { setFilters(defaultFilters); }, []);
@@ -98,12 +99,16 @@ export default function ProjectDetailPage() {
   // Tabs the viewer can open. A tab with nothing they may read is left out,
   // rather than shown empty.
   const timeTrackingOn = !!project && (project.time_tracking_enabled ?? project.hourly_tracking) && canReadTime;
+  // Your own timer running here (not paused): the same rule as the sidebar's pulse.
+  const clockedIn = !!teamMemberId && timeEntries.some(
+    (entry) => entry.project_id === projectId && entry.member_id === teamMemberId && isRunning(entry),
+  );
   // Ordered by how a project is run: the work, the client, the money, then
   // the project's assets.
   const allTabs: (ProjectTab<ProjectTabKey> & { visible: boolean })[] = [
     { key: 'overview', label: 'Overview', visible: true },
     { key: 'tasks', label: 'Tasks', visible: true },
-    { key: 'time', label: 'Time tracking', visible: !!timeTrackingOn },
+    { key: 'time', label: 'Time tracking', visible: !!timeTrackingOn, live: clockedIn },
     { key: 'communication', label: 'Communication', visible: canReadInbox || canReadCommunications },
     { key: 'portal', label: 'Client portal', visible: canReadPortal },
     { key: 'billing', label: 'Billing', visible: canReadInvoices },

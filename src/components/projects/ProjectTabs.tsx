@@ -1,12 +1,15 @@
 'use client';
 
 import { useRef, type KeyboardEvent } from 'react';
+import { LivePulse } from '@/components/ui/LivePulse';
 
 export interface ProjectTab<K extends string> {
   key: K;
   label: string;
   /** Small count after the label, e.g. open tasks. Hidden when 0 or absent. */
   count?: number;
+  /** Shows the live pulse after the label, e.g. Time tracking while your timer runs. */
+  live?: boolean;
 }
 
 interface ProjectTabsProps<K extends string> {
@@ -68,6 +71,7 @@ export function ProjectTabs<K extends string>({ tabs, active, onChange }: Projec
               }`}
             >
               {tab.label}
+              {tab.live && <LivePulse label="Your timer is running on this project" />}
               {!!tab.count && (
                 <span className={`text-xs font-mono tabular-nums ${selected ? 'text-zinc-300' : 'text-zinc-500'}`}>
                   {tab.count}
