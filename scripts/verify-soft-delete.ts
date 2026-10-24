@@ -13,13 +13,19 @@
  *   npm run -s test:soft-delete
  */
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { PGlite } from '@electric-sql/pglite';
 import { actAs, createFullSchemaDatabase } from './full-schema-db';
 
-const MIGRATIONS = ['20261022035227_soft_delete_records.sql', '20261022041249_soft_delete_billing.sql', '20261022044708_trash_audit.sql', '20261022052745_lead_field_keys_live.sql', '20261022053626_list_trash.sql', '20261022063149_soft_delete_review_fixes.sql', '20261022074722_team_activity_log.sql']
-  .map((name) => join(__dirname, '..', 'supabase', 'migrations', name));
+// Every migration from soft delete on, in order: a later one may redefine the
+// same Trash functions, so replaying only the soft delete ones would put their
+// older bodies back. Replayed in order, they must end where schema.sql is.
+const MIGRATIONS_DIR = join(__dirname, '..', 'supabase', 'migrations');
+const MIGRATIONS = readdirSync(MIGRATIONS_DIR)
+  .filter((name) => name.endsWith('.sql') && name >= '20261022035227_soft_delete_records.sql')
+  .sort()
+  .map((name) => join(MIGRATIONS_DIR, name));
 /** The schema files as they were before this change (the branch point from main). */
 const BASE_REF = execFileSync('git', ['merge-base', 'HEAD', 'origin/main'], { encoding: 'utf8' }).trim();
 const atBase = (path: string) => execFileSync('git', ['show', `${BASE_REF}:app/supabase/${path}`], { encoding: 'utf8' });
