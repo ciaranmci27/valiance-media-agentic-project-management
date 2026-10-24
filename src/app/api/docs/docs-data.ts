@@ -1302,7 +1302,7 @@ export const endpoints: EndpointDoc[] = [
       { name: 'match_kind', type: 'address|domain', required: true, description: 'An exact address, or a domain (its subdomains too)' },
       { name: 'match_value', type: 'string', required: true, description: 'The address or domain' },
       { name: 'topic', type: 'money|account_risk|security|usage|event|newsletter|promotion|update|null', required: false, description: 'Only this topic of machine mail (default null: every email from the sender)' },
-      { name: 'action', type: 'ignore|fyi|always', required: true, description: 'ignore: Filtered, never triaged. fyi: triaged lightly, never needs_human for itself. always: full triage, even when the default would filter it.' },
+      { name: 'action', type: 'ignore|fyi|always', required: true, description: 'ignore: Filtered, never triaged. fyi: triaged lightly; it reaches needs_human only when the email itself asks for something. always: full triage, even when the default would filter it.' },
       { name: 'reason', type: 'string', required: true, description: 'The pattern, in a sentence (10 to 500 characters): it shows next to the rule.' },
     ],
   },

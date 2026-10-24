@@ -199,7 +199,7 @@ function sortingOf(row: Row) {
 export async function messageDetail(supabase: SupabaseClient, message: AccessibleMessage): Promise<Row> {
   const [inbox, thread, threadMessages] = await Promise.all([
     supabase.from('email_inboxes').select('id, name, address, agent_readable_types').eq('id', message.inbox_id).single(),
-    supabase.from('email_threads').select('id, subject_normalized, project_id, project_source, project_address_id, last_message_at').eq('id', message.thread_id).single(),
+    supabase.from('email_threads').select('id, subject_normalized, project_id, project_source, project_address_id, summary, last_message_at').eq('id', message.thread_id).single(),
     rows<Row>(supabase.from('email_messages')
       .select(`id, status, subject, received_at, sent_at, text_body, html_body, new_text, is_forward, auth, auto_mail_reason, internet_message_id, kind, topic, sort_action, sort_reason, superseded_by, ${ROUTING_COLUMNS}`)
       .eq('thread_id', message.thread_id)
@@ -304,6 +304,8 @@ export async function messageDetail(supabase: SupabaseClient, message: Accessibl
     thread: {
       id: thread.data.id,
       subject_normalized: thread.data.subject_normalized,
+      // The current one-line summary; a triage's thread_summary replaces it.
+      summary: thread.data.summary ?? null,
       last_message_at: thread.data.last_message_at,
       messages: threadMessages.map((row) => present(row, THREAD_TEXT_CAP)),
     },

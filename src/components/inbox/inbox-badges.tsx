@@ -49,9 +49,11 @@ export function ThreadStateDot({ state, hint }: { state: ThreadState; hint?: str
   const config = STATE[state];
   return (
     <Tooltip content={hint ?? config.hint}>
-      <span className="inline-flex items-center gap-1.5 text-xs font-medium text-zinc-200">
+      {/* Focusable so a keyboard reaches the hint; screen readers hear it with the label. */}
+      <span tabIndex={0} className="inline-flex items-center gap-1.5 rounded text-xs font-medium text-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
         <span className={`h-1.5 w-1.5 rounded-full ${STATE_DOT[state]}`} aria-hidden="true" />
         {config.label}
+        <span className="sr-only">. {hint ?? config.hint}</span>
       </span>
     </Tooltip>
   );
@@ -92,11 +94,12 @@ export function ProjectChip({ project, candidates, agentName, color, onEdit }: {
   return (
     <Tooltip content={hint}>
       {onEdit ? (
-        <button type="button" onClick={onEdit} aria-label={`Project: ${project?.name ?? 'not set'}. ${hint} Change`} className={`${CHIP} ${tone} ${CHIP_BUTTON}`}>
+        <button type="button" onClick={onEdit} className={`${CHIP} ${tone} ${CHIP_BUTTON}`}>
           {body}
+          <span className="sr-only">. {hint} Change the project.</span>
         </button>
       ) : (
-        <span className={`${CHIP} ${tone}`} aria-label={`Project: ${project?.name ?? 'not set'}. ${hint}`}>{body}</span>
+        <span className={`${CHIP} ${tone}`}>{body}<span className="sr-only">. {hint}</span></span>
       )}
     </Tooltip>
   );

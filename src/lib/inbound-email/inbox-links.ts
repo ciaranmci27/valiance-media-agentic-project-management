@@ -59,6 +59,9 @@ export async function unlinkThreadTask(ctx: InboxContext, threadId: string, task
   assertCanTriage(ctx.access);
   const thread = await loadReadableThread(ctx, threadId);
   const id = assertId(taskId, 'task_id');
+  // Only a task the member can open; a link to one in another project is not theirs to cut.
+  const task = await one<{ id: string; project_id: string }>(ctx.service.from('tasks').select('id, project_id').eq('id', id).is('deleted_at', null).maybeSingle());
+  if (!task || !accessAllowsProject(ctx.access, task.project_id)) throw new InboxError(404, 'Task not found');
   const messages = await many<{ id: string }>(ctx.service.from('email_messages').select('id').eq('thread_id', thread.id));
   if (messages.length === 0) return { removed: 0 };
   const { data, error } = await ctx.service.from('email_task_links')

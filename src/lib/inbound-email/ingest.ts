@@ -635,7 +635,9 @@ async function finalize(
   if (completeError) throw completeError;
   const result = completed as { already_complete: boolean; status: string; thread_id: string };
   if (result.already_complete) return { inbox_id: inbox.id, email_id: messageId, outcome: 'already_complete', status: result.status };
-  if (sorted.kind === 'notification' && sorted.topic && sortedAddress) {
+  // Only usage alerts climb in a series ("at 75%", "at 90%"). In an invoice,
+  // a past-due notice or a security alert the number names a different one.
+  if (sorted.kind === 'notification' && sorted.topic === 'usage' && sortedAddress) {
     try {
       await supersedeAlerts(supabase, inbox.id, messageId, sortedAddress, sorted.topic, prepared.message.subject, message.received_at as string);
     } catch (supersedeError) {
@@ -649,25 +651,33 @@ async function finalize(
 const ALERT_SERIES_DAYS = 60;
 
 /**
- * A newer alert closes the open ones it replaces: same sender, same topic,
- * a subject that differs only in its numbers ("at 75%", then "at 90%"),
- * within ALERT_SERIES_DAYS. They become handled and point at the new one.
+ * A newer usage alert closes the open ones it replaces: same sender (the
+ * original sender of a teammate's forward), same topic, a subject that
+ * differs only in its numbers ("at 75%", then "at 90%"), within
+ * ALERT_SERIES_DAYS. They become handled and point at the new one. It reads
+ * the open alerts first (few), then their senders.
  */
 async function supersedeAlerts(
   supabase: SupabaseClient, inboxId: string, messageId: string, fromAddress: string, topic: string, subject: string, receivedAt: string,
 ): Promise<void> {
-  const { data: senderRows, error: senderError } = await supabase.from('email_message_recipients')
-    .select('message_id').eq('kind', 'from').eq('address', fromAddress).neq('message_id', messageId).limit(500);
-  if (senderError) throw senderError;
-  const ids = [...new Set(((senderRows ?? []) as { message_id: string }[]).map((row) => row.message_id))];
-  if (ids.length === 0) return;
   const since = new Date(Date.parse(receivedAt) - ALERT_SERIES_DAYS * 86_400_000).toISOString();
-  const { data: older, error: olderError } = await supabase.from('email_messages')
-    .select('id, subject').in('id', ids).eq('inbox_id', inboxId).eq('kind', 'notification').eq('topic', topic)
-    .in('status', ['new', 'needs_human']).gte('received_at', since).lt('received_at', receivedAt);
-  if (olderError) throw olderError;
   const key = alertSeriesKey(subject);
-  const replaced = ((older ?? []) as { id: string; subject: string }[]).filter((row) => alertSeriesKey(row.subject) === key).map((row) => row.id);
+  const { data: open, error: openError } = await supabase.from('email_messages')
+    .select('id, subject, routing_basis, original_from_address')
+    .eq('inbox_id', inboxId).eq('kind', 'notification').eq('topic', topic)
+    .in('status', ['new', 'needs_human']).neq('id', messageId)
+    .gte('received_at', since).lt('received_at', receivedAt).limit(200);
+  if (openError) throw openError;
+  const series = ((open ?? []) as { id: string; subject: string; routing_basis: string; original_from_address: string | null }[])
+    .filter((row) => alertSeriesKey(row.subject) === key);
+  if (series.length === 0) return;
+  const { data: senderRows, error: senderError } = await supabase.from('email_message_recipients')
+    .select('message_id, address').eq('kind', 'from').in('message_id', series.map((row) => row.id));
+  if (senderError) throw senderError;
+  const senderOf = new Map(((senderRows ?? []) as { message_id: string; address: string }[]).map((row) => [row.message_id, row.address]));
+  const replaced = series
+    .filter((row) => (row.routing_basis === 'forwarded_original' ? row.original_from_address : senderOf.get(row.id)) === fromAddress)
+    .map((row) => row.id);
   if (replaced.length === 0) return;
   const { error } = await supabase.from('email_messages')
     .update({ status: 'handled', superseded_by: messageId }).in('id', replaced).in('status', ['new', 'needs_human']);

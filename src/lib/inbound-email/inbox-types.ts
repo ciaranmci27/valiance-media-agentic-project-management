@@ -82,7 +82,7 @@ export interface InboxThreadSummary {
   summary: string | null;
   /** Live tasks the thread's emails created, updated or relate to. */
   task_count: number;
-  /** Open reminders on those tasks. */
+  /** Open reminders the thread's emails set. */
   reminder_count: number;
 }
 

@@ -96,6 +96,7 @@ export async function createEmailDatabase(
     -- Only what the Inbox list reads: open reminders on a thread's tasks.
     CREATE TABLE public.reminders (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), title text NOT NULL DEFAULT '', remind_on date, project_id uuid,
       task_id uuid REFERENCES public.tasks(id) ON DELETE CASCADE, status text NOT NULL DEFAULT 'open', source_message_id uuid,
+      owner_id uuid, created_by uuid,
       created_at timestamptz NOT NULL DEFAULT now(), deleted_at timestamptz);
   `);
   await db.exec(table(agentSchema, 'agent_activities').replace('CREATE TABLE', 'create table'));

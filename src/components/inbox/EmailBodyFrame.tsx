@@ -110,11 +110,15 @@ function buildDocument(html: string, inlineImages: Record<string, string>, hideQ
   const policyTag = doc.createElement('meta');
   policyTag.setAttribute('http-equiv', 'Content-Security-Policy');
   policyTag.setAttribute('content', policy(window.location.origin));
+  // A srcdoc page takes the app's referrer policy; this keeps the app's address from every image host.
+  const referrer = doc.createElement('meta');
+  referrer.setAttribute('name', 'referrer');
+  referrer.setAttribute('content', 'no-referrer');
   const base = doc.createElement('base');
   base.setAttribute('target', '_blank');
   const style = doc.createElement('style');
   style.textContent = BASE_STYLES;
-  head.prepend(charset, policyTag, base, style);
+  head.prepend(charset, policyTag, referrer, base, style);
   return `<!DOCTYPE html>${documentElement.outerHTML}`;
 }
 

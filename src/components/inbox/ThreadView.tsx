@@ -62,6 +62,7 @@ export function ThreadView({ threadId, focusMessageId, onMissing }: ThreadViewPr
   const { projects, team } = useApp();
   const { access } = useAuth();
   const canTriage = hasPermission(access, 'inbound_email.triage') || hasPermission(access, 'inbound_email.manage');
+  const canManageRules = hasPermission(access, 'inbound_email.manage') && !isDemoMode;
   const client = useMemo(() => inboxClient(isDemoMode), [isDemoMode]);
   const [detail, setDetail] = useState<InboxThreadDetail | null>(null);
   const [error, setError] = useState('');
@@ -116,13 +117,21 @@ export function ThreadView({ threadId, focusMessageId, onMissing }: ThreadViewPr
     if (change?.threadId !== threadId) void load(true);
   });
 
-  // While the agent writes a requested draft, look again every few seconds.
+  // While the agent writes a requested draft, look again every few seconds,
+  // for ten minutes at most; the request closes itself after half an hour.
   const drafting = detail?.reply_draft?.status === 'requested';
+  const draftAskedAt = drafting ? detail?.reply_draft?.created_at ?? null : null;
   useEffect(() => {
-    if (!drafting) return;
-    const timer = window.setInterval(() => void load(true), 8000);
+    if (!draftAskedAt) return;
+    const timer = window.setInterval(() => {
+      if (Date.now() - Date.parse(draftAskedAt) > 10 * 60_000) {
+        window.clearInterval(timer);
+        return;
+      }
+      void load(true);
+    }, 8000);
     return () => window.clearInterval(timer);
-  }, [drafting, load]);
+  }, [draftAskedAt, load]);
 
   // Land on the newest message (or the linked one) once per thread.
   useEffect(() => {
@@ -208,7 +217,7 @@ export function ThreadView({ threadId, focusMessageId, onMissing }: ThreadViewPr
   };
   const menu: RowAction[] = [
     ...(fileCount > 0 ? [{ label: `Attachments (${fileCount})`, icon: <Paperclip size={14} aria-hidden="true" />, onClick: () => setAttachmentsOpen(true) }] : []),
-    { label: 'Filter mail like this', icon: <Filter size={14} aria-hidden="true" />, onClick: () => setRuleFor(latest) },
+    ...(canManageRules ? [{ label: 'Filter mail like this', icon: <Filter size={14} aria-hidden="true" />, onClick: () => setRuleFor(latest) }] : []),
     ...(canSendBack ? [{ label: `Send back to ${agentName}`, icon: <RotateCcw size={14} aria-hidden="true" />, onClick: () => void after(() => client.sendBack(detail.id, null), `Sent back to ${agentName}`, 'send_back') }] : []),
   ];
   let lastDay = '';
@@ -221,17 +230,20 @@ export function ThreadView({ threadId, focusMessageId, onMissing }: ThreadViewPr
           <h2 className="min-w-0 flex-1 break-words text-lg font-semibold leading-snug tracking-tight text-white">{detail.subject || '(no subject)'}</h2>
           {canTriage ? (
             <div className="flex flex-shrink-0 items-center gap-0.5 rounded-lg border border-white/[0.07] bg-white/[0.02] p-0.5">
-              <Button
-                size="sm"
-                variant="ghost"
-                className="!rounded-md !py-1"
-                icon={drafting ? <Loader2 size={13} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <PenLine size={13} aria-hidden="true" />}
-                disabled={drafting}
-                onClick={() => setDraftDialog(true)}
-                title={drafting ? `${agentName} is writing a draft` : `Ask ${agentName} for a reply draft`}
-              >
-                Draft reply
-              </Button>
+              {/* Drafts need an agent on the inbox, and the real app (not demo mode). */}
+              {detail.inbox.handler && !isDemoMode && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="!rounded-md !py-1"
+                  icon={drafting ? <Loader2 size={13} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <PenLine size={13} aria-hidden="true" />}
+                  disabled={drafting}
+                  onClick={() => setDraftDialog(true)}
+                  title={drafting ? `${agentName} is writing a draft` : `Ask ${agentName} for a reply draft`}
+                >
+                  Draft reply
+                </Button>
+              )}
               <RowActionsMenu actions={menu} label="More thread actions" triggerClassName="!rounded-md" />
               {busy === 'send_back' && <Loader2 size={14} className="mx-1 animate-spin text-zinc-400 motion-reduce:animate-none" aria-label={`Sending back to ${agentName}`} />}
               {/* Only offered when there is something to clear. */}
@@ -338,7 +350,7 @@ export function ThreadView({ threadId, focusMessageId, onMissing }: ThreadViewPr
                   viewUrl={isDemoMode ? null : attachmentViewUrl}
                   onPreview={isDemoMode ? undefined : setPreview}
                   onSendToAgent={canTriage ? () => void after(() => client.sendBack(detail.id, message.id), `Sent to ${agentName}`, 'send_back') : undefined}
-                  onRule={canTriage && !isDemoMode ? () => setRuleFor(message) : undefined}
+                  onRule={canManageRules ? () => setRuleFor(message) : undefined}
                   busy={busy !== null}
                   onDownload={(attachment) => void downloadAttachment(attachment)}
                 />

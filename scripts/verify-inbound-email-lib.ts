@@ -14,7 +14,7 @@ import { mergeClientSenders, resolveMapping, threadProjectDecision } from '../sr
 import { detectAutoMail } from '../src/lib/inbound-email/auto-mail';
 import { extractNewText, isForwardedMessage } from '../src/lib/inbound-email/quoted';
 import { htmlToText } from '../src/lib/inbound-email/html-text';
-import { compactLinks, hasQuotedHtml, inlineImageIds, linkParts, normalizeContentId, opensAsHtml, shortUrl } from '../src/lib/inbound-email/display';
+import { compactLinks, hasQuotedHtml, inlineImageIds, isTrackingLink, linkParts, normalizeContentId, opensAsHtml, shortUrl } from '../src/lib/inbound-email/display';
 import { alertSeriesKey, sortEmail } from '../src/lib/inbound-email/sorting';
 import { evaluateAuth, parseAuthenticationResults } from '../src/lib/inbound-email/auth-results';
 import { organizationalDomain, parseAddressList, normalizeAddress, validateClientSenderAddress } from '../src/lib/inbound-email/addresses';
@@ -179,6 +179,10 @@ async function main() {
   check(linkParts('See https://acme.example/pricing.'), [{ text: 'See ' }, { url: 'https://acme.example/pricing', label: 'acme.example/pricing' }, { text: '.' }], 'display: a short readable path stays, trailing punctuation is text');
   check(linkParts('<https://a.example/x>'), [{ url: 'https://a.example/x', label: 'a.example/x' }], 'display: angle-bracketed link');
   check(linkParts('no links here'), [{ text: 'no links here' }], 'display: plain text is one part');
+  const doc = 'https://docs.google.com/document/d/1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789AbCdEfG/edit?usp=sharing';
+  check(compactLinks(`Brief: ${doc}`), `Brief: ${doc}`, 'display: a shared document link is kept whole for the agent');
+  check(isTrackingLink('https://click.mail.example/ls/click?upn=' + 'q'.repeat(90)), true, 'display: a long redirect with a token query is tracking');
+  check(isTrackingLink('https://acme.example/pricing?plan=pro'), false, 'display: a short readable link is not tracking');
   check(compactLinks(`Apply here (${tracking}x${'a'.repeat(40)}) or see https://docs.example/brief.`),
     'Apply here [upwork.com link] or see https://docs.example/brief.', 'display: the agent copy cuts long links to their site and keeps short ones');
   check(shortUrl('https://go.example/c/AbCdEfGhIjKlMnOpQrStUvWxYz0123456789'), 'go.example', 'display: an opaque token path drops');

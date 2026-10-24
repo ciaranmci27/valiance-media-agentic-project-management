@@ -52,7 +52,8 @@ export function InboxView({ projectId, embedded = false, emptyState, searchQuery
   const { isDemoMode } = useDemo();
   const { projects, tasks } = useApp();
   const { access } = useAuth();
-  const canTriage = hasPermission(access, 'inbound_email.triage') || hasPermission(access, 'inbound_email.manage');
+  // Sender rules apply to every inbox: only inbox managers see and change them.
+  const canManageRules = hasPermission(access, 'inbound_email.manage');
   const client = useMemo(() => inboxClient(isDemoMode), [isDemoMode]);
   const [rulesOpen, setRulesOpen] = useState(false);
 
@@ -234,7 +235,7 @@ export function InboxView({ projectId, embedded = false, emptyState, searchQuery
           <div className={searchQuery === undefined ? 'w-[9.5rem] flex-shrink-0' : 'min-w-0 flex-1'}>
             <Select ariaLabel="Status" value={tab} onChange={(value) => isInboxTab(value) && setTab(value)} options={statusOptions} size="sm" />
           </div>
-          {canTriage && !isDemoMode && (
+          {canManageRules && !isDemoMode && (
             <Tooltip content="Sender rules">
               <button
                 type="button"
@@ -380,8 +381,8 @@ export function InboxView({ projectId, embedded = false, emptyState, searchQuery
                               <TrustBadge level="untrusted" compact />
                             </Tooltip>
                           )}
-                          <ThreadCount icon={SquareCheck} count={thread.task_count} one="task" many="tasks" hint="created or updated from this thread" />
-                          <ThreadCount icon={Bell} count={thread.reminder_count} one="open reminder" many="open reminders" hint="on those tasks" />
+                          <ThreadCount icon={SquareCheck} count={thread.task_count} one="task" many="tasks" hint="this thread created, changed or is about" />
+                          <ThreadCount icon={Bell} count={thread.reminder_count} one="open reminder" many="open reminders" hint="set from this thread" />
                           <ThreadCount icon={Paperclip} count={thread.attachment_count} one="attachment" many="attachments" hint="in this thread" />
                           {!inboxId && inboxes.length > 1 && <span className="ml-auto text-[11px] text-zinc-400">{thread.inbox_name}</span>}
                         </span>

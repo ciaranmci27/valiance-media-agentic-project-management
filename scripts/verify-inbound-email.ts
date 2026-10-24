@@ -1516,28 +1516,39 @@ async function main() {
       const off = await rules.updateSenderRule(owner, again.rule.id, { enabled: false });
       check('rules: a rule is switched off, never deleted', !!off.rule.disabled_at && (await rows(db, 'SELECT 1 FROM email_sender_rules WHERE id=$1', [again.rule.id])).length === 1);
 
-      const agentMade = await api(agentRules.POST, 'POST', '/api/v1/inbound-emails/sender-rules', keys.ashley, {}, {
+      const overSwitchedOff = await api(agentRules.POST, 'POST', '/api/v1/inbound-emails/sender-rules', keys.ashley, {}, {
         match_kind: 'domain', match_value: 'tool.example', topic: 'usage', action: 'ignore', reason: 'Four usage alerts this month, none acted on.',
       });
+      check("rules api: a rule a person switched off for that sender blocks the agent's (409 person_rule)",
+        overSwitchedOff.status === 409 && overSwitchedOff.body.error?.details?.reason === 'person_rule', overSwitchedOff.body);
+      for (const [label, topic] of [['no topic', null], ['a protected topic', 'money']] as const) {
+        const refused = await api(agentRules.POST, 'POST', '/api/v1/inbound-emails/sender-rules', keys.ashley, {}, {
+          match_kind: 'domain', match_value: 'alerts.example', topic, action: 'fyi', reason: 'Plenty of these, none acted on.',
+        });
+        check(`rules api: an agent rule with ${label} is refused (422)`, refused.status === 422, refused.body);
+      }
+      const agentMade = await api(agentRules.POST, 'POST', '/api/v1/inbound-emails/sender-rules', keys.ashley, {}, {
+        match_kind: 'domain', match_value: 'alerts.example', topic: 'usage', action: 'ignore', reason: 'Four usage alerts this month, none acted on.',
+      });
       check('rules api: the agent makes a rule from a pattern, with its reason', agentMade.status === 201 && agentMade.body.data.rule.source === 'agent'
-        && agentMade.body.data.rule.label === 'Usage alerts from tool.example', agentMade.body);
+        && agentMade.body.data.rule.label === 'Usage alerts from alerts.example', agentMade.body);
       const noReason = await api(agentRules.POST, 'POST', '/api/v1/inbound-emails/sender-rules', keys.ashley, {}, {
         match_kind: 'domain', match_value: 'tool.example', topic: 'usage', action: 'ignore', reason: 'eh',
       });
       check('rules api: a rule without a real reason is refused (422)', noReason.status === 422, noReason.body);
-      await rules.createSenderRule(owner, { match_kind: 'domain', match_value: 'okendo.example', topic: 'usage', action: 'always', reason: '', thread_id: null });
+      await rules.createSenderRule(owner, { match_kind: 'domain', match_value: 'okendo.example', topic: null, action: 'always', reason: '', thread_id: null });
       const overPerson = await api(agentRules.POST, 'POST', '/api/v1/inbound-emails/sender-rules', keys.ashley, {}, {
         match_kind: 'domain', match_value: 'okendo.example', topic: 'usage', action: 'ignore', reason: 'Usage alerts are never acted on.',
       });
       check("rules api: the agent never replaces a person's rule (409 person_rule)", overPerson.status === 409 && overPerson.body.error?.details?.reason === 'person_rule', overPerson.body);
       const listedApi = await api(agentRules.GET, 'GET', '/api/v1/inbound-emails/sender-rules', keys.ashley);
       check('rules api: the agent lists live rules only', listedApi.status === 200 && listedApi.body.data.every((rule: Payload) => !rule.disabled_at)
-        && listedApi.body.data.some((rule: Payload) => rule.label === 'Usage alerts from tool.example'), listedApi.body);
+        && listedApi.body.data.some((rule: Payload) => rule.label === 'Usage alerts from alerts.example'), listedApi.body);
       const patterns = await api(sendersRoute.GET, 'GET', '/api/v1/inbound-emails/senders?days=90', keys.ashley);
       const tool = (patterns.body.data?.senders ?? []).find((sender: Payload) => sender.address === 'no-reply@tool.example');
-      check('senders api: per-sender counts, topics, actions and the rules that cover them',
+      check('senders api: per-sender counts, topics, actions and outcomes',
         patterns.status === 200 && tool?.count === 3 && tool.topics.usage === 3 && tool.domain === 'tool.example'
-        && tool.rules.some((rule: Payload) => rule.label === 'Usage alerts from tool.example'), tool ?? patterns.body);
+        && tool.sort_actions.ignore === 2 && Array.isArray(tool.rules), tool ?? patterns.body);
     }
 
     // ---- Relations: related links, thread summary, people's links, reminders
@@ -1581,6 +1592,10 @@ async function main() {
       const reminders = withReminder.messages.find((m) => m.id === reply.id)?.reminders ?? [];
       check('inbox ui: a reminder that came from an email shows on that email', reminders.length === 1 && reminders[0].title === 'Chase the final banner copy'
         && reminders[0].remind_on === '2026-11-11', reminders);
+      await db.query("INSERT INTO reminders (title, remind_on, source_message_id, owner_id, created_by) VALUES ('Private note', '2026-11-12', $1, $2, $2), ('My own note', '2026-11-13', $1, $3, $3)", [reply.id, readerId, ids.owner]);
+      const standalone = (await inbox.threadDetail(owner, reply.thread_id)).messages.find((m) => m.id === reply.id)?.reminders ?? [];
+      check("inbox ui: another member's standalone reminder stays theirs; your own shows", standalone.length === 2
+        && standalone.some((r) => r.title === 'My own note') && !standalone.some((r) => r.title === 'Private note'), standalone.map((r) => r.title));
       // Out of the summary counts any later check makes.
       await db.query('UPDATE email_triage SET summarized_at = now() WHERE message_id=$1', [reply.id]);
     }
@@ -1610,6 +1625,13 @@ async function main() {
         answered.status === 200 && answered.body.data.status === 'ready' && twice.status === 409 && [400, 422].includes(both.status), [answered.body, twice.status, both.status]);
       const shown = await drafts.latestDraft(owner, reply.thread_id);
       check('drafts: the thread shows the ready draft and who wrote it', shown?.status === 'ready' && !!shown.body?.includes('Friday works') && shown.drafted_by?.id === ids.ashley, shown);
+      const stale = await drafts.requestReplyDraft(owner, reply.thread_id, { instructions: 'Shorter please.' });
+      await db.query("UPDATE email_reply_drafts SET created_at = now() - interval '31 minutes' WHERE id=$1", [stale.id]);
+      const fresh = await drafts.requestReplyDraft(owner, reply.thread_id, { instructions: 'Shorter please.' });
+      const closed = (await rows<{ status: string; failure: string }>(db, 'SELECT status, failure FROM email_reply_drafts WHERE id=$1', [stale.id]))[0];
+      check('drafts: a request unanswered for 30 minutes closes as failed and a new ask starts fresh',
+        fresh.id !== stale.id && fresh.status === 'requested' && closed.status === 'failed' && closed.failure.includes('30 minutes'), [closed, fresh.id]);
+      await db.query("UPDATE email_reply_drafts SET status='failed', failure='test', completed_at=now() WHERE id=$1", [fresh.id]);
     }
 
     check('no deletes: no inbound email route exports DELETE', [list, detail, attachmentUrl, attachmentLabel, triage, unsummarized, markSummarized, signal, webhook].every((m) => !('DELETE' in m)));

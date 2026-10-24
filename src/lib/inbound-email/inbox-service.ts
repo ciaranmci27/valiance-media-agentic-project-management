@@ -89,6 +89,11 @@ export function assertCanTriage(access: AccessContext) {
   if (!canTriageInbox(access)) throw new InboxError(403, 'Viewing the inbox is read only. Triaging email needs permission to triage inbox email.');
 }
 
+/** Sender rules apply to every inbox, so seeing and changing them takes managing inboxes. */
+export function assertCanManageInboxes(access: AccessContext) {
+  if (!accessAllows(access, 'inbound_email.manage')) throw new InboxError(403, 'Sender rules apply to every inbox, so they need permission to manage inboxes.');
+}
+
 /** What a project the member cannot reach is called instead of its name. */
 export const OTHER_PROJECT_LABEL = 'Another project';
 
@@ -279,6 +284,51 @@ export interface ThreadListFilters {
   offset: number;
 }
 
+interface EmailReminderRow extends Row {
+  id: string;
+  source_message_id: string;
+  title: string;
+  remind_on: string | null;
+  status: 'open' | 'done';
+  task_id: string | null;
+  project_id: string | null;
+  owner_id: string;
+  created_by: string | null;
+  created_at: string;
+}
+
+/**
+ * Reminders that came from these emails, seen the way the app shows a
+ * reminder anywhere else: a standalone one only to its owner or writer, one
+ * on a project to whoever can open the project, and none whose task or
+ * project is in the trash.
+ */
+async function emailReminders(ctx: InboxContext, messageIds: string[], openOnly: boolean): Promise<EmailReminderRow[]> {
+  if (messageIds.length === 0) return [];
+  const rows = await readIn<EmailReminderRow>(messageIds, (chunk, from, to, count) => {
+    const query = ctxSelect(ctx.service, 'reminders', 'id, source_message_id, title, remind_on, status, task_id, project_id, owner_id, created_by, created_at', count)
+      .in('source_message_id', chunk).is('deleted_at', null);
+    return (openOnly ? query.eq('status', 'open') : query).order('id').range(from, to);
+  });
+  if (rows.length === 0) return [];
+  const taskIds = [...new Set(rows.map((row) => row.task_id).filter((id): id is string => !!id))];
+  const projectIds = [...new Set(rows.map((row) => row.project_id).filter((id): id is string => !!id))];
+  const [liveTasks, liveProjects] = await Promise.all([
+    taskIds.length ? readIn<{ id: string }>(taskIds, (chunk, from, to, count) =>
+      ctxSelect(ctx.service, 'tasks', 'id', count).in('id', chunk).is('deleted_at', null).order('id').range(from, to)) : Promise.resolve([]),
+    projectIds.length ? readIn<{ id: string }>(projectIds, (chunk, from, to, count) =>
+      ctxSelect(ctx.service, 'projects', 'id', count).in('id', chunk).is('deleted_at', null).order('id').range(from, to)) : Promise.resolve([]),
+  ]);
+  const taskLive = new Set(liveTasks.map((row) => row.id));
+  const projectLive = new Set(liveProjects.map((row) => row.id));
+  return rows.filter((row) => {
+    if (row.task_id && !taskLive.has(row.task_id)) return false;
+    if (row.project_id && !projectLive.has(row.project_id)) return false;
+    const mine = row.owner_id === ctx.memberId || row.created_by === ctx.memberId;
+    return row.project_id ? mine || accessAllowsProject(ctx.access, row.project_id) : mine;
+  });
+}
+
 export async function listThreads(ctx: InboxContext, filters: ThreadListFilters): Promise<InboxThreadList> {
   if (!canReadInbox(ctx.access)) throw new InboxError(403, 'Forbidden');
   const readable = await readableInboxIds(ctx);
@@ -332,10 +382,8 @@ export async function listThreads(ctx: InboxContext, filters: ThreadListFilters)
         .filter((task) => accessAllowsProject(ctx.access, task.project_id))
     : [];
   const liveTaskIds = new Set(liveTasks.map((task) => task.id));
-  const openReminders = liveTaskIds.size
-    ? await readIn<{ id: string; task_id: string }>([...liveTaskIds], (chunk, from, to, count) =>
-        ctxSelect(ctx.service, 'reminders', 'id, task_id', count).in('task_id', chunk).eq('status', 'open').is('deleted_at', null).order('id').range(from, to))
-    : [];
+  // The open reminders these emails set, the same ones the thread shows.
+  const openReminders = await emailReminders(ctx, pageMessageIds, true);
   const bodyById = new Map(bodies.map((row) => [row.id, row]));
   const threads: InboxThreadSummary[] = page.map((entry) => {
     const latest = entry.messages[entry.messages.length - 1];
@@ -363,7 +411,7 @@ export async function listThreads(ctx: InboxContext, filters: ThreadListFilters)
       summary: entry.thread.summary ?? null,
       ...(() => {
         const taskIds = new Set(links.filter((link) => ids.has(link.message_id) && liveTaskIds.has(link.task_id)).map((link) => link.task_id));
-        return { task_count: taskIds.size, reminder_count: openReminders.filter((reminder) => taskIds.has(reminder.task_id)).length };
+        return { task_count: taskIds.size, reminder_count: openReminders.filter((reminder) => ids.has(reminder.source_message_id)).length };
       })(),
     };
   });
@@ -461,9 +509,7 @@ export async function threadDetail(ctx: InboxContext, threadId: string): Promise
       ctxSelect(service, 'email_task_links', 'id, message_id, task_id, relation, triage_id, created_at', count).in('message_id', chunk).order('id').range(from, to)),
     readIn<Row & { message_id: string; project_id: string; reason: CandidateReason }>(ids, (chunk, from, to, count) =>
       ctxSelect(service, 'email_message_candidates', 'message_id, project_id, reason', count).in('message_id', chunk).order('message_id').order('project_id').order('reason').range(from, to)),
-    readIn<Row & { id: string; source_message_id: string; project_id: string | null }>(ids, (chunk, from, to, count) =>
-      ctxSelect(service, 'reminders', 'id, source_message_id, title, remind_on, status, task_id, project_id, created_at', count)
-        .in('source_message_id', chunk).is('deleted_at', null).order('id').range(from, to)),
+    emailReminders(ctx, ids, false),
   ]);
   const latest = latestTriage(triageRows);
   const taskIds = [...new Set(links.map((link) => link.task_id))];
@@ -579,7 +625,7 @@ export async function threadDetail(ctx: InboxContext, threadId: string): Promise
           };
         }),
       reminders: reminderRows
-        .filter((reminder) => reminder.source_message_id === id && (!reminder.project_id || accessAllowsProject(ctx.access, reminder.project_id)))
+        .filter((reminder) => reminder.source_message_id === id)
         .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)))
         .map((reminder): InboxReminder => ({
           id: reminder.id,
@@ -631,15 +677,19 @@ export async function threadDetail(ctx: InboxContext, threadId: string): Promise
  * email's HTML, the attachment preview).
  */
 export async function attachmentDownloadUrl(ctx: InboxContext, attachmentId: string, options: { inline?: boolean } = {}): Promise<{ url: string; filename: string; expires_in: number }> {
+  // Inline only for what the Inbox shows (images, PDFs, text): never a sender's HTML or SVG.
   if (!canReadInbox(ctx.access)) throw new InboxError(403, 'Forbidden');
   const id = assertId(attachmentId, 'attachment id');
-  const attachment = await one<{ id: string; message_id: string; filename: string; storage_path: string | null; uploaded_at: string | null; skipped_reason: string | null }>(
-    ctx.service.from('email_attachments').select('id, message_id, filename, storage_path, uploaded_at, skipped_reason').eq('id', id).maybeSingle());
+  const attachment = await one<{ id: string; message_id: string; filename: string; content_type: string; storage_path: string | null; uploaded_at: string | null; skipped_reason: string | null }>(
+    ctx.service.from('email_attachments').select('id, message_id, filename, content_type, storage_path, uploaded_at, skipped_reason').eq('id', id).maybeSingle());
   const message = attachment
     ? await one<{ inbox_id: string; status: string }>(ctx.service.from('email_messages').select('inbox_id, status').eq('id', attachment.message_id).maybeSingle())
     : null;
   if (!attachment || !message || message.status === 'receiving' || !(await readableInboxIds(ctx)).includes(message.inbox_id)) {
     throw new InboxError(404, 'Attachment not found');
+  }
+  if (options.inline && attachmentKind(attachment.content_type, attachment.filename) === 'other') {
+    throw new InboxError(415, 'This file cannot be opened in the browser. Download it instead.');
   }
   if (attachment.skipped_reason || !attachment.storage_path || !attachment.uploaded_at) {
     throw new InboxError(409, 'This file was not stored (it was over the size limit), so there is nothing to download.');

@@ -24,9 +24,22 @@ export const GET = withApi(async ({ supabase, searchParams, teamMemberId }) => {
   if (!(STATUSES as readonly string[]).includes(status)) throw badRequest('status must be requested, ready or failed');
   const inboxIds = await inboxScope(supabase, teamMemberId, searchParams.get('inbox_id'));
   if (inboxIds.length === 0) return success([]);
-  const { data, error } = await supabase.from('email_reply_drafts').select(DRAFT_COLUMNS).eq('status', status).order('created_at').limit(200);
-  if (error) throw error;
-  const drafts = (data ?? []) as DraftRow[];
+  // Scoped to the key's inboxes before any cap: the drafts on its threads only.
+  const drafts: DraftRow[] = [];
+  const newestFirst = status !== 'requested';
+  for (let from = 0; drafts.length < 50; from += 500) {
+    const { data, error } = await supabase.from('email_reply_drafts').select(DRAFT_COLUMNS).eq('status', status)
+      .order('created_at', { ascending: !newestFirst }).range(from, from + 499);
+    if (error) throw error;
+    const page = (data ?? []) as DraftRow[];
+    if (page.length === 0) break;
+    const { data: owned, error: ownedError } = await supabase.from('email_messages').select('id')
+      .in('id', [...new Set(page.map((draft) => draft.message_id))]).in('inbox_id', inboxIds);
+    if (ownedError) throw ownedError;
+    const mine = new Set(((owned ?? []) as { id: string }[]).map((row) => row.id));
+    drafts.push(...page.filter((draft) => mine.has(draft.message_id)));
+    if (page.length < 500) break;
+  }
   if (drafts.length === 0) return success([]);
   const [{ data: messages, error: messageError }, { data: people, error: peopleError }] = await Promise.all([
     supabase.from('email_messages').select('id, inbox_id, subject').in('id', [...new Set(drafts.map((draft) => draft.message_id))]),
@@ -37,7 +50,6 @@ export const GET = withApi(async ({ supabase, searchParams, teamMemberId }) => {
   const messageById = new Map(((messages ?? []) as { id: string; inbox_id: string; subject: string }[]).map((message) => [message.id, message]));
   const nameById = new Map(((people ?? []) as { id: string; name: string }[]).map((person) => [person.id, person.name]));
   return success(drafts
-    .filter((draft) => inboxIds.includes(messageById.get(draft.message_id)?.inbox_id ?? ''))
     .slice(0, 50)
     .map((draft) => ({
       id: draft.id,

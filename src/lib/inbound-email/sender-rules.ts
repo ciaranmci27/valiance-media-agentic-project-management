@@ -68,6 +68,29 @@ export function describeRule(rule: Pick<SenderRuleRow, 'match_value' | 'topic'>)
   return `${rule.topic ? TOPIC_PLURALS[rule.topic] : 'Mail'} from ${rule.match_value}`;
 }
 
+/** Topics no rule from the agent may name: Ciaran always sees this mail. */
+export const PROTECTED_TOPICS: readonly MailTopic[] = ['money', 'account_risk', 'security'];
+
+function sameOrUnder(domain: string, parent: string): boolean {
+  return domain === parent || domain.endsWith(`.${parent}`);
+}
+
+/**
+ * True when two rules can match the same email: their senders overlap (one
+ * address, or an address under the other's domain, or nested domains) and
+ * their topics do (equal, or either covers every topic).
+ */
+export function rulesOverlap(a: Pick<SenderRuleRow, 'match_kind' | 'match_value' | 'topic'>, b: Pick<SenderRuleRow, 'match_kind' | 'match_value' | 'topic'>): boolean {
+  if (a.topic && b.topic && a.topic !== b.topic) return false;
+  const domainOfAddress = (value: string) => value.split('@')[1] ?? '';
+  if (a.match_kind === 'address' && b.match_kind === 'address') return a.match_value === b.match_value;
+  if (a.match_kind === 'domain' && b.match_kind === 'domain') {
+    return sameOrUnder(a.match_value, b.match_value) || sameOrUnder(b.match_value, a.match_value);
+  }
+  const [address, domain] = a.match_kind === 'address' ? [a.match_value, b.match_value] : [b.match_value, a.match_value];
+  return sameOrUnder(domainOfAddress(address), domain);
+}
+
 /** The live rule with the same sender and topic, if any. */
 export async function liveRuleFor(supabase: SupabaseClient, kind: string, value: string, topic: string | null): Promise<SenderRuleRow | null> {
   let query = supabase.from('email_sender_rules').select(RULE_COLUMNS)

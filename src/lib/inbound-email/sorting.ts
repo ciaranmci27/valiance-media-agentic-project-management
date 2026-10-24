@@ -8,8 +8,9 @@ import { domainOf, organizationalDomain } from './addresses';
  * - topic, for machine mail: money (charges, invoices, receipts), account
  *   risk (failed payments, expired cards, suspensions), security, usage
  *   (plan limits, quotas), event, newsletter, promotion, or a plain update;
- * - action: ignore (Filtered, never triaged), fyi (triaged lightly, never
- *   "needs you"), always (full triage), or triage (the default).
+ * - action: ignore (Filtered, never triaged), fyi (triaged lightly, "needs
+ *   you" only when the email itself asks for something), always (full
+ *   triage), or triage (the default).
  * A sender rule decides first (an exact address over a domain, a rule for
  * this topic over one for any topic). Without one, people, teammates and
  * meeting notes are triaged; machine mail about money, account risk or

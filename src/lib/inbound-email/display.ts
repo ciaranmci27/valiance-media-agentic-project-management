@@ -50,20 +50,36 @@ export function linkParts(text: string): TextPart[] {
   return parts;
 }
 
-/** Links longer than this read as tracking links in the agent's copy. */
-const LONG_LINK = 80;
+// Hosts whose links are the work itself (a document, a design, a recording): always kept whole.
+const DOCUMENT_HOSTS = /(^|\.)(docs\.google\.com|drive\.google\.com|sheets\.google\.com|figma\.com|notion\.so|notion\.site|dropbox\.com|loom\.com|canva\.com|github\.com|gitlab\.com|airtable\.com|miro\.com|box\.com|onedrive\.live\.com|sharepoint\.com|wetransfer\.com|vimeo\.com|youtube\.com|youtu\.be)$/i;
 
 /**
- * The text with each long link (tracking redirects, mostly) replaced by
- * "[site link]". Short links stay whole: a shared document's address is
- * worth keeping. For the agent's copy of an email, where tracking URLs
- * would otherwise fill the read and push the real words past the cap.
+ * Whether a link is a tracking redirect: a long query string, or a path
+ * carrying an opaque token, past a length a readable link rarely reaches.
+ * Document links are never one.
+ */
+export function isTrackingLink(raw: string): boolean {
+  try {
+    const url = new URL(raw);
+    if (DOCUMENT_HOSTS.test(url.hostname)) return false;
+    if (raw.length <= 100) return false;
+    return url.search.length > 40 || /[A-Za-z0-9_-]{40,}/.test(url.pathname);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The text with each tracking link replaced by "[site link]". Every other
+ * link stays whole: a shared document's address is worth keeping. For the
+ * agent's copy of an email, where tracking URLs would otherwise fill the
+ * read and push the real words past the cap.
  */
 export function compactLinks(text: string | null): string | null {
   if (!text) return text;
   return linkParts(text).map((part) => {
     if ('text' in part) return part.text;
-    return part.url.length > LONG_LINK ? `[${part.label} link]` : part.url;
+    return isTrackingLink(part.url) ? `[${part.label} link]` : part.url;
   }).join('');
 }
 

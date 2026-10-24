@@ -102,7 +102,7 @@ export function SenderRulesManager({ isOpen, onClose, onChanged }: { isOpen: boo
                   checked={!off}
                   onChange={(checked) => void change(rule, { enabled: checked })}
                   disabled={saving === rule.id}
-                  aria-label={`${off ? 'Switch on' : 'Switch off'} ${rule.label}`}
+                  aria-label={`Rule for ${rule.label}`}
                 />
               </li>
             );
