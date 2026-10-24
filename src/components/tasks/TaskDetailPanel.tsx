@@ -39,6 +39,7 @@ import {
   Flag,
   CircleDot,
   Info,
+  Route,
   type LucideIcon,
 } from 'lucide-react';
 import { RowActionsMenu, type RowAction } from '@/components/ui/RowActionsMenu';
@@ -168,6 +169,55 @@ function Section({ variant, title, icon: Icon, count, action, children }: {
         {end}
       </div>
       {children}
+    </section>
+  );
+}
+
+/**
+ * A section that folds away: its whole heading is the toggle, with a small
+ * badge (progress) and a chevron. Closed, it is only that heading. Same look
+ * as Section in the panel and on the page.
+ */
+function FoldingSection({ variant, title, icon: Icon, open, onToggle, badge, children }: {
+  variant: 'panel' | 'page';
+  title: string;
+  icon: LucideIcon;
+  open: boolean;
+  onToggle: () => void;
+  badge?: ReactNode;
+  children: ReactNode;
+}) {
+  const heading = (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={open}
+      className={`flex w-full items-center gap-2 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${
+        variant === 'page' ? 'rounded-xl px-5 py-4 hover:bg-white/[0.02]' : '-mx-2 w-[calc(100%+1rem)] rounded-lg px-2 py-1.5 hover:bg-white/[0.03]'
+      }`}
+    >
+      <Icon size={16} className="flex-shrink-0 text-zinc-400" aria-hidden="true" />
+      <span className="text-sm font-semibold text-white">{title}</span>
+      {badge}
+      <ChevronDown
+        size={16}
+        className={`ml-auto flex-shrink-0 text-zinc-400 transition-transform motion-reduce:transition-none ${open ? 'rotate-180' : ''}`}
+        aria-hidden="true"
+      />
+    </button>
+  );
+  if (variant === 'page') {
+    return (
+      <section className="glass-card rounded-xl">
+        {heading}
+        {open && <div className="px-5 pb-5">{children}</div>}
+      </section>
+    );
+  }
+  return (
+    <section className="px-5 py-3.5 border-t border-white/[0.06]">
+      {heading}
+      {open && <div className="mt-2">{children}</div>}
     </section>
   );
 }
@@ -517,11 +567,14 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete, variant = 'pa
       </DetailRow>
 
       <DetailRow icon={Clock} label="Created">
-        <div className="min-w-0">
-          <span className="text-zinc-300">{createdDate}</span>
-          <TaskSourceLine source={source} />
-        </div>
+        <span className="text-zinc-300">{createdDate}</span>
       </DetailRow>
+
+      {source && (
+        <DetailRow icon={Route} label="Source">
+          <TaskSourceLine source={source} />
+        </DetailRow>
+      )}
 
       {/* AI ready. On = ai_ready (the dev agent may pick it up), off = no
           readiness, a person's task like most tasks. A task with no
@@ -609,18 +662,20 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete, variant = 'pa
       )}
 
       {showCriteria && (
-      <Section
+      <FoldingSection
         variant={variant}
         title="Acceptance criteria"
         icon={ListChecks}
-        count={task.acceptance_criteria.length > 0 ? `${satisfiedCriteria} of ${task.acceptance_criteria.length} met` : undefined}
-        action={
-          <CardAction onClick={() => setCriteriaOpen((open) => !open)} aria-expanded={criteriaOpen}>
-            {criteriaOpen ? 'Hide' : 'Show'}
-          </CardAction>
-        }
+        open={criteriaOpen}
+        onToggle={() => setCriteriaOpen((open) => !open)}
+        badge={task.acceptance_criteria.length > 0 && (
+          <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium tabular-nums ${
+            satisfiedCriteria === task.acceptance_criteria.length ? 'bg-emerald-500/15 text-emerald-300' : 'bg-white/[0.06] text-zinc-300'
+          }`}>
+            {satisfiedCriteria}/{task.acceptance_criteria.length} met
+          </span>
+        )}
       >
-        {criteriaOpen && (<>
         {task.acceptance_criteria.length === 0 && !canEdit && <p className="text-sm text-zinc-500">None yet.</p>}
         <ul className="space-y-0.5">
           {task.acceptance_criteria.map((criterion) => (
@@ -707,8 +762,7 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete, variant = 'pa
         {canEdit && (
           <InlineAdd label="Add criterion" placeholder="What has to be true when it is done" onAdd={(text) => addCriterion(task.id, text)} />
         )}
-        </>)}
-      </Section>
+      </FoldingSection>
       )}
 
       <Section

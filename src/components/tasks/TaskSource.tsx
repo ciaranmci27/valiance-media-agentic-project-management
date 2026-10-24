@@ -49,18 +49,18 @@ export function taskCreator(source: Pick<TaskSourceData, 'via' | 'by' | 'key'>, 
 }
 
 /**
- * Under the task's Created date: who made it, the reason it came with, and
- * the email behind it. Tasks from before tracking say only that.
+ * The task's Source row: who made it, the reason it came with, and the email
+ * behind it. Tasks from before tracking say only that.
  */
 export function TaskSourceLine({ source }: { source: TaskSourceData | null }) {
   const { teamMemberId } = useAuth();
   if (!source) return null;
-  if (source.via === 'unknown') return <p className="mt-0.5 text-xs text-zinc-500">Before source tracking</p>;
+  if (source.via === 'unknown') return <span className="text-sm text-zinc-500">Before tracking</span>;
   const creator = taskCreator(source, teamMemberId);
   return (
-    <p className="mt-0.5 text-xs leading-relaxed text-zinc-400">
-      {creator ? <>By {creator}</> : 'Source unknown'}
-      {source.note && <> · <span className="text-zinc-300">{source.note}</span></>}
+    <span className="py-1 text-sm leading-snug text-zinc-300">
+      {creator ? creator.charAt(0).toUpperCase() + creator.slice(1) : 'Unknown'}
+      {source.note && <span className="text-zinc-400"> · {source.note}</span>}
       {source.email && (
         <>
           {' · '}
@@ -72,7 +72,7 @@ export function TaskSourceLine({ source }: { source: TaskSourceData | null }) {
           </Link>
         </>
       )}
-    </p>
+    </span>
   );
 }
 
