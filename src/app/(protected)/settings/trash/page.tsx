@@ -18,7 +18,7 @@ type Group = 'all' | 'projects' | 'tasks' | 'billing' | 'clients' | 'files';
 const GROUPS: { key: Group; label: string; types: string[] }[] = [
   { key: 'all', label: 'All', types: [] },
   { key: 'projects', label: 'Projects', types: ['projects'] },
-  { key: 'tasks', label: 'Tasks', types: ['tasks', 'task_subtasks', 'task_comments', 'reminders'] },
+  { key: 'tasks', label: 'Tasks', types: ['tasks', 'task_subtasks', 'task_comments', 'task_files', 'reminders'] },
   {
     key: 'billing',
     label: 'Billing',
@@ -33,6 +33,7 @@ const TYPES: Record<string, { label: string; icon: LucideIcon }> = {
   tasks: { label: 'Task', icon: CheckSquare },
   task_subtasks: { label: 'Subtask', icon: CheckSquare },
   task_comments: { label: 'Comment', icon: MessageSquare },
+  task_files: { label: 'Task file', icon: FileText },
   reminders: { label: 'Reminder', icon: Clock },
   project_credentials: { label: 'Credential', icon: KeyRound },
   entity_files: { label: 'File', icon: FileText },

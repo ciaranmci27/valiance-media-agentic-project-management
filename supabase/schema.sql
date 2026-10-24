@@ -10367,7 +10367,7 @@ AS $$
     'entity_files', 'portal_updates', 'portal_update_attachments', 'contacts', 'leads',
     'lead_interactions', 'lead_proposals', 'lead_fields',
     'project_time_entries', 'project_invoices', 'invoice_payments', 'project_hourly_rates',
-    'project_retainers', 'project_retainer_amounts'
+    'project_retainers', 'project_retainer_amounts', 'task_files'
   ]
 $$;
 
@@ -10406,6 +10406,9 @@ BEGIN
     WHEN 'task_comments' THEN
       SELECT public.can_access_task(task_id) AND (user_id = me OR public.has_permission('tasks.manage_all'))
       INTO allowed FROM public.task_comments WHERE id = p_id;
+    WHEN 'task_files' THEN
+      SELECT public.can_access_task(task_id) AND (added_by = me OR public.has_permission('files.manage'))
+      INTO allowed FROM public.task_files WHERE id = p_id;
     WHEN 'reminders' THEN
       SELECT public.can_see_reminder(owner_id, project_id, task_id)
         AND (owner_id = me OR created_by = me OR public.has_permission('tasks.manage_all'))
@@ -10503,7 +10506,7 @@ BEGIN
     WHEN 'tasks' THEN
       SELECT p.deleted_at IS NOT NULL INTO project_gone
       FROM public.tasks t JOIN public.projects p ON p.id = t.project_id WHERE t.id = p_id;
-    WHEN 'task_subtasks', 'task_comments' THEN
+    WHEN 'task_subtasks', 'task_comments', 'task_files' THEN
       EXECUTE format('SELECT t.deleted_at IS NOT NULL, p.deleted_at IS NOT NULL
         FROM public.%I c JOIN public.tasks t ON t.id = c.task_id JOIN public.projects p ON p.id = t.project_id
         WHERE c.id = $1', p_table)
@@ -10705,6 +10708,7 @@ AS $$
     WHEN 'tasks' THEN 'task'
     WHEN 'task_subtasks' THEN 'subtask'
     WHEN 'task_comments' THEN 'comment'
+    WHEN 'task_files' THEN 'task_file'
     WHEN 'reminders' THEN 'reminder'
     WHEN 'project_credentials' THEN 'credential'
     WHEN 'entity_files' THEN 'entity_file'
@@ -11109,6 +11113,7 @@ BEGIN
       ('tasks', 'r.title', 'p.name', 'r.project_id', 'LEFT JOIN public.projects p ON p.id = r.project_id'),
       ('task_subtasks', 'r.title', 't.title', 't.project_id', 'LEFT JOIN public.tasks t ON t.id = r.task_id'),
       ('task_comments', 'left(r.text, 120)', 't.title', 't.project_id', 'LEFT JOIN public.tasks t ON t.id = r.task_id'),
+      ('task_files', 'r.name', 't.title', 't.project_id', 'LEFT JOIN public.tasks t ON t.id = r.task_id'),
       ('reminders', 'r.title', 'coalesce(t.title, p.name)', 'r.project_id',
         'LEFT JOIN public.tasks t ON t.id = r.task_id LEFT JOIN public.projects p ON p.id = r.project_id'),
       ('project_credentials', 'r.label', 'p.name', 'r.project_id', 'LEFT JOIN public.projects p ON p.id = r.project_id'),
@@ -11443,6 +11448,7 @@ IMMUTABLE
 AS $$
   SELECT CASE p_table
     WHEN 'entity_files' THEN 'file'
+    WHEN 'task_files' THEN 'file'
     WHEN 'invoice_payments' THEN 'payment'
     WHEN 'project_hourly_rates' THEN 'hourly_rate'
     ELSE public.trash_entity_type(p_table)
@@ -11906,20 +11912,20 @@ SET search_path = public
 AS $$
 DECLARE
   v_project_id uuid;
-  v_task record;
+  v_task_id uuid;
+  v_task_title text;
   v_meta jsonb := jsonb_build_object('file_name', NEW.name, 'entity_type', NEW.entity_type, 'entity_id', NEW.entity_id);
 BEGIN
   IF NEW.entity_type = 'project' THEN
     v_project_id := NEW.entity_id;
   ELSIF NEW.entity_type = 'task' THEN
-    SELECT id, title, project_id INTO v_task FROM public.tasks WHERE id = NEW.entity_id;
-    v_project_id := v_task.project_id;
-    v_meta := v_meta || jsonb_build_object('task_id', v_task.id, 'task_title', v_task.title);
+    SELECT id, title, project_id INTO v_task_id, v_task_title, v_project_id FROM public.tasks WHERE id = NEW.entity_id;
+    v_meta := v_meta || jsonb_build_object('task_id', v_task_id, 'task_title', v_task_title);
   ELSIF NEW.entity_type = 'lead' THEN
     v_meta := v_meta || jsonb_build_object('lead_id', NEW.entity_id);
   END IF;
   PERFORM public.log_team_activity('file.uploaded', 'file', NEW.id::text, v_project_id,
-    CASE WHEN v_task.id IS NOT NULL THEN format('Uploaded "%s" to task "%s"', NEW.name, v_task.title)
+    CASE WHEN v_task_id IS NOT NULL THEN format('Uploaded "%s" to task "%s"', NEW.name, v_task_title)
       ELSE format('Uploaded "%s"', NEW.name) END,
     v_meta);
   RETURN NULL;
@@ -12309,3 +12315,109 @@ $$;
 
 REVOKE ALL ON FUNCTION public.mark_task_seen(uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.mark_task_seen(uuid) TO authenticated;
+
+-- ---------------------------------------------------------------------------
+-- Task files
+-- ---------------------------------------------------------------------------
+-- A task's own uploads (private task-files bucket, stored once per project by
+-- content) and links to email attachments and project files, never copies.
+CREATE TABLE public.task_files (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  task_id uuid NOT NULL REFERENCES public.tasks(id) ON DELETE CASCADE,
+  -- upload: the task's own file. email_attachment, project_file: a link to a
+  -- file that already exists, never a copy.
+  kind text NOT NULL CHECK (kind IN ('upload', 'email_attachment', 'project_file')),
+  -- upload only: the object in the private task-files bucket, stored by
+  -- content ({project_id}/{sha256}) so the same bytes are kept once per project.
+  storage_path text,
+  sha256 text CHECK (sha256 IS NULL OR sha256 ~ '^[0-9a-f]{64}$'),
+  -- A linked email attachment or project file. RESTRICT: neither may vanish
+  -- under a task (email retention moves a linked attachment to the task first).
+  email_attachment_id uuid REFERENCES public.email_attachments(id) ON DELETE RESTRICT,
+  entity_file_id uuid REFERENCES public.entity_files(id) ON DELETE RESTRICT,
+  name text NOT NULL CHECK (length(name) BETWEEN 1 AND 255),
+  mime_type text NOT NULL DEFAULT 'application/octet-stream',
+  file_size bigint NOT NULL DEFAULT 0 CHECK (file_size >= 0),
+  -- Why it is on the task, in a few words ("the screenshot Ciaran sent").
+  note text CHECK (note IS NULL OR length(note) BETWEEN 1 AND 500),
+  added_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  -- Trash: when it was deleted and by whom (null = live). Rows are never removed.
+  deleted_at timestamptz,
+  deleted_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  CONSTRAINT task_files_one_source CHECK (
+    (kind = 'upload' AND storage_path IS NOT NULL AND sha256 IS NOT NULL AND email_attachment_id IS NULL AND entity_file_id IS NULL)
+    OR (kind = 'email_attachment' AND email_attachment_id IS NOT NULL AND storage_path IS NULL AND sha256 IS NULL AND entity_file_id IS NULL)
+    OR (kind = 'project_file' AND entity_file_id IS NOT NULL AND storage_path IS NULL AND sha256 IS NULL AND email_attachment_id IS NULL)
+  )
+);
+CREATE INDEX idx_task_files_task ON public.task_files (task_id);
+CREATE INDEX idx_task_files_deleted_at ON public.task_files (deleted_at DESC) WHERE deleted_at IS NOT NULL;
+CREATE INDEX idx_task_files_storage_path ON public.task_files (storage_path) WHERE storage_path IS NOT NULL;
+CREATE INDEX idx_task_files_email_attachment ON public.task_files (email_attachment_id) WHERE email_attachment_id IS NOT NULL;
+CREATE INDEX idx_task_files_entity_file ON public.task_files (entity_file_id) WHERE entity_file_id IS NOT NULL;
+-- One live entry per file per task: adding the same file twice adds nothing.
+CREATE UNIQUE INDEX task_files_live_upload ON public.task_files (task_id, sha256) WHERE kind = 'upload' AND deleted_at IS NULL;
+CREATE UNIQUE INDEX task_files_live_email_attachment ON public.task_files (task_id, email_attachment_id) WHERE kind = 'email_attachment' AND deleted_at IS NULL;
+CREATE UNIQUE INDEX task_files_live_project_file ON public.task_files (task_id, entity_file_id) WHERE kind = 'project_file' AND deleted_at IS NULL;
+
+-- Private, like inbound-email: only the server reads and writes it, and hands
+-- out short signed links. No storage.objects policies on purpose.
+INSERT INTO storage.buckets (id, name, public, file_size_limit)
+VALUES ('task-files', 'task-files', false, 52428800)
+ON CONFLICT (id) DO NOTHING;
+
+ALTER TABLE public.task_files ENABLE ROW LEVEL SECURITY;
+
+-- Read with the task and the file permission; add as yourself; change or
+-- trash your own, or any with files.manage. Most writes are server routes.
+CREATE POLICY task_files_select ON public.task_files FOR SELECT TO authenticated
+  USING (public.has_permission('files.read') AND public.can_access_task(task_id));
+CREATE POLICY task_files_insert ON public.task_files FOR INSERT TO authenticated
+  WITH CHECK (public.has_permission('files.upload') AND public.can_access_task(task_id)
+    AND added_by = public.current_team_member_id());
+CREATE POLICY task_files_update ON public.task_files FOR UPDATE TO authenticated
+  USING (public.can_access_task(task_id) AND (public.has_permission('files.manage') OR added_by = public.current_team_member_id()))
+  WITH CHECK (public.can_access_task(task_id) AND (public.has_permission('files.manage') OR added_by = public.current_team_member_id()));
+CREATE POLICY task_files_not_deleted ON public.task_files AS RESTRICTIVE FOR ALL TO authenticated
+  USING (deleted_at IS NULL) WITH CHECK (deleted_at IS NULL);
+CREATE POLICY task_files_parent_live ON public.task_files AS RESTRICTIVE FOR ALL TO authenticated
+  USING (public.task_is_live(task_id));
+
+CREATE OR REPLACE FUNCTION public.log_task_file_activity()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_title text;
+  v_project_id uuid;
+BEGIN
+  SELECT title, project_id INTO v_title, v_project_id FROM public.tasks WHERE id = NEW.task_id;
+  PERFORM public.log_team_activity(
+    CASE WHEN NEW.kind = 'upload' THEN 'file.uploaded' ELSE 'file.attached' END,
+    'file', NEW.id::text, v_project_id,
+    format(CASE WHEN NEW.kind = 'upload' THEN 'Uploaded "%s" to task "%s"' ELSE 'Attached "%s" to task "%s"' END, NEW.name, v_title),
+    jsonb_build_object('file_name', NEW.name, 'kind', NEW.kind, 'task_id', NEW.task_id, 'task_title', v_title));
+  RETURN NULL;
+END;
+$$;
+
+CREATE TRIGGER set_task_files_updated_at BEFORE UPDATE ON public.task_files
+  FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON public.task_files
+  FOR EACH ROW EXECUTE FUNCTION public.forbid_hard_delete();
+CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON public.task_files
+  FOR EACH STATEMENT EXECUTE FUNCTION public.forbid_hard_delete();
+CREATE TRIGGER record_trash_event AFTER UPDATE OF deleted_at ON public.task_files
+  FOR EACH ROW WHEN (OLD.deleted_at IS DISTINCT FROM NEW.deleted_at)
+  EXECUTE FUNCTION public.record_trash_event();
+CREATE TRIGGER log_trash_activity AFTER UPDATE OF deleted_at ON public.task_files
+  FOR EACH ROW WHEN (OLD.deleted_at IS DISTINCT FROM NEW.deleted_at)
+  EXECUTE FUNCTION public.log_trash_activity();
+CREATE TRIGGER log_task_file_activity AFTER INSERT ON public.task_files
+  FOR EACH ROW EXECUTE FUNCTION public.log_task_file_activity();
+
+REVOKE ALL ON FUNCTION public.log_task_file_activity() FROM PUBLIC, anon, authenticated;

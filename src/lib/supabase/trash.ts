@@ -12,7 +12,7 @@ export const TRASH_TABLES = [
   'entity_files', 'portal_updates', 'portal_update_attachments', 'contacts', 'leads',
   'lead_interactions', 'lead_proposals', 'lead_fields',
   'project_time_entries', 'project_invoices', 'invoice_payments', 'project_hourly_rates',
-  'project_retainers', 'project_retainer_amounts',
+  'project_retainers', 'project_retainer_amounts', 'task_files',
 ] as const;
 
 export type TrashTable = (typeof TRASH_TABLES)[number];
