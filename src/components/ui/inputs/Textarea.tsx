@@ -194,7 +194,8 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(function 
         aria-describedby={
           [nativeProps['aria-describedby'], describedBy].filter(Boolean).join(' ') || undefined
         }
-        className={`w-full ${sizeClasses} outline-none text-input-text ${resizeClass} ${fieldChrome(error, disabled)} ${
+        // block: an inline textarea leaves a baseline gap under it, so a button beside it sat low.
+        className={`block w-full ${sizeClasses} outline-none text-input-text ${resizeClass} ${fieldChrome(error, disabled)} ${
           readOnly ? 'bg-input-bg-disabled cursor-default' : ''
         } placeholder:text-input-text-placeholder ${inputClassName || ''}`}
         style={
