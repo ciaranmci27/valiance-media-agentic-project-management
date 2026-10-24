@@ -1,7 +1,8 @@
 'use client';
 
 import { createContext, useContext, useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { notePath } from '@/lib/tab-history';
+import { usePathname, useRouter } from 'next/navigation';
 import { AuthProvider, useAuth } from '@/lib/auth-context';
 import { AppProvider, useApp } from '@/lib/store';
 import { DemoProvider } from '@/lib/demo-context';
@@ -129,6 +130,9 @@ function StoreGate({ children }: { children: React.ReactNode }) {
 }
 
 export function ProtectedShell({ children }: { children: React.ReactNode }) {
+  // Counts moves between app pages, so a Back button knows history stays inside the app.
+  const pathname = usePathname();
+  useEffect(() => { notePath(pathname); }, [pathname]);
   return (
     <DemoProvider>
       <AuthProvider>

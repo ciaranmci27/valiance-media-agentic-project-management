@@ -11,13 +11,16 @@ import { Button } from '@/components/ui/Button';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { TaskForm } from '@/components/tasks/TaskForm';
 import { TaskActionsMenu, TaskDetailPanel } from '@/components/tasks/TaskDetailPanel';
+import { canGoBackInApp } from '@/lib/tab-history';
 
 /**
  * A task on its own page: everything the side panel shows, with room for it.
  * The title is the page heading, with Back and the menu beside it; the work
  * (description, reminders, criteria, subtasks, comments) runs down the main
  * column and the details sit beside it. Opened from the panel's menu; the
- * board's task links still open the panel.
+ * board's task links still open the panel. Back returns to wherever the task
+ * was opened from; opened straight from a link, it goes to the project with
+ * the task's panel open.
  */
 export default function TaskPage() {
   const params = useParams();
@@ -32,6 +35,10 @@ export default function TaskPage() {
   // The task's own project wins over the address (a task moved since).
   const project = getProject(task?.project_id ?? projectId);
   const boardHref = `/projects/${project?.id ?? projectId}`;
+  const goBack = () => {
+    if (canGoBackInApp()) router.back();
+    else router.push(`${boardHref}?task=${taskId}`);
+  };
 
   if (!task) {
     return (
@@ -59,10 +66,10 @@ export default function TaskPage() {
               <Button
                 variant="secondary"
                 size="sm"
-                href={`${boardHref}?task=${task.id}`}
+                onClick={goBack}
                 icon={<ArrowLeft size={14} aria-hidden="true" />}
-                aria-label={`Back to ${project?.name ?? 'the project'}`}
-                title={`Back to ${project?.name ?? 'the project'}`}
+                aria-label="Back"
+                title="Back"
               >
                 <span className="hidden sm:inline">Back</span>
               </Button>
