@@ -36,6 +36,8 @@ interface InboxViewProps {
   projectId?: string;
   /** Inside another page: fills the host card's remaining height, no URL syncing. */
   embedded?: boolean;
+  /** Embedded only: a thread to open or a task to filter by, from a link into the project. */
+  link?: InboxLink;
   /** Embedded only: shown in place of both panes while nothing has arrived. */
   emptyState?: ReactNode;
   /** Embedded only: the host's toolbar search; the list then drops its own box. */
@@ -48,7 +50,14 @@ interface InboxViewProps {
  * minus everything that writes email: there is no compose, reply, forward or
  * New Email here, by rule.
  */
-export function InboxView({ projectId, embedded = false, emptyState, searchQuery }: InboxViewProps) {
+/** Where a link into an embedded inbox lands: a thread (and email) to open, or a task to filter by. */
+export interface InboxLink {
+  thread?: string | null;
+  message?: string | null;
+  task?: string | null;
+}
+
+export function InboxView({ projectId, embedded = false, emptyState, searchQuery, link }: InboxViewProps) {
   const { isDemoMode } = useDemo();
   const { projects, tasks } = useApp();
   const { access } = useAuth();
@@ -106,6 +115,18 @@ export function InboxView({ projectId, embedded = false, emptyState, searchQuery
     setFocusMessageId(params.get('message'));
     setUrlReady(true);
   }, [embedded, lockedProject]);
+
+  // An embedded inbox (a project's Communication tab) opens what a link names, each time it names something new.
+  const linkThread = embedded ? link?.thread ?? null : null;
+  const linkMessage = embedded ? link?.message ?? null : null;
+  const linkTask = embedded ? link?.task ?? null : null;
+  useEffect(() => {
+    if (linkTask) setTaskFilter(linkTask);
+    if (linkThread) {
+      setSelectedId(linkThread);
+      setFocusMessageId(linkMessage);
+    }
+  }, [linkThread, linkMessage, linkTask]);
 
   useEffect(() => {
     if (embedded || !urlReady) return;
@@ -248,20 +269,6 @@ export function InboxView({ projectId, embedded = false, emptyState, searchQuery
             aria-label="Search subject, sender or project"
           />
         )}
-        {taskFilter && (
-          <div className="flex items-center gap-2 rounded-lg bg-brand-500/[0.08] px-2.5 py-1.5 text-xs text-zinc-200">
-            <SquareCheck size={13} className="flex-shrink-0 text-emerald-300" aria-hidden="true" />
-            <span className="min-w-0 flex-1 truncate">Email for <span className="font-medium text-white">{filteredTask?.title ?? 'one task'}</span></span>
-            <button
-              type="button"
-              onClick={() => setTaskFilter('')}
-              aria-label="Show all email"
-              className="rounded p-0.5 text-zinc-400 hover:bg-white/[0.08] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
-            >
-              <X size={13} aria-hidden="true" />
-            </button>
-          </div>
-        )}
         {/* Status first, then project, sharing the row; an inbox filter (several inboxes) takes the next row. */}
         <div className={`grid gap-2 ${lockedProject && !showInboxFilter ? 'grid-cols-1' : 'grid-cols-2'}`}>
           <Select ariaLabel="Status" value={tab} onChange={(value) => isInboxTab(value) && setTab(value)} options={statusOptions} size="sm" />
@@ -274,6 +281,21 @@ export function InboxView({ projectId, embedded = false, emptyState, searchQuery
             </div>
           )}
         </div>
+        {/* Last row: the one task this list is narrowed to, shaped like the fields above it. */}
+        {taskFilter && (
+          <div className="flex items-center gap-2 rounded-input border border-input-border bg-input-bg px-2.5 py-[5px] text-xs text-input-text">
+            <SquareCheck size={13} className="flex-shrink-0 text-emerald-300" aria-hidden="true" />
+            <span className="min-w-0 flex-1 truncate">Email for <span className="font-medium">{filteredTask?.title ?? 'one task'}</span></span>
+            <button
+              type="button"
+              onClick={() => setTaskFilter('')}
+              aria-label="Show all email"
+              className="rounded p-0.5 text-input-text-placeholder hover:bg-white/[0.08] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+            >
+              <X size={13} aria-hidden="true" />
+            </button>
+          </div>
+        )}
       </div>
 
       {/* A later load failed: the list stays, with the problem and a retry above it. */}

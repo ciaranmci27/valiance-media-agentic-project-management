@@ -1,5 +1,6 @@
 'use client';
 
+import type { InboxLink } from '@/components/inbox/InboxView';
 import { useState } from 'react';
 import { ExternalLink, Route } from 'lucide-react';
 import { ProjectEmailsPanel } from '@/components/inbox/ProjectEmailsPanel';
@@ -18,13 +19,15 @@ interface CommunicationTabProps {
   canReadInbox: boolean;
   canReadSent: boolean;
   onOpenPortal: () => void;
+  /** A link into the inbox from elsewhere in the project: a thread to open, or a task to filter by. */
+  emailLink?: InboxLink;
 }
 
 /**
  * Everything said with the client: email that came in (Inbox) and email that
  * went out (Sent), with the sending tools and alert automation beside it.
  */
-export function CommunicationTab({ projectId, view, onViewChange, canReadInbox, canReadSent, onOpenPortal }: CommunicationTabProps) {
+export function CommunicationTab({ projectId, view, onViewChange, canReadInbox, canReadSent, onOpenPortal, emailLink }: CommunicationTabProps) {
   const [routingOpen, setRoutingOpen] = useState(false);
   const [sentRefresh, setSentRefresh] = useState(0);
   // Each view keeps its own search, so switching back finds it as it was.
@@ -62,7 +65,7 @@ export function CommunicationTab({ projectId, view, onViewChange, canReadInbox, 
 
       {canReadInbox && kept.has('inbox') && (
         <div hidden={active !== 'inbox'}>
-          <ProjectEmailsPanel projectId={projectId} onSetUpRouting={() => setRoutingOpen(true)} searchQuery={inboxQuery} />
+          <ProjectEmailsPanel projectId={projectId} onSetUpRouting={() => setRoutingOpen(true)} searchQuery={inboxQuery} link={emailLink} />
         </div>
       )}
 

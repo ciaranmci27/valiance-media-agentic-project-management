@@ -586,6 +586,7 @@ export default function ProjectDetailPage() {
           canReadInbox={canReadInbox}
           canReadSent={canReadCommunications}
           onOpenPortal={() => setActiveTab('portal')}
+          emailLink={{ thread: searchParams.get('thread'), message: searchParams.get('message'), task: searchParams.get('email_task') }}
         />
       ))}
 

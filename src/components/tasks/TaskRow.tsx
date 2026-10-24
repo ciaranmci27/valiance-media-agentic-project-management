@@ -5,9 +5,10 @@ import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { StatusBadge, PriorityBadge, TaskTypeBadge } from '@/components/ui/Badge';
 import { AvatarGroup } from '@/components/ui/Avatar';
-import { Calendar, CheckSquare, MessageSquare, MoreVertical, Edit, Trash2, Clock, Lock, FileQuestion } from 'lucide-react';
+import { Calendar, CheckSquare, Mail, MessageSquare, MoreVertical, Edit, Trash2, Clock, Lock, FileQuestion } from 'lucide-react';
 import { useState, useRef } from 'react';
 import { Popover } from '@/components/ui/Popover';
+import { useTaskEmailCount } from '@/components/inbox/TaskSourceEmails';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { parseDateOnly, isDateOverdue } from '@/lib/date-utils';
 import { hasPermission, canEditTask, canManageAllTasks } from '@/lib/access-control';
@@ -55,6 +56,7 @@ export function TaskRow({ task, onView, onEdit, onDelete }: TaskRowProps) {
   const { team, tasks, getProject } = useApp();
   const { teamMemberId, access } = useAuth();
   const [showMenu, setShowMenu] = useState(false);
+  const emailCount = useTaskEmailCount(task.id);
   const menuBtnRef = useRef<HTMLButtonElement>(null);
 
   const isAgentsEnabled = process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true';
@@ -171,6 +173,14 @@ export function TaskRow({ task, onView, onEdit, onDelete }: TaskRowProps) {
               </span>
             )}
 
+            {emailCount > 0 && (
+              <span className="text-xs text-zinc-400 flex items-center gap-1">
+                <Mail size={12} aria-hidden="true" />
+                <span className="sr-only">{emailCount} linked email{emailCount === 1 ? '' : 's'}</span>
+                <span aria-hidden="true">{emailCount}</span>
+              </span>
+            )}
+
             <Tooltip content={`Updated ${new Date(task.updated_at).toLocaleString()}`}>
               <span className="text-xs text-zinc-500 flex items-center gap-1">
                 <Clock size={12} />
@@ -218,6 +228,7 @@ export function TaskRowDesktop({ task, onView, onEdit, onDelete, selected, onTog
   const { team, tasks, getProject } = useApp();
   const { teamMemberId, access } = useAuth();
   const [showMenu, setShowMenu] = useState(false);
+  const emailCount = useTaskEmailCount(task.id);
   const menuBtnRef = useRef<HTMLButtonElement>(null);
 
   const isAgentsEnabled = process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true';
@@ -315,6 +326,15 @@ export function TaskRowDesktop({ task, onView, onEdit, onDelete, selected, onTog
             <span className="flex items-center gap-1 text-xs text-zinc-500 flex-shrink-0 cursor-default">
               <MessageSquare size={12} />
               {task.comments.length}
+            </span>
+          </Tooltip>
+        )}
+        {emailCount > 0 && (
+          <Tooltip content={`${emailCount} linked email${emailCount === 1 ? '' : 's'}`}>
+            <span className="flex items-center gap-1 text-xs text-zinc-500 flex-shrink-0 cursor-default">
+              <Mail size={12} aria-hidden="true" />
+              <span className="sr-only">{emailCount} linked email{emailCount === 1 ? '' : 's'}</span>
+              <span aria-hidden="true">{emailCount}</span>
             </span>
           </Tooltip>
         )}

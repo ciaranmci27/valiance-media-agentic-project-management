@@ -3,7 +3,7 @@
 import { AtSign, Globe, Mail, Route, Users } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { useFillHeight } from '@/lib/use-fill-height';
-import { InboxView } from './InboxView';
+import { InboxView, type InboxLink } from './InboxView';
 
 const ROUTES = [
   { icon: Users, title: 'From a contact', body: 'Anyone on this project’s contact list.' },
@@ -16,7 +16,7 @@ const ROUTES = [
  * rest of the screen on desktop, like the Inbox page, so the list and the
  * open thread each scroll on their own. Its toolbar lives in the tab.
  */
-export function ProjectEmailsPanel({ projectId, onSetUpRouting, searchQuery }: { projectId: string; onSetUpRouting: () => void; searchQuery: string }) {
+export function ProjectEmailsPanel({ projectId, onSetUpRouting, searchQuery, link }: { projectId: string; onSetUpRouting: () => void; searchQuery: string; link?: InboxLink }) {
   const { ref: fillRef, style: fillStyle } = useFillHeight<HTMLElement>({ min: 520 });
 
   const emptyState = (
@@ -52,7 +52,7 @@ export function ProjectEmailsPanel({ projectId, onSetUpRouting, searchQuery }: {
       aria-label="Client email"
       className="glass-card flex h-[600px] lg:h-[var(--fill-h,600px)] flex-col overflow-hidden rounded-xl"
     >
-      <InboxView projectId={projectId} embedded emptyState={emptyState} searchQuery={searchQuery} />
+      <InboxView projectId={projectId} embedded emptyState={emptyState} searchQuery={searchQuery} link={link} />
     </section>
   );
 }

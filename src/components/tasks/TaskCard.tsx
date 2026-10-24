@@ -5,13 +5,14 @@ import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { PriorityBadge, TaskTypeBadge } from '@/components/ui/Badge';
 import { AvatarGroup } from '@/components/ui/Avatar';
-import { Calendar, MessageSquare, CheckSquare, Edit, Trash2, Clock, Lock, FileQuestion, ArrowRight, ClipboardCopy, Link2, Hash, PanelRight, BellRing } from 'lucide-react';
+import { Calendar, Mail, MessageSquare, CheckSquare, Edit, Trash2, Clock, Lock, FileQuestion, ArrowRight, ClipboardCopy, Link2, Hash, PanelRight, BellRing } from 'lucide-react';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { RowActionsMenu, type RowAction } from '@/components/ui/RowActionsMenu';
 import { parseDateOnly, isDateOverdue } from '@/lib/date-utils';
 import { hasPermission, canEditTask, canManageAllTasks } from '@/lib/access-control';
 import { TASK_STATUS_LABELS, taskAsText, taskUrl, copyText } from '@/lib/task-copy';
 import { nextReminderFor, reminderGroup, whenLabel } from '@/lib/reminders';
+import { usePrefetchTaskSources, useTaskEmailCount } from '@/components/inbox/TaskSourceEmails';
 
 function timeAgo(dateStr: string): string {
   const now = Date.now();
@@ -49,6 +50,10 @@ export function TaskCard({ task, onView, onEdit, onDelete, onMove }: TaskCardPro
   const canDelete = canManageAllTasks(access);
   const completedSubtasks = task.subtasks.filter(s => s.completed).length;
   const hasComments = task.comments.length > 0;
+  const emailCount = useTaskEmailCount(task.id);
+  const prefetchEmails = usePrefetchTaskSources();
+  // Its emails are fetched on the way in, so the panel opens with them.
+  const warmEmails = () => { if (emailCount > 0) prefetchEmails(task.id); };
 
   const formatDate = (date: string | null) => {
     if (!date) return null;
@@ -98,6 +103,8 @@ export function TaskCard({ task, onView, onEdit, onDelete, onMove }: TaskCardPro
       tabIndex={0}
       className="glass-card rounded-lg p-3 lg:p-4 hover:shadow-md hover:border-white/[0.12] transition-[box-shadow,border-color] duration-150 group cursor-pointer focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-400"
       onClick={() => onView?.(task)}
+      onMouseEnter={warmEmails}
+      onFocus={warmEmails}
       onKeyDown={(e) => {
         if (e.target !== e.currentTarget || (e.key !== 'Enter' && e.key !== ' ')) return;
         e.preventDefault();
@@ -211,6 +218,15 @@ export function TaskCard({ task, onView, onEdit, onDelete, onMove }: TaskCardPro
               <div className="flex items-center gap-1 text-xs text-zinc-400">
                 <MessageSquare size={14} />
                 <span>{task.comments.length}</span>
+              </div>
+            </Tooltip>
+          )}
+          {emailCount > 0 && (
+            <Tooltip content={`${emailCount} linked email${emailCount === 1 ? '' : 's'}`}>
+              <div className="flex items-center gap-1 text-xs text-zinc-400">
+                <Mail size={14} aria-hidden="true" />
+                <span className="sr-only">{emailCount} linked email{emailCount === 1 ? '' : 's'}</span>
+                <span aria-hidden="true">{emailCount}</span>
               </div>
             </Tooltip>
           )}

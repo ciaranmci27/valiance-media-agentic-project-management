@@ -49,7 +49,7 @@ import { Tooltip } from '@/components/ui/Tooltip';
 import { Popover } from '@/components/ui/Popover';
 import { parseDateOnly, isDateOverdue } from '@/lib/date-utils';
 import { hasPermission, canEditTask, canManageAllTasks } from '@/lib/access-control';
-import { TaskSourceEmailsSection, useTaskSourceEmails } from '@/components/inbox/TaskSourceEmails';
+import { TaskSourceEmailsSection, useTaskEmailCount, useTaskSourceEmails } from '@/components/inbox/TaskSourceEmails';
 import { CardAction, RailCard, RailLayout } from '@/components/projects/TabLayout';
 
 interface TaskDetailPanelProps {
@@ -264,6 +264,9 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete, variant = 'pa
   const [deleteCriterionTarget, setDeleteCriterionTarget] = useState<string | null>(null);
 
   const sourceEmails = useTaskSourceEmails(task?.id ?? null);
+  // Known from the board's counts, so the section is there from the first frame.
+  const knownEmailCount = useTaskEmailCount(task?.id ?? '');
+  const emailCount = sourceEmails?.link_count ?? knownEmailCount;
 
   // A half-written comment belongs to its task: switching tasks clears it.
   const [commentTaskId, setCommentTaskId] = useState(task?.id);
@@ -531,9 +534,9 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete, variant = 'pa
         )}
       </Section>
 
-      {sourceEmails && sourceEmails.link_count > 0 && (
-        <Section variant={variant} title="Communication" icon={MessageSquare} count={String(sourceEmails.link_count)}>
-          <TaskSourceEmailsSection data={sourceEmails} taskId={task?.id ?? null} heading={false} />
+      {emailCount > 0 && (
+        <Section variant={variant} title="Communication" icon={MessageSquare} count={String(emailCount)}>
+          <TaskSourceEmailsSection data={sourceEmails} taskId={task?.id ?? null} projectId={task?.project_id ?? null} heading={false} expected={emailCount} />
         </Section>
       )}
 
