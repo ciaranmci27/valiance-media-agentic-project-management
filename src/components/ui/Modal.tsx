@@ -14,11 +14,19 @@ interface ModalProps {
 
 export default function Modal({ isOpen, onClose, title, children, size = 'md' }: ModalProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
 
   useEffect(() => {
+    // Escape closes only the dialog on top: an Escape a menu inside already
+    // took (Popover) is left alone, and with dialogs stacked (a preview over
+    // a picker) only the last one opened, the last in <body>, answers it.
     const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      const open = document.querySelectorAll('[aria-modal="true"]');
+      if (open[open.length - 1] !== dialogRef.current) return;
+      e.preventDefault();
+      onClose();
     };
 
     if (isOpen) {
@@ -58,12 +66,12 @@ export default function Modal({ isOpen, onClose, title, children, size = 'md' }:
       <div className="absolute inset-0 bg-black/60 animate-fadeIn" />
 
       {/* Modal */}
-      <div role="dialog" aria-modal="true" aria-labelledby={titleId} className={`
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby={titleId} className={`
         relative w-full ${sizes[size]} max-h-[85vh] bg-surface-raised border border-white/10 rounded-xl
         shadow-[0_16px_48px_-12px_rgba(0,0,0,0.7)] transform animate-scaleIn flex flex-col
       `}>
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-white/[0.08] flex-shrink-0">
+        <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-white/[0.08] flex-shrink-0">
           <h2 id={titleId} className="text-lg font-semibold text-white">
             {title}
           </h2>
@@ -78,7 +86,7 @@ export default function Modal({ isOpen, onClose, title, children, size = 'md' }:
         </div>
 
         {/* Content */}
-        <div className="px-6 py-4 overflow-y-auto">
+        <div className="px-4 sm:px-6 py-4 overflow-y-auto">
           {children}
         </div>
       </div>

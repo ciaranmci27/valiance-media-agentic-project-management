@@ -46,6 +46,7 @@ export async function keepLinkedTaskFiles(supabase: SupabaseClient, messageIds: 
   const links = await inChunks<LinkRow>(attachments.map((row) => row.id), (chunk) => supabase.from('task_files')
     .select('id, task_id, email_attachment_id, deleted_at').in('email_attachment_id', chunk));
   if (links.length === 0) return result;
+  // includes-deleted: a task in Trash still holds its links; its project decides where the copy goes.
   const tasks = await inChunks<{ id: string; project_id: string }>([...new Set(links.map((link) => link.task_id))], (chunk) => supabase.from('tasks')
     .select('id, project_id').in('id', chunk));
   const projectOf = new Map(tasks.map((task) => [task.id, task.project_id]));
@@ -74,6 +75,7 @@ export async function keepLinkedTaskFiles(supabase: SupabaseClient, messageIds: 
           if (trashError) throw new Error(trashError.message);
         }
       }
+      // includes-deleted: a link in Trash is converted too, so a restore still has its file.
       const { error } = await supabase.from('task_files')
         .update({ kind: 'upload', storage_path: stored.path, sha256: stored.sha256, email_attachment_id: null })
         .eq('id', link.id).eq('email_attachment_id', attachment.id);

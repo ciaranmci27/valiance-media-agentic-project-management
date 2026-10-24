@@ -125,6 +125,8 @@ export interface InboxAttachment {
   agent_label: string | null;
   /** The Content-ID an HTML body points at with cid:, lowercased and without brackets. */
   content_id: string | null;
+  /** The stored bytes' hash: a reply that re-sends a file carries the same one. */
+  sha256: string | null;
 }
 
 /** Why an attachment was not stored (email_attachments.skipped_reason). */

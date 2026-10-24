@@ -99,16 +99,20 @@ export function Popover({
       if (ignoreOutsideSelector && (target as HTMLElement).closest?.(ignoreOutsideSelector)) return;
       onClose();
     };
+    // Captured, and marked handled: a menu takes its Escape before a panel or
+    // dialog behind it (listening on the document too) could close as well.
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      e.preventDefault();
+      onClose();
     };
     document.addEventListener('mousedown', onPointer);
     document.addEventListener('touchstart', onPointer);
-    document.addEventListener('keydown', onKey);
+    document.addEventListener('keydown', onKey, true);
     return () => {
       document.removeEventListener('mousedown', onPointer);
       document.removeEventListener('touchstart', onPointer);
-      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('keydown', onKey, true);
     };
   }, [open, anchorRef, onClose, ignoreOutsideSelector]);
 

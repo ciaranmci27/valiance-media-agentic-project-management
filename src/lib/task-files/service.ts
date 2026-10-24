@@ -629,3 +629,132 @@ export async function taskFileLink(ctx: TaskFilesContext, taskId: string, fileId
 export function apiContext(ctx: { supabase: SupabaseClient; access: AccessContext; teamMemberId: string; scopes: string[] }): TaskFilesContext {
   return { db: ctx.supabase, access: ctx.access, memberId: ctx.teamMemberId, channel: 'api', scopes: ctx.scopes };
 }
+
+export interface TaskFileCandidates {
+  /** Stored attachments of the emails linked to the task, from inboxes the reader opens; newest email first. */
+  email_attachments: {
+    id: string;
+    name: string;
+    mime_type: string;
+    file_size: number;
+    preview: TaskFilePreview | null;
+    message_id: string;
+    thread_id: string;
+    subject: string;
+    received_at: string;
+    added: boolean;
+    /** The task's file holding it when added, so the picker can take it off again. */
+    task_file_id: string | null;
+    sha256: string | null;
+    /**
+     * How many conversations carry these bytes. A reply quoting a pasted
+     * screenshot repeats it in the same conversation and does not count; a
+     * signature logo turns up in every conversation with its sender.
+     */
+    conversation_count: number;
+  }[];
+  /** The live files on the task's project, newest first, at their own (public) address. */
+  project_files: { id: string; name: string; mime_type: string; file_size: number; preview: TaskFilePreview | null; url: string; created_at: string; added: boolean; task_file_id: string | null }[];
+}
+
+/**
+ * What can be added to the task without uploading: attachments of its emails
+ * (screenshots pasted into the body included) and its project's files. A file
+ * several emails carry (a reply sending it again) is listed once, from the
+ * newest email. `added` marks what the task already has, a copied attachment
+ * included.
+ */
+export async function taskFileCandidates(ctx: TaskFilesContext, taskId: string): Promise<TaskFileCandidates> {
+  requirePermission(ctx, 'files.upload', 'Adding files to a task needs permission to upload files');
+  const task = await loadTask(ctx, taskId);
+  const [links, entityFiles, current] = await Promise.all([
+    ctx.db.from('email_task_links').select('message_id').eq('task_id', task.id),
+    ctx.db.from('entity_files').select('id, name, file_url, mime_type, file_size, created_at')
+      .eq('entity_type', 'project').eq('entity_id', task.project_id).is('deleted_at', null)
+      .order('created_at', { ascending: false }).limit(200),
+    ctx.db.from('task_files').select('id, kind, sha256, email_attachment_id, entity_file_id').eq('task_id', task.id).is('deleted_at', null),
+  ]);
+  if (links.error) throw links.error;
+  if (entityFiles.error) throw entityFiles.error;
+  if (current.error) throw current.error;
+  // What the task holds, by source, to the task file holding it.
+  const have = (current.data ?? []) as Pick<FileRow, 'id' | 'kind' | 'sha256' | 'email_attachment_id' | 'entity_file_id'>[];
+  const haveAttachments = new Map(have.flatMap((row) => (row.email_attachment_id ? [[row.email_attachment_id, row.id] as const] : [])));
+  const haveHashes = new Map(have.flatMap((row) => (row.kind === 'upload' && row.sha256 ? [[row.sha256, row.id] as const] : [])));
+  const haveEntityFiles = new Map(have.flatMap((row) => (row.entity_file_id ? [[row.entity_file_id, row.id] as const] : [])));
+
+  const email_attachments: TaskFileCandidates['email_attachments'] = [];
+  const messageIds = [...new Set((links.data ?? []).map((row: { message_id: string }) => row.message_id))];
+  if (messageIds.length) {
+    const readable = await readableInboxes(ctx);
+    const { data: messages, error } = await ctx.db.from('email_messages')
+      .select('id, inbox_id, thread_id, subject, received_at, status').in('id', messageIds);
+    if (error) throw error;
+    const open = new Map((messages ?? [])
+      .filter((message) => message.status !== 'receiving' && readable.has(message.inbox_id))
+      .map((message) => [message.id, message]));
+    if (open.size) {
+      const { data: attachments, error: attachmentError } = await ctx.db.from('email_attachments')
+        .select('id, message_id, position, filename, content_type, size_bytes, sha256, storage_path, uploaded_at, skipped_reason')
+        .in('message_id', [...open.keys()]).not('storage_path', 'is', null).not('uploaded_at', 'is', null).is('skipped_reason', null);
+      if (attachmentError) throw attachmentError;
+      for (const attachment of attachments ?? []) {
+        const message = open.get(attachment.message_id)!;
+        const name = attachment.filename || 'attachment';
+        const mime = cleanMime(attachment.content_type, name);
+        email_attachments.push({
+          id: attachment.id,
+          name,
+          mime_type: mime,
+          file_size: Number(attachment.size_bytes ?? 0),
+          preview: previewOf(mime, name),
+          message_id: message.id,
+          thread_id: message.thread_id,
+          subject: message.subject,
+          received_at: message.received_at,
+          added: false,
+          task_file_id: haveAttachments.get(attachment.id) ?? (attachment.sha256 ? haveHashes.get(attachment.sha256) : undefined) ?? null,
+          sha256: attachment.sha256 as string | null,
+          conversation_count: 1,
+        });
+      }
+      // The same bytes from several emails are one file, shown with the email
+      // that first sent it (a later one only quoted or repeated it), added if
+      // any copy is, counting the conversations that carry it.
+      email_attachments.sort((a, b) => a.received_at.localeCompare(b.received_at) || a.name.localeCompare(b.name));
+      const byKey = new Map<string, (typeof email_attachments)[number]>();
+      const threadsOf = new Map<string, Set<string>>();
+      for (const row of email_attachments) {
+        const key = row.sha256 ?? row.id;
+        const kept = byKey.get(key);
+        if (kept) kept.task_file_id ??= row.task_file_id;
+        else byKey.set(key, row);
+        threadsOf.set(key, (threadsOf.get(key) ?? new Set()).add(row.thread_id));
+      }
+      for (const [key, row] of byKey) {
+        row.conversation_count = threadsOf.get(key)!.size;
+        row.added = row.task_file_id !== null;
+      }
+      const firstSent = [...byKey.values()].sort((a, b) => b.received_at.localeCompare(a.received_at) || a.name.localeCompare(b.name));
+      email_attachments.splice(0, email_attachments.length, ...firstSent);
+    }
+  }
+
+  const project_files = ((entityFiles.data ?? []) as (Pick<EntityFileRow, 'id' | 'name' | 'file_url' | 'mime_type' | 'file_size'> & { created_at: string })[])
+    .filter((file) => /^https?:\/\//.test(file.file_url))
+    .map((file) => {
+      const mime = cleanMime(file.mime_type, file.name);
+      return {
+        id: file.id,
+        name: file.name,
+        mime_type: mime,
+        file_size: Number(file.file_size ?? 0),
+        preview: previewOf(mime, file.name),
+        url: file.file_url,
+        created_at: file.created_at,
+        added: haveEntityFiles.has(file.id),
+        task_file_id: haveEntityFiles.get(file.id) ?? null,
+      };
+    });
+  return { email_attachments, project_files };
+}

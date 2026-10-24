@@ -281,6 +281,28 @@ async function main() {
     const appLink = appView.find((file) => file.id === lostLink.body.data?.id);
     check('app: the owner sees the same files, the email behind a link included', appView.length === 6 && appLink?.source?.type === 'email'
       && appLink.source.subject === 'Lost file', appView.map((file) => [file.name, file.source]));
+
+    // What can be added without uploading: the task's email attachments (not body images) and project files.
+    await q("INSERT INTO public.email_task_links (message_id, task_id, relation) VALUES ($1, $2, 'related')", [lost.message, s.task]);
+    await q(`INSERT INTO public.email_attachments (message_id, position, filename, content_type, storage_path, sha256, size_bytes, uploaded_at, disposition)
+      VALUES ($1, 1, 'logo.png', 'image/png', 'x/y/z', $2, 10, now(), 'inline')`, [lost.message, 'f'.repeat(64)]);
+    // The same image again: in a reply quoting it (same conversation, so still
+    // one), and in another conversation (a signature logo's pattern: two).
+    const reply = '00000000-0000-4000-8000-0000000000a9';
+    const elsewhere = { thread: '00000000-0000-4000-8000-0000000000aa', message: '00000000-0000-4000-8000-0000000000ab' };
+    await q('INSERT INTO public.email_threads (id, inbox_id) VALUES ($1, $2)', [elsewhere.thread, ids.inbox]);
+    await q(`INSERT INTO public.email_messages (id, inbox_id, thread_id, status, provider, provider_email_id, internet_message_id, subject, received_at)
+      VALUES ($1, $2, $3, 'handled', 'resend', 'tfa-5', 'tfa-5@example.com', 'Re: Lost file', now()),
+             ($4, $2, $5, 'handled', 'resend', 'tfa-6', 'tfa-6@example.com', 'Another topic', now())`, [reply, ids.inbox, ids.thread, elsewhere.message, elsewhere.thread]);
+    await q(`INSERT INTO public.email_attachments (message_id, position, filename, content_type, storage_path, sha256, size_bytes, uploaded_at, disposition)
+      VALUES ($1, 0, 'logo.png', 'image/png', 'x/y/again', $3, 10, now(), 'inline'), ($2, 0, 'logo.png', 'image/png', 'x/y/elsewhere', $3, 10, now(), 'inline')`,
+      [reply, elsewhere.message, 'f'.repeat(64)]);
+    await q("INSERT INTO public.email_task_links (message_id, task_id, relation) VALUES ($1, $3, 'updated'), ($2, $3, 'related')", [reply, elsewhere.message, s.task]);
+    const { taskFileCandidates } = await import('../src/lib/task-files/service');
+    const candidates = await taskFileCandidates({ db: getServiceClient(), access: ownerAccess, memberId: s.owner, channel: 'app' }, s.task);
+    check("candidates: the task's email attachments (pasted images too, each file once, from the email that first sent it, counted by conversation) and project files, marked when already added",
+      candidates.email_attachments.map((a) => `${a.name}:${a.added}:${a.subject}:${a.conversation_count}`).join(',') === 'logo.png:false:Lost file:2,lost.png:true:Lost file:1'
+        && candidates.project_files.map((f) => `${f.name}:${f.added}`).join(',') === 'brand-guide.pdf:true', candidates);
   } finally {
     await server.close();
     await db.close();

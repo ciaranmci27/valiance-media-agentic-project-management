@@ -7,8 +7,21 @@ import { skippedReasonLabel, type InboxAttachment, type InboxMessage } from '@/l
 import { formatBytes, formatFullTime } from './inbox-badges';
 
 /** Every file in a conversation, the images shown inside its emails included. */
+/**
+ * Every file in the conversation once, oldest first, with the email that
+ * first sent it. A reply quoting a pasted screenshot carries the same bytes
+ * again; that copy is the same file, not another one.
+ */
 export function threadAttachments(messages: InboxMessage[]): { attachment: InboxAttachment; message: InboxMessage }[] {
-  return messages.flatMap((message) => message.attachments.map((attachment) => ({ attachment, message })));
+  const seen = new Set<string>();
+  return messages
+    .flatMap((message) => message.attachments.map((attachment) => ({ attachment, message })))
+    .filter(({ attachment }) => {
+      const key = attachment.sha256 ?? attachment.id;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
 }
 
 const ICON_BUTTON = 'rounded-md p-1.5 text-zinc-400 transition-colors hover:bg-white/[0.06] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500';

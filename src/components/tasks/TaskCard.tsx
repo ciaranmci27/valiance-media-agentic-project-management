@@ -13,6 +13,7 @@ import { hasPermission, canEditTask, canManageAllTasks } from '@/lib/access-cont
 import { TASK_STATUS_LABELS, taskAsText, taskUrl, copyText } from '@/lib/task-copy';
 import { nextReminderFor, reminderGroup, whenLabel } from '@/lib/reminders';
 import { usePrefetchTaskSources, useTaskEmailCount } from '@/components/inbox/TaskSourceEmails';
+import { usePrefetchTaskFiles } from './TaskFiles';
 import { UnseenDot } from './TaskSource';
 
 function timeAgo(dateStr: string): string {
@@ -55,8 +56,12 @@ export function TaskCard({ task, onView, onEdit, onDelete, onMove }: TaskCardPro
   const unseen = isTaskUnseen(task);
   const emailCount = useTaskEmailCount(task.id);
   const prefetchEmails = usePrefetchTaskSources();
-  // Its emails are fetched on the way in, so the panel opens with them.
-  const warmEmails = () => { if (emailCount > 0) prefetchEmails(task.id); };
+  const prefetchFiles = usePrefetchTaskFiles();
+  // Its emails and files are fetched on the way in, so the panel opens with them.
+  const warmPanel = () => {
+    if (emailCount > 0) prefetchEmails(task.id);
+    prefetchFiles(task.id);
+  };
 
   const formatDate = (date: string | null) => {
     if (!date) return null;
@@ -106,8 +111,8 @@ export function TaskCard({ task, onView, onEdit, onDelete, onMove }: TaskCardPro
       tabIndex={0}
       className="glass-card rounded-lg p-3 lg:p-4 hover:shadow-md hover:border-white/[0.12] transition-[box-shadow,border-color] duration-150 group cursor-pointer focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-400"
       onClick={() => onView?.(task)}
-      onMouseEnter={warmEmails}
-      onFocus={warmEmails}
+      onMouseEnter={warmPanel}
+      onFocus={warmPanel}
       onKeyDown={(e) => {
         if (e.target !== e.currentTarget || (e.key !== 'Enter' && e.key !== ' ')) return;
         e.preventDefault();

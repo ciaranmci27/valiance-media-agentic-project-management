@@ -40,6 +40,7 @@ import {
   CircleDot,
   Info,
   Route,
+  Paperclip,
   type LucideIcon,
 } from 'lucide-react';
 import { RowActionsMenu, type RowAction } from '@/components/ui/RowActionsMenu';
@@ -53,6 +54,7 @@ import { hasPermission, canEditTask, canManageAllTasks } from '@/lib/access-cont
 import { TaskSourceEmailsSection, useTaskEmailCount, useTaskSourceEmails } from '@/components/inbox/TaskSourceEmails';
 import { CardAction, RailCard, RailLayout } from '@/components/projects/TabLayout';
 import { TaskSourceLine, useTaskSource } from './TaskSource';
+import { TaskFiles } from './TaskFiles';
 
 interface TaskDetailPanelProps {
   task: Task | null;
@@ -308,6 +310,7 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete, variant = 'pa
   } = useApp();
   const { teamMemberId, access } = useAuth();
   const backdropRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
   const [newComment, setNewComment] = useState('');
   const [showStatusMenu, setShowStatusMenu] = useState(false);
   const [showPriorityMenu, setShowPriorityMenu] = useState(false);
@@ -368,10 +371,14 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete, variant = 'pa
   // full page is the page: neither applies there. An Escape a field inside
   // already handled (closing an adder) is marked defaultPrevented: React
   // listens on the document too, so stopPropagation cannot keep it from here.
+  // A dialog open over the panel (a confirm, a file preview) takes the Escape
+  // for itself: it listens after the panel does, so the panel steps aside.
   useEffect(() => {
     if (variant !== 'panel') return;
     const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !e.defaultPrevented) onClose();
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      const dialogOver = [...document.querySelectorAll('[aria-modal="true"]')].some((el) => el !== dialogRef.current);
+      if (!dialogOver) onClose();
     };
 
     if (task) {
@@ -607,7 +614,7 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete, variant = 'pa
     </dl>
   );
 
-  // ── The work: description, reminders, criteria, subtasks, comments ──
+  // ── The work: description, emails, files, reminders, criteria, subtasks, comments ──
   const sections = (
     <>
       <Section
@@ -636,6 +643,13 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete, variant = 'pa
           <TaskSourceEmailsSection data={sourceEmails} taskId={task?.id ?? null} projectId={task?.project_id ?? null} heading={false} expected={emailCount} />
         </Section>
       )}
+
+      <TaskFiles
+        task={task}
+        section={({ count, action, children }) => (
+          <Section variant={variant} title="Files" icon={Paperclip} count={count} action={action}>{children}</Section>
+        )}
+      />
 
       <Section variant={variant} title="Reminders" icon={BellRing} count={openReminders > 0 ? `${openReminders} open` : undefined}>
         <TaskReminders task={task} />
@@ -1107,6 +1121,7 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete, variant = 'pa
 
       {/* Panel */}
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby={`task-title-${task.id}`}

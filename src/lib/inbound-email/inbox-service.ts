@@ -374,8 +374,8 @@ export async function listThreads(ctx: InboxContext, filters: ThreadListFilters)
   const [bodies, attachments, links] = await Promise.all([
     readIn<{ id: string; new_text: string | null; text_body: string | null }>(latestIds, (chunk, from, to, count) =>
       ctxSelect(ctx.service, 'email_messages', 'id, new_text, text_body', count).in('id', chunk).order('id').range(from, to)),
-    readIn<{ id: string; message_id: string }>(pageMessageIds, (chunk, from, to, count) =>
-      ctxSelect(ctx.service, 'email_attachments', 'id, message_id', count).in('message_id', chunk).order('id').range(from, to)),
+    readIn<{ id: string; message_id: string; sha256: string | null }>(pageMessageIds, (chunk, from, to, count) =>
+      ctxSelect(ctx.service, 'email_attachments', 'id, message_id, sha256', count).in('message_id', chunk).order('id').range(from, to)),
     readIn<{ id: string; message_id: string; task_id: string }>(pageMessageIds, (chunk, from, to, count) =>
       ctxSelect(ctx.service, 'email_task_links', 'id, message_id, task_id', count).in('message_id', chunk).order('id').range(from, to)),
   ]);
@@ -412,7 +412,8 @@ export async function listThreads(ctx: InboxContext, filters: ThreadListFilters)
       has_new: entry.flags.has_new,
       urgent: entry.flags.urgent,
       untrusted: entry.flags.untrusted,
-      attachment_count: attachments.filter((row) => ids.has(row.message_id)).length,
+      // A file a reply sent again (the same bytes) counts once.
+      attachment_count: new Set(attachments.filter((row) => ids.has(row.message_id)).map((row) => row.sha256 ?? row.id)).size,
       summary: entry.thread.summary ?? null,
       ...(() => {
         const taskIds = new Set(links.filter((link) => ids.has(link.message_id) && liveTaskIds.has(link.task_id)).map((link) => link.task_id));
@@ -505,7 +506,7 @@ export async function threadDetail(ctx: InboxContext, threadId: string): Promise
     readIn<Row & { message_id: string; kind: string; address: string; name: string; contact_id: string | null; position: number }>(ids, (chunk, from, to, count) =>
       ctxSelect(service, 'email_message_recipients', 'id, message_id, kind, address, name, contact_id, position', count).in('message_id', chunk).order('id').range(from, to)),
     readIn<Row>(ids, (chunk, from, to, count) =>
-      ctxSelect(service, 'email_attachments', 'id, message_id, position, filename, content_type, size_bytes, skipped_reason, uploaded_at, agent_label, content_id', count)
+      ctxSelect(service, 'email_attachments', 'id, message_id, position, filename, content_type, size_bytes, sha256, skipped_reason, uploaded_at, agent_label, content_id', count)
         .in('message_id', chunk).order('id').range(from, to)),
     readIn<Row & { id: string; message_id: string; created_at: string }>(ids, (chunk, from, to, count) =>
       ctxSelect(service, 'email_triage', 'id, message_id, member_id, outcome, urgent, summary, question_for_human, suggested_reply, created_at', count)
@@ -607,6 +608,7 @@ export async function threadDetail(ctx: InboxContext, threadId: string): Promise
           skipped_reason: (attachment.skipped_reason as string | null) ?? null,
           agent_label: (attachment.agent_label as string | null) ?? null,
           content_id: attachment.content_id ? normalizeContentId(attachment.content_id as string) : null,
+          sha256: (attachment.sha256 as string | null) ?? null,
         })),
       triage: triageRow ? {
         id: triageRow.id,
