@@ -1,10 +1,10 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import {
   AlertTriangle, AlignLeft, Bell, Bot, Check, CheckCircle2, ChevronDown, Copy, Download, ExternalLink, Eye, FileText, Filter, Flame, Forward, HelpCircle, Image as ImageIcon,
-  Link2, Loader2, MessageSquareReply, Paperclip, PenLine, Plus, RefreshCw, RotateCcw, ShieldOff, SquareCheck, Tag, X,
+  Link2, Loader2, MessageSquareReply, Paperclip, PenLine, Plus, RefreshCw, RotateCcw, ShieldOff, SquareCheck, Tag, Trash2, Undo2, X,
 } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
@@ -57,9 +57,24 @@ function dayLabel(value: string): string {
  * it. Never sends email. Viewing is read only: the actions (project, mark
  * handled, send back) show only to members who can triage.
  */
+/**
+ * "Not a task" on a task the agent created from an email: it goes to Trash
+ * (restorable), and the receipt stays with an Undo until the thread is left,
+ * though the thread itself no longer lists a trashed task.
+ */
+interface TaskUndo {
+  /** Trashed from this thread, by task id, with the email it was linked from. */
+  trashed: Record<string, { messageId: string; task: InboxLinkedTask }>;
+  /** Absent for members who cannot change tasks. */
+  notATask?: (messageId: string, task: InboxLinkedTask) => Promise<void>;
+  undo: (taskId: string) => Promise<void>;
+  pending: string | null;
+}
+const TaskUndoContext = createContext<TaskUndo>({ trashed: {}, undo: async () => {}, pending: null });
+
 export function ThreadView({ threadId, focusMessageId, onMissing }: ThreadViewProps) {
   const { isDemoMode } = useDemo();
-  const { projects, team } = useApp();
+  const { projects, team, deleteTask, restoreRecord } = useApp();
   const { access } = useAuth();
   const canTriage = hasPermission(access, 'inbound_email.triage') || hasPermission(access, 'inbound_email.manage');
   const canManageRules = hasPermission(access, 'inbound_email.manage') && !isDemoMode;
@@ -73,6 +88,10 @@ export function ThreadView({ threadId, focusMessageId, onMissing }: ThreadViewPr
   const [draftDialog, setDraftDialog] = useState(false);
   const [attachmentsOpen, setAttachmentsOpen] = useState(false);
   const [preview, setPreview] = useState<InboxAttachment | null>(null);
+  // Kept per thread: switching threads starts with nothing to undo.
+  const [trashedIn, setTrashedIn] = useState<{ threadId: string; tasks: TaskUndo['trashed'] }>({ threadId, tasks: {} });
+  const [taskPending, setTaskPending] = useState<string | null>(null);
+  const canTrashTasks = canTriage && (hasPermission(access, 'tasks.manage_all') || hasPermission(access, 'tasks.manage_assigned'));
   // Stable while open: the preview refetches whenever its file object changes.
   const previewFile = useMemo(
     () => (preview ? { name: preview.filename, file_url: attachmentViewUrl(preview.id), mime_type: previewType(preview) } : null),
@@ -116,6 +135,40 @@ export function ThreadView({ threadId, focusMessageId, onMissing }: ThreadViewPr
   useInboxUpdates((change) => {
     if (change?.threadId !== threadId) void load(true);
   });
+
+  const taskUndo = useMemo((): TaskUndo => {
+    const trashed = trashedIn.threadId === threadId ? trashedIn.tasks : {};
+    return {
+      trashed,
+      pending: taskPending,
+      notATask: canTrashTasks ? async (messageId, task) => {
+        setTaskPending(task.task_id);
+        try {
+          if (!(await deleteTask(task.task_id))) return;
+          setTrashedIn({ threadId, tasks: { ...trashed, [task.task_id]: { messageId, task } } });
+          toast('success', `Moved "${task.title ?? 'the task'}" to Trash`);
+          announceInboxChange({ threadId });
+          void load(true);
+        } finally {
+          setTaskPending(null);
+        }
+      } : undefined,
+      undo: async (taskId) => {
+        setTaskPending(taskId);
+        try {
+          if (!(await restoreRecord('tasks', taskId))) return;
+          const rest = { ...trashed };
+          delete rest[taskId];
+          setTrashedIn({ threadId, tasks: rest });
+          toast('success', 'Task restored');
+          announceInboxChange({ threadId });
+          void load(true);
+        } finally {
+          setTaskPending(null);
+        }
+      },
+    };
+  }, [trashedIn, threadId, taskPending, canTrashTasks, deleteTask, restoreRecord, load]);
 
   // While the agent writes a requested draft, look again every few seconds,
   // for ten minutes at most; the request closes itself after half an hour.
@@ -328,6 +381,7 @@ export function ThreadView({ threadId, focusMessageId, onMissing }: ThreadViewPr
 
       {/* Messages */}
       <div ref={scrollRef} className="relative min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-5">
+        <TaskUndoContext.Provider value={taskUndo}>
         <ol className="space-y-3">
           {detail.messages.map((message) => {
             const day = dayLabel(message.received_at);
@@ -358,6 +412,7 @@ export function ThreadView({ threadId, focusMessageId, onMissing }: ThreadViewPr
             );
           })}
         </ol>
+        </TaskUndoContext.Provider>
         {detail.reply_draft && (
           <div className="mt-4">
             <ReplyDraftCard draft={detail.reply_draft} agentName={agentName} onAskAgain={canTriage ? () => setDraftDialog(true) : undefined} />
@@ -588,7 +643,15 @@ function MessageCard({ message, agentName, focused, busy, viewUrl, onSendToAgent
     return map;
   }, [message.attachments, viewUrl]);
   // The agent's note covers what the agent did; people's links live in the thread's strip.
-  const agentLinks = useMemo(() => message.linked_tasks.filter((task) => task.by === 'agent'), [message.linked_tasks]);
+  const { trashed } = useContext(TaskUndoContext);
+  // A task trashed here stays on its email (with Undo) after the thread stops listing it.
+  const agentLinks = useMemo(() => {
+    const live = message.linked_tasks.filter((task) => task.by === 'agent');
+    const gone = Object.values(trashed)
+      .filter((entry) => entry.messageId === message.id && !live.some((task) => task.task_id === entry.task.task_id))
+      .map((entry) => entry.task);
+    return [...live, ...gone];
+  }, [message.linked_tasks, message.id, trashed]);
   const noteMode = message.triage ? agentNoteMode(message.triage, agentLinks, message.reminders, message.new_text) : null;
   // Images the HTML already shows in place are not listed again under it.
   const referenced = useMemo(() => inlineImageIds(message.html_body), [message.html_body]);
@@ -686,7 +749,7 @@ function MessageCard({ message, agentName, focused, busy, viewUrl, onSendToAgent
       {listed.length > 0 && <AttachmentList attachments={listed} agentName={agentName} viewUrl={viewUrl} onDownload={onDownload} onPreview={onPreview} />}
 
       {message.triage && noteMode !== 'quiet' && (
-        <AgentNote triage={message.triage} agentName={agentName} linkedTasks={agentLinks} reminders={message.reminders} collapsed={noteMode === 'summary'} handled={!!message.reviewed_at} />
+        <AgentNote messageId={message.id} triage={message.triage} agentName={agentName} linkedTasks={agentLinks} reminders={message.reminders} collapsed={noteMode === 'summary'} handled={!!message.reviewed_at} />
       )}
       {message.sorting?.superseded_by && (
         <p className="mx-4 mb-3 text-[11px] text-zinc-400">Replaced by a newer alert from the same sender, so it no longer waits on anyone.</p>
@@ -864,10 +927,29 @@ function QuietNote({ triage, agentName }: { triage: InboxTriage; agentName: stri
   );
 }
 
-/** One linked task as a receipt item: what happened to it, then the task. */
-function TaskReceipt({ task }: { task: InboxMessage['linked_tasks'][number] }) {
+/**
+ * One linked task as a receipt item: what happened to it, then the task. A
+ * task the agent created can be waved off as "Not a task" (to Trash), and
+ * brought back with Undo.
+ */
+function TaskReceipt({ task, messageId }: { task: InboxMessage['linked_tasks'][number]; messageId: string }) {
+  const { trashed, notATask, undo, pending } = useContext(TaskUndoContext);
   const verb = task.relation === 'created' ? 'Created' : task.relation === 'updated' ? 'Updated' : 'About';
   const title = task.title ?? 'Task';
+  const busy = pending === task.task_id;
+  if (trashed[task.task_id]) {
+    return (
+      <li className="flex min-w-0 items-center gap-2 text-xs">
+        <Trash2 size={12} className="flex-shrink-0 text-zinc-400" aria-hidden="true" />
+        <span className="min-w-0 flex-1 truncate text-zinc-400"><span className="line-through">{title}</span> moved to Trash</span>
+        <Button size="sm" variant="ghost" className="!rounded-md !px-2 !py-0.5" disabled={busy} onClick={() => void undo(task.task_id)}
+          icon={busy ? <Loader2 size={12} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Undo2 size={12} aria-hidden="true" />}>
+          Undo
+        </Button>
+      </li>
+    );
+  }
+  const dismissable = !!notATask && task.relation === 'created' && task.by === 'agent' && task.title !== null && task.status !== 'done';
   return (
     <li className="flex min-w-0 items-center gap-2 text-xs">
       <SquareCheck size={12} className="flex-shrink-0 text-emerald-300" aria-hidden="true" />
@@ -886,6 +968,15 @@ function TaskReceipt({ task }: { task: InboxMessage['linked_tasks'][number] }) {
       ) : (
         <span className="min-w-0 flex-1 truncate text-zinc-300">{title}</span>
       )}
+      {dismissable && (
+        <Tooltip content="Moves it to Trash. Undo brings it back.">
+          <Button size="sm" variant="ghost" className="!rounded-md !px-2 !py-0.5 flex-shrink-0" disabled={busy}
+            onClick={() => void notATask(messageId, task)} aria-label={`Not a task: move "${title}" to Trash`}
+            icon={busy ? <Loader2 size={12} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <X size={12} aria-hidden="true" />}>
+            Not a task
+          </Button>
+        </Tooltip>
+      )}
     </li>
   );
 }
@@ -896,7 +987,8 @@ function TaskReceipt({ task }: { task: InboxMessage['linked_tasks'][number] }) {
  * set, a question for you (amber until the thread is handled) and an old
  * suggested reply. Nothing repeats the email or spreads across the page.
  */
-function AgentNote({ triage, agentName, linkedTasks, reminders, collapsed, handled }: {
+function AgentNote({ messageId, triage, agentName, linkedTasks, reminders, collapsed, handled }: {
+  messageId: string;
   triage: InboxTriage;
   agentName: string;
   linkedTasks: InboxMessage['linked_tasks'];
@@ -955,7 +1047,7 @@ function AgentNote({ triage, agentName, linkedTasks, reminders, collapsed, handl
           >
             <NoteCardHeader name={who} avatar={avatar} at={triage.created_at} />
             <ul className="space-y-1.5">
-              {linkedTasks.map((task) => <TaskReceipt key={`${task.task_id}-${task.relation}`} task={task} />)}
+              {linkedTasks.map((task) => <TaskReceipt key={`${task.task_id}-${task.relation}`} task={task} messageId={messageId} />)}
             </ul>
           </NotePill>
         )}
