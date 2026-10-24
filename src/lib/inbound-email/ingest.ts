@@ -21,7 +21,10 @@ import { trashedProjectIds } from '@/lib/supabase/trash';
  *    such an email is ordinary mail;
  * 3. copies the raw .eml and each attachment within the size cap into the
  *    private bucket, server-side, hashing as it reads, and records size and
- *    SHA-256 per file (a retry resumes with the files not yet stored);
+ *    SHA-256 per file (a retry resumes with the files not yet stored). An
+ *    attachment is stored once per inbox: it points at the inbox's copy of
+ *    its bytes (email_files), uploaded only when there is none yet, so a
+ *    signature logo or a screenshot a reply quotes again adds nothing;
  * 4. threads, maps and files the message as new or ignored. The visible
  *    sender decides the project, unless it is a verified teammate: then a
  *    forward maps by its original sender, and a teammate's own email
@@ -75,6 +78,8 @@ interface StartRpcResult {
   attachments: {
     id: string; position: number; filename: string; content_type: string; size_bytes: number | null;
     provider_attachment_id: string | null; storage_path: string | null; skipped_reason: string | null; uploaded_at: string | null;
+    /** The shared copy it points at (email_files); null for a file stored the old way or not stored. */
+    file_id: string | null;
   }[];
 }
 
@@ -234,7 +239,8 @@ async function fetchFile(file: InboundFile, label: string): Promise<Response> {
 async function upload(supabase: SupabaseClient, path: string, bytes: Buffer, contentType: string): Promise<void> {
   const { error } = await supabase.storage.from(INBOUND_EMAIL_BUCKET).upload(path, bytes, {
     contentType: contentType || 'application/octet-stream',
-    // The row owns this path; a retry after a partial run rewrites the same bytes.
+    // A row owns this path: a retry after a partial run, or two emails
+    // storing the same new copy at once, write the same bytes.
     upsert: true,
   });
   if (error) throw new Error(`storing ${path} failed: ${error.message}`);
@@ -276,7 +282,8 @@ async function storeFiles(supabase: SupabaseClient, inbox: InboxRow, email: Inbo
 
   const cap = Math.min(inbox.max_attachment_mb * MIB, MAX_OBJECT_BYTES);
   for (const row of started.attachments) {
-    if (!row.storage_path || row.uploaded_at) continue;
+    // Pending: not stored and not skipped.
+    if (row.uploaded_at || row.skipped_reason) continue;
     let read: { bytes: Buffer; sha256: string } | null;
     try {
       // By the provider's id; for the same message delivered again under other
@@ -286,7 +293,17 @@ async function storeFiles(supabase: SupabaseClient, inbox: InboxRow, email: Inbo
         ?? (byPosition && (byPosition.filename ?? '') === row.filename ? byPosition : undefined);
       if (!source) throw new Error(`attachment ${row.position} is no longer offered by the provider`);
       read = await readCapped(await fetchFile(source.source, `attachment ${row.position}`), cap);
-      if (read) await upload(supabase, row.storage_path, read.bytes, row.content_type);
+      if (read) {
+        // The inbox's copy of these bytes, uploaded only when it is new.
+        const { data: claimed, error: claimError } = await supabase.rpc('email_claim_file', {
+          p_attachment_id: row.id,
+          p_sha256: read.sha256,
+          p_size_bytes: read.bytes.byteLength,
+        });
+        if (claimError) throw new Error(`attachment ${row.position} could not be recorded: ${claimError.message}`);
+        const copy = claimed as { storage_path: string; stored: boolean };
+        if (!copy.stored) await upload(supabase, copy.storage_path, read.bytes, row.content_type);
+      }
     } catch (error) {
       failedAttachmentIds.push(row.id);
       failed.push((error as Error).message);
@@ -294,7 +311,7 @@ async function storeFiles(supabase: SupabaseClient, inbox: InboxRow, email: Inbo
     }
     if (!read) {
       const { error } = await supabase.from('email_attachments')
-        .update({ storage_path: null, skipped_reason: 'over_size_cap' }).eq('id', row.id);
+        .update({ storage_path: null, file_id: null, skipped_reason: 'over_size_cap' }).eq('id', row.id);
       if (error) throw error;
       continue;
     }
@@ -302,11 +319,8 @@ async function storeFiles(supabase: SupabaseClient, inbox: InboxRow, email: Inbo
       // The stored size is the real one; the listing's figure is informational.
       console.warn(`[inbound-email] attachment ${row.id} is ${read.bytes.byteLength} bytes; the provider listed ${row.size_bytes}`);
     }
-    const { error } = await supabase.from('email_attachments').update({
-      size_bytes: read.bytes.byteLength,
-      sha256: read.sha256,
-      uploaded_at: new Date().toISOString(),
-    }).eq('id', row.id);
+    // The attachment is stored at its copy's path, with the copy's hash and size.
+    const { error } = await supabase.rpc('email_file_stored', { p_attachment_id: row.id });
     if (error) throw error;
   }
 
@@ -368,7 +382,10 @@ async function ingestIntoInbox(
       const { error: addressError } = await supabase.from('email_project_addresses').update({ last_received_at: now }).eq('id', projectAddress.id);
       if (addressError) throw addressError;
     }
-    const paths = [started.message.raw_storage_path, ...started.attachments.map((a) => a.storage_path)].filter((p): p is string => !!p);
+    // Its own files only: a shared copy may be another email's too, and is
+    // released by retention once nothing points at it.
+    const paths = [started.message.raw_storage_path, ...started.attachments.filter((a) => !a.file_id).map((a) => a.storage_path)]
+      .filter((p): p is string => !!p);
     if (paths.length) {
       const { error: removeError } = await supabase.storage.from(INBOUND_EMAIL_BUCKET).remove(paths);
       if (removeError) throw new Error(`could not delete the verification email's files: ${removeError.message}`);

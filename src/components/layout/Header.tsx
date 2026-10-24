@@ -50,7 +50,7 @@ export function Header({ title, subtitle, actions, searchPlaceholder, showFilter
           >
             <Menu size={20} />
           </button>
-          <div className="min-w-0">
+          <div className={`min-w-0 ${wrapTitle ? 'flex-1' : ''}`}>
             <h1 className={`text-2xl lg:text-[26px] font-bold text-white tracking-tight leading-tight ${wrapTitle ? 'break-words' : 'truncate'}`}>{title}</h1>
             {subtitle && <div className="text-sm text-zinc-400 mt-1">{subtitle}</div>}
           </div>

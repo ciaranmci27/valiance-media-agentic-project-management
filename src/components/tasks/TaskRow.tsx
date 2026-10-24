@@ -5,7 +5,7 @@ import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { StatusBadge, PriorityBadge, TaskTypeBadge } from '@/components/ui/Badge';
 import { AvatarGroup } from '@/components/ui/Avatar';
-import { Calendar, CheckSquare, Mail, MessageSquare, MoreVertical, Edit, Trash2, Clock, Lock, FileQuestion } from 'lucide-react';
+import { Calendar, CheckSquare, Mail, MessageSquare, MoreVertical, Trash2, Clock, Lock, FileQuestion } from 'lucide-react';
 import { useState, useRef } from 'react';
 import { Popover } from '@/components/ui/Popover';
 import { useTaskEmailCount } from '@/components/inbox/TaskSourceEmails';
@@ -47,13 +47,12 @@ function timeAgo(dateStr: string): string {
 interface TaskRowProps {
   task: Task;
   onView?: (task: Task) => void;
-  onEdit?: (task: Task) => void;
   onDelete?: (id: string) => void;
   selected?: boolean;
   onToggleSelect?: (id: string) => void;
 }
 
-export function TaskRow({ task, onView, onEdit, onDelete }: TaskRowProps) {
+export function TaskRow({ task, onView, onDelete }: TaskRowProps) {
   const { team, tasks, getProject, isTaskUnseen } = useApp();
   const { teamMemberId, access } = useAuth();
   const [showMenu, setShowMenu] = useState(false);
@@ -197,7 +196,7 @@ export function TaskRow({ task, onView, onEdit, onDelete }: TaskRowProps) {
       </div>
 
       {/* Actions menu */}
-      {(canEdit || canDelete) && (
+      {canDelete && (
         <Popover
           anchorRef={menuBtnRef}
           open={showMenu}
@@ -206,13 +205,6 @@ export function TaskRow({ task, onView, onEdit, onDelete }: TaskRowProps) {
           width={120}
           className="bg-surface-raised rounded-lg shadow-xl border border-white/[0.08] py-1"
         >
-          {canEdit && <button
-            onClick={(e) => { e.stopPropagation(); onEdit?.(task); setShowMenu(false); }}
-            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-300 hover:bg-white/[0.06]"
-          >
-            <Edit size={14} />
-            Edit
-          </button>}
           {canDelete && <button
             onClick={(e) => { e.stopPropagation(); onDelete?.(task.id); setShowMenu(false); }}
             className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-400 hover:bg-red-500/15"
@@ -228,7 +220,7 @@ export function TaskRow({ task, onView, onEdit, onDelete }: TaskRowProps) {
 
 /* Desktop table row view. Every cell below maps 1:1, in order, onto
    LIST_GRID_COLS; add or remove a column there and here together. */
-export function TaskRowDesktop({ task, onView, onEdit, onDelete, selected, onToggleSelect }: TaskRowProps) {
+export function TaskRowDesktop({ task, onView, onDelete, selected, onToggleSelect }: TaskRowProps) {
   const { team, tasks, getProject, isTaskUnseen } = useApp();
   const { teamMemberId, access } = useAuth();
   const [showMenu, setShowMenu] = useState(false);
@@ -393,7 +385,7 @@ export function TaskRowDesktop({ task, onView, onEdit, onDelete, selected, onTog
 
       {/* Actions */}
       <div className="relative">
-        {(canEdit || canDelete) && <>
+        {canDelete && <>
           <button
             ref={menuBtnRef}
             onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }}
@@ -411,13 +403,6 @@ export function TaskRowDesktop({ task, onView, onEdit, onDelete, selected, onTog
             width={120}
             className="bg-surface-raised rounded-lg shadow-xl border border-white/[0.08] py-1"
           >
-            {canEdit && <button
-              onClick={(e) => { e.stopPropagation(); onEdit?.(task); setShowMenu(false); }}
-              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-300 hover:bg-white/[0.06]"
-            >
-              <Edit size={14} />
-              Edit
-            </button>}
             {canDelete && <button
               onClick={(e) => { e.stopPropagation(); onDelete?.(task.id); setShowMenu(false); }}
               className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-400 hover:bg-red-500/15"

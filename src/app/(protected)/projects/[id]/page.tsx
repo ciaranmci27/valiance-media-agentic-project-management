@@ -10,7 +10,7 @@ import { Header } from '@/components/layout/Header';
 import { BoardView } from '@/components/views/BoardView';
 import { ListView } from '@/components/views/ListView';
 import { CalendarView } from '@/components/views/CalendarView';
-import { TaskForm } from '@/components/tasks/TaskForm';
+import { NewTaskPanel } from '@/components/tasks/NewTaskPanel';
 import { TaskDetailPanel } from '@/components/tasks/TaskDetailPanel';
 import { ProjectForm } from '@/components/projects/ProjectForm';
 import { ProjectContactsPanel } from '@/components/projects/ProjectContactsPanel';
@@ -75,15 +75,14 @@ export default function ProjectDetailPage() {
   useEffect(() => { setFilters(defaultFilters); }, []);
 
   const [viewMode, setViewMode] = useState<ViewMode>('board');
-  const [isTaskFormOpen, setIsTaskFormOpen] = useState(false);
   const [isEditProjectOpen, setIsEditProjectOpen] = useState(false);
   const [isContactsPanelOpen, setIsContactsPanelOpen] = useState(false);
-  const [editingTask, setEditingTask] = useState<Task | null>(null);
+  // A new task being drafted in the side panel, with a calendar day's date when it came from one.
+  const [newTask, setNewTask] = useState<{ dueDate?: string } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<{ type: 'task' | 'project' | 'bulk'; id: string } | null>(null);
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
   const [showBulkMenu, setShowBulkMenu] = useState(false);
   const bulkMenuRef = useRef<HTMLDivElement>(null);
-  const [taskFormDueDate, setTaskFormDueDate] = useState<string | null>(null);
   // Clearing due dates wipes data with no undo, so it confirms first; it
   // already cost real due dates to an accidental click.
   const [confirmClearDueDates, setConfirmClearDueDates] = useState(false);
@@ -229,12 +228,6 @@ export default function ProjectDetailPage() {
     setViewingTaskId(task.id);
   };
 
-  const handleEditTask = (task: Task) => {
-    closeViewingTask();
-    setEditingTask(task);
-    setIsTaskFormOpen(true);
-  };
-
   const handleDeleteTask = (id: string) => {
     setConfirmDelete({ type: 'task', id });
   };
@@ -284,12 +277,6 @@ export default function ProjectDetailPage() {
     const task = allProjectTasks.find(t => t.id === taskId);
     if (!task) return;
     reorderColumn(taskId, task.status, newIndex);
-  };
-
-  const handleCloseTaskForm = () => {
-    setIsTaskFormOpen(false);
-    setEditingTask(null);
-    setTaskFormDueDate(null);
   };
 
   const toggleTaskSelection = (taskId: string) => {
@@ -528,7 +515,7 @@ export default function ProjectDetailPage() {
             {allProjectTasks.length > 0 && <TaskFilterControl tasks={allProjectTasks} />}
           </>}
           primary={canCreateTasks && (
-            <ToolbarButton icon={<Plus />} label="Add task" onClick={() => setIsTaskFormOpen(true)} />
+            <ToolbarButton icon={<Plus />} label="Add task" onClick={() => setNewTask({})} />
           )}
         />
 
@@ -547,7 +534,6 @@ export default function ProjectDetailPage() {
               <BoardView
                 tasks={projectTasks}
                 onViewTask={handleViewTask}
-                onEditTask={handleEditTask}
                 onDeleteTask={handleDeleteTask}
                 onStatusChange={handleStatusChange}
                 onReorder={handleReorder}
@@ -558,7 +544,6 @@ export default function ProjectDetailPage() {
               <ListView
                 tasks={projectTasks}
                 onViewTask={handleViewTask}
-                onEditTask={handleEditTask}
                 onDeleteTask={handleDeleteTask}
                 selectedIds={selectedTaskIds}
                 onToggleSelect={toggleTaskSelection}
@@ -571,8 +556,7 @@ export default function ProjectDetailPage() {
               <CalendarView
                 tasks={projectTasks}
                 onViewTask={handleViewTask}
-                onEditTask={handleEditTask}
-                onAddTask={canCreateTasks ? (date) => { setTaskFormDueDate(date); setIsTaskFormOpen(true); } : undefined}
+                onAddTask={canCreateTasks ? (date) => setNewTask({ dueDate: date }) : undefined}
               />
             )}
           </>
@@ -614,14 +598,18 @@ export default function ProjectDetailPage() {
         project={project}
       />}
 
-      {/* Task Form Modal */}
-      <TaskForm
-        isOpen={isTaskFormOpen}
-        onClose={handleCloseTaskForm}
-        projectId={projectId}
-        task={editingTask}
-        initialDueDate={taskFormDueDate || undefined}
-      />
+      {/* A new task, drafted in the side panel; once made, its own panel takes over. */}
+      {newTask && (
+        <NewTaskPanel
+          projectId={projectId}
+          initialDueDate={newTask.dueDate}
+          onClose={() => setNewTask(null)}
+          onCreated={(task) => {
+            setNewTask(null);
+            setViewingTaskId(task.id);
+          }}
+        />
+      )}
 
       {/* Contacts Panel Modal */}
       {canReadContacts && <ProjectContactsPanel
@@ -634,7 +622,6 @@ export default function ProjectDetailPage() {
       <TaskDetailPanel
         task={viewingTask}
         onClose={closeViewingTask}
-        onEdit={handleEditTask}
         onDelete={handleDeleteTask}
       />
 

@@ -267,8 +267,21 @@ async function main() {
     const [many] = await messageBy('attach-8@acme-roofing.example');
     const stored = await rows(db, 'SELECT * FROM email_attachments WHERE message_id=$1 ORDER BY position', [many.id]);
     const allMatch = stored.every((a) => a.uploaded_at && createHash('sha256').update(storage.objects.get(`inbound-email/${a.storage_path}`)!.bytes).digest('hex') === a.sha256
-      && a.storage_path === `${ids.inboxA}/${many.id}/${a.id}`);
-    check('attachments: five stored at {inbox}/{email}/{attachment} with matching hashes', stored.length === 5 && allMatch, stored.map((a) => [a.filename, a.storage_path, a.sha256]));
+      && a.file_id && a.storage_path === `${ids.inboxA}/files/${a.file_id}`);
+    check('attachments: five stored as the inbox copies at {inbox}/files/{file} with matching hashes', stored.length === 5 && allMatch, stored.map((a) => [a.filename, a.storage_path, a.sha256]));
+
+    // The same five files in another email (a reply quoting them, a signature
+    // logo): pointed at the copies already stored, nothing uploaded but its .eml.
+    const uploadsBeforeAgain = storage.uploads;
+    await add('many-attachments.eml', 're_many_again', { messageId: '<attach-8-again@acme-roofing.example>' });
+    await deliver('re_many_again');
+    const [manyAgain] = await messageBy('attach-8-again@acme-roofing.example');
+    const againStored = await rows(db, 'SELECT * FROM email_attachments WHERE message_id=$1 ORDER BY position', [manyAgain?.id]);
+    const copies = await rows(db, 'SELECT * FROM email_files WHERE inbox_id=$1', [ids.inboxA]);
+    check('attachments: the same files in another email are stored once (the second email uploads only its .eml)',
+      againStored.length === 5 && againStored.every((a, i) => a.uploaded_at && a.file_id === stored[i].file_id && a.storage_path === stored[i].storage_path)
+        && copies.filter((copy) => stored.some((a) => a.file_id === copy.id)).length === 5 && storage.uploads - uploadsBeforeAgain === 1,
+      { uploads: storage.uploads - uploadsBeforeAgain, againStored: againStored.map((a) => a.storage_path) });
 
     // Oversized: declared over the cap (skipped without downloading), and
     // undeclared (downloaded, aborted at the cap, then skipped).
@@ -1736,7 +1749,7 @@ async function main() {
 
   // The schema.sql snapshot stands on its own.
   const snapshot = await createEmailDatabase('schema');
-  check('schema.sql: the inbound email section loads', (await rows(snapshot, "SELECT count(*)::int AS n FROM pg_tables WHERE tablename LIKE 'email_%' OR tablename = 'contact_emails'"))[0].n === 17);
+  check('schema.sql: the inbound email section loads', (await rows(snapshot, "SELECT count(*)::int AS n FROM pg_tables WHERE tablename LIKE 'email_%' OR tablename = 'contact_emails'"))[0].n === 18);
   check('schema.sql: client sender addresses and the sender reason are in the snapshot',
     (await rows(snapshot, "SELECT 1 FROM pg_policies WHERE tablename = 'email_client_addresses'")).length === 2
     && (await rows(snapshot, "SELECT 1 FROM pg_constraint WHERE conname = 'email_message_candidates_reason_check' AND pg_get_constraintdef(oid) LIKE '%sender%'")).length === 1);

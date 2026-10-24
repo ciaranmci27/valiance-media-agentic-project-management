@@ -42,6 +42,8 @@ export interface TextareaProps
   /** With autoResize: starts one line tall, grows with the text up to this
    *  height in px, then scrolls inside. */
   maxHeight?: number;
+  /** autoResize's floor; by default a box of `rows` lines. '0' lets it hug its text (a title edited in place). */
+  minHeight?: string;
   resizable?: boolean;
   name?: string;
   id?: string;
@@ -71,6 +73,7 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(function 
     showCharCount = false,
     autoResize = false,
     maxHeight,
+    minHeight,
     resizable = false,
     name,
     id,
@@ -200,7 +203,7 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(function 
         } placeholder:text-input-text-placeholder ${inputClassName || ''}`}
         style={
           autoResize && maxHeight === undefined
-            ? { overflow: 'hidden', minHeight: `${rows * 1.5 + 1}rem` }
+            ? { overflow: 'hidden', minHeight: minHeight ?? `${rows * 1.5 + 1}rem` }
             : autoResize
               ? { overflowY: 'hidden' }
               : undefined

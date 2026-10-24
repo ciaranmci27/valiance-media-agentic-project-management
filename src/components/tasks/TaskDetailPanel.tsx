@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
-import { Task } from '@/lib/types';
+import { Task, TASK_TYPES, type AiReadiness, type TaskType } from '@/lib/types';
 import { toast } from '@/components/ui/Toast';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
@@ -11,7 +11,6 @@ import { Avatar } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
 import { TextInput } from '@/components/ui/inputs/TextInput';
 import { Textarea } from '@/components/ui/inputs/Textarea';
-import { Toggle } from '@/components/ui/inputs/Toggle';
 import { DateInput } from '@/components/ui/inputs/DateInput';
 import {
   X,
@@ -41,6 +40,7 @@ import {
   Info,
   Route,
   Paperclip,
+  Briefcase,
   type LucideIcon,
 } from 'lucide-react';
 import { RowActionsMenu, type RowAction } from '@/components/ui/RowActionsMenu';
@@ -50,37 +50,27 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { Popover } from '@/components/ui/Popover';
 import { parseDateOnly, isDateOverdue } from '@/lib/date-utils';
-import { hasPermission, canEditTask, canManageAllTasks } from '@/lib/access-control';
+import { hasPermission, canEditTask, canManageAllTasks, canBeAssignedInProject } from '@/lib/access-control';
 import { TaskSourceEmailsSection, useTaskEmailCount, useTaskSourceEmails } from '@/components/inbox/TaskSourceEmails';
-import { CardAction, RailCard, RailLayout } from '@/components/projects/TabLayout';
+import { RailCard, RailLayout } from '@/components/projects/TabLayout';
 import { TaskSourceLine, useTaskSource } from './TaskSource';
 import { TaskFiles } from './TaskFiles';
+import { TaskPanelShell } from './TaskPanelShell';
+import {
+  DescriptionField, DetailRow, INLINE_DATE_CLASS, PeopleChips, PickField, PRIORITY_OPTIONS, STATUS_OPTIONS, TagsField, TitleField,
+  taskTypeLabel, WHO_DOES_IT,
+} from './TaskFields';
 
 interface TaskDetailPanelProps {
   task: Task | null;
   onClose: () => void;
-  onEdit: (task: Task) => void;
+  /** Unused: every field edits in place. */
+  onEdit?: (task: Task) => void;
   onDelete: (id: string) => void;
   /** 'panel' (default): slides over the page. 'page': the full task page. */
   variant?: 'panel' | 'page';
 }
 
-const STATUS_OPTIONS: { value: Task['status']; label: string; color: string }[] = [
-  { value: 'todo', label: 'To Do', color: 'bg-zinc-400' },
-  { value: 'in_progress', label: 'In Progress', color: 'bg-brand-500' },
-  { value: 'in_review', label: 'In Review', color: 'bg-amber-500' },
-  { value: 'done', label: 'Done', color: 'bg-emerald-500' },
-];
-
-const PRIORITY_OPTIONS: { value: Task['priority']; label: string; color: string }[] = [
-  { value: 'low', label: 'Low', color: 'bg-zinc-400' },
-  { value: 'medium', label: 'Medium', color: 'bg-blue-500' },
-  { value: 'high', label: 'High', color: 'bg-orange-500' },
-  { value: 'urgent', label: 'Urgent', color: 'bg-red-500' },
-];
-
-// The due date edits in place, so it sheds the input chrome.
-const INLINE_DATE_CLASS = '!w-fit !justify-start !gap-1 !border-transparent !bg-transparent !shadow-none hover:!bg-white/[0.06] focus:!ring-0 focus:!border-transparent !px-1.5 !-mx-1.5 !py-0.5 !rounded-md';
 
 // Row actions (edit, delete) that show on hover or focus from sm up.
 const ROW_ACTIONS = 'flex items-center gap-0.5 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-opacity';
@@ -98,9 +88,10 @@ function criteriaHasRole(task: Task): boolean {
  * Everything you can do to a task as a whole, in one "..." menu: the side
  * panel and the task page share it, so neither carries a row of icons.
  */
-export function TaskActionsMenu({ task, onEdit, onDelete, showOpenAsPage = false }: {
+export function TaskActionsMenu({ task, onDelete, showOpenAsPage = false }: {
   task: Task;
-  onEdit: (task: Task) => void;
+  /** Unused: every field edits in place. */
+  onEdit?: (task: Task) => void;
   onDelete: (id: string) => void;
   showOpenAsPage?: boolean;
 }) {
@@ -111,7 +102,6 @@ export function TaskActionsMenu({ task, onEdit, onDelete, showOpenAsPage = false
   const canDelete = canManageAllTasks(access);
 
   const actions: RowAction[] = [
-    ...(canEdit ? [{ label: 'Edit task', icon: <Edit size={14} />, onClick: () => onEdit(task) }] : []),
     ...(canEdit && task.acceptance_criteria.length === 0 && !criteriaHasRole(task)
       ? [{ label: 'Add acceptance criteria', icon: <ListChecks size={14} />, onClick: () => window.dispatchEvent(new CustomEvent(ADD_CRITERIA_EVENT, { detail: task.id })) }]
       : []),
@@ -274,19 +264,8 @@ function InlineAdd({ label, placeholder, onAdd }: { label: string; placeholder: 
 }
 
 /** A label and its value in the details list. */
-function DetailRow({ icon: Icon, label, children }: { icon: LucideIcon; label: string; children: ReactNode }) {
-  return (
-    <>
-      <dt className="flex items-center gap-2 text-xs text-zinc-400 min-h-7">
-        <Icon size={14} aria-hidden="true" />
-        {label}
-      </dt>
-      <dd className="min-w-0 flex items-center min-h-7">{children}</dd>
-    </>
-  );
-}
 
-export function TaskDetailPanel({ task, onClose, onEdit, onDelete, variant = 'panel' }: TaskDetailPanelProps) {
+export function TaskDetailPanel({ task, onClose, onDelete, variant = 'panel' }: TaskDetailPanelProps) {
   const {
     team,
     tasks,
@@ -309,8 +288,6 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete, variant = 'pa
     markTaskSeen,
   } = useApp();
   const { teamMemberId, access } = useAuth();
-  const backdropRef = useRef<HTMLDivElement>(null);
-  const dialogRef = useRef<HTMLDivElement>(null);
   const [newComment, setNewComment] = useState('');
   const [showStatusMenu, setShowStatusMenu] = useState(false);
   const [showPriorityMenu, setShowPriorityMenu] = useState(false);
@@ -367,38 +344,22 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete, variant = 'pa
     setNewComment('');
   }
 
-  // Escape closes the panel, which also holds the page still behind it. The
-  // full page is the page: neither applies there. An Escape a field inside
-  // already handled (closing an adder) is marked defaultPrevented: React
-  // listens on the document too, so stopPropagation cannot keep it from here.
-  // A dialog open over the panel (a confirm, a file preview) takes the Escape
-  // for itself: it listens after the panel does, so the panel steps aside.
-  useEffect(() => {
-    if (variant !== 'panel') return;
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape' || e.defaultPrevented) return;
-      const dialogOver = [...document.querySelectorAll('[aria-modal="true"]')].some((el) => el !== dialogRef.current);
-      if (!dialogOver) onClose();
-    };
-
-    if (task) {
-      document.addEventListener('keydown', handleEscape);
-      document.body.style.overflow = 'hidden';
-    }
-
-    return () => {
-      document.removeEventListener('keydown', handleEscape);
-      document.body.style.overflow = 'unset';
-    };
-  }, [task, onClose, variant]);
-
   if (!task) return null;
   const canEdit = canEditTask(access, task, teamMemberId);
 
   const isAgentsEnabled = process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true';
   const project = getProject(task.project_id);
-  const showAiToggle =
-    isAgentsEnabled && hasPermission(access, 'agents.manage') && project?.autonomous_enabled;
+  // Task type and who does it are for whoever runs the agents.
+  const showAgentFields = isAgentsEnabled && hasPermission(access, 'agents.manage');
+  // Assigning other people takes managing every task; anyone else sees who is on it.
+  const canAssign = canEdit && canManageAllTasks(access);
+  const assignableMembers = team.filter((member) =>
+    // Anyone already assigned stays listed, so they can be taken off.
+    task.assignee_ids.includes(member.id) || !project || canBeAssignedInProject(member, project));
+  // The project's other tasks, open ones first: a finished task rarely holds anything up.
+  const blockerChoices = tasks
+    .filter((t) => t.project_id === task.project_id && t.id !== task.id)
+    .sort((a, b) => Number(a.status === 'done') - Number(b.status === 'done'));
 
   const assignees = team.filter((m) => task.assignee_ids.includes(m.id));
   const completedSubtasks = task.subtasks.filter((s) => s.completed).length;
@@ -518,21 +479,20 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete, variant = 'pa
       </DetailRow>
 
       <DetailRow icon={Users} label="Assignees">
-        {assignees.length > 0 ? (
-          <div className="flex flex-wrap gap-1.5 py-0.5">
-            {assignees.map((member) => (
-              <span
-                key={member.id}
-                className="inline-flex items-center gap-1.5 max-w-full pl-1 pr-2.5 py-0.5 rounded-full bg-white/[0.04] border border-white/[0.06] text-xs text-zinc-200"
-              >
-                <Avatar name={member.name} src={member.avatar || undefined} size="xs" />
-                <span className="truncate">{member.name}</span>
-              </span>
-            ))}
-          </div>
-        ) : (
-          <span className="text-zinc-500">Unassigned</span>
-        )}
+        <PickField
+          label="Assignees"
+          multiple
+          canEdit={canAssign}
+          display={assignees.length > 0 ? <PeopleChips people={assignees} /> : null}
+          emptyText="Unassigned"
+          selected={task.assignee_ids}
+          options={assignableMembers.map((member) => ({
+            value: member.id,
+            label: member.name,
+            leading: <Avatar name={member.name} src={member.avatar || undefined} size="xs" />,
+          }))}
+          onChange={(assignee_ids) => updateTask(task.id, { assignee_ids })}
+        />
       </DetailRow>
 
       <DetailRow icon={Calendar} label="Due">
@@ -560,19 +520,78 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete, variant = 'pa
       </DetailRow>
 
       <DetailRow icon={Tag} label="Tags">
-        {task.tags.length > 0 ? (
-          <div className="flex flex-wrap gap-1 py-0.5">
-            {task.tags.map((tag) => (
-              <span key={tag} className="px-2 py-0.5 text-xs bg-white/[0.06] text-zinc-300 rounded-full">
-                {tag}
-              </span>
-            ))}
-          </div>
-        ) : (
-          <span className="text-zinc-500">None</span>
-        )}
+        <TagsField value={task.tags} onChange={(tags) => updateTask(task.id, { tags })} canEdit={canEdit} />
       </DetailRow>
 
+      <DetailRow icon={Lock} label="Blocked by">
+        <PickField
+          label="Blocked by"
+          multiple
+          canEdit={canEdit}
+          display={blockers.length > 0 ? (
+            <span className={openBlockers.length > 0 ? 'text-amber-300' : 'text-zinc-300'}>
+              {blockers.length === 1 ? blockers[0].title : `${blockers.length} tasks`}
+              {openBlockers.length > 0 ? ` · ${openBlockers.length} open` : ' · all done'}
+            </span>
+          ) : null}
+          selected={task.blocked_by_ids || []}
+          options={blockerChoices.map((t) => ({
+            value: t.id,
+            label: t.title,
+            hint: STATUS_OPTIONS.find((option) => option.value === t.status)?.label,
+          }))}
+          onChange={(blocked_by_ids) => updateTask(task.id, { blocked_by_ids })}
+        />
+      </DetailRow>
+
+      {/* Who does it: a person (no readiness, or human_only), or the dev
+          agent, specced (ai_ready) or not yet (needs_spec). A task with no
+          acceptance criteria cannot be made AI Ready: the dev agent refuses
+          spec-less tasks, so it would be claimed and then refused, forever. */}
+      {showAgentFields && (
+        <>
+          <DetailRow icon={Bot} label="Who does it">
+            <PickField
+              label="Who does it"
+              multiple={false}
+              canEdit={canEdit}
+              display={<span className="text-zinc-200">{WHO_DOES_IT.find((option) => option.value === (task.ai_readiness ?? ''))?.label ?? 'A person'}</span>}
+              selected={[task.ai_readiness === 'human_only' ? '' : task.ai_readiness ?? '']}
+              options={WHO_DOES_IT.map((option) => ({ value: option.value, label: option.label }))}
+              onChange={([next = '']) => {
+                const readiness = (next || null) as AiReadiness | null;
+                if (readiness === 'ai_ready' && task.acceptance_criteria.length === 0) {
+                  toast('error', 'Add acceptance criteria before marking this AI Ready');
+                  return;
+                }
+                // Picking "A person" again keeps a task marked human_only as it is.
+                if (!readiness && (task.ai_readiness === null || task.ai_readiness === 'human_only')) return;
+                updateTask(task.id, { ai_readiness: readiness });
+              }}
+            />
+          </DetailRow>
+          {task.ai_readiness && task.ai_readiness !== 'human_only' && (
+            <p className="col-span-2 -mt-1 text-xs text-zinc-400">
+              {task.ai_readiness === 'needs_spec'
+                ? 'Meant for the dev agent; the spec is not written yet.'
+                : project?.autonomous_enabled
+                  ? 'The dev agent may pick this task up on its own.'
+                  : 'Ready for the dev agent once this project runs on its own.'}
+            </p>
+          )}
+          <DetailRow icon={Briefcase} label="Task type">
+            <PickField
+              label="Task type"
+              multiple={false}
+              canEdit={canEdit}
+              display={task.task_type ? <span className="text-zinc-200">{taskTypeLabel(task.task_type)}</span> : null}
+              selected={task.task_type ? [task.task_type] : []}
+              options={TASK_TYPES.map((type) => ({ value: type, label: taskTypeLabel(type) }))}
+              onChange={([next]) => updateTask(task.id, { task_type: (next as TaskType | undefined) ?? null })}
+            />
+          </DetailRow>
+        </>
+      )}
       <DetailRow icon={Clock} label="Created">
         <span className="text-zinc-300">{createdDate}</span>
       </DetailRow>
@@ -583,201 +602,19 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete, variant = 'pa
         </DetailRow>
       )}
 
-      {/* AI ready. On = ai_ready (the dev agent may pick it up), off = no
-          readiness, a person's task like most tasks. A task with no
-          acceptance criteria cannot be flipped on: the dev agent refuses
-          spec-less tasks, so allowing it would create a task that is claimed
-          and then refused, forever. */}
-      {showAiToggle && (
-        <>
-          <DetailRow icon={Bot} label="AI ready">
-            <Toggle
-              checked={task.ai_readiness === 'ai_ready'}
-              onChange={() => {
-                const turningOn = task.ai_readiness !== 'ai_ready';
-                if (turningOn && (task.acceptance_criteria || []).length === 0) {
-                  toast('error', 'Add acceptance criteria before marking this AI Ready');
-                  return;
-                }
-                updateTask(task.id, { ai_readiness: turningOn ? 'ai_ready' : null });
-              }}
-              aria-label="AI ready"
-            />
-          </DetailRow>
-          <p className="col-span-2 -mt-1 text-xs text-zinc-400">
-            {task.ai_readiness === 'needs_spec'
-              ? 'Needs spec: meant for the dev agent, spec not written yet.'
-              : 'When on, the dev agent may pick this task up on its own.'}
-          </p>
-        </>
-      )}
     </dl>
   );
 
-  // ── The work: description, emails, files, reminders, criteria, subtasks, comments ──
+  // ── The work: description, reminders, subtasks, criteria, blockers, emails, files, comments ──
   const sections = (
     <>
-      <Section
-        variant={variant}
-        title="Description"
-        icon={AlignLeft}
-        action={canEdit && task.description ? <CardAction onClick={() => onEdit(task)}>Edit</CardAction> : undefined}
-      >
-        {task.description ? (
-          <p className="text-sm text-zinc-300 whitespace-pre-wrap break-words leading-relaxed">{task.description}</p>
-        ) : canEdit ? (
-          <button
-            type="button"
-            onClick={() => onEdit(task)}
-            className="text-sm text-zinc-400 hover:text-brand-300 transition-colors rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
-          >
-            Add a description
-          </button>
-        ) : (
-          <p className="text-sm text-zinc-500">No description.</p>
-        )}
+      <Section variant={variant} title="Description" icon={AlignLeft}>
+        <DescriptionField key={task.id} value={task.description} onChange={(description) => updateTask(task.id, { description })} canEdit={canEdit} />
       </Section>
-
-      {emailCount > 0 && (
-        <Section variant={variant} title="Communication" icon={MessageSquare} count={String(emailCount)}>
-          <TaskSourceEmailsSection data={sourceEmails} taskId={task?.id ?? null} projectId={task?.project_id ?? null} heading={false} expected={emailCount} />
-        </Section>
-      )}
-
-      <TaskFiles
-        task={task}
-        section={({ count, action, children }) => (
-          <Section variant={variant} title="Files" icon={Paperclip} count={count} action={action}>{children}</Section>
-        )}
-      />
 
       <Section variant={variant} title="Reminders" icon={BellRing} count={openReminders > 0 ? `${openReminders} open` : undefined}>
         <TaskReminders task={task} />
       </Section>
-
-      {blockers.length > 0 && (
-        <Section variant={variant} title="Blocked by" icon={Lock} count={`${blockers.length - openBlockers.length}/${blockers.length}`}>
-          {openBlockers.length > 0 && (
-            <p className="text-xs text-amber-400 mb-2">
-              Waiting on {openBlockers.length} {openBlockers.length === 1 ? 'task' : 'tasks'} to finish
-            </p>
-          )}
-          <ul className="space-y-1">
-            {blockers.map((blocker) => (
-              <li key={blocker.id} className="flex items-center justify-between gap-2 -mx-2 px-2 py-1.5 rounded-lg bg-white/[0.03]">
-                <span className={`text-sm truncate ${blocker.status === 'done' ? 'text-zinc-500 line-through' : 'text-zinc-300'}`}>
-                  {blocker.title}
-                </span>
-                <StatusBadge status={blocker.status} tooltip={false} />
-              </li>
-            ))}
-          </ul>
-        </Section>
-      )}
-
-      {showCriteria && (
-      <FoldingSection
-        variant={variant}
-        title="Acceptance criteria"
-        icon={ListChecks}
-        open={criteriaOpen}
-        onToggle={() => setCriteriaOpen((open) => !open)}
-        badge={task.acceptance_criteria.length > 0 && (
-          <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium tabular-nums ${
-            satisfiedCriteria === task.acceptance_criteria.length ? 'bg-emerald-500/15 text-emerald-300' : 'bg-white/[0.06] text-zinc-300'
-          }`}>
-            {satisfiedCriteria}/{task.acceptance_criteria.length} met
-          </span>
-        )}
-      >
-        {task.acceptance_criteria.length === 0 && !canEdit && <p className="text-sm text-zinc-500">None yet.</p>}
-        <ul className="space-y-0.5">
-          {task.acceptance_criteria.map((criterion) => (
-            <li key={criterion.id} className="flex items-center gap-2.5 -mx-2 px-2 py-1.5 rounded-lg hover:bg-white/[0.03] group">
-              <button
-                type="button"
-                onClick={() => canEdit && toggleCriterion(task.id, criterion.id)}
-                disabled={!canEdit}
-                aria-label={criterion.satisfied ? 'Mark criterion unmet' : 'Mark criterion met'}
-                aria-pressed={criterion.satisfied}
-                className={`flex-shrink-0 w-[18px] h-[18px] rounded border-2 flex items-center justify-center transition-colors disabled:cursor-default focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-1 focus-visible:ring-offset-surface-raised ${
-                  criterion.satisfied ? 'bg-brand-500 border-brand-500' : 'border-white/[0.16] enabled:hover:border-brand-400'
-                }`}
-              >
-                {criterion.satisfied && <Check size={12} strokeWidth={3} className="text-white" aria-hidden="true" />}
-              </button>
-              {editingCriterionId === criterion.id ? (
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    if (editingCriterionText.trim()) {
-                      updateCriterion(task.id, criterion.id, editingCriterionText.trim());
-                    }
-                    setEditingCriterionId(null);
-                  }}
-                  className="flex-1"
-                >
-                  <TextInput
-                    value={editingCriterionText}
-                    onChange={setEditingCriterionText}
-                    onBlur={() => {
-                      if (editingCriterionText.trim()) {
-                        updateCriterion(task.id, criterion.id, editingCriterionText.trim());
-                      }
-                      setEditingCriterionId(null);
-                    }}
-                    aria-label="Edit criterion"
-                    autoFocus
-                    size="sm"
-                  />
-                </form>
-              ) : (
-                <span
-                  className={`flex-1 min-w-0 text-sm break-words ${criterion.satisfied ? 'text-zinc-500' : 'text-zinc-200'}`}
-                  onDoubleClick={() => {
-                    if (!canEdit) return;
-                    setEditingCriterionId(criterion.id);
-                    setEditingCriterionText(criterion.criterion);
-                  }}
-                >
-                  {criterion.criterion}
-                </span>
-              )}
-              {canEdit && editingCriterionId !== criterion.id && (
-                <div className={ROW_ACTIONS}>
-                  <Tooltip content="Edit">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setEditingCriterionId(criterion.id);
-                        setEditingCriterionText(criterion.criterion);
-                      }}
-                      aria-label="Edit criterion"
-                      className={`${ROW_ICON_BUTTON} hover:text-brand-300`}
-                    >
-                      <Edit size={13} aria-hidden="true" />
-                    </button>
-                  </Tooltip>
-                  <Tooltip content="Delete">
-                    <button
-                      type="button"
-                      onClick={() => setDeleteCriterionTarget(criterion.id)}
-                      aria-label="Delete criterion"
-                      className={`${ROW_ICON_BUTTON} hover:text-red-400`}
-                    >
-                      <X size={14} aria-hidden="true" />
-                    </button>
-                  </Tooltip>
-                </div>
-              )}
-            </li>
-          ))}
-        </ul>
-        {canEdit && (
-          <InlineAdd label="Add criterion" placeholder="What has to be true when it is done" onAdd={(text) => addCriterion(task.id, text)} />
-        )}
-      </FoldingSection>
-      )}
 
       <Section
         variant={variant}
@@ -928,6 +765,143 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete, variant = 'pa
         </ul>
         {canEdit && <InlineAdd label="Add subtask" placeholder="Subtask title" onAdd={(text) => addSubtask(task.id, text)} />}
       </Section>
+
+      {showCriteria && (
+      <FoldingSection
+        variant={variant}
+        title="Acceptance criteria"
+        icon={ListChecks}
+        open={criteriaOpen}
+        onToggle={() => setCriteriaOpen((open) => !open)}
+        badge={task.acceptance_criteria.length > 0 && (
+          <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium tabular-nums ${
+            satisfiedCriteria === task.acceptance_criteria.length ? 'bg-emerald-500/15 text-emerald-300' : 'bg-white/[0.06] text-zinc-300'
+          }`}>
+            {satisfiedCriteria}/{task.acceptance_criteria.length} met
+          </span>
+        )}
+      >
+        {task.acceptance_criteria.length === 0 && !canEdit && <p className="text-sm text-zinc-500">None yet.</p>}
+        <ul className="space-y-0.5">
+          {task.acceptance_criteria.map((criterion) => (
+            <li key={criterion.id} className="flex items-center gap-2.5 -mx-2 px-2 py-1.5 rounded-lg hover:bg-white/[0.03] group">
+              <button
+                type="button"
+                onClick={() => canEdit && toggleCriterion(task.id, criterion.id)}
+                disabled={!canEdit}
+                aria-label={criterion.satisfied ? 'Mark criterion unmet' : 'Mark criterion met'}
+                aria-pressed={criterion.satisfied}
+                className={`flex-shrink-0 w-[18px] h-[18px] rounded border-2 flex items-center justify-center transition-colors disabled:cursor-default focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-1 focus-visible:ring-offset-surface-raised ${
+                  criterion.satisfied ? 'bg-brand-500 border-brand-500' : 'border-white/[0.16] enabled:hover:border-brand-400'
+                }`}
+              >
+                {criterion.satisfied && <Check size={12} strokeWidth={3} className="text-white" aria-hidden="true" />}
+              </button>
+              {editingCriterionId === criterion.id ? (
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (editingCriterionText.trim()) {
+                      updateCriterion(task.id, criterion.id, editingCriterionText.trim());
+                    }
+                    setEditingCriterionId(null);
+                  }}
+                  className="flex-1"
+                >
+                  <TextInput
+                    value={editingCriterionText}
+                    onChange={setEditingCriterionText}
+                    onBlur={() => {
+                      if (editingCriterionText.trim()) {
+                        updateCriterion(task.id, criterion.id, editingCriterionText.trim());
+                      }
+                      setEditingCriterionId(null);
+                    }}
+                    aria-label="Edit criterion"
+                    autoFocus
+                    size="sm"
+                  />
+                </form>
+              ) : (
+                <span
+                  className={`flex-1 min-w-0 text-sm break-words ${criterion.satisfied ? 'text-zinc-500' : 'text-zinc-200'}`}
+                  onDoubleClick={() => {
+                    if (!canEdit) return;
+                    setEditingCriterionId(criterion.id);
+                    setEditingCriterionText(criterion.criterion);
+                  }}
+                >
+                  {criterion.criterion}
+                </span>
+              )}
+              {canEdit && editingCriterionId !== criterion.id && (
+                <div className={ROW_ACTIONS}>
+                  <Tooltip content="Edit">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingCriterionId(criterion.id);
+                        setEditingCriterionText(criterion.criterion);
+                      }}
+                      aria-label="Edit criterion"
+                      className={`${ROW_ICON_BUTTON} hover:text-brand-300`}
+                    >
+                      <Edit size={13} aria-hidden="true" />
+                    </button>
+                  </Tooltip>
+                  <Tooltip content="Delete">
+                    <button
+                      type="button"
+                      onClick={() => setDeleteCriterionTarget(criterion.id)}
+                      aria-label="Delete criterion"
+                      className={`${ROW_ICON_BUTTON} hover:text-red-400`}
+                    >
+                      <X size={14} aria-hidden="true" />
+                    </button>
+                  </Tooltip>
+                </div>
+              )}
+            </li>
+          ))}
+        </ul>
+        {canEdit && (
+          <InlineAdd label="Add criterion" placeholder="What has to be true when it is done" onAdd={(text) => addCriterion(task.id, text)} />
+        )}
+      </FoldingSection>
+      )}
+
+      {blockers.length > 0 && (
+        <Section variant={variant} title="Blocked by" icon={Lock} count={`${blockers.length - openBlockers.length}/${blockers.length}`}>
+          {openBlockers.length > 0 && (
+            <p className="text-xs text-amber-400 mb-2">
+              Waiting on {openBlockers.length} {openBlockers.length === 1 ? 'task' : 'tasks'} to finish
+            </p>
+          )}
+          <ul className="space-y-1">
+            {blockers.map((blocker) => (
+              <li key={blocker.id} className="flex items-center justify-between gap-2 -mx-2 px-2 py-1.5 rounded-lg bg-white/[0.03]">
+                <span className={`text-sm truncate ${blocker.status === 'done' ? 'text-zinc-500 line-through' : 'text-zinc-300'}`}>
+                  {blocker.title}
+                </span>
+                <StatusBadge status={blocker.status} tooltip={false} />
+              </li>
+            ))}
+          </ul>
+        </Section>
+      )}
+
+      {emailCount > 0 && (
+        <Section variant={variant} title="Communication" icon={MessageSquare} count={String(emailCount)}>
+          <TaskSourceEmailsSection data={sourceEmails} taskId={task?.id ?? null} projectId={task?.project_id ?? null} heading={false} expected={emailCount} />
+        </Section>
+      )}
+
+      <TaskFiles
+        task={task}
+        section={({ count, action, children }) => (
+          <Section variant={variant} title="Files" icon={Paperclip} count={count} action={action}>{children}</Section>
+        )}
+      />
 
       <Section variant={variant} title="Comments" icon={MessageSquare} count={task.comments.length > 0 ? task.comments.length : undefined}>
         {task.comments.length === 0 ? (
@@ -1110,29 +1084,25 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete, variant = 'pa
     );
   }
 
+  // The side panel (TaskPanelShell): Escape or the backdrop closes it.
   return (
-    <div className="fixed inset-0 z-50 flex justify-end">
-      {/* Backdrop */}
-      <div
-        ref={backdropRef}
-        className="absolute inset-0 bg-black/40 animate-fadeIn"
-        onClick={(e) => e.target === backdropRef.current && onClose()}
-      />
-
-      {/* Panel */}
-      <div
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={`task-title-${task.id}`}
-        className="relative w-full sm:w-[480px] bg-surface-raised shadow-2xl flex flex-col animate-slideIn overflow-hidden"
-      >
+    <TaskPanelShell
+      labelledBy={`task-title-${task.id}`}
+      onClose={onClose}
+      after={dialogs}
+      header={
         <div className="flex items-start gap-3 px-5 pt-4 pb-3 flex-shrink-0">
-          <h2 id={`task-title-${task.id}`} className="flex-1 min-w-0 pt-0.5 text-base font-semibold text-white leading-snug break-words">
-            {task.title}
-          </h2>
+          <TitleField
+            key={task.id}
+            as="h2"
+            id={`task-title-${task.id}`}
+            value={task.title}
+            onChange={(title) => updateTask(task.id, { title })}
+            canEdit={canEdit}
+            className="flex-1 min-w-0 pt-0.5 text-base font-semibold text-white leading-snug break-words"
+          />
           <div className="flex items-center gap-1 flex-shrink-0">
-            <TaskActionsMenu task={task} onEdit={onEdit} onDelete={onDelete} showOpenAsPage />
+            <TaskActionsMenu task={task} onDelete={onDelete} showOpenAsPage />
             <button
               type="button"
               onClick={onClose}
@@ -1143,40 +1113,10 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete, variant = 'pa
             </button>
           </div>
         </div>
-
-        {/* Scrollable Content */}
-        <div className="flex-1 overflow-y-auto">
-          <div className="px-5 pb-5">{details}</div>
-          {sections}
-        </div>
-      </div>
-
-      {dialogs}
-
-      <style jsx>{`
-        @keyframes fadeIn {
-          from {
-            opacity: 0;
-          }
-          to {
-            opacity: 1;
-          }
-        }
-        @keyframes slideIn {
-          from {
-            transform: translateX(100%);
-          }
-          to {
-            transform: translateX(0);
-          }
-        }
-        .animate-fadeIn {
-          animation: fadeIn 0.2s ease-out;
-        }
-        .animate-slideIn {
-          animation: slideIn 0.25s ease-out;
-        }
-      `}</style>
-    </div>
+      }
+    >
+      <div className="px-5 pb-5">{details}</div>
+      {sections}
+    </TaskPanelShell>
   );
 }

@@ -11,11 +11,16 @@ import { INBOUND_EMAIL_BUCKET, recordInboxError } from './ingest';
  * Retention (daily): per inbox, messages older than its retention_days, and
  * messages stuck in receiving for over 24 hours. Task files linking an
  * attachment get their own copy first (keepLinkedTaskFiles), then the files
- * go (raw .eml and attachments), then the rows (email_retention_delete: attachments, task
+ * the messages own go (raw .eml, and attachments stored before copies were
+ * shared), then the rows (email_retention_delete: attachments, task
  * links, triage, recipients, candidates, the message, then threads left
  * empty). A message whose files fail to delete keeps every row and is
  * retried by the next run. Batches are bounded by size and time, so a run
- * fits the function limit; whatever is left is picked up next time.
+ * fits the function limit; whatever is left is picked up next time. Last,
+ * stored copies (email_files) nothing points at any more are released: the
+ * database marks them, their bytes go, then their rows. A copy that fails to
+ * delete stays marked and is retried next run; it is never reused.
+ *
  *
  * Orphan sweep (weekly): lists the bucket and deletes every object no row
  * owns. Rows always exist before their files, so an orphan only comes from a
@@ -62,6 +67,8 @@ export interface RetentionSummary extends MaintenanceSummary {
   kind: 'retention';
   /** Task files that linked a deleted attachment and now hold their own copy. */
   task_files_kept: number;
+  /** Stored copies released once their last email went (their bytes are counted in files_deleted). */
+  copies_released: number;
   by_inbox: Record<string, { messages_deleted: number; stuck_deleted: number; failures: number }>;
   failed_message_ids: string[];
 }
@@ -86,10 +93,14 @@ interface DeleteResult {
 }
 
 const DEFAULT_BUDGET_MS = 45_000;
+const RELEASE_BATCH = 200;
 const REMOVE_CHUNK = 100;
 const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
-/** {inbox_id}/{message_id}/raw.eml or {inbox_id}/{message_id}/{attachment_id}. */
-export const OBJECT_PATH = new RegExp(`^${UUID}/${UUID}/(raw\\.eml|${UUID})$`);
+/**
+ * {inbox_id}/{message_id}/raw.eml, {inbox_id}/{message_id}/{attachment_id}
+ * (files stored before copies were shared), or {inbox_id}/files/{file_id}.
+ */
+export const OBJECT_PATH = new RegExp(`^${UUID}/(${UUID}/(raw\\.eml|${UUID})|files/${UUID})$`);
 
 function emptySummary<K extends MaintenanceKind>(kind: K, startedAt: number): MaintenanceSummary & { kind: K } {
   return {
@@ -158,13 +169,46 @@ async function listDue(supabase: SupabaseClient, limit: number, exclude: string[
   return (data ?? []) as DueMessage[];
 }
 
+/**
+ * Stored copies nothing points at any more (their last email just went): the
+ * database marks them deleting (email_files_release, which locks and
+ * re-checks each one, so an email that has just claimed a copy keeps it),
+ * their bytes go, then their rows (email_files_forget). Within the run's
+ * time budget; a copy whose bytes fail to delete stays marked for next run.
+ */
+async function releaseUnusedCopies(supabase: SupabaseClient, summary: RetentionSummary, startedAt: number, budgetMs: number, now: () => number): Promise<void> {
+  try {
+    while (now() - startedAt < budgetMs) {
+      const { data, error } = await supabase.rpc('email_files_release', { p_limit: RELEASE_BATCH });
+      if (error) throw new Error(`releasing copies failed: ${error.message}`);
+      const copies = (data ?? []) as { id: string; path: string }[];
+      if (copies.length === 0) return;
+      const removed = await removePaths(supabase, copies.map((copy) => copy.path));
+      if (!removed.ok) {
+        summary.failures++;
+        summary.last_error = `removing released copies failed: ${removed.error}`.slice(0, 2000);
+        return;
+      }
+      summary.files_deleted += removed.removed;
+      const { data: forgotten, error: forgetError } = await supabase.rpc('email_files_forget', { p_ids: copies.map((copy) => copy.id) });
+      if (forgetError) throw new Error(`forgetting released copies failed: ${forgetError.message}`);
+      summary.copies_released += Number(forgotten ?? 0);
+      if (copies.length < RELEASE_BATCH) return;
+    }
+    summary.more_pending = true;
+  } catch (error) {
+    summary.outcome = 'failed';
+    summary.last_error = errorText(error);
+  }
+}
+
 export async function runRetention(supabase: SupabaseClient, options: MaintenanceOptions = {}): Promise<RetentionSummary> {
   const now = options.now ?? Date.now;
   const startedAt = now();
   const budgetMs = options.budgetMs ?? DEFAULT_BUDGET_MS;
   const batchSize = options.batchSize ?? 50;
   const maxMessages = options.maxMessages ?? 2000;
-  const summary: RetentionSummary = { ...emptySummary('retention', startedAt), task_files_kept: 0, by_inbox: {}, failed_message_ids: [] };
+  const summary: RetentionSummary = { ...emptySummary('retention', startedAt), task_files_kept: 0, copies_released: 0, by_inbox: {}, failed_message_ids: [] };
   const inbox = (id: string) => (summary.by_inbox[id] ??= { messages_deleted: 0, stuck_deleted: 0, failures: 0 });
   // Messages this run must not pick again: their files failed to delete, or
   // their rows were no longer due. The next run tries them afresh.
@@ -241,6 +285,8 @@ export async function runRetention(supabase: SupabaseClient, options: Maintenanc
     summary.outcome = 'failed';
     summary.last_error = errorText(error);
   }
+
+  if (summary.outcome !== 'failed') await releaseUnusedCopies(supabase, summary, startedAt, budgetMs, now);
 
   finish(summary, now);
   await report(supabase, summary);

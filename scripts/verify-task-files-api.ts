@@ -235,6 +235,24 @@ async function main() {
       count(*) FILTER (WHERE request_body::text LIKE '%content_base64%')::text AS bytes FROM public.api_audit_log WHERE entity_type = 'task_file'`);
     check('audit: each added file is logged, never with its bytes', Number(audit[0]?.added) > 0 && audit[0]?.bytes === '0', audit);
 
+    // --- Abandoned upload links ---------------------------------------------------------------------
+    const abandoned = await call(uploads.POST, 'POST', `${base}/uploads`, { id: s.task });
+    const recent = await call(uploads.POST, 'POST', `${base}/uploads`, { id: s.task });
+    await fetch(String(abandoned.body.data?.upload_url), { method: 'PUT', body: Buffer.from('never added') });
+    await fetch(String(recent.body.data?.upload_url), { method: 'PUT', body: Buffer.from('still being added') });
+    const incoming = (id: unknown) => `task-files/${s.project}/incoming/${id}`;
+    const dayAndAHalfAgo = new Date(Date.now() - 36 * 60 * 60 * 1000).toISOString();
+    storage.objects.get(incoming(abandoned.body.data?.upload_id))!.updatedAt = dayAndAHalfAgo;
+    storage.objects.get(incoming(recent.body.data?.upload_id))!.updatedAt = new Date().toISOString();
+    // A stored file just as old is never a candidate.
+    storage.objects.get(`task-files/${pngPath}`)!.updatedAt = dayAndAHalfAgo;
+    const { sweepAbandonedUploads } = await import('../src/lib/task-files/retention');
+    const { getServiceClient: serviceClient } = await import('../src/lib/api/supabase-service');
+    const swept = await sweepAbandonedUploads(serviceClient());
+    check('uploads: bytes left at an upload link for over a day are removed; recent ones and stored files stay',
+      swept.outcome === 'complete' && swept.uploads_removed === 1 && !storage.objects.has(incoming(abandoned.body.data?.upload_id))
+        && storage.objects.has(incoming(recent.body.data?.upload_id)) && storage.objects.has(`task-files/${pngPath}`), swept);
+
     // --- Retention keeps what tasks link ----------------------------------------------------------
     // The sibling task already has the screenshot's bytes as an upload, and links it too.
     await add({ content_base64: SHOT.toString('base64'), name: 'screenshot copy.png' }, s.sibling);

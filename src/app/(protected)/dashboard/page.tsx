@@ -6,7 +6,8 @@ import { useAuth } from '@/lib/auth-context';
 import { Header } from '@/components/layout/Header';
 import { Avatar } from '@/components/ui/Avatar';
 import { PriorityBadge } from '@/components/ui/Badge';
-import { TaskForm } from '@/components/tasks/TaskForm';
+import { NewTaskPanel } from '@/components/tasks/NewTaskPanel';
+import { toast } from '@/components/ui/Toast';
 import Link from 'next/link';
 import Modal from '@/components/ui/Modal';
 import { FolderKanban, CheckCircle, Clock, AlertTriangle, Plus, ArrowRight, Users, Target, Activity, DollarSign, Wallet } from 'lucide-react';
@@ -501,7 +502,14 @@ export default function DashboardPage() {
 
       {/* Quick Add Task Form */}
       {canCreateTasks && quickAddProjectId && (
-        <TaskForm isOpen={!!quickAddProjectId} onClose={() => setQuickAddProjectId(null)} projectId={quickAddProjectId} />
+        <NewTaskPanel
+          projectId={quickAddProjectId}
+          onClose={() => setQuickAddProjectId(null)}
+          onCreated={(task) => {
+            setQuickAddProjectId(null);
+            toast('success', `Task created: ${task.title}`);
+          }}
+        />
       )}
     </div>
   );

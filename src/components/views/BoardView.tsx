@@ -24,7 +24,6 @@ export const BOARD_COLUMNS = [
 interface BoardViewProps {
   tasks: Task[];
   onViewTask?: (task: Task) => void;
-  onEditTask?: (task: Task) => void;
   onDeleteTask?: (id: string) => void;
   onStatusChange?: (taskId: string, newStatus: Task['status'], targetIndex?: number) => void;
   onReorder?: (taskId: string, newSortOrder: number) => void;
@@ -51,7 +50,7 @@ function DropLine({ edge }: { edge: 'top' | 'bottom' }) {
   );
 }
 
-export function BoardView({ tasks, onViewTask, onEditTask, onDeleteTask, onStatusChange, onReorder }: BoardViewProps) {
+export function BoardView({ tasks, onViewTask, onDeleteTask, onStatusChange, onReorder }: BoardViewProps) {
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
   const [dropIndicator, setDropIndicator] = useState<DropIndicator | null>(null);
   const draggedTaskIdRef = useRef<string | null>(null);
@@ -307,7 +306,6 @@ export function BoardView({ tasks, onViewTask, onEditTask, onDeleteTask, onStatu
                     <TaskCard
                       task={task}
                       onView={onViewTask}
-                      onEdit={onEditTask}
                       onDelete={onDeleteTask}
                       onMove={moveTask}
                     />

@@ -5,7 +5,7 @@ import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { PriorityBadge, TaskTypeBadge } from '@/components/ui/Badge';
 import { AvatarGroup } from '@/components/ui/Avatar';
-import { Calendar, Mail, MessageSquare, CheckSquare, Edit, Trash2, Clock, Lock, FileQuestion, ArrowRight, ClipboardCopy, Link2, Hash, PanelRight, BellRing } from 'lucide-react';
+import { Calendar, Mail, MessageSquare, CheckSquare, Trash2, Clock, Lock, FileQuestion, ArrowRight, ClipboardCopy, Link2, Hash, PanelRight, BellRing } from 'lucide-react';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { RowActionsMenu, type RowAction } from '@/components/ui/RowActionsMenu';
 import { parseDateOnly, isDateOverdue } from '@/lib/date-utils';
@@ -32,7 +32,6 @@ function timeAgo(dateStr: string): string {
 interface TaskCardProps {
   task: Task;
   onView?: (task: Task) => void;
-  onEdit?: (task: Task) => void;
   onDelete?: (id: string) => void;
   /** Move to another column without dragging: the keyboard and touch path. */
   onMove?: (taskId: string, status: Task['status']) => void;
@@ -40,7 +39,7 @@ interface TaskCardProps {
 
 const MOVE_ORDER: Task['status'][] = ['todo', 'in_progress', 'in_review', 'done'];
 
-export function TaskCard({ task, onView, onEdit, onDelete, onMove }: TaskCardProps) {
+export function TaskCard({ task, onView, onDelete, onMove }: TaskCardProps) {
   const { team, tasks, getProject, reminders } = useApp();
   const { teamMemberId, access } = useAuth();
 
@@ -81,7 +80,6 @@ export function TaskCard({ task, onView, onEdit, onDelete, onMove }: TaskCardPro
 
   const actions: RowAction[] = [
     ...(onView ? [{ label: 'Open', icon: <PanelRight size={14} />, onClick: () => onView(task) }] : []),
-    ...(canEdit && onEdit ? [{ label: 'Edit', icon: <Edit size={14} />, onClick: () => onEdit(task) }] : []),
     ...(canEdit && onMove
       ? MOVE_ORDER.filter(s => s !== task.status).map((status, i) => ({
           label: `Move to ${TASK_STATUS_LABELS[status]}`,

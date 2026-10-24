@@ -240,6 +240,65 @@ async function main() {
     const later = await runOrphanSweep(supabase);
     check('sweep: an old receiving row protects only its own paths', !exists(youngReceivingExtra) && receivingYoung.paths.every(exists) && later.files_deleted === 1, later);
 
+    // ---- Shared copies --------------------------------------------------
+    // An attachment stored the new way points at the inbox's copy of its bytes.
+    const withCopy = async (days: number, sha256: string) => {
+      const made = await makeMessage(db, storage, { inbox: ids.inboxA, days, raw: false, status: 'handled' });
+      const attachment = randomUUID();
+      await db.query("INSERT INTO email_attachments(id, message_id, position, filename) VALUES ($1,$2,0,'logo.png')", [attachment, made.id]);
+      const { data, error } = await supabase.rpc('email_claim_file', { p_attachment_id: attachment, p_sha256: sha256, p_size_bytes: 4 });
+      if (error) throw new Error(error.message);
+      const copy = data as { file_id: string; storage_path: string; stored: boolean };
+      if (!copy.stored) storage.objects.set(`${BUCKET}/${copy.storage_path}`, { bytes: Buffer.from('logo'), contentType: 'image/png' });
+      const stored = await supabase.rpc('email_file_stored', { p_attachment_id: attachment });
+      if (stored.error) throw new Error(stored.error.message);
+      return { ...made, attachment, copy };
+    };
+    const logo = 'a'.repeat(64);
+    const firstLogo = await withCopy(100, logo);
+    const secondLogo = await withCopy(10, logo);
+    check('copies: the same bytes in two emails are one stored copy, uploaded once',
+      firstLogo.copy.file_id === secondLogo.copy.file_id && !firstLogo.copy.stored && secondLogo.copy.stored
+        && firstLogo.copy.storage_path === `${ids.inboxA}/files/${firstLogo.copy.file_id}`, [firstLogo.copy, secondLogo.copy]);
+    const keptCopy = await runRetention(supabase);
+    check('copies: deleting one email keeps a copy another email still uses',
+      !(await messageExists(firstLogo.id)) && exists(firstLogo.copy.storage_path) && keptCopy.copies_released === 0
+        && (await rows(db, 'SELECT 1 FROM email_files WHERE id=$1', [firstLogo.copy.file_id])).length === 1, keptCopy);
+    await db.query("UPDATE email_messages SET received_at = now() - interval '100 days' WHERE id=$1", [secondLogo.id]);
+    const releasedCopy = await runRetention(supabase);
+    check('copies: once its last email goes, the copy and its bytes go too',
+      !(await messageExists(secondLogo.id)) && !exists(secondLogo.copy.storage_path) && releasedCopy.copies_released === 1
+        && (await rows(db, 'SELECT 1 FROM email_files WHERE id=$1', [secondLogo.copy.file_id])).length === 0, releasedCopy);
+    // A copy marked for deletion is never reused: the next email gets a new one at its own path.
+    const marked = await withCopy(1, 'b'.repeat(64));
+    await db.query('UPDATE email_files SET deleting_at = now() WHERE id=$1', [marked.copy.file_id]);
+    const fresh = await withCopy(1, 'b'.repeat(64));
+    check('copies: a copy being deleted is never handed to a new email',
+      fresh.copy.file_id !== marked.copy.file_id && fresh.copy.storage_path !== marked.copy.storage_path && !fresh.copy.stored, [marked.copy, fresh.copy]);
+    await db.query('DELETE FROM email_messages WHERE id=$1', [marked.id]);
+    // A copy something still points at is never forgotten, whatever asked.
+    const { data: forgotten } = await supabase.rpc('email_files_forget', { p_ids: [fresh.copy.file_id] });
+    check('copies: a copy in use is never dropped', Number(forgotten) === 0
+      && (await rows(db, 'SELECT 1 FROM email_files WHERE id=$1', [fresh.copy.file_id])).length === 1, forgotten);
+    // The sweep knows copies' paths: a stored copy is never an orphan.
+    const sweepCopies = await runOrphanSweep(supabase);
+    check('copies: the sweep keeps a stored copy', exists(fresh.copy.storage_path) && sweepCopies.outcome === 'complete', sweepCopies);
+
+    // An upload that keeps failing: giving up lets go of the copy it claimed, and the copy is released.
+    const failing = await makeMessage(db, storage, { inbox: ids.inboxA, status: 'receiving', days: 0, createdHours: 1, raw: false });
+    const failingAttachment = randomUUID();
+    await db.query("INSERT INTO email_attachments(id, message_id, position, filename) VALUES ($1,$2,0,'big.pdf')", [failingAttachment, failing.id]);
+    const claimedThenFailed = await supabase.rpc('email_claim_file', { p_attachment_id: failingAttachment, p_sha256: 'c'.repeat(64), p_size_bytes: 9 });
+    const gaveUp = await supabase.rpc('email_files_failed', {
+      p_message_id: failing.id, p_attachment_ids: [failingAttachment], p_raw: false, p_max_failures: 1, p_max_age_minutes: 360,
+    });
+    const afterGiveUp = (await rows(db, 'SELECT file_id, skipped_reason, storage_path FROM email_attachments WHERE id=$1', [failingAttachment]))[0];
+    const releasedFailed = await runRetention(supabase);
+    check('copies: giving up on a file lets go of its copy, which is then released',
+      !claimedThenFailed.error && (gaveUp.data as Row)?.gave_up === true && afterGiveUp.file_id === null && afterGiveUp.skipped_reason === 'download_failed'
+        && afterGiveUp.storage_path === null && releasedFailed.copies_released >= 1
+        && (await rows(db, 'SELECT 1 FROM email_files WHERE id=$1', [(claimedThenFailed.data as Row).file_id])).length === 0, { gaveUp: gaveUp.data, afterGiveUp, releasedFailed });
+
     // Only the service role may run the database side.
     let refused = '';
     try { await db.query("SELECT public.email_retention_delete($1::jsonb)", [JSON.stringify([keptA.id])]); } catch (error) { refused = (error as Error).message; }
@@ -251,8 +310,9 @@ async function main() {
 
   // The schema.sql snapshot carries the same functions.
   const snapshot = await createEmailDatabase('schema');
-  const fns = await rows(snapshot, "SELECT proname FROM pg_proc WHERE proname IN ('email_retention_due','email_retention_delete','email_storage_known_paths','email_record_maintenance_run')");
-  check('schema.sql: the retention section loads', fns.length === 4 && (await rows(snapshot, "SELECT 1 FROM pg_tables WHERE tablename='email_maintenance_runs'")).length === 1);
+  const fns = await rows(snapshot, "SELECT proname FROM pg_proc WHERE proname IN ('email_retention_due','email_retention_delete','email_storage_known_paths','email_record_maintenance_run','email_claim_file','email_file_stored','email_files_release','email_files_forget')");
+  check('schema.sql: the retention section loads', fns.length === 8 && (await rows(snapshot, "SELECT 1 FROM pg_tables WHERE tablename='email_maintenance_runs'")).length === 1
+    && (await rows(snapshot, "SELECT 1 FROM pg_tables WHERE tablename='email_files'")).length === 1);
   await snapshot.close();
 
   if (failures.length) {

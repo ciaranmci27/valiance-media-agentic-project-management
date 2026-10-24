@@ -159,7 +159,8 @@ function readBody(request: IncomingMessage): Promise<Buffer> {
 
 /** Supabase Storage, in memory: upload, download, remove, signed URLs. */
 export class FakeStorage {
-  objects = new Map<string, { bytes: Buffer; contentType: string }>();
+  /** updatedAt: what the listing reports (ISO); none reads as unknown. */
+  objects = new Map<string, { bytes: Buffer; contentType: string; updatedAt?: string }>();
   uploads = 0;
   copies = 0;
   failUploads = false;
@@ -222,7 +223,10 @@ export class FakeStorage {
         hasNext: names.length > page.length,
         nextCursor: names.length > page.length ? page[page.length - 1] : undefined,
         folders: [],
-        objects: page.map((name) => ({ id: name, key: name, name: name.split('/').pop(), created_at: '', updated_at: '', metadata: {} })),
+        objects: page.map((name) => {
+          const updated = this.objects.get(`${bucket}${name}`)?.updatedAt ?? '';
+          return { id: name, key: name, name: name.split('/').pop(), created_at: updated, updated_at: updated, metadata: {} };
+        }),
       });
       return true;
     }

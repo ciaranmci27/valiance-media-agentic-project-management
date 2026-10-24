@@ -324,7 +324,8 @@ interface AppContextType {
 
   // Task CRUD
   /** Resolves true once the task is saved; false after a failure (already toasted and rolled back). */
-  addTask: (task: Omit<Task, 'id' | 'created_at' | 'updated_at'>) => Promise<boolean>;
+  /** Resolves the saved task; null after a failure (already toasted and rolled back). */
+  addTask: (task: Omit<Task, 'id' | 'created_at' | 'updated_at'>) => Promise<Task | null>;
   /** Resolves true once the change is saved; false after a failure (already toasted and rolled back). */
   updateTask: (id: string, updates: Partial<Task>, options?: TaskWriteOptions) => Promise<boolean>;
   reorderTasks: (orders: { id: string; sort_order: number }[]) => void;
@@ -1399,7 +1400,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   // Task CRUD
-  const addTask = async (task: Omit<Task, 'id' | 'created_at' | 'updated_at'>): Promise<boolean> => {
+  const addTask = async (task: Omit<Task, 'id' | 'created_at' | 'updated_at'>): Promise<Task | null> => {
     const assigneeIds = task.assignee_ids || [];
     const optimisticId = crypto.randomUUID();
     const now = new Date().toISOString();
@@ -1416,7 +1417,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
 
     setTasks(prev => [optimistic, ...prev]);
-    if (skipSupabase) return true;
+    if (skipSupabase) return optimistic;
 
     try {
       const newTask = await insertTask(
@@ -1437,11 +1438,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
           { label: 'Created by', value: actorName() },
         ],
       });
-      return true;
+      return newTask;
     } catch {
       setTasks(prev => prev.filter(t => t.id !== optimisticId));
       toast('error', 'Failed to create task');
-      return false;
+      return null;
     }
   };
 

@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Check, Download, Eye, FileText, FolderOpen, Image as ImageIcon, Loader2, Mail, Plus, Upload, X } from 'lucide-react';
@@ -154,24 +155,59 @@ export function TaskFiles({ task, section }: {
     [preview, task.id],
   );
 
-  if (!enabled) return null;
-
-  const dropProps = canAdd ? {
-    onDragOver: (event: DragEvent) => {
-      if (!event.dataTransfer.types.includes('Files')) return;
-      event.preventDefault();
+  // Files dragged in from outside the browser, anywhere over the page, are
+  // the open task's: the whole page shows where they will go, and a drop
+  // uploads them. A drag that starts in the page (a card on the board, an
+  // image) is not a file from outside and is left alone.
+  const uploadRef = useRef(upload);
+  useEffect(() => { uploadRef.current = upload; });
+  useEffect(() => {
+    if (!enabled || !canAdd) return;
+    let inside = false;
+    let depth = 0;
+    const carriesFiles = (event: globalThis.DragEvent) => !inside && !!event.dataTransfer?.types.includes('Files');
+    const onDragStart = () => { inside = true; };
+    const onDragEnd = () => { inside = false; };
+    const onDragEnter = (event: globalThis.DragEvent) => {
+      if (!carriesFiles(event)) return;
+      depth++;
       setDragging(true);
-    },
-    onDragLeave: (event: DragEvent) => {
-      if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false);
-    },
-    onDrop: (event: DragEvent) => {
-      if (!event.dataTransfer.files.length) return;
+    };
+    const onDragOver = (event: globalThis.DragEvent) => {
+      if (!carriesFiles(event)) return;
       event.preventDefault();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+    };
+    const onDragLeave = (event: globalThis.DragEvent) => {
+      if (!carriesFiles(event)) return;
+      depth = Math.max(0, depth - 1);
+      if (depth === 0) setDragging(false);
+    };
+    const onDrop = (event: globalThis.DragEvent) => {
+      if (!carriesFiles(event)) return;
+      event.preventDefault();
+      depth = 0;
       setDragging(false);
-      void upload(event.dataTransfer.files);
-    },
-  } : {};
+      if (event.dataTransfer?.files.length) void uploadRef.current(event.dataTransfer.files);
+    };
+    window.addEventListener('dragstart', onDragStart);
+    window.addEventListener('dragend', onDragEnd);
+    window.addEventListener('dragenter', onDragEnter);
+    window.addEventListener('dragover', onDragOver);
+    window.addEventListener('dragleave', onDragLeave);
+    window.addEventListener('drop', onDrop);
+    return () => {
+      window.removeEventListener('dragstart', onDragStart);
+      window.removeEventListener('dragend', onDragEnd);
+      window.removeEventListener('dragenter', onDragEnter);
+      window.removeEventListener('dragover', onDragOver);
+      window.removeEventListener('dragleave', onDragLeave);
+      window.removeEventListener('drop', onDrop);
+      setDragging(false);
+    };
+  }, [enabled, canAdd]);
+
+  if (!enabled) return null;
 
   const toggleMenu = () => setMenuOpen((open) => !open);
   const empty = files !== null && files.length === 0 && uploading.length === 0;
@@ -214,7 +250,7 @@ export function TaskFiles({ task, section }: {
 
   const count = files && files.length > 0 ? files.length : undefined;
   const body = (
-    <div {...dropProps} className={`relative rounded-lg transition-colors ${dragging ? 'bg-brand-500/[0.08] ring-2 ring-brand-500/60' : ''}`}>
+    <div>
       {canAdd && (
         <FileInput
           ref={inputRef}
@@ -280,10 +316,18 @@ export function TaskFiles({ task, section }: {
         </ul>
       )}
 
-      {dragging && (
-        <p className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-lg bg-surface/80 text-sm font-medium text-brand-200">
-          Drop to add to this task
-        </p>
+      {dragging && createPortal(
+        <div className="pointer-events-none fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-4 animate-fadeIn motion-reduce:animate-none sm:p-8">
+          <div className="flex h-full w-full flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-brand-400/70 bg-surface/90 px-6 text-center">
+            <span className="flex h-14 w-14 items-center justify-center rounded-full bg-brand-500/15">
+              <Upload size={26} className="text-brand-300" aria-hidden="true" />
+            </span>
+            <p className="text-lg font-semibold text-white">Drop to add to this task</p>
+            <p className="max-w-md truncate text-sm text-zinc-300">{task.title}</p>
+            <p className="text-xs text-zinc-400">Uploaded as the task&apos;s own files, up to 50 MB each</p>
+          </div>
+        </div>,
+        document.body,
       )}
       <span className="sr-only" aria-live="polite">{uploading.length > 0 ? `Uploading ${uploading.length} file${uploading.length === 1 ? '' : 's'}` : ''}</span>
 

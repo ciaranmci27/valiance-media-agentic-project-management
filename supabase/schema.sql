@@ -7204,6 +7204,27 @@ CREATE TABLE public.email_message_candidates (
 );
 CREATE INDEX idx_email_message_candidates_project ON public.email_message_candidates (project_id);
 
+-- Stored email files: one per distinct file per inbox. An attachment points
+-- at the copy of its bytes (file_id), so the same signature logo or quoted
+-- screenshot across many emails is stored once. Each copy has its own path,
+-- {inbox_id}/files/{id}: a copy being deleted (deleting_at) is never reused,
+-- a new one takes its place. Server only (service role).
+CREATE TABLE public.email_files (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  inbox_id uuid NOT NULL REFERENCES public.email_inboxes(id) ON DELETE RESTRICT,
+  sha256 text NOT NULL CHECK (sha256 ~ '^[0-9a-f]{64}$'),
+  size_bytes bigint NOT NULL CHECK (size_bytes >= 0),
+  storage_path text NOT NULL UNIQUE,
+  -- Set once its bytes are in the bucket.
+  stored_at timestamptz,
+  -- Set when nothing points at it any more (email_files_release); its bytes go next.
+  deleting_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+-- One live copy of the same bytes per inbox.
+CREATE UNIQUE INDEX email_files_live_key ON public.email_files (inbox_id, sha256) WHERE deleting_at IS NULL;
+CREATE INDEX idx_email_files_deleting ON public.email_files (deleting_at) WHERE deleting_at IS NOT NULL;
+
 CREATE TABLE public.email_attachments (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   message_id uuid NOT NULL REFERENCES public.email_messages(id) ON DELETE CASCADE,
@@ -7217,9 +7238,11 @@ CREATE TABLE public.email_attachments (
   provider_attachment_id text CHECK (provider_attachment_id IS NULL OR length(provider_attachment_id) <= 200),
   disposition text CHECK (disposition IN ('attachment', 'inline')),
   content_id text CHECK (content_id IS NULL OR length(content_id) <= 998),
-  -- {inbox_id}/{message_id}/{attachment_id} in the inbound-email bucket, or
-  -- NULL with a skipped_reason when the file was never stored: over the
-  -- size cap, or given up on after failed downloads (email_files_failed).
+  -- Where the bytes are in the inbound-email bucket once stored: the copy's
+  -- path ({inbox_id}/files/{file_id}), or {inbox_id}/{message_id}/{attachment_id}
+  -- for files stored before copies were shared. NULL while pending, and with
+  -- a skipped_reason when the file was never stored: over the size cap, or
+  -- given up on after failed downloads (email_files_failed).
   storage_path text,
   skipped_reason text CHECK (skipped_reason IN ('over_size_cap', 'download_failed')),
   uploaded_at timestamptz,
@@ -7228,11 +7251,17 @@ CREATE TABLE public.email_attachments (
   agent_label text CHECK (agent_label IS NULL OR length(agent_label) BETWEEN 1 AND 200),
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
+  -- The copy its bytes are stored in (email_files); null for files stored
+  -- the old way (their own path) and for files not stored.
+  file_id uuid REFERENCES public.email_files(id) ON DELETE RESTRICT,
   CONSTRAINT email_attachments_message_position_key UNIQUE (message_id, position),
-  CONSTRAINT email_attachments_stored_or_skipped CHECK ((storage_path IS NULL) <> (skipped_reason IS NULL)),
-  CONSTRAINT email_attachments_uploaded_needs_path CHECK (uploaded_at IS NULL OR (storage_path IS NOT NULL AND sha256 IS NOT NULL AND size_bytes IS NOT NULL))
+  CONSTRAINT email_attachments_uploaded_needs_path CHECK (uploaded_at IS NULL OR (storage_path IS NOT NULL AND sha256 IS NOT NULL AND size_bytes IS NOT NULL)),
+  CONSTRAINT email_attachments_stored_or_skipped CHECK (storage_path IS NULL OR skipped_reason IS NULL),
+  CONSTRAINT email_attachments_file_not_skipped CHECK (file_id IS NULL OR skipped_reason IS NULL)
 );
-CREATE UNIQUE INDEX email_attachments_storage_path_key ON public.email_attachments (storage_path) WHERE storage_path IS NOT NULL;
+-- Many attachments share a copy's path; a path of its own stays unique.
+CREATE UNIQUE INDEX email_attachments_storage_path_key ON public.email_attachments (storage_path) WHERE storage_path IS NOT NULL AND file_id IS NULL;
+CREATE INDEX idx_email_attachments_file ON public.email_attachments (file_id) WHERE file_id IS NOT NULL;
 
 CREATE TRIGGER set_email_attachments_updated_at
   BEFORE UPDATE ON public.email_attachments
@@ -7327,8 +7356,8 @@ CREATE INDEX idx_email_question_answers_message ON public.email_question_answers
 -- ============================================================
 
 -- Ingestion step 1: the message row (status receiving), its sender and
--- recipients, and its attachment rows (with their planned storage paths), in
--- one transaction, before any file is written. Idempotent on the provider's
+-- recipients, and its attachment rows (pending, or skipped when over the
+-- size cap), in one transaction, before any file is written. Idempotent on the provider's
 -- id and on (inbox, Message-ID): a retried or duplicate delivery returns the
 -- existing rows.
 CREATE OR REPLACE FUNCTION public.email_start_message(
@@ -7405,7 +7434,7 @@ BEGIN
         v_over := v_size IS NOT NULL AND v_size > p_max_attachment_bytes;
         INSERT INTO public.email_attachments (
           id, message_id, position, filename, content_type, size_bytes, disposition, content_id,
-          provider_attachment_id, storage_path, skipped_reason
+          provider_attachment_id, skipped_reason
         ) VALUES (
           v_attachment_id, v_id, v_position,
           left(COALESCE(v_attachment->>'filename', ''), 255),
@@ -7414,7 +7443,6 @@ BEGIN
           v_attachment->>'disposition',
           v_attachment->>'content_id',
           v_attachment->>'provider_attachment_id',
-          CASE WHEN v_over THEN NULL ELSE p_inbox_id::text || '/' || v_id::text || '/' || v_attachment_id::text END,
           CASE WHEN v_over THEN 'over_size_cap' END
         );
         v_position := v_position + 1;
@@ -7432,7 +7460,8 @@ BEGIN
     'attachments', COALESCE((
       SELECT jsonb_agg(jsonb_build_object('id', a.id, 'position', a.position, 'filename', a.filename,
         'content_type', a.content_type, 'size_bytes', a.size_bytes, 'provider_attachment_id', a.provider_attachment_id,
-        'storage_path', a.storage_path, 'skipped_reason', a.skipped_reason, 'uploaded_at', a.uploaded_at) ORDER BY a.position)
+        'storage_path', a.storage_path, 'skipped_reason', a.skipped_reason, 'uploaded_at', a.uploaded_at,
+        'file_id', a.file_id) ORDER BY a.position)
       FROM public.email_attachments a WHERE a.message_id = v_id
     ), '[]'::jsonb)
   );
@@ -7478,7 +7507,7 @@ BEGIN
     RETURN jsonb_build_object('already_complete', true, 'status', v_message.status, 'thread_id', v_message.thread_id);
   END IF;
   IF (v_message.raw_storage_path IS NOT NULL AND v_message.raw_uploaded_at IS NULL)
-    OR EXISTS (SELECT 1 FROM public.email_attachments WHERE message_id = p_message_id AND storage_path IS NOT NULL AND uploaded_at IS NULL) THEN
+    OR EXISTS (SELECT 1 FROM public.email_attachments WHERE message_id = p_message_id AND uploaded_at IS NULL AND skipped_reason IS NULL) THEN
     RAISE EXCEPTION 'EMAIL_FILES_PENDING: message % still has files to store', p_message_id USING ERRCODE = 'P0001';
   END IF;
 
@@ -7560,8 +7589,9 @@ $$;
 -- the message is p_max_age_minutes old, it gives up on those files: each
 -- attachment is skipped as download_failed and the raw .eml is dropped (its
 -- parsed bodies stand), so the message completes without them instead of
--- staying in receiving until retention deletes it. Anything already stored
--- under a dropped path is an orphan for the weekly sweep.
+-- staying in receiving until retention deletes it. A copy an attachment had
+-- claimed is let go (retention releases it once nothing points at it);
+-- anything already stored under a dropped path is an orphan for the weekly sweep.
 CREATE OR REPLACE FUNCTION public.email_files_failed(
   p_message_id uuid,
   p_attachment_ids jsonb,
@@ -7589,8 +7619,8 @@ BEGIN
     OR v_message.created_at < now() - make_interval(mins => p_max_age_minutes);
   IF v_give_up THEN
     UPDATE public.email_attachments
-    SET storage_path = NULL, skipped_reason = 'download_failed'
-    WHERE message_id = p_message_id AND storage_path IS NOT NULL AND uploaded_at IS NULL
+    SET storage_path = NULL, file_id = NULL, skipped_reason = 'download_failed'
+    WHERE message_id = p_message_id AND uploaded_at IS NULL AND skipped_reason IS NULL
       AND id IN (SELECT value::uuid FROM jsonb_array_elements_text(COALESCE(p_attachment_ids, '[]'::jsonb)));
     IF p_raw THEN
       UPDATE public.email_messages SET raw_storage_path = NULL WHERE id = p_message_id AND raw_uploaded_at IS NULL;
@@ -7598,6 +7628,139 @@ BEGIN
   END IF;
 
   RETURN jsonb_build_object('receiving', true, 'gave_up', v_give_up, 'failures', v_message.file_failures);
+END;
+$$;
+
+-- Ingestion, once an attachment is downloaded and hashed: the inbox's stored
+-- copy of those bytes, or a new one to upload. The attachment points at the
+-- copy from here on, which keeps it from being released (email_files_release
+-- locks a copy and re-checks before releasing it). A retry keeps the copy it
+-- already points at. A copy being deleted is never reused: a new one, at its
+-- own path, takes its place.
+CREATE OR REPLACE FUNCTION public.email_claim_file(p_attachment_id uuid, p_sha256 text, p_size_bytes bigint)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_inbox uuid;
+  v_current uuid;
+  v_file public.email_files;
+BEGIN
+  IF COALESCE(auth.role(), '') <> 'service_role' THEN RAISE EXCEPTION 'Service role required' USING ERRCODE = '42501'; END IF;
+  IF p_sha256 IS NULL OR p_sha256 !~ '^[0-9a-f]{64}$' THEN
+    RAISE EXCEPTION 'email_claim_file: sha256 must be 64 lowercase hex characters' USING ERRCODE = '22023';
+  END IF;
+  IF p_size_bytes IS NULL OR p_size_bytes < 0 THEN RAISE EXCEPTION 'email_claim_file: size_bytes must be 0 or more' USING ERRCODE = '22023'; END IF;
+
+  SELECT m.inbox_id, a.file_id INTO v_inbox, v_current
+  FROM public.email_attachments a
+  JOIN public.email_messages m ON m.id = a.message_id
+  WHERE a.id = p_attachment_id AND a.uploaded_at IS NULL AND a.skipped_reason IS NULL
+  FOR UPDATE OF a;
+  IF NOT FOUND THEN RAISE EXCEPTION 'EMAIL_ATTACHMENT_NOT_PENDING: %', p_attachment_id USING ERRCODE = 'P0002'; END IF;
+
+  IF v_current IS NOT NULL THEN
+    SELECT * INTO v_file FROM public.email_files WHERE id = v_current AND sha256 = p_sha256 FOR UPDATE;
+  END IF;
+  IF v_file.id IS NULL THEN
+    SELECT * INTO v_file FROM public.email_files
+    WHERE inbox_id = v_inbox AND sha256 = p_sha256 AND deleting_at IS NULL
+    FOR UPDATE;
+  END IF;
+  IF v_file.id IS NULL THEN
+    -- Two emails with the same new file: one insert wins, the other waits for it and takes it.
+    INSERT INTO public.email_files (id, inbox_id, sha256, size_bytes, storage_path)
+    SELECT n.id, v_inbox, p_sha256, p_size_bytes, v_inbox::text || '/files/' || n.id::text
+    FROM (SELECT gen_random_uuid() AS id) n
+    ON CONFLICT (inbox_id, sha256) WHERE deleting_at IS NULL DO NOTHING;
+    SELECT * INTO v_file FROM public.email_files
+    WHERE inbox_id = v_inbox AND sha256 = p_sha256 AND deleting_at IS NULL
+    FOR UPDATE;
+  END IF;
+
+  UPDATE public.email_attachments SET file_id = v_file.id WHERE id = p_attachment_id;
+  RETURN jsonb_build_object('file_id', v_file.id, 'storage_path', v_file.storage_path, 'stored', v_file.stored_at IS NOT NULL);
+END;
+$$;
+
+-- Ingestion, once the copy's bytes are in the bucket (uploaded now, or there
+-- already): the copy is stored, and so is the attachment, at the copy's path.
+CREATE OR REPLACE FUNCTION public.email_file_stored(p_attachment_id uuid)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF COALESCE(auth.role(), '') <> 'service_role' THEN RAISE EXCEPTION 'Service role required' USING ERRCODE = '42501'; END IF;
+  UPDATE public.email_files f SET stored_at = COALESCE(f.stored_at, now())
+  FROM public.email_attachments a
+  WHERE a.id = p_attachment_id AND f.id = a.file_id;
+  IF NOT FOUND THEN RAISE EXCEPTION 'EMAIL_FILE_NOT_CLAIMED: %', p_attachment_id USING ERRCODE = 'P0002'; END IF;
+  UPDATE public.email_attachments a
+  SET storage_path = f.storage_path, sha256 = f.sha256, size_bytes = f.size_bytes, uploaded_at = COALESCE(a.uploaded_at, now())
+  FROM public.email_files f
+  WHERE a.id = p_attachment_id AND f.id = a.file_id;
+END;
+$$;
+
+-- Retention, after deleting messages: stored copies no attachment points at
+-- any more. Each is locked, then re-checked (a fresh look, so an email that
+-- just claimed it keeps it), then marked deleting: never reused from then
+-- on. Returns those and any left marked by an earlier run, for their bytes
+-- to be removed; email_files_forget drops the rows once they are.
+CREATE OR REPLACE FUNCTION public.email_files_release(p_limit integer)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_limit integer := GREATEST(1, LEAST(COALESCE(p_limit, 200), 1000));
+  v_id uuid;
+BEGIN
+  IF COALESCE(auth.role(), '') <> 'service_role' THEN RAISE EXCEPTION 'Service role required' USING ERRCODE = '42501'; END IF;
+  FOR v_id IN
+    SELECT f.id FROM public.email_files f
+    WHERE f.deleting_at IS NULL AND NOT EXISTS (SELECT 1 FROM public.email_attachments a WHERE a.file_id = f.id)
+    ORDER BY f.created_at, f.id
+    LIMIT v_limit
+  LOOP
+    PERFORM 1 FROM public.email_files WHERE id = v_id AND deleting_at IS NULL FOR UPDATE SKIP LOCKED;
+    CONTINUE WHEN NOT FOUND;
+    UPDATE public.email_files SET deleting_at = now()
+    WHERE id = v_id AND NOT EXISTS (SELECT 1 FROM public.email_attachments a WHERE a.file_id = v_id);
+  END LOOP;
+  RETURN (
+    SELECT COALESCE(jsonb_agg(jsonb_build_object('id', d.id, 'path', d.storage_path) ORDER BY d.deleting_at, d.id), '[]'::jsonb)
+    FROM (
+      SELECT id, storage_path, deleting_at FROM public.email_files
+      WHERE deleting_at IS NOT NULL ORDER BY deleting_at, id LIMIT v_limit
+    ) d
+  );
+END;
+$$;
+
+-- Retention, once released copies' bytes are removed from the bucket: their
+-- rows. Never one something points at.
+CREATE OR REPLACE FUNCTION public.email_files_forget(p_ids jsonb)
+RETURNS integer
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_count integer;
+BEGIN
+  IF COALESCE(auth.role(), '') <> 'service_role' THEN RAISE EXCEPTION 'Service role required' USING ERRCODE = '42501'; END IF;
+  DELETE FROM public.email_files f
+  WHERE f.id IN (SELECT (value)::uuid FROM jsonb_array_elements_text(COALESCE(p_ids, '[]'::jsonb)))
+    AND f.deleting_at IS NOT NULL
+    AND NOT EXISTS (SELECT 1 FROM public.email_attachments a WHERE a.file_id = f.id);
+  GET DIAGNOSTICS v_count = ROW_COUNT;
+  RETURN v_count;
 END;
 $$;
 
@@ -7773,6 +7936,14 @@ REVOKE ALL ON FUNCTION public.email_mark_triage_summarized(jsonb, jsonb) FROM PU
 GRANT EXECUTE ON FUNCTION public.email_start_message(uuid, jsonb, jsonb, jsonb, bigint) TO service_role;
 GRANT EXECUTE ON FUNCTION public.email_complete_message(uuid, jsonb) TO service_role;
 GRANT EXECUTE ON FUNCTION public.email_files_failed(uuid, jsonb, boolean, integer, integer) TO service_role;
+REVOKE ALL ON FUNCTION public.email_claim_file(uuid, text, bigint) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.email_file_stored(uuid) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.email_files_release(integer) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.email_files_forget(jsonb) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.email_claim_file(uuid, text, bigint) TO service_role;
+GRANT EXECUTE ON FUNCTION public.email_file_stored(uuid) TO service_role;
+GRANT EXECUTE ON FUNCTION public.email_files_release(integer) TO service_role;
+GRANT EXECUTE ON FUNCTION public.email_files_forget(jsonb) TO service_role;
 GRANT EXECUTE ON FUNCTION public.email_record_triage(uuid, uuid, jsonb, jsonb, uuid, text, text, text) TO service_role;
 GRANT EXECUTE ON FUNCTION public.email_signal(jsonb) TO service_role;
 GRANT EXECUTE ON FUNCTION public.email_mark_triage_summarized(jsonb, jsonb) TO service_role;
@@ -7830,6 +8001,9 @@ ALTER TABLE public.email_messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.email_message_recipients ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.email_message_candidates ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.email_attachments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.email_files ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.email_files FROM anon, authenticated;
+GRANT ALL ON public.email_files TO service_role;
 ALTER TABLE public.email_triage ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.email_task_links ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.email_sender_rules ENABLE ROW LEVEL SECURITY;
@@ -7970,7 +8144,8 @@ CREATE POLICY email_maintenance_runs_select ON public.email_maintenance_runs FOR
   USING (public.has_permission('inbound_email.manage'));
 
 -- The next batch of messages due for deletion, oldest first, with every file
--- path they own. Due: past the inbox's retention_days (any status but
+-- path they own: the raw .eml and attachments stored the old way. Shared
+-- copies are released after the rows go (email_files_release). Due: past the inbox's retention_days (any status but
 -- receiving), or stuck in receiving for over 24 hours. p_exclude skips
 -- messages whose files failed to delete earlier in the same run.
 CREATE OR REPLACE FUNCTION public.email_retention_due(p_limit integer, p_exclude jsonb DEFAULT '[]'::jsonb)
@@ -8005,7 +8180,7 @@ BEGIN
       'paths', to_jsonb(
         array_remove(ARRAY[d.raw_storage_path], NULL)
         || ARRAY(SELECT a.storage_path FROM public.email_attachments a
-                 WHERE a.message_id = d.id AND a.storage_path IS NOT NULL ORDER BY a.position)
+                 WHERE a.message_id = d.id AND a.storage_path IS NOT NULL AND a.file_id IS NULL ORDER BY a.position)
       )
     ) ORDER BY LEAST(d.received_at, d.created_at), d.id), '[]'::jsonb)
     FROM due d
@@ -8084,7 +8259,7 @@ END;
 $$;
 
 -- Of the given bucket paths, the ones a row still owns: a message's raw .eml,
--- an attachment's file, or anything under a message still being received
+-- an attachment's file, a stored copy, or anything under a message still being received
 -- (created in the last 24 hours). Everything else is an orphan.
 CREATE OR REPLACE FUNCTION public.email_storage_known_paths(p_paths jsonb)
 RETURNS jsonb
@@ -8103,6 +8278,7 @@ BEGIN
     FROM given g
     WHERE EXISTS (SELECT 1 FROM public.email_messages m WHERE m.raw_storage_path = g.path)
       OR EXISTS (SELECT 1 FROM public.email_attachments a WHERE a.storage_path = g.path)
+      OR EXISTS (SELECT 1 FROM public.email_files f WHERE f.storage_path = g.path)
       OR EXISTS (
         SELECT 1 FROM public.email_messages m
         WHERE m.status = 'receiving'

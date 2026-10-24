@@ -23,7 +23,6 @@ const STATUS_GROUPS: { key: Task['status']; label: string; dot: string }[] = [
 interface ListViewProps {
   tasks: Task[];
   onViewTask?: (task: Task) => void;
-  onEditTask?: (task: Task) => void;
   onDeleteTask?: (id: string) => void;
   selectedIds?: Set<string>;
   onToggleSelect?: (id: string) => void;
@@ -41,7 +40,7 @@ interface ListDropIndicator {
 const SCROLL_EDGE_PX = 72;
 const SCROLL_MAX_STEP_PX = 16;
 
-export function ListView({ tasks, onViewTask, onEditTask, onDeleteTask, selectedIds, onToggleSelect, onStatusChange, onReorder }: ListViewProps) {
+export function ListView({ tasks, onViewTask, onDeleteTask, selectedIds, onToggleSelect, onStatusChange, onReorder }: ListViewProps) {
   const [sortField, setSortField] = useState<SortField | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>('asc');
   // Done starts folded: on a mature project it is the largest group and the
@@ -350,13 +349,11 @@ export function ListView({ tasks, onViewTask, onEditTask, onDeleteTask, selected
                     <TaskRow
                       task={task}
                       onView={onViewTask}
-                      onEdit={onEditTask}
                       onDelete={onDeleteTask}
                     />
                     <TaskRowDesktop
                       task={task}
                       onView={onViewTask}
-                      onEdit={onEditTask}
                       onDelete={onDeleteTask}
                       selected={selectedIds?.has(task.id)}
                       onToggleSelect={onToggleSelect}

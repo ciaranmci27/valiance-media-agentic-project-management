@@ -9,7 +9,6 @@ import { parseDateOnly } from '@/lib/date-utils';
 interface CalendarViewProps {
   tasks: Task[];
   onViewTask?: (task: Task) => void;
-  onEditTask?: (task: Task) => void;
   /** Clicking a day's empty space creates a task due that day. */
   onAddTask?: (date: string) => void;
 }

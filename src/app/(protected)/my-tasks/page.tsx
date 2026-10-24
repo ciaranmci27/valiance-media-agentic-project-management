@@ -7,7 +7,6 @@ import { Header } from '@/components/layout/Header';
 import { PriorityBadge } from '@/components/ui/Badge';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { TaskDetailPanel } from '@/components/tasks/TaskDetailPanel';
-import { TaskForm } from '@/components/tasks/TaskForm';
 import { useTaskUrlParam } from '@/lib/use-task-url';
 import Link from 'next/link';
 import {
@@ -67,7 +66,6 @@ function RadarPageContent() {
   // The open task is the URL's ?task=, so the address bar is a link to it.
   const { taskId: viewingTaskId, openTask: setViewingTaskId, closeTask: closeViewingTask } = useTaskUrlParam();
   const [reviewingTaskId, setReviewingTaskId] = useState<string | null>(null);
-  const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [deletingTaskId, setDeletingTaskId] = useState<string | null>(null);
   const [showDoneReminders, setShowDoneReminders] = useState(false);
 
@@ -529,18 +527,8 @@ function RadarPageContent() {
       <TaskDetailPanel
         task={viewingTask}
         onClose={closeViewingTask}
-        onEdit={(task) => { closeViewingTask(); setEditingTask(task); }}
         onDelete={(id) => setDeletingTaskId(id)}
       />
-
-      {editingTask && (
-        <TaskForm
-          isOpen={!!editingTask}
-          onClose={() => setEditingTask(null)}
-          projectId={editingTask.project_id}
-          task={editingTask}
-        />
-      )}
 
       <ConfirmDialog
         isOpen={!!deletingTaskId}

@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { copyAttachmentToProject } from './service';
+import { copyAttachmentToProject, TASK_FILES_BUCKET } from './service';
 
 /**
  * Before retention deletes an email, every task file linking one of its
@@ -88,4 +88,65 @@ export async function keepLinkedTaskFiles(supabase: SupabaseClient, messageIds: 
   }
   result.failed = [...failed];
   return result;
+}
+
+const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
+/** Where an upload link puts bytes until they are added: {project_id}/incoming/{upload_id}. */
+const INCOMING = new RegExp(`^${UUID}/incoming/${UUID}$`);
+/** Upload links last two hours; a day leaves room for a slow add after it. */
+const ABANDONED_AFTER_MS = 24 * 60 * 60 * 1000;
+
+export interface AbandonedUploadsSummary {
+  objects_scanned: number;
+  uploads_removed: number;
+  more_pending: boolean;
+  outcome: 'complete' | 'partial' | 'failed';
+  last_error: string | null;
+}
+
+/**
+ * Bytes uploaded to an upload link and never added to a task (the add
+ * removes them): anything under {project}/incoming/ older than a day. Only
+ * that path is touched, and only with a readable age; a stored file
+ * ({project}/{sha256}) is never a candidate. Run by the weekly sweep.
+ */
+export async function sweepAbandonedUploads(
+  supabase: SupabaseClient,
+  options: { budgetMs?: number; now?: () => number } = {},
+): Promise<AbandonedUploadsSummary> {
+  const now = options.now ?? Date.now;
+  const startedAt = now();
+  const budgetMs = options.budgetMs ?? 20_000;
+  const summary: AbandonedUploadsSummary = { objects_scanned: 0, uploads_removed: 0, more_pending: false, outcome: 'complete', last_error: null };
+  const bucket = supabase.storage.from(TASK_FILES_BUCKET);
+  try {
+    let cursor: string | undefined;
+    do {
+      if (now() - startedAt >= budgetMs) {
+        summary.more_pending = true;
+        break;
+      }
+      const { data, error } = await bucket.listV2({ limit: 1000, cursor, with_delimiter: false });
+      if (error) throw new Error(`listing task files failed: ${error.message}`);
+      const objects = data.objects ?? [];
+      summary.objects_scanned += objects.length;
+      const abandoned = objects
+        .map((object) => ({ path: typeof object.key === 'string' && object.key ? object.key : object.name, at: Date.parse(object.updated_at || object.created_at || '') }))
+        .filter((object) => INCOMING.test(object.path) && Number.isFinite(object.at) && now() - object.at > ABANDONED_AFTER_MS)
+        .map((object) => object.path);
+      for (let i = 0; i < abandoned.length; i += CHUNK) {
+        const chunk = abandoned.slice(i, i + CHUNK);
+        const { data: removed, error: removeError } = await bucket.remove(chunk);
+        if (removeError) throw new Error(`removing abandoned uploads failed: ${removeError.message}`);
+        summary.uploads_removed += removed?.length ?? 0;
+      }
+      if (data.hasNext && !data.nextCursor) throw new Error('the listing has more objects but no cursor');
+      cursor = data.hasNext ? data.nextCursor : undefined;
+    } while (cursor);
+  } catch (error) {
+    summary.outcome = 'failed';
+    summary.last_error = (error instanceof Error ? error.message : String(error)).slice(0, 2000);
+  }
+  if (summary.outcome !== 'failed' && summary.more_pending) summary.outcome = 'partial';
+  return summary;
 }

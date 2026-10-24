@@ -4,18 +4,19 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { ArrowLeft } from 'lucide-react';
-import type { Task } from '@/lib/types';
 import { useApp } from '@/lib/store';
+import { useAuth } from '@/lib/auth-context';
+import { canEditTask } from '@/lib/access-control';
 import { Header } from '@/components/layout/Header';
 import { Button } from '@/components/ui/Button';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import { TaskForm } from '@/components/tasks/TaskForm';
 import { TaskActionsMenu, TaskDetailPanel } from '@/components/tasks/TaskDetailPanel';
+import { TitleField } from '@/components/tasks/TaskFields';
 import { canGoBackInApp } from '@/lib/tab-history';
 
 /**
  * A task on its own page: everything the side panel shows, with room for it.
- * The title is the page heading, with Back and the menu beside it; the work
+ * The title is the page heading (click it to rename), with Back and the menu beside it; the work
  * (description, reminders, criteria, subtasks, comments) runs down the main
  * column and the details sit beside it. Opened from the panel's menu; the
  * board's task links still open the panel. Back returns to wherever the task
@@ -27,8 +28,8 @@ export default function TaskPage() {
   const router = useRouter();
   const projectId = params.id as string;
   const taskId = params.taskId as string;
-  const { tasks, getProject, deleteTask } = useApp();
-  const [editingTask, setEditingTask] = useState<Task | null>(null);
+  const { tasks, getProject, deleteTask, updateTask } = useApp();
+  const { teamMemberId, access } = useAuth();
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const task = tasks.find(t => t.id === taskId) ?? null;
@@ -60,7 +61,16 @@ export default function TaskPage() {
       <div className="max-w-6xl mx-auto">
         <Header
           wrapTitle
-          title={task.title}
+          title={
+            <TitleField
+              key={task.id}
+              as="span"
+              value={task.title}
+              onChange={(title) => updateTask(task.id, { title })}
+              canEdit={canEditTask(access, task, teamMemberId)}
+              className="block text-2xl lg:text-[26px] font-bold text-white tracking-tight leading-tight"
+            />
+          }
           actions={
             <div className="flex items-center gap-1.5">
               <Button
@@ -73,7 +83,7 @@ export default function TaskPage() {
               >
                 <span className="hidden sm:inline">Back</span>
               </Button>
-              <TaskActionsMenu task={task} onEdit={setEditingTask} onDelete={() => setConfirmDelete(true)} />
+              <TaskActionsMenu task={task} onDelete={() => setConfirmDelete(true)} />
             </div>
           }
         />
@@ -84,17 +94,9 @@ export default function TaskPage() {
           variant="page"
           task={task}
           onClose={() => router.push(boardHref)}
-          onEdit={setEditingTask}
           onDelete={() => setConfirmDelete(true)}
         />
       </div>
-
-      <TaskForm
-        isOpen={!!editingTask}
-        onClose={() => setEditingTask(null)}
-        projectId={task.project_id}
-        task={editingTask}
-      />
 
       <ConfirmDialog
         isOpen={confirmDelete}
