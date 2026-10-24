@@ -5,11 +5,12 @@ import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { StatusBadge, PriorityBadge, TaskTypeBadge } from '@/components/ui/Badge';
 import { AvatarGroup } from '@/components/ui/Avatar';
-import { Calendar, CheckSquare, Mail, MessageSquare, MoreVertical, Trash2, Clock, Lock, FileQuestion } from 'lucide-react';
+import { Calendar, CheckSquare, Mail, MessageSquare, MoreVertical, Paperclip, Trash2, Clock, Lock, FileQuestion } from 'lucide-react';
 import { useState, useRef } from 'react';
 import { Popover } from '@/components/ui/Popover';
 import { useTaskEmailCount } from '@/components/inbox/TaskSourceEmails';
 import { UnseenDot } from './TaskSource';
+import { useTaskFileCount } from './task-file-counts';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { parseDateOnly, isDateOverdue } from '@/lib/date-utils';
 import { hasPermission, canEditTask, canManageAllTasks } from '@/lib/access-control';
@@ -57,6 +58,7 @@ export function TaskRow({ task, onView, onDelete }: TaskRowProps) {
   const { teamMemberId, access } = useAuth();
   const [showMenu, setShowMenu] = useState(false);
   const emailCount = useTaskEmailCount(task.id);
+  const fileCount = useTaskFileCount(task.id);
   const menuBtnRef = useRef<HTMLButtonElement>(null);
 
   const isAgentsEnabled = process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true';
@@ -184,7 +186,15 @@ export function TaskRow({ task, onView, onDelete }: TaskRowProps) {
               </span>
             )}
 
-            <Tooltip content={`Updated ${new Date(task.updated_at).toLocaleString()}`}>
+            {fileCount > 0 && (
+              <span className="text-xs text-zinc-400 flex items-center gap-1">
+                <Paperclip size={12} aria-hidden="true" />
+                <span className="sr-only">{fileCount} file{fileCount === 1 ? '' : 's'}</span>
+                <span aria-hidden="true">{fileCount}</span>
+              </span>
+            )}
+
+            <Tooltip content={`Created ${new Date(task.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} · updated ${new Date(task.updated_at).toLocaleString()}`}>
               <span className="text-xs text-zinc-500 flex items-center gap-1">
                 <Clock size={12} />
                 {timeAgo(task.updated_at)}
@@ -225,6 +235,7 @@ export function TaskRowDesktop({ task, onView, onDelete, selected, onToggleSelec
   const { teamMemberId, access } = useAuth();
   const [showMenu, setShowMenu] = useState(false);
   const emailCount = useTaskEmailCount(task.id);
+  const fileCount = useTaskFileCount(task.id);
   const menuBtnRef = useRef<HTMLButtonElement>(null);
 
   const isAgentsEnabled = process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true';
@@ -335,6 +346,15 @@ export function TaskRowDesktop({ task, onView, onDelete, selected, onToggleSelec
             </span>
           </Tooltip>
         )}
+        {fileCount > 0 && (
+          <Tooltip content={`${fileCount} file${fileCount === 1 ? '' : 's'}`}>
+            <span className="flex items-center gap-1 text-xs text-zinc-500 flex-shrink-0 cursor-default">
+              <Paperclip size={12} aria-hidden="true" />
+              <span className="sr-only">{fileCount} file{fileCount === 1 ? '' : 's'}</span>
+              <span aria-hidden="true">{fileCount}</span>
+            </span>
+          </Tooltip>
+        )}
         {task.tags.slice(0, 2).map(tag => (
           <span
             key={tag}
@@ -366,7 +386,7 @@ export function TaskRowDesktop({ task, onView, onDelete, selected, onToggleSelec
 
       {/* Updated (xl only) */}
       <div className="hidden xl:block">
-        <Tooltip content={`Updated ${new Date(task.updated_at).toLocaleString()}`}>
+        <Tooltip content={`Created ${new Date(task.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} · updated ${new Date(task.updated_at).toLocaleString()}`}>
           <span className="text-xs text-zinc-500">
             {timeAgo(task.updated_at)}
           </span>

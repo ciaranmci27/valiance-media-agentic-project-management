@@ -18,6 +18,7 @@ import { FileInput } from '@/components/ui/inputs/FileInput';
 import { FilePreviewModal } from '@/components/ui/FilePreviewModal';
 import { CardAction } from '@/components/projects/TabLayout';
 import { formatBytes, formatFullTime } from '@/components/inbox/inbox-badges';
+import { setTaskFileCount } from './task-file-counts';
 import {
   downloadTaskFile, linkTaskFile, listTaskFiles, taskFileCandidates, taskFileViewUrl, trashTaskFile, uploadTaskFile,
   type TaskFileCandidates, type TaskFileView,
@@ -42,7 +43,9 @@ function fetchInto<T>(cache: Map<string, T>, kind: string, taskId: string, load:
   return request;
 }
 
-const fetchFiles = (taskId: string) => fetchInto(filesCache, 'files', taskId, listTaskFiles);
+// Each read also sets the task's count on its card.
+const fetchFiles = (taskId: string) => fetchInto(filesCache, 'files', taskId, listTaskFiles)
+  .then((files) => { setTaskFileCount(taskId, files.length); return files; });
 const fetchCandidates = (taskId: string) => fetchInto(candidatesCache, 'candidates', taskId, taskFileCandidates);
 
 /** Warm a task's files (and, for someone who can add, its Add menu) before it opens. */
@@ -106,6 +109,7 @@ export function TaskFiles({ task, section }: {
   const setFiles = (update: (current: TaskFileView[]) => TaskFileView[]) => {
     const next = update(files ?? []);
     filesCache.set(task.id, next);
+    setTaskFileCount(task.id, next.length);
     setLoaded({ taskId: task.id, files: next });
   };
   // A file the task already had comes back as that entry: keep one of each.

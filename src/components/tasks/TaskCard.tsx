@@ -5,7 +5,7 @@ import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { PriorityBadge, TaskTypeBadge } from '@/components/ui/Badge';
 import { AvatarGroup } from '@/components/ui/Avatar';
-import { Calendar, Mail, MessageSquare, CheckSquare, Trash2, Clock, Lock, FileQuestion, ArrowRight, ClipboardCopy, Link2, Hash, PanelRight, BellRing } from 'lucide-react';
+import { Calendar, Mail, MessageSquare, CheckSquare, Paperclip, Trash2, Clock, Lock, FileQuestion, ArrowRight, ClipboardCopy, Link2, Hash, PanelRight, BellRing } from 'lucide-react';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { RowActionsMenu, type RowAction } from '@/components/ui/RowActionsMenu';
 import { parseDateOnly, isDateOverdue } from '@/lib/date-utils';
@@ -14,6 +14,7 @@ import { TASK_STATUS_LABELS, taskAsText, taskUrl, copyText } from '@/lib/task-co
 import { nextReminderFor, reminderGroup, whenLabel } from '@/lib/reminders';
 import { usePrefetchTaskSources, useTaskEmailCount } from '@/components/inbox/TaskSourceEmails';
 import { usePrefetchTaskFiles } from './TaskFiles';
+import { useTaskFileCount } from './task-file-counts';
 import { UnseenDot } from './TaskSource';
 
 function timeAgo(dateStr: string): string {
@@ -54,6 +55,7 @@ export function TaskCard({ task, onView, onDelete, onMove }: TaskCardProps) {
   const { isTaskUnseen } = useApp();
   const unseen = isTaskUnseen(task);
   const emailCount = useTaskEmailCount(task.id);
+  const fileCount = useTaskFileCount(task.id);
   const prefetchEmails = usePrefetchTaskSources();
   const prefetchFiles = usePrefetchTaskFiles();
   // Its emails and files are fetched on the way in, so the panel opens with them.
@@ -239,7 +241,16 @@ export function TaskCard({ task, onView, onDelete, onMove }: TaskCardProps) {
               </div>
             </Tooltip>
           )}
-          <Tooltip content={`Updated ${new Date(task.updated_at).toLocaleString()}`}>
+          {fileCount > 0 && (
+            <Tooltip content={`${fileCount} file${fileCount === 1 ? '' : 's'}`}>
+              <div className="flex items-center gap-1 text-xs text-zinc-400">
+                <Paperclip size={14} aria-hidden="true" />
+                <span className="sr-only">{fileCount} file{fileCount === 1 ? '' : 's'}</span>
+                <span aria-hidden="true">{fileCount}</span>
+              </div>
+            </Tooltip>
+          )}
+          <Tooltip content={`Created ${new Date(task.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} · updated ${new Date(task.updated_at).toLocaleString()}`}>
             <div className="flex items-center gap-1 text-xs text-zinc-500">
               <Clock size={12} />
               <span>{timeAgo(task.updated_at)}</span>
