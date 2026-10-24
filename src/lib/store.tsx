@@ -85,6 +85,8 @@ import {
   fetchApiKeys,
   fetchGoals,
   fetchReminders,
+  fetchMyTaskViews,
+  markTaskSeenQuery,
   insertReminder as insertReminderQuery,
   patchReminder as patchReminderQuery,
   deleteReminder as deleteReminderQuery,
@@ -438,6 +440,15 @@ interface AppContextType {
   updateGoal: (id: string, updates: Partial<ProjectGoal>) => void;
   archiveGoal: (id: string) => void;
 
+  /**
+   * New to the signed-in member: made by someone or something else (another
+   * person, an agent, an API key, even one of their own) since tracking began,
+   * and not opened by them yet. Tasks they made in the app never are.
+   */
+  isTaskUnseen: (task: Task) => boolean;
+  /** Opening a task: it is no longer new to this member. */
+  markTaskSeen: (taskId: string) => void;
+
   // Reminders: open ones, and ones finished in the last 30 days
   reminders: Reminder[];
   addReminder: (fields: ReminderFields) => Promise<Reminder | undefined>;
@@ -558,6 +569,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [loadErrors, setLoadErrors] = useState<LoadKey[]>([]);
   const [projectGoals, setProjectGoalsState] = useState<ProjectGoal[]>([]);
   const [reminders, setRemindersState] = useState<Reminder[]>([]);
+  // Task ids this member has opened; null until loaded (or when unreadable), when nothing is new.
+  const [seenTaskIds, setSeenTaskIds] = useState<Set<string> | null>(null);
   const [taskSuggestions, setTaskSuggestionsState] = useState<TaskSuggestion[]>([]);
   const [agentActivityList, setAgentActivityListState] = useState<AgentActivity[]>([]);
 
@@ -797,6 +810,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
           : Promise.resolve([] as ContactEmail[]);
         // Everyone has reminders (their own at least); RLS narrows the rest.
         const remindersRequest = safeLoad<Reminder[]>('reminders', 'reminders', fetchReminders(supabase), []);
+        // Null when the views could not be read: then nothing shows as new, rather than everything.
+        const taskViewsRequest = canReadTaskRows
+          ? fetchMyTaskViews(supabase).catch(() => null)
+          : Promise.resolve([] as string[]);
         const [projectsData, tasksData, teamData, contactsData, projectContactsData, leadsData, leadInteractionsData, leadProposalsData, leadFieldsData, leadContactsData, activitiesData, portalSettingsData, portalUpdatesData, portalUpdateAttachmentsData, entityFilesData, apiKeysData, timeEntriesData, projectCredentialsData, projectInvoicesData, businessSettingsData] = await Promise.all([
           canReadProjects ? safeLoad('projects', 'projects', workspaceData<Project[]>('/api/workspace/projects'), []) : Promise.resolve([]),
           canReadTaskRows ? safeLoad('tasks', 'tasks', fetchTasks(supabase), []) : Promise.resolve([]),
@@ -832,6 +849,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setContacts(contactsData);
         setContactEmails(await contactEmailsRequest);
         setReminders(await remindersRequest);
+        const views = await taskViewsRequest;
+        setSeenTaskIds(views ? new Set(views) : null);
         setProjectContacts(projectContactsData);
         setLeads(leadsData);
         setLeadInteractions(leadInteractionsData);
@@ -4204,6 +4223,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return true;
   };
 
+  const isTaskUnseen = (task: Task): boolean => {
+    if (skipSupabase || !seenTaskIds || !task.created_via || task.created_via === 'unknown') return false;
+    if (task.created_via === 'app' && task.created_by === teamMemberId) return false;
+    return !seenTaskIds.has(task.id);
+  };
+
+  const markTaskSeen = (taskId: string) => {
+    if (skipSupabase || !seenTaskIds || seenTaskIds.has(taskId)) return;
+    setSeenTaskIds((prev) => (prev ? new Set(prev).add(taskId) : prev));
+    // Best effort: a failed write only means the task shows as new again next load.
+    markTaskSeenQuery(supabase, taskId).catch((error) => console.warn('[tasks] could not mark a task seen', error));
+  };
+
   const deleteReminderAction = async (id: string) => {
     const before = reminders;
     setReminders(prev => prev.filter(r => r.id !== id));
@@ -4524,6 +4556,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       addGoal: addGoalAction,
       updateGoal: updateGoalAction,
       archiveGoal: archiveGoalAction,
+      isTaskUnseen,
+      markTaskSeen,
       reminders,
       addReminder: addReminderAction,
       updateReminder: updateReminderAction,

@@ -478,7 +478,7 @@ export const endpoints: EndpointDoc[] = [
   },
 
   // ─── Tasks ────────────────────────────────────────────────────────
-  { method: 'GET', path: '/api/v1/tasks', description: 'List all tasks across projects with filtering. Each task includes inline subtasks, comments, assignee_ids, acceptance_criteria, and blocked_by_ids. Paginated.', group: 'Tasks',
+  { method: 'GET', path: '/api/v1/tasks', description: 'List all tasks across projects with filtering. Each task includes inline subtasks, comments, assignee_ids, acceptance_criteria, and blocked_by_ids, plus where it came from: created_via (app, api, mcp, system, or unknown for tasks from before tracking), created_by_key_id and created_note. Paginated.', group: 'Tasks',
     queryParams: [
       { name: 'status', type: 'todo|in_progress|in_review|done', description: 'Filter by task status' },
       { name: 'priority', type: 'low|medium|high|urgent', description: 'Filter by priority' },
@@ -494,7 +494,7 @@ export const endpoints: EndpointDoc[] = [
       { name: 'limit', type: 'number', description: 'Items per page (default 25, max 100)' },
     ],
   },
-  { method: 'POST', path: '/api/v1/tasks', description: 'Create a task within a project. Optionally assign team members, set a due date, link to a goal, and tag it.', group: 'Tasks',
+  { method: 'POST', path: '/api/v1/tasks', description: 'Create a task within a project. Optionally assign team members, set a due date, link to a goal, and tag it. The task records that this API key made it (created_via api, or mcp through the MCP server, and created_by_key_id), so it never reads as made by the key\'s person in the app.', group: 'Tasks',
     body: [
       { name: 'project_id', type: 'uuid', required: true, description: 'Project ID this task belongs to' },
       { name: 'title', type: 'string', required: true, description: 'Task title' },
@@ -509,6 +509,7 @@ export const endpoints: EndpointDoc[] = [
       { name: 'acceptance_criteria', type: 'string[]', required: false, description: 'Creates addressable acceptance criteria (one row per string, in order)' },
       { name: 'blocked_by_ids', type: 'uuid[]', required: false, description: 'Tasks that must be done first. Must belong to the same project.' },
       { name: 'project_goal_id', type: 'uuid|null', required: false, description: 'Link this task to a project goal' },
+      { name: 'source_note', type: 'string', required: false, description: 'Why this key is creating the task, in a few words ("from Brennan\'s email"), up to 200 characters. Shown on the task as the key\'s own words; set once, never changed.' },
     ],
   },
   { method: 'GET', path: '/api/v1/tasks/:id', description: 'Get a single task with its subtasks (sorted by sort_order), comments (sorted by created_at), assignee_ids, acceptance_criteria, blocked_by (each blocker with id, title, status), and dependencies_met (true when every blocker is done)', group: 'Tasks',

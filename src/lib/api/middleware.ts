@@ -363,9 +363,10 @@ export function withApi<TBody = unknown, TParams = Record<string, string>>(
 
       // The MCP server marks its in-process calls; a header could be sent by anyone.
       const via = apiRequestContext.getStore()?.via ?? 'rest';
-      const response = await apiRequestContext.run({ via }, () => handler({
-        // Writes are logged as the key's member (agents are left out by the database).
-        supabase: getActorClient(keyRow.team_member_id, via === 'mcp' ? 'mcp' : 'api'),
+      const response = await apiRequestContext.run({ via, keyId: keyRow.id }, () => handler({
+        // Writes are logged as the key's member (agents are left out by the
+        // database), and a task it creates records the key itself.
+        supabase: getActorClient(keyRow.team_member_id, via === 'mcp' ? 'mcp' : 'api', keyRow.id),
         params: resolvedParams,
         body,
         searchParams: request.nextUrl.searchParams,

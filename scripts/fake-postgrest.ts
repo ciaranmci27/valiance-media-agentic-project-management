@@ -169,9 +169,15 @@ export async function startFakePostgrest(db: PGlite, options: { maxRows?: number
       if (rest.startsWith("rpc/") && request.method === "POST") {
         const fn = rest.slice(4);
         const args = JSON.parse((await body(request)) || "{}") as Record<string, unknown>;
+        // A JSON array for an array-typed argument (uuid[], text[]) becomes a Postgres array, as PostgREST does.
+        const argTypes = await db.query<{ n: string; t: string }>(
+          "SELECT unnest(proargnames) AS n, unnest(proargtypes::regtype[]::text[]) AS t FROM pg_proc WHERE proname = $1 AND pronamespace = 'public'::regnamespace",
+          [rest.slice(4)],
+        );
+        const typeOf = new Map(argTypes.rows.map((row) => [row.n, row.t]));
         const params: unknown[] = [];
         const named = Object.entries(args).map(([key, value]) => {
-          params.push(scalar(value));
+          params.push(Array.isArray(value) && typeOf.get(key)?.endsWith("[]") ? value : scalar(value));
           return `${ident(key)} => $${params.length}`;
         });
         const call = `public.${ident(fn)}(${named.join(", ")})`;

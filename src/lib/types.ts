@@ -268,8 +268,34 @@ export interface Task {
   project_goal_id?: string | null;
   source_task_suggestion_id?: string | null;
   completed_at?: string | null;
+  /** How it was made, stamped by the database: see TaskCreatedVia. */
+  created_via?: TaskCreatedVia;
+  /** The API key that made it (api, mcp). */
+  created_by_key_id?: string | null;
+  /** The key's own reason, in its words ("from Brennan's email"). */
+  created_note?: string | null;
   created_at: string;
   updated_at: string;
+}
+
+/**
+ * How a task was made: app (a person signed in), api or mcp (an API key: an
+ * agent, a script, a scheduled job), system (the server with no one behind
+ * it), unknown (before tracking began).
+ */
+export type TaskCreatedVia = 'app' | 'api' | 'mcp' | 'system' | 'unknown';
+
+/** Where a task came from, as the task panel shows it. */
+export interface TaskSource {
+  via: TaskCreatedVia;
+  created_at: string;
+  /** The member it was made as: the person, or the agent or person a key acts for. */
+  by: { id: string; name: string; agent: boolean } | null;
+  /** The API key that made it, by its name. */
+  key: { name: string } | null;
+  note: string | null;
+  /** The email it was made from, when the person can open that email. */
+  email: { message_id: string; thread_id: string; subject: string; from: string | null } | null;
 }
 
 /** One record in Trash, as list_trash() returns it. */

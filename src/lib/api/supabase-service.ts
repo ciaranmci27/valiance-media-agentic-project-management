@@ -1,4 +1,5 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { currentApiKeyId } from './request-context';
 
 let serviceClient: SupabaseClient | null = null;
 const actorClients = new Map<string, SupabaseClient>();
@@ -26,13 +27,15 @@ export function getServiceClient(): SupabaseClient {
 
 /**
  * The service client for a write made on someone's behalf. It names the
- * person in request headers so the team activity log can say who did it; the
- * database honours them only for the service role, and leaves agents out.
- * With no member it is the plain service client.
+ * person in request headers so the team activity log can say who did it, and
+ * the API key when there is one (inside an API request it is found on its
+ * own), so a task it creates records the key; the database honours both only
+ * for the service role, and leaves agents out of the log. With no member and
+ * no key it is the plain service client.
  */
-export function getActorClient(memberId: string | null | undefined, via: ActorVia): SupabaseClient {
-  if (!memberId) return getServiceClient();
-  const cacheKey = `${memberId}:${via}`;
+export function getActorClient(memberId: string | null | undefined, via: ActorVia, keyId: string | null = currentApiKeyId()): SupabaseClient {
+  if (!memberId && !keyId) return getServiceClient();
+  const cacheKey = `${memberId ?? ''}:${via}:${keyId ?? ''}`;
   const cached = actorClients.get(cacheKey);
   if (cached) return cached;
 
@@ -43,7 +46,13 @@ export function getActorClient(memberId: string | null | undefined, via: ActorVi
   }
   const client = createClient(url, key ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
     auth: { persistSession: false, autoRefreshToken: false },
-    global: { headers: { 'x-actor-member-id': memberId, 'x-actor-via': via } },
+    global: {
+      headers: {
+        ...(memberId ? { 'x-actor-member-id': memberId } : {}),
+        'x-actor-via': via,
+        ...(keyId && via !== 'app' ? { 'x-actor-key-id': keyId } : {}),
+      },
+    },
   });
   actorClients.set(cacheKey, client);
   return client;

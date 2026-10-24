@@ -3,17 +3,21 @@
  * app for a signed-in person, api or mcp for an API key with the key itself,
  * system otherwise), whatever path inserts it; nobody can forge or change the
  * stamp; tasks from before stay unknown. Each member's views are their own.
- * The migration applies to the schema as it was and runs twice.
+ * The migration applies to the schema as it was and runs twice, and the real
+ * v1 route (withApi, supabase-js, fake PostgREST) names the key it ran as.
  *
  * Runs on PGlite (real Postgres) over the whole real schema; nothing touches
  * a live database.
  *
  *   npm run -s test:task-source
  */
+import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { PGlite } from '@electric-sql/pglite';
+import { NextRequest } from 'next/server';
 import { actAs, createFullSchemaDatabase, SCHEMA_PATH } from './full-schema-db';
+import { startFakePostgrest } from './fake-postgrest';
 
 const MIGRATION = join(__dirname, '..', 'supabase', 'migrations', '20261024065232_task_source_and_seen.sql');
 const OWNER_USER = '00000000-0000-0000-0000-0000000000c1';
@@ -154,6 +158,46 @@ async function run(db: PGlite, label: string) {
   check(`${label}: a member cannot mark a task they cannot open`, (await attempt(db, 'SELECT public.mark_task_seen($1)', [hidden])) !== null);
 }
 
+/** POST /api/v1/tasks with a real key: the task records that key and the note it gave. */
+async function throughTheApi(db: PGlite) {
+  const q = async <T = Record<string, unknown>>(sql: string, params: unknown[] = []) => (await db.query<T>(sql, params)).rows;
+  await db.exec('RESET ROLE');
+  await db.query("SELECT set_config('request.jwt.claim.sub', '', false), set_config('request.jwt.claim.role', '', false), set_config('request.headers', '', false)");
+  await db.exec(`DROP FUNCTION public.consume_api_rate_limit(uuid, integer, integer);
+    CREATE FUNCTION public.consume_api_rate_limit(p_api_key_id uuid, p_limit integer, p_window_seconds integer)
+    RETURNS jsonb LANGUAGE sql AS $$ SELECT jsonb_build_object('allowed', true, 'remaining', p_limit - 1,
+      'reset_at', now() + make_interval(secs => p_window_seconds)) $$;`);
+  const agent = (await q<{ id: string }>("SELECT id FROM public.team_members WHERE role = 'agent' LIMIT 1"))[0].id;
+  const project = (await q<{ id: string }>("SELECT id FROM public.projects WHERE name = 'Happy Innovations' LIMIT 1"))[0].id;
+  await db.query(`INSERT INTO public.team_member_permissions (member_id, permission_key, access_channel, effect)
+    SELECT $1, key, 'api', 'allow' FROM unnest(ARRAY['tasks.read', 'tasks.create', 'tasks.manage_all', 'projects.read', 'projects.read_all']) AS key`, [agent]);
+  const secret = `pk_live_${randomUUID().replace(/-/g, '')}`;
+  const keyId = (await q<{ id: string }>(`INSERT INTO public.api_keys (name, key_prefix, key_hash, team_member_id, scopes, permissions)
+    VALUES ('Ashley', 'pk_live', $1, $2, $3, 'scoped') RETURNING id`, [createHash('sha256').update(secret).digest('hex'), agent,
+    ['tasks.read', 'tasks.create', 'tasks.manage_all', 'projects.read', 'projects.read_all']]))[0].id;
+
+  const server = await startFakePostgrest(db);
+  Object.assign(process.env, { NEXT_PUBLIC_SUPABASE_URL: server.url, SUPABASE_SERVICE_ROLE_KEY: 'fake-service-key' });
+  try {
+    const route = await import('../src/app/api/v1/tasks/route');
+    const response = await route.POST(new NextRequest('http://localhost/api/v1/tasks', {
+      method: 'POST',
+      headers: { 'x-api-key': secret, 'content-type': 'application/json' },
+      body: JSON.stringify({ project_id: project, title: 'Through the API', source_note: "from Brennan's email" }),
+    }));
+    const body = await response.json() as { data?: { id?: string } };
+    const id = body.data?.id;
+    await db.exec('RESET ROLE');
+    await db.query("SELECT set_config('request.jwt.claim.sub', '', false), set_config('request.jwt.claim.role', '', false), set_config('request.headers', '', false)");
+    const row = id ? (await q<Source>('SELECT created_via, created_by_key_id, created_note, created_by FROM public.tasks WHERE id = $1', [id]))[0] : undefined;
+    check('api: a task made with a key records the key, its person and its note',
+      response.status === 201 && row?.created_via === 'api' && row.created_by_key_id === keyId
+        && row.created_note === "from Brennan's email" && row.created_by === agent, { status: response.status, body, row });
+  } finally {
+    await server.close();
+  }
+}
+
 async function main() {
   // On the schema as committed (production's shape): migration twice, then every check.
   {
@@ -171,6 +215,7 @@ async function main() {
   // On schema.sql, which must describe the same final state.
   const fresh = await createFullSchemaDatabase();
   await run(fresh, 'schema.sql');
+  await throughTheApi(fresh);
   await fresh.close();
 
   if (failures.length) {

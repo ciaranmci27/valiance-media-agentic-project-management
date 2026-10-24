@@ -84,7 +84,7 @@ export const GET = withApi(async ({ supabase, searchParams, access }) => {
 });
 
 export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId, access, scopes }) => {
-  const { assignee_ids, acceptance_criteria, blocked_by_ids, ...taskData } = body as any;
+  const { assignee_ids, acceptance_criteria, blocked_by_ids, source_note, ...taskData } = body as any;
   if (!taskData.project_id || !accessAllowsProject(access, taskData.project_id, 'api')) {
     throw forbidden('Project scope denied');
   }
@@ -112,7 +112,7 @@ export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId, acc
   const criteria: string[] = Array.isArray(acceptance_criteria) ? acceptance_criteria : [];
   const task = await insertTask(
     supabase,
-    { ...taskData, created_by: teamMemberId || null },
+    { ...taskData, created_by: teamMemberId || null, created_note: source_note ?? null },
     effectiveAssignees,
     criteria,
     blockedByIds

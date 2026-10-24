@@ -221,6 +221,8 @@ export async function insertTask(
   if (task.source_task_suggestion_id) insertPayload.source_task_suggestion_id = task.source_task_suggestion_id;
   if (task.task_type) insertPayload.task_type = task.task_type;
   if (task.ai_readiness !== undefined) insertPayload.ai_readiness = task.ai_readiness;
+  // The database keeps it only for an API key's task (see stamp_task_source).
+  if (task.created_note) insertPayload.created_note = task.created_note;
 
   const saved = await saveTaskAtomically(supabase, null, insertPayload, assigneeIds, criteria, blockedByIds);
 
@@ -1656,6 +1658,19 @@ export type ReminderFields = Pick<Reminder, 'title'> &
 const DONE_REMINDER_DAYS = 30;
 
 /** Every reminder the reader can see that is open, or was finished recently. */
+/** The tasks the signed-in member has opened (RLS keeps it to their own). */
+export async function fetchMyTaskViews(supabase: SupabaseClient): Promise<string[]> {
+  const rows = await fetchAllRows<{ task_id: string }>((from, to, count) =>
+    supabase.from('task_views').select('task_id', { count }).order('task_id').range(from, to));
+  return rows.map((row) => row.task_id);
+}
+
+/** Records that the signed-in member opened a task. */
+export async function markTaskSeenQuery(supabase: SupabaseClient, taskId: string) {
+  const { error } = await supabase.rpc('mark_task_seen', { p_task_id: taskId });
+  if (error) throw error;
+}
+
 export async function fetchReminders(supabase: SupabaseClient) {
   const since = new Date(Date.now() - DONE_REMINDER_DAYS * 86_400_000).toISOString();
   return fetchAllRows<Reminder>((from, to, count) =>

@@ -18,6 +18,9 @@ export const createTaskSchema = z.object({
   ai_readiness: aiReadinessEnum.nullable().optional(),
   acceptance_criteria: z.array(z.string().min(1)).optional(),
   blocked_by_ids: z.array(z.string().uuid()).optional(),
+  // Why this key is creating the task ("from Brennan's email"); shown as the
+  // caller's own words on the task. Set once, never changed.
+  source_note: z.string().trim().min(1).max(200).optional(),
 });
 
 export const updateTaskSchema = z.object({
