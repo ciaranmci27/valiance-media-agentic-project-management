@@ -24,7 +24,8 @@ export const UNASSIGNED_FILTER_ID = '__unassigned__';
  * of every tag in the workspace.
  */
 export function TaskFilterControl({ tasks }: { tasks: Task[] }) {
-  const { filters, setFilters, team } = useApp();
+  const { filters, setFilters, team, isTaskUnseen } = useApp();
+  const unseenCount = tasks.filter(isTaskUnseen).length;
   const { teamMemberId } = useAuth();
   const anchorRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
@@ -46,7 +47,7 @@ export function TaskFilterControl({ tasks }: { tasks: Task[] }) {
   };
 
   const activeCount =
-    filters.status.length + filters.priority.length + filters.assigneeIds.length + filters.tags.length;
+    filters.status.length + filters.priority.length + filters.assigneeIds.length + filters.tags.length + (filters.unseen ? 1 : 0);
 
   const chip = (selected: boolean) =>
     `px-2 py-1 text-xs rounded-full transition-all ${
@@ -87,12 +88,24 @@ export function TaskFilterControl({ tasks }: { tasks: Task[] }) {
           <h3 className="text-sm font-medium text-zinc-200">Filters</h3>
           {activeCount > 0 && (
             <button
-              onClick={() => setFilters({ ...filters, status: [], priority: [], assigneeIds: [], tags: [] })}
+              onClick={() => setFilters({ ...filters, status: [], priority: [], assigneeIds: [], tags: [], unseen: false })}
               className="text-xs text-brand-300 hover:text-brand-200"
             >
               Clear all
             </button>
           )}
+        </div>
+
+        <div>
+          <p className="text-xs font-medium text-zinc-400 mb-2">Show</p>
+          <button
+            onClick={() => setFilters({ ...filters, unseen: !filters.unseen })}
+            aria-pressed={!!filters.unseen}
+            className={`${chip(!!filters.unseen)} flex items-center gap-1.5`}
+          >
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" aria-hidden="true" />
+            New to me{unseenCount > 0 ? ` (${unseenCount})` : ''}
+          </button>
         </div>
 
         <div>

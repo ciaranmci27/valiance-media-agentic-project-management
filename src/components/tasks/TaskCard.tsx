@@ -13,6 +13,7 @@ import { hasPermission, canEditTask, canManageAllTasks } from '@/lib/access-cont
 import { TASK_STATUS_LABELS, taskAsText, taskUrl, copyText } from '@/lib/task-copy';
 import { nextReminderFor, reminderGroup, whenLabel } from '@/lib/reminders';
 import { usePrefetchTaskSources, useTaskEmailCount } from '@/components/inbox/TaskSourceEmails';
+import { UnseenDot } from './TaskSource';
 
 function timeAgo(dateStr: string): string {
   const now = Date.now();
@@ -50,6 +51,8 @@ export function TaskCard({ task, onView, onEdit, onDelete, onMove }: TaskCardPro
   const canDelete = canManageAllTasks(access);
   const completedSubtasks = task.subtasks.filter(s => s.completed).length;
   const hasComments = task.comments.length > 0;
+  const { isTaskUnseen } = useApp();
+  const unseen = isTaskUnseen(task);
   const emailCount = useTaskEmailCount(task.id);
   const prefetchEmails = usePrefetchTaskSources();
   // Its emails are fetched on the way in, so the panel opens with them.
@@ -146,7 +149,10 @@ export function TaskCard({ task, onView, onEdit, onDelete, onMove }: TaskCardPro
         />
       </div>
 
-      <h3 className="font-medium text-white text-sm lg:text-base mb-1 lg:mb-2 line-clamp-2">{task.title}</h3>
+      <h3 className="font-medium text-white text-sm lg:text-base mb-1 lg:mb-2 line-clamp-2">
+        {unseen && <span className="mr-1.5 inline-flex align-middle"><UnseenDot task={task} /></span>}
+        {task.title}
+      </h3>
       
       {task.description && (
         <p className="text-xs lg:text-sm text-zinc-400 mb-2 lg:mb-3 line-clamp-2">{task.description}</p>

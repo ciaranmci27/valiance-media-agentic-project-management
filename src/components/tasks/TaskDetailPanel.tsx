@@ -51,6 +51,7 @@ import { parseDateOnly, isDateOverdue } from '@/lib/date-utils';
 import { hasPermission, canEditTask, canManageAllTasks } from '@/lib/access-control';
 import { TaskSourceEmailsSection, useTaskEmailCount, useTaskSourceEmails } from '@/components/inbox/TaskSourceEmails';
 import { CardAction, RailCard, RailLayout } from '@/components/projects/TabLayout';
+import { TaskSourceLine, useTaskSource } from './TaskSource';
 
 interface TaskDetailPanelProps {
   task: Task | null;
@@ -82,6 +83,14 @@ const INLINE_DATE_CLASS = '!w-fit !justify-start !gap-1 !border-transparent !bg-
 const ROW_ACTIONS = 'flex items-center gap-0.5 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-opacity';
 const ROW_ICON_BUTTON = 'p-1 rounded text-zinc-500 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500';
 
+/** The task menu asks the open task to show its acceptance criteria. */
+const ADD_CRITERIA_EVENT = 'task:add-criteria';
+
+/** A task meant for the dev agent carries acceptance criteria; a person's task rarely does. */
+function criteriaHasRole(task: Task): boolean {
+  return task.ai_readiness === 'ai_ready' || task.ai_readiness === 'needs_spec';
+}
+
 /**
  * Everything you can do to a task as a whole, in one "..." menu: the side
  * panel and the task page share it, so neither carries a row of icons.
@@ -100,6 +109,9 @@ export function TaskActionsMenu({ task, onEdit, onDelete, showOpenAsPage = false
 
   const actions: RowAction[] = [
     ...(canEdit ? [{ label: 'Edit task', icon: <Edit size={14} />, onClick: () => onEdit(task) }] : []),
+    ...(canEdit && task.acceptance_criteria.length === 0 && !criteriaHasRole(task)
+      ? [{ label: 'Add acceptance criteria', icon: <ListChecks size={14} />, onClick: () => window.dispatchEvent(new CustomEvent(ADD_CRITERIA_EVENT, { detail: task.id })) }]
+      : []),
     ...(showOpenAsPage
       ? [{ label: 'Open as a page', icon: <Maximize2 size={14} />, onClick: () => router.push(`/projects/${task.project_id}/tasks/${task.id}`) }]
       : []),
@@ -242,6 +254,7 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete, variant = 'pa
     addComment,
     updateComment,
     deleteComment,
+    markTaskSeen,
   } = useApp();
   const { teamMemberId, access } = useAuth();
   const backdropRef = useRef<HTMLDivElement>(null);
@@ -262,6 +275,32 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete, variant = 'pa
   const [editingCriterionId, setEditingCriterionId] = useState<string | null>(null);
   const [editingCriterionText, setEditingCriterionText] = useState('');
   const [deleteCriterionTarget, setDeleteCriterionTarget] = useState<string | null>(null);
+  // Acceptance criteria are mostly for the dev agent: folded away, and not shown
+  // at all on a person's task without any, unless asked for from the menu.
+  const [criteriaOpen, setCriteriaOpen] = useState(false);
+  const [criteriaWanted, setCriteriaWanted] = useState<string | null>(null);
+  const source = useTaskSource(task);
+
+  // Opening a task: it is no longer new to this member.
+  const openedTaskId = task?.id;
+  useEffect(() => {
+    if (openedTaskId) markTaskSeen(openedTaskId);
+    // markTaskSeen is a fresh closure each render; the task id is what matters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openedTaskId]);
+
+  // "Add acceptance criteria" from the task menu (which may sit outside this panel).
+  useEffect(() => {
+    const onWanted = (event: Event) => {
+      const id = (event as CustomEvent<string>).detail;
+      if (id === openedTaskId) {
+        setCriteriaWanted(id);
+        setCriteriaOpen(true);
+      }
+    };
+    window.addEventListener(ADD_CRITERIA_EVENT, onWanted);
+    return () => window.removeEventListener(ADD_CRITERIA_EVENT, onWanted);
+  }, [openedTaskId]);
 
   const sourceEmails = useTaskSourceEmails(task?.id ?? null);
   // Known from the board's counts, so the section is there from the first frame.
@@ -312,6 +351,8 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete, variant = 'pa
     .map((id) => tasks.find((t) => t.id === id))
     .filter((t): t is Task => !!t);
   const openBlockers = blockers.filter((b) => b.status !== 'done');
+
+  const showCriteria = task.acceptance_criteria.length > 0 || criteriaHasRole(task) || criteriaWanted === task.id;
 
   const dueOverdue = !!task.due_date && isDateOverdue(task.due_date) && task.status !== 'done';
   const createdDate = new Date(task.created_at).toLocaleDateString('en-US', {
@@ -476,7 +517,10 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete, variant = 'pa
       </DetailRow>
 
       <DetailRow icon={Clock} label="Created">
-        <span className="text-zinc-300">{createdDate}</span>
+        <div className="min-w-0">
+          <span className="text-zinc-300">{createdDate}</span>
+          <TaskSourceLine source={source} />
+        </div>
       </DetailRow>
 
       {/* AI ready. On = ai_ready (the dev agent may pick it up), off = no
@@ -564,12 +608,19 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete, variant = 'pa
         </Section>
       )}
 
+      {showCriteria && (
       <Section
         variant={variant}
         title="Acceptance criteria"
         icon={ListChecks}
-        count={task.acceptance_criteria.length > 0 ? `${satisfiedCriteria}/${task.acceptance_criteria.length}` : undefined}
+        count={task.acceptance_criteria.length > 0 ? `${satisfiedCriteria} of ${task.acceptance_criteria.length} met` : undefined}
+        action={
+          <CardAction onClick={() => setCriteriaOpen((open) => !open)} aria-expanded={criteriaOpen}>
+            {criteriaOpen ? 'Hide' : 'Show'}
+          </CardAction>
+        }
       >
+        {criteriaOpen && (<>
         {task.acceptance_criteria.length === 0 && !canEdit && <p className="text-sm text-zinc-500">None yet.</p>}
         <ul className="space-y-0.5">
           {task.acceptance_criteria.map((criterion) => (
@@ -656,7 +707,9 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete, variant = 'pa
         {canEdit && (
           <InlineAdd label="Add criterion" placeholder="What has to be true when it is done" onAdd={(text) => addCriterion(task.id, text)} />
         )}
+        </>)}
       </Section>
+      )}
 
       <Section
         variant={variant}

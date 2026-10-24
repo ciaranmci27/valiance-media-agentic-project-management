@@ -465,6 +465,8 @@ export interface FilterState {
   assigneeIds: string[];
   tags: string[];
   search: string;
+  /** Only tasks new to the viewer (made by someone or something else, not opened yet). */
+  unseen?: boolean;
 }
 
 export type ViewMode = 'list' | 'board' | 'calendar';

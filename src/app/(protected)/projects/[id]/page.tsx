@@ -68,7 +68,7 @@ export default function ProjectDetailPage() {
   const {
     getProject, getTasksByProject,
     team,
-    deleteTask, deleteProject, updateTask, reorderTasks, filters, setFilters,
+    deleteTask, deleteProject, updateTask, reorderTasks, filters, setFilters, isTaskUnseen,
     tasks, loading, timeEntries,
   } = useApp();
 
@@ -186,6 +186,9 @@ export default function ProjectDetailPage() {
 
   // Filtered tasks for the views
   let projectTasks = [...allProjectTasks];
+  if (filters.unseen) {
+    projectTasks = projectTasks.filter(isTaskUnseen);
+  }
   if (filters.status.length > 0) {
     projectTasks = projectTasks.filter(t => filters.status.includes(t.status));
   }

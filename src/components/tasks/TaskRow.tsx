@@ -9,6 +9,7 @@ import { Calendar, CheckSquare, Mail, MessageSquare, MoreVertical, Edit, Trash2,
 import { useState, useRef } from 'react';
 import { Popover } from '@/components/ui/Popover';
 import { useTaskEmailCount } from '@/components/inbox/TaskSourceEmails';
+import { UnseenDot } from './TaskSource';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { parseDateOnly, isDateOverdue } from '@/lib/date-utils';
 import { hasPermission, canEditTask, canManageAllTasks } from '@/lib/access-control';
@@ -53,7 +54,7 @@ interface TaskRowProps {
 }
 
 export function TaskRow({ task, onView, onEdit, onDelete }: TaskRowProps) {
-  const { team, tasks, getProject } = useApp();
+  const { team, tasks, getProject, isTaskUnseen } = useApp();
   const { teamMemberId, access } = useAuth();
   const [showMenu, setShowMenu] = useState(false);
   const emailCount = useTaskEmailCount(task.id);
@@ -100,7 +101,10 @@ export function TaskRow({ task, onView, onEdit, onDelete }: TaskRowProps) {
         {/* Main content */}
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-2">
-            <h3 className="font-medium text-white text-sm leading-tight">{task.title}</h3>
+            <h3 className="font-medium text-white text-sm leading-tight">
+              {isTaskUnseen(task) && <span className="mr-1.5 inline-flex align-middle"><UnseenDot task={task} /></span>}
+              {task.title}
+            </h3>
             {(canEdit || canDelete) && <button
               ref={menuBtnRef}
               onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }}
@@ -225,7 +229,7 @@ export function TaskRow({ task, onView, onEdit, onDelete }: TaskRowProps) {
 /* Desktop table row view. Every cell below maps 1:1, in order, onto
    LIST_GRID_COLS; add or remove a column there and here together. */
 export function TaskRowDesktop({ task, onView, onEdit, onDelete, selected, onToggleSelect }: TaskRowProps) {
-  const { team, tasks, getProject } = useApp();
+  const { team, tasks, getProject, isTaskUnseen } = useApp();
   const { teamMemberId, access } = useAuth();
   const [showMenu, setShowMenu] = useState(false);
   const emailCount = useTaskEmailCount(task.id);
@@ -294,9 +298,10 @@ export function TaskRowDesktop({ task, onView, onEdit, onDelete, selected, onTog
           <button
             type="button"
             onClick={(e) => { e.stopPropagation(); onView?.(task); }}
-            className="block max-w-full truncate font-medium text-white text-sm text-left hover:text-brand-300 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-500 rounded"
+            className="flex max-w-full items-center gap-1.5 font-medium text-white text-sm text-left hover:text-brand-300 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-500 rounded"
           >
-            {task.title}
+            {isTaskUnseen(task) && <UnseenDot task={task} />}
+            <span className="truncate">{task.title}</span>
           </button>
         </h3>
         {isBlocked && (
