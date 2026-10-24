@@ -183,7 +183,15 @@ create table public.tasks (
   -- Trash: when it was deleted and by whom (null = live). Rows are never
   -- removed; see the Soft delete section.
   deleted_at timestamptz,
-  deleted_by uuid references public.team_members(id) on delete set null
+  deleted_by uuid references public.team_members(id) on delete set null,
+  -- Where it came from, stamped on insert and never changed (see Task source
+  -- and seen): app, api, mcp, system, or unknown for tasks from before.
+  created_via text not null default 'unknown',
+  -- references api_keys, added with the Task source section (api_keys is defined later)
+  created_by_key_id uuid,
+  created_note text,
+  constraint tasks_created_via_check check (created_via in ('app', 'api', 'mcp', 'system', 'unknown')),
+  constraint tasks_created_note_length check (created_note is null or length(created_note) between 1 and 200)
 );
 
 -- ============================================================
@@ -7716,75 +7724,6 @@ AS $$
   )
 $$;
 
--- The newest unsummarized triage per message, oldest message first, with
--- what the batched summary needs (no bodies).
-CREATE OR REPLACE FUNCTION public.email_unsummarized_triage(p_inbox_ids jsonb, p_limit integer DEFAULT 200)
-RETURNS jsonb
-LANGUAGE sql
-STABLE
-SECURITY DEFINER
-SET search_path = public
-AS $$
-  WITH inboxes AS (SELECT (value)::uuid AS id FROM jsonb_array_elements_text(COALESCE(p_inbox_ids, '[]'::jsonb))),
-  latest AS (
-    SELECT DISTINCT ON (t.message_id) t.*
-    FROM public.email_triage t
-    JOIN public.email_messages m ON m.id = t.message_id
-    WHERE m.inbox_id IN (SELECT id FROM inboxes)
-      AND EXISTS (SELECT 1 FROM public.email_triage u WHERE u.message_id = t.message_id AND u.summarized_at IS NULL)
-    ORDER BY t.message_id, t.created_at DESC, t.id DESC
-  )
-  SELECT COALESCE(jsonb_agg(item ORDER BY (item->>'created_at')), '[]'::jsonb)
-  FROM (
-    SELECT jsonb_build_object(
-      'triage_id', l.id,
-      'created_at', l.created_at,
-      'outcome', l.outcome,
-      'urgent', l.urgent,
-      'summary', l.summary,
-      'question_for_human', l.question_for_human,
-      'has_suggested_reply', l.suggested_reply IS NOT NULL,
-      'project_id', l.project_id,
-      'superseded_triage_ids', COALESCE((
-        SELECT jsonb_agg(o.id) FROM public.email_triage o
-        WHERE o.message_id = l.message_id AND o.id <> l.id AND o.summarized_at IS NULL
-      ), '[]'::jsonb),
-      'message', jsonb_build_object(
-        'id', m.id, 'inbox_id', m.inbox_id, 'thread_id', m.thread_id, 'status', m.status,
-        'subject', m.subject, 'received_at', m.received_at,
-        'kind', m.kind, 'topic', m.topic, 'sort_action', m.sort_action,
-        'from', (SELECT jsonb_build_object('address', r.address, 'name', r.name)
-                 FROM public.email_message_recipients r WHERE r.message_id = m.id AND r.kind = 'from'),
-        'routing_basis', m.routing_basis,
-        'forwarded_by', CASE WHEN m.routing_basis <> 'sender' AND m.forwarded_by_member_id IS NOT NULL THEN jsonb_build_object(
-          'member_id', m.forwarded_by_member_id,
-          'name', (SELECT tm.name FROM public.team_members tm WHERE tm.id = m.forwarded_by_member_id)) END,
-        'original_sender', CASE WHEN m.routing_basis = 'forwarded_original' THEN jsonb_build_object(
-          'address', m.original_from_address, 'name', COALESCE(m.original_from_name, '')) END
-      ),
-      'project', CASE WHEN th.project_id IS NULL THEN NULL ELSE jsonb_build_object(
-        'id', th.project_id, 'name', p.name, 'source', th.project_source) END,
-      'thread_summary', th.summary,
-      'links', COALESCE((
-        SELECT jsonb_agg(jsonb_build_object('task_id', k.task_id, 'relation', k.relation, 'title', tk.title, 'status', tk.status) ORDER BY k.created_at)
-        FROM public.email_task_links k JOIN public.tasks tk ON tk.id = k.task_id
-        WHERE k.message_id = m.id AND tk.deleted_at IS NULL
-      ), '[]'::jsonb),
-      'reminders', COALESCE((
-        SELECT jsonb_agg(jsonb_build_object('id', rm.id, 'title', rm.title, 'remind_on', rm.remind_on, 'task_id', rm.task_id) ORDER BY rm.created_at)
-        FROM public.reminders rm
-        WHERE rm.source_message_id = m.id AND rm.deleted_at IS NULL AND rm.status = 'open'
-      ), '[]'::jsonb)
-    ) AS item
-    FROM latest l
-    JOIN public.email_messages m ON m.id = l.message_id
-    LEFT JOIN public.email_threads th ON th.id = m.thread_id
-    LEFT JOIN public.projects p ON p.id = th.project_id
-    ORDER BY l.created_at
-    LIMIT GREATEST(1, LEAST(COALESCE(p_limit, 200), 500))
-  ) items
-$$;
-
 -- Marks triage rows as summarized, with any older unsummarized triage of the
 -- same messages (superseded, latest wins). All or nothing: an id outside
 -- p_inbox_ids marks nothing and comes back in `missing`.
@@ -7830,14 +7769,12 @@ REVOKE ALL ON FUNCTION public.email_complete_message(uuid, jsonb) FROM PUBLIC, a
 REVOKE ALL ON FUNCTION public.email_files_failed(uuid, jsonb, boolean, integer, integer) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.email_record_triage(uuid, uuid, jsonb, jsonb, uuid, text, text, text) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.email_signal(jsonb) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.email_unsummarized_triage(jsonb, integer) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.email_mark_triage_summarized(jsonb, jsonb) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.email_start_message(uuid, jsonb, jsonb, jsonb, bigint) TO service_role;
 GRANT EXECUTE ON FUNCTION public.email_complete_message(uuid, jsonb) TO service_role;
 GRANT EXECUTE ON FUNCTION public.email_files_failed(uuid, jsonb, boolean, integer, integer) TO service_role;
 GRANT EXECUTE ON FUNCTION public.email_record_triage(uuid, uuid, jsonb, jsonb, uuid, text, text, text) TO service_role;
 GRANT EXECUTE ON FUNCTION public.email_signal(jsonb) TO service_role;
-GRANT EXECUTE ON FUNCTION public.email_unsummarized_triage(jsonb, integer) TO service_role;
 GRANT EXECUTE ON FUNCTION public.email_mark_triage_summarized(jsonb, jsonb) TO service_role;
 REVOKE ALL ON FUNCTION public.sync_contact_email_mirror(uuid) FROM PUBLIC, anon, authenticated;
 
@@ -9817,6 +9754,78 @@ CREATE TABLE IF NOT EXISTS public.reminders (
   deleted_by uuid references public.team_members(id) on delete set null
 );
 CREATE INDEX IF NOT EXISTS idx_reminders_source_message ON public.reminders (source_message_id) WHERE source_message_id IS NOT NULL;
+
+-- Defined after reminders, which it reads (the reminders an email set).
+-- The newest unsummarized triage per message, oldest message first, with
+-- what the batched summary needs (no bodies).
+CREATE OR REPLACE FUNCTION public.email_unsummarized_triage(p_inbox_ids jsonb, p_limit integer DEFAULT 200)
+RETURNS jsonb
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  WITH inboxes AS (SELECT (value)::uuid AS id FROM jsonb_array_elements_text(COALESCE(p_inbox_ids, '[]'::jsonb))),
+  latest AS (
+    SELECT DISTINCT ON (t.message_id) t.*
+    FROM public.email_triage t
+    JOIN public.email_messages m ON m.id = t.message_id
+    WHERE m.inbox_id IN (SELECT id FROM inboxes)
+      AND EXISTS (SELECT 1 FROM public.email_triage u WHERE u.message_id = t.message_id AND u.summarized_at IS NULL)
+    ORDER BY t.message_id, t.created_at DESC, t.id DESC
+  )
+  SELECT COALESCE(jsonb_agg(item ORDER BY (item->>'created_at')), '[]'::jsonb)
+  FROM (
+    SELECT jsonb_build_object(
+      'triage_id', l.id,
+      'created_at', l.created_at,
+      'outcome', l.outcome,
+      'urgent', l.urgent,
+      'summary', l.summary,
+      'question_for_human', l.question_for_human,
+      'has_suggested_reply', l.suggested_reply IS NOT NULL,
+      'project_id', l.project_id,
+      'superseded_triage_ids', COALESCE((
+        SELECT jsonb_agg(o.id) FROM public.email_triage o
+        WHERE o.message_id = l.message_id AND o.id <> l.id AND o.summarized_at IS NULL
+      ), '[]'::jsonb),
+      'message', jsonb_build_object(
+        'id', m.id, 'inbox_id', m.inbox_id, 'thread_id', m.thread_id, 'status', m.status,
+        'subject', m.subject, 'received_at', m.received_at,
+        'kind', m.kind, 'topic', m.topic, 'sort_action', m.sort_action,
+        'from', (SELECT jsonb_build_object('address', r.address, 'name', r.name)
+                 FROM public.email_message_recipients r WHERE r.message_id = m.id AND r.kind = 'from'),
+        'routing_basis', m.routing_basis,
+        'forwarded_by', CASE WHEN m.routing_basis <> 'sender' AND m.forwarded_by_member_id IS NOT NULL THEN jsonb_build_object(
+          'member_id', m.forwarded_by_member_id,
+          'name', (SELECT tm.name FROM public.team_members tm WHERE tm.id = m.forwarded_by_member_id)) END,
+        'original_sender', CASE WHEN m.routing_basis = 'forwarded_original' THEN jsonb_build_object(
+          'address', m.original_from_address, 'name', COALESCE(m.original_from_name, '')) END
+      ),
+      'project', CASE WHEN th.project_id IS NULL THEN NULL ELSE jsonb_build_object(
+        'id', th.project_id, 'name', p.name, 'source', th.project_source) END,
+      'thread_summary', th.summary,
+      'links', COALESCE((
+        SELECT jsonb_agg(jsonb_build_object('task_id', k.task_id, 'relation', k.relation, 'title', tk.title, 'status', tk.status) ORDER BY k.created_at)
+        FROM public.email_task_links k JOIN public.tasks tk ON tk.id = k.task_id
+        WHERE k.message_id = m.id AND tk.deleted_at IS NULL
+      ), '[]'::jsonb),
+      'reminders', COALESCE((
+        SELECT jsonb_agg(jsonb_build_object('id', rm.id, 'title', rm.title, 'remind_on', rm.remind_on, 'task_id', rm.task_id) ORDER BY rm.created_at)
+        FROM public.reminders rm
+        WHERE rm.source_message_id = m.id AND rm.deleted_at IS NULL AND rm.status = 'open'
+      ), '[]'::jsonb)
+    ) AS item
+    FROM latest l
+    JOIN public.email_messages m ON m.id = l.message_id
+    LEFT JOIN public.email_threads th ON th.id = m.thread_id
+    LEFT JOIN public.projects p ON p.id = th.project_id
+    ORDER BY l.created_at
+    LIMIT GREATEST(1, LEAST(COALESCE(p_limit, 200), 500))
+  ) items
+$$;
+REVOKE ALL ON FUNCTION public.email_unsummarized_triage(jsonb, integer) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.email_unsummarized_triage(jsonb, integer) TO service_role;
 
 CREATE INDEX IF NOT EXISTS idx_reminders_owner_status ON public.reminders (owner_id, status);
 CREATE INDEX IF NOT EXISTS idx_reminders_task ON public.reminders (task_id) WHERE task_id IS NOT NULL;
@@ -12193,3 +12202,110 @@ BEGIN
     EXECUTE format('REVOKE ALL ON FUNCTION public.%I() FROM PUBLIC, anon, authenticated', fn);
   END LOOP;
 END $$;
+
+-- ---------------------------------------------------------------------------
+-- Task source and seen
+-- ---------------------------------------------------------------------------
+-- How each task was made (app, api, mcp, system; unknown before tracking), the
+-- API key behind it, and each member's last look at it. The server names the
+-- key in x-actor-key-id (service role only, like x-actor-member-id).
+ALTER TABLE public.tasks ADD CONSTRAINT tasks_created_by_key_id_fkey
+  FOREIGN KEY (created_by_key_id) REFERENCES public.api_keys(id) ON DELETE SET NULL;
+CREATE INDEX idx_tasks_created_by_key ON public.tasks (created_by_key_id) WHERE created_by_key_id IS NOT NULL;
+
+-- How the current insert was made. Never trusts the row: a caller cannot
+-- claim to be the app or another key by setting the columns itself.
+CREATE OR REPLACE FUNCTION public.stamp_task_source()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_headers json;
+  v_via text;
+  v_key text;
+BEGIN
+  IF TG_OP = 'UPDATE' THEN
+    -- Where a task came from is history: it stays as it was stamped.
+    NEW.created_via := OLD.created_via;
+    NEW.created_by_key_id := OLD.created_by_key_id;
+    NEW.created_note := OLD.created_note;
+    RETURN NEW;
+  END IF;
+
+  NEW.created_by_key_id := NULL;
+  NEW.created_note := nullif(left(btrim(coalesce(NEW.created_note, '')), 200), '');
+  IF auth.uid() IS NOT NULL THEN
+    NEW.created_via := 'app';
+    NEW.created_note := NULL;
+    RETURN NEW;
+  END IF;
+  IF coalesce(auth.role(), '') <> 'service_role' THEN
+    NEW.created_via := 'system';
+    RETURN NEW;
+  END IF;
+
+  BEGIN
+    v_headers := nullif(current_setting('request.headers', true), '')::json;
+  EXCEPTION WHEN others THEN
+    v_headers := NULL;
+  END;
+  v_via := v_headers ->> 'x-actor-via';
+  v_key := v_headers ->> 'x-actor-key-id';
+  NEW.created_via := CASE WHEN v_via IN ('app', 'api', 'mcp') THEN v_via ELSE 'system' END;
+  IF NEW.created_via IN ('api', 'mcp')
+     AND v_key ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+     AND EXISTS (SELECT 1 FROM public.api_keys WHERE id = v_key::uuid) THEN
+    NEW.created_by_key_id := v_key::uuid;
+  END IF;
+  IF NEW.created_via = 'app' THEN
+    NEW.created_note := NULL;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER stamp_task_source
+  BEFORE INSERT OR UPDATE OF created_via, created_by_key_id, created_note ON public.tasks
+  FOR EACH ROW EXECUTE FUNCTION public.stamp_task_source();
+
+REVOKE ALL ON FUNCTION public.stamp_task_source() FROM PUBLIC, anon, authenticated;
+
+-- ---------------------------------------------------------------------------
+-- Seen
+-- ---------------------------------------------------------------------------
+CREATE TABLE public.task_views (
+  task_id uuid NOT NULL REFERENCES public.tasks(id) ON DELETE CASCADE,
+  member_id uuid NOT NULL REFERENCES public.team_members(id) ON DELETE CASCADE,
+  seen_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (task_id, member_id)
+);
+CREATE INDEX idx_task_views_member ON public.task_views (member_id);
+
+ALTER TABLE public.task_views ENABLE ROW LEVEL SECURITY;
+
+-- Each member reads and writes only their own views, and only of tasks they can open.
+CREATE POLICY task_views_select ON public.task_views FOR SELECT TO authenticated
+  USING (member_id = public.current_team_member_id());
+CREATE POLICY task_views_insert ON public.task_views FOR INSERT TO authenticated
+  WITH CHECK (member_id = public.current_team_member_id()
+    AND EXISTS (SELECT 1 FROM public.tasks t WHERE t.id = task_id));
+CREATE POLICY task_views_update ON public.task_views FOR UPDATE TO authenticated
+  USING (member_id = public.current_team_member_id())
+  WITH CHECK (member_id = public.current_team_member_id());
+
+-- Opening a task marks it seen for the signed-in member (once, then the time moves).
+CREATE OR REPLACE FUNCTION public.mark_task_seen(p_task_id uuid)
+RETURNS void
+LANGUAGE sql
+SECURITY INVOKER
+SET search_path = public
+AS $$
+  INSERT INTO public.task_views (task_id, member_id)
+  VALUES (p_task_id, public.current_team_member_id())
+  ON CONFLICT (task_id, member_id) DO UPDATE SET seen_at = now();
+$$;
+
+REVOKE ALL ON FUNCTION public.mark_task_seen(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.mark_task_seen(uuid) TO authenticated;
