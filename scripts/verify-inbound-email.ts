@@ -233,6 +233,35 @@ async function main() {
     check('auto-mail: with the filter off it stays new, reason kept', unfiltered.status === 'new' && unfiltered.auto_mail_reason === 'precedence: bulk', unfiltered);
     await db.query('UPDATE email_inboxes SET filter_auto_mail = true WHERE id=$1', [ids.inboxA]);
 
+    // ---- Sorting, sender rules, alert series ------------------------------
+    const [newsletter] = await messageBy('newsletter-6@acme-supplies.example');
+    check('sorting: a newsletter is recorded as marketing, filtered, with a reason',
+      newsletter.kind === 'marketing' && newsletter.topic === 'promotion' && newsletter.sort_action === 'ignore' && newsletter.sort_reason === 'Filtered: a promotion.', newsletter);
+    const [personMail] = await messageBy('BN8PR11MB1234outlook@BN8PR11MB1234.namprd11.prod.outlook.example');
+    check('sorting: a client email is a person, triaged', personMail.kind === 'person' && personMail.topic === null && personMail.sort_action === 'triage', personMail);
+    const alert = (pct: string) => ({ SUBJECT_PCT: pct, ID_PCT: pct, BODY_PCT: pct });
+    await add('usage-alert.eml', 're_usage_50', {}, alert('50'));
+    await deliver('re_usage_50');
+    const [usage50] = await messageBy('usage-50@tool.example');
+    check('sorting: a usage alert is filtered by default', usage50.status === 'ignored' && usage50.kind === 'notification' && usage50.topic === 'usage', usage50);
+    const [rule] = await rows(db, "INSERT INTO email_sender_rules (match_kind, match_value, topic, action, source, reason) VALUES ('domain', 'tool.example', 'usage', 'always', 'person', 'Plan limits matter here') RETURNING id");
+    await add('usage-alert.eml', 're_usage_75', {}, alert('75'));
+    await deliver('re_usage_75');
+    const [usage75] = await messageBy('usage-75@tool.example');
+    check('rules: a topic rule triages what the default filters, and records the rule',
+      usage75.status === 'new' && usage75.sort_action === 'always' && usage75.sender_rule_id === rule.id, usage75);
+    await add('usage-alert.eml', 're_usage_90', {}, alert('90'));
+    await deliver('re_usage_90');
+    const [usage90] = await messageBy('usage-90@tool.example');
+    const [usage75After] = await messageBy('usage-75@tool.example');
+    const [usage50After] = await messageBy('usage-50@tool.example');
+    check('alerts: the newer alert closes the open one it replaces',
+      usage90.status === 'new' && usage75After.status === 'handled' && usage75After.superseded_by === usage90.id, { usage75After, usage90 });
+    check('alerts: a filtered alert is left as it was', usage50After.status === 'ignored' && usage50After.superseded_by === null, usage50After);
+    const [ruleAfter] = await rows(db, 'SELECT hit_count, last_hit_at FROM email_sender_rules WHERE id=$1', [rule.id]);
+    check('rules: each email a rule sorts counts as a hit', ruleAfter.hit_count === 2 && !!ruleAfter.last_hit_at, ruleAfter);
+    await db.query('UPDATE email_sender_rules SET disabled_at = now() WHERE id=$1', [rule.id]);
+
     await add('many-attachments.eml', 're_many');
     await deliver('re_many');
     const [many] = await messageBy('attach-8@acme-roofing.example');
@@ -365,7 +394,8 @@ async function main() {
     const listedReply = listed.body.data.find((m: Payload) => m.id === reply.id);
     check('list: sender, trust and candidates', listedReply.from.address === 'dana@acme-roofing.example' && listedReply.trust === 'trusted' && listedReply.candidate_project_ids.length === 2, listedReply);
     const byStatus = await api(list.GET, 'GET', '/api/v1/inbound-emails?status=ignored', keys.ashley);
-    check('list: status filter', byStatus.body.data.length === 3 && byStatus.body.data.every((m: Payload) => m.status === 'ignored'));
+    const ignoredInA = (await rows(db, "SELECT count(*)::int AS n FROM email_messages WHERE status = 'ignored' AND inbox_id = $1", [ids.inboxA]))[0].n;
+    check('list: status filter', byStatus.body.data.length === ignoredInA && ignoredInA >= 3 && byStatus.body.data.every((m: Payload) => m.status === 'ignored'), { listed: byStatus.body.data.length, ignoredInA });
     const byProject = await api(list.GET, 'GET', `/api/v1/inbound-emails?project_id=${ids.birch}`, keys.ashley);
     check('list: project filter goes through the thread', byProject.body.data.length >= 1 && byProject.body.data.every((m: Payload) => m.project?.id === ids.birch), byProject.body.data.length);
     const otherInbox = await api(list.GET, 'GET', `/api/v1/inbound-emails?inbox_id=${ids.inboxB}`, keys.ashley);
@@ -486,6 +516,11 @@ async function main() {
     check('mark-summarized: another inbox\'s triage marks nothing (404)', jeffMark.status === 404 && (await rows(db, 'SELECT 1 FROM email_triage WHERE summarized_at IS NOT NULL')).length === 0, jeffMark.body);
     const marked = await api(markSummarized.POST, 'POST', '/api/v1/inbound-emails/triage/mark-summarized', keys.ashley, {}, { triage_ids: pendingSummary.map((i) => i.triage_id) });
     check('mark-summarized: marks the listed and the superseded triage', marked.status === 200 && marked.body.data.marked === 5, marked.body);
+    await db.query(`UPDATE email_messages SET auth = auth || '{"trust":"untrusted"}'::jsonb WHERE id=$1`, [usage90.id]);
+    const quietAlert = await triageOf(usage90.id, { outcome: 'no_action', urgent: false, summary: 'Usage alert at 90%' });
+    check('triage: an untrusted notification left alone settles as handled', quietAlert.status === 201 && quietAlert.body.data.status === 'handled', quietAlert.body);
+    // Out of the summary counts the next checks make.
+    await db.query('UPDATE email_triage SET summarized_at = now() WHERE message_id=$1', [usage90.id]);
     const sig2 = (await api(signal.GET, 'GET', '/api/v1/inbound-emails/signal', keys.ashley)).body.data;
     check('signal: nothing left to summarize', sig2.unsummarized_count === 0 && (await api(unsummarized.GET, 'GET', '/api/v1/inbound-emails/triage/unsummarized', keys.ashley)).body.data.length === 0, sig2);
     const sigB = (await api(signal.GET, 'GET', `/api/v1/inbound-emails/signal?inbox_id=${ids.inboxB}`, keys.jeff)).body.data;
@@ -700,7 +735,7 @@ async function main() {
     check('inbox ui: search matches the project name and sender', searched.threads.some((t) => t.id === outlook.thread_id) && searched.total < ownerList.total, searched.threads.map((t) => t.subject));
     const birchOnly = await inbox.listThreads(owner, { ...allThreads, projectId: ids.birch });
     check('inbox ui: project filter', birchOnly.total >= 1 && birchOnly.threads.every((t) => t.project?.id === ids.birch));
-    check('inbox ui: the sidebar count is threads waiting on a person', (await inbox.attentionCount(owner)) === ownerList.threads.filter((t) => t.needs_you || t.needs_reply).length);
+    check('inbox ui: the sidebar count is threads waiting on a person', (await inbox.attentionCount(owner)).total === ownerList.threads.filter((t) => t.needs_you || t.needs_reply).length);
 
     check('inbox ui: a reader with no inbox grant sees nothing and cannot open a thread',
       (await inbox.listThreads(reader, allThreads)).total === 0 && (await failsWith(() => inbox.threadDetail(reader, orig.thread_id))) === 404);
@@ -1454,6 +1489,129 @@ async function main() {
       [400, 422].includes(oldOutcome.status) && [400, 422].includes(oldQuestion.status) && oldFilter.status === 400 && oldFunction,
       [oldOutcome.status, oldQuestion.status, oldFilter.status, oldFunction]);
 
+    // ---- Sender rules from the Inbox and from the agent -------------------
+    {
+      const rules = await import('../src/lib/inbound-email/inbox-rules');
+      const agentRules = await import('../src/app/api/v1/inbound-emails/sender-rules/route');
+      const sendersRoute = await import('../src/app/api/v1/inbound-emails/senders/route');
+      await db.query("UPDATE email_messages SET status = 'new' WHERE id = $1", [usage90.id]);
+      const made = await rules.createSenderRule(owner, {
+        match_kind: 'address', match_value: ' No-Reply@Tool.example ', topic: null, action: 'ignore', reason: '', thread_id: usage90.thread_id,
+      });
+      const [filteredNow] = await messageBy('usage-90@tool.example');
+      check('rules: a person filters a sender from a thread, and its open mail there is filtered now',
+        made.rule.match_value === 'no-reply@tool.example' && made.rule.source === 'person' && made.filtered === 1
+        && filteredNow.status === 'ignored' && filteredNow.sender_rule_id === made.rule.id && made.rule.label === 'Mail from no-reply@tool.example', [made, filteredNow.status]);
+      check('rules: a whole public email domain is refused (422)',
+        (await failsWith(() => rules.createSenderRule(owner, { match_kind: 'domain', match_value: 'gmail.com', topic: null, action: 'ignore', reason: '', thread_id: null }))) === 422);
+      check('rules: a reader cannot make rules (403)',
+        (await failsWith(() => rules.createSenderRule(reader, { match_kind: 'domain', match_value: 'tool.example', topic: null, action: 'ignore', reason: '', thread_id: null }))) === 403);
+      const again = await rules.createSenderRule(owner, { match_kind: 'address', match_value: 'no-reply@tool.example', topic: null, action: 'fyi', reason: '', thread_id: null });
+      const listed = await rules.listSenderRules(owner);
+      const previous = listed.rules.find((rule) => rule.id === made.rule.id);
+      check('rules: a new rule for the same sender switches the old one off; live rules list first',
+        !!previous?.disabled_at && listed.rules[0].id === again.rule.id && again.rule.created_by_name !== null, listed.rules.map((rule) => [rule.label, rule.action, !!rule.disabled_at]));
+      check('rules: switching back on a rule that has a live replacement is refused (409)',
+        (await failsWith(() => rules.updateSenderRule(owner, made.rule.id, { enabled: true }))) === 409);
+      const off = await rules.updateSenderRule(owner, again.rule.id, { enabled: false });
+      check('rules: a rule is switched off, never deleted', !!off.rule.disabled_at && (await rows(db, 'SELECT 1 FROM email_sender_rules WHERE id=$1', [again.rule.id])).length === 1);
+
+      const agentMade = await api(agentRules.POST, 'POST', '/api/v1/inbound-emails/sender-rules', keys.ashley, {}, {
+        match_kind: 'domain', match_value: 'tool.example', topic: 'usage', action: 'ignore', reason: 'Four usage alerts this month, none acted on.',
+      });
+      check('rules api: the agent makes a rule from a pattern, with its reason', agentMade.status === 201 && agentMade.body.data.rule.source === 'agent'
+        && agentMade.body.data.rule.label === 'Usage alerts from tool.example', agentMade.body);
+      const noReason = await api(agentRules.POST, 'POST', '/api/v1/inbound-emails/sender-rules', keys.ashley, {}, {
+        match_kind: 'domain', match_value: 'tool.example', topic: 'usage', action: 'ignore', reason: 'eh',
+      });
+      check('rules api: a rule without a real reason is refused (422)', noReason.status === 422, noReason.body);
+      await rules.createSenderRule(owner, { match_kind: 'domain', match_value: 'okendo.example', topic: 'usage', action: 'always', reason: '', thread_id: null });
+      const overPerson = await api(agentRules.POST, 'POST', '/api/v1/inbound-emails/sender-rules', keys.ashley, {}, {
+        match_kind: 'domain', match_value: 'okendo.example', topic: 'usage', action: 'ignore', reason: 'Usage alerts are never acted on.',
+      });
+      check("rules api: the agent never replaces a person's rule (409 person_rule)", overPerson.status === 409 && overPerson.body.error?.details?.reason === 'person_rule', overPerson.body);
+      const listedApi = await api(agentRules.GET, 'GET', '/api/v1/inbound-emails/sender-rules', keys.ashley);
+      check('rules api: the agent lists live rules only', listedApi.status === 200 && listedApi.body.data.every((rule: Payload) => !rule.disabled_at)
+        && listedApi.body.data.some((rule: Payload) => rule.label === 'Usage alerts from tool.example'), listedApi.body);
+      const patterns = await api(sendersRoute.GET, 'GET', '/api/v1/inbound-emails/senders?days=90', keys.ashley);
+      const tool = (patterns.body.data?.senders ?? []).find((sender: Payload) => sender.address === 'no-reply@tool.example');
+      check('senders api: per-sender counts, topics, actions and the rules that cover them',
+        patterns.status === 200 && tool?.count === 3 && tool.topics.usage === 3 && tool.domain === 'tool.example'
+        && tool.rules.some((rule: Payload) => rule.label === 'Usage alerts from tool.example'), tool ?? patterns.body);
+    }
+
+    // ---- Relations: related links, thread summary, people's links, reminders
+    {
+      const links = await import('../src/lib/inbound-email/inbox-links');
+      const [acmeTask] = await rows(db, "INSERT INTO tasks (title, project_id, status) VALUES ('Footer copy', $1, 'done') RETURNING id", [ids.acme]);
+      const related = await triageOf(reply.id, {
+        outcome: 'no_action', urgent: false, summary: 'Dana thanked us for the finished footer.',
+        links: [{ task_id: acmeTask.id, relation: 'related' }], thread_summary: 'Footer done; Dana is happy with it.',
+      });
+      const relatedDetail = await inbox.threadDetail(owner, reply.thread_id);
+      const relatedLink = relatedDetail.messages.find((m) => m.id === reply.id)?.linked_tasks.find((l) => l.task_id === acmeTask.id);
+      check('triage: a related link to a done task, and the thread summary line', related.status === 201 && relatedLink?.relation === 'related'
+        && relatedLink.by === 'agent' && relatedDetail.summary === 'Footer done; Dana is happy with it.', [related.body, relatedLink, relatedDetail.summary]);
+      const listedSummary = (await inbox.listThreads(owner, allThreads)).threads.find((t) => t.id === reply.thread_id)?.summary;
+      check('inbox ui: the list row carries the thread summary', listedSummary === 'Footer done; Dana is happy with it.', listedSummary);
+
+      const [otherTask] = await rows(db, "INSERT INTO tasks (title, project_id, status) VALUES ('Brand book', $1, 'todo') RETURNING id", [ids.acme]);
+      const personLink = await links.linkThreadTask(owner, reply.thread_id, { task_id: otherTask.id, relation: 'related', message_id: null });
+      const afterLink = await inbox.threadDetail(owner, reply.thread_id);
+      const newest = afterLink.messages[afterLink.messages.length - 1];
+      check("links: a person's link goes on the newest email and reads as theirs", personLink.message_id === newest.id
+        && newest.linked_tasks.some((l) => l.task_id === otherTask.id && l.by === 'person' && l.relation === 'related'), newest.linked_tasks);
+      const [birchTask] = await rows(db, "INSERT INTO tasks (title, project_id, status) VALUES ('Birch site', $1, 'todo') RETURNING id", [ids.birch]);
+      check('links: a task in another project than the thread is refused (422)',
+        (await failsWith(() => links.linkThreadTask(owner, reply.thread_id, { task_id: birchTask.id, relation: 'related', message_id: null }))) === 422);
+      check('links: a reader cannot link (403)',
+        (await failsWith(() => links.linkThreadTask(reader, reply.thread_id, { task_id: otherTask.id, relation: 'related', message_id: null }))) === 403);
+      const byTask = await inbox.listThreads(owner, { ...allThreads, taskId: otherTask.id });
+      check('inbox ui: the inbox for one task lists only its threads', byTask.total === 1 && byTask.threads[0].id === reply.thread_id, byTask.threads.map((t) => t.subject));
+      const sources = await inbox.taskSourceEmails(owner, otherTask.id);
+      check("tasks: a task's communication lists the email, its relation and who linked it",
+        sources.emails.length === 1 && sources.emails[0].relation === 'related' && sources.emails[0].by === 'person', sources);
+      const removed = await links.unlinkThreadTask(owner, reply.thread_id, otherTask.id);
+      check('links: unlinking removes the link and leaves the task', removed.removed === 1
+        && (await inbox.listThreads(owner, { ...allThreads, taskId: otherTask.id })).total === 0
+        && (await rows(db, 'SELECT 1 FROM tasks WHERE id=$1', [otherTask.id])).length === 1, removed);
+
+      await db.query("INSERT INTO reminders (title, remind_on, task_id, project_id, source_message_id) VALUES ('Chase the final banner copy', '2026-11-11', $1, $2, $3)", [acmeTask.id, ids.acme, reply.id]);
+      const withReminder = await inbox.threadDetail(owner, reply.thread_id);
+      const reminders = withReminder.messages.find((m) => m.id === reply.id)?.reminders ?? [];
+      check('inbox ui: a reminder that came from an email shows on that email', reminders.length === 1 && reminders[0].title === 'Chase the final banner copy'
+        && reminders[0].remind_on === '2026-11-11', reminders);
+      // Out of the summary counts any later check makes.
+      await db.query('UPDATE email_triage SET summarized_at = now() WHERE message_id=$1', [reply.id]);
+    }
+
+    // ---- Reply drafts on request -------------------------------------------
+    {
+      const drafts = await import('../src/lib/inbound-email/inbox-drafts');
+      const draftList = await import('../src/app/api/v1/inbound-emails/reply-drafts/route');
+      const draftAnswer = await import('../src/app/api/v1/inbound-emails/reply-drafts/[id]/route');
+      const asked = await drafts.requestReplyDraft(owner, reply.thread_id, { instructions: 'Thank her and confirm Friday.' });
+      const askedAgain = await drafts.requestReplyDraft(owner, reply.thread_id, { instructions: '' });
+      check('drafts: a person asks for a reply draft; asking again while it waits returns the same one',
+        asked.status === 'requested' && askedAgain.id === asked.id && asked.requested_by?.id === ids.owner, [asked, askedAgain.id]);
+      check('drafts: a reader cannot ask (403)', (await failsWith(() => drafts.requestReplyDraft(reader, reply.thread_id, { instructions: '' }))) === 403);
+      const draftSignal = (await api(signal.GET, 'GET', '/api/v1/inbound-emails/signal', keys.ashley)).body.data;
+      check('drafts: the signal tells the dispatcher a draft is waiting', draftSignal.drafts_requested === 1, draftSignal);
+      const waiting = await api(draftList.GET, 'GET', '/api/v1/inbound-emails/reply-drafts', keys.ashley);
+      const item = (waiting.body.data ?? []).find((row: Payload) => row.id === asked.id);
+      check('drafts api: the agent lists waiting requests with the email to answer and the ask',
+        waiting.status === 200 && item?.instructions === 'Thank her and confirm Friday.' && item.message_id && item.requested_by, item ?? waiting.body);
+      const jeffList = await api(draftList.GET, 'GET', '/api/v1/inbound-emails/reply-drafts', keys.jeff);
+      check("drafts api: another inbox's key does not see the request", (jeffList.body.data ?? []).every((row: Payload) => row.id !== asked.id), jeffList.body);
+      const answered = await api(draftAnswer.PUT, 'PUT', `/api/v1/inbound-emails/reply-drafts/${asked.id}`, keys.ashley, { id: asked.id }, { body: 'Hi Dana,\n\nThank you. Friday works.\n\nCiaran' });
+      const twice = await api(draftAnswer.PUT, 'PUT', `/api/v1/inbound-emails/reply-drafts/${asked.id}`, keys.ashley, { id: asked.id }, { body: 'Again' });
+      const both = await api(draftAnswer.PUT, 'PUT', `/api/v1/inbound-emails/reply-drafts/${asked.id}`, keys.ashley, { id: asked.id }, { body: 'x', failure: 'y' });
+      check('drafts api: the agent answers once (409 after), with a body or a failure, never both',
+        answered.status === 200 && answered.body.data.status === 'ready' && twice.status === 409 && [400, 422].includes(both.status), [answered.body, twice.status, both.status]);
+      const shown = await drafts.latestDraft(owner, reply.thread_id);
+      check('drafts: the thread shows the ready draft and who wrote it', shown?.status === 'ready' && !!shown.body?.includes('Friday works') && shown.drafted_by?.id === ids.ashley, shown);
+    }
+
     check('no deletes: no inbound email route exports DELETE', [list, detail, attachmentUrl, attachmentLabel, triage, unsummarized, markSummarized, signal, webhook].every((m) => !('DELETE' in m)));
     await settle();
   } finally {
@@ -1521,7 +1679,7 @@ async function main() {
 
   // The schema.sql snapshot stands on its own.
   const snapshot = await createEmailDatabase('schema');
-  check('schema.sql: the inbound email section loads', (await rows(snapshot, "SELECT count(*)::int AS n FROM pg_tables WHERE tablename LIKE 'email_%' OR tablename = 'contact_emails'"))[0].n === 14);
+  check('schema.sql: the inbound email section loads', (await rows(snapshot, "SELECT count(*)::int AS n FROM pg_tables WHERE tablename LIKE 'email_%' OR tablename = 'contact_emails'"))[0].n === 16);
   check('schema.sql: client sender addresses and the sender reason are in the snapshot',
     (await rows(snapshot, "SELECT 1 FROM pg_policies WHERE tablename = 'email_client_addresses'")).length === 2
     && (await rows(snapshot, "SELECT 1 FROM pg_constraint WHERE conname = 'email_message_candidates_reason_check' AND pg_get_constraintdef(oid) LIKE '%sender%'")).length === 1);

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { Mail } from 'lucide-react';
+import { ArrowUpRight, Mail } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { useDemo } from '@/lib/demo-context';
 import { inboxClient } from '@/lib/inbound-email/inbox-client';
@@ -28,8 +28,19 @@ export function useTaskSourceEmails(taskId: string | null): TaskSourceEmailsData
   return data && data.taskId === taskId ? data.value : null;
 }
 
-/** `heading={false}` when the caller's own section supplies the title. */
-export function TaskSourceEmailsSection({ data, heading = true }: { data: TaskSourceEmailsData | null; heading?: boolean }) {
+const RELATION: Record<TaskSourceEmailsData['emails'][number]['relation'], string> = {
+  created: 'started this task',
+  updated: 'changed this task',
+  related: 'is about this task',
+};
+
+/**
+ * Every email linked to the task, oldest first: who wrote it, when, and how
+ * it bears on the task, with the whole conversation one click away in the
+ * Inbox filtered to this task. `heading={false}` when the caller's own
+ * section supplies the title.
+ */
+export function TaskSourceEmailsSection({ data, taskId, heading = true }: { data: TaskSourceEmailsData | null; taskId?: string | null; heading?: boolean }) {
   if (!data || data.link_count === 0) return null;
   const hidden = data.link_count - data.emails.length;
   return (
@@ -37,7 +48,7 @@ export function TaskSourceEmailsSection({ data, heading = true }: { data: TaskSo
       {heading && (
         <h3 className="flex items-center gap-2 text-sm font-medium text-zinc-300">
           <Mail size={14} aria-hidden="true" />
-          Source emails
+          Communication
         </h3>
       )}
       {data.emails.length > 0 && (
@@ -50,12 +61,21 @@ export function TaskSourceEmailsSection({ data, heading = true }: { data: TaskSo
               >
                 <span className="block truncate text-sm text-zinc-200">{email.subject || '(no subject)'}</span>
                 <span className="mt-0.5 block truncate text-xs text-zinc-400">
-                  {email.from?.name || email.from?.address || 'Unknown sender'}, {formatFullTime(email.received_at)}, {email.relation === 'created' ? 'created this task' : 'updated this task'}
+                  {email.from?.name || email.from?.address || 'Unknown sender'}, {formatFullTime(email.received_at)}, {RELATION[email.relation]}{email.by === 'person' ? ' (linked by a person)' : ''}
                 </span>
               </Link>
             </li>
           ))}
         </ul>
+      )}
+      {taskId && data.emails.length > 0 && (
+        <Link
+          href={`/inbox?task=${taskId}`}
+          className="inline-flex items-center gap-1 rounded text-xs font-medium text-brand-300 hover:text-brand-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+        >
+          Open in the Inbox
+          <ArrowUpRight size={12} aria-hidden="true" />
+        </Link>
       )}
       {hidden > 0 && (
         <p className="text-xs text-zinc-400">

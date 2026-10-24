@@ -1,7 +1,7 @@
 import { normalizeAddress, validateClientSenderAddress } from './addresses';
 import { mergeClientSenders, type ProjectContactAddress } from './mapping';
 import { validateClientDomain } from './public-domains';
-import { matchesSearch, needsAttention, snippetOf, tabCounts, threadFlags, threadInTab, type MessageState } from './inbox-view';
+import { attentionCounts, matchesSearch, snippetOf, tabCounts, threadFlags, threadInTab, type InboxAttention, type MessageState } from './inbox-view';
 import type {
   ClientEmailDomain, ClientSenderAddress, ClientSenderAddressList, InboxMessage, InboxSettings, InboxSettingsInput, InboxSettingsList, InboxSummary, InboxTab,
   InboxThreadDetail, InboxThreadList, InboxThreadSummary, MxStatus, ProjectEmailAddress, ProjectEmailAddressInput,
@@ -53,11 +53,13 @@ function message(partial: Partial<InboxMessage> & Pick<InboxMessage, 'subject' |
     original_sender: null,
     trust: TRUSTED,
     auto_mail_reason: null,
+    sorting: null,
     text_body: partial.new_text,
     html_body: null,
     attachments: [],
     triage: null,
     linked_tasks: [],
+    reminders: [],
     reviewed_at: null,
     reviewed_by: null,
     ...partial,
@@ -74,8 +76,8 @@ const triage = (partial: Omit<InboxMessage['triage'] & object, 'id' | 'member' |
 
 function buildThreads(): InboxThreadDetail[] {
   counter = 0;
-  const thread = (detail: Omit<InboxThreadDetail, 'id' | 'state' | 'urgent' | 'untrusted'>): InboxThreadDetail => ({
-    id: id('9c9c9c9c'), state: 'handled', urgent: false, untrusted: false, ...detail,
+  const thread = (detail: Omit<InboxThreadDetail, 'id' | 'state' | 'urgent' | 'untrusted' | 'summary'> & { summary?: string | null }): InboxThreadDetail => ({
+    id: id('9c9c9c9c'), state: 'handled', urgent: false, untrusted: false, summary: null, ...detail,
   });
   return [
     thread({
@@ -93,8 +95,8 @@ function buildThreads(): InboxThreadDetail[] {
           new_text: 'Hi Scout,\n\nWe need 500 business cards printed for the Chicago conference on April 5. Lisa will send the final names and titles this week.\n\nAlso, on the homepage wireframe, can the "Book a consultation" button sit above the fold on mobile too?\n\nThanks,\nDavid',
           triage: triage({ outcome: 'task', urgent: false, summary: 'Two requests: 500 business cards for the April 5 conference (names to follow from Lisa), and the consultation button above the fold on mobile. Both added to existing tasks.', question_for_human: null, suggested_reply: null, created_at: hoursAgo(29) }),
           linked_tasks: [
-            { task_id: 'e5e5e5e5-0004-4000-8000-000000000004', relation: 'updated', title: 'Business card & letterhead design', status: 'todo', project_id: CREST },
-            { task_id: 'e5e5e5e5-0005-4000-8000-000000000005', relation: 'updated', title: 'Website wireframes', status: 'in_progress', project_id: CREST },
+            { task_id: 'e5e5e5e5-0004-4000-8000-000000000004', relation: 'updated', by: 'agent', title: 'Business card & letterhead design', status: 'todo', project_id: CREST },
+            { task_id: 'e5e5e5e5-0005-4000-8000-000000000005', relation: 'updated', by: 'agent', title: 'Website wireframes', status: 'in_progress', project_id: CREST },
           ],
         }),
         message({
@@ -107,7 +109,7 @@ function buildThreads(): InboxThreadDetail[] {
             { id: '9b9b9b9b-0002-4000-8000-000000000002', filename: 'crest-logo-print.pdf', content_type: 'application/pdf', size_bytes: 1_482_112, kind: 'pdf', available: true, skipped_reason: null, agent_label: 'Print logo, CMYK, 1 page', content_id: null },
           ],
           triage: triage({ outcome: 'task', urgent: false, summary: 'Lisa sent the 14 names and titles, with Jordan Blake now Director of IT. Copied into the business card task.', question_for_human: null, suggested_reply: null, created_at: hoursAgo(4) }),
-          linked_tasks: [{ task_id: 'e5e5e5e5-0004-4000-8000-000000000004', relation: 'updated', title: 'Business card & letterhead design', status: 'todo', project_id: CREST }],
+          linked_tasks: [{ task_id: 'e5e5e5e5-0004-4000-8000-000000000004', relation: 'updated', by: 'agent', title: 'Business card & letterhead design', status: 'todo', project_id: CREST }],
         }),
       ],
     }),
@@ -223,7 +225,7 @@ function buildThreads(): InboxThreadDetail[] {
             { id: '9b9b9b9b-0004-4000-8000-000000000004', filename: 'brand-source.ai', content_type: 'application/postscript', size_bytes: 61_202_000, kind: 'other', available: false, skipped_reason: 'over_size_cap', agent_label: null, content_id: null },
           ],
           triage: triage({ outcome: 'task', urgent: false, summary: 'Jordan sent the final brand palette; the source file was over the size limit and was not stored. Palette added to the guidelines task.', question_for_human: null, suggested_reply: null, created_at: hoursAgo(49) }),
-          linked_tasks: [{ task_id: 'e5e5e5e5-0003-4000-8000-000000000003', relation: 'updated', title: 'Brand guidelines document', status: 'in_progress', project_id: CREST }],
+          linked_tasks: [{ task_id: 'e5e5e5e5-0003-4000-8000-000000000003', relation: 'updated', by: 'agent', title: 'Brand guidelines document', status: 'in_progress', project_id: CREST }],
           reviewed_at: hoursAgo(48),
           reviewed_by: SARAH,
         }),
@@ -359,6 +361,7 @@ function summary(detail: InboxThreadDetail): InboxThreadSummary {
     attachment_count: detail.messages.reduce((total, m) => total + m.attachments.length, 0),
     task_count: new Set(detail.messages.flatMap((m) => m.linked_tasks.map((task) => task.task_id))).size,
     reminder_count: 0,
+    summary: detail.summary,
   };
 }
 
@@ -442,8 +445,8 @@ export const demoInbox = {
     return { message_id: target.id };
   },
 
-  async attentionCount(): Promise<number> {
-    return store().filter((t) => needsAttention(threadFlags(t.messages.map(stateOf)))).length;
+  async attentionCount(): Promise<InboxAttention> {
+    return attentionCounts(store().map((t) => threadFlags(t.messages.map(stateOf))));
   },
 
   async taskSources(taskId: string): Promise<TaskSourceEmails> {
@@ -457,6 +460,7 @@ export const demoInbox = {
         from: m.from ? { name: m.from.name, address: m.from.address } : null,
         received_at: m.received_at,
         relation: link.relation,
+        by: link.by,
       }))));
     return { link_count: emails.length, emails };
   },

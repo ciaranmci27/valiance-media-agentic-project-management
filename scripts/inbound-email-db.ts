@@ -16,6 +16,7 @@ export const SPEC_MIGRATION = '../supabase/migrations/20261006113522_spec_is_for
 export const NEEDS_HUMAN_MIGRATION = '../supabase/migrations/20261018161658_email_needs_human.sql';
 export const NEEDS_HUMAN_CLEANUP_MIGRATION = '../supabase/migrations/20261018164310_email_needs_human_cleanup.sql';
 export const PROJECT_SOURCE_PERSON_MIGRATION = '../supabase/migrations/20261018165051_email_project_source_person.sql';
+export const SORTING_MIGRATION = '../supabase/migrations/20261023194940_inbox_sorting_and_relations.sql';
 const TASK_SAVE_MIGRATION = '../supabase/migrations/20260923235152_atomic_task_save.sql';
 
 async function read(path: string) {
@@ -93,8 +94,9 @@ export async function createEmailDatabase(
   await db.exec(`
     ALTER TABLE public.tasks ADD COLUMN project_goal_id uuid, ADD COLUMN source_task_suggestion_id uuid, ADD COLUMN task_type text;
     -- Only what the Inbox list reads: open reminders on a thread's tasks.
-    CREATE TABLE public.reminders (id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-      task_id uuid REFERENCES public.tasks(id) ON DELETE CASCADE, status text NOT NULL DEFAULT 'open', deleted_at timestamptz);
+    CREATE TABLE public.reminders (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), title text NOT NULL DEFAULT '', remind_on date, project_id uuid,
+      task_id uuid REFERENCES public.tasks(id) ON DELETE CASCADE, status text NOT NULL DEFAULT 'open', source_message_id uuid,
+      created_at timestamptz NOT NULL DEFAULT now(), deleted_at timestamptz);
   `);
   await db.exec(table(agentSchema, 'agent_activities').replace('CREATE TABLE', 'create table'));
   const roleTables = canonical.match(/CREATE TABLE public\.role_permissions \([\s\S]*?\n\);\n\nCREATE TABLE public\.team_member_permissions \([\s\S]*?\n\);/)?.[0];
@@ -116,7 +118,7 @@ export async function createEmailDatabase(
     await db.exec(spec);
     await db.exec(spec); // safe to re-run
     if (!stopBeforeNeedsHuman) {
-      for (const path of [NEEDS_HUMAN_MIGRATION, NEEDS_HUMAN_CLEANUP_MIGRATION, PROJECT_SOURCE_PERSON_MIGRATION]) {
+      for (const path of [NEEDS_HUMAN_MIGRATION, NEEDS_HUMAN_CLEANUP_MIGRATION, PROJECT_SOURCE_PERSON_MIGRATION, SORTING_MIGRATION]) {
         const sql = await read(path);
         await db.exec(sql);
         await db.exec(sql); // safe to re-run

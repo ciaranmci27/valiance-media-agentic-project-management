@@ -532,8 +532,8 @@ export function TaskDetailPanel({ task, onClose, onEdit, onDelete, variant = 'pa
       </Section>
 
       {sourceEmails && sourceEmails.link_count > 0 && (
-        <Section variant={variant} title="Source emails" icon={MessageSquare}>
-          <TaskSourceEmailsSection data={sourceEmails} heading={false} />
+        <Section variant={variant} title="Communication" icon={MessageSquare} count={String(sourceEmails.link_count)}>
+          <TaskSourceEmailsSection data={sourceEmails} taskId={task?.id ?? null} heading={false} />
         </Section>
       )}
 

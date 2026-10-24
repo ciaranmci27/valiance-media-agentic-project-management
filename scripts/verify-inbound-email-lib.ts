@@ -14,7 +14,8 @@ import { mergeClientSenders, resolveMapping, threadProjectDecision } from '../sr
 import { detectAutoMail } from '../src/lib/inbound-email/auto-mail';
 import { extractNewText, isForwardedMessage } from '../src/lib/inbound-email/quoted';
 import { htmlToText } from '../src/lib/inbound-email/html-text';
-import { hasQuotedHtml, inlineImageIds, linkParts, normalizeContentId, opensAsHtml, shortUrl } from '../src/lib/inbound-email/display';
+import { compactLinks, hasQuotedHtml, inlineImageIds, linkParts, normalizeContentId, opensAsHtml, shortUrl } from '../src/lib/inbound-email/display';
+import { alertSeriesKey, sortEmail } from '../src/lib/inbound-email/sorting';
 import { evaluateAuth, parseAuthenticationResults } from '../src/lib/inbound-email/auth-results';
 import { organizationalDomain, parseAddressList, normalizeAddress, validateClientSenderAddress } from '../src/lib/inbound-email/addresses';
 import { isPublicEmailDomain, validateClientDomain } from '../src/lib/inbound-email/public-domains';
@@ -27,7 +28,7 @@ import { fromRfc822Head, inlineForwardedSender, isAttachedMessage, parseForwarde
 import { readCapped } from '../src/lib/inbound-email/ingest';
 import { skippedReasonLabel } from '../src/lib/inbound-email/inbox-types';
 import { verifySignatureHeader } from '../src/lib/webhooks/sign';
-import { matchesSearch, needsAttention, snippetOf, tabCounts, threadFlags, threadInTab, type MessageState } from '../src/lib/inbound-email/inbox-view';
+import { attentionCounts, matchesSearch, needsAttention, snippetOf, tabCounts, threadFlags, threadInTab, type MessageState } from '../src/lib/inbound-email/inbox-view';
 import { FakeResend, readEml, resendFixture } from './inbound-email-fixtures';
 
 let checks = 0;
@@ -140,12 +141,46 @@ async function main() {
   check(htmlToText('<span>A&nbsp;&lt;b&gt; &#8211; &#x41;</span><br>B'), 'A <b> – A\nB', 'entities decode');
   check(extractNewText('> only quoted'), '> only quoted', 'all-quoted text falls back to the full text');
 
+  // Sorting: kind, topic and action, from real mail.
+  const sort = (fromAddress: string, subject: string, text = '', extra: Partial<Parameters<typeof sortEmail>[0]> = {}) => {
+    const result = sortEmail({ fromAddress, subject, text, autoMailReason: null, fromTeam: false, knownPerson: false, filterAutoMail: true, rules: [], ...extra });
+    return [result.action, result.kind, result.topic];
+  };
+  check(sort('no-reply@okendo.io', '❗ Your Okendo Plan Limit is at 90%', "You've reached 90% of the plan limit"), ['ignore', 'notification', 'usage'], 'sort: a usage alert is filtered');
+  check(sort('ads-noreply@google.com', 'Improve your Ad Strength for better results'), ['ignore', 'marketing', 'promotion'], 'sort: a promotion is filtered');
+  check(sort('upwork@t.upwork.com', 'You have received a new proposal', 'Base rate $35 per hour. Log in to view.'), ['fyi', 'notification', 'update'], 'sort: a bulk subdomain is automated; footer prices and log in do not count');
+  check(sort('no-reply@asana.com', '📅 You have 1 overdue task'), ['fyi', 'notification', 'update'], 'sort: an overdue task is not an account problem');
+  check(sort('forwarding-noreply@google.com', 'Forwarding Confirmation - Receive Mail from x'), ['triage', 'notification', 'security'], 'sort: noreply inside the address; a forwarding confirmation is security');
+  check(sort('billing@stripe.com', 'Your payment failed'), ['triage', 'notification', 'account_risk'], 'sort: a failed payment is triaged');
+  check(sort('receipts@vercel.com', 'Your receipt from Vercel #1234'), ['triage', 'notification', 'money'], 'sort: a receipt is triaged');
+  check(sort('gemini-notes@google.com', 'Notes: “Q4 All-Hands Meeting” Oct 23, 2026'), ['triage', 'meeting_notes', null], 'sort: Gemini notes are meeting notes');
+  check(sort('maria@suitupbrands.com', 'Re: Customer Support Update'), ['triage', 'person', null], 'sort: a person is triaged');
+  check(sort('info@smallclient.example', 'Quick question about the site'), ['triage', 'person', null], 'sort: info@ is a person until headers say otherwise');
+  check(sort('news@brand.example', 'Our summer sale', '', { knownPerson: true }), ['triage', 'person', null], 'sort: a known contact is a person whatever the mailbox');
+  check(sort('ciaran@agency.example', 'Notes from today', '', { fromTeam: true }), ['triage', 'team', null], 'sort: a teammate');
+  const rules = [
+    { id: 'r1', match_kind: 'domain' as const, match_value: 'okendo.io', topic: 'usage' as const, action: 'always' as const },
+    { id: 'r2', match_kind: 'domain' as const, match_value: 'upwork.com', topic: null, action: 'ignore' as const },
+    { id: 'r3', match_kind: 'address' as const, match_value: 'no-reply@upwork.com', topic: null, action: 'fyi' as const },
+  ];
+  check(sort('no-reply@okendo.io', 'Plan Limit is at 90%', '', { rules }), ['always', 'notification', 'usage'], 'sort: a topic rule overrides the default');
+  check(sort('upwork@t.upwork.com', 'New proposal', '', { rules }), ['ignore', 'notification', 'update'], 'sort: a domain rule covers subdomains');
+  check(sort('no-reply@upwork.com', 'Shortlist ready', '', { rules }), ['fyi', 'notification', 'update'], 'sort: an exact address beats its domain');
+  check(sortEmail({ fromAddress: 'no-reply@okendo.io', subject: 'Plan Limit is at 90%', text: '', autoMailReason: null, fromTeam: false, knownPerson: false, filterAutoMail: true, rules }).reason,
+    'Always triaged by the rule for a usage alert from okendo.io.', 'sort: the reason names the rule');
+  check(sort('updates@tool.example', 'Your weekly activity', '', { autoMailReason: 'list: list-unsubscribe' }), ['ignore', 'notification', 'update'], 'sort: bulk mail stays filtered');
+  check(sort('billing@tool.example', 'Your payment failed', '', { autoMailReason: 'list: list-unsubscribe' }), ['triage', 'notification', 'account_risk'], 'sort: bulk mail about an account problem gets through');
+  check(sort('no-reply@okendo.io', 'Plan Limit is at 90%', '', { filterAutoMail: false }), ['fyi', 'notification', 'usage'], 'sort: an inbox that keeps bulk mail only filters by rule');
+  check(alertSeriesKey('❗ Your Okendo Plan Limit is at 75%') === alertSeriesKey('❗ Your Okendo Plan Limit is at 90%'), true, 'sort: alerts that differ by a number are one series');
+
   // Display: links cut to their site, which body opens first, inline image ids.
   const tracking = 'https://www.upwork.com/ab/notifications/track?id=9f8e7d6c5b4a39281706f5e4d3c2b1a0&u=1';
   check(linkParts(`View job (${tracking}) now.`), [{ text: 'View job ' }, { url: tracking, label: 'upwork.com' }, { text: ' now.' }], 'display: a wrapped tracking link becomes its site');
   check(linkParts('See https://acme.example/pricing.'), [{ text: 'See ' }, { url: 'https://acme.example/pricing', label: 'acme.example/pricing' }, { text: '.' }], 'display: a short readable path stays, trailing punctuation is text');
   check(linkParts('<https://a.example/x>'), [{ url: 'https://a.example/x', label: 'a.example/x' }], 'display: angle-bracketed link');
   check(linkParts('no links here'), [{ text: 'no links here' }], 'display: plain text is one part');
+  check(compactLinks(`Apply here (${tracking}x${'a'.repeat(40)}) or see https://docs.example/brief.`),
+    'Apply here [upwork.com link] or see https://docs.example/brief.', 'display: the agent copy cuts long links to their site and keeps short ones');
   check(shortUrl('https://go.example/c/AbCdEfGhIjKlMnOpQrStUvWxYz0123456789'), 'go.example', 'display: an opaque token path drops');
   const reply = { html_body: '<p>Yes</p>', text_body: 'Yes\n\nOn Mon, Bob wrote:\n> the whole earlier email, quoted back in full', new_text: 'Yes', is_forward: false };
   check(opensAsHtml(reply), false, 'display: a reply with quoted history opens on the new text');
@@ -216,6 +251,12 @@ async function main() {
   ]);
   check([counts.all, counts.needs_you, counts.new, counts.needs_reply, counts.handled, counts.ignored, counts.unassigned], [3, 1, 1, 1, 0, 1, 1], 'tab counts');
   check(needsAttention(threadFlags([msg({ status: 'new', outcome: null })])), false, 'new mail waits on the agent, not on a person');
+  check(attentionCounts([
+    threadFlags([msg({ status: 'needs_human', outcome: 'needs_human', urgent: true })]),
+    threadFlags([msg({ status: 'needs_human', outcome: 'needs_human' })]),
+    threadFlags([msg({ status: 'handled', outcome: 'needs_reply' })]),
+    threadFlags([msg({ status: 'handled', outcome: 'no_action' })]),
+  ]), { total: 3, urgent: 1, decide: 1, reply: 1 }, 'attention: urgent, a decision, a reply; handled mail waits on nobody');
   check([matchesSearch('acme dana', ['Banner', 'Dana Wu', 'Acme Roofing']), matchesSearch('acme ben', ['Dana', 'Acme'])], [true, false], 'search needs every word');
   check(snippetOf('  Hello\n\nthere  ', 8), 'Hello t…', 'snippet flattens and trims');
   check(snippetOf('[https://cdn.example/logo.png?v=1] https://www.okendo.io Hi Happy Nuts, see (https://t.example/x)'), 'Hi Happy Nuts, see', 'snippet drops links');

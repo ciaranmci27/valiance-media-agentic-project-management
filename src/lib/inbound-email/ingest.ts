@@ -6,6 +6,7 @@ import { ATTACHED_HEAD_BYTES, fromRfc822Head, inlineForwardedSender, isAttachedM
 import { resolveMapping, threadProjectDecision } from './mapping';
 import type { InboundEmail, InboundFile } from './normalized';
 import { prepareEmail, readableBody, type PreparedEmail } from './prepare';
+import { alertSeriesKey, sortEmail, type SenderRule } from './sorting';
 import { chooseThread, referencedIds, THREAD_SUBJECT_WINDOW_DAYS, type SubjectThread } from './threading';
 import { trashedProjectIds } from '@/lib/supabase/trash';
 
@@ -447,7 +448,7 @@ async function finalize(
   prepared: PreparedEmail,
   email: InboundEmail,
 ): Promise<InboxOutcome> {
-  const [{ data: message, error: messageError }, inboxRows, projectAddressRows, memberRows] = await Promise.all([
+  const [{ data: message, error: messageError }, inboxRows, projectAddressRows, memberRows, ruleRows] = await Promise.all([
     supabase.from('email_messages')
       .select('id, subject_normalized, in_reply_to, reference_ids, received_at, auto_mail_reason')
       .eq('id', messageId)
@@ -455,11 +456,13 @@ async function finalize(
     supabase.from('email_inboxes').select('address, routing_address'),
     supabase.from('email_project_addresses').select('routing_address, public_address'),
     supabase.from('team_members').select('id, email, role, status'),
+    supabase.from('email_sender_rules').select('id, match_kind, match_value, topic, action').is('disabled_at', null),
   ]);
   if (messageError) throw messageError;
   if (inboxRows.error) throw inboxRows.error;
   if (projectAddressRows.error) throw projectAddressRows.error;
   if (memberRows.error) throw memberRows.error;
+  if (ruleRows.error) throw ruleRows.error;
 
   // Ours, never clients: every inbox's addresses and every project address.
   const inboxAddresses = new Set([
@@ -595,7 +598,20 @@ async function finalize(
     joinedThread = thread;
   }
 
-  const status = message.auto_mail_reason && inbox.filter_auto_mail ? 'ignored' : 'new';
+  // Sorting: what this is and whether anyone needs to read it. A teammate's
+  // forward is sorted by the person it came from.
+  const sortedAddress = basis === 'forwarded_original' ? original?.address ?? null : fromAddress;
+  const sorted = sortEmail({
+    fromAddress: sortedAddress,
+    subject: prepared.message.subject,
+    text: readableBody(prepared.message.text_body, prepared.message.html_body),
+    autoMailReason: message.auto_mail_reason as string | null,
+    fromTeam: basis === 'team_recipients',
+    knownPerson: senderContactIds.length > 0 || projectIdsOf(senderProjects).length > 0,
+    filterAutoMail: inbox.filter_auto_mail,
+    rules: (ruleRows.data ?? []) as SenderRule[],
+  });
+  const status = sorted.action === 'ignore' ? 'ignored' : 'new';
   const { data: completed, error: completeError } = await supabase.rpc('email_complete_message', {
     p_message_id: messageId,
     p_decision: {
@@ -609,10 +625,51 @@ async function finalize(
       original_from_name: original?.name ?? null,
       candidates: mapping.candidates,
       recipient_contacts: recipientContacts,
+      kind: sorted.kind,
+      topic: sorted.topic,
+      sort_action: sorted.action,
+      sort_reason: sorted.reason,
+      sender_rule_id: sorted.rule_id,
     },
   });
   if (completeError) throw completeError;
   const result = completed as { already_complete: boolean; status: string; thread_id: string };
   if (result.already_complete) return { inbox_id: inbox.id, email_id: messageId, outcome: 'already_complete', status: result.status };
+  if (sorted.kind === 'notification' && sorted.topic && sortedAddress) {
+    try {
+      await supersedeAlerts(supabase, inbox.id, messageId, sortedAddress, sorted.topic, prepared.message.subject, message.received_at as string);
+    } catch (supersedeError) {
+      // The new alert is in; an older one left open is only noise.
+      console.warn(`[inbound-email] could not supersede older alerts for ${messageId}`, supersedeError);
+    }
+  }
   return { inbox_id: inbox.id, email_id: messageId, outcome: 'completed', status: result.status, thread_id: result.thread_id };
+}
+
+const ALERT_SERIES_DAYS = 60;
+
+/**
+ * A newer alert closes the open ones it replaces: same sender, same topic,
+ * a subject that differs only in its numbers ("at 75%", then "at 90%"),
+ * within ALERT_SERIES_DAYS. They become handled and point at the new one.
+ */
+async function supersedeAlerts(
+  supabase: SupabaseClient, inboxId: string, messageId: string, fromAddress: string, topic: string, subject: string, receivedAt: string,
+): Promise<void> {
+  const { data: senderRows, error: senderError } = await supabase.from('email_message_recipients')
+    .select('message_id').eq('kind', 'from').eq('address', fromAddress).neq('message_id', messageId).limit(500);
+  if (senderError) throw senderError;
+  const ids = [...new Set(((senderRows ?? []) as { message_id: string }[]).map((row) => row.message_id))];
+  if (ids.length === 0) return;
+  const since = new Date(Date.parse(receivedAt) - ALERT_SERIES_DAYS * 86_400_000).toISOString();
+  const { data: older, error: olderError } = await supabase.from('email_messages')
+    .select('id, subject').in('id', ids).eq('inbox_id', inboxId).eq('kind', 'notification').eq('topic', topic)
+    .in('status', ['new', 'needs_human']).gte('received_at', since).lt('received_at', receivedAt);
+  if (olderError) throw olderError;
+  const key = alertSeriesKey(subject);
+  const replaced = ((older ?? []) as { id: string; subject: string }[]).filter((row) => alertSeriesKey(row.subject) === key).map((row) => row.id);
+  if (replaced.length === 0) return;
+  const { error } = await supabase.from('email_messages')
+    .update({ status: 'handled', superseded_by: messageId }).in('id', replaced).in('status', ['new', 'needs_human']);
+  if (error) throw error;
 }

@@ -16,7 +16,7 @@ export const INBOX_TAB_LABELS: Record<InboxTab, string> = {
   needs_reply: 'Needs reply',
   new: 'New',
   handled: 'Handled',
-  ignored: 'Ignored',
+  ignored: 'Filtered',
   unassigned: 'Unassigned',
 };
 
@@ -78,6 +78,8 @@ export interface InboxThreadSummary {
   urgent: boolean;
   untrusted: boolean;
   attachment_count: number;
+  /** One line on where the conversation stands, kept by the agent. */
+  summary: string | null;
   /** Live tasks the thread's emails created, updated or relate to. */
   task_count: number;
   /** Open reminders on those tasks. */
@@ -97,6 +99,17 @@ export interface InboxPerson {
   address: string;
   name: string;
   contact_id: string | null;
+}
+
+/** How an email was sorted on arrival (sorting.ts). */
+export interface InboxSorting {
+  kind: 'person' | 'team' | 'meeting_notes' | 'notification' | 'marketing';
+  topic: 'money' | 'account_risk' | 'security' | 'usage' | 'event' | 'newsletter' | 'promotion' | 'update' | null;
+  action: 'ignore' | 'fyi' | 'always' | 'triage' | null;
+  reason: string | null;
+  rule_id: string | null;
+  /** The newer alert that replaced this one. */
+  superseded_by: string | null;
 }
 
 export interface InboxAttachment {
@@ -137,9 +150,14 @@ export interface InboxTriage {
   created_at: string;
 }
 
+export type TaskLinkRelation = 'created' | 'updated' | 'related';
+
 export interface InboxLinkedTask {
   task_id: string;
-  relation: 'created' | 'updated';
+  /** related: about the task, asks for no change. */
+  relation: TaskLinkRelation;
+  /** Who linked it: the agent at triage, or a person in the Inbox. */
+  by: 'agent' | 'person';
   title: string | null;
   status: string | null;
   project_id: string | null;
@@ -163,12 +181,15 @@ export interface InboxMessage {
   /** The verdict on the outer message (From), whatever the routing basis. */
   trust: { level: TrustLevel; reason: string | null; spf: string | null; dkim: string | null; dmarc: string | null };
   auto_mail_reason: string | null;
+  /** How it was sorted on arrival; null for mail from before sorting. */
+  sorting: InboxSorting | null;
   new_text: string | null;
   text_body: string | null;
   html_body: string | null;
   attachments: InboxAttachment[];
   triage: InboxTriage | null;
   linked_tasks: InboxLinkedTask[];
+  reminders: InboxReminder[];
   reviewed_at: string | null;
   reviewed_by: { id: string; name: string } | null;
 }
@@ -211,6 +232,32 @@ export interface InboxThreadDetail {
   candidates: InboxCandidate[];
   messages: InboxMessage[];
   senders: RememberableSender[];
+  /** One line on where the conversation stands, kept by the agent. */
+  summary: string | null;
+  /** The newest reply draft asked for on this thread. */
+  reply_draft?: InboxReplyDraft | null;
+}
+
+/** A reply the agent drafted on request: copied into a person's own mail, never sent. */
+export interface InboxReplyDraft {
+  id: string;
+  status: 'requested' | 'ready' | 'failed';
+  instructions: string;
+  body: string | null;
+  failure: string | null;
+  requested_by: { id: string; name: string } | null;
+  drafted_by: { id: string; name: string } | null;
+  created_at: string;
+  completed_at: string | null;
+}
+
+/** A reminder that came from an email (reminders.source_message_id). */
+export interface InboxReminder {
+  id: string;
+  title: string;
+  remind_on: string | null;
+  status: 'open' | 'done';
+  task_id: string | null;
 }
 
 export interface SetThreadProjectRequest {
@@ -233,7 +280,8 @@ export interface TaskSourceEmail {
   subject: string;
   from: { name: string; address: string } | null;
   received_at: string;
-  relation: 'created' | 'updated';
+  relation: TaskLinkRelation;
+  by: 'agent' | 'person';
 }
 
 export interface TaskSourceEmails {

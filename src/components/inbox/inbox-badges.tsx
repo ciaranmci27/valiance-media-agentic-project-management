@@ -9,11 +9,11 @@ import type { ThreadProject, ThreadState, TrustLevel } from '@/lib/inbound-email
 export const OTHER_PROJECT = 'Another project';
 
 const STATE: Record<ThreadState, { label: string; variant: 'danger' | 'info' | 'warning' | 'success' | 'default'; hint: string }> = {
-  needs_you: { label: 'Needs you', variant: 'danger', hint: 'The agent needs a decision from you' },
+  needs_you: { label: 'Needs you', variant: 'warning', hint: 'A decision only you can make' },
   new: { label: 'New', variant: 'info', hint: 'Waiting for the agent to triage it' },
-  needs_reply: { label: 'Needs reply', variant: 'warning', hint: 'A suggested reply is ready to copy into your own mail' },
+  needs_reply: { label: 'Needs reply', variant: 'default', hint: 'Someone is waiting on your reply' },
   handled: { label: 'Handled', variant: 'success', hint: 'Dealt with' },
-  ignored: { label: 'Ignored', variant: 'default', hint: 'Automatic mail: newsletters, out-of-office replies, bounces' },
+  ignored: { label: 'Filtered', variant: 'default', hint: 'Nobody needs to read it: your sender rules, bulk mail, usage alerts, promotions, auto-replies' },
 };
 
 export function ThreadStateBadge({ state, tooltip = true }: { state: ThreadState; tooltip?: boolean }) {
@@ -37,9 +37,9 @@ export function projectSourceHint(project: ThreadProject, agentName: string): st
 }
 
 const STATE_DOT: Record<ThreadState, string> = {
-  needs_you: 'bg-red-400',
+  needs_you: 'bg-amber-400',
   new: 'bg-sky-400',
-  needs_reply: 'bg-amber-400',
+  needs_reply: 'bg-zinc-300',
   handled: 'bg-emerald-400',
   ignored: 'bg-zinc-500',
 };

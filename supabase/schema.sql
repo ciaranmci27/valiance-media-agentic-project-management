@@ -6995,6 +6995,9 @@ CREATE TABLE public.email_threads (
   -- The project address that filed the thread, while its source is
   -- 'address'. A deleted address leaves the project in place.
   project_address_id uuid REFERENCES public.email_project_addresses(id) ON DELETE SET NULL,
+  -- One line on where the conversation stands, kept by the agent at triage.
+  summary text CONSTRAINT email_threads_summary_check CHECK (summary IS NULL OR length(summary) BETWEEN 1 AND 300),
+  summary_at timestamptz,
   last_message_at timestamptz NOT NULL DEFAULT now(),
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
@@ -7024,6 +7027,36 @@ $$;
 CREATE TRIGGER email_threads_before_update
   BEFORE UPDATE ON public.email_threads
   FOR EACH ROW EXECUTE FUNCTION public.email_threads_before_update();
+
+-- Sender rules (20261023194940_inbox_sorting_and_relations.sql): an address
+-- or domain, optionally one topic, and what to do with its mail. People and
+-- the agent (from patterns) create them; they are switched off, never deleted.
+CREATE TABLE public.email_sender_rules (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  match_kind text NOT NULL CHECK (match_kind IN ('address', 'domain')),
+  match_value text NOT NULL CHECK (match_value = lower(btrim(match_value)) AND length(match_value) BETWEEN 3 AND 320),
+  -- NULL: every topic from this sender.
+  topic text CHECK (topic IN ('money', 'account_risk', 'security', 'usage', 'event', 'newsletter', 'promotion', 'update')),
+  action text NOT NULL CHECK (action IN ('ignore', 'fyi', 'always')),
+  source text NOT NULL CHECK (source IN ('person', 'agent')),
+  -- Why the rule exists, in a sentence (the agent always gives one).
+  reason text NOT NULL DEFAULT '' CHECK (length(reason) <= 500),
+  created_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  hit_count integer NOT NULL DEFAULT 0 CHECK (hit_count >= 0),
+  last_hit_at timestamptz,
+  -- Rules are switched off, never deleted, so a filtered email can still
+  -- say which rule filtered it.
+  disabled_at timestamptz,
+  disabled_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX email_sender_rules_live_key
+  ON public.email_sender_rules (match_kind, match_value, COALESCE(topic, '')) WHERE disabled_at IS NULL;
+
+CREATE TRIGGER set_email_sender_rules_updated_at
+  BEFORE UPDATE ON public.email_sender_rules
+  FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
 
 CREATE TABLE public.email_messages (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -7084,6 +7117,17 @@ CREATE TABLE public.email_messages (
   -- the agent clears it.
   reviewed_at timestamptz,
   reviewed_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  -- How it was sorted on arrival: what it is (kind), what machine mail is
+  -- about (topic), and what sorting did (sort_action: ignore = Filtered and
+  -- never triaged, fyi = triaged lightly, always = full triage, triage = the
+  -- default), why, and the sender rule that decided it.
+  kind text CONSTRAINT email_messages_kind_check CHECK (kind IN ('person', 'team', 'meeting_notes', 'notification', 'marketing')),
+  topic text CONSTRAINT email_messages_topic_check CHECK (topic IN ('money', 'account_risk', 'security', 'usage', 'event', 'newsletter', 'promotion', 'update')),
+  sort_action text CONSTRAINT email_messages_sort_action_check CHECK (sort_action IN ('ignore', 'fyi', 'always', 'triage')),
+  sort_reason text CONSTRAINT email_messages_sort_reason_check CHECK (sort_reason IS NULL OR length(sort_reason) <= 300),
+  sender_rule_id uuid REFERENCES public.email_sender_rules(id) ON DELETE SET NULL,
+  -- A newer alert from the same sender on the same topic.
+  superseded_by uuid REFERENCES public.email_messages(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT email_messages_inbox_message_key UNIQUE (inbox_id, internet_message_id),
@@ -7098,6 +7142,8 @@ CREATE TABLE public.email_messages (
     AND (forwarded_by_member_id IS NULL OR routing_basis <> 'sender')
   )
 );
+CREATE INDEX idx_email_messages_sender_rule ON public.email_messages (sender_rule_id) WHERE sender_rule_id IS NOT NULL;
+CREATE INDEX idx_email_messages_superseded_by ON public.email_messages (superseded_by) WHERE superseded_by IS NOT NULL;
 CREATE INDEX idx_email_messages_inbox_status ON public.email_messages (inbox_id, status, received_at DESC);
 CREATE INDEX idx_email_messages_inbox_received ON public.email_messages (inbox_id, received_at DESC);
 CREATE INDEX idx_email_messages_thread ON public.email_messages (thread_id, received_at);
@@ -7221,13 +7267,40 @@ CREATE TABLE public.email_task_links (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   message_id uuid NOT NULL REFERENCES public.email_messages(id) ON DELETE CASCADE,
   task_id uuid NOT NULL REFERENCES public.tasks(id) ON DELETE CASCADE,
-  relation text NOT NULL CHECK (relation IN ('created', 'updated')),
+  -- related: about the task, asks for no change. A person's link has no triage.
+  relation text NOT NULL CONSTRAINT email_task_links_relation_check CHECK (relation IN ('created', 'updated', 'related')),
   triage_id uuid REFERENCES public.email_triage(id) ON DELETE SET NULL,
   linked_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT email_task_links_message_task_relation_key UNIQUE (message_id, task_id, relation)
 );
 CREATE INDEX idx_email_task_links_task ON public.email_task_links (task_id);
+
+-- Reply drafts: a person asks, the agent writes, the person copies it into
+-- their own mail. Nothing is ever sent.
+CREATE TABLE public.email_reply_drafts (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  thread_id uuid NOT NULL REFERENCES public.email_threads(id) ON DELETE CASCADE,
+  -- The email the reply answers (the newest when it was asked for).
+  message_id uuid NOT NULL REFERENCES public.email_messages(id) ON DELETE CASCADE,
+  requested_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  instructions text NOT NULL DEFAULT '' CHECK (length(instructions) <= 2000),
+  status text NOT NULL DEFAULT 'requested' CHECK (status IN ('requested', 'ready', 'failed')),
+  body text CHECK (body IS NULL OR length(body) BETWEEN 1 AND 20000),
+  drafted_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  failure text CHECK (failure IS NULL OR length(failure) <= 500),
+  completed_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT email_reply_drafts_ready_has_body CHECK ((status = 'ready') = (body IS NOT NULL)),
+  CONSTRAINT email_reply_drafts_done_has_time CHECK ((status = 'requested') = (completed_at IS NULL))
+);
+CREATE INDEX idx_email_reply_drafts_thread ON public.email_reply_drafts (thread_id, created_at DESC);
+CREATE INDEX idx_email_reply_drafts_requested ON public.email_reply_drafts (created_at) WHERE status = 'requested';
+
+CREATE TRIGGER set_email_reply_drafts_updated_at
+  BEFORE UPDATE ON public.email_reply_drafts
+  FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
 
 -- ============================================================
 -- 6. Server-side writes (service role only)
@@ -7370,6 +7443,7 @@ DECLARE
   v_status text := p_decision->>'status';
   v_source text := COALESCE(p_decision->>'project_source', 'mapped');
   v_basis text := COALESCE(p_decision->>'routing_basis', 'sender');
+  v_rule uuid := (p_decision->>'sender_rule_id')::uuid;
 BEGIN
   IF COALESCE(auth.role(), '') <> 'service_role' THEN RAISE EXCEPTION 'Service role required' USING ERRCODE = '42501'; END IF;
   IF v_status NOT IN ('new', 'ignored') THEN RAISE EXCEPTION 'email_complete_message: status must be new or ignored' USING ERRCODE = '22023'; END IF;
@@ -7422,6 +7496,11 @@ BEGIN
   FROM jsonb_array_elements(COALESCE(p_decision->'recipient_contacts', '[]'::jsonb)) AS x
   WHERE r.message_id = p_message_id AND r.address = x->>'address';
 
+  -- A rule switched off since ingestion read it is still the rule that sorted it.
+  IF v_rule IS NOT NULL AND NOT EXISTS (SELECT 1 FROM public.email_sender_rules WHERE id = v_rule) THEN
+    v_rule := NULL;
+  END IF;
+
   -- A teammate deleted since ingestion read them leaves no forwarder.
   UPDATE public.email_messages
   SET thread_id = v_thread,
@@ -7433,8 +7512,17 @@ BEGIN
       ) END,
       original_from_address = CASE WHEN v_basis = 'forwarded_original' THEN lower(btrim(p_decision->>'original_from_address')) END,
       original_from_name = CASE WHEN v_basis = 'forwarded_original'
-        THEN NULLIF(left(btrim(COALESCE(p_decision->>'original_from_name', '')), 300), '') END
+        THEN NULLIF(left(btrim(COALESCE(p_decision->>'original_from_name', '')), 300), '') END,
+      kind = p_decision->>'kind',
+      topic = p_decision->>'topic',
+      sort_action = p_decision->>'sort_action',
+      sort_reason = NULLIF(left(btrim(COALESCE(p_decision->>'sort_reason', '')), 300), ''),
+      sender_rule_id = v_rule
   WHERE id = p_message_id;
+
+  IF v_rule IS NOT NULL THEN
+    UPDATE public.email_sender_rules SET hit_count = hit_count + 1, last_hit_at = now() WHERE id = v_rule;
+  END IF;
 
   UPDATE public.email_inboxes SET last_received_at = now() WHERE id = v_message.inbox_id;
   IF p_decision->>'received_via_address_id' IS NOT NULL THEN
@@ -7574,6 +7662,12 @@ BEGIN
 
   UPDATE public.email_messages SET status = p_status WHERE id = p_message_id;
 
+  IF NULLIF(btrim(COALESCE(p_triage->>'thread_summary', '')), '') IS NOT NULL THEN
+    UPDATE public.email_threads
+    SET summary = left(btrim(p_triage->>'thread_summary'), 300), summary_at = now()
+    WHERE id = v_message.thread_id;
+  END IF;
+
   RETURN jsonb_build_object(
     'triage', to_jsonb(v_triage) - 'request_hash',
     'status', p_status,
@@ -7601,6 +7695,11 @@ AS $$
       SELECT count(DISTINCT t.message_id) FROM public.email_triage t
       JOIN public.email_messages m ON m.id = t.message_id
       WHERE m.inbox_id IN (SELECT id FROM inboxes) AND t.summarized_at IS NULL
+    ),
+    'drafts_requested', (
+      SELECT count(*) FROM public.email_reply_drafts d
+      JOIN public.email_messages m ON m.id = d.message_id
+      WHERE m.inbox_id IN (SELECT id FROM inboxes) AND d.status = 'requested'
     )
   )
 $$;
@@ -7641,6 +7740,7 @@ AS $$
       'message', jsonb_build_object(
         'id', m.id, 'inbox_id', m.inbox_id, 'thread_id', m.thread_id, 'status', m.status,
         'subject', m.subject, 'received_at', m.received_at,
+        'kind', m.kind, 'topic', m.topic, 'sort_action', m.sort_action,
         'from', (SELECT jsonb_build_object('address', r.address, 'name', r.name)
                  FROM public.email_message_recipients r WHERE r.message_id = m.id AND r.kind = 'from'),
         'routing_basis', m.routing_basis,
@@ -7652,10 +7752,16 @@ AS $$
       ),
       'project', CASE WHEN th.project_id IS NULL THEN NULL ELSE jsonb_build_object(
         'id', th.project_id, 'name', p.name, 'source', th.project_source) END,
+      'thread_summary', th.summary,
       'links', COALESCE((
         SELECT jsonb_agg(jsonb_build_object('task_id', k.task_id, 'relation', k.relation, 'title', tk.title, 'status', tk.status) ORDER BY k.created_at)
         FROM public.email_task_links k JOIN public.tasks tk ON tk.id = k.task_id
-        WHERE k.message_id = m.id
+        WHERE k.message_id = m.id AND tk.deleted_at IS NULL
+      ), '[]'::jsonb),
+      'reminders', COALESCE((
+        SELECT jsonb_agg(jsonb_build_object('id', rm.id, 'title', rm.title, 'remind_on', rm.remind_on, 'task_id', rm.task_id) ORDER BY rm.created_at)
+        FROM public.reminders rm
+        WHERE rm.source_message_id = m.id AND rm.deleted_at IS NULL AND rm.status = 'open'
       ), '[]'::jsonb)
     ) AS item
     FROM latest l
@@ -7777,6 +7883,8 @@ ALTER TABLE public.email_message_candidates ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.email_attachments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.email_triage ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.email_task_links ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.email_sender_rules ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.email_reply_drafts ENABLE ROW LEVEL SECURITY;
 
 -- contact_emails mirrors contacts.
 CREATE POLICY contact_emails_select ON public.contact_emails FOR SELECT TO authenticated
@@ -7836,6 +7944,10 @@ CREATE POLICY email_attachments_select ON public.email_attachments FOR SELECT TO
 CREATE POLICY email_triage_select ON public.email_triage FOR SELECT TO authenticated
   USING (public.can_read_email_message(message_id));
 CREATE POLICY email_task_links_select ON public.email_task_links FOR SELECT TO authenticated
+  USING (public.can_read_email_message(message_id));
+CREATE POLICY email_sender_rules_select ON public.email_sender_rules FOR SELECT TO authenticated
+  USING (public.has_permission('inbound_email.read') OR public.has_permission('inbound_email.manage'));
+CREATE POLICY email_reply_drafts_select ON public.email_reply_drafts FOR SELECT TO authenticated
   USING (public.can_read_email_message(message_id));
 
 -- ============================================================
@@ -9676,6 +9788,8 @@ CREATE TABLE IF NOT EXISTS public.reminders (
   -- When the due bell went out; cleared when the date or time changes.
   notified_at timestamptz,
   source text NOT NULL DEFAULT 'manual' CHECK (source IN ('manual', 'agent', 'email')),
+  -- The email it came from, when it came from one.
+  source_message_id uuid REFERENCES public.email_messages(id) ON DELETE SET NULL,
   created_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
@@ -9687,6 +9801,7 @@ CREATE TABLE IF NOT EXISTS public.reminders (
   deleted_at timestamptz,
   deleted_by uuid references public.team_members(id) on delete set null
 );
+CREATE INDEX IF NOT EXISTS idx_reminders_source_message ON public.reminders (source_message_id) WHERE source_message_id IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_reminders_owner_status ON public.reminders (owner_id, status);
 CREATE INDEX IF NOT EXISTS idx_reminders_task ON public.reminders (task_id) WHERE task_id IS NOT NULL;

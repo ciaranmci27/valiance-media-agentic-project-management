@@ -12,6 +12,7 @@ import {
   visibleReminderFilter,
 } from '@/lib/api/reminders';
 import { postgrestList, trashedProjectIds } from '@/lib/supabase/trash';
+import { loadAccessibleMessage } from '@/lib/inbound-email/agent-access';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -86,6 +87,8 @@ export const POST = withApi(async ({ supabase, body, teamMemberId, access, apiKe
   const input = body as z.infer<typeof createReminderSchema>;
   const place = await resolveReminderPlace(supabase, access, input);
   const ownerId = await resolveReminderOwner(supabase, access, teamMemberId, input.owner_id);
+  // An email the key cannot read is 404, like one that does not exist.
+  const sourceMessage = input.source_message_id ? await loadAccessibleMessage(supabase, teamMemberId, input.source_message_id) : null;
 
   const { data, error } = await supabase
     .from('reminders')
@@ -98,7 +101,8 @@ export const POST = withApi(async ({ supabase, body, teamMemberId, access, apiKe
       task_id: place.task_id,
       project_id: place.project_id,
       created_by: teamMemberId,
-      source: access.role === 'agent' ? 'agent' : 'manual',
+      source: sourceMessage ? 'email' : access.role === 'agent' ? 'agent' : 'manual',
+      ...(sourceMessage ? { source_message_id: sourceMessage.id } : {}),
     })
     .select(REMINDER_SELECT)
     .single();

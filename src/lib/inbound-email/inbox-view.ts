@@ -79,6 +79,38 @@ export function needsAttention(flags: ThreadFlags): boolean {
   return flags.needs_you || flags.needs_reply;
 }
 
+/**
+ * How badly a thread needs a person: urgent (red), a decision only they can
+ * make (amber), or a reply to send (neutral). Null when nothing waits.
+ */
+export type AttentionLevel = 'urgent' | 'decide' | 'reply';
+
+export function attentionLevel(flags: ThreadFlags): AttentionLevel | null {
+  if (flags.urgent) return 'urgent';
+  if (flags.needs_you) return 'decide';
+  if (flags.needs_reply) return 'reply';
+  return null;
+}
+
+/** The sidebar badge: how many threads wait, by how badly. */
+export interface InboxAttention {
+  total: number;
+  urgent: number;
+  decide: number;
+  reply: number;
+}
+
+export function attentionCounts(threads: readonly ThreadFlags[]): InboxAttention {
+  const counts: InboxAttention = { total: 0, urgent: 0, decide: 0, reply: 0 };
+  for (const flags of threads) {
+    const level = attentionLevel(flags);
+    if (!level) continue;
+    counts.total++;
+    counts[level]++;
+  }
+  return counts;
+}
+
 /** Every word of the query appears somewhere in the haystack (case-insensitive). */
 export function matchesSearch(query: string, haystack: readonly (string | null | undefined)[]): boolean {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);

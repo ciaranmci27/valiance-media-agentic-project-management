@@ -2,11 +2,13 @@
 
 import { demoInbox, demoInboxSettings } from './inbox-demo';
 import type {
-  ClientEmailDomain, ClientSenderAddress, ClientSenderAddressList, InboxSettings, InboxSettingsInput, InboxSettingsList, InboxTab, InboxThreadDetail, InboxThreadList,
+  ClientEmailDomain, ClientSenderAddress, ClientSenderAddressList, InboxReplyDraft, InboxSettings, InboxSettingsInput, InboxSettingsList, InboxTab, InboxThreadDetail, InboxThreadList,
   MxStatus, ProjectEmailAddress, ProjectEmailAddressInput, ProjectEmailAddressList, SetThreadProjectRequest, SetThreadProjectResult,
   TaskSourceEmails,
 } from './inbox-types';
 import { INBOX_UPDATED_EVENT } from './inbox-types';
+import type { InboxAttention } from './inbox-view';
+import type { InboxSenderRule } from './inbox-rules';
 
 /**
  * The browser side of the Inbox: session routes in the app, in-memory
@@ -43,6 +45,8 @@ export function announceInboxChange(detail: InboxChangeDetail | null = null) {
 export interface ThreadQuery {
   inboxId: string | null;
   projectId: string | null;
+  /** Only threads linked to this task. */
+  taskId?: string | null;
   tab: InboxTab;
   search: string;
   limit: number;
@@ -56,6 +60,7 @@ export function inboxClient(isDemo: boolean) {
       const params = new URLSearchParams({ status: query.tab, limit: String(query.limit), offset: String(query.offset) });
       if (query.inboxId) params.set('inbox_id', query.inboxId);
       if (query.projectId) params.set('project_id', query.projectId);
+      if (query.taskId) params.set('task_id', query.taskId);
       if (query.search.trim()) params.set('q', query.search.trim());
       return call(`/api/workspace/inbox/threads?${params}`);
     },
@@ -75,9 +80,34 @@ export function inboxClient(isDemo: boolean) {
       if (isDemo) throw new Error('Downloads are off in demo mode');
       return call(`/api/workspace/inbox/attachments/${attachmentId}/url`);
     },
-    async attentionCount(): Promise<number> {
+    async linkTask(threadId: string, request: { task_id: string; relation?: 'created' | 'updated' | 'related'; message_id?: string | null }) {
+      if (isDemo) throw new Error('Linking is off in demo mode');
+      return post<{ task_id: string; message_id: string; relation: string; project_set: boolean }>(`/api/workspace/inbox/threads/${threadId}/links`, request);
+    },
+    async unlinkTask(threadId: string, taskId: string) {
+      if (isDemo) throw new Error('Unlinking is off in demo mode');
+      return call<{ removed: number }>(`/api/workspace/inbox/threads/${threadId}/links?task_id=${encodeURIComponent(taskId)}`, { method: 'DELETE' });
+    },
+    async requestDraft(threadId: string, instructions = ''): Promise<InboxReplyDraft> {
+      if (isDemo) throw new Error('Drafts are off in demo mode');
+      return post(`/api/workspace/inbox/threads/${threadId}/draft`, { instructions });
+    },
+    async senderRules(): Promise<{ rules: InboxSenderRule[] }> {
+      if (isDemo) return { rules: [] };
+      return call('/api/workspace/inbox/sender-rules');
+    },
+    async createSenderRule(request: { match_kind: 'address' | 'domain'; match_value: string; topic: string | null; action: 'ignore' | 'fyi' | 'always'; reason?: string; thread_id?: string | null }) {
+      if (isDemo) throw new Error('Sender rules are off in demo mode');
+      return post<{ rule: InboxSenderRule; filtered: number }>('/api/workspace/inbox/sender-rules', request);
+    },
+    async updateSenderRule(ruleId: string, request: { action?: 'ignore' | 'fyi' | 'always'; enabled?: boolean }) {
+      if (isDemo) throw new Error('Sender rules are off in demo mode');
+      return patch<{ rule: InboxSenderRule }>(`/api/workspace/inbox/sender-rules/${ruleId}`, request);
+    },
+    async attentionCount(): Promise<InboxAttention> {
       if (isDemo) return demoInbox.attentionCount();
-      return (await call<{ needs_attention: number }>('/api/workspace/inbox/count')).needs_attention;
+      const { total, urgent, decide, reply } = await call<InboxAttention>('/api/workspace/inbox/count');
+      return { total, urgent, decide, reply };
     },
     taskSources(taskId: string): Promise<TaskSourceEmails> {
       return isDemo ? demoInbox.taskSources(taskId) : call(`/api/workspace/tasks/${taskId}/source-emails`);

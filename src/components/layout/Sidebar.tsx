@@ -38,6 +38,7 @@ import { defaultAgentAnalyticsRange } from '@/lib/agent-range';
 import { inboxClient } from '@/lib/inbound-email/inbox-client';
 import { reminderGroup } from '@/lib/reminders';
 import { INBOX_UPDATED_EVENT } from '@/lib/inbound-email/inbox-types';
+import type { InboxAttention } from '@/lib/inbound-email/inbox-view';
 
 export function Sidebar() {
   const pathname = usePathname();
@@ -94,9 +95,9 @@ export function Sidebar() {
     return () => window.removeEventListener('notifications-updated', handler);
   }, [fetchUnreadNotifications]);
 
-  // Inbox badge: threads waiting on a person (Needs you or Needs reply).
+  // Inbox badge: threads waiting on a person, coloured by the worst of them.
   const canReadInbox = hasPermission(access, 'inbound_email.read') || hasPermission(access, 'inbound_email.manage');
-  const [inboxAttention, setInboxAttention] = useState(0);
+  const [inboxAttention, setInboxAttention] = useState<InboxAttention>({ total: 0, urgent: 0, decide: 0, reply: 0 });
   const [inboxTick, setInboxTick] = useState(0);
   // Refresh on navigation and whenever the inbox reports a change.
   useEffect(() => {
@@ -143,7 +144,7 @@ export function Sidebar() {
   const navItems = [
     { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', badge: 0, overlay: false },
     { href: '/my-tasks', icon: ListTodo, label: 'My Tasks', badge: radarCount + remindersDue, overlay: true },
-    ...(canReadInbox ? [{ href: '/inbox', icon: Inbox, label: 'Inbox', badge: inboxAttention, overlay: true }] : []),
+    ...(canReadInbox ? [{ href: '/inbox', icon: Inbox, label: 'Inbox', badge: inboxAttention.total, overlay: true }] : []),
     ...(hasPermission(access, 'projects.read') || hasPermission(access, 'projects.read_all')
       ? [{ href: '/projects', icon: FolderKanban, label: 'Projects', badge: 0, overlay: false }] : []),
     ...(hasPermission(access, 'leads.read') || hasPermission(access, 'leads.read_all') || hasPermission(access, 'leads.manage')
@@ -294,14 +295,16 @@ export function Sidebar() {
                 <span className="relative flex-shrink-0 leading-none">
                   <item.icon size={18} />
                   {item.overlay && item.badge > 0 && (
-                    /* Notifications alone go red: since the notification pruning,
-                       one firing means an agent is blocked on a decision only
-                       Ciaran can make. The Agent badge stays brand because it is
-                       a review queue, not a blocker. */
-                    <span className={`absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-semibold text-white ${
-                      item.href === '/notifications' || item.href === '/inbox' ? 'bg-red-600' : 'bg-brand-500'
+                    /* Notifications go red: since the notification pruning, one
+                       firing means an agent is blocked on a decision only Ciaran
+                       can make. The Inbox is red only for something urgent, amber
+                       for a decision, neutral for replies. The Agent badge stays
+                       brand because it is a review queue, not a blocker. */
+                    <span className={`absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-semibold ${
+                      item.href === '/inbox' ? inboxBadgeTone(inboxAttention)
+                        : item.href === '/notifications' ? 'bg-red-600 text-white' : 'bg-brand-500 text-white'
                     }`}>
-                      {item.href === '/inbox' && <span className="sr-only">Threads waiting on you: </span>}
+                      {item.href === '/inbox' && <span className="sr-only">{inboxBadgeLabel(inboxAttention)}: </span>}
                       {item.badge > 9 ? '9+' : item.badge}
                     </span>
                   )}
@@ -427,4 +430,17 @@ export function Sidebar() {
       </aside>
     </>
   );
+}
+
+/** The Inbox badge's colour: red for urgent, amber for a decision, neutral for replies only. */
+function inboxBadgeTone(attention: InboxAttention): string {
+  if (attention.urgent > 0) return 'bg-red-600 text-white';
+  if (attention.decide > 0) return 'bg-amber-400 text-zinc-950';
+  return 'bg-zinc-200 text-zinc-900';
+}
+
+function inboxBadgeLabel(attention: InboxAttention): string {
+  if (attention.urgent > 0) return 'Urgent threads waiting on you';
+  if (attention.decide > 0) return 'Decisions waiting on you';
+  return 'Replies waiting on you';
 }

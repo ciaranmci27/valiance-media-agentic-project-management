@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { notFound } from '@/lib/api/errors';
 import { attachmentKind } from './attachments';
+import { compactLinks } from './display';
 import { htmlToText } from './html-text';
 import { isGoneError, type AccessibleMessage } from './agent-access';
 
@@ -13,7 +14,7 @@ import { isGoneError, type AccessibleMessage } from './agent-access';
 type Row = Record<string, unknown>;
 
 const ROUTING_COLUMNS = 'routing_basis, forwarded_by_member_id, original_from_address, original_from_name';
-const LIST_COLUMNS = `id, inbox_id, thread_id, status, subject, received_at, sent_at, is_forward, auto_mail_reason, auth, ${ROUTING_COLUMNS}`;
+const LIST_COLUMNS = `id, inbox_id, thread_id, status, subject, received_at, sent_at, is_forward, auto_mail_reason, auth, kind, topic, sort_action, sort_reason, superseded_by, ${ROUTING_COLUMNS}`;
 const CURRENT_TEXT_CAP = 200_000;
 const THREAD_TEXT_CAP = 50_000;
 
@@ -175,6 +176,7 @@ export async function listMessages(
         ...routing(message, forwarders),
         trust: authSummary(message.auth).trust,
         auto_mail_reason: message.auto_mail_reason,
+        sorting: sortingOf(message),
         project: threadProject(thread, names, addresses),
         candidate_project_ids: [...new Set(candidates.filter((row) => row.message_id === message.id).map((row) => row.project_id))],
         attachment_count: attachments.filter((row) => row.message_id === message.id).length,
@@ -184,12 +186,22 @@ export async function listMessages(
   };
 }
 
+/**
+ * How the email was sorted on arrival: kind, topic, what sorting did with it
+ * (ignore, fyi, always, triage) and why, and the newer alert that replaced
+ * it. Null for mail that arrived before sorting.
+ */
+function sortingOf(row: Row) {
+  if (!row.kind) return null;
+  return { kind: row.kind, topic: row.topic ?? null, action: row.sort_action ?? null, reason: row.sort_reason ?? null, superseded_by: row.superseded_by ?? null };
+}
+
 export async function messageDetail(supabase: SupabaseClient, message: AccessibleMessage): Promise<Row> {
   const [inbox, thread, threadMessages] = await Promise.all([
     supabase.from('email_inboxes').select('id, name, address, agent_readable_types').eq('id', message.inbox_id).single(),
     supabase.from('email_threads').select('id, subject_normalized, project_id, project_source, project_address_id, last_message_at').eq('id', message.thread_id).single(),
     rows<Row>(supabase.from('email_messages')
-      .select(`id, status, subject, received_at, sent_at, text_body, html_body, new_text, is_forward, auth, auto_mail_reason, internet_message_id, ${ROUTING_COLUMNS}`)
+      .select(`id, status, subject, received_at, sent_at, text_body, html_body, new_text, is_forward, auth, auto_mail_reason, internet_message_id, kind, topic, sort_action, sort_reason, superseded_by, ${ROUTING_COLUMNS}`)
       .eq('thread_id', message.thread_id)
       .neq('status', 'receiving')
       .order('received_at', { ascending: true })),
@@ -223,8 +235,9 @@ export async function messageDetail(supabase: SupabaseClient, message: Accessibl
     const mine = (kind: string) => recipients
       .filter((r) => r.message_id === row.id && r.kind === kind)
       .map((r) => ({ address: r.address, name: r.name, contact_id: r.contact_id }));
-    const text = cap((row.text_body as string | null) ?? null, textCap);
-    const htmlText = cap(row.html_body ? htmlToText(row.html_body as string) : null, textCap);
+    // Long tracking links come out first, so the cap keeps the words.
+    const text = cap(compactLinks((row.text_body as string | null) ?? null), textCap);
+    const htmlText = cap(compactLinks(row.html_body ? htmlToText(row.html_body as string) : null), textCap);
     const latest = triage.get(row.id as string);
     return {
       id: row.id,
@@ -241,7 +254,8 @@ export async function messageDetail(supabase: SupabaseClient, message: Accessibl
       ...routing(row, forwarders),
       auth: authSummary(row.auth),
       auto_mail_reason: row.auto_mail_reason,
-      new_text: row.new_text,
+      sorting: sortingOf(row),
+      new_text: compactLinks(row.new_text as string | null),
       text: text.value,
       text_truncated: text.truncated,
       html_text: htmlText.value,

@@ -34,6 +34,7 @@ function requestHash(body: TriageRequest): string {
     body.suggested_reply ?? null,
     body.project_id?.toLowerCase() ?? null,
     links,
+    body.thread_summary ?? null,
   ])).digest('hex');
 }
 
@@ -60,8 +61,8 @@ async function priorTriage(supabase: SupabaseClient, message: AccessibleMessage,
 
 /**
  * Records a triage (history is kept; the newest wins) and sets the email's
- * status: needs_human when the outcome is needs_human or the sender is
- * untrusted, otherwise handled. project_id is taken only while the thread
+ * status: needs_human when the outcome is needs_human, or the sender is
+ * untrusted and it is not a notification left alone, otherwise handled. project_id is taken only while the thread
  * has no project, and only from the mapping candidates when there are any;
  * it sets the thread's project as inferred (chosen among the candidates) or
  * guessed (the email had none). It never creates a contact or
@@ -82,7 +83,7 @@ export const POST = withApi<TriageRequest, { id: string }>(async ({ supabase, pa
 
   const [{ data: thread, error: threadError }, { data: row, error: rowError }, { data: candidateRows, error: candidateError }] = await Promise.all([
     supabase.from('email_threads').select('id, project_id, project_source').eq('id', message.thread_id).single(),
-    supabase.from('email_messages').select('auth').eq('id', message.id).single(),
+    supabase.from('email_messages').select('auth, kind').eq('id', message.id).single(),
     supabase.from('email_message_candidates').select('project_id').eq('message_id', message.id),
   ]);
   // Deleted while this request ran: the same 404 as an id that never existed.
@@ -142,8 +143,12 @@ export const POST = withApi<TriageRequest, { id: string }>(async ({ supabase, pa
     }
   }
 
+  // An unverified sender is never acted on unchecked: a person's email, or
+  // any email that touched a task, waits for a person. An unverified
+  // notification read and left alone does not.
   const trust = ((row.auth ?? {}) as { trust?: string }).trust;
-  const status = body.outcome === 'needs_human' || trust === 'untrusted' ? 'needs_human' : 'handled';
+  const machine = row.kind === 'notification' || row.kind === 'marketing';
+  const status = body.outcome === 'needs_human' || (trust === 'untrusted' && (!machine || links.length > 0)) ? 'needs_human' : 'handled';
   const { data, error } = await supabase.rpc('email_record_triage', {
     p_message_id: message.id,
     p_member_id: teamMemberId,
@@ -153,6 +158,7 @@ export const POST = withApi<TriageRequest, { id: string }>(async ({ supabase, pa
       summary: body.summary,
       question_for_human: body.question_for_human ?? null,
       suggested_reply: body.suggested_reply ?? null,
+      thread_summary: body.thread_summary ?? null,
     },
     p_links: links,
     p_project_id: chosenProject,

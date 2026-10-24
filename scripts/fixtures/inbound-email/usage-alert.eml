@@ -1,0 +1,9 @@
+From: Tool Alerts <no-reply@tool.example>
+To: "Ashley P." <ashley@agency.example>
+Subject: Your plan limit is at {{SUBJECT_PCT}}%
+Date: Tue, 06 Oct 2026 09:00:00 +0000
+Message-ID: <usage-{{ID_PCT}}@tool.example>
+MIME-Version: 1.0
+Content-Type: text/plain; charset="UTF-8"
+
+You've reached {{BODY_PCT}}% of the plan limit for this billing period.

@@ -50,6 +50,23 @@ export function linkParts(text: string): TextPart[] {
   return parts;
 }
 
+/** Links longer than this read as tracking links in the agent's copy. */
+const LONG_LINK = 80;
+
+/**
+ * The text with each long link (tracking redirects, mostly) replaced by
+ * "[site link]". Short links stay whole: a shared document's address is
+ * worth keeping. For the agent's copy of an email, where tracking URLs
+ * would otherwise fill the read and push the real words past the cap.
+ */
+export function compactLinks(text: string | null): string | null {
+  if (!text) return text;
+  return linkParts(text).map((part) => {
+    if ('text' in part) return part.text;
+    return part.url.length > LONG_LINK ? `[${part.label} link]` : part.url;
+  }).join('');
+}
+
 /** The cid: references in an HTML body, lowercased and without angle brackets. */
 export function inlineImageIds(html: string | null | undefined): Set<string> {
   const ids = new Set<string>();

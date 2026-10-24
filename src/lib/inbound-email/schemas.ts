@@ -14,8 +14,11 @@ export const triageSchema = z.object({
   project_id: z.string().uuid().nullable().optional(),
   links: z.array(z.object({
     task_id: z.string().uuid(),
-    relation: z.enum(['created', 'updated']),
+    // related: about the task, asks for no change.
+    relation: z.enum(['created', 'updated', 'related']),
   }).strict()).max(50).default([]),
+  // One line on where the whole conversation stands; replaces the thread's last one.
+  thread_summary: z.string().trim().min(1).max(300).nullable().optional(),
   // A retry with the same key on the same email returns the first triage.
   idempotency_key: z.string().min(8).max(100).nullable().optional(),
 }).strict();

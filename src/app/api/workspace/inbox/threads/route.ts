@@ -16,6 +16,7 @@ export async function GET(request: Request) {
   return inboxRoute((ctx) => listThreads(ctx, {
     inboxId: params.get('inbox_id') || null,
     projectId: params.get('project_id') || null,
+    taskId: params.get('task_id') || null,
     tab: isInboxTab(tab) ? tab : 'all',
     search: (params.get('q') ?? '').slice(0, 200),
     limit,

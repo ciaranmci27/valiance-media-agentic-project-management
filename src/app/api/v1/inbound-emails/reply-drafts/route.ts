@@ -1,0 +1,55 @@
+import { withApi } from '@/lib/api/middleware';
+import { success } from '@/lib/api/response';
+import { badRequest } from '@/lib/api/errors';
+import { inboxScope } from '@/lib/inbound-email/agent-access';
+import { DRAFT_COLUMNS } from '@/lib/inbound-email/inbox-drafts';
+
+export const dynamic = 'force-dynamic';
+
+const STATUSES = ['requested', 'ready', 'failed'] as const;
+
+interface DraftRow {
+  id: string; status: string; thread_id: string; message_id: string; instructions: string; body: string | null;
+  failure: string | null; requested_by: string | null; created_at: string; completed_at: string | null;
+}
+
+/**
+ * Reply drafts people asked for, in the key's inboxes, oldest first
+ * (default status requested). Each names the email to answer
+ * (message_id, its thread and subject) and what the person wants said.
+ * Read the email with GET /api/v1/inbound-emails/:message_id first.
+ */
+export const GET = withApi(async ({ supabase, searchParams, teamMemberId }) => {
+  const status = searchParams.get('status') ?? 'requested';
+  if (!(STATUSES as readonly string[]).includes(status)) throw badRequest('status must be requested, ready or failed');
+  const inboxIds = await inboxScope(supabase, teamMemberId, searchParams.get('inbox_id'));
+  if (inboxIds.length === 0) return success([]);
+  const { data, error } = await supabase.from('email_reply_drafts').select(DRAFT_COLUMNS).eq('status', status).order('created_at').limit(200);
+  if (error) throw error;
+  const drafts = (data ?? []) as DraftRow[];
+  if (drafts.length === 0) return success([]);
+  const [{ data: messages, error: messageError }, { data: people, error: peopleError }] = await Promise.all([
+    supabase.from('email_messages').select('id, inbox_id, subject').in('id', [...new Set(drafts.map((draft) => draft.message_id))]),
+    supabase.from('team_members').select('id, name').in('id', [...new Set(drafts.map((draft) => draft.requested_by).filter((id): id is string => !!id))]),
+  ]);
+  if (messageError) throw messageError;
+  if (peopleError) throw peopleError;
+  const messageById = new Map(((messages ?? []) as { id: string; inbox_id: string; subject: string }[]).map((message) => [message.id, message]));
+  const nameById = new Map(((people ?? []) as { id: string; name: string }[]).map((person) => [person.id, person.name]));
+  return success(drafts
+    .filter((draft) => inboxIds.includes(messageById.get(draft.message_id)?.inbox_id ?? ''))
+    .slice(0, 50)
+    .map((draft) => ({
+      id: draft.id,
+      status: draft.status,
+      thread_id: draft.thread_id,
+      message_id: draft.message_id,
+      subject: messageById.get(draft.message_id)?.subject ?? '',
+      instructions: draft.instructions,
+      requested_by: draft.requested_by ? nameById.get(draft.requested_by) ?? null : null,
+      body: draft.body,
+      failure: draft.failure,
+      created_at: draft.created_at,
+      completed_at: draft.completed_at,
+    })));
+}, { permission: 'inbound_email.read' });

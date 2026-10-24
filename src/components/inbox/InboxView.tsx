@@ -1,9 +1,11 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { AlertTriangle, ArrowLeft, Bell, Flame, Inbox as InboxIcon, Mail, Paperclip, RefreshCw, Search, Sparkles, SquareCheck } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Bell, Flame, Inbox as InboxIcon, Mail, Paperclip, RefreshCw, Search, SlidersHorizontal, Sparkles, SquareCheck, X } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { useDemo } from '@/lib/demo-context';
+import { useAuth } from '@/lib/auth-context';
+import { hasPermission } from '@/lib/access-control';
 import { Button } from '@/components/ui/Button';
 import { Select } from '@/components/ui/inputs/Select';
 import { TextInput } from '@/components/ui/inputs/TextInput';
@@ -13,6 +15,7 @@ import { isInboxTab } from '@/lib/inbound-email/inbox-view';
 import { ThreadStateBadge, TrustBadge, formatListTime, projectSourceHint } from './inbox-badges';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { ThreadView } from './ThreadView';
+import { SenderRulesManager } from './SenderRulesManager';
 import { InboxEmptyState } from './InboxEmptyState';
 import { useInboxUpdates } from './use-inbox-updates';
 
@@ -47,11 +50,16 @@ interface InboxViewProps {
  */
 export function InboxView({ projectId, embedded = false, emptyState, searchQuery }: InboxViewProps) {
   const { isDemoMode } = useDemo();
-  const { projects } = useApp();
+  const { projects, tasks } = useApp();
+  const { access } = useAuth();
+  const canTriage = hasPermission(access, 'inbound_email.triage') || hasPermission(access, 'inbound_email.manage');
   const client = useMemo(() => inboxClient(isDemoMode), [isDemoMode]);
+  const [rulesOpen, setRulesOpen] = useState(false);
 
   const [inboxId, setInboxId] = useState('');
   const [projectFilter, setProjectFilter] = useState(projectId ?? '');
+  // The inbox for one task (/inbox?task=<id>, from the task's Communication).
+  const [taskFilter, setTaskFilter] = useState('');
   const [tab, setTab] = useState<InboxTab>('all');
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
@@ -89,6 +97,7 @@ export function InboxView({ projectId, embedded = false, emptyState, searchQuery
     if (isInboxTab(status)) setTab(status);
     setInboxId(params.get('inbox') ?? '');
     if (!lockedProject) setProjectFilter(params.get('project') ?? '');
+    setTaskFilter(params.get('task') ?? '');
     const q = params.get('q') ?? '';
     setSearchInput(q);
     setSearch(q);
@@ -109,9 +118,10 @@ export function InboxView({ projectId, embedded = false, emptyState, searchQuery
     set('inbox', inboxId);
     set('status', tab === 'all' ? null : tab);
     set('project', lockedProject ? null : projectFilter);
+    set('task', taskFilter);
     set('q', search.trim());
     window.history.replaceState(null, '', url.toString());
-  }, [embedded, urlReady, selectedId, focusMessageId, inboxId, tab, projectFilter, lockedProject, search]);
+  }, [embedded, urlReady, selectedId, focusMessageId, inboxId, tab, projectFilter, taskFilter, lockedProject, search]);
 
   // Search waits for a pause in typing, whichever box it is typed in.
   const typedSearch = searchQuery ?? searchInput;
@@ -136,6 +146,7 @@ export function InboxView({ projectId, embedded = false, emptyState, searchQuery
       const data = await client.listThreads({
         inboxId: inboxId || null,
         projectId: activeProject,
+        taskId: taskFilter || null,
         tab,
         search,
         limit: options.mode === 'refresh' ? Math.min(Math.max(PAGE_SIZE, shownRef.current + pendingPageRef.current), MAX_REFRESH) : PAGE_SIZE,
@@ -159,7 +170,7 @@ export function InboxView({ projectId, embedded = false, emptyState, searchQuery
         setLoadingMore(false);
       }
     }
-  }, [client, urlReady, inboxId, activeProject, tab, search]);
+  }, [client, urlReady, inboxId, activeProject, taskFilter, tab, search]);
 
   useEffect(() => { void load({ mode: 'reset' }); }, [load]);
 
@@ -193,7 +204,8 @@ export function InboxView({ projectId, embedded = false, emptyState, searchQuery
       ),
     };
   });
-  const filtersActive = tab !== 'all' || !!search.trim() || !!inboxId || (!lockedProject && !!projectFilter);
+  const filtersActive = tab !== 'all' || !!search.trim() || !!inboxId || !!taskFilter || (!lockedProject && !!projectFilter);
+  const filteredTask = taskFilter ? tasks.find((task) => task.id === taskFilter) : null;
   // The full Inbox with nothing in it yet: one setup guide instead of two empty panes.
   const neverHadEmail = hasLoaded && threads.length === 0 && !filtersActive && !error && (!embedded || !!emptyState);
   const selectThread = useCallback((id: string | null, messageId: string | null = null) => {
@@ -219,10 +231,36 @@ export function InboxView({ projectId, embedded = false, emptyState, searchQuery
               />
             </div>
           )}
-          <div className={searchQuery === undefined ? 'w-[9.5rem] flex-shrink-0' : 'w-full'}>
+          <div className={searchQuery === undefined ? 'w-[9.5rem] flex-shrink-0' : 'min-w-0 flex-1'}>
             <Select ariaLabel="Status" value={tab} onChange={(value) => isInboxTab(value) && setTab(value)} options={statusOptions} size="sm" />
           </div>
+          {canTriage && !isDemoMode && (
+            <Tooltip content="Sender rules">
+              <button
+                type="button"
+                onClick={() => setRulesOpen(true)}
+                aria-label="Sender rules"
+                className="flex h-full flex-shrink-0 items-center rounded-lg border border-white/[0.07] px-2.5 text-zinc-400 transition-colors hover:bg-white/[0.05] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+              >
+                <SlidersHorizontal size={14} aria-hidden="true" />
+              </button>
+            </Tooltip>
+          )}
         </div>
+        {taskFilter && (
+          <div className="flex items-center gap-2 rounded-lg bg-brand-500/[0.08] px-2.5 py-1.5 text-xs text-zinc-200">
+            <SquareCheck size={13} className="flex-shrink-0 text-emerald-300" aria-hidden="true" />
+            <span className="min-w-0 flex-1 truncate">Email for <span className="font-medium text-white">{filteredTask?.title ?? 'one task'}</span></span>
+            <button
+              type="button"
+              onClick={() => setTaskFilter('')}
+              aria-label="Show all email"
+              className="rounded p-0.5 text-zinc-400 hover:bg-white/[0.08] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+            >
+              <X size={13} aria-hidden="true" />
+            </button>
+          </div>
+        )}
         {(showInboxFilter || !lockedProject) && (
           <div className={`grid gap-2 ${showInboxFilter && !lockedProject ? 'grid-cols-2' : 'grid-cols-1'}`}>
             {showInboxFilter && <Select ariaLabel="Inbox" value={inboxId} onChange={setInboxId} options={inboxOptions} size="sm" />}
@@ -303,7 +341,10 @@ export function InboxView({ projectId, embedded = false, emptyState, searchQuery
                         <span className="flex-shrink-0 text-xs tabular-nums text-zinc-400">{formatListTime(thread.last_message_at)}</span>
                       </span>
                       <span className={`mt-0.5 block truncate text-[13px] ${attention ? 'text-zinc-100' : 'text-zinc-300'}`}>{thread.subject || '(no subject)'}</span>
-                      {thread.snippet && <span className="mt-0.5 line-clamp-1 text-xs text-zinc-400">{thread.snippet}</span>}
+                      {/* Where the thread stands, when the agent has said; else the newest email's opening. */}
+                      {thread.summary ? (
+                        <span className="mt-0.5 line-clamp-1 text-xs text-zinc-300"><span className="sr-only">Where it stands: </span>{thread.summary}</span>
+                      ) : thread.snippet && <span className="mt-0.5 line-clamp-1 text-xs text-zinc-400">{thread.snippet}</span>}
                       {/* The project leads the details: which client, then what the thread led to. */}
                       {(!lockedProject || thread.state !== 'handled' || thread.urgent || thread.untrusted || thread.task_count > 0 || thread.reminder_count > 0 || thread.attachment_count > 0) && (
                         <span className="mt-2 flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
@@ -368,6 +409,7 @@ export function InboxView({ projectId, embedded = false, emptyState, searchQuery
       className={embedded ? 'min-h-0 flex-1 overflow-hidden' : 'glass-card overflow-hidden rounded-xl'}
       style={embedded ? undefined : { height: 'calc(100dvh - 150px)', minHeight: 520 }}
     >
+      <SenderRulesManager isOpen={rulesOpen} onClose={() => setRulesOpen(false)} onChanged={() => void load({ mode: 'refresh' })} />
       {neverHadEmail ? (embedded ? emptyState : <InboxEmptyState inboxes={inboxes} />) : (
       <div className="grid h-full grid-cols-[minmax(0,1fr)] lg:grid-cols-[minmax(320px,380px)_minmax(0,1fr)]">
         <div className={`h-full min-h-0 lg:border-r lg:border-white/[0.06] ${selectedId ? 'hidden lg:block' : 'block'}`}>{list}</div>

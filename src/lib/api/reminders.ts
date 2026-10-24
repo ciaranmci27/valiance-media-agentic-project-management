@@ -25,6 +25,8 @@ export const createReminderSchema = z.object({
   task_id: z.uuid().nullable().optional(),
   project_id: z.uuid().nullable().optional(),
   owner_id: z.uuid().optional(),
+  // The inbound email it came from, in an inbox the key can read.
+  source_message_id: z.uuid().nullable().optional(),
 }).strict().refine((r) => !r.remind_at || !!r.remind_on, { message: 'A time needs a date (remind_on)', path: ['remind_at'] });
 
 export const updateReminderSchema = z.object({
