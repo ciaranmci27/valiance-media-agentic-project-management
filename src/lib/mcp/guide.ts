@@ -15,6 +15,10 @@ Tasks
 - Without tasks.manage_all you can change only tasks assigned to you, and new tasks you create are assigned to you.
 - update_task with acceptance_criteria replaces them all and clears their satisfied flags. To tick one off, use update_acceptance_criterion.
 
+Task files
+- add_task_file attaches a file to a task: link an email attachment by email_attachment_id or a project file by entity_file_id (neither is copied), or send small bytes as content_base64 with a name. Add a note saying why it is there.
+- list_task_files shows what a task holds; get_task_file_link gives a short-lived link to open one.
+
 Reviews
 - submit_task_review needs the pull request URL and the full 40-character head commit SHA. Assignees cannot review their own work.
 - One verdict per commit: reviewing the same commit again returns the first verdict with already_reviewed.

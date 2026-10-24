@@ -46,6 +46,10 @@ export function getEndpointScopes(endpoint: EndpointDoc): string[] {
       ? ['time.manage_own', 'time.manage_all']
       : ['time.manage_own', 'time.read_all', 'time.manage_all'];
   }
+  if (/^\/api\/v1\/tasks\/:id\/files/.test(path)) {
+    if (method === 'GET') return ['files.read', 'files.manage'];
+    return method === 'POST' ? ['files.upload'] : ['files.upload', 'files.manage'];
+  }
   if (path.includes('/tasks')) {
     if (!write) return ['tasks.read', 'tasks.manage_all'];
     if (path === '/api/v1/tasks' && method === 'POST') return ['tasks.create'];
@@ -622,6 +626,55 @@ export const endpoints: EndpointDoc[] = [
       { name: 'id', type: 'uuid', required: true, description: 'Task ID' },
       { name: 'commentId', type: 'uuid', required: true, description: 'Comment ID' },
     ],
+  },
+
+  // ─── Task Files ───────────────────────────────────────────────────
+  { method: 'GET', path: '/api/v1/tasks/:id/files', description: 'List the files on a task, oldest first. Each is an upload (the task\'s own copy), an email_attachment (a link to an email\'s stored attachment) or a project_file (a link to a file on the task\'s project). source names what a link points to, with the email\'s ids and subject only when your key can open its inbox; preview says whether it opens inline (image, pdf, text); available is false when a linked file is gone.', group: 'Task Files',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'Task ID' }],
+  },
+  { method: 'POST', path: '/api/v1/tasks/:id/files', description: 'Add a file to a task. Send exactly one source. Uploads are stored once per project by the SHA-256 the server computes. Linking an email attachment needs inbound_email.read and an inbox granted to the key\'s member; it is linked, not copied, unless the email is due for deletion within two days, when the task gets its own copy (retention copies any other linked attachment before it deletes its email). Answers 201 with the new file, or 200 with the existing entry when the task already has that file.', group: 'Task Files',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'Task ID' }],
+    body: [
+      { name: 'content_base64', type: 'string', required: false, description: 'The file\'s bytes, base64, 3 MB at most. Needs name.' },
+      { name: 'upload_id', type: 'uuid', required: false, description: 'A file uploaded to an upload link (POST /files/uploads), up to 50 MB. Needs name.' },
+      { name: 'email_attachment_id', type: 'uuid', required: false, description: 'An email attachment to link' },
+      { name: 'entity_file_id', type: 'uuid', required: false, description: 'A file on the task\'s project to link' },
+      { name: 'name', type: 'string', required: false, description: 'File name (folders are dropped). Defaults to the linked file\'s name.' },
+      { name: 'mime_type', type: 'string', required: false, description: 'For bytes: the file type. Guessed from the name when left out.' },
+      { name: 'note', type: 'string', required: false, description: 'Why the file is on the task, 500 characters at most' },
+    ],
+  },
+  { method: 'POST', path: '/api/v1/tasks/:id/files/uploads', description: 'A link to upload one file of up to 50 MB to, valid for two hours. PUT the raw bytes to upload_url with the file\'s Content-Type, then add it with POST /api/v1/tasks/:id/files { upload_id, name }. Returns upload_id, upload_url, token, expires_at and max_bytes.', group: 'Task Files',
+    params: [{ name: 'id', type: 'uuid', required: true, description: 'Task ID' }],
+  },
+  { method: 'GET', path: '/api/v1/tasks/:id/files/:fileId', description: 'Get one task file', group: 'Task Files',
+    params: [
+      { name: 'id', type: 'uuid', required: true, description: 'Task ID' },
+      { name: 'fileId', type: 'uuid', required: true, description: 'Task file ID' },
+    ],
+  },
+  { method: 'PATCH', path: '/api/v1/tasks/:id/files/:fileId', description: 'Rename a task file or change its note. Your own, or any with files.manage.', group: 'Task Files',
+    params: [
+      { name: 'id', type: 'uuid', required: true, description: 'Task ID' },
+      { name: 'fileId', type: 'uuid', required: true, description: 'Task file ID' },
+    ],
+    body: [
+      { name: 'name', type: 'string', required: false, description: 'New file name' },
+      { name: 'note', type: 'string|null', required: false, description: 'New note, or null to clear it' },
+    ],
+  },
+  { method: 'DELETE', path: '/api/v1/tasks/:id/files/:fileId', description: 'Move a task file to Trash. Your own, or any with files.manage. A linked email attachment or project file stays where it is. It can be restored from Trash in the app.', group: 'Task Files',
+    params: [
+      { name: 'id', type: 'uuid', required: true, description: 'Task ID' },
+      { name: 'fileId', type: 'uuid', required: true, description: 'Task file ID' },
+    ],
+  },
+  { method: 'GET', path: '/api/v1/tasks/:id/files/:fileId/url', description: 'A short link to open the file: a one-minute download, or with inline=true a five-minute link for images, PDFs and text (other kinds answer 415). Through a key, a linked email attachment opens only if its inbox lets agents read that kind (403 not_agent_readable).', group: 'Task Files',
+    params: [
+      { name: 'id', type: 'uuid', required: true, description: 'Task ID' },
+      { name: 'fileId', type: 'uuid', required: true, description: 'Task file ID' },
+    ],
+    queryParams: [{ name: 'inline', type: 'boolean', description: 'true for a link that opens in the browser' }],
   },
 
   // ─── Leads ────────────────────────────────────────────────────────

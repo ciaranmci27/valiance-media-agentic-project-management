@@ -13,6 +13,8 @@ import * as tasks from '@/app/api/v1/tasks/route';
 import * as task from '@/app/api/v1/tasks/[id]/route';
 import * as taskComments from '@/app/api/v1/tasks/[id]/comments/route';
 import * as taskReviews from '@/app/api/v1/tasks/[id]/reviews/route';
+import * as taskFiles from '@/app/api/v1/tasks/[id]/files/route';
+import * as taskFileUrl from '@/app/api/v1/tasks/[id]/files/[fileId]/url/route';
 import * as taskSubtasks from '@/app/api/v1/tasks/[id]/subtasks/route';
 import * as taskSubtask from '@/app/api/v1/tasks/[id]/subtasks/[subtaskId]/route';
 import * as taskCriteria from '@/app/api/v1/tasks/[id]/acceptance-criteria/route';
@@ -55,6 +57,8 @@ export const ROUTE_MODULES: Record<string, RouteModule> = {
   '/api/v1/tasks/{id}': task,
   '/api/v1/tasks/{id}/comments': taskComments,
   '/api/v1/tasks/{id}/reviews': taskReviews,
+  '/api/v1/tasks/{id}/files': taskFiles,
+  '/api/v1/tasks/{id}/files/{fileId}/url': taskFileUrl,
   '/api/v1/tasks/{id}/subtasks': taskSubtasks,
   '/api/v1/tasks/{id}/subtasks/{subtaskId}': taskSubtask,
   '/api/v1/tasks/{id}/acceptance-criteria': taskCriteria,

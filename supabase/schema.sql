@@ -12370,20 +12370,22 @@ ON CONFLICT (id) DO NOTHING;
 
 ALTER TABLE public.task_files ENABLE ROW LEVEL SECURITY;
 
--- Read with the task and the file permission; add as yourself; change or
--- trash your own, or any with files.manage. Most writes are server routes.
+-- Read with the task and the file permission; written only by the server
+-- (20261024074521_task_files_server_writes.sql), which checks what the
+-- database cannot: a linked attachment's inbox is readable by the person, a
+-- project file is the task's project's, an upload's path is the hash of its
+-- bytes in the task's project. Trash and restore go through
+-- soft_delete_record and restore_record (can_trash_record: your own, or any
+-- with files.manage).
 CREATE POLICY task_files_select ON public.task_files FOR SELECT TO authenticated
   USING (public.has_permission('files.read') AND public.can_access_task(task_id));
-CREATE POLICY task_files_insert ON public.task_files FOR INSERT TO authenticated
-  WITH CHECK (public.has_permission('files.upload') AND public.can_access_task(task_id)
-    AND added_by = public.current_team_member_id());
-CREATE POLICY task_files_update ON public.task_files FOR UPDATE TO authenticated
-  USING (public.can_access_task(task_id) AND (public.has_permission('files.manage') OR added_by = public.current_team_member_id()))
-  WITH CHECK (public.can_access_task(task_id) AND (public.has_permission('files.manage') OR added_by = public.current_team_member_id()));
 CREATE POLICY task_files_not_deleted ON public.task_files AS RESTRICTIVE FOR ALL TO authenticated
   USING (deleted_at IS NULL) WITH CHECK (deleted_at IS NULL);
 CREATE POLICY task_files_parent_live ON public.task_files AS RESTRICTIVE FOR ALL TO authenticated
   USING (public.task_is_live(task_id));
+REVOKE ALL ON public.task_files FROM anon, authenticated;
+GRANT SELECT ON public.task_files TO authenticated;
+GRANT ALL ON public.task_files TO service_role;
 
 CREATE OR REPLACE FUNCTION public.log_task_file_activity()
 RETURNS trigger

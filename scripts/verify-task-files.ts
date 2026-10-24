@@ -2,11 +2,12 @@
  * Task files: a task's own uploads and links to email attachments and project
  * files. One live entry per file per task; exactly one source per row; a
  * linked attachment cannot be deleted from under a task; members see only
- * their tasks' files and change only their own (or any with files.manage);
+ * their tasks' files, write none directly (the server does), and trash only
+ * their own (or any with files.manage);
  * files move to Trash and back like comments, blocked while their task is in
  * Trash; the activity log says what happened, project uploads included (the
- * migration also fixes their log trigger). The migration applies to the
- * committed schema and runs twice; schema.sql describes the same end state.
+ * migration also fixes their log trigger). The migrations apply to the
+ * schema from before them and run twice; schema.sql describes the same end state.
  *
  * Runs on PGlite (real Postgres) over the whole real schema; nothing touches
  * a live database.
@@ -19,7 +20,8 @@ import { join } from 'node:path';
 import type { PGlite } from '@electric-sql/pglite';
 import { actAs, createFullSchemaDatabase } from './full-schema-db';
 
-const MIGRATION = join(__dirname, '..', 'supabase', 'migrations', '20261024072858_task_files.sql');
+const MIGRATIONS = ['20261024072858_task_files.sql', '20261024074521_task_files_server_writes.sql']
+  .map((name) => join(__dirname, '..', 'supabase', 'migrations', name));
 const OWNER_USER = '00000000-0000-0000-0000-0000000000d1';
 const MEMBER_USER = '00000000-0000-0000-0000-0000000000d2';
 const SHA_A = 'a'.repeat(64);
@@ -41,16 +43,19 @@ async function attempt(db: PGlite, sql: string, params: unknown[] = []): Promise
   }
 }
 
-/** The schema as committed, before this migration (production's shape). */
-function committedSchema(): string {
-  return execFileSync('git', ['show', 'HEAD:app/supabase/schema.sql'], { cwd: join(__dirname, '..'), encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+/** schema.sql from just before the first task files migration was committed. */
+function schemaBefore(): string {
+  const git = (args: string[]) => execFileSync('git', args, { cwd: join(__dirname, '..'), encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  const added = git(['log', '--diff-filter=A', '--format=%H', '--', 'supabase/migrations/20261024072858_task_files.sql']).trim().split('\n').pop();
+  if (!added) throw new Error('the task files migration is not committed');
+  return git(['show', `${added}^:app/supabase/schema.sql`]);
 }
 
 async function run(db: PGlite, label: string) {
   const q = async <T = Record<string, unknown>>(sql: string, params: unknown[] = []) => (await db.query<T>(sql, params)).rows;
   const superuser = async () => {
     await db.exec('RESET ROLE');
-    await db.query("SELECT set_config('request.jwt.claim.sub', '', false), set_config('request.jwt.claim.role', '', false), set_config('request.headers', '', false)");
+    await db.query("SELECT set_config('request.jwt.claim.sub', '', false), set_config('request.jwt.claim.role', '', false), set_config('request.jwt.claims', '', false), set_config('request.headers', '', false)");
   };
   const asOwner = () => actAs(db, OWNER_USER);
   const asMember = () => actAs(db, MEMBER_USER);
@@ -87,25 +92,26 @@ async function run(db: PGlite, label: string) {
   `);
   const attachment = '00000000-0000-4000-8000-0000000000f4';
 
-  // --- Adding files ----------------------------------------------------------------
+  // --- Adding files: the server writes, members only read ---------------------------
   await asMember();
+  check(t('a member cannot add a task file directly, even to their own task as themselves'),
+    /permission denied/.test((await attempt(db, "INSERT INTO public.task_files (task_id, kind, storage_path, sha256, name, added_by) VALUES ($1, 'upload', $2, $3, 'x.png', $4)", [task, `${project}/${'c'.repeat(64)}`, 'c'.repeat(64), member])) ?? ''));
+
+  // The server: the service role, naming the member it acts for (getActorClient).
+  await db.exec('RESET ROLE; SET ROLE service_role');
+  await db.query("SELECT set_config('request.jwt.claims', $1, false), set_config('request.jwt.claim.role', 'service_role', false), set_config('request.headers', $2, false)",
+    [JSON.stringify({ role: 'service_role' }), JSON.stringify({ 'x-actor-member-id': member, 'x-actor-via': 'app' })]);
   const insertUpload = (sha: string, name = 'banner.png') => attempt(db,
     `INSERT INTO public.task_files (task_id, kind, storage_path, sha256, name, mime_type, file_size, added_by)
      VALUES ($1, 'upload', $2, $3, $4, 'image/png', 2048, $5)`, [task, `${project}/${sha}`, sha, name, member]);
-  check(t('a member uploads to a task they can open'), (await insertUpload(SHA_A)) === null);
+  check(t('the server adds an upload for a member'), (await insertUpload(SHA_A)) === null);
   check(t('the same bytes twice on one task add nothing (one live entry)'), /task_files_live_upload|duplicate key/.test((await insertUpload(SHA_A, 'banner copy.png')) ?? ''));
-  check(t('a member links a project file and an email attachment, no copies'),
+  check(t('it links a project file and an email attachment, no copies'),
     (await attempt(db, "INSERT INTO public.task_files (task_id, kind, entity_file_id, name, added_by) VALUES ($1, 'project_file', $2, 'brand-guide.pdf', $3)", [task, projectFile, member])) === null
       && (await attempt(db, "INSERT INTO public.task_files (task_id, kind, email_attachment_id, name, mime_type, added_by) VALUES ($1, 'email_attachment', $2, 'screenshot.png', 'image/png', $3)", [task, attachment, member])) === null);
   check(t('a row has exactly one source'),
     /task_files_one_source/.test((await attempt(db, "INSERT INTO public.task_files (task_id, kind, name, added_by) VALUES ($1, 'upload', 'no bytes', $2)", [task, member])) ?? '')
       && /task_files_one_source/.test((await attempt(db, "INSERT INTO public.task_files (task_id, kind, email_attachment_id, entity_file_id, name, added_by) VALUES ($1, 'email_attachment', $2, $3, 'both', $4)", [task, attachment, projectFile, member])) ?? ''));
-  check(t('nobody adds a file as someone else'),
-    (await attempt(db, "INSERT INTO public.task_files (task_id, kind, storage_path, sha256, name, added_by) VALUES ($1, 'upload', 'p/x', $2, 'x.png', $3)", [task, 'c'.repeat(64), owner])) !== null);
-  check(t('nobody adds to a task they cannot open'),
-    (await attempt(db, "INSERT INTO public.task_files (task_id, kind, storage_path, sha256, name, added_by) VALUES ($1, 'upload', 'p/y', $2, 'y.png', $3)", [hiddenTask, 'd'.repeat(64), member])) !== null);
-
-  await superuser();
   await db.query("INSERT INTO public.task_files (task_id, kind, storage_path, sha256, name, added_by) VALUES ($1, 'upload', $2, $3, 'secret.png', $4)",
     [hiddenTask, `${elsewhere}/${SHA_A}`, SHA_A, owner]);
   const ownersFile = (await q<{ id: string }>("INSERT INTO public.task_files (task_id, kind, storage_path, sha256, name, added_by) VALUES ($1, 'upload', $2, $3, 'owners.png', $4) RETURNING id",
@@ -115,6 +121,9 @@ async function run(db: PGlite, label: string) {
   const visible = await q<{ name: string }>('SELECT name FROM public.task_files ORDER BY name');
   check(t("a member sees their task's files and none of another project's"),
     visible.map((r) => r.name).join(',') === 'banner.png,brand-guide.pdf,owners.png,screenshot.png', visible);
+  check(t('a member cannot rename or repoint a file directly'),
+    /permission denied/.test((await attempt(db, "UPDATE public.task_files SET storage_path = $1 WHERE name = 'banner.png'", [`${elsewhere}/${SHA_A}`])) ?? '')
+      && /permission denied/.test((await attempt(db, "UPDATE public.task_files SET name = 'renamed.png' WHERE name = 'banner.png'")) ?? ''));
 
   // --- A link holds its source -------------------------------------------------------
   await superuser();
@@ -131,8 +140,8 @@ async function run(db: PGlite, label: string) {
     && (await q("SELECT 1 FROM public.task_files WHERE id = $1", [banner])).length === 0);
   check(t('it is listed in Trash with its task'),
     (await q<{ record_type: string; context: string | null }>('SELECT record_type, context FROM public.list_trash() WHERE id = $1', [banner]))[0]?.context === 'Holiday banner');
-  check(t('trashing frees its place: the same bytes can be added again'), (await insertUpload(SHA_A, 'banner again.png')) === null);
   await superuser();
+  check(t('trashing frees its place: the same bytes can be added again'), (await insertUpload(SHA_A, 'banner again.png')) === null);
   await db.query("UPDATE public.task_files SET deleted_at = now() WHERE name = 'banner again.png'");
   await asMember();
   check(t('and it comes back from Trash'), (await attempt(db, "SELECT public.restore_record('task_files', $1)", [banner])) === null
@@ -157,10 +166,11 @@ async function run(db: PGlite, label: string) {
 }
 
 async function main() {
-  const migrated = await createFullSchemaDatabase({ schemaSql: committedSchema() });
+  const migrated = await createFullSchemaDatabase({ schemaSql: schemaBefore() });
   await migrated.exec('RESET ROLE');
-  await migrated.exec(readFileSync(MIGRATION, 'utf8'));
-  await migrated.exec(readFileSync(MIGRATION, 'utf8'));
+  for (let pass = 0; pass < 2; pass++) {
+    for (const path of MIGRATIONS) await migrated.exec(readFileSync(path, 'utf8'));
+  }
   await run(migrated, 'migrated');
   await migrated.close();
 

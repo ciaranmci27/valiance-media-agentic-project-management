@@ -161,6 +161,7 @@ function readBody(request: IncomingMessage): Promise<Buffer> {
 export class FakeStorage {
   objects = new Map<string, { bytes: Buffer; contentType: string }>();
   uploads = 0;
+  copies = 0;
   failUploads = false;
   /** A delete request naming any of these paths fails whole (500), removing nothing. */
   failRemove = new Set<string>();
@@ -180,6 +181,32 @@ export class FakeStorage {
       const key = `${match[1]}/${match[2]}`;
       if (!this.objects.has(key)) { send(400, { statusCode: '404', error: 'not_found', message: 'Object not found' }); return true; }
       send(200, { signedURL: `/object/sign/${key}?token=signed-${Date.now()}` });
+      return true;
+    }
+    if ((match = /^object\/upload\/sign\/([^/]+)\/(.+)$/.exec(path))) {
+      // A signed upload link (createSignedUploadUrl), then the upload to it (PUT with the token).
+      const key = `${match[1]}/${match[2]}`;
+      if (request.method === 'POST') {
+        send(200, { url: `/object/upload/sign/${key}?token=upload-${Date.now()}` });
+        return true;
+      }
+      if (request.method === 'PUT' && url.searchParams.get('token')?.startsWith('upload-')) {
+        if (this.objects.has(key)) { send(400, { statusCode: '409', error: 'Duplicate', message: 'The resource already exists' }); return true; }
+        this.objects.set(key, { bytes: await readBody(request), contentType: String(request.headers['content-type'] ?? '') });
+        this.uploads++;
+        send(200, { Key: key });
+        return true;
+      }
+    }
+    if (path === 'object/copy' && request.method === 'POST') {
+      const { bucketId, sourceKey, destinationKey, destinationBucket } = JSON.parse((await readBody(request)).toString()) as Record<string, string>;
+      const source = this.objects.get(`${bucketId}/${sourceKey}`);
+      const target = `${destinationBucket ?? bucketId}/${destinationKey}`;
+      if (!source) { send(400, { statusCode: '404', error: 'not_found', message: 'Object not found' }); return true; }
+      if (this.objects.has(target)) { send(400, { statusCode: '409', error: 'Duplicate', message: 'The resource already exists' }); return true; }
+      this.objects.set(target, { ...source });
+      this.copies++;
+      send(200, { Key: target });
       return true;
     }
     if ((match = /^object\/list-v2\/([^/]+)$/.exec(path)) && request.method === 'POST') {

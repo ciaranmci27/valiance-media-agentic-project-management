@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { keepLinkedTaskFiles } from '@/lib/task-files/retention';
 import { INBOUND_EMAIL_BUCKET, recordInboxError } from './ingest';
 
 /**
@@ -8,8 +9,9 @@ import { INBOUND_EMAIL_BUCKET, recordInboxError } from './ingest';
  * the service client.
  *
  * Retention (daily): per inbox, messages older than its retention_days, and
- * messages stuck in receiving for over 24 hours. Files first (raw .eml and
- * attachments), then the rows (email_retention_delete: attachments, task
+ * messages stuck in receiving for over 24 hours. Task files linking an
+ * attachment get their own copy first (keepLinkedTaskFiles), then the files
+ * go (raw .eml and attachments), then the rows (email_retention_delete: attachments, task
  * links, triage, recipients, candidates, the message, then threads left
  * empty). A message whose files fail to delete keeps every row and is
  * retried by the next run. Batches are bounded by size and time, so a run
@@ -58,6 +60,8 @@ export interface MaintenanceSummary {
 
 export interface RetentionSummary extends MaintenanceSummary {
   kind: 'retention';
+  /** Task files that linked a deleted attachment and now hold their own copy. */
+  task_files_kept: number;
   by_inbox: Record<string, { messages_deleted: number; stuck_deleted: number; failures: number }>;
   failed_message_ids: string[];
 }
@@ -160,7 +164,7 @@ export async function runRetention(supabase: SupabaseClient, options: Maintenanc
   const budgetMs = options.budgetMs ?? DEFAULT_BUDGET_MS;
   const batchSize = options.batchSize ?? 50;
   const maxMessages = options.maxMessages ?? 2000;
-  const summary: RetentionSummary = { ...emptySummary('retention', startedAt), by_inbox: {}, failed_message_ids: [] };
+  const summary: RetentionSummary = { ...emptySummary('retention', startedAt), task_files_kept: 0, by_inbox: {}, failed_message_ids: [] };
   const inbox = (id: string) => (summary.by_inbox[id] ??= { messages_deleted: 0, stuck_deleted: 0, failures: 0 });
   // Messages this run must not pick again: their files failed to delete, or
   // their rows were no longer due. The next run tries them afresh.
@@ -173,9 +177,24 @@ export async function runRetention(supabase: SupabaseClient, options: Maintenanc
         summary.more_pending = (await listDue(supabase, 1, exclude)).length > 0;
         break;
       }
-      const due = await listDue(supabase, Math.min(batchSize, maxMessages - handled), exclude);
-      if (due.length === 0) break;
-      handled += due.length;
+      const listed = await listDue(supabase, Math.min(batchSize, maxMessages - handled), exclude);
+      if (listed.length === 0) break;
+      handled += listed.length;
+
+      // A task linking one of these attachments gets its own copy before
+      // anything is deleted; a message whose copy failed waits for next run.
+      const kept = await keepLinkedTaskFiles(supabase, listed.map((message) => message.id));
+      summary.task_files_kept += kept.kept;
+      const held = new Set(kept.failed);
+      for (const message of listed.filter((row) => held.has(row.id))) {
+        summary.failures++;
+        inbox(message.inbox_id).failures++;
+        summary.failed_message_ids.push(message.id);
+        exclude.push(message.id);
+      }
+      if (kept.last_error) summary.last_error = kept.last_error;
+      const due = listed.filter((message) => !held.has(message.id));
+      if (due.length === 0) continue;
 
       // Files first. One request for the whole batch; if Storage refuses it,
       // message by message, so one bad file holds back only its own message.

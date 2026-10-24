@@ -136,6 +136,20 @@ export async function createEmailDatabase(
     await db.exec(`ALTER TABLE public.business_settings ADD COLUMN ${settingsColumn.trim().replace(/,$/, '')};`);
     await db.exec(canonical.slice(start, end));
   }
+  // Retention asks which task files link an attachment (keepLinkedTaskFiles;
+  // verify-task-files-api.ts covers that on the full schema). A stand-in with
+  // the columns it reads and the same hold on the attachment.
+  await db.exec(`
+    CREATE TABLE public.task_files (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      task_id uuid NOT NULL REFERENCES public.tasks(id),
+      kind text NOT NULL,
+      storage_path text,
+      sha256 text,
+      email_attachment_id uuid REFERENCES public.email_attachments(id) ON DELETE RESTRICT,
+      deleted_at timestamptz
+    );
+  `);
   await db.exec(`
     GRANT USAGE ON SCHEMA public, auth, storage TO service_role, authenticated;
     GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;

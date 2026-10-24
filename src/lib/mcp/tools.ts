@@ -250,6 +250,26 @@ export const PM_TOOLS: PmTool[] = [
     request: ({ task_id, ...query }) => ({ params: { id: task_id }, query }),
   }),
   routeTool({
+    name: 'list_task_files',
+    lead: "List a task's files and attachments.",
+    detail: 'Uploads, linked email attachments (source.type email, with its subject when you can open its inbox) and linked project files, oldest first. Open one with get_task_file_link.',
+    input: z.object({ task_id: id('task_id') }).strict(),
+    permission: 'files.read',
+    method: 'GET',
+    path: '/api/v1/tasks/{id}/files',
+    request: ({ task_id }) => ({ params: { id: task_id } }),
+  }),
+  routeTool({
+    name: 'get_task_file_link',
+    lead: 'Get a short-lived link to open one task file.',
+    detail: 'A one-minute download link, or with inline true a five-minute link for images, PDFs and text. A linked email attachment opens only if its inbox lets agents read that kind.',
+    input: z.object({ task_id: id('task_id'), file_id: id('file_id'), inline: z.boolean().optional() }).strict(),
+    permission: 'files.read',
+    method: 'GET',
+    path: '/api/v1/tasks/{id}/files/{fileId}/url',
+    request: ({ task_id, file_id, inline }) => ({ params: { id: task_id, fileId: file_id }, query: inline ? { inline: 'true' } : {} }),
+  }),
+  routeTool({
     name: 'list_task_reviews',
     lead: "List a task's review history, newest first.",
     detail: 'get_task already carries the latest review.',
@@ -322,6 +342,28 @@ export const PM_TOOLS: PmTool[] = [
     path: '/api/v1/tasks/{id}/comments',
     // The route requires user_id but always uses the key's member.
     request: ({ task_id, text }, context) => ({ params: { id: task_id }, body: { user_id: context.memberId, text } }),
+  }),
+  routeTool({
+    name: 'add_task_file',
+    lead: 'Attach a file to a task.',
+    detail:
+      "Exactly one of: email_attachment_id (links the email's own file, no copy), entity_file_id (a file on the task's project), or content_base64 with name (the bytes, 3 MB at most). Adding a file the task already has returns that entry. note says why it is there.",
+    input: z.object({
+      task_id: id('task_id'),
+      email_attachment_id: id('email_attachment_id').optional(),
+      entity_file_id: id('entity_file_id').optional(),
+      content_base64: z.string().min(1).max(4_194_304).optional(),
+      name: z.string().min(1).max(255).optional(),
+      mime_type: z.string().max(255).optional(),
+      note: z.string().min(1).max(500).optional(),
+    }).strict().refine(
+      (value) => [value.email_attachment_id, value.entity_file_id, value.content_base64].filter((source) => source !== undefined).length === 1,
+      'Send exactly one of email_attachment_id, entity_file_id or content_base64',
+    ).refine((value) => value.content_base64 === undefined || value.name !== undefined, 'content_base64 needs a name'),
+    permission: 'files.upload',
+    method: 'POST',
+    path: '/api/v1/tasks/{id}/files',
+    request: ({ task_id, ...body }) => ({ params: { id: task_id }, body }),
   }),
   routeTool({
     name: 'add_subtask',
