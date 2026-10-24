@@ -5,6 +5,7 @@ import { fetchAllRows } from '@/lib/supabase/fetch-all';
 import { siteConfig } from '@/site-config';
 import { domainOf, normalizeAddress, organizationalDomain } from './addresses';
 import { attachmentKind } from './attachments';
+import { normalizeContentId } from './display';
 import { isPublicEmailDomain, validateClientDomain } from './public-domains';
 import type { CandidateReason } from './mapping';
 import { matchesSearch, needsAttention, snippetOf, tabCounts, threadFlags, threadInTab, type MessageState, type ThreadFlags } from './inbox-view';
@@ -303,12 +304,26 @@ export async function listThreads(ctx: InboxContext, filters: ThreadListFilters)
 
   const latestIds = page.map((entry) => entry.messages[entry.messages.length - 1].id);
   const pageMessageIds = page.flatMap((entry) => entry.messages.map((message) => message.id));
-  const [bodies, attachments] = await Promise.all([
+  const [bodies, attachments, links] = await Promise.all([
     readIn<{ id: string; new_text: string | null; text_body: string | null }>(latestIds, (chunk, from, to, count) =>
       ctxSelect(ctx.service, 'email_messages', 'id, new_text, text_body', count).in('id', chunk).order('id').range(from, to)),
     readIn<{ id: string; message_id: string }>(pageMessageIds, (chunk, from, to, count) =>
       ctxSelect(ctx.service, 'email_attachments', 'id, message_id', count).in('message_id', chunk).order('id').range(from, to)),
+    readIn<{ id: string; message_id: string; task_id: string }>(pageMessageIds, (chunk, from, to, count) =>
+      ctxSelect(ctx.service, 'email_task_links', 'id, message_id, task_id', count).in('message_id', chunk).order('id').range(from, to)),
   ]);
+  // Counts only cover tasks the member can open and that are not in the trash.
+  const linkedTaskIds = [...new Set(links.map((link) => link.task_id))];
+  const liveTasks = linkedTaskIds.length
+    ? (await readIn<{ id: string; project_id: string }>(linkedTaskIds, (chunk, from, to, count) =>
+        ctxSelect(ctx.service, 'tasks', 'id, project_id', count).in('id', chunk).is('deleted_at', null).order('id').range(from, to)))
+        .filter((task) => accessAllowsProject(ctx.access, task.project_id))
+    : [];
+  const liveTaskIds = new Set(liveTasks.map((task) => task.id));
+  const openReminders = liveTaskIds.size
+    ? await readIn<{ id: string; task_id: string }>([...liveTaskIds], (chunk, from, to, count) =>
+        ctxSelect(ctx.service, 'reminders', 'id, task_id', count).in('task_id', chunk).eq('status', 'open').is('deleted_at', null).order('id').range(from, to))
+    : [];
   const bodyById = new Map(bodies.map((row) => [row.id, row]));
   const threads: InboxThreadSummary[] = page.map((entry) => {
     const latest = entry.messages[entry.messages.length - 1];
@@ -333,6 +348,10 @@ export async function listThreads(ctx: InboxContext, filters: ThreadListFilters)
       urgent: entry.flags.urgent,
       untrusted: entry.flags.untrusted,
       attachment_count: attachments.filter((row) => ids.has(row.message_id)).length,
+      ...(() => {
+        const taskIds = new Set(links.filter((link) => ids.has(link.message_id) && liveTaskIds.has(link.task_id)).map((link) => link.task_id));
+        return { task_count: taskIds.size, reminder_count: openReminders.filter((reminder) => taskIds.has(reminder.task_id)).length };
+      })(),
     };
   });
   return { inboxes, threads, total: inTab.length, counts };
@@ -420,7 +439,7 @@ export async function threadDetail(ctx: InboxContext, threadId: string): Promise
     readIn<Row & { message_id: string; kind: string; address: string; name: string; contact_id: string | null; position: number }>(ids, (chunk, from, to, count) =>
       ctxSelect(service, 'email_message_recipients', 'id, message_id, kind, address, name, contact_id, position', count).in('message_id', chunk).order('id').range(from, to)),
     readIn<Row>(ids, (chunk, from, to, count) =>
-      ctxSelect(service, 'email_attachments', 'id, message_id, position, filename, content_type, size_bytes, skipped_reason, uploaded_at, agent_label', count)
+      ctxSelect(service, 'email_attachments', 'id, message_id, position, filename, content_type, size_bytes, skipped_reason, uploaded_at, agent_label, content_id', count)
         .in('message_id', chunk).order('id').range(from, to)),
     readIn<Row & { id: string; message_id: string; created_at: string }>(ids, (chunk, from, to, count) =>
       ctxSelect(service, 'email_triage', 'id, message_id, member_id, outcome, urgent, summary, question_for_human, suggested_reply, created_at', count)
@@ -434,7 +453,7 @@ export async function threadDetail(ctx: InboxContext, threadId: string): Promise
   const taskIds = [...new Set(links.map((link) => link.task_id))];
   const tasks = taskIds.length
     ? await readIn<{ id: string; title: string; status: string; project_id: string }>(taskIds, (chunk, from, to, count) =>
-        ctxSelect(service, 'tasks', 'id, title, status, project_id', count).in('id', chunk).order('id').range(from, to))
+        ctxSelect(service, 'tasks', 'id, title, status, project_id', count).in('id', chunk).is('deleted_at', null).order('id').range(from, to))
     : [];
   const [names, people, viaAddress] = await Promise.all([
     projectNames(ctx, [thread.project_id, ...candidates.map((row) => row.project_id)]),
@@ -507,6 +526,7 @@ export async function threadDetail(ctx: InboxContext, threadId: string): Promise
           available: !attachment.skipped_reason && !!attachment.uploaded_at,
           skipped_reason: (attachment.skipped_reason as string | null) ?? null,
           agent_label: (attachment.agent_label as string | null) ?? null,
+          content_id: attachment.content_id ? normalizeContentId(attachment.content_id as string) : null,
         })),
       triage: triageRow ? {
         id: triageRow.id,
@@ -518,8 +538,9 @@ export async function threadDetail(ctx: InboxContext, threadId: string): Promise
         member: memberId ? { id: memberId, name: people.get(memberId) ?? 'Agent' } : null,
         created_at: triageRow.created_at,
       } : null,
+      // A trashed task drops off the thread until it is restored.
       linked_tasks: links
-        .filter((link) => link.message_id === id)
+        .filter((link) => link.message_id === id && tasks.some((t) => t.id === link.task_id))
         .map((link): InboxLinkedTask => {
           const task = tasks.find((t) => t.id === link.task_id);
           // A task in a project the member cannot reach keeps its ids, never its title or status.
@@ -568,8 +589,12 @@ export async function threadDetail(ctx: InboxContext, threadId: string): Promise
   };
 }
 
-/** A short-lived download link for one stored attachment. */
-export async function attachmentDownloadUrl(ctx: InboxContext, attachmentId: string): Promise<{ url: string; filename: string; expires_in: number }> {
+/**
+ * A short-lived link to one stored attachment: a one-minute download, or
+ * with `inline` a five-minute link that opens in the browser (images in an
+ * email's HTML, the attachment preview).
+ */
+export async function attachmentDownloadUrl(ctx: InboxContext, attachmentId: string, options: { inline?: boolean } = {}): Promise<{ url: string; filename: string; expires_in: number }> {
   if (!canReadInbox(ctx.access)) throw new InboxError(403, 'Forbidden');
   const id = assertId(attachmentId, 'attachment id');
   const attachment = await one<{ id: string; message_id: string; filename: string; storage_path: string | null; uploaded_at: string | null; skipped_reason: string | null }>(
@@ -583,9 +608,9 @@ export async function attachmentDownloadUrl(ctx: InboxContext, attachmentId: str
   if (attachment.skipped_reason || !attachment.storage_path || !attachment.uploaded_at) {
     throw new InboxError(409, 'This file was not stored (it was over the size limit), so there is nothing to download.');
   }
-  const expiresIn = 60;
+  const expiresIn = options.inline ? 300 : 60;
   const { data, error } = await ctx.service.storage.from('inbound-email')
-    .createSignedUrl(attachment.storage_path, expiresIn, { download: attachment.filename || true });
+    .createSignedUrl(attachment.storage_path, expiresIn, options.inline ? undefined : { download: attachment.filename || true });
   if (error || !data?.signedUrl) throw new InboxError(502, 'Could not create a download link');
   return { url: data.signedUrl, filename: attachment.filename, expires_in: expiresIn };
 }

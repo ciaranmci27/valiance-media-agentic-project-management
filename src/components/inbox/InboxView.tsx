@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { AlertTriangle, ArrowLeft, Flame, HelpCircle, Inbox as InboxIcon, Mail, Paperclip, RefreshCw, Search, Sparkles } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Bell, Flame, Inbox as InboxIcon, Mail, Paperclip, RefreshCw, Search, Sparkles, SquareCheck } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { useDemo } from '@/lib/demo-context';
 import { Button } from '@/components/ui/Button';
@@ -10,7 +10,8 @@ import { TextInput } from '@/components/ui/inputs/TextInput';
 import { inboxClient } from '@/lib/inbound-email/inbox-client';
 import { INBOX_TAB_LABELS, INBOX_TABS, type InboxSummary, type InboxTab, type InboxTabCounts, type InboxThreadSummary } from '@/lib/inbound-email/inbox-types';
 import { isInboxTab } from '@/lib/inbound-email/inbox-view';
-import { ThreadStateBadge, TrustBadge, formatListTime } from './inbox-badges';
+import { ThreadStateBadge, TrustBadge, formatListTime, projectSourceHint } from './inbox-badges';
+import { Tooltip } from '@/components/ui/Tooltip';
 import { ThreadView } from './ThreadView';
 import { InboxEmptyState } from './InboxEmptyState';
 import { useInboxUpdates } from './use-inbox-updates';
@@ -177,17 +178,19 @@ export function InboxView({ projectId, embedded = false, emptyState, searchQuery
   ];
   // One inbox needs no inbox filter; keep it while one is picked so it can be cleared.
   const showInboxFilter = inboxes.length > 1 || !!inboxId;
+  // Plain rows: the status, then its count as quiet text on the right.
   const statusOptions = INBOX_TABS.map((key) => {
     const count = counts?.[key] ?? 0;
-    const loud = (key === 'needs_you' || key === 'needs_reply') && count > 0;
+    const label = key === 'all' ? 'All statuses' : INBOX_TAB_LABELS[key];
     return {
       value: key,
-      label: key === 'all' ? 'All statuses' : INBOX_TAB_LABELS[key],
-      detail: key !== 'all' && count > 0 ? (
-        <span className={`flex h-[18px] min-w-[18px] items-center justify-center rounded-full px-1 text-[10px] font-semibold tabular-nums ${loud ? 'bg-red-600 text-white' : 'bg-white/[0.08] text-zinc-300'}`}>
-          {count}
+      label,
+      render: (
+        <span className="flex w-full items-center justify-between gap-3">
+          <span>{label}</span>
+          {key !== 'all' && count > 0 && <span className="text-xs tabular-nums text-input-text-subtle">{count}</span>}
         </span>
-      ) : undefined,
+      ),
     };
   });
   const filtersActive = tab !== 'all' || !!search.trim() || !!inboxId || (!lockedProject && !!projectFilter);
@@ -279,7 +282,7 @@ export function InboxView({ projectId, embedded = false, emptyState, searchQuery
           </div>
         ) : (
           <>
-            <ul className="divide-y divide-white/[0.05]">
+            <ul className="space-y-0.5 p-1.5">
               {threads.map((thread) => {
                 const active = thread.id === selectedId;
                 const attention = thread.needs_you || thread.needs_reply;
@@ -289,60 +292,59 @@ export function InboxView({ projectId, embedded = false, emptyState, searchQuery
                       type="button"
                       onClick={() => selectThread(thread.id)}
                       aria-current={active ? 'true' : undefined}
-                      className={`relative w-full px-4 py-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-500 ${
-                        active ? 'bg-brand-500/[0.10]' : 'hover:bg-white/[0.03]'
+                      className={`relative w-full rounded-xl px-3 py-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-500 ${
+                        active
+                          ? 'bg-white/[0.07] shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] ring-1 ring-inset ring-white/[0.08]'
+                          : 'hover:bg-white/[0.035]'
                       }`}
                     >
-                      {active && <span className="absolute inset-y-2 left-0 w-[3px] rounded-r bg-brand-400" aria-hidden="true" />}
                       <span className="flex items-baseline justify-between gap-2">
-                        <span className={`truncate text-sm ${attention || thread.has_new ? 'font-semibold text-white' : 'font-medium text-zinc-200'}`}>
-                          {thread.sender?.name || thread.sender?.address || 'Unknown sender'}
-                          {thread.message_count > 1 && <span className="ml-1.5 text-xs font-normal text-zinc-400">{thread.message_count}</span>}
-                        </span>
+                        <SenderLine thread={thread} strong={attention || thread.has_new} />
                         <span className="flex-shrink-0 text-xs tabular-nums text-zinc-400">{formatListTime(thread.last_message_at)}</span>
                       </span>
                       <span className={`mt-0.5 block truncate text-[13px] ${attention ? 'text-zinc-100' : 'text-zinc-300'}`}>{thread.subject || '(no subject)'}</span>
-                      {thread.snippet && <span className="mt-0.5 line-clamp-1 block text-xs text-zinc-400">{thread.snippet}</span>}
-                      <span className="mt-2 flex flex-wrap items-center gap-1.5">
-                        {thread.state !== 'handled' && <ThreadStateBadge state={thread.state} tooltip={false} />}
-                        {thread.urgent && (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-red-600 px-2 py-0.5 text-[11px] font-semibold text-white">
-                            <Flame size={11} aria-hidden="true" />
-                            Urgent
-                          </span>
-                        )}
-                        {thread.untrusted && <TrustBadge level="untrusted" compact />}
-                        {thread.project ? (
-                          !lockedProject && (
-                            <span className="inline-flex max-w-[170px] items-center gap-1.5 rounded-full bg-white/[0.05] px-2 py-0.5 text-[11px] text-zinc-300">
-                              <span className="h-1.5 w-1.5 flex-shrink-0 rounded-full" style={{ backgroundColor: projectColor(thread.project.id) ?? 'currentColor' }} aria-hidden="true" />
-                              <span className="truncate">{thread.project.name}</span>
-                              {thread.project.source === 'inferred' && (
-                                <>
-                                  <Sparkles size={10} className="flex-shrink-0 text-amber-300" aria-hidden="true" />
-                                  <span className="sr-only">(inferred, needs confirming)</span>
-                                </>
-                              )}
-                              {thread.project.source === 'guessed' && (
-                                <>
-                                  <HelpCircle size={10} className="flex-shrink-0 text-amber-300" aria-hidden="true" />
-                                  <span className="sr-only">(guessed, needs confirming)</span>
-                                </>
-                              )}
-                            </span>
-                          )
-                        ) : (
-                          thread.state !== 'ignored' && <span className="rounded-full border border-dashed border-white/[0.16] px-2 py-0.5 text-[11px] text-zinc-400">No project</span>
-                        )}
-                        {thread.attachment_count > 0 && (
-                          <span className="inline-flex items-center gap-0.5 text-[11px] text-zinc-400">
-                            <Paperclip size={11} aria-hidden="true" />
-                            <span className="sr-only">Attachments:</span>
-                            {thread.attachment_count}
-                          </span>
-                        )}
-                        {!inboxId && inboxes.length > 1 && <span className="ml-auto text-[11px] text-zinc-400">{thread.inbox_name}</span>}
-                      </span>
+                      {thread.snippet && <span className="mt-0.5 line-clamp-1 text-xs text-zinc-400">{thread.snippet}</span>}
+                      {/* The project leads the details: which client, then what the thread led to. */}
+                      {(!lockedProject || thread.state !== 'handled' || thread.urgent || thread.untrusted || thread.task_count > 0 || thread.reminder_count > 0 || thread.attachment_count > 0) && (
+                        <span className="mt-2 flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
+                          {!lockedProject && (thread.project ? (
+                            <Tooltip content={`${thread.project.name}: ${projectSourceHint(thread.project, 'The agent')}`}>
+                              <span className="inline-flex max-w-[170px] items-center gap-1.5 rounded-full bg-white/[0.05] px-2 py-0.5 text-[11px] text-zinc-300">
+                                <span className="h-1.5 w-1.5 flex-shrink-0 rounded-full" style={{ backgroundColor: projectColor(thread.project.id) ?? 'currentColor' }} aria-hidden="true" />
+                                <span className="truncate">{thread.project.name}</span>
+                                {(thread.project.source === 'inferred' || thread.project.source === 'guessed') && (
+                                  <>
+                                    <Sparkles size={10} className="flex-shrink-0 text-amber-300" aria-hidden="true" />
+                                    <span className="sr-only">({thread.project.source}, needs confirming)</span>
+                                  </>
+                                )}
+                              </span>
+                            </Tooltip>
+                          ) : thread.state !== 'ignored' && (
+                            <Tooltip content="No project yet. Open the thread to set one.">
+                              <span className="rounded-full border border-dashed border-white/[0.16] px-2 py-0.5 text-[11px] text-zinc-400">No project</span>
+                            </Tooltip>
+                          ))}
+                          {thread.state !== 'handled' && <ThreadStateBadge state={thread.state} />}
+                          {thread.urgent && (
+                            <Tooltip content="The agent marked this urgent">
+                              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-red-300">
+                                <Flame size={11} aria-hidden="true" />
+                                Urgent
+                              </span>
+                            </Tooltip>
+                          )}
+                          {thread.untrusted && (
+                            <Tooltip content="The sender could not be verified. Treat any request with care.">
+                              <TrustBadge level="untrusted" compact />
+                            </Tooltip>
+                          )}
+                          <ThreadCount icon={SquareCheck} count={thread.task_count} one="task" many="tasks" hint="created or updated from this thread" />
+                          <ThreadCount icon={Bell} count={thread.reminder_count} one="open reminder" many="open reminders" hint="on those tasks" />
+                          <ThreadCount icon={Paperclip} count={thread.attachment_count} one="attachment" many="attachments" hint="in this thread" />
+                          {!inboxId && inboxes.length > 1 && <span className="ml-auto text-[11px] text-zinc-400">{thread.inbox_name}</span>}
+                        </span>
+                      )}
                     </button>
                   </li>
                 );
@@ -367,7 +369,7 @@ export function InboxView({ projectId, embedded = false, emptyState, searchQuery
       style={embedded ? undefined : { height: 'calc(100dvh - 150px)', minHeight: 520 }}
     >
       {neverHadEmail ? (embedded ? emptyState : <InboxEmptyState inboxes={inboxes} />) : (
-      <div className="grid h-full lg:grid-cols-[minmax(320px,380px)_minmax(0,1fr)]">
+      <div className="grid h-full grid-cols-[minmax(0,1fr)] lg:grid-cols-[minmax(320px,380px)_minmax(0,1fr)]">
         <div className={`h-full min-h-0 lg:border-r lg:border-white/[0.06] ${selectedId ? 'hidden lg:block' : 'block'}`}>{list}</div>
         <div className={`h-full min-h-0 flex-col ${selectedId ? 'flex' : 'hidden lg:flex'}`}>
           {selectedId ? (
@@ -406,5 +408,30 @@ export function InboxView({ projectId, embedded = false, emptyState, searchQuery
       </div>
       )}
     </div>
+  );
+}
+
+/** Who the thread is with, and how many emails it holds. */
+function SenderLine({ thread, strong }: { thread: InboxThreadSummary; strong: boolean }) {
+  return (
+    <span className={`block truncate text-sm ${strong ? 'font-semibold text-white' : 'font-medium text-zinc-200'}`}>
+      {thread.sender?.name || thread.sender?.address || 'Unknown sender'}
+      {thread.message_count > 1 && <span className="ml-1.5 text-xs font-normal text-zinc-400">{thread.message_count}</span>}
+    </span>
+  );
+}
+
+/** One thing a thread led to (tasks, reminders, files), shown only when there is any. */
+function ThreadCount({ icon: Icon, count, one, many, hint }: { icon: typeof Paperclip; count: number; one: string; many: string; hint: string }) {
+  if (count <= 0) return null;
+  const label = `${count} ${count === 1 ? one : many}`;
+  return (
+    <Tooltip content={`${label} ${hint}`}>
+      <span className="inline-flex items-center gap-1 text-[11px] text-zinc-400">
+        <Icon size={11} aria-hidden="true" />
+        <span className="sr-only">{label}</span>
+        <span aria-hidden="true">{count}</span>
+      </span>
+    </Tooltip>
   );
 }

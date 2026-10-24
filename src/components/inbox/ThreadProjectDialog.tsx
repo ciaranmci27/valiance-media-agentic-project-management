@@ -14,7 +14,7 @@ import { Select } from '@/components/ui/inputs/Select';
 import { toast } from '@/components/ui/Toast';
 import { inboxClient } from '@/lib/inbound-email/inbox-client';
 import { CANDIDATE_REASON_LABELS, isAgentChoice, type InboxThreadDetail } from '@/lib/inbound-email/inbox-types';
-import { OTHER_PROJECT } from './inbox-badges';
+import { OTHER_PROJECT, projectSourceHint } from './inbox-badges';
 
 interface ThreadProjectDialogProps {
   isOpen: boolean;
@@ -128,6 +128,7 @@ export function ThreadProjectDialog({ isOpen, onClose, detail, onSaved }: Thread
             searchable
             placeholder="Choose a project"
           />
+          {detail.project && <p className="text-xs text-zinc-400">{projectSourceHint(detail.project, detail.inbox.handler?.name ?? 'The agent')}</p>}
           {detail.candidates.length > 0 && (
             <div className="flex flex-wrap items-center gap-1.5">
               <span className="text-xs text-zinc-400">Mapping matched:</span>

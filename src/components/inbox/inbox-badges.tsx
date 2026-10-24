@@ -1,6 +1,6 @@
 'use client';
 
-import { AtSign, HelpCircle, Link2, ShieldAlert, ShieldQuestion, Sparkles, UserCheck } from 'lucide-react';
+import { ChevronDown, ShieldAlert, ShieldQuestion, Sparkles } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Tooltip } from '@/components/ui/Tooltip';
 import type { ThreadProject, ThreadState, TrustLevel } from '@/lib/inbound-email/inbox-types';
@@ -25,13 +25,7 @@ export function ThreadStateBadge({ state, tooltip = true }: { state: ThreadState
   );
 }
 
-/**
- * Where the thread's project came from, styled so they read apart: mapped (a
- * contact, client domain or client email address, quiet), inferred or
- * guessed by the agent (dashed amber: confirm me), set by a person or sent to
- * the project's own address (brand, settled).
- * The explanation is visible text, never a hover-only tooltip.
- */
+/** How the thread's project was chosen, in a sentence (the chip's tooltip and the project dialog). */
 export function projectSourceHint(project: ThreadProject, agentName: string): string {
   switch (project.source) {
     case 'mapped': return 'Matched by a client contact, domain or email address.';
@@ -42,29 +36,69 @@ export function projectSourceHint(project: ThreadProject, agentName: string): st
   }
 }
 
-export function ProjectSourceBadge({ project, agentName, color }: { project: ThreadProject; agentName: string; color?: string }) {
-  const source = project.source === 'mapped'
-    ? { icon: Link2, label: 'Mapped', className: 'bg-white/[0.05] text-zinc-300' }
-    : project.source === 'inferred'
-      ? { icon: Sparkles, label: `Inferred by ${agentName}`, className: 'border border-dashed border-amber-400/50 bg-amber-500/[0.08] text-amber-300' }
-      : project.source === 'guessed'
-        ? { icon: HelpCircle, label: `Guessed by ${agentName}`, className: 'border border-dashed border-amber-400/50 bg-amber-500/[0.08] text-amber-300' }
-      : project.source === 'address'
-        ? { icon: AtSign, label: 'Project address', className: 'bg-brand-500/[0.14] text-brand-300' }
-        // No column records who set it, so it never claims a name.
-        : { icon: UserCheck, label: 'Set by a person', className: 'bg-brand-500/[0.14] text-brand-300' };
-  const Icon = source.icon;
+const STATE_DOT: Record<ThreadState, string> = {
+  needs_you: 'bg-red-400',
+  new: 'bg-sky-400',
+  needs_reply: 'bg-amber-400',
+  handled: 'bg-emerald-400',
+  ignored: 'bg-zinc-500',
+};
+
+/** The thread's state as a dot and a word, for a quiet meta line. `hint` replaces the generic tooltip. */
+export function ThreadStateDot({ state, hint }: { state: ThreadState; hint?: string }) {
+  const config = STATE[state];
   return (
-    <span className="inline-flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
-      <span className="inline-flex min-w-0 items-center gap-1.5 text-xs font-medium text-zinc-200">
-        {color && <span className="h-2 w-2 flex-shrink-0 rounded-full" style={{ backgroundColor: color }} aria-hidden="true" />}
-        <span className="truncate">{project.name}</span>
+    <Tooltip content={hint ?? config.hint}>
+      <span className="inline-flex items-center gap-1.5 text-xs font-medium text-zinc-200">
+        <span className={`h-1.5 w-1.5 rounded-full ${STATE_DOT[state]}`} aria-hidden="true" />
+        {config.label}
       </span>
-      <span className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-medium ${source.className}`}>
-        <Icon size={11} aria-hidden="true" />
-        {source.label}
-      </span>
-    </span>
+    </Tooltip>
+  );
+}
+
+const CHIP = 'inline-flex max-w-full items-center gap-1.5 rounded-md px-1.5 py-0.5 text-xs font-medium';
+const CHIP_BUTTON = 'transition-colors hover:bg-white/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500';
+
+/**
+ * The thread's project as text that opens the project dialog. Settled
+ * (mapped, project address, set by a person) reads quiet; the agent's own
+ * choice is amber with "Confirm", and no project at all is an amber "Set
+ * project". The how-it-was-chosen sentence is the tooltip, and the dialog
+ * shows it as text.
+ */
+export function ProjectChip({ project, candidates, agentName, color, onEdit }: {
+  project: ThreadProject | null;
+  candidates: { name: string | null }[];
+  agentName: string;
+  color?: string;
+  /** Absent for members who can only view the inbox. */
+  onEdit?: () => void;
+}) {
+  const agentChoice = project?.source === 'inferred' || project?.source === 'guessed';
+  const hint = project
+    ? projectSourceHint(project, agentName)
+    : candidates.length > 1 ? `Matched ${candidates.length} projects: ${candidates.map((c) => c.name ?? OTHER_PROJECT).join(', ')}` : 'No project yet.';
+  const tone = project && !agentChoice ? 'text-zinc-200' : 'text-amber-300';
+  const body = (
+    <>
+      {project && color && <span className="h-2 w-2 flex-shrink-0 rounded-full" style={{ backgroundColor: color }} aria-hidden="true" />}
+      {agentChoice && <Sparkles size={11} className="flex-shrink-0" aria-hidden="true" />}
+      <span className="truncate">{project ? project.name : candidates.length > 1 ? `Pick a project (${candidates.length} match)` : 'Set project'}</span>
+      {agentChoice && onEdit && <span className="flex-shrink-0 font-normal text-amber-300/80">Confirm</span>}
+      {onEdit && <ChevronDown size={12} className="flex-shrink-0 opacity-50" aria-hidden="true" />}
+    </>
+  );
+  return (
+    <Tooltip content={hint}>
+      {onEdit ? (
+        <button type="button" onClick={onEdit} aria-label={`Project: ${project?.name ?? 'not set'}. ${hint} Change`} className={`${CHIP} ${tone} ${CHIP_BUTTON}`}>
+          {body}
+        </button>
+      ) : (
+        <span className={`${CHIP} ${tone}`} aria-label={`Project: ${project?.name ?? 'not set'}. ${hint}`}>{body}</span>
+      )}
+    </Tooltip>
   );
 }
 

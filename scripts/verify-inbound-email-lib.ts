@@ -14,6 +14,7 @@ import { mergeClientSenders, resolveMapping, threadProjectDecision } from '../sr
 import { detectAutoMail } from '../src/lib/inbound-email/auto-mail';
 import { extractNewText, isForwardedMessage } from '../src/lib/inbound-email/quoted';
 import { htmlToText } from '../src/lib/inbound-email/html-text';
+import { hasQuotedHtml, inlineImageIds, linkParts, normalizeContentId, opensAsHtml, shortUrl } from '../src/lib/inbound-email/display';
 import { evaluateAuth, parseAuthenticationResults } from '../src/lib/inbound-email/auth-results';
 import { organizationalDomain, parseAddressList, normalizeAddress, validateClientSenderAddress } from '../src/lib/inbound-email/addresses';
 import { isPublicEmailDomain, validateClientDomain } from '../src/lib/inbound-email/public-domains';
@@ -139,6 +140,22 @@ async function main() {
   check(htmlToText('<span>A&nbsp;&lt;b&gt; &#8211; &#x41;</span><br>B'), 'A <b> – A\nB', 'entities decode');
   check(extractNewText('> only quoted'), '> only quoted', 'all-quoted text falls back to the full text');
 
+  // Display: links cut to their site, which body opens first, inline image ids.
+  const tracking = 'https://www.upwork.com/ab/notifications/track?id=9f8e7d6c5b4a39281706f5e4d3c2b1a0&u=1';
+  check(linkParts(`View job (${tracking}) now.`), [{ text: 'View job ' }, { url: tracking, label: 'upwork.com' }, { text: ' now.' }], 'display: a wrapped tracking link becomes its site');
+  check(linkParts('See https://acme.example/pricing.'), [{ text: 'See ' }, { url: 'https://acme.example/pricing', label: 'acme.example/pricing' }, { text: '.' }], 'display: a short readable path stays, trailing punctuation is text');
+  check(linkParts('<https://a.example/x>'), [{ url: 'https://a.example/x', label: 'a.example/x' }], 'display: angle-bracketed link');
+  check(linkParts('no links here'), [{ text: 'no links here' }], 'display: plain text is one part');
+  check(shortUrl('https://go.example/c/AbCdEfGhIjKlMnOpQrStUvWxYz0123456789'), 'go.example', 'display: an opaque token path drops');
+  const reply = { html_body: '<p>Yes</p>', text_body: 'Yes\n\nOn Mon, Bob wrote:\n> the whole earlier email, quoted back in full', new_text: 'Yes', is_forward: false };
+  check(opensAsHtml(reply), false, 'display: a reply with quoted history opens on the new text');
+  check(opensAsHtml({ html_body: '<p>Your plan is at 90%</p>', text_body: null, new_text: 'Your plan is at 90%', is_forward: false }), true, 'display: a whole HTML email opens as designed');
+  check(opensAsHtml({ html_body: null, text_body: 'Hi', new_text: 'Hi', is_forward: false }), false, 'display: no HTML, no HTML view');
+  check([...inlineImageIds('<img src="cid:Logo@Mail"><img src=\'cid:%3Cb%3E\'>')], ['logo@mail', 'b'], 'display: cid references, normalized');
+  check(normalizeContentId('<Logo@Mail>'), 'logo@mail', 'display: a stored Content-ID matches its reference');
+  check(['<div class="gmail_quote gmail_quote_container">', '<blockquote type="cite">', '<div id="divRplyFwdMsg">', '<div class="moz-cite-prefix">', '<p>no history</p>'].map(hasQuotedHtml),
+    [true, true, true, true, false], 'display: quoted history marked by Gmail, Apple Mail, Outlook, Thunderbird');
+
   // Trust.
   check(gmail.result.message.auth.trust, 'trusted', 'provider DKIM pass is trusted');
   const fail = await prepared('gmail-reply.eml', { emailId: 'f', deliveredTo: ['ashley@relay.example.test'], authentication: { spf: 'pass', dkim: 'fail', dmarc: 'fail' } });
@@ -201,6 +218,8 @@ async function main() {
   check(needsAttention(threadFlags([msg({ status: 'new', outcome: null })])), false, 'new mail waits on the agent, not on a person');
   check([matchesSearch('acme dana', ['Banner', 'Dana Wu', 'Acme Roofing']), matchesSearch('acme ben', ['Dana', 'Acme'])], [true, false], 'search needs every word');
   check(snippetOf('  Hello\n\nthere  ', 8), 'Hello t…', 'snippet flattens and trims');
+  check(snippetOf('[https://cdn.example/logo.png?v=1] https://www.okendo.io Hi Happy Nuts, see (https://t.example/x)'), 'Hi Happy Nuts, see', 'snippet drops links');
+  check(snippetOf('View the proposal ͏ ­ ͏ ­ more'), 'View the proposal more', 'snippet drops invisible preheader padding');
 
   // Downloads: identity encoding, and a decoded body is not held to Content-Length.
   let downloadHeaders: Headers | null = null;

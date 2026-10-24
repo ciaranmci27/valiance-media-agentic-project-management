@@ -78,6 +78,10 @@ export interface InboxThreadSummary {
   urgent: boolean;
   untrusted: boolean;
   attachment_count: number;
+  /** Live tasks the thread's emails created, updated or relate to. */
+  task_count: number;
+  /** Open reminders on those tasks. */
+  reminder_count: number;
 }
 
 export type InboxTabCounts = Record<InboxTab, number>;
@@ -105,6 +109,8 @@ export interface InboxAttachment {
   available: boolean;
   skipped_reason: string | null;
   agent_label: string | null;
+  /** The Content-ID an HTML body points at with cid:, lowercased and without brackets. */
+  content_id: string | null;
 }
 
 /** Why an attachment was not stored (email_attachments.skipped_reason). */

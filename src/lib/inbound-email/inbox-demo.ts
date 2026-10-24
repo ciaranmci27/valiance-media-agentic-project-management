@@ -103,8 +103,8 @@ function buildThreads(): InboxThreadDetail[] {
           from: person('Lisa Martinez', 'lisa@crestfinancial.com', 'b2b2b2b2-0006-4000-8000-000000000006'),
           new_text: 'Attached are the names and titles for the cards. Jordan\'s title changed to Director of IT last week, so please use the new one.\n\nLisa',
           attachments: [
-            { id: '9b9b9b9b-0001-4000-8000-000000000001', filename: 'card-names.csv', content_type: 'text/csv', size_bytes: 2_310, kind: 'text', available: true, skipped_reason: null, agent_label: 'Names and titles for 14 cards' },
-            { id: '9b9b9b9b-0002-4000-8000-000000000002', filename: 'crest-logo-print.pdf', content_type: 'application/pdf', size_bytes: 1_482_112, kind: 'pdf', available: true, skipped_reason: null, agent_label: 'Print logo, CMYK, 1 page' },
+            { id: '9b9b9b9b-0001-4000-8000-000000000001', filename: 'card-names.csv', content_type: 'text/csv', size_bytes: 2_310, kind: 'text', available: true, skipped_reason: null, agent_label: 'Names and titles for 14 cards', content_id: null },
+            { id: '9b9b9b9b-0002-4000-8000-000000000002', filename: 'crest-logo-print.pdf', content_type: 'application/pdf', size_bytes: 1_482_112, kind: 'pdf', available: true, skipped_reason: null, agent_label: 'Print logo, CMYK, 1 page', content_id: null },
           ],
           triage: triage({ outcome: 'task', urgent: false, summary: 'Lisa sent the 14 names and titles, with Jordan Blake now Director of IT. Copied into the business card task.', question_for_human: null, suggested_reply: null, created_at: hoursAgo(4) }),
           linked_tasks: [{ task_id: 'e5e5e5e5-0004-4000-8000-000000000004', relation: 'updated', title: 'Business card & letterhead design', status: 'todo', project_id: CREST }],
@@ -219,8 +219,8 @@ function buildThreads(): InboxThreadDetail[] {
           original_sender: { name: 'Jordan Blake', address: 'jordan@crestfinancial.com' },
           new_text: 'Forwarding Jordan\'s files.\n\n---------- Forwarded message ---------\nFrom: Jordan Blake <jordan@crestfinancial.com>\nSubject: Brand files for both sites\n\nHere are the final brand files. The large source file was too big for email, I will share a link.\n\nJordan',
           attachments: [
-            { id: '9b9b9b9b-0003-4000-8000-000000000003', filename: 'brand-colors.png', content_type: 'image/png', size_bytes: 284_221, kind: 'image', available: true, skipped_reason: null, agent_label: 'Palette swatches: navy, gold, slate' },
-            { id: '9b9b9b9b-0004-4000-8000-000000000004', filename: 'brand-source.ai', content_type: 'application/postscript', size_bytes: 61_202_000, kind: 'other', available: false, skipped_reason: 'over_size_cap', agent_label: null },
+            { id: '9b9b9b9b-0003-4000-8000-000000000003', filename: 'brand-colors.png', content_type: 'image/png', size_bytes: 284_221, kind: 'image', available: true, skipped_reason: null, agent_label: 'Palette swatches: navy, gold, slate', content_id: null },
+            { id: '9b9b9b9b-0004-4000-8000-000000000004', filename: 'brand-source.ai', content_type: 'application/postscript', size_bytes: 61_202_000, kind: 'other', available: false, skipped_reason: 'over_size_cap', agent_label: null, content_id: null },
           ],
           triage: triage({ outcome: 'task', urgent: false, summary: 'Jordan sent the final brand palette; the source file was over the size limit and was not stored. Palette added to the guidelines task.', question_for_human: null, suggested_reply: null, created_at: hoursAgo(49) }),
           linked_tasks: [{ task_id: 'e5e5e5e5-0003-4000-8000-000000000003', relation: 'updated', title: 'Brand guidelines document', status: 'in_progress', project_id: CREST }],
@@ -357,6 +357,8 @@ function summary(detail: InboxThreadDetail): InboxThreadSummary {
     urgent: flags.urgent,
     untrusted: flags.untrusted,
     attachment_count: detail.messages.reduce((total, m) => total + m.attachments.length, 0),
+    task_count: new Set(detail.messages.flatMap((m) => m.linked_tasks.map((task) => task.task_id))).size,
+    reminder_count: 0,
   };
 }
 

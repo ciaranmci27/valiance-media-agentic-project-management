@@ -87,9 +87,17 @@ export function matchesSearch(query: string, haystack: readonly (string | null |
   return words.every((word) => text.includes(word));
 }
 
-/** A one-line preview of a message body. */
+/**
+ * A one-line preview of a message body: no web links (tracking URLs would
+ * fill it) and none of the invisible padding newsletters put after their
+ * preview text.
+ */
 export function snippetOf(text: string | null | undefined, limit = 160): string {
-  const flat = (text ?? '').replace(/\s+/g, ' ').trim();
+  const flat = (text ?? '')
+    .replace(/[(<[]?https?:\/\/[^\s<>()[\]]+[)>\]]?/gi, ' ')
+    .replace(/[͏­​-‏⁠﻿]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
   return flat.length > limit ? `${flat.slice(0, limit - 1).trimEnd()}…` : flat;
 }
 

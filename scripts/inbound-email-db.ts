@@ -92,6 +92,9 @@ export async function createEmailDatabase(
   }
   await db.exec(`
     ALTER TABLE public.tasks ADD COLUMN project_goal_id uuid, ADD COLUMN source_task_suggestion_id uuid, ADD COLUMN task_type text;
+    -- Only what the Inbox list reads: open reminders on a thread's tasks.
+    CREATE TABLE public.reminders (id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      task_id uuid REFERENCES public.tasks(id) ON DELETE CASCADE, status text NOT NULL DEFAULT 'open', deleted_at timestamptz);
   `);
   await db.exec(table(agentSchema, 'agent_activities').replace('CREATE TABLE', 'create table'));
   const roleTables = canonical.match(/CREATE TABLE public\.role_permissions \([\s\S]*?\n\);\n\nCREATE TABLE public\.team_member_permissions \([\s\S]*?\n\);/)?.[0];

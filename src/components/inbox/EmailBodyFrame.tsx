@@ -2,17 +2,21 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import DOMPurify from 'dompurify';
+import { normalizeContentId } from '@/lib/inbound-email/display';
 
 /**
  * Renders inbound email HTML (untrusted, from strangers) inside a sandboxed
- * iframe: no scripts (no allow-scripts), no forms, no remote content (a
- * Content-Security-Policy that allows only inline styles and data: images,
- * so tracking pixels and remote images never load), and links open in a new
- * tab. The markup is sanitized first as a second fence. Height follows the
- * document so the frame reads as inline content.
+ * iframe: no scripts (no allow-scripts), no forms, nothing remote but images
+ * (a Content-Security-Policy that allows inline styles, data: fonts and
+ * images over https), and links open in a new tab. Images load so the email
+ * reads as designed, without a referrer. Inline images (cid:) point at the
+ * stored attachment. The markup is sanitized first as a second fence.
+ * Height follows the document so the frame reads as inline content.
  */
 
-const CSP = "default-src 'none'; img-src data: cid:; style-src 'unsafe-inline'; font-src data:; form-action 'none'";
+function policy(origin: string): string {
+  return `default-src 'none'; img-src data: https: ${origin}; style-src 'unsafe-inline'; font-src data:; form-action 'none'`;
+}
 
 /**
  * Email is designed for white paper in every theme, so the frame (and the
@@ -42,8 +46,29 @@ function addLinkSafety(node: Element) {
   }
 }
 
+/**
+ * Drops the earlier emails a reply quotes (see hasQuotedHtml): Gmail's and
+ * Yahoo's quote blocks, Apple Mail's cited blockquotes, Thunderbird's cite
+ * prefix and its quote, and Outlook's reply header with everything after it.
+ */
+function removeQuotedHistory(root: Element) {
+  root.querySelectorAll('.gmail_quote, .gmail_quote_container, .yahoo_quoted, blockquote[type="cite" i]').forEach((node) => node.remove());
+  for (const prefix of root.querySelectorAll('.moz-cite-prefix')) {
+    if (prefix.nextElementSibling?.matches('blockquote')) prefix.nextElementSibling.remove();
+    prefix.remove();
+  }
+  for (const marker of root.querySelectorAll('#divRplyFwdMsg, #appendonsend')) {
+    let node: ChildNode | null = marker;
+    while (node) {
+      const next: ChildNode | null = node.nextSibling;
+      node.remove();
+      node = next;
+    }
+  }
+}
+
 /** The sanitized email as a whole document, our policy and styles first in its head. */
-function buildDocument(html: string): string {
+function buildDocument(html: string, inlineImages: Record<string, string>, hideQuoted: boolean): string {
   // Never hand unsanitized mail to the frame (no DOM on the server).
   if (typeof window === 'undefined' || !DOMPurify.isSupported) return '';
   // Before DOMPurify's own checks, which would drop a whole <style> whose text contains "<!".
@@ -69,6 +94,12 @@ function buildDocument(html: string): string {
   const doc = root.ownerDocument;
   if (!doc || root.nodeType !== Node.ELEMENT_NODE) return '';
   const documentElement = root as Element;
+  if (hideQuoted) removeQuotedHistory(documentElement);
+  for (const image of documentElement.querySelectorAll('img[src^="cid:" i]')) {
+    const url = inlineImages[normalizeContentId(image.getAttribute('src')!.slice(4))];
+    if (url) image.setAttribute('src', url);
+    else image.removeAttribute('src');
+  }
   let head = documentElement.querySelector('head');
   if (!head) {
     head = doc.createElement('head');
@@ -76,26 +107,32 @@ function buildDocument(html: string): string {
   }
   const charset = doc.createElement('meta');
   charset.setAttribute('charset', 'utf-8');
-  const policy = doc.createElement('meta');
-  policy.setAttribute('http-equiv', 'Content-Security-Policy');
-  policy.setAttribute('content', CSP);
+  const policyTag = doc.createElement('meta');
+  policyTag.setAttribute('http-equiv', 'Content-Security-Policy');
+  policyTag.setAttribute('content', policy(window.location.origin));
   const base = doc.createElement('base');
   base.setAttribute('target', '_blank');
   const style = doc.createElement('style');
   style.textContent = BASE_STYLES;
-  head.prepend(charset, policy, base, style);
+  head.prepend(charset, policyTag, base, style);
   return `<!DOCTYPE html>${documentElement.outerHTML}`;
 }
 
-/** True when the email asks for images from the web (blocked here). */
-export function hasRemoteImages(html: string): boolean {
-  return /<img[^>]+src\s*=\s*["']?\s*(https?:)?\/\//i.test(html) || /url\(\s*["']?\s*(https?:)?\/\//i.test(html);
-}
+const NO_IMAGES: Record<string, string> = {};
 
-export function EmailBodyFrame({ html, title }: { html: string; title: string }) {
+/**
+ * `inlineImages` maps a Content-ID (see normalizeContentId) to the image's
+ * URL. `hideQuoted` shows a reply without the history it quotes.
+ */
+export function EmailBodyFrame({ html, title, inlineImages = NO_IMAGES, hideQuoted = false }: {
+  html: string;
+  title: string;
+  inlineImages?: Record<string, string>;
+  hideQuoted?: boolean;
+}) {
   const frameRef = useRef<HTMLIFrameElement>(null);
   const [height, setHeight] = useState(160);
-  const srcDoc = useMemo(() => buildDocument(html), [html]);
+  const srcDoc = useMemo(() => buildDocument(html, inlineImages, hideQuoted), [html, inlineImages, hideQuoted]);
 
   const observer = useRef<ResizeObserver | null>(null);
   useEffect(() => () => observer.current?.disconnect(), []);
@@ -105,7 +142,8 @@ export function EmailBodyFrame({ html, title }: { html: string; title: string })
     try {
       const doc = frameRef.current?.contentDocument;
       if (!doc?.body) return;
-      const measure = () => setHeight(Math.min(Math.max(Math.ceil(doc.body.getBoundingClientRect().height) + 4, 80), 1400));
+      // The whole email, so it scrolls with the thread rather than in a box of its own.
+      const measure = () => setHeight(Math.min(Math.max(Math.ceil(doc.body.getBoundingClientRect().height) + 4, 80), 20000));
       measure();
       observer.current?.disconnect();
       observer.current = new ResizeObserver(measure);
