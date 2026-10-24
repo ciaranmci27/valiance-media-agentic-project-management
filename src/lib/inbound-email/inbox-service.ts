@@ -9,6 +9,7 @@ import { normalizeContentId } from './display';
 import { isPublicEmailDomain, validateClientDomain } from './public-domains';
 import type { CandidateReason } from './mapping';
 import { attentionCounts, matchesSearch, snippetOf, tabCounts, threadFlags, threadInTab, type InboxAttention, type MessageState, type ThreadFlags } from './inbox-view';
+import type { MailKind, MailTopic } from './sorting';
 import type {
   InboxAttachment, InboxCandidate, InboxReminder, InboxSorting, TaskLinkRelation, InboxLinkedTask, InboxMessage, InboxPerson, InboxSummary, InboxTab,
   InboxThreadDetail, InboxThreadList, InboxThreadSummary, MessageStatus, ProjectSource, RememberableSender, RoutingBasis,
@@ -187,6 +188,8 @@ interface StateMessageRow {
   routing_basis: RoutingBasis | null;
   original_from_address: string | null;
   original_from_name: string | null;
+  kind: MailKind | null;
+  topic: MailTopic | null;
 }
 
 const ROUTING_COLUMNS = 'routing_basis, original_from_address, original_from_name';
@@ -223,7 +226,7 @@ async function loadThreadEntries(service: SupabaseClient, inboxIds: string[], pr
   if (threads.length === 0) return [];
   const threadIds = new Set(threads.map((thread) => thread.id));
   const messages = (await readIn<StateMessageRow & Row>(inboxIds, (chunk, from, to, count) =>
-    ctxSelect(service, 'email_messages', `id, thread_id, status, subject, received_at, auth, reviewed_at, ${ROUTING_COLUMNS}`, count)
+    ctxSelect(service, 'email_messages', `id, thread_id, status, subject, received_at, auth, reviewed_at, kind, topic, ${ROUTING_COLUMNS}`, count)
       .in('inbox_id', chunk).neq('status', 'receiving').order('id').range(from, to)))
     .filter((message) => threadIds.has(message.thread_id));
   const messageIds = messages.map((message) => message.id);
@@ -258,6 +261,8 @@ async function loadThreadEntries(service: SupabaseClient, inboxIds: string[], pr
         outcome: triageRow?.outcome ?? null,
         urgent: triageRow?.urgent ?? false,
         trust: trustOf(message.auth),
+        kind: message.kind,
+        topic: message.topic,
       };
     });
     const threadSenders = list.flatMap((message) => [senderByMessage.get(message.id), forwarderByMessage.get(message.id)])
@@ -496,7 +501,7 @@ export async function threadDetail(ctx: InboxContext, threadId: string): Promise
     .eq('thread_id', thread.id).neq('status', 'receiving').order('received_at', { ascending: true }).order('id'));
   const ids = messages.map((message) => message.id as string);
   const [inbox] = await inboxSummaries(service, [thread.inbox_id]);
-  const [recipients, attachments, triageRows, links, candidates, reminderRows] = await Promise.all([
+  const [recipients, attachments, triageRows, links, candidates, reminderRows, answerRows] = await Promise.all([
     readIn<Row & { message_id: string; kind: string; address: string; name: string; contact_id: string | null; position: number }>(ids, (chunk, from, to, count) =>
       ctxSelect(service, 'email_message_recipients', 'id, message_id, kind, address, name, contact_id, position', count).in('message_id', chunk).order('id').range(from, to)),
     readIn<Row>(ids, (chunk, from, to, count) =>
@@ -510,6 +515,8 @@ export async function threadDetail(ctx: InboxContext, threadId: string): Promise
     readIn<Row & { message_id: string; project_id: string; reason: CandidateReason }>(ids, (chunk, from, to, count) =>
       ctxSelect(service, 'email_message_candidates', 'message_id, project_id, reason', count).in('message_id', chunk).order('message_id').order('project_id').order('reason').range(from, to)),
     emailReminders(ctx, ids, false),
+    readIn<{ id: string; message_id: string; triage_id: string; answer: string; answered_by: string | null; created_at: string }>(ids, (chunk, from, to, count) =>
+      ctxSelect(service, 'email_question_answers', 'id, message_id, triage_id, answer, answered_by, created_at', count).in('message_id', chunk).order('id').range(from, to)),
   ]);
   const latest = latestTriage(triageRows);
   const taskIds = [...new Set(links.map((link) => link.task_id))];
@@ -523,6 +530,7 @@ export async function threadDetail(ctx: InboxContext, threadId: string): Promise
       ...[...latest.values()].map((row) => row.member_id as string | null),
       ...messages.map((row) => row.reviewed_by as string | null),
       ...messages.map((row) => row.forwarded_by_member_id as string | null),
+      ...answerRows.map((row) => row.answered_by),
     ]),
     thread.project_address_id
       ? one<{ routing_address: string; public_address: string | null }>(service.from('email_project_addresses')
@@ -547,6 +555,8 @@ export async function threadDetail(ctx: InboxContext, threadId: string): Promise
       outcome: (triageRow?.outcome as TriageOutcome | undefined) ?? null,
       urgent: Boolean(triageRow?.urgent),
       trust: trustOf(auth),
+      kind: (row.kind as MailKind | null) ?? null,
+      topic: (row.topic as MailTopic | null) ?? null,
     });
     const memberId = (triageRow?.member_id as string | null) ?? null;
     const reviewedBy = (row.reviewed_by as string | null) ?? null;
@@ -608,6 +618,17 @@ export async function threadDetail(ctx: InboxContext, threadId: string): Promise
         member: memberId ? { id: memberId, name: people.get(memberId) ?? 'Agent' } : null,
         created_at: triageRow.created_at,
       } : null,
+      // The newest answer to the question this triage asked.
+      answer: (() => {
+        const answer = answerRows
+          .filter((row) => row.message_id === id && row.triage_id === triageRow?.id)
+          .sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
+        return answer ? {
+          text: answer.answer,
+          by: answer.answered_by ? { id: answer.answered_by, name: people.get(answer.answered_by) ?? 'Someone' } : null,
+          at: answer.created_at,
+        } : null;
+      })(),
       // A trashed task drops off the thread until it is restored.
       linked_tasks: links
         .filter((link) => link.message_id === id && tasks.some((t) => t.id === link.task_id))
@@ -835,6 +856,32 @@ export async function sendBackToAgent(ctx: InboxContext, threadId: string, messa
   const target = messageId ? messages.find((message) => message.id === assertId(messageId, 'message_id')) : messages[0];
   if (!target) throw new InboxError(404, 'Message not found');
   if (target.status === 'new') throw new InboxError(409, 'It is already waiting for the agent');
+  const { error } = await ctx.service.from('email_messages')
+    .update({ status: 'new', reviewed_at: null, reviewed_by: null }).eq('id', target.id).neq('status', 'receiving');
+  if (error) throw error;
+  return { message_id: target.id };
+}
+
+/**
+ * A person answers the agent's question on an email (the newest one whose
+ * latest triage asks, by default): the answer is kept against that triage
+ * and the email goes back to New, so the agent acts on it at once.
+ */
+export async function answerAgentQuestion(ctx: InboxContext, threadId: string, messageId: string | null, answer: string): Promise<{ message_id: string }> {
+  assertCanTriage(ctx.access);
+  const thread = await loadReadableThread(ctx, threadId);
+  const messages = await many<{ id: string; status: string }>(ctx.service.from('email_messages')
+    .select('id, status').eq('thread_id', thread.id).neq('status', 'receiving').order('received_at', { ascending: false }).order('id', { ascending: false }));
+  const ids = messages.map((message) => message.id);
+  const triage = ids.length ? latestTriage(await many<Row & { id: string; message_id: string; created_at: string }>(ctx.service.from('email_triage')
+    .select('id, message_id, question_for_human, created_at').in('message_id', ids))) : new Map();
+  const asking = (id: string) => !!triage.get(id)?.question_for_human;
+  const target = messageId ? messages.find((message) => message.id === assertId(messageId, 'message_id')) : messages.find((message) => asking(message.id));
+  if (!target || !asking(target.id)) throw new InboxError(404, 'No question to answer on this email');
+  if (target.status === 'new') throw new InboxError(409, 'It is already waiting for the agent');
+  const { error: answerError } = await ctx.service.from('email_question_answers')
+    .insert({ message_id: target.id, triage_id: triage.get(target.id)!.id, answer, answered_by: ctx.memberId });
+  if (answerError) throw answerError;
   const { error } = await ctx.service.from('email_messages')
     .update({ status: 'new', reviewed_at: null, reviewed_by: null }).eq('id', target.id).neq('status', 'receiving');
   if (error) throw error;

@@ -718,8 +718,11 @@ async function main() {
     const ownerList = await inbox.listThreads(owner, allThreads);
     const threadCount = (await rows(db, "SELECT count(DISTINCT thread_id)::int AS n FROM email_messages WHERE status <> 'receiving'"))[0].n;
     const sortedDesc = ownerList.threads.every((t, i, list) => i === 0 || list[i - 1].last_message_at >= t.last_message_at);
-    check('inbox ui: manage sees every thread in every inbox, newest activity first', ownerList.total === threadCount && ownerList.counts.all === threadCount
-      && sortedDesc && ownerList.inboxes.length === 2, { total: ownerList.total, threadCount, sortedDesc });
+    // The Inbox leaves Updates and Filtered threads out; the three together are every thread.
+    check('inbox ui: manage sees every thread in every inbox, newest activity first, Updates and Filtered apart',
+      ownerList.total + ownerList.counts.updates + ownerList.counts.ignored === threadCount && ownerList.counts.all === ownerList.total
+      && ownerList.counts.ignored > 0 && ownerList.threads.every((t) => t.state !== 'ignored') && sortedDesc && ownerList.inboxes.length === 2,
+      { total: ownerList.total, updates: ownerList.counts.updates, ignored: ownerList.counts.ignored, threadCount, sortedDesc });
     const byId = (list: typeof ownerList, threadId: string) => list.threads.find((t) => t.id === threadId);
     check('inbox ui: needs you (untrusted, needs_human) and needs reply read from messages and triage',
       byId(ownerList, forward.thread_id)?.needs_you === true && byId(ownerList, forward.thread_id)?.urgent === true
@@ -1634,6 +1637,38 @@ async function main() {
       await db.query("UPDATE email_reply_drafts SET status='failed', failure='test', completed_at=now() WHERE id=$1", [fresh.id]);
     }
 
+    // ---- Answers to the agent's questions -----------------------------------
+    {
+      const questions = await import('../src/app/api/v1/inbound-emails/questions/route');
+      // One email in the agent's inbox whose newest triage asks a person something.
+      const [pick] = await rows<{ id: string }>(db, `SELECT m.id FROM email_messages m WHERE m.inbox_id = $1 AND m.status <> 'receiving'
+        AND EXISTS (SELECT 1 FROM email_triage t WHERE t.message_id = m.id) ORDER BY m.received_at DESC LIMIT 1`, [ids.inboxA]);
+      await db.query(`UPDATE email_triage SET outcome = 'needs_human', question_for_human = 'Which project is this for? Default: Acme Roofing.'
+        WHERE id = (SELECT id FROM email_triage WHERE message_id = $1 ORDER BY created_at DESC, id DESC LIMIT 1)`, [pick.id]);
+      await db.query("UPDATE email_messages SET status = 'needs_human', reviewed_at = NULL WHERE id = $1", [pick.id]);
+      const waitingBefore = await api(questions.GET, 'GET', '/api/v1/inbound-emails/questions', keys.ashley);
+      const asked = (waitingBefore.body.data ?? [])[0] as Payload | undefined;
+      check('questions api: the agent lists questions still waiting on a person, with the question',
+        waitingBefore.status === 200 && !!asked?.question && !!asked.message_id && !!asked.thread_id, waitingBefore.body);
+      if (asked) {
+        check('answers: a reader cannot answer (403)',
+          (await failsWith(() => inbox.answerAgentQuestion(reader, asked.thread_id, asked.message_id, 'Go ahead.'))) === 403);
+        const answered = await inbox.answerAgentQuestion(owner, asked.thread_id, asked.message_id, 'Yes, file it on Acme Roofing.');
+        const state = (await rows<{ status: string }>(db, 'SELECT status FROM email_messages WHERE id=$1', [asked.message_id]))[0];
+        check('answers: an answer is kept and the email goes back to the agent', answered.message_id === asked.message_id && state.status === 'new', state);
+        const waitingAfter = await api(questions.GET, 'GET', '/api/v1/inbound-emails/questions', keys.ashley);
+        check('questions api: an answered question leaves the list', (waitingAfter.body.data ?? []).every((row: Payload) => row.message_id !== asked.message_id), waitingAfter.body);
+        const agentView = await api(detail.GET, 'GET', `/api/v1/inbound-emails/${asked.message_id}`, keys.ashley, { id: asked.message_id });
+        const theirAnswers = (agentView.body.data?.answers ?? []) as Payload[];
+        check('answers: the agent reads the answer with its question and who gave it',
+          theirAnswers.length === 1 && theirAnswers[0].answer === 'Yes, file it on Acme Roofing.' && theirAnswers[0].question === asked.question && !!theirAnswers[0].answered_by, theirAnswers);
+        const shownAnswer = (await inbox.threadDetail(owner, asked.thread_id)).messages.find((m) => m.id === asked.message_id)?.answer;
+        check('answers: the thread shows the answer under the question', shownAnswer?.text === 'Yes, file it on Acme Roofing.' && !!shownAnswer.by, shownAnswer);
+        check('answers: answering again while the agent has it is 409',
+          (await failsWith(() => inbox.answerAgentQuestion(owner, asked.thread_id, asked.message_id, 'Again'))) === 409);
+      }
+    }
+
     check('no deletes: no inbound email route exports DELETE', [list, detail, attachmentUrl, attachmentLabel, triage, unsummarized, markSummarized, signal, webhook].every((m) => !('DELETE' in m)));
     await settle();
   } finally {
@@ -1701,7 +1736,7 @@ async function main() {
 
   // The schema.sql snapshot stands on its own.
   const snapshot = await createEmailDatabase('schema');
-  check('schema.sql: the inbound email section loads', (await rows(snapshot, "SELECT count(*)::int AS n FROM pg_tables WHERE tablename LIKE 'email_%' OR tablename = 'contact_emails'"))[0].n === 16);
+  check('schema.sql: the inbound email section loads', (await rows(snapshot, "SELECT count(*)::int AS n FROM pg_tables WHERE tablename LIKE 'email_%' OR tablename = 'contact_emails'"))[0].n === 17);
   check('schema.sql: client sender addresses and the sender reason are in the snapshot',
     (await rows(snapshot, "SELECT 1 FROM pg_policies WHERE tablename = 'email_client_addresses'")).length === 2
     && (await rows(snapshot, "SELECT 1 FROM pg_constraint WHERE conname = 'email_message_candidates_reason_check' AND pg_get_constraintdef(oid) LIKE '%sender%'")).length === 1);

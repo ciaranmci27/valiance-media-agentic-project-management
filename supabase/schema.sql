@@ -7302,6 +7302,18 @@ CREATE TRIGGER set_email_reply_drafts_updated_at
   BEFORE UPDATE ON public.email_reply_drafts
   FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
 
+-- An answer a person gave to the agent's question on a triage; the email goes back to the agent.
+CREATE TABLE public.email_question_answers (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  message_id uuid NOT NULL REFERENCES public.email_messages(id) ON DELETE CASCADE,
+  -- The triage whose question this answers.
+  triage_id uuid NOT NULL REFERENCES public.email_triage(id) ON DELETE CASCADE,
+  answer text NOT NULL CHECK (length(answer) BETWEEN 1 AND 2000),
+  answered_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_email_question_answers_message ON public.email_question_answers (message_id, created_at DESC);
+
 -- ============================================================
 -- 6. Server-side writes (service role only)
 -- ============================================================
@@ -7885,6 +7897,7 @@ ALTER TABLE public.email_triage ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.email_task_links ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.email_sender_rules ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.email_reply_drafts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.email_question_answers ENABLE ROW LEVEL SECURITY;
 
 -- contact_emails mirrors contacts.
 CREATE POLICY contact_emails_select ON public.contact_emails FOR SELECT TO authenticated
@@ -7948,6 +7961,8 @@ CREATE POLICY email_task_links_select ON public.email_task_links FOR SELECT TO a
 CREATE POLICY email_sender_rules_select ON public.email_sender_rules FOR SELECT TO authenticated
   USING (public.has_permission('inbound_email.read') OR public.has_permission('inbound_email.manage'));
 CREATE POLICY email_reply_drafts_select ON public.email_reply_drafts FOR SELECT TO authenticated
+  USING (public.can_read_email_message(message_id));
+CREATE POLICY email_question_answers_select ON public.email_question_answers FOR SELECT TO authenticated
   USING (public.can_read_email_message(message_id));
 
 -- ============================================================

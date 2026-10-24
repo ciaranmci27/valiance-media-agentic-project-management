@@ -1,4 +1,5 @@
 import type { InboxTab, InboxTabCounts, MessageStatus, ThreadState, TriageOutcome, TrustLevel } from './inbox-types';
+import type { MailKind, MailTopic } from './sorting';
 import { INBOX_TABS } from './inbox-types';
 
 /**
@@ -10,6 +11,12 @@ import { INBOX_TABS } from './inbox-types';
  * - New: the agent has not triaged it yet.
  * A thread whose every message was filtered as auto-mail is Ignored; the rest
  * are Handled.
+ *
+ * Apart from its state, a thread is an Update when it is only machine mail
+ * (notifications, marketing) that asks nothing of a person: nothing needs
+ * you or a reply, nothing urgent, and nothing about money, an account
+ * problem or security. Updates stay out of the Inbox view, like Filtered.
+ * Mail from before sorting (no kind) always counts as the Inbox.
  */
 
 export interface MessageState {
@@ -18,6 +25,9 @@ export interface MessageState {
   outcome: TriageOutcome | null;
   urgent: boolean;
   trust: TrustLevel;
+  /** How sorting saw it; absent or null for mail from before sorting. */
+  kind?: MailKind | null;
+  topic?: MailTopic | null;
 }
 
 export interface ThreadFlags {
@@ -27,7 +37,11 @@ export interface ThreadFlags {
   has_new: boolean;
   urgent: boolean;
   untrusted: boolean;
+  /** Only machine mail that asks nothing of anyone: the Updates view. */
+  update: boolean;
 }
+
+const ALWAYS_INBOX_TOPICS: readonly (MailTopic | null | undefined)[] = ['money', 'account_risk', 'security'];
 
 export function messageNeedsReply(message: MessageState): boolean {
   return message.outcome === 'needs_reply'
@@ -42,27 +56,34 @@ export function threadFlags(messages: readonly MessageState[]): ThreadFlags {
   const hasNew = messages.some((message) => message.status === 'new');
   const allIgnored = messages.length > 0 && messages.every((message) => message.status === 'ignored');
   const state: ThreadState = needsYou ? 'needs_you' : hasNew ? 'new' : needsReply ? 'needs_reply' : allIgnored ? 'ignored' : 'handled';
+  const urgent = messages.some((message) => message.urgent && (message.status === 'needs_human' || messageNeedsReply(message)));
+  const shown = messages.filter((message) => message.status !== 'ignored');
+  const update = !needsYou && !needsReply && !urgent && shown.length > 0
+    && shown.every((message) => (message.kind === 'notification' || message.kind === 'marketing') && !ALWAYS_INBOX_TOPICS.includes(message.topic));
   return {
     state,
     needs_you: needsYou,
     needs_reply: needsReply,
     has_new: hasNew,
     // Urgent only while it waits on a person.
-    urgent: messages.some((message) => message.urgent && (message.status === 'needs_human' || messageNeedsReply(message))),
+    urgent,
     untrusted: messages.some((message) => message.trust === 'untrusted'),
+    update,
   };
 }
 
 export function threadInTab(flags: ThreadFlags, projectId: string | null, tab: InboxTab): boolean {
   switch (tab) {
-    case 'all': return true;
+    // The Inbox is what a person should see: Updates and Filtered wait in their own views.
+    case 'all': return flags.state !== 'ignored' && !flags.update;
+    case 'updates': return flags.state !== 'ignored' && flags.update;
     case 'needs_you': return flags.needs_you;
     case 'needs_reply': return flags.needs_reply;
     case 'new': return flags.has_new;
     case 'handled': return flags.state === 'handled';
     case 'ignored': return flags.state === 'ignored';
     // Auto-mail is noise, not a mapping gap.
-    case 'unassigned': return !projectId && flags.state !== 'ignored';
+    case 'unassigned': return !projectId && flags.state !== 'ignored' && !flags.update;
   }
 }
 

@@ -49,6 +49,13 @@ export function ThreadProjectDialog({ isOpen, onClose, detail, onSaved }: Thread
 
   // Start fresh when the dialog opens or the thread changes, never when the
   // thread merely refreshes: a realtime ping must not wipe a choice mid-edit.
+  // Only people are remembered: a note taker, a notification or a newsletter
+  // writes for every client, so mapping it would file all of its mail on one project.
+  const machineSenders = new Set(detail.messages
+    .filter((message) => message.sorting && message.sorting.kind !== 'person' && message.sorting.kind !== 'team')
+    .map((message) => (message.original_sender ?? message.from)?.address?.toLowerCase())
+    .filter((address): address is string => !!address));
+  const rememberable = detail.senders.filter((s) => !machineSenders.has(s.address.toLowerCase()));
   const formKey = isOpen ? detail.id : null;
   const [preparedFor, setPreparedFor] = useState<string | null>(null);
   if (formKey !== preparedFor) {
@@ -57,7 +64,7 @@ export function ThreadProjectDialog({ isOpen, onClose, detail, onSaved }: Thread
       const current = detail.project && reachable(detail.project.id) ? detail.project.id : '';
       const initial = current || detail.candidates.find((c) => c.name !== null && reachable(c.project_id))?.project_id || '';
       setProjectId(initial);
-      setSenderAddress(detail.senders[0]?.address ?? '');
+      setSenderAddress(rememberable[0]?.address ?? '');
       setRememberSender(false);
       setRememberDomain(false);
       setSenderProjects(initial ? [initial] : []);
@@ -70,7 +77,7 @@ export function ThreadProjectDialog({ isOpen, onClose, detail, onSaved }: Thread
     .filter((p) => p.status !== 'archived' || p.id === projectId)
     .sort((a, b) => a.name.localeCompare(b.name))
     .map((p) => ({ value: p.id, label: p.name }));
-  const sender = detail.senders.find((s) => s.address === senderAddress) ?? null;
+  const sender = rememberable.find((s) => s.address === senderAddress) ?? null;
 
   // The chosen project follows into the remember lists until they are edited.
   const chooseProject = (id: string) => {
@@ -167,18 +174,23 @@ export function ThreadProjectDialog({ isOpen, onClose, detail, onSaved }: Thread
           <p className="rounded-lg bg-white/[0.03] px-3 py-2.5 text-xs text-zinc-400">
             Every sender in this thread is a teammate or an inbox, so there is no client address to remember.
           </p>
+        ) : rememberable.length === 0 ? (
+          <p className="rounded-lg bg-white/[0.03] px-3 py-2.5 text-xs text-zinc-400">
+            {detail.senders[0].name || detail.senders[0].address} sends automatic mail for every client, so it is never remembered for one project.
+            {detail.project?.source === 'address' ? ' This thread is filed by the address it was sent to.' : ' Set the project for this thread only.'}
+          </p>
         ) : (
           <div className="space-y-4 rounded-lg border border-white/[0.08] bg-white/[0.02] p-4">
             <div>
               <h3 className="text-sm font-medium text-white">Remember for future mail</h3>
               <p className="mt-0.5 text-xs text-zinc-400">Mail from this sender then maps to a project on arrival.</p>
             </div>
-            {detail.senders.length > 1 && (
+            {rememberable.length > 1 && (
               <Select
                 label="Sender"
                 value={senderAddress}
                 onChange={setSenderAddress}
-                options={detail.senders.map((s) => ({ value: s.address, label: s.name ? `${s.name} <${s.address}>` : s.address }))}
+                options={rememberable.map((s) => ({ value: s.address, label: s.name ? `${s.name} <${s.address}>` : s.address }))}
               />
             )}
 

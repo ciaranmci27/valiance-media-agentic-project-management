@@ -7,14 +7,15 @@
 
 import type { CandidateReason } from './mapping';
 
-export const INBOX_TABS = ['all', 'needs_you', 'needs_reply', 'new', 'handled', 'ignored', 'unassigned'] as const;
+export const INBOX_TABS = ['all', 'needs_you', 'needs_reply', 'new', 'updates', 'handled', 'ignored', 'unassigned'] as const;
 export type InboxTab = typeof INBOX_TABS[number];
 
 export const INBOX_TAB_LABELS: Record<InboxTab, string> = {
-  all: 'All',
+  all: 'Inbox',
   needs_you: 'Needs you',
   needs_reply: 'Needs reply',
   new: 'New',
+  updates: 'Updates',
   handled: 'Handled',
   ignored: 'Filtered',
   unassigned: 'Unassigned',
@@ -163,6 +164,12 @@ export interface InboxLinkedTask {
   project_id: string | null;
 }
 
+export interface InboxAnswer {
+  text: string;
+  by: { id: string; name: string } | null;
+  at: string;
+}
+
 export interface InboxMessage {
   id: string;
   status: MessageStatus;
@@ -190,6 +197,8 @@ export interface InboxMessage {
   triage: InboxTriage | null;
   linked_tasks: InboxLinkedTask[];
   reminders: InboxReminder[];
+  /** A person's answer to the question on the triage shown, if any. */
+  answer?: InboxAnswer | null;
   reviewed_at: string | null;
   reviewed_by: { id: string; name: string } | null;
 }

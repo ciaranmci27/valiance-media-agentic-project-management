@@ -196,6 +196,44 @@ function sortingOf(row: Row) {
   return { kind: row.kind, topic: row.topic ?? null, action: row.sort_action ?? null, reason: row.sort_reason ?? null, superseded_by: row.superseded_by ?? null };
 }
 
+/**
+ * Questions waiting on a person: emails still at needs_human whose newest
+ * triage asks one, oldest first. An answered question sends its email back
+ * to New, so it leaves this list; so does marking the thread handled.
+ */
+export async function waitingQuestions(supabase: SupabaseClient, inboxIds: string[], limit = 50): Promise<Row[]> {
+  if (inboxIds.length === 0) return [];
+  const messages = await rows<Row>(supabase.from('email_messages').select('id, thread_id, subject, received_at')
+    .in('inbox_id', inboxIds).eq('status', 'needs_human').order('received_at').limit(500));
+  if (messages.length === 0) return [];
+  const ids = messages.map((message) => message.id as string);
+  const [triage, senders, threads] = await Promise.all([
+    latestTriageByMessage(supabase, ids),
+    rows<Row>(supabase.from('email_message_recipients').select('message_id, address, name').in('message_id', ids).eq('kind', 'from')),
+    rows<Row>(supabase.from('email_threads').select('id, project_id').in('id', [...new Set(messages.map((message) => message.thread_id as string))])),
+  ]);
+  const projectOf = new Map(threads.map((thread) => [thread.id as string, (thread.project_id as string | null) ?? null]));
+  const names = await projectNames(supabase, [...projectOf.values()].filter((id): id is string => !!id));
+  return messages
+    .map((message) => ({ message, asked: triage.get(message.id as string) }))
+    .filter(({ asked }) => !!asked?.question_for_human)
+    .sort((a, b) => String(a.asked!.created_at).localeCompare(String(b.asked!.created_at)))
+    .slice(0, limit)
+    .map(({ message, asked }) => {
+      const sender = senders.find((row) => row.message_id === message.id);
+      const projectId = projectOf.get(message.thread_id as string) ?? null;
+      return {
+        message_id: message.id,
+        thread_id: message.thread_id,
+        subject: message.subject,
+        from: sender ? { address: sender.address, name: sender.name } : null,
+        question: asked!.question_for_human,
+        asked_at: asked!.created_at,
+        project: projectId ? { id: projectId, name: names.get(projectId) ?? null } : null,
+      };
+    });
+}
+
 export async function messageDetail(supabase: SupabaseClient, message: AccessibleMessage): Promise<Row> {
   const [inbox, thread, threadMessages] = await Promise.all([
     supabase.from('email_inboxes').select('id, name, address, agent_readable_types').eq('id', message.inbox_id).single(),
@@ -212,7 +250,7 @@ export async function messageDetail(supabase: SupabaseClient, message: Accessibl
   const readable = new Set((inbox.data.agent_readable_types ?? []) as string[]);
   const ids = threadMessages.map((row) => row.id as string);
 
-  const [recipients, triage, links, attachments, candidates] = await Promise.all([
+  const [recipients, triage, links, attachments, candidates, answers] = await Promise.all([
     rows<Row>(supabase.from('email_message_recipients').select('message_id, kind, address, name, contact_id, position').in('message_id', ids).order('position')),
     latestTriageByMessage(supabase, ids),
     rows<Row>(supabase.from('email_task_links').select('message_id, task_id, relation, created_at').in('message_id', ids).order('created_at')),
@@ -220,7 +258,15 @@ export async function messageDetail(supabase: SupabaseClient, message: Accessibl
       .select('id, message_id, position, filename, content_type, size_bytes, disposition, skipped_reason, uploaded_at, page_count, agent_label')
       .in('message_id', ids).order('position')),
     rows<Row>(supabase.from('email_message_candidates').select('project_id, reason').eq('message_id', message.id)),
+    rows<Row>(supabase.from('email_question_answers').select('message_id, triage_id, answer, answered_by, created_at').in('message_id', ids).order('created_at')),
   ]);
+  // A person's answers to questions the agent asked on these emails, with each question.
+  const [askedRows, answerers] = answers.length ? await Promise.all([
+    rows<Row>(supabase.from('email_triage').select('id, question_for_human').in('id', [...new Set(answers.map((row) => row.triage_id as string))])),
+    rows<{ id: string; name: string }>(supabase.from('team_members').select('id, name').in('id', [...new Set(answers.map((row) => row.answered_by as string).filter(Boolean))])),
+  ]) : [[], []];
+  const questionOf = new Map(askedRows.map((row) => [row.id as string, row.question_for_human as string | null]));
+  const answererName = new Map(answerers.map((member) => [member.id, member.name]));
   const taskIds = [...new Set(links.map((link) => link.task_id as string))];
   const tasks = taskIds.length
     ? await rows<Row>(supabase.from('tasks').select('id, title, status, ai_readiness, project_id').in('id', taskIds).is('deleted_at', null))
@@ -261,6 +307,15 @@ export async function messageDetail(supabase: SupabaseClient, message: Accessibl
       html_text: htmlText.value,
       html_text_truncated: htmlText.truncated,
       latest_triage: latest ?? null,
+      // Answers a person gave to the agent's questions on this email, oldest first: instructions from them.
+      answers: answers
+        .filter((answer) => answer.message_id === row.id)
+        .map((answer) => ({
+          question: questionOf.get(answer.triage_id as string) ?? null,
+          answer: answer.answer,
+          answered_by: answer.answered_by ? answererName.get(answer.answered_by as string) ?? null : null,
+          answered_at: answer.created_at,
+        })),
       linked_tasks: links
         .filter((link) => link.message_id === row.id)
         .map((link) => {

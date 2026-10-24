@@ -53,6 +53,12 @@ export const sendBackSchema = z.object({
   message_id: z.string().uuid().nullable().optional(),
 }).strict();
 
+/** A person's answer to the agent's question on an email (the newest one asking, by default). */
+export const answerQuestionSchema = z.object({
+  message_id: z.string().uuid().nullable().optional(),
+  answer: z.string().trim().min(1).max(2000),
+}).strict();
+
 export const clientDomainSchema = z.object({
   domain: z.string().trim().min(1).max(253),
 }).strict();

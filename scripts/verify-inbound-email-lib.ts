@@ -253,7 +253,18 @@ async function main() {
     { flags: threadFlags([msg({ outcome: 'needs_reply' })]), project_id: null },
     { flags: ignoredFlags, project_id: null },
   ]);
-  check([counts.all, counts.needs_you, counts.new, counts.needs_reply, counts.handled, counts.ignored, counts.unassigned], [3, 1, 1, 1, 0, 1, 1], 'tab counts');
+  check([counts.all, counts.needs_you, counts.new, counts.needs_reply, counts.handled, counts.ignored, counts.unassigned], [2, 1, 1, 1, 0, 1, 1], 'tab counts (the Inbox leaves out Filtered)');
+  // Updates: machine mail that asks nothing of anyone, never money, account or security mail.
+  const machine = (extra: Partial<MessageState>, topic: MessageState['topic'] = 'update') => msg({ kind: 'notification', topic, ...extra });
+  const fyi = threadFlags([machine({ status: 'handled', outcome: 'no_action' })]);
+  check([
+    fyi.update,
+    threadFlags([machine({ status: 'handled', outcome: 'no_action' }, 'money')]).update,
+    threadFlags([machine({ status: 'needs_human' })]).update,
+    threadFlags([msg({ status: 'handled', outcome: 'no_action' })]).update,
+    threadFlags([machine({ status: 'handled', outcome: 'no_action' }), msg({ status: 'handled', outcome: 'no_action', kind: 'person' })]).update,
+  ], [true, false, false, false, false], 'updates: machine FYI only; money, needs-you, unsorted and threads with a person stay in the Inbox');
+  check([threadInTab(fyi, 'p', 'all'), threadInTab(fyi, 'p', 'updates'), threadInTab(fyi, null, 'unassigned')], [false, true, false], 'updates leave the Inbox and Unassigned');
   check(needsAttention(threadFlags([msg({ status: 'new', outcome: null })])), false, 'new mail waits on the agent, not on a person');
   check(attentionCounts([
     threadFlags([msg({ status: 'needs_human', outcome: 'needs_human', urgent: true })]),

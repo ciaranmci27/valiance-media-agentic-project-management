@@ -285,7 +285,10 @@ function withSenders(detail: InboxThreadDetail): InboxThreadDetail {
 }
 
 function stateOf(m: InboxMessage): MessageState {
-  return { status: m.status, reviewed_at: m.reviewed_at, outcome: m.triage?.outcome ?? null, urgent: m.triage?.urgent ?? false, trust: m.trust.level };
+  return {
+    status: m.status, reviewed_at: m.reviewed_at, outcome: m.triage?.outcome ?? null, urgent: m.triage?.urgent ?? false, trust: m.trust.level,
+    kind: m.sorting?.kind ?? null, topic: m.sorting?.topic ?? null,
+  };
 }
 
 let demoDomains: ClientEmailDomain[] = [

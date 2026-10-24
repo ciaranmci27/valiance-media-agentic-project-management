@@ -3,8 +3,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import {
-  AlertTriangle, AlignLeft, Bell, Bot, Check, CheckCircle2, ChevronDown, Copy, Download, ExternalLink, Eye, FileText, Filter, Flame, Forward, HelpCircle, Image as ImageIcon,
-  Link2, Loader2, MessageSquareReply, Paperclip, PenLine, Plus, RefreshCw, RotateCcw, ShieldOff, SquareCheck, Tag, Trash2, Undo2, X,
+  AlertTriangle, ArrowLeft, AlignLeft, Bell, Bot, Check, CheckCircle2, ChevronDown, Copy, Download, ExternalLink, Eye, FileText, Filter, Flame, Forward, HelpCircle, Image as ImageIcon,
+  Loader2, MessageSquareReply, Paperclip, PenLine, Plus, RefreshCw, RotateCcw, ShieldOff, SquareCheck, Tag, Trash2, Undo2, X,
 } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
@@ -17,11 +17,12 @@ import { Popover } from '@/components/ui/Popover';
 import { RowActionsMenu, type RowAction } from '@/components/ui/RowActionsMenu';
 import { toast } from '@/components/ui/Toast';
 import { announceInboxChange, inboxClient } from '@/lib/inbound-email/inbox-client';
-import { skippedReasonLabel, type InboxAttachment, type InboxLinkedTask, type InboxMessage, type InboxReminder, type InboxThreadDetail, type InboxTriage, type TriageOutcome } from '@/lib/inbound-email/inbox-types';
+import { skippedReasonLabel, type InboxAnswer, type InboxAttachment, type InboxLinkedTask, type InboxMessage, type InboxReminder, type InboxThreadDetail, type InboxTriage, type TriageOutcome } from '@/lib/inbound-email/inbox-types';
 import { hasQuotedHtml, inlineImageIds, linkParts, opensAsHtml } from '@/lib/inbound-email/display';
 import { FilePreviewModal } from '@/components/ui/FilePreviewModal';
+import { Textarea } from '@/components/ui/inputs/Textarea';
 import { EmailBodyFrame } from './EmailBodyFrame';
-import { ProjectChip, ThreadStateDot, TrustBadge, TrustNote, formatBytes, formatFullTime } from './inbox-badges';
+import { ProjectChip, ThreadStateDot, TrustBadge, TrustNote, formatBytes, formatFullTime, formatListTime } from './inbox-badges';
 import { ThreadProjectDialog } from './ThreadProjectDialog';
 import { LinkTaskDialog } from './LinkTaskDialog';
 import { SenderRuleDialog } from './SenderRuleDialog';
@@ -34,6 +35,8 @@ interface ThreadViewProps {
   focusMessageId?: string | null;
   /** The thread is gone or out of reach. */
   onMissing?: () => void;
+  /** Back to the list on narrow screens, where the list and the thread take turns. */
+  onBack?: () => void;
 }
 
 const OUTCOME: Record<TriageOutcome, { label: string; icon: typeof Bot; className: string }> = {
@@ -72,7 +75,7 @@ interface TaskUndo {
 }
 const TaskUndoContext = createContext<TaskUndo>({ trashed: {}, undo: async () => {}, pending: null });
 
-export function ThreadView({ threadId, focusMessageId, onMissing }: ThreadViewProps) {
+export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: ThreadViewProps) {
   const { isDemoMode } = useDemo();
   const { projects, team, deleteTask, restoreRecord } = useApp();
   const { access } = useAuth();
@@ -135,6 +138,20 @@ export function ThreadView({ threadId, focusMessageId, onMissing }: ThreadViewPr
   useInboxUpdates((change) => {
     if (change?.threadId !== threadId) void load(true);
   });
+
+  // An answer to the agent's question sends the email back to it with the answer.
+  const answerQuestion = useCallback(async (messageId: string, text: string): Promise<boolean> => {
+    try {
+      await client.answerQuestion(threadId, messageId, text);
+      toast('success', 'Answer sent. It goes back to the agent to act on.');
+      announceInboxChange({ threadId });
+      await load(true);
+      return true;
+    } catch (err) {
+      toast('error', err instanceof Error ? err.message : 'Could not send the answer');
+      return false;
+    }
+  }, [client, threadId, load]);
 
   const taskUndo = useMemo((): TaskUndo => {
     const trashed = trashedIn.threadId === threadId ? trashedIn.tasks : {};
@@ -213,20 +230,36 @@ export function ThreadView({ threadId, focusMessageId, onMissing }: ThreadViewPr
     }
   };
 
+  const backButton = onBack && (
+    <button
+      type="button"
+      onClick={onBack}
+      className="-ml-2 inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm text-zinc-300 transition-colors hover:bg-white/[0.06] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 lg:hidden"
+    >
+      <ArrowLeft size={16} aria-hidden="true" />
+      All email
+    </button>
+  );
+  const backBar = backButton && <div className="border-b border-white/[0.06] px-4 py-2 lg:hidden">{backButton}</div>;
+
   if (error && !detail) {
     return (
+      <>
+      {backBar}
       <div role="alert" className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center">
         <AlertTriangle size={28} className="text-red-400" aria-hidden="true" />
         <p className="text-sm text-zinc-300">{error}</p>
         <Button variant="secondary" size="sm" icon={<RefreshCw size={13} aria-hidden="true" />} onClick={() => void load()}>Try again</Button>
       </div>
+      </>
     );
   }
   if (!detail) {
     return (
+      <>
+      {backBar}
       <div className="space-y-4 p-5" aria-busy="true" aria-label="Loading thread">
         <div className="h-5 w-2/3 animate-pulse rounded bg-white/[0.08] motion-reduce:animate-none" />
-        <div className="h-3 w-1/3 animate-pulse rounded bg-white/[0.06] motion-reduce:animate-none" />
         {[0, 1].map((i) => (
           <div key={i} className="space-y-2 rounded-xl border border-white/[0.06] p-4">
             <div className="h-3.5 w-40 animate-pulse rounded bg-white/[0.08] motion-reduce:animate-none" />
@@ -235,6 +268,7 @@ export function ThreadView({ threadId, focusMessageId, onMissing }: ThreadViewPr
           </div>
         ))}
       </div>
+      </>
     );
   }
 
@@ -242,11 +276,6 @@ export function ThreadView({ threadId, focusMessageId, onMissing }: ThreadViewPr
   const canHandle = detail.state === 'needs_you' || detail.state === 'new' || detail.state === 'needs_reply';
   const canSendBack = !!latest && latest.status !== 'new';
   const projectColor = detail.project ? projects.find((p) => p.id === detail.project!.id)?.color : undefined;
-  // Who cleared the thread and when: the Handled status says it, not every email.
-  const reviewed = [...detail.messages].reverse().find((message) => message.reviewed_at);
-  const handledHint = detail.state === 'handled' && reviewed?.reviewed_at
-    ? `Marked handled by ${reviewed.reviewed_by?.name ?? 'someone'}, ${formatFullTime(reviewed.reviewed_at)}`
-    : undefined;
   const multiDay = new Set(detail.messages.map((message) => dayLabel(message.received_at))).size > 1;
   const agentAvatar = team.find((member) => member.id === detail.inbox.handler?.id)?.avatar || undefined;
   const refresh = async () => {
@@ -278,24 +307,85 @@ export function ThreadView({ threadId, focusMessageId, onMissing }: ThreadViewPr
   return (
     <div className="flex h-full min-h-0 flex-col">
       {/* Header */}
-      <div className="border-b border-white/[0.06] px-5 pb-3 pt-4">
-        <div className="flex items-start gap-3">
-          <h2 className="min-w-0 flex-1 break-words text-lg font-semibold leading-snug tracking-tight text-white">{detail.subject || '(no subject)'}</h2>
+      <div className="border-b border-white/[0.06] px-3 py-2.5 sm:px-5 lg:py-3.5">
+        {/* Phones: back and the actions on the first row, then the title at full width. */}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 lg:flex-nowrap">
+          {backButton}
+          <div className="order-3 flex min-w-0 basis-full flex-wrap items-center gap-x-3 gap-y-1.5 lg:order-1 lg:flex-1 lg:basis-0">
+            {/* Phones: at most two lines of subject; the whole subject is its tooltip. */}
+            <h2 title={detail.subject || undefined} className="line-clamp-2 min-w-0 break-words text-base font-semibold leading-snug tracking-tight text-white sm:line-clamp-none sm:text-lg">{detail.subject || '(no subject)'}</h2>
+            {/* Status, project and what the thread is tied to: one row that wraps as one. */}
+            <span className="flex flex-wrap items-center gap-x-2 gap-y-1 sm:gap-x-3">
+            {/* The status only speaks up when the thread waits on someone; handled and filtered stay quiet. */}
+            {(canHandle || detail.urgent || detail.untrusted) && (
+              <span className="inline-flex flex-shrink-0 items-center gap-2 text-xs">
+                {canHandle && <ThreadStateDot state={detail.state} />}
+                {detail.urgent && (
+                  <span className="inline-flex items-center gap-1 font-semibold text-red-300">
+                    <Flame size={12} aria-hidden="true" />
+                    Urgent
+                  </span>
+                )}
+                {detail.untrusted && <TrustBadge level="untrusted" compact />}
+              </span>
+            )}
+            {/* Then what the thread is: its project, its size, and what it is tied to. Its items wrap one by one with the status. */}
+            <span className="contents text-xs text-zinc-400">
+              <ProjectChip
+                project={detail.project}
+                candidates={detail.candidates}
+                agentName={agentName}
+                color={projectColor}
+                onEdit={canTriage ? () => setProjectDialog(true) : undefined}
+              />
+              {fileCount > 0 && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setAttachmentsOpen(true)}
+                    aria-label={`${fileCount} ${fileCount === 1 ? 'attachment' : 'attachments'}: open the list`}
+                    className="inline-flex items-center gap-1 rounded-md px-1 py-0.5 text-xs sm:px-1.5 text-zinc-300 transition-colors hover:bg-white/[0.06] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+                  >
+                    <Paperclip size={12} aria-hidden="true" />
+                    {fileCount}
+                  </button>
+                </>
+              )}
+              <ThreadLinks
+                detail={detail}
+                canEdit={canTriage && !isDemoMode}
+                onLink={() => setLinkDialog(true)}
+                onUnlink={async (task) => {
+                  try {
+                    await client.unlinkTask(detail.id, task.task_id);
+                    toast('success', `Unlinked "${task.title ?? 'the task'}"`);
+                    await refresh();
+                  } catch (err) {
+                    toast('error', err instanceof Error ? err.message : 'Could not unlink the task');
+                  }
+                }}
+              />
+              {detail.messages.length > 1 && <span>{detail.messages.length} emails</span>}
+            </span>
+            </span>
+          </div>
           {canTriage ? (
-            <div className="flex flex-shrink-0 items-center gap-0.5 rounded-lg border border-white/[0.07] bg-white/[0.02] p-0.5">
+            <div className="order-2 ml-auto flex flex-shrink-0 items-center gap-0.5 rounded-lg border border-white/[0.07] bg-white/[0.02] p-0.5">
               {/* Drafts need an agent on the inbox, and the real app (not demo mode). */}
               {detail.inbox.handler && !isDemoMode && (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="!rounded-md !py-1"
-                  icon={drafting ? <Loader2 size={13} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <PenLine size={13} aria-hidden="true" />}
-                  disabled={drafting}
-                  onClick={() => setDraftDialog(true)}
-                  title={drafting ? `${agentName} is writing a draft` : `Ask ${agentName} for a reply draft`}
-                >
-                  Draft reply
-                </Button>
+                // Icon only: the tooltip names it, and screen readers hear the label.
+                <Tooltip content={drafting ? `${agentName} is writing a draft` : `Draft a reply with ${agentName}`}>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="!rounded-md !px-1.5 !py-1.5"
+                    icon={drafting ? <Loader2 size={16} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <PenLine size={16} aria-hidden="true" />}
+                    disabled={drafting}
+                    onClick={() => setDraftDialog(true)}
+                  >
+                    <span className="sr-only">{drafting ? `${agentName} is writing a draft` : 'Draft reply'}</span>
+                  </Button>
+                </Tooltip>
               )}
               <RowActionsMenu actions={menu} label="More thread actions" triggerClassName="!rounded-md" />
               {busy === 'send_back' && <Loader2 size={14} className="mx-1 animate-spin text-zinc-400 motion-reduce:animate-none" aria-label={`Sending back to ${agentName}`} />}
@@ -314,45 +404,10 @@ export function ThreadView({ threadId, focusMessageId, onMissing }: ThreadViewPr
               )}
             </div>
           ) : (
-            <span className="inline-flex flex-shrink-0 items-center gap-1 rounded-full bg-white/[0.05] px-2 py-0.5 text-[11px] text-zinc-300">
+            <span className="order-2 ml-auto inline-flex flex-shrink-0 items-center gap-1 rounded-full bg-white/[0.05] px-2 py-0.5 text-[11px] text-zinc-300">
               <Eye size={11} aria-hidden="true" />
               View only
             </span>
-          )}
-        </div>
-
-        <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-zinc-400">
-          <ThreadStateDot state={detail.state} hint={handledHint} />
-          {detail.urgent && (
-            <span className="inline-flex items-center gap-1 font-semibold text-red-300">
-              <Flame size={12} aria-hidden="true" />
-              Urgent
-            </span>
-          )}
-          {detail.untrusted && <TrustBadge level="untrusted" compact />}
-          <span className="text-zinc-600" aria-hidden="true">·</span>
-          <ProjectChip
-            project={detail.project}
-            candidates={detail.candidates}
-            agentName={agentName}
-            color={projectColor}
-            onEdit={canTriage ? () => setProjectDialog(true) : undefined}
-          />
-          <span className="text-zinc-600" aria-hidden="true">·</span>
-          <span>{detail.messages.length} {detail.messages.length === 1 ? 'email' : 'emails'}</span>
-          {fileCount > 0 && (
-            <>
-              <span className="text-zinc-600" aria-hidden="true">·</span>
-              <button
-                type="button"
-                onClick={() => setAttachmentsOpen(true)}
-                aria-label={`${fileCount} ${fileCount === 1 ? 'attachment' : 'attachments'}: open the list`}
-                className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-zinc-300 transition-colors hover:bg-white/[0.06] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
-              >
-                <Paperclip size={12} aria-hidden="true" />
-                {fileCount}
-              </button>
-            </>
           )}
         </div>
 
@@ -362,25 +417,10 @@ export function ThreadView({ threadId, focusMessageId, onMissing }: ThreadViewPr
             <span><span className="sr-only">Where it stands, by {agentName}: </span>{detail.summary}</span>
           </p>
         )}
-
-        <ThreadLinks
-          detail={detail}
-          canEdit={canTriage && !isDemoMode}
-          onLink={() => setLinkDialog(true)}
-          onUnlink={async (task) => {
-            try {
-              await client.unlinkTask(detail.id, task.task_id);
-              toast('success', `Unlinked "${task.title ?? 'the task'}"`);
-              await refresh();
-            } catch (err) {
-              toast('error', err instanceof Error ? err.message : 'Could not unlink the task');
-            }
-          }}
-        />
       </div>
 
       {/* Messages */}
-      <div ref={scrollRef} className="relative min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-5">
+      <div ref={scrollRef} className="relative min-h-0 flex-1 overflow-y-auto px-2 py-3 sm:px-5 sm:py-4">
         <TaskUndoContext.Provider value={taskUndo}>
         <ol className="space-y-3">
           {detail.messages.map((message) => {
@@ -405,6 +445,7 @@ export function ThreadView({ threadId, focusMessageId, onMissing }: ThreadViewPr
                   onPreview={isDemoMode ? undefined : setPreview}
                   onSendToAgent={canTriage ? () => void after(() => client.sendBack(detail.id, message.id), `Sent to ${agentName}`, 'send_back') : undefined}
                   onRule={canManageRules ? () => setRuleFor(message) : undefined}
+                  onAnswer={canTriage && !isDemoMode ? (text) => answerQuestion(message.id, text) : undefined}
                   busy={busy !== null}
                   onDownload={(attachment) => void downloadAttachment(attachment)}
                 />
@@ -498,9 +539,9 @@ export function ThreadView({ threadId, focusMessageId, onMissing }: ThreadViewPr
 }
 
 const RELATION_LABELS: Record<InboxLinkedTask['relation'], string> = {
-  created: 'Started by this thread',
-  updated: 'Changed by this thread',
-  related: 'This thread is about it',
+  created: 'Created',
+  updated: 'Updated',
+  related: 'About',
 };
 
 function shortDate(value: string): string {
@@ -522,59 +563,68 @@ function ThreadLinks({ detail, canEdit, onLink, onUnlink }: {
   const tasks = [...new Map(detail.messages.flatMap((message) => message.linked_tasks).map((task) => [task.task_id, task])).values()];
   const reminders: InboxReminder[] = detail.messages.flatMap((message) => message.reminders).filter((reminder) => reminder.status === 'open');
   if (tasks.length === 0 && reminders.length === 0 && !canEdit) return null;
-  const chip = 'inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-md bg-white/[0.04] px-2 py-1 text-xs text-zinc-200 sm:max-w-[22rem]';
   return (
-    <ul className="mt-2.5 flex min-w-0 flex-wrap items-center gap-1.5" aria-label="Linked tasks and reminders">
-      {tasks.map((task) => (
-        <li key={task.task_id} className={chip}>
-          <Tooltip content={RELATION_LABELS[task.relation]} className="min-w-0">
-            <span className="inline-flex min-w-0 items-center gap-1.5">
-              <SquareCheck size={12} className="flex-shrink-0 text-emerald-300" aria-hidden="true" />
-              {task.project_id && task.title !== null ? (
-                <Link
-                  href={`/projects/${task.project_id}?task=${task.task_id}`}
-                  className="min-w-0 truncate rounded font-medium hover:text-brand-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
-                >
-                  {task.title}
-                </Link>
-              ) : (
-                <span className="truncate text-zinc-300">A task in another project</span>
-              )}
-              <span className="sr-only">({RELATION_LABELS[task.relation]})</span>
-            </span>
-          </Tooltip>
+    <>
+      {(tasks.length > 0 || canEdit) && (
+        <NotePill label={`${tasks.length} ${tasks.length === 1 ? 'task' : 'tasks'}`} icon={<SquareCheck size={11} className={tasks.length ? 'text-emerald-300' : ''} aria-hidden="true" />} width={420}>
+          {tasks.length === 0 && <p className="text-xs text-zinc-400">No tasks are tied to this thread yet.</p>}
+          <ul className="space-y-1" aria-label="Linked tasks">
+            {tasks.map((task) => (
+              <li key={task.task_id} className="flex min-w-0 items-center gap-2 text-xs">
+                <SquareCheck size={12} className="flex-shrink-0 text-emerald-300" aria-hidden="true" />
+                <span className="w-[3.75rem] flex-shrink-0 text-zinc-400">{RELATION_LABELS[task.relation]}</span>
+                {task.project_id && task.title !== null ? (
+                  <Link
+                    href={`/projects/${task.project_id}?task=${task.task_id}`}
+                    className="min-w-0 flex-1 truncate rounded font-medium text-zinc-100 hover:text-brand-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+                  >
+                    {task.title}
+                  </Link>
+                ) : (
+                  <span className="min-w-0 flex-1 truncate text-zinc-300">A task in another project</span>
+                )}
+                {canEdit && (
+                  <button
+                    type="button"
+                    onClick={() => void onUnlink(task)}
+                    aria-label={`Unlink ${task.title ?? 'this task'}`}
+                    className="flex-shrink-0 rounded p-0.5 text-zinc-500 transition-colors hover:bg-white/[0.08] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+                  >
+                    <X size={12} aria-hidden="true" />
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
           {canEdit && (
+            // A last quiet row, lined up with the tasks above it.
             <button
               type="button"
-              onClick={() => void onUnlink(task)}
-              aria-label={`Unlink ${task.title ?? 'this task'}`}
-              className="-mr-0.5 rounded p-0.5 text-zinc-500 transition-colors hover:bg-white/[0.08] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+              onClick={onLink}
+              className={`flex items-center gap-2 rounded text-xs text-zinc-400 transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${tasks.length ? 'mt-2' : 'mt-1.5'}`}
             >
-              <X size={12} aria-hidden="true" />
+              <Plus size={12} className="flex-shrink-0" aria-hidden="true" />
+              Link a task
             </button>
           )}
-        </li>
-      ))}
-      {reminders.map((reminder) => (
-        <li key={reminder.id} className={chip}>
-          <Bell size={12} className="flex-shrink-0 text-amber-300" aria-hidden="true" />
-          <span className="truncate"><span className="sr-only">Reminder: </span>{reminder.title}</span>
-          {reminder.remind_on && <span className="flex-shrink-0 text-zinc-400">{shortDate(reminder.remind_on)}</span>}
-        </li>
-      ))}
-      {canEdit && (
-        <li>
-          <button
-            type="button"
-            onClick={onLink}
-            className="inline-flex items-center gap-1 rounded-md border border-dashed border-white/[0.14] px-2 py-1 text-xs text-zinc-400 transition-colors hover:border-white/[0.24] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
-          >
-            {tasks.length ? <Plus size={12} aria-hidden="true" /> : <Link2 size={12} aria-hidden="true" />}
-            {tasks.length ? 'Link' : 'Link a task'}
-          </button>
-        </li>
+        </NotePill>
       )}
-    </ul>
+      {reminders.length > 0 && (
+        <>
+          <NotePill label={`${reminders.length} ${reminders.length === 1 ? 'reminder' : 'reminders'}`} icon={<Bell size={11} className="text-amber-300" aria-hidden="true" />} width={380}>
+            <ul className="space-y-1.5" aria-label="Open reminders">
+              {reminders.map((reminder) => (
+                <li key={reminder.id} className="flex min-w-0 items-center gap-1.5 text-xs">
+                  <Bell size={12} className="flex-shrink-0 text-amber-300" aria-hidden="true" />
+                  <span className="min-w-0 truncate font-medium text-zinc-100">{reminder.title}</span>
+                  {reminder.remind_on && <span className="flex-shrink-0 text-zinc-400">{shortDate(reminder.remind_on)}</span>}
+                </li>
+              ))}
+            </ul>
+          </NotePill>
+        </>
+      )}
+    </>
   );
 }
 
@@ -612,7 +662,7 @@ function EmailText({ text }: { text: string }) {
   );
 }
 
-function MessageCard({ message, agentName, focused, busy, viewUrl, onSendToAgent, onRule, onDownload, onPreview }: {
+function MessageCard({ message, agentName, focused, busy, viewUrl, onSendToAgent, onRule, onAnswer, onDownload, onPreview }: {
   message: InboxMessage;
   agentName: string;
   focused: boolean;
@@ -623,6 +673,8 @@ function MessageCard({ message, agentName, focused, busy, viewUrl, onSendToAgent
   onSendToAgent?: () => void;
   /** Make or change the sender rule for this email's sender. */
   onRule?: () => void;
+  /** Answer the agent's question; absent for members who only view. */
+  onAnswer?: (text: string) => Promise<boolean>;
   onDownload: (attachment: InboxAttachment) => void;
   onPreview?: (attachment: InboxAttachment) => void;
 }) {
@@ -652,7 +704,7 @@ function MessageCard({ message, agentName, focused, busy, viewUrl, onSendToAgent
       .map((entry) => entry.task);
     return [...live, ...gone];
   }, [message.linked_tasks, message.id, trashed]);
-  const noteMode = message.triage ? agentNoteMode(message.triage, agentLinks, message.reminders, message.new_text) : null;
+  const noteMode = message.triage ? agentNoteMode(message.triage, agentLinks, message.reminders) : null;
   // Images the HTML already shows in place are not listed again under it.
   const referenced = useMemo(() => inlineImageIds(message.html_body), [message.html_body]);
   const listed = showingHtml
@@ -677,12 +729,14 @@ function MessageCard({ message, agentName, focused, busy, viewUrl, onSendToAgent
       aria-label={`Email from ${sender}`}
       className={`rounded-xl border bg-white/[0.02] ${focused ? 'border-brand-400/50 ring-1 ring-brand-400/30' : 'border-white/[0.07]'}`}
     >
-      <header className="flex flex-wrap items-start gap-3 px-4 pt-3.5">
+      <header className="flex items-start gap-3 px-3 pt-3 sm:px-4 sm:pt-3.5">
         <Avatar name={sender} size="sm" />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
             <span className="text-sm font-semibold text-white">{sender}</span>
-            {shownFrom?.name && <span className="truncate text-xs text-zinc-400">{shownFrom.address}</span>}
+            {/* Phones: the time rides on the name line instead of taking a column. */}
+            <time dateTime={message.received_at} className="ml-auto text-xs tabular-nums text-zinc-400 sm:hidden">{formatListTime(message.received_at)}</time>
+            {shownFrom?.name && <span className="min-w-0 max-w-full basis-full truncate text-xs text-zinc-400 sm:basis-auto">{shownFrom.address}</span>}
             {/* Trust is the verdict on the outer sender, so a teammate's forward shows it on their line. */}
             {!forwardedByTeam && <TrustBadge level={message.trust.level} />}
             {message.is_forward && !forwardedByTeam && (
@@ -699,12 +753,11 @@ function MessageCard({ message, agentName, focused, busy, viewUrl, onSendToAgent
               {forwardedByTeam && <TrustBadge level={message.trust.level} />}
             </p>
           )}
-          {recipients && <p className="mt-0.5 break-words text-[11px] text-zinc-400">{recipients}</p>}
+          {recipients && <p className="mt-0.5 truncate text-[11px] text-zinc-400 sm:whitespace-normal sm:break-words">{recipients}</p>}
           <TrustNote level={message.trust.level} reason={message.trust.reason} />
         </div>
         <div className="flex flex-shrink-0 flex-col items-end gap-1">
-          <time dateTime={message.received_at} className="text-xs tabular-nums text-zinc-400">{formatFullTime(message.received_at)}</time>
-          {message.triage && noteMode === 'quiet' && <QuietNote triage={message.triage} agentName={agentName} />}
+          <time dateTime={message.received_at} className="hidden text-xs tabular-nums text-zinc-400 sm:block">{formatFullTime(message.received_at)}</time>
         </div>
       </header>
 
@@ -726,7 +779,7 @@ function MessageCard({ message, agentName, focused, busy, viewUrl, onSendToAgent
         </div>
       )}
 
-      <div className="px-4 py-3">
+      <div className="px-2 py-3 sm:px-4">
         {showingHtml ? (
           <EmailBodyFrame html={message.html_body!} inlineImages={inlineImages} hideQuoted={!full} title={`Email from ${sender}: ${message.subject || 'no subject'}`} />
         ) : (
@@ -748,8 +801,9 @@ function MessageCard({ message, agentName, focused, busy, viewUrl, onSendToAgent
 
       {listed.length > 0 && <AttachmentList attachments={listed} agentName={agentName} viewUrl={viewUrl} onDownload={onDownload} onPreview={onPreview} />}
 
-      {message.triage && noteMode !== 'quiet' && (
-        <AgentNote messageId={message.id} triage={message.triage} agentName={agentName} linkedTasks={agentLinks} reminders={message.reminders} collapsed={noteMode === 'summary'} handled={!!message.reviewed_at} />
+      {message.triage && noteMode && (
+        <AgentNote messageId={message.id} triage={message.triage} agentName={agentName} linkedTasks={agentLinks} reminders={message.reminders} collapsed={noteMode === 'summary'} handled={!!message.reviewed_at}
+          answer={message.answer ?? null} waiting={message.status === 'new'} onAnswer={onAnswer} />
       )}
       {message.sorting?.superseded_by && (
         <p className="mx-4 mb-3 text-[11px] text-zinc-400">Replaced by a newer alert from the same sender, so it no longer waits on anyone.</p>
@@ -834,18 +888,14 @@ function AttachmentList({ attachments, agentName, viewUrl, onDownload, onPreview
   );
 }
 
-/** Emails longer than this get a collapsed summary even when the agent did nothing. */
-const LONG_EMAIL_CHARS = 600;
-
 /**
- * How much of the agent's triage an email shows: an action receipt when it
- * did something or needs you ("actions"), a collapsed summary for a long
- * email it only read ("summary"), and a quiet mark by the time for a short
- * one ("quiet"), whose summary would repeat the email.
+ * How much of the agent's triage an email shows, always in the same place
+ * under it: an action receipt when it did something or needs you
+ * ("actions"), else one quiet "No action" row with the summary a click away.
  */
-function agentNoteMode(triage: InboxTriage, linkedTasks: InboxMessage['linked_tasks'], reminders: InboxReminder[], text: string | null): 'actions' | 'summary' | 'quiet' {
+function agentNoteMode(triage: InboxTriage, linkedTasks: InboxMessage['linked_tasks'], reminders: InboxReminder[]): 'actions' | 'summary' {
   if (triage.outcome !== 'no_action' || triage.urgent || triage.question_for_human || linkedTasks.length > 0 || reminders.length > 0) return 'actions';
-  return (text ?? '').trim().length > LONG_EMAIL_CHARS ? 'summary' : 'quiet';
+  return 'summary';
 }
 
 /** The agent who triaged: its name and its photo from the team directory. */
@@ -911,22 +961,6 @@ function NoteCardHeader({ name, avatar, at }: { name: string; avatar?: string; a
   );
 }
 
-/** "No action" by the timestamp; it opens the summary. */
-function QuietNote({ triage, agentName }: { triage: InboxTriage; agentName: string }) {
-  const { name: who, avatar } = useTriager(triage, agentName);
-  return (
-    <NotePill
-      align="end"
-      className="!bg-transparent !px-1 !text-zinc-400 hover:!text-zinc-200"
-      icon={<Avatar name={who} src={avatar} size="xs" className="!h-4 !w-4 !text-[8px]" />}
-      label={<><span className="sr-only">{who}: </span>No action</>}
-    >
-      <NoteCardHeader name={who} avatar={avatar} at={triage.created_at} />
-      <p className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-200">{triage.summary}</p>
-    </NotePill>
-  );
-}
-
 /**
  * One linked task as a receipt item: what happened to it, then the task. A
  * task the agent created can be waved off as "Not a task" (to Trash), and
@@ -982,13 +1016,84 @@ function TaskReceipt({ task, messageId }: { task: InboxMessage['linked_tasks'][n
 }
 
 /**
+ * Under the agent's question: the answer someone gave, or a box to give one.
+ * "Go with your default" takes the default the question proposes. Either way
+ * the email goes back to the agent, which acts on the answer.
+ */
+function QuestionAnswer({ agentName, answer, waiting, onAnswer }: {
+  agentName: string;
+  answer: InboxAnswer | null;
+  waiting: boolean;
+  onAnswer?: (text: string) => Promise<boolean>;
+}) {
+  const [text, setText] = useState('');
+  const [sending, setSending] = useState<'default' | 'answer' | null>(null);
+  if (answer) {
+    return (
+      <div className="mt-3 rounded-lg bg-white/[0.03] px-3 py-2.5">
+        <p className="mb-1 text-[11px] font-semibold text-zinc-400">
+          {answer.by?.name ?? 'Someone'} answered, {formatFullTime(answer.at)}
+        </p>
+        <p className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-100">{answer.text}</p>
+        {waiting && (
+          <p className="mt-1.5 flex items-center gap-1.5 text-[11px] text-zinc-400">
+            <Loader2 size={11} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />
+            With {agentName} to act on
+          </p>
+        )}
+      </div>
+    );
+  }
+  if (!onAnswer) return null;
+  const send = async (kind: 'default' | 'answer', value: string) => {
+    setSending(kind);
+    try {
+      if (await onAnswer(value)) setText('');
+    } finally {
+      setSending(null);
+    }
+  };
+  return (
+    <div className="mt-3 space-y-2">
+      <Textarea
+        label="Your answer"
+        value={text}
+        onChange={setText}
+        size="sm"
+        rows={2}
+        autoResize
+        maxHeight={160}
+        maxLength={2000}
+        placeholder={`Tell ${agentName} what to do`}
+        disabled={sending !== null}
+      />
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <Button size="sm" variant="ghost" disabled={sending !== null} onClick={() => void send('default', 'Go with your proposed default.')}
+          icon={sending === 'default' ? <Loader2 size={12} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Check size={12} aria-hidden="true" />}>
+          Go with your default
+        </Button>
+        <Button size="sm" disabled={sending !== null || !text.trim()} onClick={() => void send('answer', text.trim())}
+          icon={sending === 'answer' ? <Loader2 size={12} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Forward size={12} aria-hidden="true" />}>
+          Send answer
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/**
  * What the agent did with an email, under it, as one line of pills that
  * each open a card: its summary, the tasks it touched, the reminders it
  * set, a question for you (amber until the thread is handled) and an old
  * suggested reply. Nothing repeats the email or spreads across the page.
  */
-function AgentNote({ messageId, triage, agentName, linkedTasks, reminders, collapsed, handled }: {
+function AgentNote({ messageId, triage, agentName, linkedTasks, reminders, collapsed, handled, answer, waiting, onAnswer }: {
   messageId: string;
+  /** A person's answer to this triage's question. */
+  answer: InboxAnswer | null;
+  /** The email is back with the agent (after an answer, say). */
+  waiting: boolean;
+  onAnswer?: (text: string) => Promise<boolean>;
   triage: InboxTriage;
   agentName: string;
   linkedTasks: InboxMessage['linked_tasks'];
@@ -1071,18 +1176,19 @@ function AgentNote({ messageId, triage, agentName, linkedTasks, reminders, colla
           </NotePill>
         )}
         {triage.question_for_human && (
-          // Amber until the thread is handled: a decision waits on you.
+          // Amber until the thread is handled or answered: a decision waits on you.
           <NotePill
-            label={handled ? 'Question' : 'Question for you'}
+            label={handled ? 'Question' : answer ? 'Answered' : 'Question for you'}
             icon={<HelpCircle size={11} aria-hidden="true" />}
             width={420}
-            className={handled ? '' : '!bg-amber-500/[0.14] !text-amber-200 hover:!bg-amber-500/[0.22]'}
+            className={handled || answer ? '' : '!bg-amber-500/[0.14] !text-amber-200 hover:!bg-amber-500/[0.22]'}
           >
             <NoteCardHeader name={who} avatar={avatar} at={triage.created_at} />
             <p className={`mb-1 text-[11px] font-semibold uppercase tracking-wider ${handled ? 'text-zinc-400' : 'text-amber-300'}`}>
               {handled ? 'Question (handled)' : 'Question for you'}
             </p>
             <p className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-100">{triage.question_for_human}</p>
+            <QuestionAnswer agentName={who} answer={answer} waiting={waiting} onAnswer={handled || waiting ? undefined : onAnswer} />
           </NotePill>
         )}
         {triage.suggested_reply && (

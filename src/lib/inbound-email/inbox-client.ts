@@ -76,6 +76,10 @@ export function inboxClient(isDemo: boolean) {
     sendBack(threadId: string, messageId: string | null): Promise<{ message_id: string }> {
       return isDemo ? demoInbox.sendBack(threadId, messageId) : post(`/api/workspace/inbox/threads/${threadId}/send-back`, { message_id: messageId });
     },
+    async answerQuestion(threadId: string, messageId: string, answer: string): Promise<{ message_id: string }> {
+      if (isDemo) throw new Error('Answers are off in demo mode');
+      return post(`/api/workspace/inbox/threads/${threadId}/answer`, { message_id: messageId, answer });
+    },
     async attachmentUrl(attachmentId: string): Promise<{ url: string; filename: string }> {
       if (isDemo) throw new Error('Downloads are off in demo mode');
       return call(`/api/workspace/inbox/attachments/${attachmentId}/url`);

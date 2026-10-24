@@ -1,6 +1,6 @@
 'use client';
 
-import { ChevronDown, ShieldAlert, ShieldQuestion, Sparkles } from 'lucide-react';
+import { ShieldAlert, ShieldQuestion, Sparkles } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Tooltip } from '@/components/ui/Tooltip';
 import type { ThreadProject, ThreadState, TrustLevel } from '@/lib/inbound-email/inbox-types';
@@ -88,7 +88,6 @@ export function ProjectChip({ project, candidates, agentName, color, onEdit }: {
       {agentChoice && <Sparkles size={11} className="flex-shrink-0" aria-hidden="true" />}
       <span className="truncate">{project ? project.name : candidates.length > 1 ? `Pick a project (${candidates.length} match)` : 'Set project'}</span>
       {agentChoice && onEdit && <span className="flex-shrink-0 font-normal text-amber-300/80">Confirm</span>}
-      {onEdit && <ChevronDown size={12} className="flex-shrink-0 opacity-50" aria-hidden="true" />}
     </>
   );
   return (

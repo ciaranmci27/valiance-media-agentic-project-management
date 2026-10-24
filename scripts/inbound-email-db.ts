@@ -17,6 +17,7 @@ export const NEEDS_HUMAN_MIGRATION = '../supabase/migrations/20261018161658_emai
 export const NEEDS_HUMAN_CLEANUP_MIGRATION = '../supabase/migrations/20261018164310_email_needs_human_cleanup.sql';
 export const PROJECT_SOURCE_PERSON_MIGRATION = '../supabase/migrations/20261018165051_email_project_source_person.sql';
 export const SORTING_MIGRATION = '../supabase/migrations/20261023194940_inbox_sorting_and_relations.sql';
+export const ANSWERS_MIGRATION = '../supabase/migrations/20261024044106_email_question_answers.sql';
 const TASK_SAVE_MIGRATION = '../supabase/migrations/20260923235152_atomic_task_save.sql';
 
 async function read(path: string) {
@@ -119,7 +120,7 @@ export async function createEmailDatabase(
     await db.exec(spec);
     await db.exec(spec); // safe to re-run
     if (!stopBeforeNeedsHuman) {
-      for (const path of [NEEDS_HUMAN_MIGRATION, NEEDS_HUMAN_CLEANUP_MIGRATION, PROJECT_SOURCE_PERSON_MIGRATION, SORTING_MIGRATION]) {
+      for (const path of [NEEDS_HUMAN_MIGRATION, NEEDS_HUMAN_CLEANUP_MIGRATION, PROJECT_SOURCE_PERSON_MIGRATION, SORTING_MIGRATION, ANSWERS_MIGRATION]) {
         const sql = await read(path);
         await db.exec(sql);
         await db.exec(sql); // safe to re-run

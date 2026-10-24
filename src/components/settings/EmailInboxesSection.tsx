@@ -20,6 +20,7 @@ import { NumberInput } from '@/components/ui/inputs/NumberInput';
 import { toast } from '@/components/ui/Toast';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { CopyValueButton, EmailConnectChecklist, relativeTime } from '@/components/settings/EmailConnectChecklist';
+import { SenderRulesManager } from '@/components/inbox/SenderRulesManager';
 import { useApp } from '@/lib/store';
 import { useDemo } from '@/lib/demo-context';
 import { announceInboxChange, inboxSettingsClient } from '@/lib/inbound-email/inbox-client';
@@ -235,6 +236,7 @@ export function EmailInboxesSection() {
   const client = useMemo(() => inboxSettingsClient(isDemoMode), [isDemoMode]);
 
   const [loading, setLoading] = useState(true);
+  const [rulesOpen, setRulesOpen] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [retrying, setRetrying] = useState(false);
   /** The list loaded at least once, so the relay domain and rows are real. */
@@ -536,6 +538,16 @@ export function EmailInboxesSection() {
           <p className="text-xs mt-1">Add one for each agent that reads client email</p>
         </div>
       ) : null}
+      {loaded && !isDemoMode && (
+        <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-white/[0.06] pt-5">
+          <div className="min-w-0">
+            <h3 className="text-sm font-medium text-white">Mail rules</h3>
+            <p className="text-xs text-zinc-400">What happens to a sender&apos;s mail before your agents see it: filtered, FYI or always triaged.</p>
+          </div>
+          <Button size="sm" variant="secondary" onClick={() => setRulesOpen(true)}>Manage rules</Button>
+        </div>
+      )}
+      <SenderRulesManager isOpen={rulesOpen} onClose={() => setRulesOpen(false)} onChanged={() => announceInboxChange()} />
     </section>
   );
 }
