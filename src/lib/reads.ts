@@ -10,6 +10,7 @@ import {
   fetchProjectTeamActivity, type ProjectRetainerBundle,
 } from '@/lib/supabase/queries';
 import { useApp } from '@/lib/store';
+import { TELEMETRY_EVENT_TYPES } from '@/lib/agent-events';
 import { toLocalDateString } from '@/lib/date-utils';
 import { inboxClient } from '@/lib/inbound-email/inbox-client';
 import {
@@ -304,6 +305,38 @@ export function taskFileCandidatesRead(taskId: string): Read<TaskFileCandidates>
   };
 }
 
+/**
+ * One task's history: what people did (the team log, its comments left out
+ * since the task shows them above) and what agents did (their log, telemetry
+ * left out). Read for the task's Activity section.
+ */
+export function taskActivityRead(taskId: string): Read<ProjectActivity> {
+  return {
+    key: `task-activity:${taskId}`,
+    tables: ['activities', 'agent_activities'],
+    load: async () => {
+      const supabase = createClient();
+      const [team, agent] = await Promise.all([
+        supabase.from('activities').select('*')
+          .or(`entity_id.eq.${taskId},metadata->>task_id.eq.${taskId}`)
+          .neq('entity_type', 'comment')
+          .order('created_at', { ascending: false })
+          .limit(100),
+        AGENTS_ENABLED
+          ? supabase.from('agent_activities').select('*')
+            .eq('reference_type', 'task').eq('reference_id', taskId)
+            .not('activity_type', 'in', `(${TELEMETRY_EVENT_TYPES.join(',')})`)
+            .order('created_at', { ascending: false })
+            .limit(100)
+          : Promise.resolve({ data: [] as AgentActivity[], error: null }),
+      ]);
+      if (team.error) throw team.error;
+      if (agent.error) throw agent.error;
+      return { team: (team.data ?? []) as TeamActivity[], agent: (agent.data ?? []) as AgentActivity[] };
+    },
+  };
+}
+
 export interface TaskReadAccess {
   isDemo: boolean;
   /** files.read or files.manage */
@@ -322,6 +355,7 @@ export function taskPanelReads(taskId: string, can: TaskReadAccess): Read<unknow
     ...(can.isDemo ? [] : [taskSourceRead(taskId)]),
     ...(emails ? [taskEmailsRead(taskId, can.isDemo)] : []),
     ...(can.files && !can.isDemo ? [taskFilesRead(taskId)] : []),
+    ...(can.isDemo ? [] : [taskActivityRead(taskId)]),
   ];
 }
 

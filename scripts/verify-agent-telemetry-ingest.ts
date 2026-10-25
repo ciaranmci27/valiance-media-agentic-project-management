@@ -121,11 +121,11 @@ async function main() {
     const dispatcherKey = await insertKey(db, JOHN, ['tasks.read', 'projects.read', 'fleet_alerts.write']);
     const readOnlyDispatcher = await insertKey(db, JOHN, ['tasks.read', 'projects.read']);
 
-    const post = async (key: string, activity_type: string, payload: Record<string, unknown>, project_id: string | null = null) => {
+    const post = async (key: string, activity_type: string, payload: Record<string, unknown>, project_id: string | null = null, extra: Record<string, unknown> = {}) => {
       const response = await route.POST(new NextRequest('http://localhost/api/v1/agent-activities', {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-api-key': key },
-        body: JSON.stringify({ activity_type, project_id, payload }),
+        body: JSON.stringify({ activity_type, project_id, payload, ...extra }),
       }));
       const json = await response.json().catch(() => null);
       return { status: response.status, body: json, data: json?.data };
@@ -161,6 +161,18 @@ async function main() {
     // row would stall the agent's whole publisher), and makes no reference.
     const loose = await post(jeffKey, 'attention.message', { kind: 'pm_notify', at: t0, solicited: false, task_id: 'not-a-uuid', source_ref: 'attention:jeff:pm_notify:s1:c9' });
     check('attention with a non-uuid task_id accepted', loose.status === 201 && loose.data?.reference_id === null, loose);
+
+    // A narration names its task beside the payload (Ashley's plugin does);
+    // without a task_id inside, that reference stands. An unknown kind is
+    // ignored, never a refused event.
+    const narrated = await post(jeffKey, 'work.milestone', { kind: 'note', detail: 'attached a file to the task' }, null,
+      { reference_type: 'task', reference_id: TASK });
+    check('a typed event keeps the task it names beside its payload',
+      narrated.status === 201 && narrated.data?.reference_type === 'task' && narrated.data?.reference_id === TASK, narrated);
+    const odd = await post(jeffKey, 'work.milestone', { kind: 'note', detail: 'filed the email' }, null,
+      { reference_type: 'email', reference_id: TASK });
+    check('an unknown reference kind is dropped, the event kept',
+      odd.status === 201 && odd.data?.reference_id === null, odd);
 
     // -- source_ref keeps identical messages apart ---------------------------
     const twin = { kind: 'pm_notify', at: t1, solicited: false, session_id: 's2', task_id: TASK };
@@ -292,7 +304,8 @@ async function main() {
     await post(jeffKey, 'work.claimed', { task_id: TASK, task_title: 'Real work' });
     const feed = await fetchAgentActivity(getServiceClient());
     check('the narrative feed shows real events', feed.some((row) => row.activity_type === 'work.claimed'), feed.map((row) => row.activity_type));
-    check('the narrative feed shows no telemetry', feed.every((row) => row.activity_type === 'work.claimed'), feed.map((row) => row.activity_type));
+    // Only the narrative events this test posts (claims and milestones).
+    check('the narrative feed shows no telemetry', feed.every((row) => ['work.claimed', 'work.milestone'].includes(row.activity_type)), feed.map((row) => row.activity_type));
 
     // Older types keep their metadata identity (no source_key needed).
     const usage = { source_usage_id: 'u1', model: 'm', input_tokens: 10, output_tokens: 2, cost_usd: 0.01 };

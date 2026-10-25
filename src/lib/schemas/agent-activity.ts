@@ -20,6 +20,11 @@ const typedVariants = AGENT_EVENT_TYPES.filter((type) => !isServerEvent(type)).m
     activity_type: z.literal(type),
     payload: AGENT_EVENT_SCHEMAS[type],
     project_id: z.string().uuid().nullable().default(null),
+    // What the event is about, when its payload does not say (the plugins'
+    // narration names the task, lead or contact here).
+    // Loose on purpose: an unknown kind is ignored, never a refused event.
+    reference_type: z.string().nullable().optional(),
+    reference_id: z.string().nullable().optional(),
   })
 );
 

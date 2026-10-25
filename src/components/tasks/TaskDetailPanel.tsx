@@ -41,6 +41,7 @@ import {
   Route,
   Paperclip,
   Briefcase,
+  History,
   type LucideIcon,
 } from 'lucide-react';
 import { RowActionsMenu, type RowAction } from '@/components/ui/RowActionsMenu';
@@ -55,6 +56,7 @@ import { TaskSourceEmailsSection, useKnownTaskEmailCount, useTaskSourceEmails } 
 import { RailCard, RailLayout } from '@/components/projects/TabLayout';
 import { TaskSourceLine, useTaskSource } from './TaskSource';
 import { NewSinceDivider, useLookedSince } from './TaskUnread';
+import { TaskActivity, useTaskActivityCount } from './TaskActivity';
 import { TaskFiles } from './TaskFiles';
 import { TaskPanelShell } from './TaskPanelShell';
 import {
@@ -340,6 +342,7 @@ export function TaskDetailPanel({ task, onClose, onDelete, variant = 'panel' }: 
   const knownEmailCount = useKnownTaskEmailCount(task?.id ?? '');
   // What arrived since the person last looked, fixed as the task opens.
   const isNewSince = useLookedSince(task?.id);
+  const activityCount = useTaskActivityCount(task);
   const firstNewComment = task ? task.comments.findIndex((comment) => isNewSince(comment.created_at, comment.user_id)) : -1;
   const sourceEmails = useTaskSourceEmails(task && knownEmailCount !== 0 ? task.id : null);
   const emailCount = sourceEmails?.link_count ?? knownEmailCount ?? 0;
@@ -1031,6 +1034,10 @@ export function TaskDetailPanel({ task, onClose, onDelete, variant = 'panel' }: 
             Comment
           </Button>
         </form>
+      </Section>
+
+      <Section variant={variant} title="Activity" icon={History} count={activityCount > 0 ? activityCount : undefined}>
+        <TaskActivity key={task.id} task={task} />
       </Section>
     </>
   );

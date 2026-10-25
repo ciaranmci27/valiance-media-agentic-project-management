@@ -100,14 +100,19 @@ export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId, acc
         const typed = parsed as TypedAgentEvent;
         const payload = typed.payload as Record<string, unknown>;
         // Host records keep task_id as sent; only a real uuid becomes a reference.
+        // Without one in the payload, the event's own reference stands (the
+        // plugins name the task, lead or contact there).
         const taskId = isUuid(payload.task_id) ? payload.task_id : null;
+        const sent = !taskId && ['task', 'lead', 'contact'].includes(typed.reference_type ?? '') && isUuid(typed.reference_id)
+          ? { type: typed.reference_type as string, id: typed.reference_id }
+          : null;
         return {
           project_id: typed.project_id,
           activity_type: typed.activity_type,
           title: formatEventTitle(typed.activity_type, payload),
           description: '',
-          reference_type: taskId ? 'task' : null,
-          reference_id: taskId,
+          reference_type: taskId ? 'task' : sent?.type ?? null,
+          reference_id: taskId ?? sent?.id ?? null,
           metadata: payload,
           source_key: sourceKey(typed.activity_type, payload),
         };

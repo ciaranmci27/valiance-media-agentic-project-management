@@ -48,9 +48,30 @@ interface ActivityTimelineProps {
   loading?: boolean;
   /** The caller could not read the rows: says so instead of claiming there is nothing. */
   failed?: boolean;
+  /**
+   * card: its own "Recent activity" card (the project Overview). none: just
+   * the filter and the list, inside the caller's own section (a task).
+   */
+  frame?: 'card' | 'none';
+  /** How many entries show before "View all". */
+  visible?: number;
+  /**
+   * Scope the lines to one task: its title in a line reads "this task", and
+   * team rows are not links (they would lead back to the same task).
+   */
+  taskTitle?: string;
 }
 
-export function ActivityTimeline({ projectId, listMaxHeightClass, teamEntries, agentEntries, loading = false, failed = false }: ActivityTimelineProps = {}) {
+/** A line about a task, read inside that task: its quoted title becomes "this task". */
+function withinTask(text: string, title: string | undefined): string {
+  if (!title) return text;
+  return text.split(`task "${title}"`).join('this task').split(`"${title}"`).join('this task');
+}
+
+export function ActivityTimeline({
+  projectId, listMaxHeightClass, teamEntries, agentEntries, loading = false, failed = false,
+  frame = 'card', visible = MAX_VISIBLE, taskTitle,
+}: ActivityTimelineProps = {}) {
   const { agentActivity: storeActivity, team, projects } = useApp();
   const blended = teamEntries !== undefined;
   // Telemetry (token counters, turn runtimes) is machine measurement at a volume
@@ -130,7 +151,7 @@ export function ActivityTimeline({ projectId, listMaxHeightClass, teamEntries, a
       (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
     );
 
-    const limited = showAll ? sorted : sorted.slice(0, MAX_VISIBLE);
+    const limited = showAll ? sorted : sorted.slice(0, visible);
 
     const groups: { label: string; entries: typeof sorted }[] = [];
     let currentLabel = '';
@@ -145,188 +166,202 @@ export function ActivityTimeline({ projectId, listMaxHeightClass, teamEntries, a
     }
 
     return groups;
-  }, [feed, showAll]);
+  }, [feed, showAll, visible]);
 
   const totalCount = feed.length;
   const emptyLabel = failed ? 'Activity could not load. Reload the page to try again.' : activeFilter === 'team' || (blended && agentActivity.length === 0) ? 'No team activity yet'
     : activeFilter === 'agents' || !blended ? 'No agent activity yet' : 'No activity yet';
 
+  // Defined once, framed two ways: the Overview's card, or a task's section.
+  const filterNav = showFilter ? (
+    <SubNav
+      label="Show activity from"
+      items={[
+        { key: 'all', label: 'All', count: agentActivity.length + (teamEntries?.length ?? 0) },
+        { key: 'team', label: 'Team', count: teamEntries?.length ?? 0 },
+        { key: 'agents', label: 'Agents', count: agentActivity.length },
+      ]}
+      active={activeFilter}
+      onChange={chooseFilter}
+    />
+  ) : undefined;
+  const pad = frame === 'card' ? 'px-5 pb-5' : '';
+  const body = loading ? (
+    <div className={`${pad} space-y-3`} role="status" aria-label="Loading activity">
+      {[0, 1, 2, 3].map((n) => (
+        <div key={n} className="flex items-start gap-2.5">
+          <Bone className="w-6 h-6 rounded-full" />
+          <div className="flex-1 space-y-1.5">
+            <Bone className="h-3 w-3/4" />
+            <Bone className="h-2.5 w-1/3" />
+          </div>
+        </div>
+      ))}
+    </div>
+  ) : grouped.length > 0 ? (
+    <div className={pad}>
+      {grouped.map((group) => (
+        <div key={group.label} className="mb-4 last:mb-0">
+          {/* Day label */}
+          <GroupLabel className="mb-2">{group.label}</GroupLabel>
+
+          {/* Entries */}
+          <div className="space-y-0.5">
+            {group.entries.map((item) => {
+              if (item.kind === 'team') {
+                const entry = item.entry;
+                const member = entry.user_id ? team.find(m => m.id === entry.user_id) : undefined;
+                const name = member?.name || 'Someone';
+                const projectName = projectId ? null : getProjectName(entry.project_id);
+                const detail = typeof entry.metadata?.preview === 'string' ? entry.metadata.preview
+                  : typeof entry.metadata?.note === 'string' ? entry.metadata.note : '';
+                const href = taskTitle === undefined ? teamActivityHref(entry) : null;
+                const teamInner = (
+                  <>
+                    <div className="flex-shrink-0 mt-0.5" aria-hidden="true">
+                      <Avatar name={name} src={member?.avatar || undefined} size="xs" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs text-zinc-300 leading-relaxed break-words">
+                        <span className="font-medium">{name}</span>{' '}
+                        <span className="text-zinc-400">{activityAfterName(withinTask(entry.description, taskTitle))}</span>
+                      </p>
+                      {(projectName || detail) && (
+                        <p className="text-[10px] text-zinc-500 mt-0.5 truncate">
+                          {[projectName, detail].filter(Boolean).join(' · ')}
+                        </p>
+                      )}
+                    </div>
+                    <time
+                      dateTime={entry.created_at}
+                      title={formatFullTimestamp(entry.created_at)}
+                      className="text-[10px] text-zinc-600 flex-shrink-0 mt-0.5"
+                    >
+                      {formatTime(entry.created_at)}
+                    </time>
+                  </>
+                );
+                const rowClass = 'w-full text-left flex items-start gap-2.5 py-1.5 px-1 -mx-1 rounded-md';
+                // A person's action names the thing it touched, so it goes straight there.
+                return href ? (
+                  <Link
+                    key={item.id}
+                    href={href}
+                    className={`${rowClass} hover:bg-white/[0.04] focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-500 transition-colors`}
+                  >
+                    {teamInner}
+                  </Link>
+                ) : (
+                  <div key={item.id} className={rowClass}>{teamInner}</div>
+                );
+              }
+              const entry = item.entry;
+              // Identity is the read pattern once several agents interleave:
+              // "who did what" beats "what type of event was this", so the
+              // marker is the agent, not the activity type. Identity comes
+              // from the member row (name, avatar), never from code.
+              const agentName = getAgentName(entry.agent_id);
+              const agentAvatar = team.find(m => m.id === entry.agent_id)?.avatar;
+              // Scoped to one project, the project label is pure noise.
+              const projectName = projectId ? null : getProjectName(entry.project_id);
+              // The plugins stamp a "Verified" receipt flag on nearly every
+              // entry. As a constant it carries nothing; only its absence is
+              // information, so hide the normal case and surface the anomaly.
+              const description = entry.description === 'Verified' ? null : entry.description;
+              const unverified = entry.description === 'Unverified';
+              const inner = (
+                <>
+                  {/* Agent identity: the member's own avatar or initials */}
+                  <div className="flex-shrink-0 mt-0.5" aria-hidden="true">
+                    <Avatar name={agentName} src={agentAvatar || undefined} size="xs" />
+                  </div>
+
+                  {/* Content */}
+                  <div className="flex-1 min-w-0">
+                    {/* Agent titles carry PR links, which are single
+                        unbreakable tokens: without break-words the line
+                        runs past the card instead of wrapping in it. */}
+                    <p className="text-xs text-zinc-300 leading-relaxed break-words">
+                      <span className="font-medium">{agentName}</span>
+                      <span className="text-zinc-600">{' - '}</span>
+                      <span className="text-zinc-400">{withinTask(entry.title, taskTitle)}</span>
+                    </p>
+                    {(projectName || description || unverified) && (
+                      <p className="text-[10px] text-zinc-500 mt-0.5 truncate">
+                        {unverified && (
+                          <span className="text-amber-400 font-semibold">Unverified · </span>
+                        )}
+                        {[projectName, unverified ? null : description].filter(Boolean).join(' · ')}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Time (hover for the exact timestamp) */}
+                  <Tooltip content={formatFullTimestamp(entry.created_at)}>
+                    <span className="text-[10px] text-zinc-600 flex-shrink-0 mt-0.5 cursor-default" tabIndex={0}>
+                      {formatTime(entry.created_at)}
+                    </span>
+                  </Tooltip>
+                </>
+              );
+
+              // A modal, not navigation: landing on the project page said
+              // nothing about the event, while the entry itself carries the
+              // full description the feed truncates. Jumping to the task or
+              // project stays one click away inside the modal.
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setSelected(entry)}
+                  className="w-full text-left flex items-start gap-2.5 py-1.5 px-1 -mx-1 rounded-md group/entry hover:bg-white/[0.04] focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-500 transition-colors"
+                >
+                  {inner}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+
+      {/* Show more */}
+      {!showAll && totalCount > visible && (
+        <button
+          onClick={() => setShowAll(true)}
+          className="w-full flex items-center justify-center gap-1 py-2 text-xs text-brand-300 hover:text-brand-300 transition-colors"
+        >
+          View all ({totalCount})
+          <ChevronDown size={12} />
+        </button>
+      )}
+    </div>
+  ) : frame === 'card' ? (
+    <div className="py-8 text-center">
+      <Activity className="mx-auto mb-2 text-zinc-600" size={24} />
+      <p className="text-sm text-zinc-500">{emptyLabel}</p>
+    </div>
+  ) : (
+    <p className="text-sm text-zinc-500">{emptyLabel}</p>
+  );
+
   return (
     <>
-      <RailCard
-        title="Recent activity"
-        icon={<Activity size={16} className="text-zinc-400" aria-hidden="true" />}
-        action={showFilter ? (
-          <SubNav
-            label="Show activity from"
-            items={[
-              { key: 'all', label: 'All', count: agentActivity.length + (teamEntries?.length ?? 0) },
-              { key: 'team', label: 'Team', count: teamEntries?.length ?? 0 },
-              { key: 'agents', label: 'Agents', count: agentActivity.length },
-            ]}
-            active={activeFilter}
-            onChange={chooseFilter}
-          />
-        ) : undefined}
-        className="overflow-hidden lg:flex lg:flex-col lg:h-full lg:min-h-0"
-        bodyClassName={`lg:flex-1 lg:min-h-0 overflow-y-auto board-column-scroll ${listMaxHeightClass ?? 'max-h-[400px] lg:max-h-none'}`}
-      >
-        {loading ? (
-          <div className="px-5 pb-5 space-y-3" role="status" aria-label="Loading activity">
-            {[0, 1, 2, 3].map((n) => (
-              <div key={n} className="flex items-start gap-2.5">
-                <Bone className="w-6 h-6 rounded-full" />
-                <div className="flex-1 space-y-1.5">
-                  <Bone className="h-3 w-3/4" />
-                  <Bone className="h-2.5 w-1/3" />
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : grouped.length > 0 ? (
-          <div className="px-5 pb-5">
-            {grouped.map((group) => (
-              <div key={group.label} className="mb-4 last:mb-0">
-                {/* Day label */}
-                <GroupLabel className="mb-2">{group.label}</GroupLabel>
-
-                {/* Entries */}
-                <div className="space-y-0.5">
-                  {group.entries.map((item) => {
-                    if (item.kind === 'team') {
-                      const entry = item.entry;
-                      const member = entry.user_id ? team.find(m => m.id === entry.user_id) : undefined;
-                      const name = member?.name || 'Someone';
-                      const projectName = projectId ? null : getProjectName(entry.project_id);
-                      const detail = typeof entry.metadata?.preview === 'string' ? entry.metadata.preview
-                        : typeof entry.metadata?.note === 'string' ? entry.metadata.note : '';
-                      const href = teamActivityHref(entry);
-                      const teamInner = (
-                        <>
-                          <div className="flex-shrink-0 mt-0.5" aria-hidden="true">
-                            <Avatar name={name} src={member?.avatar || undefined} size="xs" />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-xs text-zinc-300 leading-relaxed break-words">
-                              <span className="font-medium">{name}</span>{' '}
-                              <span className="text-zinc-400">{activityAfterName(entry.description)}</span>
-                            </p>
-                            {(projectName || detail) && (
-                              <p className="text-[10px] text-zinc-500 mt-0.5 truncate">
-                                {[projectName, detail].filter(Boolean).join(' · ')}
-                              </p>
-                            )}
-                          </div>
-                          <time
-                            dateTime={entry.created_at}
-                            title={formatFullTimestamp(entry.created_at)}
-                            className="text-[10px] text-zinc-600 flex-shrink-0 mt-0.5"
-                          >
-                            {formatTime(entry.created_at)}
-                          </time>
-                        </>
-                      );
-                      const rowClass = 'w-full text-left flex items-start gap-2.5 py-1.5 px-1 -mx-1 rounded-md';
-                      // A person's action names the thing it touched, so it goes straight there.
-                      return href ? (
-                        <Link
-                          key={item.id}
-                          href={href}
-                          className={`${rowClass} hover:bg-white/[0.04] focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-500 transition-colors`}
-                        >
-                          {teamInner}
-                        </Link>
-                      ) : (
-                        <div key={item.id} className={rowClass}>{teamInner}</div>
-                      );
-                    }
-                    const entry = item.entry;
-                    // Identity is the read pattern once several agents interleave:
-                    // "who did what" beats "what type of event was this", so the
-                    // marker is the agent, not the activity type. Identity comes
-                    // from the member row (name, avatar), never from code.
-                    const agentName = getAgentName(entry.agent_id);
-                    const agentAvatar = team.find(m => m.id === entry.agent_id)?.avatar;
-                    // Scoped to one project, the project label is pure noise.
-                    const projectName = projectId ? null : getProjectName(entry.project_id);
-                    // The plugins stamp a "Verified" receipt flag on nearly every
-                    // entry. As a constant it carries nothing; only its absence is
-                    // information, so hide the normal case and surface the anomaly.
-                    const description = entry.description === 'Verified' ? null : entry.description;
-                    const unverified = entry.description === 'Unverified';
-                    const inner = (
-                      <>
-                        {/* Agent identity: the member's own avatar or initials */}
-                        <div className="flex-shrink-0 mt-0.5" aria-hidden="true">
-                          <Avatar name={agentName} src={agentAvatar || undefined} size="xs" />
-                        </div>
-
-                        {/* Content */}
-                        <div className="flex-1 min-w-0">
-                          {/* Agent titles carry PR links, which are single
-                              unbreakable tokens: without break-words the line
-                              runs past the card instead of wrapping in it. */}
-                          <p className="text-xs text-zinc-300 leading-relaxed break-words">
-                            <span className="font-medium">{agentName}</span>
-                            <span className="text-zinc-600">{' - '}</span>
-                            <span className="text-zinc-400">{entry.title}</span>
-                          </p>
-                          {(projectName || description || unverified) && (
-                            <p className="text-[10px] text-zinc-500 mt-0.5 truncate">
-                              {unverified && (
-                                <span className="text-amber-400 font-semibold">Unverified · </span>
-                              )}
-                              {[projectName, unverified ? null : description].filter(Boolean).join(' · ')}
-                            </p>
-                          )}
-                        </div>
-
-                        {/* Time (hover for the exact timestamp) */}
-                        <Tooltip content={formatFullTimestamp(entry.created_at)}>
-                          <span className="text-[10px] text-zinc-600 flex-shrink-0 mt-0.5 cursor-default" tabIndex={0}>
-                            {formatTime(entry.created_at)}
-                          </span>
-                        </Tooltip>
-                      </>
-                    );
-
-                    // A modal, not navigation: landing on the project page said
-                    // nothing about the event, while the entry itself carries the
-                    // full description the feed truncates. Jumping to the task or
-                    // project stays one click away inside the modal.
-                    return (
-                      <button
-                        key={item.id}
-                        type="button"
-                        onClick={() => setSelected(entry)}
-                        className="w-full text-left flex items-start gap-2.5 py-1.5 px-1 -mx-1 rounded-md group/entry hover:bg-white/[0.04] focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-500 transition-colors"
-                      >
-                        {inner}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-
-            {/* Show more */}
-            {!showAll && totalCount > MAX_VISIBLE && (
-              <button
-                onClick={() => setShowAll(true)}
-                className="w-full flex items-center justify-center gap-1 py-2 text-xs text-brand-300 hover:text-brand-300 transition-colors"
-              >
-                View all ({totalCount})
-                <ChevronDown size={12} />
-              </button>
-            )}
-          </div>
-        ) : (
-          <div className="py-8 text-center">
-            <Activity className="mx-auto mb-2 text-zinc-600" size={24} />
-            <p className="text-sm text-zinc-500">{emptyLabel}</p>
-          </div>
-        )}
-      </RailCard>
+      {frame === 'card' ? (
+        <RailCard
+          title="Recent activity"
+          icon={<Activity size={16} className="text-zinc-400" aria-hidden="true" />}
+          action={filterNav}
+          className="overflow-hidden lg:flex lg:flex-col lg:h-full lg:min-h-0"
+          bodyClassName={`lg:flex-1 lg:min-h-0 overflow-y-auto board-column-scroll ${listMaxHeightClass ?? 'max-h-[400px] lg:max-h-none'}`}
+        >
+          {body}
+        </RailCard>
+      ) : (
+        <div>
+          {filterNav && <div className="mb-3">{filterNav}</div>}
+          {body}
+        </div>
+      )}
 
       {selected && (() => {
         const agentName = getAgentName(selected.agent_id);
