@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { setReadData, useRead, warmRead } from '@/lib/query-cache';
+import { taskFileCandidatesRead, taskFilesRead } from '@/lib/reads';
 import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -20,46 +22,9 @@ import { CardAction } from '@/components/projects/TabLayout';
 import { formatBytes, formatFullTime } from '@/components/inbox/inbox-badges';
 import { setTaskFileCount } from './task-file-counts';
 import {
-  downloadTaskFile, linkTaskFile, listTaskFiles, taskFileCandidates, taskFileViewUrl, trashTaskFile, uploadTaskFile,
+  downloadTaskFile, linkTaskFile, taskFileViewUrl, trashTaskFile, uploadTaskFile,
   type TaskFileCandidates, type TaskFileView,
 } from '@/lib/task-files/client';
-
-// A task's files and what can be added to it (the Add menu's counts and
-// lists), kept for the session: hovering a card fetches both, the panel
-// refreshes them when it opens, and the menu and pickers open already full.
-const filesCache = new Map<string, TaskFileView[]>();
-const candidatesCache = new Map<string, TaskFileCandidates>();
-const pending = new Map<string, Promise<unknown>>();
-
-/** One request per task and kind at a time; the answer lands in its cache. */
-function fetchInto<T>(cache: Map<string, T>, kind: string, taskId: string, load: (taskId: string) => Promise<T>): Promise<T> {
-  const key = `${kind}:${taskId}`;
-  const inFlight = pending.get(key) as Promise<T> | undefined;
-  if (inFlight) return inFlight;
-  const request = load(taskId)
-    .then((value) => { cache.set(taskId, value); return value; })
-    .finally(() => { pending.delete(key); });
-  pending.set(key, request);
-  return request;
-}
-
-// Each read also sets the task's count on its card.
-const fetchFiles = (taskId: string) => fetchInto(filesCache, 'files', taskId, listTaskFiles)
-  .then((files) => { setTaskFileCount(taskId, files.length); return files; });
-const fetchCandidates = (taskId: string) => fetchInto(candidatesCache, 'candidates', taskId, taskFileCandidates);
-
-/** Warm a task's files (and, for someone who can add, its Add menu) before it opens. */
-export function usePrefetchTaskFiles(): (taskId: string) => void {
-  const { access } = useAuth();
-  const { isDemoMode } = useDemo();
-  const canRead = hasPermission(access, 'files.read') || hasPermission(access, 'files.manage');
-  const canAdd = hasPermission(access, 'files.upload');
-  return (taskId: string) => {
-    if (isDemoMode || !canRead) return;
-    if (!filesCache.has(taskId)) void fetchFiles(taskId).catch(() => undefined);
-    if (canAdd && !candidatesCache.has(taskId)) void fetchCandidates(taskId).catch(() => undefined);
-  };
-}
 
 type Picker = 'email' | 'project';
 
@@ -79,49 +44,37 @@ export function TaskFiles({ task, section }: {
   const canAdd = hasPermission(access, 'files.upload');
   const canManage = hasPermission(access, 'files.manage');
 
-  const [loaded, setLoaded] = useState<{ taskId: string; files: TaskFileView[] } | null>(null);
   const [uploading, setUploading] = useState<{ key: string; name: string }[]>([]);
   const [menuOpen, setMenuOpen] = useState(false);
   const [picker, setPicker] = useState<Picker | null>(null);
-  const [candidates, setCandidates] = useState<{ taskId: string; value: TaskFileCandidates } | null>(null);
   const [preview, setPreview] = useState<TaskFileView | null>(null);
   const [dragging, setDragging] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const enabled = canRead && !isDemoMode;
 
-  // Both are refreshed on open; the kept copies show meanwhile.
-  useEffect(() => {
-    if (!enabled) return;
-    let cancelled = false;
-    fetchFiles(task.id)
-      .then((files) => { if (!cancelled) setLoaded({ taskId: task.id, files }); })
-      .catch(() => undefined);
-    if (canAdd) {
-      fetchCandidates(task.id)
-        .then((value) => { if (!cancelled) setCandidates({ taskId: task.id, value }); })
-        .catch(() => undefined);
-    }
-    return () => { cancelled = true; };
-  }, [enabled, canAdd, task.id]);
+  // Cached reads (reads.ts): the files are warmed before the panel opens;
+  // the Add menu's candidates load as it opens, ahead of the click they need.
+  const filesRead = useRead(enabled ? taskFilesRead(task.id) : null);
+  const candidatesRead = useRead(enabled && canAdd ? taskFileCandidatesRead(task.id) : null);
+  const files = filesRead.data ?? (filesRead.failed ? [] : null);
+  const shownCandidates: TaskFileCandidates | null = candidatesRead.data ?? null;
 
-  const files = loaded?.taskId === task.id ? loaded.files : filesCache.get(task.id) ?? null;
+  // Whatever the list now holds, the task's card counts the same.
+  useEffect(() => {
+    if (filesRead.data) setTaskFileCount(task.id, filesRead.data.length);
+  }, [filesRead.data, task.id]);
+
   const setFiles = (update: (current: TaskFileView[]) => TaskFileView[]) => {
-    const next = update(files ?? []);
-    filesCache.set(task.id, next);
-    setTaskFileCount(task.id, next.length);
-    setLoaded({ taskId: task.id, files: next });
+    setReadData(taskFilesRead(task.id), (current) => update(current ?? []));
   };
   // A file the task already had comes back as that entry: keep one of each.
   const keep = (file: TaskFileView) => setFiles((current) => [...current.filter((f) => f.id !== file.id), file]);
 
   // After an add or a removal, so "Added" stays true; quietly, in the background.
   const refreshCandidates = () => {
-    fetchCandidates(task.id)
-      .then((value) => setCandidates({ taskId: task.id, value }))
-      .catch(() => undefined);
+    if (canAdd) void warmRead(taskFileCandidatesRead(task.id), { force: true });
   };
-  const shownCandidates = candidates?.taskId === task.id ? candidates.value : candidatesCache.get(task.id) ?? null;
 
   const upload = async (list: FileList | File[]) => {
     for (const file of Array.from(list)) {

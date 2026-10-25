@@ -6,7 +6,8 @@ import type {
   MxStatus, ProjectEmailAddress, ProjectEmailAddressInput, ProjectEmailAddressList, SetThreadProjectRequest, SetThreadProjectResult,
   TaskSourceEmails,
 } from './inbox-types';
-import { INBOX_UPDATED_EVENT } from './inbox-types';
+import { INBOX_TABLES, INBOX_UPDATED_EVENT } from './inbox-types';
+import { invalidateTables } from '@/lib/query-cache';
 import type { InboxAttention } from './inbox-view';
 import type { InboxSenderRule } from './inbox-rules';
 
@@ -37,8 +38,9 @@ export interface InboxChangeDetail {
   threadId?: string;
 }
 
-/** Tell the sidebar badge and any open Inbox view to refresh. */
+/** Tell the sidebar badge, any open Inbox view and cached inbox reads to refresh. */
 export function announceInboxChange(detail: InboxChangeDetail | null = null) {
+  invalidateTables(INBOX_TABLES);
   if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent<InboxChangeDetail | null>(INBOX_UPDATED_EVENT, { detail }));
 }
 

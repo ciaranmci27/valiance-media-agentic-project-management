@@ -15,11 +15,14 @@ import { isInboxTab } from '@/lib/inbound-email/inbox-view';
 import { ThreadStateBadge, TrustBadge, formatListTime, projectSourceHint } from './inbox-badges';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { ThreadView } from './ThreadView';
+import type { InboxThreadList } from '@/lib/inbound-email/inbox-types';
+import { INBOX_PAGE_SIZE, inboxThreadRead, inboxThreadsRead, useIntent } from '@/lib/reads';
+import { loadRead, peekRead, setReadData, warmRead } from '@/lib/query-cache';
 import { SenderRulesManager } from './SenderRulesManager';
 import { InboxEmptyState } from './InboxEmptyState';
 import { useInboxUpdates } from './use-inbox-updates';
 
-const PAGE_SIZE = 50;
+const PAGE_SIZE = INBOX_PAGE_SIZE;
 /** The most a quiet refresh re-reads at once (the route's cap). */
 const MAX_REFRESH = 1000;
 
@@ -65,6 +68,8 @@ export function InboxView({ projectId, embedded = false, emptyState, searchQuery
   const canManageRules = hasPermission(access, 'inbound_email.manage');
   const client = useMemo(() => inboxClient(isDemoMode), [isDemoMode]);
   const [rulesOpen, setRulesOpen] = useState(false);
+  // Pointing at a thread warms it, so it opens with its messages.
+  const intent = useIntent();
 
   const [inboxId, setInboxId] = useState('');
   const [projectFilter, setProjectFilter] = useState(projectId ?? '');
@@ -154,9 +159,34 @@ export function InboxView({ projectId, embedded = false, emptyState, searchQuery
 
   // A new filter (a new `load`) starts over from the first page; a newer
   // request always wins, so a slow page never lands on the wrong filter.
-  const load = useCallback(async (options: LoadOptions) => {
+  const load = useCallback(async (requested: LoadOptions) => {
     if (!urlReady) return;
+    let options = requested;
+    // Only a real change (an inbox update) forces a read; a list painted from
+    // a fresh cached answer is left as it is.
+    const force = requested.mode === 'refresh';
     const requestId = ++requestRef.current;
+    // The first page of every filter is a cached read (reads.ts): a filter
+    // seen before, or warmed from the sidebar or the project's tab, paints
+    // at once and refreshes behind itself instead of showing the skeleton.
+    const firstPage = inboxThreadsRead(
+      { inboxId: inboxId || null, projectId: activeProject, taskId: taskFilter || null, tab, search }, isDemoMode);
+    const show = (data: InboxThreadList, append: boolean) => {
+      setInboxes(data.inboxes);
+      setThreads((current) => (append ? [...current, ...data.threads.filter((t) => !current.some((c) => c.id === t.id))] : data.threads));
+      setCounts(data.counts);
+      setTotal(data.total);
+      setHasLoaded(true);
+      setError('');
+    };
+    if (options.mode === 'reset') {
+      const cached = peekRead(firstPage);
+      if (cached) {
+        show(cached, false);
+        setLoading(false);
+        options = { mode: 'refresh' };
+      }
+    }
     if (options.mode === 'append') {
       pendingPageRef.current = PAGE_SIZE;
       setLoadingMore(true);
@@ -165,22 +195,23 @@ export function InboxView({ projectId, embedded = false, emptyState, searchQuery
       setLoading(true);
     }
     try {
-      const data = await client.listThreads({
-        inboxId: inboxId || null,
-        projectId: activeProject,
-        taskId: taskFilter || null,
-        tab,
-        search,
-        limit: options.mode === 'refresh' ? Math.min(Math.max(PAGE_SIZE, shownRef.current + pendingPageRef.current), MAX_REFRESH) : PAGE_SIZE,
-        offset: options.mode === 'append' ? options.offset : 0,
-      });
+      const limit = options.mode === 'refresh' ? Math.min(Math.max(PAGE_SIZE, shownRef.current + pendingPageRef.current), MAX_REFRESH) : PAGE_SIZE;
+      // The first page goes through the cache, so a warm in flight (or a
+      // second mount in dev) shares one request; longer lists read directly.
+      const data = options.mode !== 'append' && limit === PAGE_SIZE
+        ? await loadRead(firstPage, { force })
+        : await client.listThreads({
+          inboxId: inboxId || null,
+          projectId: activeProject,
+          taskId: taskFilter || null,
+          tab,
+          search,
+          limit,
+          offset: options.mode === 'append' ? options.offset : 0,
+        });
       if (requestRef.current !== requestId) return;
-      setInboxes(data.inboxes);
-      setThreads((current) => (options.mode === 'append' ? [...current, ...data.threads.filter((t) => !current.some((c) => c.id === t.id))] : data.threads));
-      setCounts(data.counts);
-      setTotal(data.total);
-      setHasLoaded(true);
-      setError('');
+      show(data, options.mode === 'append');
+      if (options.mode !== 'append') setReadData(firstPage, () => data);
     } catch (err) {
       if (requestRef.current !== requestId) return;
       failedRef.current = options;
@@ -192,7 +223,7 @@ export function InboxView({ projectId, embedded = false, emptyState, searchQuery
         setLoadingMore(false);
       }
     }
-  }, [client, urlReady, inboxId, activeProject, taskFilter, tab, search]);
+  }, [client, urlReady, inboxId, activeProject, taskFilter, tab, search, isDemoMode]);
 
   useEffect(() => { void load({ mode: 'reset' }); }, [load]);
 
@@ -374,6 +405,7 @@ export function InboxView({ projectId, embedded = false, emptyState, searchQuery
                     <button
                       type="button"
                       onClick={() => selectThread(thread.id)}
+                      {...intent(() => void warmRead(inboxThreadRead(thread.id, isDemoMode)))}
                       aria-current={active ? 'true' : undefined}
                       className={`relative w-full rounded-xl px-3 py-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-500 ${
                         active

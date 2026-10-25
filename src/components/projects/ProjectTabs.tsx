@@ -2,6 +2,7 @@
 
 import { useRef, type KeyboardEvent } from 'react';
 import { LivePulse } from '@/components/ui/LivePulse';
+import { useIntent } from '@/lib/reads';
 
 export interface ProjectTab<K extends string> {
   key: K;
@@ -10,6 +11,8 @@ export interface ProjectTab<K extends string> {
   count?: number;
   /** Shows the live pulse after the label, e.g. Time tracking while your timer runs. */
   live?: boolean;
+  /** Warms what the tab reads (reads.ts) when the pointer rests on it or it takes focus. */
+  warm?: () => void;
 }
 
 interface ProjectTabsProps<K extends string> {
@@ -28,6 +31,7 @@ export const projectPanelId = (key: string) => `project-panel-${key}`;
  */
 export function ProjectTabs<K extends string>({ tabs, active, onChange }: ProjectTabsProps<K>) {
   const refs = useRef<(HTMLButtonElement | null)[]>([]);
+  const intent = useIntent();
 
   const onKeyDown = (e: KeyboardEvent<HTMLButtonElement>, index: number) => {
     let next = -1;
@@ -66,6 +70,7 @@ export function ProjectTabs<K extends string>({ tabs, active, onChange }: Projec
               tabIndex={selected ? 0 : -1}
               onClick={() => onChange(tab.key)}
               onKeyDown={(e) => onKeyDown(e, index)}
+              {...(tab.warm && !selected ? intent(tab.warm) : {})}
               className={`relative flex items-center gap-1.5 whitespace-nowrap px-3 pt-2 pb-2.5 text-sm font-medium rounded-t-md transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-500 ${
                 selected ? 'text-white' : 'text-zinc-400 hover:text-zinc-200'
               }`}

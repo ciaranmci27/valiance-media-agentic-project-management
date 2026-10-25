@@ -587,14 +587,9 @@ export default function FinancesPage() {
 
   // Invoice line splits and not-yet-invoiced retainer months, so the counter
   // shows the company's real take and keeps ticking for arrears retainers.
-  const retainerFinanceKey = useMemo(
-    () => `${nowDayKey}|${projectInvoices.map((inv) => `${inv.id}:${inv.updated_at}`).join(',')}`,
-    [nowDayKey, projectInvoices],
-  );
-  const { lineSharePercent, accruingRetainerLines } = useRetainerFinanceInputs(
-    canReadCompanyFinance,
-    retainerFinanceKey,
-  );
+  // A cached read the boot load primed, one per local day; live sync
+  // refreshes it as invoices and retainers change.
+  const { lineSharePercent, accruingRetainerLines } = useRetainerFinanceInputs(canReadCompanyFinance);
 
   const liveServiceRevenue = useMemo(() => {
     const sources = { fixed: false, recurring: false };

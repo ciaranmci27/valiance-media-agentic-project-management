@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/client';
+import { loadRead, useRead, type Read } from '@/lib/query-cache';
+import { toLocalDateString } from '@/lib/date-utils';
 import { lineShareKey, type AccruingRetainerLine } from '@/lib/finance/summary';
 
 export interface RetainerFinanceInputs {
@@ -12,13 +13,6 @@ export interface RetainerFinanceInputs {
 
 const EMPTY: RetainerFinanceInputs = { lineSharePercent: new Map(), accruingRetainerLines: [] };
 
-// The last loaded inputs. The store primes this during the boot load (behind
-// the one boot screen), so the first paint of Finances and the Dashboard already
-// nets out revenue splits. Without it the money figures painted gross, then
-// dropped a moment later when the splits arrived.
-let cached: RetainerFinanceInputs | null = null;
-const RETAINER_FINANCE_EVENT = 'retainer-finance-updated';
-
 /**
  * Reads what the finance engine needs to show the company's real take from
  * retainers: the split on each invoice line, and the month covering today for
@@ -27,7 +21,7 @@ const RETAINER_FINANCE_EVENT = 'retainer-finance-updated';
  * A failed read is not: it throws, because "no splits" would show gross
  * revenue as the company's net.
  */
-export async function loadRetainerFinanceInputs(supabase: SupabaseClient): Promise<RetainerFinanceInputs> {
+async function fetchRetainerFinanceInputs(supabase: SupabaseClient): Promise<RetainerFinanceInputs> {
   const [shares, accruing] = await Promise.all([
     supabase.from('invoice_line_shares').select('invoice_id, line_item_id, percent'),
     supabase.rpc('retainer_accruing_lines'),
@@ -44,41 +38,33 @@ export async function loadRetainerFinanceInputs(supabase: SupabaseClient): Promi
     amount: Number(row.amount),
     share_percent: Number(row.share_percent),
   }));
-  cached = { lineSharePercent, accruingRetainerLines };
-  // Pages already showing figures pick up a reload they did not start (the
-  // store's retry after a failed boot read).
-  if (typeof window !== 'undefined') window.dispatchEvent(new Event(RETAINER_FINANCE_EVENT));
-  return cached;
+  return { lineSharePercent, accruingRetainerLines };
+}
+
+/**
+ * The inputs as a cached read, one per local day (what accrues depends on
+ * today). Invoices and retainers changing refresh it from live sync; line
+ * shares are not in live sync, so their writer calls invalidateTables.
+ */
+function retainerFinanceRead(): Read<RetainerFinanceInputs> {
+  return {
+    key: `retainer-finance:${toLocalDateString()}`,
+    tables: ['invoice_line_shares', 'project_invoices', 'project_retainers', 'project_retainer_amounts',
+      'project_retainer_periods', 'project_retainer_shares'],
+    load: () => fetchRetainerFinanceInputs(createClient()),
+  };
+}
+
+/**
+ * The store primes this during the boot load (behind the one boot screen), so
+ * the first paint of Finances and the Dashboard already nets out revenue
+ * splits instead of painting gross and dropping a moment later.
+ */
+export function loadRetainerFinanceInputs(): Promise<RetainerFinanceInputs> {
+  return loadRead(retainerFinanceRead(), { force: true });
 }
 
 /** Shared by Finances and the Dashboard so the two agree. */
-export function useRetainerFinanceInputs(enabled: boolean, refreshKey: string): RetainerFinanceInputs {
-  const supabase = useMemo(() => createClient(), []);
-  const [inputs, setInputs] = useState<RetainerFinanceInputs>(() => cached ?? EMPTY);
-
-  useEffect(() => {
-    if (!enabled) return;
-    let cancelled = false;
-    loadRetainerFinanceInputs(supabase)
-      .then((next) => {
-        if (!cancelled) setInputs(next);
-      })
-      .catch(() => {
-        /* keep what is showing */
-      });
-    return () => {
-      cancelled = true;
-    };
-    // refreshKey: invoices changing (a draft created, a line removed) and the
-    // local day rolling over both change what accrues.
-  }, [enabled, refreshKey, supabase]);
-
-  useEffect(() => {
-    if (!enabled) return;
-    const onUpdated = () => { if (cached) setInputs(cached); };
-    window.addEventListener(RETAINER_FINANCE_EVENT, onUpdated);
-    return () => window.removeEventListener(RETAINER_FINANCE_EVENT, onUpdated);
-  }, [enabled]);
-
-  return enabled ? inputs : EMPTY;
+export function useRetainerFinanceInputs(enabled: boolean): RetainerFinanceInputs {
+  return useRead(enabled ? retainerFinanceRead() : null).data ?? EMPTY;
 }

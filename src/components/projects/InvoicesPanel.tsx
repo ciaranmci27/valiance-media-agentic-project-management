@@ -34,9 +34,6 @@ import { RowActionsMenu } from '@/components/ui/RowActionsMenu';
 import { Button } from '@/components/ui/Button';
 import { computeInvoiceSummary } from '@/lib/invoice-summary';
 import {
-  fetchBillingForecast,
-  fetchProjectInvoicePayments,
-  fetchBillingRuns,
   fetchInvoiceLineShares,
   fetchRetainerDuePeriods,
   setInvoiceLineShares,
@@ -53,7 +50,11 @@ import { Select } from '@/components/ui/inputs/Select';
 import { TextInput } from '@/components/ui/inputs/TextInput';
 import { DateInput } from '@/components/ui/inputs/DateInput';
 import { Textarea } from '@/components/ui/inputs/Textarea';
-import { toLocalDateKey, toLocalDateString } from '@/lib/date-utils';
+import { toLocalDateKey } from '@/lib/date-utils';
+import { invalidateTables, useRead, warmReads } from '@/lib/query-cache';
+import {
+  billingModalReads, projectBillingRunsRead, projectForecastRead, projectPaymentsRead, refreshBilling, useBillingToday,
+} from '@/lib/reads';
 import {
   INVOICE_STATUSES,
   INVOICE_LINE_ITEM_TYPES,
@@ -64,7 +65,6 @@ import {
   type RecurrenceFrequency,
   type InvoiceTimeEntryAllocation,
   type RetainerDuePeriod,
-  type BillingForecastItem,
 } from '@/lib/types';
 import { HourlyRateSchedule } from './HourlyRateSchedule';
 import {
@@ -210,7 +210,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
       : undefined;
   // YYYY-MM-DD for "today" in the user's preferred zone. If the stored zone is
   // still the unset default, fall back to the browser's local day.
-  const todayLocalDate = toLocalDateString(preferredTimezone);
+  const todayLocalDate = useBillingToday();
   const invoices = getInvoicesByProject(projectId);
   const project = getProject(projectId);
   const primaryClient = getPrimaryClient(projectId);
@@ -226,15 +226,9 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
   const [isAdding, setIsAdding] = useState(false);
   const [billingTab, setBillingTab] = useState<BillingTab | null>(null);
   const retainerClient = useMemo(() => createClient(), []);
-  // The next invoice that drafts itself, and what each auto draft left out
-  // (time awaiting approval), for the panel's "Next draft" line and draft cards.
-  const [upcomingDrafts, setUpcomingDrafts] = useState<BillingForecastItem[]>([]);
-  // False until the first forecast answers, so the card never says "nothing" while it loads.
-  const [upcomingLoaded, setUpcomingLoaded] = useState(false);
   // Which invoices the table shows: all, unpaid (sent or overdue), drafts, paid.
   const [invoiceFilter, setInvoiceFilter] = useState<'all' | 'open' | 'draft' | 'paid'>('all');
   const [invoiceQuery, setInvoiceQuery] = useState('');
-  const [leftOutByInvoice, setLeftOutByInvoice] = useState<Map<string, number>>(new Map());
   // Retainer periods that are due (or were skipped) and can be added as ready lines.
   const [dueRetainerPeriods, setDueRetainerPeriods] = useState<RetainerDuePeriod[]>([]);
   // Revenue splits per line. Only lines touched in this form are written on
@@ -536,46 +530,46 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
   // The next self-drafting invoice and each auto draft's left-out time. Reads
   // need invoices.read; refreshed when invoices change or Billing closes.
   const canReadInvoices = hasPermission(access, 'invoices.read');
-  const invoiceSignature = invoices.map((invoice) => `${invoice.id}:${invoice.status}`).join(',');
 
-  // Which API key recorded each API payment (keys are not readable directly).
-  const [keyNames, setKeyNames] = useState<Map<string, string | null>>(new Map());
-  const apiPaymentSignature = invoices
-    .flatMap((invoice) => (invoice.payments ?? []).filter((payment) => payment.recorded_via === 'api').map((payment) => payment.id))
-    .join(',');
+  // Cached reads (reads.ts), shared with the Overview and warmed with it: the
+  // forecast's next drafts, each auto draft's left-out time, and which API key
+  // recorded each API payment (keys are not readable directly).
+  const billingReads = canReadInvoices && !isDemoMode;
+  const forecastRead = useRead(billingReads ? projectForecastRead(projectId, todayLocalDate) : null);
+  const runsRead = useRead(billingReads ? projectBillingRunsRead(projectId) : null);
+  const hasApiPayments = invoices.some((invoice) => (invoice.payments ?? []).some((payment) => payment.recorded_via === 'api'));
+  const paymentsRead = useRead(!isDemoMode && hasApiPayments ? projectPaymentsRead(projectId) : null);
+  // Before the billing migration is applied the reads fail: show nothing.
+  const upcomingDrafts = useMemo(
+    () => (forecastRead.data ?? []).filter((item) => item.status === 'upcoming').slice(0, 3),
+    [forecastRead.data],
+  );
+  const upcomingLoaded = !forecastRead.loading;
+  const leftOutByInvoice = useMemo(() => new Map((runsRead.data ?? [])
+    .filter((run) => run.invoice_id && run.pending_hours > 0)
+    .map((run) => [run.invoice_id as string, run.pending_hours])), [runsRead.data]);
+  const keyNames = useMemo(
+    () => new Map((paymentsRead.data ?? []).map((row) => [row.id, row.api_key_name ?? null] as const)),
+    [paymentsRead.data],
+  );
+
+  // The Billing modal's reads, a moment after the tab opens, so it opens full.
   useEffect(() => {
-    if (isDemoMode || !apiPaymentSignature) return;
-    let cancelled = false;
-    fetchProjectInvoicePayments(retainerClient, projectId)
-      .then((rows) => {
-        if (!cancelled) setKeyNames(new Map(rows.map((row) => [row.id, row.api_key_name ?? null])));
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [apiPaymentSignature, isDemoMode, projectId, retainerClient]);
+    if (!billingReads) return;
+    const timer = window.setTimeout(() => warmReads(billingModalReads(projectId, todayLocalDate)), 600);
+    return () => window.clearTimeout(timer);
+  }, [billingReads, projectId, todayLocalDate]);
+
+  // Plans and runs are not in live sync: closing the Billing modal (where they
+  // are edited) refreshes them.
+  const billingWasOpen = useRef(false);
   useEffect(() => {
-    if (!canReadInvoices || isDemoMode || billingTab !== null) return;
-    let cancelled = false;
-    const until = new Date(`${todayLocalDate}T12:00:00`);
-    until.setDate(until.getDate() + 62);
-    Promise.all([
-      fetchBillingForecast(retainerClient, projectId, { until: until.toISOString().slice(0, 10) }),
-      fetchBillingRuns(retainerClient, projectId, 40),
-    ])
-      .then(([forecast, runs]) => {
-        if (cancelled) return;
-        setUpcomingDrafts(forecast.filter((item) => item.status === 'upcoming').slice(0, 3));
-        setUpcomingLoaded(true);
-        setLeftOutByInvoice(new Map(runs
-          .filter((run) => run.invoice_id && run.pending_hours > 0)
-          .map((run) => [run.invoice_id as string, run.pending_hours])));
-      })
-      // Before the billing migration is applied the reads fail: show nothing.
-      .catch(() => { if (!cancelled) { setUpcomingDrafts([]); setLeftOutByInvoice(new Map()); setUpcomingLoaded(true); } });
-    return () => { cancelled = true; };
-  }, [billingTab, canReadInvoices, invoiceSignature, isDemoMode, projectId, retainerClient, todayLocalDate]);
+    if (billingTab !== null) billingWasOpen.current = true;
+    else if (billingWasOpen.current) {
+      billingWasOpen.current = false;
+      refreshBilling();
+    }
+  }, [billingTab]);
 
   useEffect(() => {
     if (!formOpen || !canManageInvoices || isDemoMode) return;
@@ -660,6 +654,8 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
         }
       }
       await setInvoiceLineShares(retainerClient, invoiceId, next);
+      // Line shares are not in live sync: the finance figures netting them refresh now.
+      invalidateTables(['invoice_line_shares']);
     } catch (error) {
       const message = (error as { message?: string } | null)?.message;
       toast('error', message && message.length < 140 ? message : 'Invoice saved, but the split could not be saved');

@@ -1,28 +1,16 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
+import { useRead } from '@/lib/query-cache';
+import { taskSourceRead } from '@/lib/reads';
 import type { Task, TaskSource as TaskSourceData } from '@/lib/types';
 
-/** Where a task came from (GET /api/workspace/tasks/:id/source); null while loading, in demo mode, or on failure. */
+/** Where a task came from: a cached read, warmed before the panel opens; null while loading, in demo mode, or on failure. */
 export function useTaskSource(task: Task | null): TaskSourceData | null {
   const { isDemoMode } = useDemo();
-  const [data, setData] = useState<{ id: string; value: TaskSourceData } | null>(null);
-  const taskId = task?.id ?? null;
-  useEffect(() => {
-    if (!taskId || isDemoMode) return;
-    let cancelled = false;
-    fetch(`/api/workspace/tasks/${taskId}/source`)
-      .then((response) => (response.ok ? response.json() : null))
-      .then((body: { data?: TaskSourceData } | null) => {
-        if (!cancelled && body?.data) setData({ id: taskId, value: body.data });
-      })
-      .catch(() => undefined);
-    return () => { cancelled = true; };
-  }, [taskId, isDemoMode]);
-  return data && data.id === taskId ? data.value : null;
+  return useRead(task && !isDemoMode ? taskSourceRead(task.id) : null).data ?? null;
 }
 
 /**
@@ -72,16 +60,6 @@ export function TaskSourceLine({ source }: { source: TaskSourceData | null }) {
           </Link>
         </>
       )}
-    </span>
-  );
-}
-
-/** The dot on a card for a task that is new to you. */
-export function UnseenDot({ task }: { task: Task }) {
-  return (
-    <span className="relative inline-flex h-2 w-2 flex-shrink-0" title="New to you">
-      <span className="h-2 w-2 rounded-full bg-emerald-400" aria-hidden="true" />
-      <span className="sr-only">New to you{task.created_note ? `: ${task.created_note}` : ''}. </span>
     </span>
   );
 }

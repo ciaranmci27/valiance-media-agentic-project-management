@@ -1,7 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, useRef, ReactNode, type SetStateAction } from 'react';
-import { AiReadiness, Project, Task, TeamMember, FilterState, ViewMode, Subtask, AcceptanceCriterion, Comment, Contact, ContactEmail, ContactEmailDraft, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, TeamActivity, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, EntityFileType, ApiKey, NotificationCategory, ProjectGoal, TaskSuggestion, AgentActivity, TimeEntry, ProjectCredentialListItem, CredentialPayload, CredentialCategory, ProjectInvoice, InvoicePaymentMethod, BusinessSettings, EmployeeEarningsData, Reminder, TrashItem, DEFAULT_SECTION_ORDER } from './types';
+import { AiReadiness, Project, Task, TeamMember, FilterState, ViewMode, Subtask, AcceptanceCriterion, Comment, Contact, ContactEmail, ContactEmailDraft, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, TeamActivity, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, EntityFileType, ApiKey, NotificationCategory, ProjectGoal, TaskSuggestion, AgentActivity, TimeEntry, ProjectCredentialListItem, CredentialPayload, CredentialCategory, ProjectInvoice, InvoicePaymentMethod, BusinessSettings, EmployeeEarningsData, Reminder, TaskUpdate, TrashItem, DEFAULT_SECTION_ORDER } from './types';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
@@ -86,7 +86,9 @@ import {
   fetchGoals,
   fetchReminders,
   fetchMyTaskViews,
+  fetchMyTaskUpdates,
   markTaskSeenQuery,
+  markTasksSeenQuery,
   insertReminder as insertReminderQuery,
   patchReminder as patchReminderQuery,
   deleteReminder as deleteReminderQuery,
@@ -115,6 +117,8 @@ import {
 } from '@/lib/supabase/queries';
 import { toast } from '@/components/ui/Toast';
 import { isTelemetryEvent } from '@/lib/agent-events';
+import { clearReads, invalidateAllReads, invalidateTables, loadRead } from '@/lib/query-cache';
+import { payrollRead } from '@/lib/finance/payroll-read';
 import { siteConfig } from '@/site-config';
 import { findStalePausedEntries, isStalePause } from '@/lib/time-entry-utils';
 import { hasPermission, canReadTasks } from '@/lib/access-control';
@@ -147,7 +151,7 @@ function kickWebhookDispatch(): void {
 type RealtimeSlice =
   | 'tasks' | 'projects' | 'team' | 'contacts' | 'contactEmails' | 'leads' | 'activities'
   | 'agentActivity' | 'portal' | 'files' | 'timeEntries' | 'credentials'
-  | 'invoices' | 'suggestions' | 'goals' | 'notifications' | 'comms' | 'emails' | 'reminders';
+  | 'invoices' | 'suggestions' | 'goals' | 'notifications' | 'comms' | 'emails' | 'reminders' | 'taskUpdates';
 
 /** `silent` skips the per-task error toast, for bulk actions that report one summary. */
 export interface TaskWriteOptions {
@@ -175,6 +179,7 @@ export const LOAD_KEY_LABELS: Record<LoadKey, string> = {
   suggestions: 'suggestions',
   goals: 'goals',
   reminders: 'reminders',
+  taskUpdates: 'unread tasks',
   notifications: 'notifications',
   comms: 'client emails',
   emails: 'the inbox',
@@ -224,6 +229,9 @@ const REALTIME_TABLE_SLICES: Record<string, RealtimeSlice> = {
   task_suggestions: 'suggestions',
   project_goals: 'goals',
   reminders: 'reminders',
+  // Changes on tasks and this member's looks at them: what reads as unread.
+  task_events: 'taskUpdates',
+  task_views: 'taskUpdates',
   team_member_notifications: 'notifications',
   client_communications: 'comms',
   // Its own slice: a contact_emails failure must never make contacts look failed.
@@ -442,13 +450,19 @@ interface AppContextType {
   archiveGoal: (id: string) => void;
 
   /**
-   * New to the signed-in member: made by someone or something else (another
-   * person, an agent, an API key, even one of their own) since tracking began,
-   * and not opened by them yet. Tasks they made in the app never are.
+   * Whether a task is unread for the signed-in member. new: made by someone
+   * or something else (another person, an agent, an API key, even one of
+   * their own) since tracking began, and never opened by them. updated:
+   * changed by someone else since they last opened it. Their own changes in
+   * the app never count.
    */
-  isTaskUnseen: (task: Task) => boolean;
-  /** Opening a task: it is no longer new to this member. */
+  taskUnread: (task: Task) => 'new' | 'updated' | null;
+  /** What changed on a task since this member last opened it. */
+  getTaskUpdate: (taskId: string) => TaskUpdate | undefined;
+  /** Opening a task: it is read for this member. */
   markTaskSeen: (taskId: string) => void;
+  /** Mark all read. */
+  markTasksSeen: (taskIds: string[]) => Promise<void>;
 
   // Reminders: open ones, and ones finished in the last 30 days
   reminders: Reminder[];
@@ -572,6 +586,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [reminders, setRemindersState] = useState<Reminder[]>([]);
   // Task ids this member has opened; null until loaded (or when unreadable), when nothing is new.
   const [seenTaskIds, setSeenTaskIds] = useState<Set<string> | null>(null);
+  // What changed since they last opened each task; empty when unreadable.
+  const [taskUpdates, setTaskUpdates] = useState<Map<string, TaskUpdate>>(new Map());
   const [taskSuggestions, setTaskSuggestionsState] = useState<TaskSuggestion[]>([]);
   const [agentActivityList, setAgentActivityListState] = useState<AgentActivity[]>([]);
 
@@ -708,6 +724,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return actor?.name || 'Someone';
   };
 
+  // A different person (or demo mode) never sees the last one's cached reads.
+  const readsOwner = isDemoMode ? 'demo' : user?.id ?? null;
+  useEffect(() => () => clearReads(), [readsOwner]);
+
   // Fetch all data from Supabase on mount (or load demo data)
   useEffect(() => {
     if (isDemoMode) {
@@ -792,7 +812,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const canReadSettings = hasPermission(access, 'settings.manage') || hasPermission(access, 'billing.manage');
         const shouldLoadEmployeeEarnings = hasPermission(access, 'earnings.own.read') && !hasPermission(access, 'finance.company.read');
         const employeeEarningsRequest = shouldLoadEmployeeEarnings
-          ? safeLoad<EmployeeEarningsData>('employeeEarnings', 'employee earnings', workspaceData<EmployeeEarningsData>('/api/workspace/payroll'), { entries: [], rates: [], adjustments: [], payouts: [], allocations: [] })
+          ? safeLoad<EmployeeEarningsData>('employeeEarnings', 'employee earnings', loadRead(payrollRead, { force: true }), { entries: [], rates: [], adjustments: [], payouts: [], allocations: [] })
           : Promise.resolve(null);
         // Agent data depends on nothing below, so it loads alongside the rest
         // instead of after it. Its failure stays its own, as before.
@@ -815,6 +835,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const taskViewsRequest = canReadTaskRows
           ? fetchMyTaskViews(supabase).catch(() => null)
           : Promise.resolve([] as string[]);
+        const taskUpdatesRequest = canReadTaskRows
+          ? fetchMyTaskUpdates(supabase).catch(() => [] as TaskUpdate[])
+          : Promise.resolve([] as TaskUpdate[]);
         const [projectsData, tasksData, teamData, contactsData, projectContactsData, leadsData, leadInteractionsData, leadProposalsData, leadFieldsData, leadContactsData, activitiesData, portalSettingsData, portalUpdatesData, portalUpdateAttachmentsData, entityFilesData, apiKeysData, timeEntriesData, projectCredentialsData, projectInvoicesData, businessSettingsData] = await Promise.all([
           canReadProjects ? safeLoad('projects', 'projects', workspaceData<Project[]>('/api/workspace/projects'), []) : Promise.resolve([]),
           canReadTaskRows ? safeLoad('tasks', 'tasks', fetchTasks(supabase), []) : Promise.resolve([]),
@@ -840,7 +863,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           // figures paint net of revenue splits the first time instead of
           // painting gross and dropping a moment later.
           hasPermission(access, 'finance.company.read')
-            ? safeLoad('retainerFinance', 'retainer finance', loadRetainerFinanceInputs(supabase), null)
+            ? safeLoad('retainerFinance', 'retainer finance', loadRetainerFinanceInputs(), null)
             : Promise.resolve(null),
         ]);
 
@@ -852,6 +875,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setReminders(await remindersRequest);
         const views = await taskViewsRequest;
         setSeenTaskIds(views ? new Set(views) : null);
+        setTaskUpdates(new Map((await taskUpdatesRequest).map((row) => [row.task_id, row])));
         setProjectContacts(projectContactsData);
         setLeads(leadsData);
         setLeadInteractions(leadInteractionsData);
@@ -1073,6 +1097,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
           if (!superseded()) setReminders(reminderRows);
           break;
         }
+        case 'taskUpdates':
+          if (canReadTasks(access)) {
+            const [views, updates] = await Promise.all([fetchMyTaskViews(supabase), fetchMyTaskUpdates(supabase)]);
+            if (!superseded()) {
+              setSeenTaskIds(new Set(views));
+              setTaskUpdates(new Map(updates.map((row) => [row.task_id, row])));
+            }
+          }
+          break;
         case 'notifications':
           // The sidebar badge and notifications page own their fetches; this
           // event is the same one they already dispatch after local changes.
@@ -1109,10 +1142,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
           setBusinessSettings(await fetchBusinessSettings(supabase));
           return true;
         case 'employeeEarnings':
-          setEmployeeEarnings(await fetchWorkspaceData<EmployeeEarningsData>('/api/workspace/payroll'));
+          setEmployeeEarnings(await loadRead(payrollRead, { force: true }));
           return true;
         case 'retainerFinance':
-          await loadRetainerFinanceInputs(supabase);
+          await loadRetainerFinanceInputs();
           return true;
         default:
           return await refreshSlice(key);
@@ -1160,7 +1193,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (timer === null) timer = window.setTimeout(flush, REALTIME_DEBOUNCE_MS);
     };
 
-    const queueAll = () => ALL_REALTIME_SLICES.forEach(queue);
+    const queueAll = () => {
+      ALL_REALTIME_SLICES.forEach(queue);
+      invalidateAllReads();
+    };
 
     // The topic must be unique per subscription instance: with a fixed name,
     // React StrictMode's dev double-mount joins the same topic twice and the
@@ -1174,11 +1210,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
         // sends nobody an update; trash_events is the ping that it moved.
         if (payload.table === 'trash_events') {
           const row = payload.new as { table_name?: string } | undefined;
-          if (row?.table_name) trashSlices(row.table_name).forEach(queue);
+          if (row?.table_name) {
+            trashSlices(row.table_name).forEach(queue);
+            invalidateTables([row.table_name]);
+          }
           return;
         }
-        const slice = REALTIME_TABLE_SLICES[payload.table];
-        if (!slice) return;
         // Telemetry writes constantly and is excluded from the narrative query
         // anyway, so refetching on it costs a request and changes nothing. The
         // host publishers post token and runtime rows every minute; without
@@ -1189,6 +1226,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
           const row = (payload.new ?? payload.old) as { activity_type?: string } | undefined;
           if (row?.activity_type && isTelemetryEvent(row.activity_type)) return;
         }
+        // Screens' cached reads (query-cache) refresh on the same events.
+        invalidateTables([payload.table]);
+        const slice = REALTIME_TABLE_SLICES[payload.table];
+        if (!slice) return;
         queue(slice);
       })
       .subscribe((status, err) => {
@@ -3996,7 +4037,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             content,
             source: 'human',
           })
-          .then(() => {}, (err: any) => console.error('[reject] Failed to create lesson_learned context entry:', err));
+          .then(() => invalidateTables(['project_context']), (err: any) => console.error('[reject] Failed to create lesson_learned context entry:', err));
       }
 
       if (suggestion) {
@@ -4058,7 +4099,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           .eq('category', 'lesson_learned')
           .eq('source', 'human')
           .like('content', `Rejected suggestion: "${suggestion.title}"%`)
-          .then(() => {}, (err: any) => console.error('[reopen] Failed to deactivate lesson_learned entry:', err));
+          .then(() => invalidateTables(['project_context']), (err: any) => console.error('[reopen] Failed to deactivate lesson_learned entry:', err));
       }
 
       if (suggestion) {
@@ -4224,17 +4265,44 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return true;
   };
 
-  const isTaskUnseen = (task: Task): boolean => {
-    if (skipSupabase || !seenTaskIds || !task.created_via || task.created_via === 'unknown') return false;
-    if (task.created_via === 'app' && task.created_by === teamMemberId) return false;
-    return !seenTaskIds.has(task.id);
+  const taskUnread = (task: Task): 'new' | 'updated' | null => {
+    if (skipSupabase || !seenTaskIds) return null;
+    const mine = task.created_via === 'app' && task.created_by === teamMemberId;
+    if (!seenTaskIds.has(task.id) && task.created_via && task.created_via !== 'unknown' && !mine) return 'new';
+    return taskUpdates.has(task.id) ? 'updated' : null;
+  };
+
+  const getTaskUpdate = (taskId: string) => taskUpdates.get(taskId);
+
+  // Read at once here; the views and updates live sync then confirms it.
+  const markReadLocally = (taskIds: string[]) => {
+    setSeenTaskIds((prev) => (prev ? new Set([...prev, ...taskIds]) : prev));
+    setTaskUpdates((prev) => {
+      if (!taskIds.some((id) => prev.has(id))) return prev;
+      const next = new Map(prev);
+      taskIds.forEach((id) => next.delete(id));
+      return next;
+    });
   };
 
   const markTaskSeen = (taskId: string) => {
-    if (skipSupabase || !seenTaskIds || seenTaskIds.has(taskId)) return;
-    setSeenTaskIds((prev) => (prev ? new Set(prev).add(taskId) : prev));
-    // Best effort: a failed write only means the task shows as new again next load.
+    if (skipSupabase || !seenTaskIds) return;
+    markReadLocally([taskId]);
+    // Every open moves the look forward. Best effort: a failed write only
+    // means the task shows as unread again next load.
     markTaskSeenQuery(supabase, taskId).catch((error) => console.warn('[tasks] could not mark a task seen', error));
+  };
+
+  const markTasksSeen = async (taskIds: string[]) => {
+    if (skipSupabase || !seenTaskIds || taskIds.length === 0) return;
+    markReadLocally(taskIds);
+    try {
+      await markTasksSeenQuery(supabase, taskIds);
+    } catch (error) {
+      console.error('[tasks] could not mark tasks read', error);
+      toast('error', 'Could not mark those tasks read');
+      void refreshSlice('taskUpdates');
+    }
   };
 
   const deleteReminderAction = async (id: string) => {
@@ -4557,8 +4625,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       addGoal: addGoalAction,
       updateGoal: updateGoalAction,
       archiveGoal: archiveGoalAction,
-      isTaskUnseen,
+      taskUnread,
+      getTaskUpdate,
       markTaskSeen,
+      markTasksSeen,
       reminders,
       addReminder: addReminderAction,
       updateReminder: updateReminderAction,

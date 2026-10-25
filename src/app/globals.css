@@ -87,6 +87,10 @@
   --glass-highlight: rgba(255, 255, 255, 0.09);
   --glass-blur: 22px;
 
+  /* Count badge text for the warning and danger tones (see .count-badge). */
+  --count-ink-warning: #fcd34d;
+  --count-ink-danger: #fca5a5;
+
   /* Elevation + glow (glow is brand-derived). --shadow-* names become shadow-{name} utilities. */
   --shadow-card: 0 4px 24px -6px rgba(0, 0, 0, 0.55);
   --shadow-card-hover: 0 10px 40px -10px rgba(0, 0, 0, 0.65);
@@ -199,6 +203,10 @@
   --glass-bg-strong: rgba(17, 19, 25, 0.66);
   --glass-highlight: rgba(255, 255, 255, 0.09);
 
+  /* Count badge text for the warning and danger tones (see .count-badge). */
+  --count-ink-warning: #fcd34d;
+  --count-ink-danger: #fca5a5;
+
   --shadow-card: 0 4px 24px -6px rgba(0, 0, 0, 0.55);
   --shadow-card-hover: 0 10px 40px -10px rgba(0, 0, 0, 0.65);
   --shadow-overlay: 0 16px 48px -12px rgba(0, 0, 0, 0.7);
@@ -299,6 +307,10 @@ html[data-theme='light'] {
   --glass-bg: rgba(255, 255, 255, 0.72);
   --glass-bg-strong: rgba(255, 255, 255, 0.82);
   --glass-highlight: rgba(255, 255, 255, 0.7);
+
+  /* Count badge text for the warning and danger tones, dark enough on light. */
+  --count-ink-warning: #b45309;
+  --count-ink-danger: #b91c1c;
 
   /* Elevation ; soft, light-appropriate shadows. */
   --shadow-card: 0 1px 2px rgba(16, 24, 40, 0.04), 0 6px 20px -8px rgba(16, 24, 40, 0.12);
@@ -470,6 +482,73 @@ body::after {
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(150%);
   border: 1px solid var(--color-surface-border);
   box-shadow: var(--shadow-card);
+}
+
+/* Count badges (components/ui/CountBadge.tsx): every number on a tab or a
+   project, one size, one shape, one recipe per tone. A tone is a tint of its
+   colour painted over the same layers as the glass it sits on (base surface,
+   then glass), so it reads the same in the sidebar and in the projects table,
+   and it is opaque: an icon under it never shows through. */
+@layer components {
+  .count-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 1rem;
+    min-width: 1rem;
+    padding: 0 0.25rem;
+    border-radius: 9999px;
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    color: var(--count-ink);
+    background-color: var(--color-surface);
+    background-image:
+      linear-gradient(
+        color-mix(in srgb, var(--count-tint) var(--count-strength), transparent),
+        color-mix(in srgb, var(--count-tint) var(--count-strength), transparent)
+      ),
+      linear-gradient(var(--glass-bg), var(--glass-bg));
+  }
+  .count-badge-brand {
+    --count-tint: var(--color-brand-500);
+    --count-strength: 30%;
+    --count-ink: var(--color-brand-200);
+  }
+  .count-badge-neutral {
+    --count-tint: rgb(var(--ink));
+    --count-strength: 14%;
+    --count-ink: var(--color-zinc-200);
+  }
+  .count-badge-warning {
+    --count-tint: #f59e0b;
+    --count-strength: 26%;
+    --count-ink: var(--count-ink-warning);
+  }
+  .count-badge-danger {
+    --count-tint: #ef4444;
+    --count-strength: 28%;
+    --count-ink: var(--count-ink-danger);
+  }
+  /* On an icon: the badge's centre sits on the icon's top-right corner, and
+     it grows rightwards (12, 99+) away from the icon. */
+  .count-badge-on-icon {
+    position: absolute;
+    top: -0.4375rem;
+    left: calc(100% - 0.5625rem);
+    display: inline-flex;
+  }
+}
+
+/* An unread task card: a soft brand wash and a brand hairline over the glass,
+   the way an unread email reads heavier than the rest. */
+.glass-card.is-unread {
+  background-image: linear-gradient(
+    color-mix(in srgb, var(--color-brand-500) 10%, transparent),
+    color-mix(in srgb, var(--color-brand-500) 10%, transparent)
+  );
+  border-color: color-mix(in srgb, var(--color-brand-500) 45%, transparent);
 }
 
 /* Interactive card: a clean lift ; border brightens uniformly, panel rises. */

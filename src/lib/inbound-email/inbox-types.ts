@@ -428,3 +428,10 @@ export interface ProjectEmailAddressInput {
 
 /** Fired on window when inbox data may have changed (sidebar badge, open views). */
 export const INBOX_UPDATED_EVENT = 'inbox-updated';
+
+/** The tables inbox views read from: a cached inbox read goes stale when any of them changes. */
+export const INBOX_TABLES = [
+  'email_inboxes', 'email_inbox_access', 'email_client_domains', 'email_client_addresses', 'email_project_addresses', 'email_threads',
+  'email_messages', 'email_message_recipients', 'email_message_candidates', 'email_attachments', 'email_triage',
+  'email_task_links',
+] as const;

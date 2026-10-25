@@ -1,6 +1,8 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useMemo, useState } from 'react';
+import { setReadData, useRead } from '@/lib/query-cache';
+import { projectContextRead } from '@/lib/reads';
 import {
   Plus, Pencil, Trash2, X, Check, ChevronDown, ChevronRight,
   Briefcase, Layers, GitBranch, AlertTriangle, Lightbulb,
@@ -89,8 +91,6 @@ function timeAgo(iso: string): string {
 }
 
 export function ProjectContextPanel({ projectId }: ProjectContextPanelProps) {
-  const [entries, setEntries] = useState<ProjectContext[]>([]);
-  const [loading, setLoading] = useState(true);
   // Exactly one category is open at all times: the open one fills the card's
   // flexible space, so there is never an internal void and never a reflow.
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(
@@ -110,30 +110,20 @@ export function ProjectContextPanel({ projectId }: ProjectContextPanelProps) {
 
   const supabase = createClient();
 
-  const fetchEntries = useCallback(async () => {
-    const { data, error } = await supabase
-      .from('project_context')
-      .select('*')
-      .eq('project_id', projectId)
-      .eq('is_active', true)
-      .order('category')
-      .order('created_at');
-
-    if (error) {
-      console.error('Failed to fetch project context:', error);
-      toast('error', 'Failed to load project context');
-      setLoading(false);
-      return;
-    }
-    // The auditor's question selection is stored as a context entry but is
-    // configuration, not context: it renders as the Audit Questions card on
-    // the agent settings page, so showing the raw blob here would duplicate
-    // it as an uneditable wall of prose.
-    setEntries((data || []).filter(e => !String(e.content || '').startsWith('GREG_QUESTIONS:')));
-    setLoading(false);
-  }, [projectId]);
-
-  useEffect(() => { fetchEntries(); }, [fetchEntries]);
+  // A cached read shared with the audit questions card (reads.ts). The
+  // auditor's question selection is stored as a context entry but is
+  // configuration, not context: it renders as the Audit Questions card on
+  // the agent settings page, so showing the raw blob here would duplicate
+  // it as an uneditable wall of prose.
+  const contextRead = projectContextRead(projectId);
+  const read = useRead(contextRead);
+  const entries = useMemo(
+    () => (read.data ?? []).filter(e => !String(e.content || '').startsWith('GREG_QUESTIONS:')),
+    [read.data],
+  );
+  const loading = read.loading;
+  const setEntries = (update: (current: ProjectContext[]) => ProjectContext[]) =>
+    setReadData(contextRead, (current) => update(current ?? []));
 
   const handleAdd = async () => {
     if (!addingCategory || !addContent.trim()) return;

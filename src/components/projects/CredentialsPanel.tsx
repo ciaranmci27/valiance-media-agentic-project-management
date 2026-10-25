@@ -1,6 +1,8 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useRef } from 'react';
+import { setReadData, useRead } from '@/lib/query-cache';
+import { encryptionStatusRead } from '@/lib/reads';
 import {
   ShieldCheck,
   Plus,
@@ -228,10 +230,11 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
     return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
   });
 
-  // Encryption status
-  const [encryptionStatus, setEncryptionStatus] = useState<
-    'loading' | 'configured' | 'not_configured'
-  >('loading');
+  // Encryption status: a cached read (reads.ts), so the tab opens on its list.
+  const encryption = useRead(encryptionStatusRead);
+  const encryptionStatus: 'loading' | 'configured' | 'not_configured' = encryption.data === true
+    ? 'configured'
+    : encryption.data === false || encryption.failed ? 'not_configured' : 'loading';
   const [generatedKey, setGeneratedKey] = useState('');
   const [keyCopied, setKeyCopied] = useState(false);
   const [generating, setGenerating] = useState(false);
@@ -275,13 +278,6 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
     return collected;
   };
 
-  // Check encryption on mount
-  useEffect(() => {
-    fetch('/api/encryption/status')
-      .then((res) => res.json())
-      .then((data) => setEncryptionStatus(data.configured ? 'configured' : 'not_configured'))
-      .catch(() => setEncryptionStatus('not_configured'));
-  }, []);
 
   const resetForm = () => {
     setLabel('');
@@ -315,7 +311,7 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
       const res = await fetch('/api/encryption/status');
       const data = await res.json();
       if (data.configured) {
-        setEncryptionStatus('configured');
+        setReadData(encryptionStatusRead, () => true);
         toast('success', 'Encryption configured successfully');
       } else {
         toast(

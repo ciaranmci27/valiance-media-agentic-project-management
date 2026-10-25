@@ -1,98 +1,35 @@
 'use client';
 
-import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { ArrowUpRight, Mail } from 'lucide-react';
-import { useApp } from '@/lib/store';
 import { useDemo } from '@/lib/demo-context';
-import { inboxClient } from '@/lib/inbound-email/inbox-client';
-import { createClient } from '@/lib/supabase/client';
+import { useRead } from '@/lib/query-cache';
+import { taskEmailCountsRead, taskEmailsRead } from '@/lib/reads';
 import type { TaskSourceEmails as TaskSourceEmailsData } from '@/lib/inbound-email/inbox-types';
 import { formatFullTime } from './inbox-badges';
 
-/** The client emails a task came from. */
-// A task's emails, kept for the session: hovering a card fetches them, so the
-// panel opens with them, and reopening a task never shows a load.
-const sourceCache = new Map<string, TaskSourceEmailsData>();
-const sourceRequests = new Map<string, Promise<TaskSourceEmailsData>>();
-
-function fetchTaskSources(client: ReturnType<typeof inboxClient>, taskId: string): Promise<TaskSourceEmailsData> {
-  const pending = sourceRequests.get(taskId);
-  if (pending) return pending;
-  const request = client.taskSources(taskId)
-    .then((value) => { sourceCache.set(taskId, value); return value; })
-    .finally(() => { sourceRequests.delete(taskId); });
-  sourceRequests.set(taskId, request);
-  return request;
-}
-
-/** Warm a task's emails before it opens (a card hovered or focused). */
-export function usePrefetchTaskSources(): (taskId: string) => void {
-  const { isDemoMode } = useDemo();
-  const client = useMemo(() => inboxClient(isDemoMode), [isDemoMode]);
-  return (taskId: string) => {
-    if (!sourceCache.has(taskId)) void fetchTaskSources(client, taskId).catch(() => undefined);
-  };
-}
-
+/** The client emails linked to a task: a cached read, warmed before the panel opens. */
 export function useTaskSourceEmails(taskId: string | null): TaskSourceEmailsData | null {
   const { isDemoMode } = useDemo();
-  const { emailsRefreshSignal } = useApp();
-  const client = useMemo(() => inboxClient(isDemoMode), [isDemoMode]);
-  const [data, setData] = useState<{ taskId: string; value: TaskSourceEmailsData } | null>(null);
-
-  // Always refreshed on open and on inbox changes; the kept copy shows meanwhile.
-  useEffect(() => {
-    if (!taskId) return;
-    let cancelled = false;
-    fetchTaskSources(client, taskId)
-      .then((value) => { if (!cancelled) setData({ taskId, value }); })
-      .catch(() => { if (!cancelled) setData({ taskId, value: { link_count: 0, emails: [] } }); });
-    return () => { cancelled = true; };
-  }, [client, taskId, emailsRefreshSignal]);
-
-  if (data && data.taskId === taskId) return data.value;
-  return taskId ? sourceCache.get(taskId) ?? null : null;
+  const read = useRead(taskId ? taskEmailsRead(taskId, isDemoMode) : null);
+  if (read.data) return read.data;
+  // A failed read shows as no emails, never as a load that does not end.
+  return read.failed ? NO_EMAILS : null;
 }
 
-// How many emails each task is linked to, for the cards: one light read for
-// every task, again whenever inbox data changes. Only links the person can read.
-let emailCounts = new Map<string, number>();
-let countsVersion = 0;
-let countsLoadedFor: number | null = null;
-const countListeners = new Set<() => void>();
-
-async function loadEmailCounts(signal: number) {
-  if (countsLoadedFor === signal) return;
-  countsLoadedFor = signal;
-  const supabase = createClient();
-  const next = new Map<string, number>();
-  for (let from = 0; ; from += 1000) {
-    const { data, error } = await supabase.from('email_task_links').select('task_id').order('id').range(from, from + 999);
-    if (error) return;
-    for (const row of (data ?? []) as { task_id: string }[]) next.set(row.task_id, (next.get(row.task_id) ?? 0) + 1);
-    if (!data || data.length < 1000) break;
-  }
-  emailCounts = next;
-  countsVersion++;
-  countListeners.forEach((listener) => listener());
-}
-
-function subscribeCounts(listener: () => void) {
-  countListeners.add(listener);
-  return () => { countListeners.delete(listener); };
-}
+const NO_EMAILS: TaskSourceEmailsData = { link_count: 0, emails: [] };
 
 /** How many emails link to the task; 0 until loaded and in demo mode. */
 export function useTaskEmailCount(taskId: string): number {
+  return useKnownTaskEmailCount(taskId) ?? 0;
+}
+
+/** The same count, or undefined while it is not known (still loading, demo mode). */
+export function useKnownTaskEmailCount(taskId: string): number | undefined {
   const { isDemoMode } = useDemo();
-  const { emailsRefreshSignal } = useApp();
-  useEffect(() => {
-    if (!isDemoMode) void loadEmailCounts(emailsRefreshSignal);
-  }, [isDemoMode, emailsRefreshSignal]);
-  useSyncExternalStore(subscribeCounts, () => countsVersion, () => 0);
-  return isDemoMode ? 0 : emailCounts.get(taskId) ?? 0;
+  const counts = useRead(isDemoMode ? null : taskEmailCountsRead).data;
+  return counts ? counts.get(taskId) ?? 0 : undefined;
 }
 
 const RELATION: Record<TaskSourceEmailsData['emails'][number]['relation'], string> = {

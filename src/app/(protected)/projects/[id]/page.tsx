@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, type ReactNode } from 'react';
 import { Popover } from '@/components/ui/Popover';
 import { TaskFilterControl, UNASSIGNED_FILTER_ID } from '@/components/tasks/TaskFilterControl';
+import { UnreadNotice } from '@/components/tasks/TaskUnread';
 import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useApp, defaultFilters } from '@/lib/store';
@@ -36,6 +37,11 @@ import {
 import { Task, ViewMode } from '@/lib/types';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useAuth } from '@/lib/auth-context';
+import { useDemo } from '@/lib/demo-context';
+import { warmRead, warmReads } from '@/lib/query-cache';
+import {
+  encryptionStatusRead, inboxLandingRead, projectBillingRunsRead, projectForecastRead, projectPaymentsRead, useBillingToday,
+} from '@/lib/reads';
 import { isRunning } from '@/lib/time-entry-utils';
 import { hasPermission, canEditTask, canManageAllTasks, canBeAssignedInProject } from '@/lib/access-control';
 
@@ -48,6 +54,8 @@ export default function ProjectDetailPage() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const projectId = params.id as string;
+  const { isDemoMode } = useDemo();
+  const billingToday = useBillingToday();
   const { access, teamMemberId } = useAuth();
   const canManageProject = hasPermission(access, 'projects.manage');
   // Membership has its own grant; either one opens the project form (members
@@ -68,8 +76,8 @@ export default function ProjectDetailPage() {
   const {
     getProject, getTasksByProject,
     team,
-    deleteTask, deleteProject, updateTask, reorderTasks, filters, setFilters, isTaskUnseen,
-    tasks, loading, timeEntries,
+    deleteTask, deleteProject, updateTask, reorderTasks, filters, setFilters, taskUnread,
+    tasks, loading, timeEntries, getInvoicesByProject,
   } = useApp();
 
   useEffect(() => { setFilters(defaultFilters); }, []);
@@ -108,11 +116,21 @@ export default function ProjectDetailPage() {
     { key: 'overview', label: 'Overview', visible: true },
     { key: 'tasks', label: 'Tasks', visible: true },
     { key: 'time', label: 'Time tracking', visible: !!timeTrackingOn, live: clockedIn },
-    { key: 'communication', label: 'Communication', visible: canReadInbox || canReadCommunications },
+    { key: 'communication', label: 'Communication', visible: canReadInbox || canReadCommunications,
+      warm: canReadInbox ? () => void warmRead(inboxLandingRead(projectId, isDemoMode)) : undefined },
     { key: 'portal', label: 'Client portal', visible: canReadPortal },
-    { key: 'billing', label: 'Billing', visible: canReadInvoices },
+    { key: 'billing', label: 'Billing', visible: canReadInvoices,
+      warm: canReadInvoices && !isDemoMode
+        ? () => warmReads([
+          projectForecastRead(projectId, billingToday),
+          projectBillingRunsRead(projectId),
+          // Only read when an API payment is shown, as the tab does.
+          ...(getInvoicesByProject(projectId).some((invoice) => (invoice.payments ?? []).some((payment) => payment.recorded_via === 'api'))
+            ? [projectPaymentsRead(projectId)] : []),
+        ]) : undefined },
     { key: 'files', label: 'Files', visible: canReadFiles },
-    { key: 'credentials', label: 'Credentials', visible: canReadCredentials },
+    { key: 'credentials', label: 'Credentials', visible: canReadCredentials,
+      warm: canReadCredentials ? () => void warmRead(encryptionStatusRead) : undefined },
   ];
   const tabs: ProjectTab<ProjectTabKey>[] = allTabs.filter(t => t.visible);
 
@@ -185,8 +203,8 @@ export default function ProjectDetailPage() {
 
   // Filtered tasks for the views
   let projectTasks = [...allProjectTasks];
-  if (filters.unseen) {
-    projectTasks = projectTasks.filter(isTaskUnseen);
+  if (filters.unread) {
+    projectTasks = projectTasks.filter((task) => !!taskUnread(task));
   }
   if (filters.status.length > 0) {
     projectTasks = projectTasks.filter(t => filters.status.includes(t.status));
@@ -518,6 +536,8 @@ export default function ProjectDetailPage() {
             <ToolbarButton icon={<Plus />} label="Add task" onClick={() => setNewTask({})} />
           )}
         />
+
+        <UnreadNotice tasks={allProjectTasks} />
 
         {/* Task Views */}
         {allProjectTasks.length === 0 ? (

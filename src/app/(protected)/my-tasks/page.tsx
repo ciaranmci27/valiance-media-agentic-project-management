@@ -8,6 +8,7 @@ import { PriorityBadge } from '@/components/ui/Badge';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { TaskDetailPanel } from '@/components/tasks/TaskDetailPanel';
 import { useTaskUrlParam } from '@/lib/use-task-url';
+import { useTaskWarmer } from '@/lib/reads';
 import Link from 'next/link';
 import {
   ListTodo, Zap, Activity, Hourglass, GitMerge, Eye, CalendarClock,
@@ -65,6 +66,8 @@ function RadarPageContent() {
 
   // The open task is the URL's ?task=, so the address bar is a link to it.
   const { taskId: viewingTaskId, openTask: setViewingTaskId, closeTask: closeViewingTask } = useTaskUrlParam();
+  // Pointing at a task warms its panel, so it opens with its emails and files.
+  const warmTask = useTaskWarmer();
   const [reviewingTaskId, setReviewingTaskId] = useState<string | null>(null);
   const [deletingTaskId, setDeletingTaskId] = useState<string | null>(null);
   const [showDoneReminders, setShowDoneReminders] = useState(false);
@@ -251,13 +254,14 @@ function RadarPageContent() {
       'w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-white/[0.03] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand-500';
 
     return opts.href ? (
-      <Link key={opts.key} href={opts.href} className={className}>{inner}</Link>
+      <Link key={opts.key} href={opts.href} className={className} {...(opts.task ? warmTask(opts.task.id) : {})}>{inner}</Link>
     ) : (
       <button
         key={opts.key}
         type="button"
         onClick={() => (opts.onOpen ? opts.onOpen() : opts.task && setViewingTaskId(opts.task.id))}
         className={className}
+        {...(opts.task ? warmTask(opts.task.id) : {})}
       >
         {inner}
       </button>

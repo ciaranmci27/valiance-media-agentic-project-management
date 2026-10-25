@@ -19,12 +19,17 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useAuth } from '@/lib/auth-context';
 import { hasPermission } from '@/lib/access-control';
 import { parseDateOnly } from '@/lib/date-utils';
+import { useUnreadByProject } from '@/components/tasks/TaskUnread';
+import { useWarmProject } from '@/lib/reads';
+import { CountBadge } from '@/components/ui/CountBadge';
 
 function ProjectsContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const { projects, team, deleteProject, getTasksByProject, getPrimaryClient, filters, setFilters } = useApp();
   const { access } = useAuth();
+  const unreadByProject = useUnreadByProject();
+  const warmProject = useWarmProject();
   const canManageProjects = hasPermission(access, 'projects.manage');
   const canManageAgents = hasPermission(access, 'agents.manage');
   const isAgentsEnabled = process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true';
@@ -77,6 +82,12 @@ function ProjectsContent() {
     { label: 'Move to Trash', icon: <Trash2 size={14} />, variant: 'danger', onClick: () => setDeletingProjectId(p.id) },
   ];
 
+  // A project's unread tasks, the same badge as beside it in the sidebar.
+  const unreadBadge = (project: Project) => {
+    const count = unreadByProject.get(project.id) ?? 0;
+    return <CountBadge count={count} label={`${count} unread task${count === 1 ? '' : 's'}`} />;
+  };
+
   const mobileCard = (p: Project) => {
     const { pct, total } = getProgress(p);
     const members = team.filter(m => p.member_ids.includes(m.id));
@@ -88,11 +99,14 @@ function ProjectsContent() {
             <Link
               href={`/projects/${p.id}`}
               onClick={(e) => e.stopPropagation()}
+              onMouseEnter={() => warmProject(p.id)}
+              onFocus={() => warmProject(p.id)}
               className="font-semibold text-white inline-flex items-center gap-2 truncate focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 rounded"
             >
               {p.color && <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: p.color }} />}
               <span className="truncate">{p.name}</span>
             </Link>
+            {unreadBadge(p)}
             {client?.contact && (
               <div className="mt-1.5">
                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-white/[0.06] text-zinc-300">{client.contact.name}</span>
@@ -142,10 +156,13 @@ function ProjectsContent() {
           <Link
             href={`/projects/${p.id}`}
             onClick={(e) => e.stopPropagation()}
+            onMouseEnter={() => warmProject(p.id)}
+            onFocus={() => warmProject(p.id)}
             className="font-semibold text-white hover:text-brand-300 transition-colors truncate focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 rounded"
           >
             {p.name}
           </Link>
+          {unreadBadge(p)}
           {isAgentsEnabled && canManageAgents && p.autonomous_enabled && (
             <Tooltip content="Autonomous agents enabled">
               <span className="inline-flex items-center px-1.5 py-0.5 rounded-full bg-white/[0.06] text-zinc-300 flex-shrink-0">

@@ -51,7 +51,7 @@ import { Tooltip } from '@/components/ui/Tooltip';
 import { Popover } from '@/components/ui/Popover';
 import { parseDateOnly, isDateOverdue } from '@/lib/date-utils';
 import { hasPermission, canEditTask, canManageAllTasks, canBeAssignedInProject } from '@/lib/access-control';
-import { TaskSourceEmailsSection, useTaskEmailCount, useTaskSourceEmails } from '@/components/inbox/TaskSourceEmails';
+import { TaskSourceEmailsSection, useKnownTaskEmailCount, useTaskSourceEmails } from '@/components/inbox/TaskSourceEmails';
 import { RailCard, RailLayout } from '@/components/projects/TabLayout';
 import { TaskSourceLine, useTaskSource } from './TaskSource';
 import { TaskFiles } from './TaskFiles';
@@ -286,6 +286,7 @@ export function TaskDetailPanel({ task, onClose, onDelete, variant = 'panel' }: 
     updateComment,
     deleteComment,
     markTaskSeen,
+    getTaskUpdate,
   } = useApp();
   const { teamMemberId, access } = useAuth();
   const [newComment, setNewComment] = useState('');
@@ -311,13 +312,14 @@ export function TaskDetailPanel({ task, onClose, onDelete, variant = 'panel' }: 
   const [criteriaWanted, setCriteriaWanted] = useState<string | null>(null);
   const source = useTaskSource(task);
 
-  // Opening a task: it is no longer new to this member.
+  // Opening a task reads it, and so does a change arriving while it is open.
   const openedTaskId = task?.id;
+  const changedWhileOpen = openedTaskId ? getTaskUpdate(openedTaskId)?.last_at : undefined;
   useEffect(() => {
     if (openedTaskId) markTaskSeen(openedTaskId);
-    // markTaskSeen is a fresh closure each render; the task id is what matters.
+    // markTaskSeen is a fresh closure each render; the task and its latest change are what matter.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [openedTaskId]);
+  }, [openedTaskId, changedWhileOpen]);
 
   // "Add acceptance criteria" from the task menu (which may sit outside this panel).
   useEffect(() => {
@@ -332,10 +334,11 @@ export function TaskDetailPanel({ task, onClose, onDelete, variant = 'panel' }: 
     return () => window.removeEventListener(ADD_CRITERIA_EVENT, onWanted);
   }, [openedTaskId]);
 
-  const sourceEmails = useTaskSourceEmails(task?.id ?? null);
-  // Known from the board's counts, so the section is there from the first frame.
-  const knownEmailCount = useTaskEmailCount(task?.id ?? '');
-  const emailCount = sourceEmails?.link_count ?? knownEmailCount;
+  // Known from the board's counts, so the section is there from the first
+  // frame, and a task known to have no emails never asks for them.
+  const knownEmailCount = useKnownTaskEmailCount(task?.id ?? '');
+  const sourceEmails = useTaskSourceEmails(task && knownEmailCount !== 0 ? task.id : null);
+  const emailCount = sourceEmails?.link_count ?? knownEmailCount ?? 0;
 
   // A half-written comment belongs to its task: switching tasks clears it.
   const [commentTaskId, setCommentTaskId] = useState(task?.id);

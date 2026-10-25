@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import Modal from '@/components/ui/Modal';
 import RetainersModal from '@/components/projects/RetainersModal';
 import { createClient } from '@/lib/supabase/client';
-import { fetchBillingForecast, fetchBillingPlan, fetchBillingRuns, fetchProjectRetainers } from '@/lib/supabase/queries';
+import { loadRead, peekRead } from '@/lib/query-cache';
+import { projectBillingPlanRead, projectBillingRunsRead, projectForecastUntilRead, projectRetainersRead } from '@/lib/reads';
 import type { BillingForecastItem, ProjectBillingPlan, ProjectBillingRun, ProjectInvoice, TeamMember } from '@/lib/types';
 import { BillingForecastList } from './BillingForecastList';
 import { HoursBillingForm, describePlan } from './HoursBillingForm';
@@ -47,15 +48,22 @@ export default function BillingModal({
 }: Props) {
   const supabase = useMemo(() => createClient(), []);
   const [tab, setTab] = useState<BillingTab>(initialTab);
-  const [plan, setPlan] = useState<ProjectBillingPlan | null>(null);
-  const [runs, setRuns] = useState<ProjectBillingRun[]>([]);
-  const [forecast, setForecast] = useState<BillingForecastItem[] | null>(null);
+  // Cached reads (reads.ts), warmed when the Billing tab opens: the modal
+  // paints what is already known and reads again behind it.
+  const [plan, setPlan] = useState<ProjectBillingPlan | null>(() => peekRead(projectBillingPlanRead(projectId)) ?? null);
+  const [runs, setRuns] = useState<ProjectBillingRun[]>(() => (peekRead(projectBillingRunsRead(projectId)) ?? []).slice(0, 8));
+  const [forecast, setForecast] = useState<BillingForecastItem[] | null>(
+    () => peekRead(projectForecastUntilRead(projectId, addMonths(today, 12))) ?? null);
   const [months, setMonths] = useState(12);
-  const [openEndedRetainer, setOpenEndedRetainer] = useState(false);
-  const [hasRetainer, setHasRetainer] = useState(false);
+  const activeRetainers = (bundle: { retainers: Array<{ status: string; end_date: string | null }> } | undefined) =>
+    (bundle?.retainers ?? []).filter((retainer) => retainer.status === 'active' && (!retainer.end_date || retainer.end_date >= today));
+  const [openEndedRetainer, setOpenEndedRetainer] = useState(
+    () => activeRetainers(peekRead(projectRetainersRead(projectId, false))).some((retainer) => !retainer.end_date));
+  const [hasRetainer, setHasRetainer] = useState(() => activeRetainers(peekRead(projectRetainersRead(projectId, false))).length > 0);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
+  // `fresh` after a change made here; opening uses answers still fresh.
+  const load = useCallback(async (fresh = false) => {
     if (isDemoMode) {
       setPlan(null);
       setForecast([]);
@@ -64,21 +72,23 @@ export default function BillingModal({
     setError(null);
     try {
       const [nextPlan, nextRuns, bundle, nextForecast] = await Promise.all([
-        fetchBillingPlan(supabase, projectId),
-        fetchBillingRuns(supabase, projectId, 8),
-        fetchProjectRetainers(supabase, projectId, false),
-        fetchBillingForecast(supabase, projectId, { until: addMonths(today, months) }),
+        loadRead(projectBillingPlanRead(projectId), { force: fresh }),
+        loadRead(projectBillingRunsRead(projectId), { force: fresh }),
+        loadRead(projectRetainersRead(projectId, false), { force: fresh }),
+        loadRead(projectForecastUntilRead(projectId, addMonths(today, months)), { force: fresh }),
       ]);
       setPlan(nextPlan);
-      setRuns(nextRuns);
+      setRuns(nextRuns.slice(0, 8));
       setForecast(nextForecast);
-      const active = bundle.retainers.filter((retainer) => retainer.status === 'active' && (!retainer.end_date || retainer.end_date >= today));
+      const active = activeRetainers(bundle);
       setHasRetainer(active.length > 0);
       setOpenEndedRetainer(active.some((retainer) => !retainer.end_date));
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'Billing could not load');
     }
-  }, [isDemoMode, months, projectId, supabase, today]);
+    // activeRetainers reads only today.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDemoMode, months, projectId, today]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -142,7 +152,7 @@ export default function BillingModal({
           canManage={canManage}
           canManageSplits={canManageSplits}
           isDemoMode={isDemoMode}
-          onChanged={() => void load()}
+          onChanged={() => void load(true)}
         />
       )}
 
@@ -158,7 +168,7 @@ export default function BillingModal({
             hasRetainer={hasRetainer}
             canManage={canManage}
             today={today}
-            onSaved={(saved) => { setPlan(saved); void load(); }}
+            onSaved={(saved) => { setPlan(saved); void load(true); }}
           />
         )
       )}

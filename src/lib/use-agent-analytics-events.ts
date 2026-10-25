@@ -7,7 +7,7 @@ import {
   fetchBillingGapReviews,
   fetchTaskReopens,
 } from '@/lib/supabase/queries';
-import { prefetchQuery, useCachedQuery } from '@/lib/query-cache';
+import { useRead, warmRead, type Read } from '@/lib/query-cache';
 import type { DateRange } from '@/lib/finance/summary';
 import type { AgentActivity, FleetAgentActivity } from '@/lib/types';
 import type { AttributionDelta } from '@/lib/agent-telemetry-analytics';
@@ -43,6 +43,10 @@ const isMissingFunction = (error: unknown) => {
   return e?.code === 'PGRST202' || e?.code === '42883' || /agent_analytics_window/.test(e?.message ?? '');
 };
 
+// Reports are large and read rarely: a minute fresh, and no live refresh on
+// every agent event (the narrative feed does that).
+const REPORT_TTL_MS = 60_000;
+
 const fetchRange = async (range: DateRange): Promise<RangeResult> => {
   const supabase = createClient();
   try {
@@ -56,12 +60,15 @@ const fetchRange = async (range: DateRange): Promise<RangeResult> => {
   }
 };
 
+const rangeRead = (range: DateRange): Read<RangeResult> =>
+  ({ key: keyFor(range), load: () => fetchRange(range), ttlMs: REPORT_TTL_MS });
+
 /**
  * Warm a range before anyone looks at it, so opening the report is instant.
  * Safe to call repeatedly: concurrent callers share one request.
  */
 export function prefetchAgentAnalytics(range: DateRange): void {
-  void prefetchQuery(keyFor(range), () => fetchRange(range));
+  void warmRead(rangeRead(range));
 }
 
 /**
@@ -90,21 +97,20 @@ export function useAgentHealthHistory(options?: { enabled?: boolean }): {
   loading: boolean;
 } {
   const enabled = options?.enabled !== false;
-  const query = useCachedQuery<AgentHealthTransition[]>(
-    enabled ? 'agent-health-history' : 'agent-health-history:disabled',
-    enabled
-      ? async () => {
-          const supabase = createClient();
-          const { data, error } = await supabase
-            .from('agent_health_history')
-            .select('member_id, container_running, changed_at')
-            .order('changed_at', { ascending: true })
-            .limit(5000);
-          if (error) throw error;
-          return (data ?? []) as AgentHealthTransition[];
-        }
-      : async () => [],
-  );
+  const query = useRead<AgentHealthTransition[]>(enabled ? {
+    key: 'agent-health-history',
+    ttlMs: REPORT_TTL_MS,
+    load: async () => {
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from('agent_health_history')
+        .select('member_id, container_running, changed_at')
+        .order('changed_at', { ascending: true })
+        .limit(5000);
+      if (error) throw error;
+      return (data ?? []) as AgentHealthTransition[];
+    },
+  } : null);
   return { rows: query.data ?? [], loading: enabled && query.loading };
 }
 
@@ -116,11 +122,7 @@ export function useAgentAnalyticsEvents(
   // already holds, so the report opens instantly there rather than waiting on
   // a request that would return nothing.
   const enabled = options?.enabled !== false;
-  const key = enabled ? keyFor(range) : 'agent-activity:disabled';
-  const query = useCachedQuery<RangeResult>(
-    key,
-    enabled ? () => fetchRange(range) : async () => ({ rows: [], fleet: [], truncated: false }),
-  );
+  const query = useRead<RangeResult>(enabled ? rangeRead(range) : null);
   return {
     rows: query.data?.rows ?? [],
     fleet: query.data?.fleet ?? [],
@@ -147,10 +149,9 @@ export function useBillingGapReviews(options?: { enabled?: boolean }): {
   available: boolean;
 } {
   const enabled = options?.enabled !== false;
-  const query = useCachedQuery<BillingGapReviewRow[]>(
-    enabled ? 'agent-billing-gap-reviews' : 'agent-billing-gap-reviews:disabled',
-    enabled ? () => fetchBillingGapReviews(createClient()) : async () => NO_REVIEWS,
-  );
+  const query = useRead<BillingGapReviewRow[]>(enabled
+    ? { key: 'agent-billing-gap-reviews', ttlMs: REPORT_TTL_MS, load: () => fetchBillingGapReviews(createClient()) }
+    : null);
   return { rows: query.data ?? NO_REVIEWS, loading: enabled && query.loading, available: !(enabled && query.failed) };
 }
 
@@ -166,10 +167,9 @@ export function useTaskReopens(options?: { enabled?: boolean }): {
   loading: boolean;
 } {
   const enabled = options?.enabled !== false;
-  const query = useCachedQuery<ReopenAnswer | null>(
-    enabled ? 'task-reopens:v2' : 'task-reopens:disabled',
-    enabled ? () => fetchTaskReopens(createClient()) : async () => null,
-  );
+  const query = useRead<ReopenAnswer | null>(enabled
+    ? { key: 'task-reopens:v2', ttlMs: REPORT_TTL_MS, load: () => fetchTaskReopens(createClient()) }
+    : null);
   const answer = query.failed ? null : query.data ?? null;
   return { rows: answer?.rows ?? null, since: answer?.since ?? null, loading: enabled && query.loading };
 }

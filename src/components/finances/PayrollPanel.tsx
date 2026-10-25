@@ -20,6 +20,8 @@ import { hasPermission } from '@/lib/access-control';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
 import { demoPayrollData } from '@/lib/demo-data';
+import { loadRead, peekRead } from '@/lib/query-cache';
+import { payrollRead } from '@/lib/finance/payroll-read';
 import type {
   Project,
   TeamMember,
@@ -91,8 +93,13 @@ export function PayrollPanel({ team, projects, reviewOnly = false }: { team: Tea
   const canManagePayouts = hasPermission(access, 'payouts.manage');
   const canManage = canManageCompensation || canManagePayouts;
   const canApprove = hasPermission(access, 'time.approve');
-  const [data, setData] = useState<PayrollData>(EMPTY);
-  const [loading, setLoading] = useState(true);
+  // Payroll is one cached read (reads.ts), shared with the store's earnings
+  // and the compensation modal: a read already made paints at once.
+  const [data, setData] = useState<PayrollData>(() => {
+    const cached = peekRead(payrollRead);
+    return cached ? { ...EMPTY, ...cached } : EMPTY;
+  });
+  const [loading, setLoading] = useState(() => !peekRead(payrollRead));
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [showReject, setShowReject] = useState(false);
   const [rejectionReason, setRejectionReason] = useState('');
@@ -157,19 +164,17 @@ export function PayrollPanel({ team, projects, reviewOnly = false }: { team: Tea
   const hasPanelIdentity =
     hasPayableIdentity || ((canManage || canApprove) && reviewableMemberIds.size > 0);
 
-  const load = useCallback(async () => {
+  // `fresh` after a write; otherwise a recent answer is used as it is.
+  const load = useCallback(async (fresh = false) => {
     if (!hasPanelIdentity) return;
     if (isDemoMode) {
       setData({ ...EMPTY, ...demoPayrollData });
       setLoading(false);
       return;
     }
-    setLoading(true);
+    if (!peekRead(payrollRead)) setLoading(true);
     try {
-      const response = await fetch('/api/workspace/payroll', { cache: 'no-store' });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || 'Failed to load payroll');
-      setData({ ...EMPTY, ...payload.data });
+      setData({ ...EMPTY, ...(await loadRead(payrollRead, { force: fresh })) });
     } catch (error) {
       toast('error', error instanceof Error ? error.message : 'Failed to load payroll');
     } finally {
@@ -554,7 +559,7 @@ export function PayrollPanel({ team, projects, reviewOnly = false }: { team: Tea
     });
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || 'Payroll action failed');
-    await load();
+    await load(true);
     return payload.data;
   };
 

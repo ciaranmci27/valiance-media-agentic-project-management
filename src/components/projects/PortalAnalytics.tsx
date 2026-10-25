@@ -10,7 +10,9 @@
  * the client-facing portal only. Demo mode builds data locally.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
+import { useRead } from '@/lib/query-cache';
+import { portalAnalyticsRead } from '@/lib/reads';
 import {
   Activity as ActivityIcon, Monitor, Smartphone, Tablet, ChevronDown, ChevronRight,
   Globe, Clock, Eye, Download, FileText, Receipt, MousePointerClick, Users, ShieldAlert,
@@ -212,36 +214,23 @@ export function PortalAnalytics({
 }: PortalAnalyticsProps) {
   const { isDemoMode } = useDemo();
 
-  const [data, setData] = useState<PortalAnalyticsResponse | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [expandedSession, setExpandedSession] = useState<string | null>(null);
   const [sessionEvents, setSessionEvents] = useState<Map<string, SessionEvent[]>>(new Map());
 
-  // Flipping a filter refetches with the matching query param, so every
-  // aggregation stays consistent with what is shown.
-  const load = useCallback(async () => {
-    if (isDemoMode) {
-      setData(buildDemoPortalAnalytics(portalSettingsId, projectId));
-      return;
-    }
-    setLoading(true);
-    setError(null);
-    try {
-      const params = new URLSearchParams({ range: '30d' });
-      if (!hideLocal) params.set('hide_local', 'false');
-      if (!hideTeam) params.set('hide_team', 'false');
-      const res = await fetch(`/api/projects/${projectId}/portal-analytics?${params.toString()}`);
-      if (res.ok) setData(await res.json());
-      else setError('Failed to load analytics.');
-    } catch {
-      setError('Failed to load analytics. Please check your connection.');
-    } finally {
-      setLoading(false);
-    }
-  }, [projectId, portalSettingsId, isDemoMode, hideLocal, hideTeam]);
-
-  useEffect(() => { load(); }, [load]);
+  // A cached read per filter choice (reads.ts), warmed from the tab: flipping
+  // a filter reads with the matching params, so every aggregation stays
+  // consistent with what is shown, and keeps the last answer up meanwhile.
+  const read = useRead(isDemoMode ? null : portalAnalyticsRead<PortalAnalyticsResponse>(projectId, hideLocal, hideTeam));
+  const demoData = useMemo(
+    () => (isDemoMode ? buildDemoPortalAnalytics(portalSettingsId, projectId) : null),
+    [isDemoMode, portalSettingsId, projectId],
+  );
+  const [lastData, setLastData] = useState<PortalAnalyticsResponse | null>(null);
+  if (read.data && read.data !== lastData) setLastData(read.data);
+  const data = demoData ?? read.data ?? lastData;
+  const loading = read.loading || read.revalidating;
+  const error = read.failed ? 'Failed to load analytics.' : null;
+  const load = read.reload;
 
   const toggleSession = useCallback(async (sessionId: string) => {
     if (expandedSession === sessionId) {

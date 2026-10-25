@@ -1,6 +1,8 @@
 'use client';
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { loadRead, peekRead, setReadData } from '@/lib/query-cache';
+import { inboxThreadRead } from '@/lib/reads';
 import Link from 'next/link';
 import {
   AlertTriangle, ArrowLeft, AlignLeft, Bell, Bot, Check, CheckCircle2, ChevronDown, Copy, Download, ExternalLink, Eye, FileText, Filter, Flame, Forward, HelpCircle, Image as ImageIcon,
@@ -82,7 +84,12 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
   const canTriage = hasPermission(access, 'inbound_email.triage') || hasPermission(access, 'inbound_email.manage');
   const canManageRules = hasPermission(access, 'inbound_email.manage') && !isDemoMode;
   const client = useMemo(() => inboxClient(isDemoMode), [isDemoMode]);
-  const [detail, setDetail] = useState<InboxThreadDetail | null>(null);
+  // A thread seen or warmed before (pointing at it in the list) paints at
+  // once from the cache; the load below refreshes it behind itself.
+  const [detail, setDetail] = useState<InboxThreadDetail | null>(() => peekRead(inboxThreadRead(threadId, isDemoMode)) ?? null);
+  useEffect(() => {
+    if (detail) setReadData(inboxThreadRead(detail.id, isDemoMode), () => detail);
+  }, [detail, isDemoMode]);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState<'handled' | 'send_back' | null>(null);
   const [projectDialog, setProjectDialog] = useState(false);
@@ -114,7 +121,9 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
     const requestId = ++requestRef.current;
     if (!silent) setError('');
     try {
-      const next = await client.threadDetail(threadId);
+      // Through the cache: opening joins the warm the list started on hover
+      // (or uses its answer); a quiet refresh always reads again.
+      const next = await loadRead(inboxThreadRead(threadId, isDemoMode), { force: silent });
       if (requestRef.current === requestId) setDetail(next);
     } catch (err) {
       if (requestRef.current !== requestId) return;
@@ -126,7 +135,7 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
       }
       if (!silent) setError(message);
     }
-  }, [client, threadId]);
+  }, [threadId, isDemoMode]);
 
   useEffect(() => {
     const requests = requestRef;

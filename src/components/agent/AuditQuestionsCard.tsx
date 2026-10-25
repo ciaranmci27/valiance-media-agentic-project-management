@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import { createClient } from '@/lib/supabase/client';
+import { useMemo } from 'react';
+import { useRead } from '@/lib/query-cache';
+import { projectContextRead } from '@/lib/reads';
 import { useApp } from '@/lib/store';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { SearchCode } from 'lucide-react';
@@ -25,28 +26,15 @@ interface AuditQuestionsCardProps {
 
 export function AuditQuestionsCard({ projectId }: AuditQuestionsCardProps) {
   const { taskSuggestions } = useApp();
-  const [selectionText, setSelectionText] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      setLoading(true);
-      const { data } = await createClient()
-        .from('project_context')
-        .select('content')
-        .eq('project_id', projectId)
-        .eq('is_active', true)
-        .like('content', `${SELECTION_PREFIX}%`)
-        .order('created_at', { ascending: false })
-        .limit(1);
-      if (!cancelled) {
-        setSelectionText(data?.[0]?.content ?? null);
-        setLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [projectId]);
+  // The newest selection entry, from the project's context read (reads.ts),
+  // which the context panel on this page shares.
+  const read = useRead(projectContextRead(projectId));
+  const loading = read.loading;
+  const selectionText = useMemo(() => (read.data ?? [])
+    .filter((entry) => String(entry.content || '').startsWith(SELECTION_PREFIX))
+    .reduce<{ content: string; created_at: string } | null>(
+      (newest, entry) => (!newest || entry.created_at > newest.created_at ? entry : newest), null)?.content ?? null,
+  [read.data]);
 
   const questions = useMemo(() => {
     if (!selectionText) return [];

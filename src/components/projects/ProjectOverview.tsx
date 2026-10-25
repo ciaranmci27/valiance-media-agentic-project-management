@@ -1,32 +1,29 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import Link from 'next/link';
 import {
   Bell, CircleDot, Clock, Copy, Eye, Globe, Info, Mail, Receipt, Users,
 } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { useDemo } from '@/lib/demo-context';
-import { createClient } from '@/lib/supabase/client';
-import { fetchBillingForecast } from '@/lib/supabase/queries';
 import { compareReminders, nextReminderFor, reminderGroup, whenLabel } from '@/lib/reminders';
 import { invoiceOutstanding } from '@/lib/invoice-payments';
 import { computeInvoiceSummary } from '@/lib/invoice-summary';
 import { getWorkedHours } from '@/lib/time-entry-utils';
 import { parseDateOnly } from '@/lib/date-utils';
-import { inboxClient } from '@/lib/inbound-email/inbox-client';
-import type { InboxThreadSummary } from '@/lib/inbound-email/inbox-types';
-import { useInboxUpdates } from '@/components/inbox/use-inbox-updates';
 import { formatListTime } from '@/components/inbox/inbox-badges';
 import { ReminderRow } from '@/components/reminders/ReminderRow';
 import { ActivityTimeline } from '@/components/agent/ActivityTimeline';
 import { useProjectActivity } from '@/lib/use-project-activity';
+import { useRead } from '@/lib/query-cache';
+import { projectEmailsRead, projectForecastRead, useBillingToday } from '@/lib/reads';
 import { Bone, CardLink, GroupLabel, RailCard, Skeleton, Stat } from '@/components/projects/TabLayout';
 import { Avatar, AvatarGroup } from '@/components/ui/Avatar';
 import { PriorityBadge, StatusBadge } from '@/components/ui/Badge';
 import { DateInput } from '@/components/ui/inputs/DateInput';
 import { toast } from '@/components/ui/Toast';
-import type { BillingForecastItem, Task, TeamMember } from '@/lib/types';
+import type { Task, TeamMember } from '@/lib/types';
 
 /** The tabs the Overview can send the viewer to. */
 export type OverviewTarget = 'tasks' | 'time' | 'communication' | 'portal' | 'billing';
@@ -50,7 +47,6 @@ interface ProjectOverviewProps {
 }
 
 const IN_PROGRESS_LIMIT = 6;
-const EMAIL_LIMIT = 5;
 
 function formatMoney(value: number): string {
   return `$${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -136,22 +132,12 @@ export function ProjectOverview({ projectId, onOpenTask, onOpenTab, onOpenContac
     ? computeInvoiceSummary(project, invoices, getTimeEntriesByProject(projectId))
     : null;
 
-  // Client emails waiting on a person. Fetched, as the inbox is, and refreshed
-  // on the same realtime ping the inbox listens to.
-  // undefined while the first answer is out, null when it failed.
-  const [emails, setEmails] = useState<{ threads: InboxThreadSummary[]; total: number } | null | undefined>(undefined);
-  const loadEmails = useCallback(() => {
-    if (!can.inbox) return;
-    inboxClient(isDemoMode)
-      .listThreads({ inboxId: null, projectId, tab: 'needs_you', search: '', limit: EMAIL_LIMIT, offset: 0 })
-      .then(data => setEmails({ threads: data.threads, total: data.counts.needs_you }))
-      .catch(() => setEmails(null));
-  }, [can.inbox, isDemoMode, projectId]);
-  useEffect(() => { loadEmails(); }, [loadEmails]);
-  useInboxUpdates(loadEmails);
-
+  // Client emails waiting on a person: a cached read (reads.ts), warmed before
+  // the project opens and refreshed by the inbox's own changes.
+  const emailsRead = useRead(can.inbox ? projectEmailsRead(projectId, isDemoMode) : null);
+  const emails = emailsRead.data;
   const emailThreads = emails?.threads ?? [];
-  const emailsLoading = can.inbox && emails === undefined;
+  const emailsLoading = emailsRead.loading;
   const needsYouCount = dueReminders.length + inReview.length + (emails?.total ?? 0) + unpaid.length;
 
   // ── Details ──
@@ -185,17 +171,10 @@ export function ProjectOverview({ projectId, onOpenTask, onOpenTab, onOpenContac
   }, [can.time, getTimeEntriesByProject, projectId]);
 
   // ── Next invoice draft (same read the Billing tab's banner uses) ──
-  const [nextDraft, setNextDraft] = useState<BillingForecastItem | null>(null);
-  useEffect(() => {
-    if (!can.invoices || isDemoMode) return;
-    let cancelled = false;
-    const until = new Date();
-    until.setDate(until.getDate() + 62);
-    fetchBillingForecast(createClient(), projectId, { until: until.toISOString().slice(0, 10) })
-      .then(forecast => { if (!cancelled) setNextDraft(forecast.find(item => item.status === 'upcoming') ?? null); })
-      .catch(() => { if (!cancelled) setNextDraft(null); });
-    return () => { cancelled = true; };
-  }, [can.invoices, isDemoMode, projectId]);
+  // The Billing tab reads the same forecast, so either one warms the other.
+  const today = useBillingToday();
+  const forecast = useRead(can.invoices && !isDemoMode ? projectForecastRead(projectId, today) : null).data;
+  const nextDraft = forecast?.find(item => item.status === 'upcoming') ?? null;
 
   // ── Portal ──
   const portal = can.portal ? getPortalSettings(projectId) : undefined;

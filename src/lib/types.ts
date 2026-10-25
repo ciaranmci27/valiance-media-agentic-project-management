@@ -285,6 +285,26 @@ export interface Task {
  */
 export type TaskCreatedVia = 'app' | 'api' | 'mcp' | 'system' | 'unknown';
 
+/** A change on a task, as task_events records it. */
+export type TaskEventKind = 'edit' | 'status' | 'comment' | 'email' | 'file' | 'subtask' | 'assignee' | 'review';
+
+/**
+ * What changed on a task since the signed-in member last opened it, from
+ * my_task_updates(): their own changes in the app never count.
+ */
+export interface TaskUpdate {
+  task_id: string;
+  /** When they last opened it; null if never. */
+  seen_at: string | null;
+  total: number;
+  kinds: Partial<Record<TaskEventKind, number>>;
+  last_at: string;
+  /** The person or agent behind the latest change, when known. */
+  last_member_id: string | null;
+  last_via: 'app' | 'api' | 'mcp' | 'system';
+  last_kind: TaskEventKind;
+}
+
 /** Where a task came from, as the task panel shows it. */
 export interface TaskSource {
   via: TaskCreatedVia;
@@ -465,8 +485,8 @@ export interface FilterState {
   assigneeIds: string[];
   tags: string[];
   search: string;
-  /** Only tasks new to the viewer (made by someone or something else, not opened yet). */
-  unseen?: boolean;
+  /** Only tasks unread by the viewer: new to them, or changed by someone else since they looked. */
+  unread?: boolean;
 }
 
 export type ViewMode = 'list' | 'board' | 'calendar';

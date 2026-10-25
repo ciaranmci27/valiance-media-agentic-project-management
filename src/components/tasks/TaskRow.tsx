@@ -9,7 +9,8 @@ import { Calendar, CheckSquare, Mail, MessageSquare, MoreVertical, Paperclip, Tr
 import { useState, useRef } from 'react';
 import { Popover } from '@/components/ui/Popover';
 import { useTaskEmailCount } from '@/components/inbox/TaskSourceEmails';
-import { UnseenDot } from './TaskSource';
+import { UnreadLabel } from './TaskUnread';
+import { useTaskWarmer } from '@/lib/reads';
 import { useTaskFileCount } from './task-file-counts';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { parseDateOnly, isDateOverdue } from '@/lib/date-utils';
@@ -54,7 +55,8 @@ interface TaskRowProps {
 }
 
 export function TaskRow({ task, onView, onDelete }: TaskRowProps) {
-  const { team, tasks, getProject, isTaskUnseen } = useApp();
+  const { team, tasks, getProject } = useApp();
+  const warmTask = useTaskWarmer();
   const { teamMemberId, access } = useAuth();
   const [showMenu, setShowMenu] = useState(false);
   const emailCount = useTaskEmailCount(task.id);
@@ -87,6 +89,7 @@ export function TaskRow({ task, onView, onDelete }: TaskRowProps) {
     <div
       className="lg:hidden p-3 hover:bg-white/[0.03] transition-colors cursor-pointer"
       onClick={() => onView?.(task)}
+      {...warmTask(task.id)}
     >
       <div className="flex items-start gap-3">
         {/* Status indicator */}
@@ -103,8 +106,8 @@ export function TaskRow({ task, onView, onDelete }: TaskRowProps) {
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-2">
             <h3 className="font-medium text-white text-sm leading-tight">
-              {isTaskUnseen(task) && <span className="mr-1.5 inline-flex align-middle"><UnseenDot task={task} /></span>}
               {task.title}
+              <span className="mt-1 flex"><UnreadLabel task={task} /></span>
             </h3>
             {(canEdit || canDelete) && <button
               ref={menuBtnRef}
@@ -231,7 +234,8 @@ export function TaskRow({ task, onView, onDelete }: TaskRowProps) {
 /* Desktop table row view. Every cell below maps 1:1, in order, onto
    LIST_GRID_COLS; add or remove a column there and here together. */
 export function TaskRowDesktop({ task, onView, onDelete, selected, onToggleSelect }: TaskRowProps) {
-  const { team, tasks, getProject, isTaskUnseen } = useApp();
+  const { team, tasks, getProject } = useApp();
+  const warmTask = useTaskWarmer();
   const { teamMemberId, access } = useAuth();
   const [showMenu, setShowMenu] = useState(false);
   const emailCount = useTaskEmailCount(task.id);
@@ -278,6 +282,7 @@ export function TaskRowDesktop({ task, onView, onDelete, selected, onToggleSelec
     <div
       className={`hidden lg:grid ${LIST_GRID_COLS} py-2.5 bg-surface-raised hover:bg-white/[0.03] transition-colors group cursor-pointer ${selected ? 'bg-brand-500/[0.06]' : ''}`}
       onClick={handleRowClick}
+      {...warmTask(task.id)}
     >
       {/* Select */}
       <div className="flex items-center">
@@ -303,10 +308,10 @@ export function TaskRowDesktop({ task, onView, onDelete, selected, onToggleSelec
             onClick={(e) => { e.stopPropagation(); onView?.(task); }}
             className="flex max-w-full items-center gap-1.5 font-medium text-white text-sm text-left hover:text-brand-300 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-500 rounded"
           >
-            {isTaskUnseen(task) && <UnseenDot task={task} />}
             <span className="truncate">{task.title}</span>
           </button>
         </h3>
+        <span className="min-w-0 flex-shrink"><UnreadLabel task={task} /></span>
         {isBlocked && (
           <Tooltip content="Blocked by another task">
             <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium bg-amber-500/15 text-amber-300 border border-amber-500/30 rounded-full flex-shrink-0">

@@ -129,14 +129,8 @@ export default function DashboardPage() {
   // Permission-aware money cards. Company-finance users see workspace Earned/Outstanding;
   // members with only own-earnings access see their own Earned/Owed. Figures come from the
   // shared finance summary so they match the Finances page exactly. Last-30-days window.
-  const retainerFinanceKey = useMemo(
-    () => projectInvoices.map((inv) => `${inv.id}:${inv.updated_at}`).join(','),
-    [projectInvoices],
-  );
-  const { lineSharePercent, accruingRetainerLines } = useRetainerFinanceInputs(
-    canReadCompanyFinance,
-    retainerFinanceKey,
-  );
+  // A cached read the boot load primed; live sync refreshes it as invoices change.
+  const { lineSharePercent, accruingRetainerLines } = useRetainerFinanceInputs(canReadCompanyFinance);
 
   const financeCards = useMemo<Kpi[]>(() => {
     const tz = currentMember?.timezone && currentMember.timezone !== 'UTC' ? currentMember.timezone : undefined;

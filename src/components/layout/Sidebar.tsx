@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
@@ -28,22 +28,29 @@ import { Avatar } from '@/components/ui/Avatar';
 import { Logo } from '@/components/ui/Logo';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { LivePulse } from '@/components/ui/LivePulse';
-import { createClient } from '@/lib/supabase/client';
-import { demoNotifications } from '@/lib/demo-data';
+import { useUnreadByProject } from '@/components/tasks/TaskUnread';
+import { inboxAttentionRead, inboxLandingRead, unreadNotificationsRead, useIntent, useWarmActiveProjects, useWarmProject } from '@/lib/reads';
+import { invalidateTables, useRead, warmRead } from '@/lib/query-cache';
+import { CountBadge, type CountBadgeTone } from '@/components/ui/CountBadge';
 import { isRunning } from '@/lib/time-entry-utils';
 import { siteConfig } from '@/site-config';
 import { hasPermission } from '@/lib/access-control';
 import { prefetchAgentAnalytics } from '@/lib/use-agent-analytics-events';
 import { defaultAgentAnalyticsRange } from '@/lib/agent-range';
-import { inboxClient } from '@/lib/inbound-email/inbox-client';
 import { reminderGroup } from '@/lib/reminders';
-import { INBOX_UPDATED_EVENT } from '@/lib/inbound-email/inbox-types';
 import type { InboxAttention } from '@/lib/inbound-email/inbox-view';
 
 export function Sidebar() {
   const pathname = usePathname();
   const { projects, team, loading, getPendingSuggestionCount, timeEntries, tasks, taskSuggestions, agentActivity, reminders } = useApp();
   const { user, teamMemberId, access, signOut } = useAuth();
+
+  const unreadByProject = useUnreadByProject();
+  // Active projects open instantly: their Overview reads are warmed after
+  // boot, and again on pointing at a project here.
+  const warmProject = useWarmProject();
+  const activeProjectIds = useMemo(() => projects.filter(p => p.status === 'active').map(p => p.id), [projects]);
+  useWarmActiveProjects(activeProjectIds, !loading);
 
   // Project IDs where the current user has an actively-running timer. Used
   // to surface a green pulse next to the project's row in the sidebar so the
@@ -58,7 +65,6 @@ export function Sidebar() {
   }, [timeEntries, teamMemberId]);
   const { isEnvForcedDemo, isDemoMode } = useDemo();
   const [isOpen, setIsOpen] = useState(false);
-  const [unreadNotifications, setUnreadNotifications] = useState(0);
   // The Agent item expands into its three surfaces. null = follow the route
   // (auto-expand while on an /agent page); a manual toggle always wins.
   const [agentOpen, setAgentOpen] = useState<boolean | null>(null);
@@ -70,49 +76,22 @@ export function Sidebar() {
     return () => window.removeEventListener('open-sidebar', open);
   }, []);
 
-  // Unread notification count, shown as an overlay badge on the Notifications tab.
-  const fetchUnreadNotifications = useCallback(async () => {
-    if (isDemoMode) {
-      setUnreadNotifications(demoNotifications.filter(n => !n.is_read).length);
-      return;
-    }
-    try {
-      const { count } = await createClient()
-        .from('team_member_notifications')
-        .select('*', { count: 'exact', head: true })
-        .eq('is_read', false);
-      if (count !== null) setUnreadNotifications(count);
-    } catch (error) {
-      console.error('Error fetching unread notifications:', error);
-    }
-  }, [isDemoMode]);
-
-  // Refresh on navigation and whenever the notifications page reports a change.
-  useEffect(() => { fetchUnreadNotifications(); }, [fetchUnreadNotifications, pathname]);
+  // The tabs' counts are cached reads (reads.ts): live sync refreshes them as
+  // notifications and inbox rows change, never a refetch per route change.
+  // The notifications page's own marks (no realtime echo needed) say so too.
+  const unreadNotifications = useRead(unreadNotificationsRead(isDemoMode)).data ?? 0;
   useEffect(() => {
-    const handler = () => fetchUnreadNotifications();
+    const handler = () => invalidateTables(['team_member_notifications']);
     window.addEventListener('notifications-updated', handler);
     return () => window.removeEventListener('notifications-updated', handler);
-  }, [fetchUnreadNotifications]);
-
-  // Inbox badge: threads waiting on a person, coloured by the worst of them.
-  const canReadInbox = hasPermission(access, 'inbound_email.read') || hasPermission(access, 'inbound_email.manage');
-  const [inboxAttention, setInboxAttention] = useState<InboxAttention>({ total: 0, urgent: 0, decide: 0, reply: 0 });
-  const [inboxTick, setInboxTick] = useState(0);
-  // Refresh on navigation and whenever the inbox reports a change.
-  useEffect(() => {
-    if (!canReadInbox) return;
-    let live = true;
-    inboxClient(isDemoMode).attentionCount()
-      .then((count) => { if (live) setInboxAttention(count); })
-      .catch((error) => console.error('Error fetching inbox count:', error));
-    return () => { live = false; };
-  }, [canReadInbox, isDemoMode, pathname, inboxTick]);
-  useEffect(() => {
-    const handler = () => setInboxTick((tick) => tick + 1);
-    window.addEventListener(INBOX_UPDATED_EVENT, handler);
-    return () => window.removeEventListener(INBOX_UPDATED_EVENT, handler);
   }, []);
+  const canReadInbox = hasPermission(access, 'inbound_email.read') || hasPermission(access, 'inbound_email.manage');
+  const inboxAttention = useRead(canReadInbox ? inboxAttentionRead(isDemoMode) : null).data ?? NO_ATTENTION;
+  // Pointing at a tab warms its landing screen.
+  const intent = useIntent();
+  const warmTab = (href: string) => (href === '/inbox' && canReadInbox
+    ? intent(() => void warmRead(inboxLandingRead(null, isDemoMode)))
+    : {});
 
   const currentMember = team.find(m => m.id === teamMemberId);
   const displayName = currentMember?.name || user?.user_metadata?.display_name || user?.email?.split('@')[0] || 'User';
@@ -141,22 +120,32 @@ export function Sidebar() {
   const remindersDue = reminders.filter(r =>
     r.owner_id === teamMemberId && ['overdue', 'today'].includes(reminderGroup(r))).length;
 
-  const navItems = [
-    { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', badge: 0, overlay: false },
-    { href: '/my-tasks', icon: ListTodo, label: 'My Tasks', badge: radarCount + remindersDue, overlay: true },
-    ...(canReadInbox ? [{ href: '/inbox', icon: Inbox, label: 'Inbox', badge: inboxAttention.total, overlay: true }] : []),
+  // Each tab's count: the number, what it means, and its tone (CountBadge).
+  // Notifications are danger: since the notification pruning, one firing
+  // means an agent is blocked on a decision only Ciaran can make. The Inbox
+  // takes the tone of its most pressing thread.
+  const myTasksCount = radarCount + remindersDue;
+  const unreadTasks = [...unreadByProject.values()].reduce((sum, n) => sum + n, 0);
+  const navItems: { href: string; icon: typeof LayoutDashboard; label: string; count?: NavCount }[] = [
+    { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
+    { href: '/my-tasks', icon: ListTodo, label: 'My Tasks',
+      count: { value: myTasksCount, label: `${myTasksCount} ${myTasksCount === 1 ? 'thing needs' : 'things need'} you`, tone: 'brand' } },
+    ...(canReadInbox ? [{ href: '/inbox', icon: Inbox, label: 'Inbox', count: inboxCount(inboxAttention) }] : []),
     ...(hasPermission(access, 'projects.read') || hasPermission(access, 'projects.read_all')
-      ? [{ href: '/projects', icon: FolderKanban, label: 'Projects', badge: 0, overlay: false }] : []),
+      ? [{ href: '/projects', icon: FolderKanban, label: 'Projects',
+          count: { value: unreadTasks, label: `${plural(unreadTasks, 'unread task')} across your projects`, tone: 'brand' as const } }] : []),
     ...(hasPermission(access, 'leads.read') || hasPermission(access, 'leads.read_all') || hasPermission(access, 'leads.manage')
-      ? [{ href: '/leads', icon: Target, label: 'Leads', badge: 0, overlay: false }] : []),
+      ? [{ href: '/leads', icon: Target, label: 'Leads' }] : []),
     ...(hasPermission(access, 'contacts.read') || hasPermission(access, 'contacts.read_all')
-      ? [{ href: '/contacts', icon: UserCircle, label: 'Contacts', badge: 0, overlay: false }] : []),
+      ? [{ href: '/contacts', icon: UserCircle, label: 'Contacts' }] : []),
     ...(hasPermission(access, 'team.read') || hasPermission(access, 'team.manage')
-      ? [{ href: '/team', icon: Users, label: 'Team', badge: 0, overlay: false }] : []),
+      ? [{ href: '/team', icon: Users, label: 'Team' }] : []),
     ...(hasPermission(access, 'finance.company.read') || hasPermission(access, 'earnings.own.read') || hasPermission(access, 'time.approve')
-      ? [{ href: '/finances', icon: DollarSign, label: 'Finances', badge: 0, overlay: false }] : []),
-    ...(isAgentsEnabled && canManageAgents ? [{ href: '/agent', icon: Bot, label: 'Agent', badge: pendingSuggestionCount, overlay: true }] : []),
-    { href: '/notifications', icon: Bell, label: 'Notifications', badge: unreadNotifications, overlay: true },
+      ? [{ href: '/finances', icon: DollarSign, label: 'Finances' }] : []),
+    ...(isAgentsEnabled && canManageAgents ? [{ href: '/agent', icon: Bot, label: 'Agent',
+      count: { value: pendingSuggestionCount, label: `${plural(pendingSuggestionCount, 'agent suggestion')} to review`, tone: 'brand' as const } }] : []),
+    { href: '/notifications', icon: Bell, label: 'Notifications',
+      count: { value: unreadNotifications, label: plural(unreadNotifications, 'unread notification'), tone: 'danger' } },
   ];
 
   const closeSidebar = () => setIsOpen(false);
@@ -228,12 +217,8 @@ export function Sidebar() {
                     }`}
                   >
                     <span className="relative flex-shrink-0 leading-none">
-                      <item.icon size={18} />
-                      {item.badge > 0 && (
-                        <span className="absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-semibold text-white bg-brand-500">
-                          {item.badge > 9 ? '9+' : item.badge}
-                        </span>
-                      )}
+                      <item.icon size={18} aria-hidden="true" />
+                      {item.count && <CountBadge {...badgeProps(item.count)} placement="icon" />}
                     </span>
                     <span className="text-sm font-medium flex-1 text-left">{item.label}</span>
                     <ChevronDown
@@ -286,6 +271,7 @@ export function Sidebar() {
                 key={item.href}
                 href={item.href}
                 onClick={closeSidebar}
+                {...warmTab(item.href)}
                 className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-150 ${
                   isActive
                     ? 'bg-brand-500/15 text-brand-300 glow-brand-soft'
@@ -293,28 +279,10 @@ export function Sidebar() {
                 }`}
               >
                 <span className="relative flex-shrink-0 leading-none">
-                  <item.icon size={18} />
-                  {item.overlay && item.badge > 0 && (
-                    /* Notifications go red: since the notification pruning, one
-                       firing means an agent is blocked on a decision only Ciaran
-                       can make. The Inbox is red only for something urgent, amber
-                       for a decision, neutral for replies. The Agent badge stays
-                       brand because it is a review queue, not a blocker. */
-                    <span className={`absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-semibold ${
-                      item.href === '/inbox' ? inboxBadgeTone(inboxAttention)
-                        : item.href === '/notifications' ? 'bg-red-600 text-white' : 'bg-brand-500 text-white'
-                    }`}>
-                      {item.href === '/inbox' && <span className="sr-only">{inboxBadgeLabel(inboxAttention)}: </span>}
-                      {item.badge > 9 ? '9+' : item.badge}
-                    </span>
-                  )}
+                  <item.icon size={18} aria-hidden="true" />
+                  {item.count && <CountBadge {...badgeProps(item.count)} placement="icon" />}
                 </span>
                 <span className="text-sm font-medium flex-1">{item.label}</span>
-                {!item.overlay && item.badge > 0 && (
-                  <span className="min-w-[20px] h-5 flex items-center justify-center rounded-full bg-brand-500 text-white text-xs font-medium px-1.5">
-                    {item.badge}
-                  </span>
-                )}
               </Link>
             );
           })}
@@ -354,6 +322,8 @@ export function Sidebar() {
                         key={project.id}
                         href={`/projects/${project.id}`}
                         onClick={closeSidebar}
+                        onMouseEnter={() => warmProject(project.id)}
+                        onFocus={() => warmProject(project.id)}
                         className={`flex items-center gap-2.5 px-3 py-2 rounded-lg transition-all duration-150 ${
                           pathname === `/projects/${project.id}`
                             ? 'bg-white/10 text-white'
@@ -432,15 +402,18 @@ export function Sidebar() {
   );
 }
 
-/** The Inbox badge's colour: red for urgent, amber for a decision, neutral for replies only. */
-function inboxBadgeTone(attention: InboxAttention): string {
-  if (attention.urgent > 0) return 'bg-red-600 text-white';
-  if (attention.decide > 0) return 'bg-amber-400 text-zinc-950';
-  return 'bg-zinc-200 text-zinc-900';
-}
+type NavCount = { value: number; label: string; tone: CountBadgeTone };
 
-function inboxBadgeLabel(attention: InboxAttention): string {
-  if (attention.urgent > 0) return 'Urgent threads waiting on you';
-  if (attention.decide > 0) return 'Decisions waiting on you';
-  return 'Replies waiting on you';
+const NO_ATTENTION: InboxAttention = { total: 0, urgent: 0, decide: 0, reply: 0 };
+
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+const badgeProps = (count: NavCount) => ({ count: count.value, label: count.label, tone: count.tone });
+
+/** The Inbox count: danger for something urgent, warning for a decision, neutral for replies only. */
+function inboxCount(attention: InboxAttention): NavCount {
+  const waiting = `${plural(attention.total, 'thread')} waiting on you`;
+  if (attention.urgent > 0) return { value: attention.total, label: `${waiting}, ${attention.urgent} urgent`, tone: 'danger' };
+  if (attention.decide > 0) return { value: attention.total, label: `${waiting}, ${attention.decide} to decide`, tone: 'warning' };
+  return { value: attention.total, label: `${plural(attention.total, 'thread')} waiting for your reply`, tone: 'neutral' };
 }

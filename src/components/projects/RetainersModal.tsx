@@ -1,6 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { invalidateTables, loadRead, peekRead } from '@/lib/query-cache';
+import { projectRetainersRead } from '@/lib/reads';
 import { ArrowLeft, Pause, Pencil, Play, Plus, Trash2 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import Modal from '@/components/ui/Modal';
@@ -14,7 +16,6 @@ import { NumberInput } from '@/components/ui/inputs/NumberInput';
 import { Select } from '@/components/ui/inputs/Select';
 import { TextInput } from '@/components/ui/inputs/TextInput';
 import {
-  fetchProjectRetainers,
   fetchRetainerDuePeriods,
   generateRetainerPeriod,
   removeProjectRetainer,
@@ -96,7 +97,9 @@ export default function RetainersModal({
   onChanged,
 }: RetainersModalProps) {
   const supabase = useMemo(() => createClient(), []);
-  const [bundle, setBundle] = useState<ProjectRetainerBundle>(EMPTY_BUNDLE);
+  // A cached read (reads.ts), warmed when the Billing tab opens.
+  const [bundle, setBundle] = useState<ProjectRetainerBundle>(
+    () => peekRead(projectRetainersRead(projectId, canManageSplits)) ?? EMPTY_BUNDLE);
   const [duePeriods, setDuePeriods] = useState<RetainerDuePeriod[]>([]);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -129,16 +132,17 @@ export default function RetainersModal({
   );
   const invoiceById = useMemo(() => new Map(invoices.map((invoice) => [invoice.id, invoice])), [invoices]);
 
-  const load = useCallback(async () => {
+  // `fresh` after a change made here; opening uses an answer still fresh.
+  const load = useCallback(async (fresh = false) => {
     if (isDemoMode) {
       setBundle(EMPTY_BUNDLE);
       setDuePeriods([]);
       return;
     }
-    setLoading(true);
+    setLoading(!peekRead(projectRetainersRead(projectId, canManageSplits)));
     try {
       const [nextBundle, nextDue] = await Promise.all([
-        fetchProjectRetainers(supabase, projectId, canManageSplits),
+        loadRead(projectRetainersRead(projectId, canManageSplits), { force: fresh }),
         canManage ? fetchRetainerDuePeriods(supabase, projectId) : Promise.resolve([]),
       ]);
       setBundle(nextBundle);
@@ -272,6 +276,8 @@ export default function RetainersModal({
         });
         if (canManageSplits && splitDirty) {
           await setRetainerShares(supabase, editing.id, cleanSplit, splitFrom);
+          // Shares are not in live sync: the finance figures netting them refresh now.
+          invalidateTables(['project_retainer_shares']);
         }
         toast('success', 'Retainer updated');
       } else {
@@ -291,7 +297,7 @@ export default function RetainersModal({
         toast('success', 'Retainer created');
       }
       setView('list');
-      await load();
+      await load(true);
       onChanged?.();
     } catch (error) {
       toast('error', errorMessage(error, 'Failed to save retainer'));
@@ -307,7 +313,7 @@ export default function RetainersModal({
         status: retainer.status === 'active' ? 'paused' : 'active',
       });
       toast('success', retainer.status === 'active' ? 'Retainer paused' : 'Retainer resumed');
-      await load();
+      await load(true);
       onChanged?.();
     } catch (error) {
       toast('error', errorMessage(error, 'Failed to update retainer'));
@@ -323,7 +329,7 @@ export default function RetainersModal({
       await removeProjectRetainer(supabase, deleteTarget.id);
       toast('success', 'Retainer moved to Trash');
       setDeleteTarget(null);
-      await load();
+      await load(true);
       onChanged?.();
     } catch (error) {
       toast('error', errorMessage(error, 'Failed to delete retainer'));
@@ -337,7 +343,7 @@ export default function RetainersModal({
     try {
       const invoice = await generateRetainerPeriod(supabase, retainerId, periodStart);
       toast('success', `Draft ${invoice.invoice_number} created`);
-      await load();
+      await load(true);
       onChanged?.();
     } catch (error) {
       toast('error', errorMessage(error, 'Failed to create the draft'));
@@ -353,7 +359,7 @@ export default function RetainersModal({
       await scheduleRetainerAmount(supabase, editing.id, newAmount, newAmountDate);
       toast('success', 'Amount scheduled');
       setNewAmount('');
-      await load();
+      await load(true);
       onChanged?.();
     } catch (error) {
       toast('error', errorMessage(error, 'Failed to schedule amount'));
@@ -366,7 +372,7 @@ export default function RetainersModal({
     setBusy(true);
     try {
       await removeRetainerAmount(supabase, amountId);
-      await load();
+      await load(true);
       onChanged?.();
     } catch (error) {
       toast('error', errorMessage(error, 'Failed to remove amount'));

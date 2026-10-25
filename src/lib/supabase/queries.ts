@@ -1,5 +1,5 @@
 import { SupabaseClient } from '@supabase/supabase-js';
-import type { AiReadiness, Project, Task, TeamMember, Subtask, AcceptanceCriterion, Comment, TeamActivity, Contact, ContactEmail, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, ApiKey, ProjectGoal, TaskSuggestion, AgentActivity, FleetAgentActivity, ApiAuditEntry, TimeEntry, ProjectCredential, ProjectCredentialListItem, ProjectInvoice, InvoicePayment, InvoicePaymentMethod, BusinessSettings, InvoiceTimeEntryAllocation, WebhookEndpoint, WebhookDelivery, ProjectRetainer, ProjectRetainerAmount, ProjectRetainerShare, ProjectRetainerPeriod, RetainerDuePeriod, InvoiceLineShare, ProjectBillingPlan, ProjectBillingRun, BillingForecastItem, Reminder, TrashItem } from '@/lib/types';
+import type { AiReadiness, Project, Task, TeamMember, Subtask, AcceptanceCriterion, Comment, TeamActivity, Contact, ContactEmail, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, ApiKey, ProjectGoal, TaskSuggestion, AgentActivity, FleetAgentActivity, ApiAuditEntry, TimeEntry, ProjectCredential, ProjectCredentialListItem, ProjectInvoice, InvoicePayment, InvoicePaymentMethod, BusinessSettings, InvoiceTimeEntryAllocation, WebhookEndpoint, WebhookDelivery, ProjectRetainer, ProjectRetainerAmount, ProjectRetainerShare, ProjectRetainerPeriod, RetainerDuePeriod, InvoiceLineShare, ProjectBillingPlan, ProjectBillingRun, BillingForecastItem, Reminder, TaskUpdate, TrashItem } from '@/lib/types';
 import { fetchAllRows } from '@/lib/supabase/fetch-all';
 import { notFound } from '@/lib/api/errors';
 import { siteConfig } from '@/site-config';
@@ -1669,6 +1669,20 @@ export async function fetchMyTaskViews(supabase: SupabaseClient): Promise<string
 export async function markTaskSeenQuery(supabase: SupabaseClient, taskId: string) {
   const { error } = await supabase.rpc('mark_task_seen', { p_task_id: taskId });
   if (error) throw error;
+}
+
+/** Mark all read: many tasks seen at once (the database takes up to 1,000). */
+export async function markTasksSeenQuery(supabase: SupabaseClient, taskIds: string[]) {
+  for (let from = 0; from < taskIds.length; from += 1000) {
+    const { error } = await supabase.rpc('mark_tasks_seen', { p_task_ids: taskIds.slice(from, from + 1000) });
+    if (error) throw error;
+  }
+}
+
+/** Every task with changes the signed-in member has not seen. */
+export async function fetchMyTaskUpdates(supabase: SupabaseClient): Promise<TaskUpdate[]> {
+  return fetchAllRows<TaskUpdate>((from, to, count) =>
+    supabase.rpc('my_task_updates', {}, { count }).order('task_id').range(from, to));
 }
 
 export async function fetchReminders(supabase: SupabaseClient) {

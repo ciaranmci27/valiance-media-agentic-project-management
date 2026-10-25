@@ -3,7 +3,7 @@
 import { Task } from '@/lib/types';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
-import { PriorityBadge, TaskTypeBadge } from '@/components/ui/Badge';
+import { PriorityBadge } from '@/components/ui/Badge';
 import { AvatarGroup } from '@/components/ui/Avatar';
 import { Calendar, Mail, MessageSquare, CheckSquare, Paperclip, Trash2, Clock, Lock, FileQuestion, ArrowRight, ClipboardCopy, Link2, Hash, PanelRight, BellRing } from 'lucide-react';
 import { Tooltip } from '@/components/ui/Tooltip';
@@ -12,10 +12,10 @@ import { parseDateOnly, isDateOverdue } from '@/lib/date-utils';
 import { hasPermission, canEditTask, canManageAllTasks } from '@/lib/access-control';
 import { TASK_STATUS_LABELS, taskAsText, taskUrl, copyText } from '@/lib/task-copy';
 import { nextReminderFor, reminderGroup, whenLabel } from '@/lib/reminders';
-import { usePrefetchTaskSources, useTaskEmailCount } from '@/components/inbox/TaskSourceEmails';
-import { usePrefetchTaskFiles } from './TaskFiles';
+import { useTaskEmailCount } from '@/components/inbox/TaskSourceEmails';
 import { useTaskFileCount } from './task-file-counts';
-import { UnseenDot } from './TaskSource';
+import { useTaskWarmer } from '@/lib/reads';
+import { UnreadLabel } from './TaskUnread';
 
 function timeAgo(dateStr: string): string {
   const now = Date.now();
@@ -52,17 +52,15 @@ export function TaskCard({ task, onView, onDelete, onMove }: TaskCardProps) {
   const canDelete = canManageAllTasks(access);
   const completedSubtasks = task.subtasks.filter(s => s.completed).length;
   const hasComments = task.comments.length > 0;
-  const { isTaskUnseen } = useApp();
-  const unseen = isTaskUnseen(task);
+  const { taskUnread } = useApp();
+  const loudPriority = task.priority === 'high' || task.priority === 'urgent';
+  const needsSpec = isAgentsEnabled && canManageAgents && task.ai_readiness === 'needs_spec' && !!getProject(task.project_id)?.autonomous_enabled;
+  const isBlocked = task.status !== 'done' && (task.blocked_by_ids || []).some(id => tasks.find(t => t.id === id)?.status !== 'done');
+  const unread = !!taskUnread(task);
+  const hasBadges = unread || loudPriority || needsSpec || isBlocked;
   const emailCount = useTaskEmailCount(task.id);
   const fileCount = useTaskFileCount(task.id);
-  const prefetchEmails = usePrefetchTaskSources();
-  const prefetchFiles = usePrefetchTaskFiles();
-  // Its emails and files are fetched on the way in, so the panel opens with them.
-  const warmPanel = () => {
-    if (emailCount > 0) prefetchEmails(task.id);
-    prefetchFiles(task.id);
-  };
+  const warmTask = useTaskWarmer();
 
   const formatDate = (date: string | null) => {
     if (!date) return null;
@@ -109,25 +107,32 @@ export function TaskCard({ task, onView, onDelete, onMove }: TaskCardProps) {
     <div
       role="button"
       tabIndex={0}
-      className="glass-card rounded-lg p-3 lg:p-4 hover:shadow-md hover:border-white/[0.12] transition-[box-shadow,border-color] duration-150 group cursor-pointer focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-400"
+      className={`relative glass-card ${unread ? 'is-unread' : ''} rounded-lg p-3 lg:p-4 hover:shadow-md hover:border-white/[0.12] transition-[box-shadow,border-color] duration-150 group cursor-pointer focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-400`}
       onClick={() => onView?.(task)}
-      onMouseEnter={warmPanel}
-      onFocus={warmPanel}
+      {...warmTask(task.id)}
       onKeyDown={(e) => {
         if (e.target !== e.currentTarget || (e.key !== 'Enter' && e.key !== ' ')) return;
         e.preventDefault();
         onView?.(task);
       }}
     >
-      <div className="flex items-start justify-between mb-2 lg:mb-3">
-        <div className="flex items-center gap-1.5 lg:gap-2 flex-wrap">
-          <PriorityBadge priority={task.priority} />
-          {isAgentsEnabled && canManageAgents && task.task_type && (
-            <TaskTypeBadge taskType={task.task_type} />
-          )}
-          {/* Most tasks are a person's and carry no label. Only a task marked
-              for the dev agent whose spec is not written yet is flagged. */}
-          {isAgentsEnabled && canManageAgents && task.ai_readiness === 'needs_spec' && getProject(task.project_id)?.autonomous_enabled && (
+      {/* Shown on hover, and whenever focus is inside the card, so the
+          keyboard reaches it too. Pinned to the corner so a card with no
+          badges starts with its title. */}
+      <RowActionsMenu
+        actions={actions}
+        label={`Actions for ${task.title}`}
+        triggerClassName="absolute right-2 top-2 lg:right-3 lg:top-3 lg:opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 aria-expanded:opacity-100"
+      />
+
+      {/* Only what asks for attention: unread, urgent or high priority, a
+          missing spec, a blocker. Low and medium priority and the task type
+          live in the panel. */}
+      {hasBadges && (
+        <div className="flex items-center gap-1.5 lg:gap-2 flex-wrap mb-2 lg:mb-3 pr-7">
+          <UnreadLabel task={task} />
+          {loudPriority && <PriorityBadge priority={task.priority} />}
+          {needsSpec && (
             <Tooltip content="Meant for the dev agent; needs a spec before it can start">
               <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] lg:text-xs font-medium bg-sky-500/15 text-sky-300 border border-sky-500/30 rounded-full">
                 <FileQuestion size={10} aria-hidden="true" />
@@ -135,7 +140,7 @@ export function TaskCard({ task, onView, onDelete, onMove }: TaskCardProps) {
               </span>
             </Tooltip>
           )}
-          {task.status !== 'done' && (task.blocked_by_ids || []).some(id => tasks.find(t => t.id === id)?.status !== 'done') && (
+          {isBlocked && (
             <Tooltip content="Waiting on another task to finish first">
               <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] lg:text-xs font-medium bg-amber-500/15 text-amber-300 border border-amber-500/30 rounded-full">
                 <Lock size={10} />
@@ -144,18 +149,9 @@ export function TaskCard({ task, onView, onDelete, onMove }: TaskCardProps) {
             </Tooltip>
           )}
         </div>
-        
-        {/* Shown on hover, and whenever focus is inside the card, so the
-            keyboard reaches it too. */}
-        <RowActionsMenu
-          actions={actions}
-          label={`Actions for ${task.title}`}
-          triggerClassName="-mr-1 -mt-1 flex-shrink-0 lg:opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 aria-expanded:opacity-100"
-        />
-      </div>
+      )}
 
-      <h3 className="font-medium text-white text-sm lg:text-base mb-1 lg:mb-2 line-clamp-2">
-        {unseen && <span className="mr-1.5 inline-flex align-middle"><UnseenDot task={task} /></span>}
+      <h3 className={`font-medium text-white text-sm lg:text-base mb-1 lg:mb-2 line-clamp-2 ${hasBadges ? '' : 'pr-7'}`}>
         {task.title}
       </h3>
       

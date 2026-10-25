@@ -1,6 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { loadRead, peekRead } from '@/lib/query-cache';
+import { payrollRead } from '@/lib/finance/payroll-read';
 import { CalendarClock, DollarSign } from 'lucide-react';
 import Modal from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
@@ -31,14 +33,13 @@ export function CompensationRateModal({
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  const load = useCallback(async () => {
+  // The shared payroll read (reads.ts): a recent answer opens the modal at
+  // once; after a save it reads again.
+  const load = useCallback(async (fresh = false) => {
     if (!member) return;
-    setLoading(true);
+    setLoading(!peekRead(payrollRead));
     try {
-      const response = await fetch('/api/workspace/payroll', { cache: 'no-store' });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || 'Failed to load compensation rates');
-      const data = payload.data as PayrollRatesResponse;
+      const data = (await loadRead(payrollRead, { force: fresh })) as PayrollRatesResponse;
       setRates((data.rates || [])
         .filter((rate) => rate.member_id === member.id)
         .sort((a, b) => b.effective_at.localeCompare(a.effective_at)));
@@ -85,7 +86,7 @@ export function CompensationRateModal({
       if (!response.ok) throw new Error(payload.error || 'Failed to schedule compensation rate');
       toast('success', `Compensation rate scheduled for ${member.name}`);
       setAmount('');
-      await load();
+      await load(true);
     } catch (error) {
       toast('error', error instanceof Error ? error.message : 'Failed to schedule compensation rate');
     } finally {

@@ -22,6 +22,7 @@
     "test:soft-delete": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-soft-delete.ts",
     "test:team-activity": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-team-activity.ts",
     "test:task-source": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-task-source.ts",
+    "test:task-unread": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-task-unread.ts",
     "test:task-files": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-task-files.ts && tsx --tsconfig tsconfig.mcp-test.json scripts/verify-task-files-api.ts",
     "test:soft-delete-api": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-soft-delete-api.ts",
     "test:soft-delete-reads":"tsx --tsconfig tsconfig.mcp-test.json scripts/verify-soft-delete-reads.ts",
