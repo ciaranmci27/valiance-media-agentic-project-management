@@ -293,6 +293,9 @@ export interface TaskSourceEmail {
   received_at: string;
   relation: TaskLinkRelation;
   by: 'agent' | 'person';
+  /** When it was linked to the task, and by which person (null for an agent's triage). */
+  linked_at: string;
+  linked_by: string | null;
 }
 
 export interface TaskSourceEmails {

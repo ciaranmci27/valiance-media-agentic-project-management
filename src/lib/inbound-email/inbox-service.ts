@@ -895,8 +895,8 @@ export async function taskSourceEmails(ctx: InboxContext, taskId: string): Promi
   const id = assertId(taskId, 'task id');
   const task = await one<{ id: string; project_id: string }>(ctx.service.from('tasks').select('id, project_id').eq('id', id).is('deleted_at', null).maybeSingle());
   if (!task || !accessAllowsProject(ctx.access, task.project_id)) throw new InboxError(404, 'Task not found');
-  const links = await many<{ message_id: string; relation: TaskLinkRelation; triage_id: string | null; created_at: string }>(ctx.service.from('email_task_links')
-    .select('message_id, relation, triage_id, created_at').eq('task_id', id).order('created_at'));
+  const links = await many<{ message_id: string; relation: TaskLinkRelation; triage_id: string | null; linked_by: string | null; created_at: string }>(ctx.service.from('email_task_links')
+    .select('message_id, relation, triage_id, linked_by, created_at').eq('task_id', id).order('created_at'));
   if (links.length === 0 || !canReadInbox(ctx.access)) return { link_count: links.length, emails: [] };
   const readable = new Set(await readableInboxIds(ctx));
   const messageIds = [...new Set(links.map((link) => link.message_id))];
@@ -921,6 +921,8 @@ export async function taskSourceEmails(ctx: InboxContext, taskId: string): Promi
         received_at: message.received_at,
         relation: link.relation,
         by: link.triage_id ? 'agent' as const : 'person' as const,
+        linked_at: link.created_at,
+        linked_by: link.linked_by,
       };
     })
     .filter((email): email is NonNullable<typeof email> => !!email);

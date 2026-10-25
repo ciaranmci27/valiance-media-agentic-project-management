@@ -112,9 +112,12 @@ export default function ProjectDetailPage() {
   );
   // Ordered by how a project is run: the work, the client, the money, then
   // the project's assets.
+  // The Tasks tab says how many of the project's tasks are new or changed for you.
+  const unreadTaskCount = getTasksByProject(projectId).filter((task) => !!taskUnread(task)).length;
   const allTabs: (ProjectTab<ProjectTabKey> & { visible: boolean })[] = [
     { key: 'overview', label: 'Overview', visible: true },
-    { key: 'tasks', label: 'Tasks', visible: true },
+    { key: 'tasks', label: 'Tasks', visible: true,
+      badge: { count: unreadTaskCount, label: `${unreadTaskCount} unread task${unreadTaskCount === 1 ? '' : 's'}` } },
     { key: 'time', label: 'Time tracking', visible: !!timeTrackingOn, live: clockedIn },
     { key: 'communication', label: 'Communication', visible: canReadInbox || canReadCommunications,
       warm: canReadInbox ? () => void warmRead(inboxLandingRead(projectId, isDemoMode)) : undefined },

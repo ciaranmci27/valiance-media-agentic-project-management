@@ -2,6 +2,7 @@
 
 import { useRef, type KeyboardEvent } from 'react';
 import { LivePulse } from '@/components/ui/LivePulse';
+import { CountBadge } from '@/components/ui/CountBadge';
 import { useIntent } from '@/lib/reads';
 
 export interface ProjectTab<K extends string> {
@@ -11,6 +12,8 @@ export interface ProjectTab<K extends string> {
   count?: number;
   /** Shows the live pulse after the label, e.g. Time tracking while your timer runs. */
   live?: boolean;
+  /** A count badge after the label (CountBadge), e.g. unread tasks; hidden at 0. */
+  badge?: { count: number; label: string };
   /** Warms what the tab reads (reads.ts) when the pointer rests on it or it takes focus. */
   warm?: () => void;
 }
@@ -77,6 +80,7 @@ export function ProjectTabs<K extends string>({ tabs, active, onChange }: Projec
             >
               {tab.label}
               {tab.live && <LivePulse label="Your timer is running on this project" />}
+              {tab.badge && <CountBadge count={tab.badge.count} label={tab.badge.label} />}
               {!!tab.count && (
                 <span className={`text-xs font-mono tabular-nums ${selected ? 'text-zinc-300' : 'text-zinc-500'}`}>
                   {tab.count}

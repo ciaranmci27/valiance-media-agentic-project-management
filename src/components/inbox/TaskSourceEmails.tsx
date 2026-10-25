@@ -2,7 +2,9 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { Fragment } from 'react';
 import { ArrowUpRight, Mail } from 'lucide-react';
+import { NewSinceDivider } from '@/components/tasks/TaskUnread';
 import { useDemo } from '@/lib/demo-context';
 import { useRead } from '@/lib/query-cache';
 import { taskEmailCountsRead, taskEmailsRead } from '@/lib/reads';
@@ -44,8 +46,10 @@ const RELATION: Record<TaskSourceEmailsData['emails'][number]['relation'], strin
  * Inbox filtered to this task. `heading={false}` when the caller's own
  * section supplies the title.
  */
-export function TaskSourceEmailsSection({ data, taskId, projectId, heading = true, expected = 0 }: {
+export function TaskSourceEmailsSection({ data, taskId, projectId, heading = true, expected = 0, isNew }: {
   data: TaskSourceEmailsData | null;
+  /** Linked since the person last looked: a divider goes above the first. */
+  isNew?: (email: TaskSourceEmailsData['emails'][number]) => boolean;
   taskId?: string | null;
   /** The task's project: inside that project's page, links open its Communication tab, not the Inbox. */
   projectId?: string | null;
@@ -68,6 +72,7 @@ export function TaskSourceEmailsSection({ data, taskId, projectId, heading = tru
   }
   if (!data || data.link_count === 0) return null;
   const hidden = data.link_count - data.emails.length;
+  const firstNew = isNew ? data.emails.findIndex(isNew) : -1;
   const inProject = !!projectId && !!pathname?.startsWith(`/projects/${projectId}`);
   const emailHref = (threadId: string, messageId: string) => inProject
     ? `/projects/${projectId}?tab=communication&thread=${threadId}&message=${messageId}`
@@ -82,8 +87,10 @@ export function TaskSourceEmailsSection({ data, taskId, projectId, heading = tru
       )}
       {data.emails.length > 0 && (
         <ul className="space-y-1">
-          {data.emails.map((email) => (
-            <li key={`${email.message_id}-${email.relation}`}>
+          {data.emails.map((email, index) => (
+            <Fragment key={`${email.message_id}-${email.relation}`}>
+            {index === firstNew && <NewSinceDivider />}
+            <li>
               <Link
                 href={emailHref(email.thread_id, email.message_id)}
                 className="block rounded-lg bg-white/[0.03] p-2 transition-colors hover:bg-white/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
@@ -94,6 +101,7 @@ export function TaskSourceEmailsSection({ data, taskId, projectId, heading = tru
                 </span>
               </Link>
             </li>
+            </Fragment>
           ))}
         </ul>
       )}

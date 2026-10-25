@@ -1,5 +1,6 @@
 'use client';
 
+import { useCallback, useState } from 'react';
 import { CirclePlus, History, Mail, MessageSquare, Paperclip, type LucideIcon } from 'lucide-react';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { useApp } from '@/lib/store';
@@ -158,4 +159,36 @@ export function useUnreadByProject(): Map<string, number> {
     if (taskUnread(task)) counts.set(task.project_id, (counts.get(task.project_id) ?? 0) + 1);
   }
   return counts;
+}
+
+/**
+ * When the person last looked at a task, fixed when it opens (before opening
+ * marks it read): what arrived after that, from someone else, is new to
+ * them. Null when nothing changed since their last look, or they never
+ * opened it (the whole task is new then, so nothing is singled out).
+ */
+export function useLookedSince(taskId: string | undefined): (at: string, by: string | null) => boolean {
+  const { getTaskUpdate } = useApp();
+  const { teamMemberId } = useAuth();
+  const [looked, setLooked] = useState<{ taskId: string; at: number | null } | null>(null);
+  if (taskId && looked?.taskId !== taskId) {
+    const seen = getTaskUpdate(taskId)?.seen_at;
+    setLooked({ taskId, at: seen ? Date.parse(seen) : null });
+  }
+  const since = looked && looked.taskId === taskId ? looked.at : null;
+  return useCallback(
+    (at: string, by: string | null) => since !== null && Date.parse(at) > since && by !== teamMemberId,
+    [since, teamMemberId],
+  );
+}
+
+/** The line above the first item that arrived since the person last looked. */
+export function NewSinceDivider() {
+  return (
+    <li className="flex items-center gap-2 py-1 text-xs font-medium text-brand-300">
+      <span className="h-px flex-1 bg-brand-500/40" aria-hidden="true" />
+      New since you looked
+      <span className="h-px flex-1 bg-brand-500/40" aria-hidden="true" />
+    </li>
+  );
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import { Task, TASK_TYPES, type AiReadiness, type TaskType } from '@/lib/types';
 import { toast } from '@/components/ui/Toast';
@@ -54,6 +54,7 @@ import { hasPermission, canEditTask, canManageAllTasks, canBeAssignedInProject }
 import { TaskSourceEmailsSection, useKnownTaskEmailCount, useTaskSourceEmails } from '@/components/inbox/TaskSourceEmails';
 import { RailCard, RailLayout } from '@/components/projects/TabLayout';
 import { TaskSourceLine, useTaskSource } from './TaskSource';
+import { NewSinceDivider, useLookedSince } from './TaskUnread';
 import { TaskFiles } from './TaskFiles';
 import { TaskPanelShell } from './TaskPanelShell';
 import {
@@ -337,6 +338,9 @@ export function TaskDetailPanel({ task, onClose, onDelete, variant = 'panel' }: 
   // Known from the board's counts, so the section is there from the first
   // frame, and a task known to have no emails never asks for them.
   const knownEmailCount = useKnownTaskEmailCount(task?.id ?? '');
+  // What arrived since the person last looked, fixed as the task opens.
+  const isNewSince = useLookedSince(task?.id);
+  const firstNewComment = task ? task.comments.findIndex((comment) => isNewSince(comment.created_at, comment.user_id)) : -1;
   const sourceEmails = useTaskSourceEmails(task && knownEmailCount !== 0 ? task.id : null);
   const emailCount = sourceEmails?.link_count ?? knownEmailCount ?? 0;
 
@@ -895,12 +899,14 @@ export function TaskDetailPanel({ task, onClose, onDelete, variant = 'panel' }: 
 
       {emailCount > 0 && (
         <Section variant={variant} title="Communication" icon={MessageSquare} count={String(emailCount)}>
-          <TaskSourceEmailsSection data={sourceEmails} taskId={task?.id ?? null} projectId={task?.project_id ?? null} heading={false} expected={emailCount} />
+          <TaskSourceEmailsSection data={sourceEmails} taskId={task?.id ?? null} projectId={task?.project_id ?? null} heading={false} expected={emailCount}
+            isNew={(email) => isNewSince(email.linked_at, email.linked_by)} />
         </Section>
       )}
 
       <TaskFiles
         task={task}
+        isNew={(file) => isNewSince(file.created_at, file.added_by)}
         section={({ count, action, children }) => (
           <Section variant={variant} title="Files" icon={Paperclip} count={count} action={action}>{children}</Section>
         )}
@@ -911,11 +917,13 @@ export function TaskDetailPanel({ task, onClose, onDelete, variant = 'panel' }: 
           <p className="text-sm text-zinc-500 mb-3">No comments yet.</p>
         ) : (
           <ul className="space-y-4 mb-4">
-            {task.comments.map((comment) => {
+            {task.comments.map((comment, index) => {
               const author = getTeamMember(comment.user_id);
               const isOwn = comment.user_id === teamMemberId;
               return (
-                <li key={comment.id} className="flex gap-3 group">
+                <Fragment key={comment.id}>
+                {index === firstNewComment && <NewSinceDivider />}
+                <li className="flex gap-3 group">
                   <Avatar name={author?.name || '?'} src={author?.avatar || undefined} size="sm" />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-2">
@@ -989,6 +997,7 @@ export function TaskDetailPanel({ task, onClose, onDelete, variant = 'panel' }: 
                     )}
                   </div>
                 </li>
+                </Fragment>
               );
             })}
           </ul>

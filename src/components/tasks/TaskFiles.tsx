@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { NewSinceDivider } from './TaskUnread';
 import { setReadData, useRead, warmRead } from '@/lib/query-cache';
 import { taskFileCandidatesRead, taskFilesRead } from '@/lib/reads';
 import { createPortal } from 'react-dom';
@@ -34,8 +35,10 @@ type Picker = 'email' | 'project';
  * the section), from the task's emails, or from the project's files. The
  * caller's `section` draws the heading, so it matches the panel or the page.
  */
-export function TaskFiles({ task, section }: {
+export function TaskFiles({ task, section, isNew }: {
   task: Task;
+  /** Added since the person last looked: a divider goes above the first. */
+  isNew?: (file: TaskFileView) => boolean;
   section: (parts: { count?: ReactNode; action?: ReactNode; children: ReactNode }) => ReactNode;
 }) {
   const { teamMemberId, access } = useAuth();
@@ -168,6 +171,7 @@ export function TaskFiles({ task, section }: {
 
   const toggleMenu = () => setMenuOpen((open) => !open);
   const empty = files !== null && files.length === 0 && uploading.length === 0;
+  const firstNewFile = files && isNew ? files.findIndex(isNew) : -1;
   const menu = canAdd && (
       <Popover
         anchorRef={menuRef}
@@ -252,9 +256,10 @@ export function TaskFiles({ task, section }: {
         )
       ) : (
         <ul className="space-y-1.5">
-          {files.map((file) => (
+          {files.map((file, index) => (
+            <Fragment key={file.id}>
+            {index === firstNewFile && <NewSinceDivider />}
             <FileRow
-              key={file.id}
               taskId={task.id}
               projectId={task.project_id}
               file={file}
@@ -262,6 +267,7 @@ export function TaskFiles({ task, section }: {
               onDownload={() => download(file)}
               onRemove={(file.added_by === teamMemberId ? canAdd || canManage : canManage) ? () => void remove(file) : undefined}
             />
+            </Fragment>
           ))}
           {uploading.map((row) => (
             <li key={row.key} className="flex items-center gap-2.5 rounded-lg border border-white/[0.07] bg-white/[0.02] px-3 py-2">

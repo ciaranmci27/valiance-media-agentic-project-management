@@ -464,6 +464,8 @@ export const demoInbox = {
         received_at: m.received_at,
         relation: link.relation,
         by: link.by,
+        linked_at: m.received_at,
+        linked_by: null,
       }))));
     return { link_count: emails.length, emails };
   },
