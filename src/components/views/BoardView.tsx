@@ -268,7 +268,7 @@ export function BoardView({ tasks, onViewTask, onDeleteTask, onStatusChange, onR
           <section
             key={column.id}
             aria-label={`${column.title}, ${columnTasks.length} ${columnTasks.length === 1 ? 'task' : 'tasks'}`}
-            className="glass-card w-full lg:flex-1 lg:min-w-[260px] flex flex-col bg-white/[0.06] rounded-xl p-2 lg:p-3"
+            className="glass-card w-full lg:flex-1 lg:min-w-[260px] flex flex-col bg-white/[0.06] rounded-xl p-2 pb-0 lg:p-3 lg:pb-0"
             onDragOver={(e) => handleColumnDragOver(e, column.id)}
             onDragLeave={handleDragLeave}
             onDrop={(e) => handleDrop(e, column.id)}
@@ -282,7 +282,8 @@ export function BoardView({ tasks, onViewTask, onDeleteTask, onStatusChange, onR
               </span>
             </div>
 
-            {/* Scrollable card area. The padding leaves room for the drop
+            {/* Scrollable card area. It runs to the column's bottom edge so
+                cards flow out of view; its padding leaves room for the drop
                 line above the first card and below the last. */}
             <div
               ref={(el) => { scrollAreasRef.current[column.id] = el; }}
