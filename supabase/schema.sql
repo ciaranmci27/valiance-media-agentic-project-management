@@ -7813,13 +7813,21 @@ BEGIN
     END IF;
   END IF;
 
-  -- inferred: chosen among the message's mapping candidates; guessed: the
-  -- message had none, so nothing in it matched a project.
+  -- person: someone answered the agent's question on this thread, so the
+  -- project is the one that answer named; inferred: chosen among the
+  -- message's mapping candidates; guessed: the message had none, so nothing
+  -- in it matched a project.
   IF p_project_id IS NOT NULL THEN
     UPDATE public.email_threads
     SET project_id = p_project_id,
-        project_source = CASE WHEN EXISTS (SELECT 1 FROM public.email_message_candidates c WHERE c.message_id = p_message_id)
-          THEN 'inferred' ELSE 'guessed' END
+        project_source = CASE
+          WHEN EXISTS (
+            SELECT 1 FROM public.email_question_answers a
+            JOIN public.email_messages m ON m.id = a.message_id
+            WHERE m.thread_id = v_message.thread_id
+          ) THEN 'person'
+          WHEN EXISTS (SELECT 1 FROM public.email_message_candidates c WHERE c.message_id = p_message_id) THEN 'inferred'
+          ELSE 'guessed' END
     WHERE id = v_message.thread_id AND project_id IS NULL;
     IF NOT FOUND AND NOT EXISTS (
       SELECT 1 FROM public.email_threads WHERE id = v_message.thread_id AND project_id = p_project_id

@@ -64,8 +64,9 @@ async function priorTriage(supabase: SupabaseClient, message: AccessibleMessage,
  * status: needs_human when the outcome is needs_human, or the sender is
  * untrusted and it is not a notification left alone, otherwise handled. project_id is taken only while the thread
  * has no project, and only from the mapping candidates when there are any;
- * it sets the thread's project as inferred (chosen among the candidates) or
- * guessed (the email had none). It never creates a contact or
+ * it sets the thread's project as person (someone answered a question on the
+ * thread, so the project is the one the answer named), inferred (chosen among
+ * the candidates) or guessed (the email had none). It never creates a contact or
  * domain mapping. links must name tasks in that project. A project chosen
  * now must be active (not completed,
  * archived or archived_at). With an idempotency_key already used on this
