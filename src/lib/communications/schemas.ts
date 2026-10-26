@@ -90,6 +90,8 @@ export const inboxSettingsSchema = z.object({
   agent_readable_types: z.array(z.enum(['image', 'pdf', 'text'])).max(3),
   summary_interval_minutes: z.number().int().min(5).max(1440),
   filter_auto_mail: z.boolean(),
+  /** Addresses that reach the inbox without being its own; left out, they stay as they are. */
+  aliases: z.array(z.string().trim().toLowerCase().max(320)).max(20).optional(),
   access_member_ids: z.array(z.string().uuid()).max(100),
 }).strict();
 export type InboxSettingsRequest = z.infer<typeof inboxSettingsSchema>;

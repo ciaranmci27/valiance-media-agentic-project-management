@@ -20,6 +20,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
     "trust": "trusted",
     "auto_mail_reason": null,
     "sorting": {
@@ -56,6 +60,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
     "trust": "trusted",
     "auto_mail_reason": null,
     "sorting": {
@@ -92,6 +100,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": false,
     "trust": "untrusted",
     "auto_mail_reason": null,
     "sorting": {
@@ -144,6 +156,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "broadcast",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
     "trust": "trusted",
     "auto_mail_reason": "bounce: mailer-daemon sender",
     "sorting": {
@@ -177,6 +193,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "cc",
+    "audience_size": 2,
+    "sender_member_id": null,
+    "sender_verified": true,
     "trust": "trusted",
     "auto_mail_reason": null,
     "sorting": {
@@ -236,6 +256,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
     "trust": "trusted",
     "auto_mail_reason": null,
     "sorting": {
@@ -292,6 +316,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
     "trust": "trusted",
     "auto_mail_reason": null,
     "sorting": {
@@ -339,6 +367,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
     "trust": "trusted",
     "auto_mail_reason": null,
     "sorting": {
@@ -387,6 +419,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
     "trust": "trusted",
     "auto_mail_reason": null,
     "sorting": {
@@ -423,6 +459,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
     "trust": "trusted",
     "auto_mail_reason": null,
     "sorting": {
@@ -459,6 +499,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
     "trust": "trusted",
     "auto_mail_reason": null,
     "sorting": {
@@ -518,6 +562,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "cc",
+    "audience_size": 2,
+    "sender_member_id": null,
+    "sender_verified": true,
     "trust": "trusted",
     "auto_mail_reason": null,
     "sorting": {
@@ -569,6 +617,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
     "trust": "trusted",
     "auto_mail_reason": null,
     "sorting": {
@@ -608,6 +660,10 @@
      "address": "vera@verastudio.example",
      "name": "Vera Lane"
     },
+    "delivery": "forwarded",
+    "audience_size": 1,
+    "sender_member_id": "<ids.owner>",
+    "sender_verified": true,
     "trust": "trusted",
     "auto_mail_reason": null,
     "sorting": {
@@ -655,6 +711,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
     "trust": "trusted",
     "auto_mail_reason": null,
     "sorting": {
@@ -708,6 +768,10 @@
      "address": "vera@verastudio.example",
      "name": "Vera Lane"
     },
+    "delivery": "forwarded",
+    "audience_size": 1,
+    "sender_member_id": "<ids.owner>",
+    "sender_verified": true,
     "trust": "trusted",
     "auto_mail_reason": null,
     "sorting": {
@@ -769,6 +833,10 @@
      "address": "vera@verastudio.example",
      "name": "Vera Lane"
     },
+    "delivery": "forwarded",
+    "audience_size": 1,
+    "sender_member_id": "<ids.owner>",
+    "sender_verified": true,
     "trust": "trusted",
     "auto_mail_reason": null,
     "sorting": {
@@ -819,6 +887,10 @@
      "name": "Sam"
     },
     "original_sender": null,
+    "delivery": "cc",
+    "audience_size": 2,
+    "sender_member_id": "<ids.owner>",
+    "sender_verified": true,
     "trust": "trusted",
     "auto_mail_reason": null,
     "sorting": {
@@ -872,6 +944,10 @@
      "address": "vera@verastudio.example",
      "name": "Vera Lane"
     },
+    "delivery": "forwarded",
+    "audience_size": 1,
+    "sender_member_id": "<ids.owner>",
+    "sender_verified": true,
     "trust": "trusted",
     "auto_mail_reason": null,
     "sorting": {
@@ -930,6 +1006,10 @@
      "address": "vera@verastudio.example",
      "name": "Vera Lane"
     },
+    "delivery": "forwarded",
+    "audience_size": 1,
+    "sender_member_id": "<ids.owner>",
+    "sender_verified": true,
     "trust": "trusted",
     "auto_mail_reason": null,
     "sorting": {
@@ -983,6 +1063,10 @@
      "address": "vera@verastudio.example",
      "name": "Vera Lane"
     },
+    "delivery": "forwarded",
+    "audience_size": 1,
+    "sender_member_id": "<ids.owner>",
+    "sender_verified": true,
     "trust": "trusted",
     "auto_mail_reason": null,
     "sorting": {
@@ -1030,6 +1114,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
     "trust": "trusted",
     "auto_mail_reason": null,
     "sorting": {
@@ -1069,6 +1157,10 @@
      "address": "stranger@nowhere.example",
      "name": "Stranger"
     },
+    "delivery": "forwarded",
+    "audience_size": 1,
+    "sender_member_id": "<ids.owner>",
+    "sender_verified": true,
     "trust": "trusted",
     "auto_mail_reason": null,
     "sorting": {
@@ -1114,6 +1206,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": false,
     "trust": "untrusted",
     "auto_mail_reason": null,
     "sorting": {
@@ -1147,6 +1243,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
     "trust": "trusted",
     "auto_mail_reason": null,
     "sorting": {
@@ -1188,6 +1288,10 @@
      "name": "Sam"
     },
     "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": "<ids.owner>",
+    "sender_verified": true,
     "trust": "trusted",
     "auto_mail_reason": null,
     "sorting": {
@@ -1238,6 +1342,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": false,
     "trust": "unknown",
     "auto_mail_reason": null,
     "sorting": {
@@ -1283,6 +1391,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "broadcast",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
     "trust": "trusted",
     "auto_mail_reason": "precedence: bulk",
     "sorting": {
@@ -1336,6 +1448,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "broadcast",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
     "trust": "trusted",
     "auto_mail_reason": "precedence: bulk",
     "sorting": {
@@ -1389,6 +1505,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
     "trust": "trusted",
     "auto_mail_reason": null,
     "sorting": {
@@ -1425,6 +1545,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "broadcast",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
     "trust": "trusted",
     "auto_mail_reason": "auto-submitted: auto-replied",
     "sorting": {
@@ -1461,6 +1585,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "cc",
+    "audience_size": 2,
+    "sender_member_id": null,
+    "sender_verified": true,
     "trust": "trusted",
     "auto_mail_reason": null,
     "sorting": {
@@ -1517,6 +1645,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
     "trust": "trusted",
     "auto_mail_reason": null,
     "sorting": {
@@ -1564,6 +1696,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
     "trust": "trusted",
     "auto_mail_reason": null,
     "sorting": {
@@ -1611,6 +1747,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "bcc",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
     "trust": "trusted",
     "auto_mail_reason": null,
     "sorting": {
@@ -1664,6 +1804,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
     "trust": "trusted",
     "auto_mail_reason": null,
     "sorting": {
@@ -1681,10 +1825,26 @@
     },
     "projects": [
      {
+      "id": "<ids.acme>",
+      "name": "Acme Roofing",
+      "source": "inferred",
+      "address": null
+     },
+     {
       "id": "<ids.birch>",
       "name": "Birch Partners",
       "source": "person",
       "address": null
+     },
+     {
+      "id": "<project:P4TF Rebrand>",
+      "name": "P4TF Rebrand",
+      "source": "address",
+      "address": {
+       "id": "<endpoint:p4tf@relay.example.test>",
+       "routing_address": "p4tf@relay.example.test",
+       "public_address": "p4tf@agency.example"
+      }
      }
     ],
     "candidate_project_ids": [
@@ -1717,6 +1877,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "broadcast",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
     "trust": "trusted",
     "auto_mail_reason": "precedence: bulk",
     "sorting": {
@@ -1770,6 +1934,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
     "trust": "trusted",
     "auto_mail_reason": null,
     "sorting": {
@@ -1824,6 +1992,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
     "trust": "trusted",
     "auto_mail_reason": null,
     "sorting": {
@@ -1869,6 +2041,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "bcc",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
     "trust": "trusted",
     "auto_mail_reason": null,
     "sorting": {
@@ -1922,6 +2098,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "bcc",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
     "trust": "trusted",
     "auto_mail_reason": null,
     "sorting": {
@@ -1975,6 +2155,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
     "trust": "trusted",
     "auto_mail_reason": null,
     "sorting": {
@@ -2011,6 +2195,10 @@
      "name": "Sam"
     },
     "original_sender": null,
+    "delivery": "cc",
+    "audience_size": 3,
+    "sender_member_id": "<ids.owner>",
+    "sender_verified": true,
     "trust": "trusted",
     "auto_mail_reason": null,
     "sorting": {
@@ -2067,6 +2255,10 @@
      "name": "Sam"
     },
     "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 3,
+    "sender_member_id": "<ids.owner>",
+    "sender_verified": true,
     "trust": "trusted",
     "auto_mail_reason": null,
     "sorting": {
@@ -2117,6 +2309,10 @@
      "name": "Sam"
     },
     "original_sender": null,
+    "delivery": "cc",
+    "audience_size": 2,
+    "sender_member_id": "<ids.owner>",
+    "sender_verified": true,
     "trust": "trusted",
     "auto_mail_reason": null,
     "sorting": {
@@ -2167,6 +2363,10 @@
      "name": "Sam"
     },
     "original_sender": null,
+    "delivery": "cc",
+    "audience_size": 2,
+    "sender_member_id": "<ids.owner>",
+    "sender_verified": true,
     "trust": "trusted",
     "auto_mail_reason": null,
     "sorting": {
@@ -2214,6 +2414,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 2,
+    "sender_member_id": null,
+    "sender_verified": true,
     "trust": "trusted",
     "auto_mail_reason": null,
     "sorting": {
@@ -2261,6 +2465,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "cc",
+    "audience_size": 2,
+    "sender_member_id": null,
+    "sender_verified": true,
     "trust": "trusted",
     "auto_mail_reason": null,
     "sorting": {
@@ -2312,6 +2520,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "cc",
+    "audience_size": 2,
+    "sender_member_id": null,
+    "sender_verified": true,
     "trust": "trusted",
     "auto_mail_reason": null,
     "sorting": {
@@ -2363,6 +2575,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
     "trust": "trusted",
     "auto_mail_reason": null,
     "sorting": {
@@ -2396,6 +2612,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
     "trust": "trusted",
     "auto_mail_reason": null,
     "sorting": {
@@ -2429,6 +2649,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
     "trust": "untrusted",
     "auto_mail_reason": null,
     "sorting": {
@@ -2467,6 +2691,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
     "trust": "trusted",
     "auto_mail_reason": null,
     "sorting": {
@@ -2518,6 +2746,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
     "auth": {
      "trust": "trusted",
      "trusted": true,
@@ -2686,6 +2918,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -2804,6 +3040,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -2922,6 +3162,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -3040,6 +3284,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -3132,6 +3380,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -3256,6 +3508,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
     "auth": {
      "trust": "trusted",
      "trusted": true,
@@ -3424,6 +3680,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -3542,6 +3802,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -3660,6 +3924,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -3778,6 +4046,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -3870,6 +4142,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -3994,6 +4270,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": false,
     "auth": {
      "trust": "untrusted",
      "trusted": false,
@@ -4111,6 +4391,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": false,
        "auth": {
         "trust": "untrusted",
         "trusted": false,
@@ -4182,6 +4466,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "broadcast",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
     "auth": {
      "trust": "trusted",
      "trusted": true,
@@ -4270,6 +4558,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "broadcast",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -4348,6 +4640,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "cc",
+    "audience_size": 2,
+    "sender_member_id": null,
+    "sender_verified": true,
     "auth": {
      "trust": "trusted",
      "trusted": true,
@@ -4536,6 +4832,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "cc",
+       "audience_size": 2,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -4649,6 +4949,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -4720,6 +5024,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "cc",
+       "audience_size": 2,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -4778,6 +5086,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "cc",
+       "audience_size": 2,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -4843,6 +5155,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -4901,6 +5217,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "cc",
+       "audience_size": 2,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -4959,6 +5279,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "cc",
+       "audience_size": 2,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -5017,6 +5341,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
     "auth": {
      "trust": "trusted",
      "trusted": true,
@@ -5146,6 +5474,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -5204,6 +5536,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
     "auth": {
      "trust": "trusted",
      "trusted": true,
@@ -5307,6 +5643,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -5365,6 +5705,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
     "auth": {
      "trust": "trusted",
      "trusted": true,
@@ -5480,6 +5824,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -5538,6 +5886,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
     "auth": {
      "trust": "trusted",
      "trusted": true,
@@ -5706,6 +6058,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -5824,6 +6180,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -5942,6 +6302,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -6060,6 +6424,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -6152,6 +6520,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -6276,6 +6648,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
     "auth": {
      "trust": "trusted",
      "trusted": true,
@@ -6418,6 +6794,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -6536,6 +6916,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -6654,6 +7038,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -6772,6 +7160,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -6864,6 +7256,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -6988,6 +7384,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
     "auth": {
      "trust": "trusted",
      "trusted": true,
@@ -7128,6 +7528,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "cc",
+       "audience_size": 2,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -7241,6 +7645,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -7312,6 +7720,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "cc",
+       "audience_size": 2,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -7370,6 +7782,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "cc",
+       "audience_size": 2,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -7435,6 +7851,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -7493,6 +7913,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "cc",
+       "audience_size": 2,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -7551,6 +7975,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "cc",
+       "audience_size": 2,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -7615,6 +8043,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "cc",
+    "audience_size": 2,
+    "sender_member_id": null,
+    "sender_verified": true,
     "auth": {
      "trust": "trusted",
      "trusted": true,
@@ -7726,6 +8158,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "cc",
+       "audience_size": 2,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -7839,6 +8275,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -7910,6 +8350,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "cc",
+       "audience_size": 2,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -7968,6 +8412,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "cc",
+       "audience_size": 2,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -8033,6 +8481,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -8091,6 +8543,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "cc",
+       "audience_size": 2,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -8149,6 +8605,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "cc",
+       "audience_size": 2,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -8207,6 +8667,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
     "auth": {
      "trust": "trusted",
      "trusted": true,
@@ -8281,6 +8745,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -8345,6 +8813,10 @@
      "address": "vera@verastudio.example",
      "name": "Vera Lane"
     },
+    "delivery": "forwarded",
+    "audience_size": 1,
+    "sender_member_id": "<ids.owner>",
+    "sender_verified": true,
     "auth": {
      "trust": "trusted",
      "trusted": true,
@@ -8455,6 +8927,10 @@
         "address": "vera@verastudio.example",
         "name": "Vera Lane"
        },
+       "delivery": "forwarded",
+       "audience_size": 1,
+       "sender_member_id": "<ids.owner>",
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -8513,6 +8989,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
     "auth": {
      "trust": "trusted",
      "trusted": true,
@@ -8616,6 +9096,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -8680,6 +9164,10 @@
      "address": "vera@verastudio.example",
      "name": "Vera Lane"
     },
+    "delivery": "forwarded",
+    "audience_size": 1,
+    "sender_member_id": "<ids.owner>",
+    "sender_verified": true,
     "auth": {
      "trust": "trusted",
      "trusted": true,
@@ -8804,6 +9292,10 @@
         "address": "vera@verastudio.example",
         "name": "Vera Lane"
        },
+       "delivery": "forwarded",
+       "audience_size": 1,
+       "sender_member_id": "<ids.owner>",
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -8868,6 +9360,10 @@
      "address": "vera@verastudio.example",
      "name": "Vera Lane"
     },
+    "delivery": "forwarded",
+    "audience_size": 1,
+    "sender_member_id": "<ids.owner>",
+    "sender_verified": true,
     "auth": {
      "trust": "trusted",
      "trusted": true,
@@ -8992,6 +9488,10 @@
         "address": "vera@verastudio.example",
         "name": "Vera Lane"
        },
+       "delivery": "forwarded",
+       "audience_size": 1,
+       "sender_member_id": "<ids.owner>",
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -9073,6 +9573,10 @@
      "name": "Sam"
     },
     "original_sender": null,
+    "delivery": "cc",
+    "audience_size": 2,
+    "sender_member_id": "<ids.owner>",
+    "sender_verified": true,
     "auth": {
      "trust": "trusted",
      "trusted": true,
@@ -9186,6 +9690,10 @@
         "name": "Sam"
        },
        "original_sender": null,
+       "delivery": "cc",
+       "audience_size": 2,
+       "sender_member_id": "<ids.owner>",
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -9250,6 +9758,10 @@
      "address": "vera@verastudio.example",
      "name": "Vera Lane"
     },
+    "delivery": "forwarded",
+    "audience_size": 1,
+    "sender_member_id": "<ids.owner>",
+    "sender_verified": true,
     "auth": {
      "trust": "trusted",
      "trusted": true,
@@ -9373,6 +9885,10 @@
         "address": "vera@verastudio.example",
         "name": "Vera Lane"
        },
+       "delivery": "forwarded",
+       "audience_size": 1,
+       "sender_member_id": "<ids.owner>",
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -9450,6 +9966,10 @@
      "address": "vera@verastudio.example",
      "name": "Vera Lane"
     },
+    "delivery": "forwarded",
+    "audience_size": 1,
+    "sender_member_id": "<ids.owner>",
+    "sender_verified": true,
     "auth": {
      "trust": "trusted",
      "trusted": true,
@@ -9560,6 +10080,10 @@
         "address": "vera@verastudio.example",
         "name": "Vera Lane"
        },
+       "delivery": "forwarded",
+       "audience_size": 1,
+       "sender_member_id": "<ids.owner>",
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -9624,6 +10148,10 @@
      "address": "vera@verastudio.example",
      "name": "Vera Lane"
     },
+    "delivery": "forwarded",
+    "audience_size": 1,
+    "sender_member_id": "<ids.owner>",
+    "sender_verified": true,
     "auth": {
      "trust": "trusted",
      "trusted": true,
@@ -9734,6 +10262,10 @@
         "address": "vera@verastudio.example",
         "name": "Vera Lane"
        },
+       "delivery": "forwarded",
+       "audience_size": 1,
+       "sender_member_id": "<ids.owner>",
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -9792,6 +10324,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
     "auth": {
      "trust": "trusted",
      "trusted": true,
@@ -9866,6 +10402,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -9930,6 +10470,10 @@
      "address": "stranger@nowhere.example",
      "name": "Stranger"
     },
+    "delivery": "forwarded",
+    "audience_size": 1,
+    "sender_member_id": "<ids.owner>",
+    "sender_verified": true,
     "auth": {
      "trust": "trusted",
      "trusted": true,
@@ -10031,6 +10575,10 @@
         "address": "stranger@nowhere.example",
         "name": "Stranger"
        },
+       "delivery": "forwarded",
+       "audience_size": 1,
+       "sender_member_id": "<ids.owner>",
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -10089,6 +10637,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": false,
     "auth": {
      "trust": "untrusted",
      "trusted": false,
@@ -10163,6 +10715,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": false,
        "auth": {
         "trust": "untrusted",
         "trusted": false,
@@ -10221,6 +10777,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
     "auth": {
      "trust": "trusted",
      "trusted": true,
@@ -10308,6 +10868,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -10382,6 +10946,10 @@
      "name": "Sam"
     },
     "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": "<ids.owner>",
+    "sender_verified": true,
     "auth": {
      "trust": "trusted",
      "trusted": true,
@@ -10503,6 +11071,10 @@
         "name": "Sam"
        },
        "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": "<ids.owner>",
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -10583,6 +11155,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": false,
     "auth": {
      "trust": "unknown",
      "trusted": false,
@@ -10685,6 +11261,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": false,
        "auth": {
         "trust": "unknown",
         "trusted": false,
@@ -10756,6 +11336,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "broadcast",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
     "auth": {
      "trust": "trusted",
      "trusted": true,
@@ -10858,6 +11442,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "broadcast",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -10910,6 +11498,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "broadcast",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -10962,6 +11554,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "broadcast",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -11020,6 +11616,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "broadcast",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
     "auth": {
      "trust": "trusted",
      "trusted": true,
@@ -11122,6 +11722,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "broadcast",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -11174,6 +11778,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "broadcast",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -11226,6 +11834,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "broadcast",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -11284,6 +11896,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
     "auth": {
      "trust": "trusted",
      "trusted": true,
@@ -11452,6 +12068,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -11570,6 +12190,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -11688,6 +12312,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -11806,6 +12434,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -11898,6 +12530,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -12022,6 +12658,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "broadcast",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
     "auth": {
      "trust": "trusted",
      "trusted": true,
@@ -12124,6 +12764,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "broadcast",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -12188,6 +12832,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "cc",
+    "audience_size": 2,
+    "sender_member_id": null,
+    "sender_verified": true,
     "auth": {
      "trust": "trusted",
      "trusted": true,
@@ -12312,6 +12960,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "cc",
+       "audience_size": 2,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -12425,6 +13077,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -12496,6 +13152,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "cc",
+       "audience_size": 2,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -12554,6 +13214,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "cc",
+       "audience_size": 2,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -12619,6 +13283,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -12677,6 +13345,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "cc",
+       "audience_size": 2,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -12735,6 +13407,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "cc",
+       "audience_size": 2,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -12793,6 +13469,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
     "auth": {
      "trust": "trusted",
      "trusted": true,
@@ -12924,6 +13604,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -13003,6 +13687,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -13088,6 +13776,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
     "auth": {
      "trust": "trusted",
      "trusted": true,
@@ -13219,6 +13911,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -13298,6 +13994,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -13383,6 +14083,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "bcc",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
     "auth": {
      "trust": "trusted",
      "trusted": true,
@@ -13486,6 +14190,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "bcc",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -13544,6 +14252,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
     "auth": {
      "trust": "trusted",
      "trusted": true,
@@ -13601,10 +14313,26 @@
     },
     "projects": [
      {
+      "id": "<ids.acme>",
+      "name": "Acme Roofing",
+      "source": "inferred",
+      "address": null
+     },
+     {
       "id": "<ids.birch>",
       "name": "Birch Partners",
       "source": "person",
       "address": null
+     },
+     {
+      "id": "<project:P4TF Rebrand>",
+      "name": "P4TF Rebrand",
+      "source": "address",
+      "address": {
+       "id": "<endpoint:p4tf@relay.example.test>",
+       "routing_address": "p4tf@relay.example.test",
+       "public_address": "p4tf@agency.example"
+      }
      }
     ],
     "project_scope": {
@@ -13685,6 +14413,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -13758,6 +14490,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "broadcast",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
     "auth": {
      "trust": "trusted",
      "trusted": true,
@@ -13861,6 +14597,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "broadcast",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -13913,6 +14653,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "broadcast",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -13965,6 +14709,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "broadcast",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -14023,6 +14771,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
     "auth": {
      "trust": "trusted",
      "trusted": true,
@@ -14156,6 +14908,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "cc",
+       "audience_size": 2,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -14269,6 +15025,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -14340,6 +15100,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "cc",
+       "audience_size": 2,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -14398,6 +15162,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "cc",
+       "audience_size": 2,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -14463,6 +15231,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -14521,6 +15293,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "cc",
+       "audience_size": 2,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -14579,6 +15355,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "cc",
+       "audience_size": 2,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -14637,6 +15417,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
     "auth": {
      "trust": "trusted",
      "trusted": true,
@@ -14731,6 +15515,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -14789,6 +15577,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "bcc",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
     "auth": {
      "trust": "trusted",
      "trusted": true,
@@ -14897,6 +15689,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "bcc",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -14955,6 +15751,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "bcc",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
     "auth": {
      "trust": "trusted",
      "trusted": true,
@@ -15063,6 +15863,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "bcc",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -15121,6 +15925,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
     "auth": {
      "trust": "trusted",
      "trusted": true,
@@ -15195,6 +16003,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -15267,6 +16079,10 @@
      "name": "Sam"
     },
     "original_sender": null,
+    "delivery": "cc",
+    "audience_size": 3,
+    "sender_member_id": "<ids.owner>",
+    "sender_verified": true,
     "auth": {
      "trust": "trusted",
      "trusted": true,
@@ -15412,6 +16228,10 @@
         "name": "Sam"
        },
        "original_sender": null,
+       "delivery": "cc",
+       "audience_size": 3,
+       "sender_member_id": "<ids.owner>",
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -15499,6 +16319,10 @@
      "name": "Sam"
     },
     "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 3,
+    "sender_member_id": "<ids.owner>",
+    "sender_verified": true,
     "auth": {
      "trust": "trusted",
      "trusted": true,
@@ -15617,6 +16441,10 @@
         "name": "Sam"
        },
        "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 3,
+       "sender_member_id": "<ids.owner>",
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -15684,6 +16512,10 @@
      "name": "Sam"
     },
     "original_sender": null,
+    "delivery": "cc",
+    "audience_size": 2,
+    "sender_member_id": "<ids.owner>",
+    "sender_verified": true,
     "auth": {
      "trust": "trusted",
      "trusted": true,
@@ -15797,6 +16629,10 @@
         "name": "Sam"
        },
        "original_sender": null,
+       "delivery": "cc",
+       "audience_size": 2,
+       "sender_member_id": "<ids.owner>",
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -15855,6 +16691,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 2,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -15922,6 +16762,10 @@
      "name": "Sam"
     },
     "original_sender": null,
+    "delivery": "cc",
+    "audience_size": 2,
+    "sender_member_id": "<ids.owner>",
+    "sender_verified": true,
     "auth": {
      "trust": "trusted",
      "trusted": true,
@@ -16035,6 +16879,10 @@
         "name": "Sam"
        },
        "original_sender": null,
+       "delivery": "cc",
+       "audience_size": 2,
+       "sender_member_id": "<ids.owner>",
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -16099,6 +16947,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 2,
+    "sender_member_id": null,
+    "sender_verified": true,
     "auth": {
      "trust": "trusted",
      "trusted": true,
@@ -16211,6 +17063,10 @@
         "name": "Sam"
        },
        "original_sender": null,
+       "delivery": "cc",
+       "audience_size": 2,
+       "sender_member_id": "<ids.owner>",
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -16269,6 +17125,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 2,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -16333,6 +17193,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "cc",
+    "audience_size": 2,
+    "sender_member_id": null,
+    "sender_verified": true,
     "auth": {
      "trust": "trusted",
      "trusted": true,
@@ -16444,6 +17308,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "cc",
+       "audience_size": 2,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -16557,6 +17425,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -16628,6 +17500,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "cc",
+       "audience_size": 2,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -16686,6 +17562,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "cc",
+       "audience_size": 2,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -16751,6 +17631,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -16809,6 +17693,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "cc",
+       "audience_size": 2,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -16867,6 +17755,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "cc",
+       "audience_size": 2,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -16931,6 +17823,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "cc",
+    "audience_size": 2,
+    "sender_member_id": null,
+    "sender_verified": true,
     "auth": {
      "trust": "trusted",
      "trusted": true,
@@ -17042,6 +17938,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "cc",
+       "audience_size": 2,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -17155,6 +18055,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -17226,6 +18130,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "cc",
+       "audience_size": 2,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -17284,6 +18192,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "cc",
+       "audience_size": 2,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -17349,6 +18261,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -17407,6 +18323,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "cc",
+       "audience_size": 2,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -17465,6 +18385,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "cc",
+       "audience_size": 2,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -17523,6 +18447,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
     "auth": {
      "trust": "trusted",
      "trusted": true,
@@ -17597,6 +18525,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -17655,6 +18587,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
     "auth": {
      "trust": "trusted",
      "trusted": true,
@@ -17729,6 +18665,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -17787,6 +18727,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
     "auth": {
      "trust": "untrusted",
      "trusted": false,
@@ -17874,6 +18818,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "untrusted",
         "trusted": false,
@@ -17945,6 +18893,10 @@
     "routing_basis": "sender",
     "forwarded_by": null,
     "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
     "auth": {
      "trust": "trusted",
      "trusted": true,
@@ -18019,6 +18971,10 @@
        "routing_basis": "sender",
        "forwarded_by": null,
        "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
        "auth": {
         "trust": "trusted",
         "trusted": true,
@@ -18292,9 +19248,19 @@
     "summary": "Kickoff notes",
     "projects": [
      {
+      "id": "<ids.acme>",
+      "name": "Acme Roofing",
+      "source": "inferred"
+     },
+     {
       "id": "<ids.birch>",
       "name": "Birch Partners",
       "source": "person"
+     },
+     {
+      "id": "<project:P4TF Rebrand>",
+      "name": "P4TF Rebrand",
+      "source": "address"
      }
     ],
     "reminders": [],
@@ -19179,9 +20145,19 @@
     },
     "projects": [
      {
+      "id": "<ids.acme>",
+      "name": "Acme Roofing",
+      "source": "inferred"
+     },
+     {
       "id": "<ids.birch>",
       "name": "Birch Partners",
       "source": "person"
+     },
+     {
+      "id": "<project:P4TF Rebrand>",
+      "name": "P4TF Rebrand",
+      "source": "address"
      }
     ],
     "last_message_at": "<time>",
@@ -23098,10 +24074,22 @@
    },
    "projects": [
     {
+     "id": "<ids.acme>",
+     "name": "Acme Roofing",
+     "source": "inferred",
+     "address": null
+    },
+    {
      "id": "<ids.birch>",
      "name": "Birch Partners",
      "source": "person",
      "address": null
+    },
+    {
+     "id": "<project:P4TF Rebrand>",
+     "name": "P4TF Rebrand",
+     "source": "address",
+     "address": "p4tf@agency.example"
     }
    ],
    "state": "handled",

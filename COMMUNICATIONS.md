@@ -114,8 +114,8 @@ A message may touch:
   teammate wrote or forwarded it).
 - **meeting_notes**: any open project, when it is sorted `meeting_notes`
   and `sender_verified`.
-- **answered**: any open project, but only for messages received before a
-  person answered on that conversation. Later replies don't inherit it.
+- **answered**: any open project, but only for the email a person answered
+  the agent's question on. Other emails in the conversation don't inherit it.
 
 "Open" is `project_accepts_messages`: not trashed, not archived, status
 `active`.
@@ -129,7 +129,15 @@ project_out_of_scope` and the message's `project_scope`.
 
 A person (Inbox) adds a project with `add_conversation_project` (recorded as
 `person`) and removes one with `remove_conversation_project`. Removal is
-refused while a linked task sits in that project.
+refused while a linked task sits in that project. Nothing replaces a
+conversation's projects wholesale: `set_conversation_project` only adds.
+
+Writes that file a project lock the conversation row first, so two links on
+one conversation run in turn.
+
+Migrations are applied in order and each is safe to re-run on its own, but
+never re-run `20261026091944_communications_schema.sql` after the migrations
+that follow it: it would put back its own versions of functions they replaced.
 
 ## How an email arrives
 

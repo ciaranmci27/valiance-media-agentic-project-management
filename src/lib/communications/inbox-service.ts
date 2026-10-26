@@ -774,18 +774,18 @@ export async function attachmentDownloadUrl(ctx: InboxContext, attachmentId: str
 }
 
 /**
- * Set the thread's project (replace: it becomes the only one) or add one
- * beside the others (add; adding a guessed one confirms it), as the person's
- * (source "person"), and optionally remember the sender (the person becomes
- * a contact on each chosen project) or the sender's domain (a client domain
- * on each chosen project). Rule 7: only people create mappings, and only for
- * a sender of this thread. Everything is checked before anything is written.
+ * Add a project to the thread beside the others (adding a guessed one
+ * confirms it), as the person's (source "person"), and optionally remember
+ * the sender (the person becomes a contact on each chosen project) or the
+ * sender's domain (a client domain on each chosen project). Taking a project
+ * off is removeThreadProject, with its checks. Rule 7: only people create
+ * mappings, and only for a sender of this thread. Everything is checked
+ * before anything is written.
  */
 export async function setThreadProject(
   ctx: InboxContext,
   threadId: string,
   request: SetThreadProjectRequest,
-  mode: 'replace' | 'add' = 'replace',
 ): Promise<SetThreadProjectResult> {
   assertCanTriage(ctx.access);
   const thread = await loadReadableThread(ctx, threadId);
@@ -881,9 +881,7 @@ export async function setThreadProject(
     rememberedDomain = { domain, added_project_ids: added };
   }
 
-  const { error } = mode === 'add'
-    ? await comms(ctx.service).rpc('add_conversation_project', { p_conversation_id: thread.id, p_project_id: projectId, p_member_id: ctx.memberId })
-    : await comms(ctx.service).rpc('set_conversation_project', { p_conversation_id: thread.id, p_project_id: projectId, p_member_id: ctx.memberId });
+  const { error } = await comms(ctx.service).rpc('add_conversation_project', { p_conversation_id: thread.id, p_project_id: projectId, p_member_id: ctx.memberId });
   if (error) throw error;
   const project: ThreadProject = { id: projectId, name: projects.find((p) => p.id === projectId)?.name ?? 'Project', source: 'person' };
   return { project, remembered_sender: rememberedSender, remembered_domain: rememberedDomain };

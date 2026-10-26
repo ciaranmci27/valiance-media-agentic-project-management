@@ -21,7 +21,7 @@ import type {
 
 type Row = Record<string, unknown>;
 
-const INBOX_COLUMNS = 'id, name, address, routing_local_part, routing_domain, routing_address, handler_member_id, enabled, retention_days, max_attachment_mb, agent_readable_types, summary_interval_minutes, filter_auto_mail, verification_code, verified_at, last_received_at, last_error, last_error_at, created_at';
+const INBOX_COLUMNS = 'id, name, address, routing_local_part, routing_domain, routing_address, handler_member_id, enabled, retention_days, max_attachment_mb, agent_readable_types, summary_interval_minutes, filter_auto_mail, aliases, verification_code, verified_at, last_received_at, last_error, last_error_at, created_at';
 
 function requireManage(ctx: InboxContext) {
   if (!accessAllows(ctx.access, 'inbound_email.manage')) throw new InboxError(403, 'Forbidden');
@@ -66,6 +66,7 @@ function present(row: Row, access: string[], messages: number, projectAddresses:
     agent_readable_types: ((row.agent_readable_types as string[] | null) ?? []) as AgentReadableType[],
     summary_interval_minutes: Number(row.summary_interval_minutes),
     filter_auto_mail: Boolean(row.filter_auto_mail),
+    aliases: (row.aliases as string[] | null) ?? [],
     verification_code: row.verification_code as string,
     verified_at: (row.verified_at as string | null) ?? null,
     last_received_at: (row.last_received_at as string | null) ?? null,
@@ -109,7 +110,16 @@ async function validate(ctx: InboxContext, input: InboxSettingsRequest) {
     const found = await many<{ id: string }>(ctx.service.from('team_members').select('id').in('id', memberIds));
     if (found.length !== memberIds.length) throw new InboxError(422, 'Every person with access must be a team member');
   }
-  return { address, memberIds };
+  let aliases: string[] | undefined;
+  if (input.aliases) {
+    aliases = [];
+    for (const value of input.aliases) {
+      const alias = normalizeAddress(value);
+      if (!alias) throw new InboxError(422, `"${value}" is not an email address.`);
+      if (alias !== address && !aliases.includes(alias)) aliases.push(alias);
+    }
+  }
+  return { address, memberIds, aliases };
 }
 
 async function setAccess(ctx: InboxContext, inboxId: string, memberIds: string[]) {
@@ -155,7 +165,7 @@ async function inboxById(ctx: InboxContext, id: string): Promise<InboxSettings> 
 
 export async function createInbox(ctx: InboxContext, input: InboxSettingsRequest): Promise<InboxSettings> {
   requireManage(ctx);
-  const { address, memberIds } = await validate(ctx, input);
+  const { address, memberIds, aliases } = await validate(ctx, input);
   const { data, error } = await comms(ctx.service).from('inboxes').insert({
     name: input.name,
     address,
@@ -169,6 +179,7 @@ export async function createInbox(ctx: InboxContext, input: InboxSettingsRequest
     agent_readable_types: input.agent_readable_types,
     summary_interval_minutes: input.summary_interval_minutes,
     filter_auto_mail: input.filter_auto_mail,
+    ...(aliases ? { aliases } : {}),
     created_by: ctx.memberId,
   }).select('id').single();
   if (error) friendly(error);
@@ -181,7 +192,7 @@ export async function updateInbox(ctx: InboxContext, inboxId: string, input: Inb
   requireManage(ctx);
   const id = assertId(inboxId, 'inbox id');
   await inboxById(ctx, id);
-  const { address, memberIds } = await validate(ctx, input);
+  const { address, memberIds, aliases } = await validate(ctx, input);
   const { error } = await comms(ctx.service).from('inboxes').update({
     name: input.name,
     address,
@@ -194,6 +205,7 @@ export async function updateInbox(ctx: InboxContext, inboxId: string, input: Inb
     agent_readable_types: input.agent_readable_types,
     summary_interval_minutes: input.summary_interval_minutes,
     filter_auto_mail: input.filter_auto_mail,
+    ...(aliases ? { aliases } : {}),
   }).eq('id', id);
   if (error) friendly(error);
   await setAccess(ctx, id, memberIds);

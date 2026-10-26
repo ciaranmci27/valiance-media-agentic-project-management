@@ -22,6 +22,8 @@ export const SHARED_FILES_MIGRATION = '../supabase/migrations/20261024185705_ema
 export const ANSWERED_PERSON_MIGRATION = '../supabase/migrations/20261026043050_email_answered_project_is_person.sql';
 export const COMMUNICATIONS_MIGRATION = '../supabase/migrations/20261026091944_communications_schema.sql';
 export const CONVERSATION_SCOPE_MIGRATION = '../supabase/migrations/20261026093748_conversation_projects_scope.sql';
+export const SCOPE_HARDENING_MIGRATION = '../supabase/migrations/20261026191615_communications_scope_hardening.sql';
+export const DELIVERY_MIGRATION = '../supabase/migrations/20261026192302_message_delivery.sql';
 const TASK_SAVE_MIGRATION = '../supabase/migrations/20260923235152_atomic_task_save.sql';
 
 async function read(path: string) {
@@ -124,7 +126,7 @@ export async function createEmailDatabase(
     await db.exec(spec);
     await db.exec(spec); // safe to re-run
     if (!stopBeforeNeedsHuman) {
-      for (const path of [NEEDS_HUMAN_MIGRATION, NEEDS_HUMAN_CLEANUP_MIGRATION, PROJECT_SOURCE_PERSON_MIGRATION, SORTING_MIGRATION, ANSWERS_MIGRATION, SHARED_FILES_MIGRATION, ANSWERED_PERSON_MIGRATION, COMMUNICATIONS_MIGRATION, CONVERSATION_SCOPE_MIGRATION]) {
+      for (const path of [NEEDS_HUMAN_MIGRATION, NEEDS_HUMAN_CLEANUP_MIGRATION, PROJECT_SOURCE_PERSON_MIGRATION, SORTING_MIGRATION, ANSWERS_MIGRATION, SHARED_FILES_MIGRATION, ANSWERED_PERSON_MIGRATION, COMMUNICATIONS_MIGRATION, CONVERSATION_SCOPE_MIGRATION, SCOPE_HARDENING_MIGRATION, DELIVERY_MIGRATION]) {
         const sql = await read(path);
         await db.exec(sql);
         await db.exec(sql); // safe to re-run

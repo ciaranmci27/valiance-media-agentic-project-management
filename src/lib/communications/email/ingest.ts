@@ -480,7 +480,7 @@ async function finalize(
       .select('id, subject_normalized, in_reply_to, reference_ids, received_at, auto_mail_reason')
       .eq('id', messageId)
       .single(),
-    comms(supabase).from('inboxes').select('address, routing_address'),
+    comms(supabase).from('inboxes').select('address, routing_address, aliases'),
     comms(supabase).from('endpoints').select('routing_address, public_address'),
     supabase.from('team_members').select('id, email, role, status'),
     comms(supabase).from('sender_rules').select('id, match_kind, match_value, topic, action').is('disabled_at', null),
@@ -491,11 +491,12 @@ async function finalize(
   if (memberRows.error) throw memberRows.error;
   if (ruleRows.error) throw ruleRows.error;
 
-  // Ours, never clients: every inbox's addresses and every project address.
+  // Ours, never clients: every inbox's addresses and aliases, and every project address.
   const inboxAddresses = new Set([
     inbox.address,
     inbox.routing_address,
-    ...((inboxRows.data ?? []) as { address: string; routing_address: string }[]).flatMap((row) => [row.address, row.routing_address]),
+    ...((inboxRows.data ?? []) as { address: string; routing_address: string; aliases: string[] | null }[])
+      .flatMap((row) => [row.address, row.routing_address, ...(row.aliases ?? [])]),
     ...((projectAddressRows.data ?? []) as { routing_address: string; public_address: string | null }[])
       .flatMap((row) => [row.routing_address, row.public_address ?? '']),
   ].filter(Boolean).map((address) => address.toLowerCase()));
@@ -639,6 +640,12 @@ async function finalize(
     rules: (ruleRows.data ?? []) as SenderRule[],
   });
   const status = sorted.action === 'ignore' ? 'ignored' : 'new';
+  // How it reached us, recorded before the message is filed so its first
+  // reader already sees it.
+  const { error: deliveryError } = await comms(supabase).rpc('set_message_delivery', {
+    p_message_id: messageId, p_forwarded: basis === 'forwarded_original',
+  });
+  if (deliveryError) throw deliveryError;
   const { data: completed, error: completeError } = await comms(supabase).rpc('email_complete_message', {
     p_message_id: messageId,
     p_decision: {

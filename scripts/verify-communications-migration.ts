@@ -167,9 +167,9 @@ async function main() {
     await before.exec(`SET ROLE service_role; SELECT set_config('request.jwt.claim.role', 'service_role', false);`);
     await before.query('SELECT communications.set_conversation_project($1, $2, $3)', [ids.thread, ids.other, ids.owner]);
     const [copy] = await rows(before, 'SELECT project_id, project_source, project_address_id FROM communications.conversations WHERE id = $1', [ids.thread]);
-    check('set_conversation_project: a person\'s project replaces the old one, and the copy follows',
+    check('set_conversation_project: a person\'s project is added beside the old one, and the copy follows the stronger',
       copy.project_id === ids.other && copy.project_source === 'person' && copy.project_address_id === null
-      && (await rows(before, 'SELECT 1 FROM communications.conversation_projects WHERE conversation_id = $1', [ids.thread])).length === 1, copy);
+      && (await rows(before, 'SELECT 1 FROM communications.conversation_projects WHERE conversation_id = $1', [ids.thread])).length === 2, copy);
     check('set_conversation_project: only if none leaves a filed conversation alone',
       (await rows(before, 'SELECT communications.set_conversation_project($1, $2, $3, true) AS done', [ids.thread, ids.project, ids.owner]))[0].done === false
       && (await rows(before, 'SELECT communications.set_conversation_project($1, $2, $3, true) AS done', [ids.thread2, ids.project, ids.owner]))[0].done === true);

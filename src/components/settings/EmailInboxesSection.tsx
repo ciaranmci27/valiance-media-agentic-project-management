@@ -17,6 +17,7 @@ import { MultiSelect } from '@/components/ui/inputs/MultiSelect';
 import { Checkbox } from '@/components/ui/inputs/Checkbox';
 import { Toggle } from '@/components/ui/inputs/Toggle';
 import { NumberInput } from '@/components/ui/inputs/NumberInput';
+import { TagsInput } from '@/components/ui/inputs/TagsInput';
 import { toast } from '@/components/ui/Toast';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { CopyValueButton, EmailConnectChecklist, relativeTime } from '@/components/settings/EmailConnectChecklist';
@@ -104,6 +105,7 @@ function toInput(inbox: InboxSettings): InboxSettingsInput {
     agent_readable_types: inbox.agent_readable_types,
     summary_interval_minutes: inbox.summary_interval_minutes,
     filter_auto_mail: inbox.filter_auto_mail,
+    aliases: inbox.aliases,
     access_member_ids: inbox.access_member_ids,
   };
 }
@@ -123,6 +125,8 @@ interface FormState {
   summary_interval_minutes: number | '';
   agent_readable_types: AgentReadableType[];
   filter_auto_mail: boolean;
+  /** Comma-separated, as TagsInput keeps it. */
+  aliases: string;
   access_member_ids: string[];
 }
 
@@ -142,6 +146,7 @@ const EMPTY_FORM: FormState = {
   summary_interval_minutes: 30,
   agent_readable_types: [...AGENT_READABLE_TYPES],
   filter_auto_mail: true,
+  aliases: '',
   access_member_ids: [],
 };
 
@@ -158,6 +163,7 @@ function formFromInbox(inbox: InboxSettings): FormState {
     summary_interval_minutes: inbox.summary_interval_minutes,
     agent_readable_types: [...inbox.agent_readable_types],
     filter_auto_mail: inbox.filter_auto_mail,
+    aliases: inbox.aliases.join(', '),
     access_member_ids: [...inbox.access_member_ids],
   };
 }
@@ -211,6 +217,7 @@ function toRequest(form: FormState): InboxSettingsInput {
     ),
     summary_interval_minutes: Number(form.summary_interval_minutes),
     filter_auto_mail: form.filter_auto_mail,
+    aliases: unique(form.aliases.split(',').map((alias) => alias.trim().toLowerCase()).filter(Boolean)),
     // The handler can always read its inbox.
     access_member_ids: unique([...form.access_member_ids, ...(handler ? [handler] : [])]),
   };
@@ -993,6 +1000,15 @@ function InboxForm({
           </p>
         )}
       </div>
+
+      <TagsInput
+        type="email"
+        label="Other addresses that reach it"
+        value={form.aliases}
+        onChange={(value) => onChange('aliases', value)}
+        placeholder="you@yourcompany.com"
+        description="Addresses that forward here, such as a personal one. Mail to them counts as written to you, not copied."
+      />
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Select

@@ -329,6 +329,8 @@ export interface InboxSettings {
   agent_readable_types: AgentReadableType[];
   summary_interval_minutes: number;
   filter_auto_mail: boolean;
+  /** Addresses that reach the inbox without being its own (a personal address forwarding here). */
+  aliases: string[];
   verification_code: string;
   verified_at: string | null;
   last_received_at: string | null;
@@ -358,6 +360,7 @@ export interface InboxSettingsInput {
   agent_readable_types: AgentReadableType[];
   summary_interval_minutes: number;
   filter_auto_mail: boolean;
+  aliases?: string[];
   access_member_ids: string[];
 }
 

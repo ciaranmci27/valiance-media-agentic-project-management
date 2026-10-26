@@ -2,7 +2,7 @@
  * A message's project scope, in the database (schema.sql on PGlite):
  * - each basis: the conversation's projects (a guess only for a teammate),
  *   the project addresses it came through, its sender's mappings, a verified
- *   teammate, verified meeting notes, a person's answer after it arrived;
+ *   teammate, verified meeting notes, a person's answer on that very email;
  * - a stranger touches nothing; a finished project only when already filed;
  * - record_triage files every named project and every linked task's, or
  *   nothing at all when one is out of scope; sources only ever get stronger;
@@ -116,8 +116,9 @@ async function main() {
     check('meeting notes: verified notes may touch any project (guessed); unverified ones nothing',
       await scope(db, notes.message, ids.delta) === 'guessed' && await scope(db, fakeNotes.message, ids.delta) === null);
 
-    // A person's answer opens the messages it answered, not later ones.
-    const asked = await message(db, { receivedAt: '2026-10-26T09:00:00Z' });
+    // A person's answer opens the message it answers, and no other.
+    const earlier = await message(db, { receivedAt: '2026-10-26T08:00:00Z' });
+    const asked = await message(db, { conversation: earlier.conversation, receivedAt: '2026-10-26T09:00:00Z' });
     const [askedTriage] = await rows(db, `INSERT INTO communications.triage (message_id, member_id, outcome, summary, question_for_human)
       VALUES ($1, $2, 'needs_human', 'Which project?', 'Acme or Delta?') RETURNING id`, [asked.message, ids.ashley]);
     await db.query(`INSERT INTO communications.answers (message_id, triage_id, answer, answered_by, created_at)
@@ -125,6 +126,9 @@ async function main() {
     const later = await message(db, { conversation: asked.conversation, receivedAt: '2026-10-26T11:00:00Z' });
     check('answered: the answered message may touch any project, as person; a later reply may not',
       await scope(db, asked.message, ids.delta) === 'person' && await scope(db, later.message, ids.delta) === null);
+    const earlierView = (await one(db, 'SELECT communications.message_scope($1) AS s', [earlier.message])).s as Row;
+    check('answered: an earlier email on the conversation is not opened by the answer',
+      await scope(db, earlier.message, ids.delta) === null && earlierView.any_project === false, earlierView);
 
     // ---- record_triage ------------------------------------------------------
     const [filed] = await rows(db, ...triage(teammate.message, [ids.task.acme, ids.task.delta]));
@@ -175,12 +179,47 @@ async function main() {
     check('link: the agent\'s link out of scope is refused',
       /EMAIL_PROJECT_OUT_OF_SCOPE/.test(await fails(db, 'SELECT communications.link_message_task($1, $2, $3, $4)', [fakeNotes.message, ids.task.delta, 'created', ids.ashley])));
     check('file: out of scope is refused', /EMAIL_PROJECT_OUT_OF_SCOPE/.test(await fails(db, 'SELECT communications.file_message_project($1, $2, $3)', [oneMapped.message, ids.acme, ids.ashley])));
+    await db.query('SELECT communications.set_conversation_project($1, $2, $3)', [teammate.conversation, ids.birch, ids.owner]);
+    const afterSet = await projectsOf(db, teammate.conversation);
+    check('set: a person setting a project adds it and takes none off',
+      afterSet[ids.birch] === 'person' && afterSet[ids.acme] === 'person' && afterSet[ids.delta] === 'guessed', afterSet);
 
     // The single-project triage still files one project.
     const legacy = await message(db, { candidates: [ids.birch] });
     await db.query(`SELECT communications.record_triage(p_message_id => $1, p_member_id => $2, p_triage => $3, p_links => '[]'::jsonb,
       p_project_id => $4, p_status => 'handled')`, [legacy.message, ids.ashley, JSON.stringify({ outcome: 'no_action', summary: 'Seen' }), ids.birch]);
     check('legacy: the single-project triage still files its project', (await projectsOf(db, legacy.conversation))[ids.birch] === 'inferred');
+
+    // ---- Delivery: how a message reached us ------------------------------------
+    await db.exec("RESET ROLE; UPDATE communications.inboxes SET aliases = '{me@personal.example}'");
+    await actAs(db, null);
+    const delivered = async (to: string[], cc: string[] = [], fields: { forwarded?: boolean; autoMail?: boolean } = {}) => {
+      const sent = await message(db);
+      if (fields.autoMail) await db.query("UPDATE communications.messages SET auto_mail_reason = 'list' WHERE id = $1", [sent.message]);
+      let position = 0;
+      for (const [kind, list] of [['to', to], ['cc', cc]] as const) {
+        for (const address of list) {
+          await db.query('INSERT INTO communications.participants (message_id, kind, address, position) VALUES ($1, $2, $3, $4)', [sent.message, kind, address, position++]);
+        }
+      }
+      return one(db, 'SELECT * FROM communications.delivery_of($1, $2)', [sent.message, fields.forwarded ?? false]);
+    };
+    const client = (n: number) => `client${n}@acme.example`;
+    check('delivery: to the inbox with one other is direct', JSON.stringify(await delivered(['ashley@agency.example', client(1)]))
+      === JSON.stringify({ delivery: 'direct', audience_size: 2 }));
+    check('delivery: to a project address or an alias is direct',
+      (await delivered(['hi@acme.example'])).delivery === 'direct' && (await delivered(['me@personal.example'])).delivery === 'direct');
+    check('delivery: to a teammate is direct', (await delivered(['tom@agency.example'])).delivery === 'direct');
+    check('delivery: to us among three others is a group', (await delivered(['ashley@agency.example', client(1), client(2)], [client(3)])).delivery === 'group');
+    check('delivery: only in copy is cc', (await delivered([client(1)], ['ashley@agency.example'])).delivery === 'cc');
+    check('delivery: none of ours among the recipients is bcc', (await delivered([client(1)])).delivery === 'bcc');
+    check('delivery: a teammate\'s forward is forwarded', (await delivered(['ashley@agency.example'], [], { forwarded: true })).delivery === 'forwarded');
+    check('delivery: automated mail is broadcast', (await delivered(['ashley@agency.example'], [], { autoMail: true })).delivery === 'broadcast');
+    const recorded = await message(db);
+    await db.query("INSERT INTO communications.participants (message_id, kind, address) VALUES ($1, 'cc', 'ashley@agency.example')", [recorded.message]);
+    await db.query('SELECT communications.set_message_delivery($1)', [recorded.message]);
+    const [stored] = await rows(db, 'SELECT delivery, audience_size FROM communications.messages WHERE id = $1', [recorded.message]);
+    check('delivery: set_message_delivery stores it on the message', stored.delivery === 'cc' && stored.audience_size === 1, stored);
 
     // ---- The agent's view -----------------------------------------------------
     const view = (await one(db, 'SELECT communications.message_scope($1) AS s', [twoMapped.message])).s as Row & { projects: Row[] };
@@ -195,7 +234,7 @@ async function main() {
     await db.exec(`RESET ROLE; INSERT INTO auth.users (id, email) VALUES ('${id(90)}', 'rae@agency.example')`);
     await actAs(db, id(90));
     await db.exec('BEGIN');
-    for (const call of ['communications.scope_source($1, $1)', 'communications.message_scope($1)', 'communications.file_message_project($1, $1, $1)']) {
+    for (const call of ['communications.scope_source($1, $1)', 'communications.message_scope($1)', 'communications.file_message_project($1, $1, $1)', 'communications.delivery_of($1, false)', 'communications.set_message_delivery($1)']) {
       check(`grants: a signed-in person cannot run ${call.split('(')[0]}`, /permission denied/.test(await fails(db, `SELECT ${call}`, [ids.acme])));
     }
     await db.exec('ROLLBACK');

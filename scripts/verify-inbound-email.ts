@@ -823,7 +823,7 @@ async function main() {
     const [backRow] = await rows(db, 'SELECT status, reviewed_at FROM communications.messages WHERE id=$1', [htmlOnly.id]);
     check('inbox ui: send back makes the newest message New for the agent, unreviewed; twice is 409', sentBack.message_id === htmlOnly.id && backRow.status === 'new' && backRow.reviewed_at === null
       && (await failsWith(() => inbox.sendBackToAgent(owner, htmlOnly.thread_id, null))) === 409, backRow);
-    const ignoredId = (await rows(db, "SELECT id, thread_id FROM communications.messages WHERE status='ignored' LIMIT 1"))[0];
+    const [ignoredId] = (await messageBy('newsletter-6@acme-supplies.example')).filter((m) => m.status === 'ignored');
     await inbox.sendBackToAgent(owner, ignoredId.thread_id, ignoredId.id);
     check('inbox ui: an ignored message can be sent to the agent', (await rows(db, 'SELECT status FROM communications.messages WHERE id=$1', [ignoredId.id]))[0].status === 'new');
 
@@ -1642,7 +1642,7 @@ async function main() {
       const removedProject = await inbox.removeThreadProject(owner, reply.thread_id, cedar);
       check('projects: once unlinked, a person takes the project off the thread',
         removedProject.removed === true && !(await inbox.threadDetail(owner, reply.thread_id)).projects.some((p) => p.id === cedar));
-      const addedProject = await inbox.setThreadProject(owner, reply.thread_id, { project_id: cedar }, 'add');
+      const addedProject = await inbox.setThreadProject(owner, reply.thread_id, { project_id: cedar });
       const afterAdd = (await inbox.threadDetail(owner, reply.thread_id)).projects;
       check('projects: a person adds a project beside the others; the strongest is still first',
         addedProject.project.id === cedar && afterAdd.length >= 2 && afterAdd[0].source === 'person' && afterAdd.some((p) => p.id === cedar && p.source === 'person'), afterAdd);

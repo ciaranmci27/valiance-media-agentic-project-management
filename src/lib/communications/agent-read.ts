@@ -14,7 +14,7 @@ import { comms } from '@/lib/communications/db';
 
 type Row = Record<string, unknown>;
 
-const ROUTING_COLUMNS = 'routing_basis, forwarded_by_member_id, original_from_address, original_from_name';
+const ROUTING_COLUMNS = 'routing_basis, forwarded_by_member_id, original_from_address, original_from_name, delivery, audience_size, sender_member_id, sender_verified';
 const LIST_COLUMNS = `id, inbox_id, thread_id, channel, status, subject, received_at, sent_at, is_forward, auto_mail_reason, auth, kind, topic, sort_action, sort_reason, superseded_by, ${ROUTING_COLUMNS}`;
 const CURRENT_TEXT_CAP = 200_000;
 const THREAD_TEXT_CAP = 50_000;
@@ -63,6 +63,10 @@ async function forwarderNames(supabase: SupabaseClient, messages: Row[]): Promis
  * original sender decided) or team_recipients (a verified teammate wrote it
  * and copied the inbox; the client addresses in To and Cc decided).
  * forwarded_by: that teammate. original_sender: who wrote the forwarded email.
+ * delivery: how it reached us (direct, group, cc, bcc, forwarded, broadcast;
+ * null for mail older than the field), audience_size its main and copy
+ * recipients. sender_member_id: the verified teammate behind it;
+ * sender_verified: the channel vouches for the sender.
  */
 function routing(message: Row, forwarders: Map<string, string>) {
   const basis = (message.routing_basis as string | null) ?? 'sender';
@@ -73,6 +77,10 @@ function routing(message: Row, forwarders: Map<string, string>) {
     original_sender: basis === 'forwarded_original' && message.original_from_address
       ? { address: message.original_from_address as string, name: (message.original_from_name as string | null) ?? '' }
       : null,
+    delivery: (message.delivery as string | null) ?? null,
+    audience_size: (message.audience_size as number | null) ?? null,
+    sender_member_id: (message.sender_member_id as string | null) ?? null,
+    sender_verified: message.sender_verified === true,
   };
 }
 

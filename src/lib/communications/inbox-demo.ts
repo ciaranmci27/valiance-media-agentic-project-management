@@ -592,14 +592,14 @@ let settings: InboxSettings[] = [
   {
     id: INBOX_SCOUT.id, name: 'Scout', address: INBOX_SCOUT.address, routing_local_part: 'scout', routing_domain: relay,
     routing_address: `scout@${relay}`, handler_member_id: SCOUT.id, enabled: true, retention_days: 90, max_attachment_mb: 25,
-    agent_readable_types: ['image', 'pdf', 'text'], summary_interval_minutes: 30, filter_auto_mail: true, verification_code: 'VM-7K2Q',
+    agent_readable_types: ['image', 'pdf', 'text'], summary_interval_minutes: 30, filter_auto_mail: true, aliases: [], verification_code: 'VM-7K2Q',
     verified_at: hoursAgo(240), last_received_at: hoursAgo(0.6), last_error: null, last_error_at: null,
     access_member_ids: [SCOUT.id, SARAH.id], message_count: 9, project_address_count: 0, created_at: hoursAgo(300),
   },
   {
     id: INBOX_BILLING.id, name: 'Billing', address: INBOX_BILLING.address, routing_local_part: 'billing', routing_domain: relay,
     routing_address: `billing@${relay}`, handler_member_id: ATLAS.id, enabled: true, retention_days: 180, max_attachment_mb: 10,
-    agent_readable_types: ['pdf'], summary_interval_minutes: 60, filter_auto_mail: true, verification_code: 'VM-3XPA',
+    agent_readable_types: ['pdf'], summary_interval_minutes: 60, filter_auto_mail: true, aliases: [], verification_code: 'VM-3XPA',
     verified_at: null, last_received_at: hoursAgo(9), last_error: 'Attachment invoice-scan.tiff was over the 10 MB limit and was not stored',
     last_error_at: hoursAgo(9), access_member_ids: [ATLAS.id], message_count: 1, project_address_count: 0, created_at: hoursAgo(20),
   },

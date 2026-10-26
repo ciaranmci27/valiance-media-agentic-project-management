@@ -10,5 +10,5 @@ export const dynamic = 'force-dynamic';
  */
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  return inboxRoute(async (ctx) => setThreadProject(ctx, id, await readBody(request, setThreadProjectSchema), 'add'), 201);
+  return inboxRoute(async (ctx) => setThreadProject(ctx, id, await readBody(request, setThreadProjectSchema)), 201);
 }

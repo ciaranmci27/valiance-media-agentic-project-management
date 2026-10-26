@@ -6794,6 +6794,9 @@ CREATE TABLE communications.inboxes (
   created_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
+  -- Addresses that reach the inbox without being its own (a personal address
+  -- forwarding here): ours, never a client's, when reading who mail went to.
+  aliases text[] NOT NULL DEFAULT '{}' CONSTRAINT inboxes_aliases_check CHECK (cardinality(aliases) <= 20),
   CONSTRAINT email_inboxes_routing_address_key UNIQUE (routing_address),
   CONSTRAINT email_inboxes_verification_code_key UNIQUE (verification_code)
 );
@@ -7169,6 +7172,12 @@ CREATE TABLE communications.messages (
   sender_member_id uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
   -- The channel vouches for the sender (email: auth trust 'trusted').
   sender_verified boolean NOT NULL DEFAULT false,
+  -- How it reached us (communications.delivery_of): direct, group, cc, bcc,
+  -- forwarded or broadcast; null while receiving.
+  delivery text CONSTRAINT messages_delivery_check
+    CHECK (delivery IN ('direct', 'group', 'cc', 'bcc', 'forwarded', 'broadcast')),
+  -- Distinct main and copy recipients.
+  audience_size integer CONSTRAINT messages_audience_size_check CHECK (audience_size >= 0),
   CONSTRAINT email_messages_inbox_message_key UNIQUE (inbox_id, internet_message_id),
   CONSTRAINT email_messages_inbox_provider_key UNIQUE (inbox_id, provider, provider_email_id),
   CONSTRAINT email_messages_thread_when_complete CHECK (status = 'receiving' OR thread_id IS NOT NULL),
@@ -8081,10 +8090,10 @@ BEGIN
 END;
 $$;
 
--- A person files a conversation on a project: it replaces the project the
--- conversation had (a person's word is final). p_only_if_none files it only
--- when the conversation has no project yet (linking a task to an unfiled
--- conversation). Returns whether it filed it.
+-- A person files a conversation on a project, as their choice, beside the
+-- projects it already has (taking one off is remove_conversation_project,
+-- with its checks). p_only_if_none files it only when the conversation has no
+-- project yet. Returns whether it filed it.
 CREATE OR REPLACE FUNCTION communications.set_conversation_project(
   p_conversation_id uuid,
   p_project_id uuid,
@@ -8103,7 +8112,6 @@ BEGIN
   IF p_only_if_none AND EXISTS (SELECT 1 FROM communications.conversation_projects WHERE conversation_id = p_conversation_id) THEN
     RETURN false;
   END IF;
-  DELETE FROM communications.conversation_projects WHERE conversation_id = p_conversation_id AND project_id <> p_project_id;
   INSERT INTO communications.conversation_projects (conversation_id, project_id, source, added_by)
   VALUES (p_conversation_id, p_project_id, 'person', p_member_id)
   ON CONFLICT (conversation_id, project_id) DO UPDATE
@@ -8124,8 +8132,8 @@ GRANT EXECUTE ON FUNCTION communications.set_conversation_project(uuid, uuid, uu
 -- - mapped: its sender's mapping candidates (mapped when there is one, else inferred);
 -- - team: any project taking mail, when a verified teammate wrote or forwarded it (guessed);
 -- - meeting notes: any project taking mail, for verified meeting notes (guessed);
--- - answered: any project taking mail, when a person answered on the
---   conversation after it arrived (person: the answer named it).
+-- - answered: any project taking mail, when a person answered the agent's
+--   question on this very email (person: the answer named it).
 -- Nothing else: an unmapped stranger touches nothing until a person answers.
 
 -- Open for new mail: live, active and not archived. A project already on a
@@ -8192,11 +8200,8 @@ BEGIN
     SELECT count(DISTINCT project_id) INTO v_candidates FROM communications.message_candidates WHERE message_id = p_message_id;
     v_best := communications.stronger_source(v_best, CASE WHEN v_candidates = 1 THEN 'mapped' ELSE 'inferred' END);
   END IF;
-  IF EXISTS (
-    SELECT 1 FROM communications.answers a
-    JOIN communications.messages m ON m.id = a.message_id
-    WHERE m.thread_id = v_message.thread_id AND a.created_at >= v_message.received_at
-  ) THEN
+  -- A person answered the agent's question on this very email.
+  IF EXISTS (SELECT 1 FROM communications.answers a WHERE a.message_id = p_message_id) THEN
     v_best := communications.stronger_source(v_best, 'person');
   END IF;
   IF v_message.sender_member_id IS NOT NULL OR (v_message.kind = 'meeting_notes' AND v_message.sender_verified) THEN
@@ -8228,11 +8233,7 @@ BEGIN
   IF NOT FOUND OR v_message.thread_id IS NULL THEN
     RETURN jsonb_build_object('bases', '[]'::jsonb, 'projects', '[]'::jsonb, 'any_project', false, 'any_source', NULL);
   END IF;
-  v_answered := EXISTS (
-    SELECT 1 FROM communications.answers a
-    JOIN communications.messages m ON m.id = a.message_id
-    WHERE m.thread_id = v_message.thread_id AND a.created_at >= v_message.received_at
-  );
+  v_answered := EXISTS (SELECT 1 FROM communications.answers a WHERE a.message_id = p_message_id);
   v_team := v_message.sender_member_id IS NOT NULL;
   v_notes := v_message.kind = 'meeting_notes' AND v_message.sender_verified;
   IF EXISTS (
@@ -8268,7 +8269,9 @@ $$;
 -- Files a project on the message's conversation as its scope allows (an
 -- existing project keeps the stronger source). Raises
 -- EMAIL_PROJECT_OUT_OF_SCOPE when the message may not touch it. p_as_person:
--- a person did it, so it is in scope and recorded as person.
+-- a person did it, so it is in scope and recorded as person. Locks the
+-- conversation, as record_triage does, so filings on one conversation run in
+-- turn.
 CREATE OR REPLACE FUNCTION communications.file_message_project(
   p_message_id uuid,
   p_project_id uuid,
@@ -8287,6 +8290,7 @@ BEGIN
   IF COALESCE(auth.role(), '') <> 'service_role' THEN RAISE EXCEPTION 'Service role required' USING ERRCODE = '42501'; END IF;
   SELECT thread_id INTO v_thread FROM communications.messages WHERE id = p_message_id AND status <> 'receiving';
   IF v_thread IS NULL THEN RAISE EXCEPTION 'EMAIL_NOT_FOUND: message %', p_message_id USING ERRCODE = 'P0002'; END IF;
+  PERFORM 1 FROM communications.conversations WHERE id = v_thread FOR UPDATE;
   v_source := CASE WHEN p_as_person THEN 'person' ELSE communications.scope_source(p_message_id, p_project_id) END;
   IF v_source IS NULL THEN
     RAISE EXCEPTION 'EMAIL_PROJECT_OUT_OF_SCOPE: this message may not touch project %', p_project_id
@@ -8507,6 +8511,64 @@ BEGIN
   RETURN FOUND;
 END;
 $$;
+
+-- A message's delivery and audience, from its recipients.
+CREATE OR REPLACE FUNCTION communications.delivery_of(p_message_id uuid, p_forwarded boolean)
+RETURNS TABLE (delivery text, audience_size integer)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = communications, public
+AS $$
+  WITH ours AS (
+    SELECT lower(address) AS address FROM communications.inboxes
+    UNION SELECT lower(routing_address) FROM communications.inboxes
+    UNION SELECT lower(btrim(alias)) FROM communications.inboxes, unnest(aliases) AS alias
+    UNION SELECT lower(routing_address) FROM communications.endpoints
+    UNION SELECT lower(public_address) FROM communications.endpoints WHERE public_address IS NOT NULL
+    UNION SELECT lower(btrim(email)) FROM public.team_members WHERE email IS NOT NULL AND btrim(email) <> ''
+  ),
+  recipients AS (
+    SELECT p.kind, p.address, p.address IN (SELECT address FROM ours) AS is_ours
+    FROM communications.participants p
+    WHERE p.message_id = p_message_id AND p.kind IN ('to', 'cc')
+  )
+  SELECT
+    CASE
+      WHEN m.auto_mail_reason IS NOT NULL THEN 'broadcast'
+      WHEN p_forwarded THEN 'forwarded'
+      WHEN EXISTS (SELECT 1 FROM recipients WHERE kind = 'to' AND is_ours) THEN
+        CASE WHEN (SELECT count(DISTINCT address) FROM recipients WHERE NOT is_ours) >= 3 THEN 'group' ELSE 'direct' END
+      WHEN EXISTS (SELECT 1 FROM recipients WHERE kind = 'cc' AND is_ours) THEN 'cc'
+      ELSE 'bcc'
+    END,
+    (SELECT count(DISTINCT address)::integer FROM recipients)
+  FROM communications.messages m
+  WHERE m.id = p_message_id
+$$;
+
+-- Records a message's delivery (ingest, once its recipients are stored).
+CREATE OR REPLACE FUNCTION communications.set_message_delivery(p_message_id uuid, p_forwarded boolean DEFAULT false)
+RETURNS text
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = communications, public
+AS $$
+DECLARE
+  v record;
+BEGIN
+  IF COALESCE(auth.role(), '') <> 'service_role' THEN RAISE EXCEPTION 'Service role required' USING ERRCODE = '42501'; END IF;
+  SELECT * INTO v FROM communications.delivery_of(p_message_id, p_forwarded);
+  IF NOT FOUND THEN RETURN NULL; END IF;
+  UPDATE communications.messages SET delivery = v.delivery, audience_size = v.audience_size WHERE id = p_message_id;
+  RETURN v.delivery;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION communications.delivery_of(uuid, boolean) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION communications.set_message_delivery(uuid, boolean) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION communications.delivery_of(uuid, boolean) TO service_role;
+GRANT EXECUTE ON FUNCTION communications.set_message_delivery(uuid, boolean) TO service_role;
 
 REVOKE ALL ON FUNCTION communications.add_conversation_project(uuid, uuid, uuid) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION communications.remove_conversation_project(uuid, uuid) FROM PUBLIC, anon, authenticated;
@@ -8753,6 +8815,10 @@ CREATE TABLE communications.maintenance_runs (
 ALTER TABLE communications.maintenance_runs ENABLE ROW LEVEL SECURITY;
 CREATE POLICY email_maintenance_runs_select ON communications.maintenance_runs FOR SELECT TO authenticated
   USING (public.has_permission('inbound_email.manage'));
+
+-- Tables added to this schema from here on are read-only for signed-in
+-- members unless their migration grants more.
+ALTER DEFAULT PRIVILEGES IN SCHEMA communications REVOKE INSERT, UPDATE, DELETE ON TABLES FROM authenticated;
 
 -- The next batch of messages due for deletion, oldest first, with every file
 -- path they own: the raw .eml and attachments stored the old way. Shared
