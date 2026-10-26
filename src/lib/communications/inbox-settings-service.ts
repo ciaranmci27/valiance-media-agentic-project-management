@@ -21,7 +21,7 @@ import type {
 
 type Row = Record<string, unknown>;
 
-const INBOX_COLUMNS = 'id, name, address, routing_local_part, routing_domain, routing_address, handler_member_id, enabled, retention_days, max_attachment_mb, agent_readable_types, summary_interval_minutes, filter_auto_mail, aliases, verification_code, verified_at, last_received_at, last_error, last_error_at, created_at';
+const INBOX_COLUMNS = 'id, name, address, routing_local_part, routing_domain, routing_address, handler_member_id, enabled, retention_days, max_attachment_mb, agent_readable_types, summary_interval_minutes, filter_auto_mail, aliases, triage_mode, verification_code, verified_at, last_received_at, last_error, last_error_at, created_at';
 
 function requireManage(ctx: InboxContext) {
   if (!accessAllows(ctx.access, 'inbound_email.manage')) throw new InboxError(403, 'Forbidden');
@@ -67,6 +67,7 @@ function present(row: Row, access: string[], messages: number, projectAddresses:
     summary_interval_minutes: Number(row.summary_interval_minutes),
     filter_auto_mail: Boolean(row.filter_auto_mail),
     aliases: (row.aliases as string[] | null) ?? [],
+    triage_mode: ((row.triage_mode as string | null) ?? 'legacy') as InboxSettings['triage_mode'],
     verification_code: row.verification_code as string,
     verified_at: (row.verified_at as string | null) ?? null,
     last_received_at: (row.last_received_at as string | null) ?? null,
@@ -180,6 +181,7 @@ export async function createInbox(ctx: InboxContext, input: InboxSettingsRequest
     summary_interval_minutes: input.summary_interval_minutes,
     filter_auto_mail: input.filter_auto_mail,
     ...(aliases ? { aliases } : {}),
+    ...(input.triage_mode ? { triage_mode: input.triage_mode } : {}),
     created_by: ctx.memberId,
   }).select('id').single();
   if (error) friendly(error);
@@ -206,6 +208,7 @@ export async function updateInbox(ctx: InboxContext, inboxId: string, input: Inb
     summary_interval_minutes: input.summary_interval_minutes,
     filter_auto_mail: input.filter_auto_mail,
     ...(aliases ? { aliases } : {}),
+    ...(input.triage_mode ? { triage_mode: input.triage_mode } : {}),
   }).eq('id', id);
   if (error) friendly(error);
   await setAccess(ctx, id, memberIds);

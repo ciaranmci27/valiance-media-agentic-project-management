@@ -92,6 +92,8 @@ export const inboxSettingsSchema = z.object({
   filter_auto_mail: z.boolean(),
   /** Addresses that reach the inbox without being its own; left out, they stay as they are. */
   aliases: z.array(z.string().trim().toLowerCase().max(320)).max(20).optional(),
+  /** Which triage runs the inbox: the older one, both (plans in shadow, for comparing), or plans. Left out, it stays. */
+  triage_mode: z.enum(['legacy', 'shadow', 'plans']).optional(),
   access_member_ids: z.array(z.string().uuid()).max(100),
 }).strict();
 export type InboxSettingsRequest = z.infer<typeof inboxSettingsSchema>;

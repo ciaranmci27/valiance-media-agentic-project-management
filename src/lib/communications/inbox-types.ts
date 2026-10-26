@@ -374,6 +374,8 @@ export interface InboxSettings {
   filter_auto_mail: boolean;
   /** Addresses that reach the inbox without being its own (a personal address forwarding here). */
   aliases: string[];
+  /** Which triage runs it: legacy (the older one), shadow (both; plans only recorded), plans. */
+  triage_mode: 'legacy' | 'shadow' | 'plans';
   verification_code: string;
   verified_at: string | null;
   last_received_at: string | null;
@@ -404,6 +406,7 @@ export interface InboxSettingsInput {
   summary_interval_minutes: number;
   filter_auto_mail: boolean;
   aliases?: string[];
+  triage_mode?: 'legacy' | 'shadow' | 'plans';
   access_member_ids: string[];
 }
 

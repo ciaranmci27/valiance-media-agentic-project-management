@@ -106,9 +106,16 @@ function toInput(inbox: InboxSettings): InboxSettingsInput {
     summary_interval_minutes: inbox.summary_interval_minutes,
     filter_auto_mail: inbox.filter_auto_mail,
     aliases: inbox.aliases,
+    triage_mode: inbox.triage_mode,
     access_member_ids: inbox.access_member_ids,
   };
 }
+
+const TRIAGE_MODE_OPTIONS: SelectOption[] = [
+  { value: 'legacy', label: 'Current triage' },
+  { value: 'shadow', label: 'Current, with plans in shadow' },
+  { value: 'plans', label: 'Plans' },
+];
 
 // ─── Form state ───────────────────────────────────────────────────────────────
 
@@ -127,6 +134,7 @@ interface FormState {
   filter_auto_mail: boolean;
   /** Comma-separated, as TagsInput keeps it. */
   aliases: string;
+  triage_mode: 'legacy' | 'shadow' | 'plans';
   access_member_ids: string[];
 }
 
@@ -147,6 +155,7 @@ const EMPTY_FORM: FormState = {
   agent_readable_types: [...AGENT_READABLE_TYPES],
   filter_auto_mail: true,
   aliases: '',
+  triage_mode: 'legacy',
   access_member_ids: [],
 };
 
@@ -164,6 +173,7 @@ function formFromInbox(inbox: InboxSettings): FormState {
     agent_readable_types: [...inbox.agent_readable_types],
     filter_auto_mail: inbox.filter_auto_mail,
     aliases: inbox.aliases.join(', '),
+    triage_mode: inbox.triage_mode,
     access_member_ids: [...inbox.access_member_ids],
   };
 }
@@ -218,6 +228,7 @@ function toRequest(form: FormState): InboxSettingsInput {
     summary_interval_minutes: Number(form.summary_interval_minutes),
     filter_auto_mail: form.filter_auto_mail,
     aliases: unique(form.aliases.split(',').map((alias) => alias.trim().toLowerCase()).filter(Boolean)),
+    triage_mode: form.triage_mode,
     // The handler can always read its inbox.
     access_member_ids: unique([...form.access_member_ids, ...(handler ? [handler] : [])]),
   };
@@ -1088,6 +1099,13 @@ function InboxForm({
           label="Enabled"
           checked={form.enabled}
           onChange={(checked) => onChange('enabled', checked)}
+        />
+        <Select
+          label="Triage"
+          value={form.triage_mode}
+          onChange={(value) => onChange('triage_mode', value as FormState['triage_mode'])}
+          options={TRIAGE_MODE_OPTIONS}
+          description="Plans in shadow runs the new triage beside the current one, applying nothing, so the two can be compared."
         />
         <Toggle
           label="Filter auto-mail"
