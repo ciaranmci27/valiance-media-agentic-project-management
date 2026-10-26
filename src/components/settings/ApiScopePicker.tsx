@@ -4,7 +4,7 @@ import { useId, type ReactNode } from 'react';
 import { Checkbox } from '@/components/ui/inputs/Checkbox';
 
 interface ApiScopePickerProps {
-  /** Scopes a key for this member may carry, in the order the API lists them. */
+  /** Scopes a key for this member may carry; shown in alphabetical order. */
   available: readonly string[];
   selected: readonly string[];
   onChange: (next: string[]) => void;
@@ -30,7 +30,9 @@ export function ApiScopePicker({
 }: ApiScopePickerProps) {
   const hintId = useId();
   const noteId = useId();
-  const unheld = selected.filter((scope) => !available.includes(scope));
+  // Alphabetical, so related scopes (tasks.read, tasks.create, ...) sit together.
+  const listed = [...available].sort();
+  const unheld = selected.filter((scope) => !available.includes(scope)).sort();
   const toggle = (scope: string, checked: boolean) =>
     onChange(checked ? [...selected, scope] : selected.filter((item) => item !== scope));
   const describedBy = [hint ? hintId : null, note ? noteId : null].filter(Boolean).join(' ') || undefined;
@@ -45,7 +47,7 @@ export function ApiScopePicker({
       )}
       {/* relative: the visually hidden checkboxes position inside the list, so focusing one never scrolls an outer frame. */}
       <div className="relative max-h-52 overflow-y-auto rounded-lg border border-white/[0.08] bg-surface-raised divide-y divide-white/[0.06]">
-        {available.map((scope) => (
+        {listed.map((scope) => (
           <Checkbox
             key={scope}
             size="sm"

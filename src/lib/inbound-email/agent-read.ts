@@ -201,6 +201,40 @@ function sortingOf(row: Row) {
  * triage asks one, oldest first. An answered question sends its email back
  * to New, so it leaves this list; so does marking the thread handled.
  */
+/**
+ * The emails linked to one task, oldest link first, from the given inboxes
+ * only: each with its sender, subject and how it is linked. link_count
+ * covers every link, readable or not, so a caller can say some are hidden.
+ */
+export async function taskEmails(supabase: SupabaseClient, inboxIds: string[], taskId: string): Promise<{ link_count: number; emails: Row[] }> {
+  const links = await rows<Row>(supabase.from('email_task_links')
+    .select('message_id, relation, triage_id, created_at').eq('task_id', taskId).order('created_at'));
+  if (links.length === 0 || inboxIds.length === 0) return { link_count: links.length, emails: [] };
+  const messageIds = [...new Set(links.map((link) => link.message_id as string))];
+  const messages = await rows<Row>(supabase.from('email_messages')
+    .select('id, thread_id, subject, received_at').in('id', messageIds).in('inbox_id', inboxIds).neq('status', 'receiving'));
+  const senders = messages.length
+    ? await rows<Row>(supabase.from('email_message_recipients').select('message_id, address, name')
+        .in('message_id', messages.map((message) => message.id as string)).eq('kind', 'from'))
+    : [];
+  const emails = links.flatMap((link) => {
+    const message = messages.find((row) => row.id === link.message_id);
+    if (!message) return [];
+    const sender = senders.find((row) => row.message_id === message.id);
+    return [{
+      id: message.id,
+      thread_id: message.thread_id,
+      subject: message.subject,
+      from: sender ? { address: sender.address, name: sender.name } : null,
+      received_at: message.received_at,
+      relation: link.relation,
+      linked_by: link.triage_id ? 'agent' : 'person',
+      linked_at: link.created_at,
+    }];
+  });
+  return { link_count: links.length, emails };
+}
+
 export async function waitingQuestions(supabase: SupabaseClient, inboxIds: string[], limit = 50): Promise<Row[]> {
   if (inboxIds.length === 0) return [];
   const messages = await rows<Row>(supabase.from('email_messages').select('id, thread_id, subject, received_at')

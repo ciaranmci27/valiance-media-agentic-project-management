@@ -120,6 +120,7 @@ async function main() {
     const markSummarized = await import('../src/app/api/v1/inbound-emails/triage/mark-summarized/route');
     const signal = await import('../src/app/api/v1/inbound-emails/signal/route');
     const taskRoute = await import('../src/app/api/v1/tasks/[id]/route');
+    const taskEmailsRoute = await import('../src/app/api/v1/tasks/[id]/emails/route');
     const approve = await import('../src/app/api/v1/task-suggestions/[id]/approve/route');
 
     const deliver = async (emailId: string, options: { secret?: string; timestamp?: number; type?: string } = {}) => {
@@ -482,6 +483,16 @@ async function main() {
     check('triage: a candidate project sets the thread as inferred; trusted task is handled', firstTriage.status === 201 && replyThread.project_id === ids.acme && replyThread.project_source === 'inferred'
       && (await rows(db, 'SELECT status FROM email_messages WHERE id=$1', [reply.id]))[0].status === 'handled', firstTriage.body);
     check('triage: the link is stored with who linked it', (await rows(db, 'SELECT * FROM email_task_links WHERE task_id=$1', [acmeTask]))[0]?.linked_by === ids.ashley);
+    const taskEmailsOf = (key: string) => api(taskEmailsRoute.GET, 'GET', `/api/v1/tasks/${acmeTask}/emails`, key, { id: acmeTask });
+    const linkedEmails = await taskEmailsOf(keys.ashley);
+    const [linkedEmail] = linkedEmails.body.data?.emails ?? [];
+    check('task emails: the task lists the email it came from, with sender and how it is linked',
+      linkedEmails.status === 200 && linkedEmails.body.data.link_count === 1 && linkedEmail?.id === reply.id && linkedEmail.thread_id === reply.thread_id
+      && linkedEmail.relation === 'created' && linkedEmail.linked_by === 'agent' && !!linkedEmail.from?.address, linkedEmails.body);
+    const unreadableInbox = await taskEmailsOf(keys.jeff);
+    check('task emails: an inbox the key cannot read hides the email but still counts the link',
+      unreadableInbox.status === 200 && unreadableInbox.body.data.emails.length === 0 && unreadableInbox.body.data.link_count === 1, unreadableInbox.body);
+    check('task emails: a key without inbound_email.read is refused', (await taskEmailsOf(keys.ashleyNoEmail)).status === 403);
     const changeProject = await triageOf(reply.id, { outcome: 'task', urgent: false, summary: 'again', project_id: ids.acme2 });
     check('triage: a thread keeps its project (409)', changeProject.status === 409 && changeProject.body.error.details.reason === 'thread_project_set', changeProject.body);
     const untrusted = await triageOf(outlook.id, { outcome: 'task', urgent: false, summary: 'Send corrected invoice' });
