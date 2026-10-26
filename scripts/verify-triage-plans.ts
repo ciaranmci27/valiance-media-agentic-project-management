@@ -115,6 +115,7 @@ async function main() {
   const planRoute = await import('../src/app/api/v1/inbox/messages/[id]/plan/route');
   const contextRoute = await import('../src/app/api/v1/inbox/messages/[id]/context/route');
   const queueRoute = await import('../src/app/api/v1/inbox/queue/route');
+  const plansRoute = await import('../src/app/api/v1/inbox/plans/route');
   const signalRoute = await import('../src/app/api/v1/inbound-emails/signal/route');
   const plans = await import('../src/lib/communications/plans');
   const { resolveMemberAccess } = await import('../src/lib/api/access');
@@ -259,6 +260,12 @@ async function main() {
     check('shadow: decisions recorded, nothing applied, no triage, no status change, no notification',
       shadow.status === 201 && (shadow.body.data?.items as Row[])?.[0]?.decision === 'apply' && (shadow.body.data?.items as Row[])?.[0]?.state === 'skipped'
       && shadowTasks.n === 0 && shadowTriage.n === 0 && shadowStatus.status === 'handled' && shadowNotes.n === 0, [shadow.body, shadowTasks, shadowTriage, shadowStatus, shadowNotes]);
+
+    const compared = await call(plansRoute.GET, 'GET', '/api/v1/inbox/plans?days=7');
+    const pair = ((compared.body.data?.messages ?? []) as Row[]).find((m) => m.message_id === legacy.message) as Row & { shadow: { items: Row[] }; older: { links: Row[] } };
+    check('compare: a shadow plan is listed beside what the older triage did',
+      pair?.shadow.items[0]?.what === 'Shadow only task' && pair.shadow.items[0]?.project === 'Acme'
+      && pair.older.links.some((l) => l.task === 'Swap the hero image' && l.relation === 'updated'), compared.body);
 
     // ---- Undo -----------------------------------------------------------------------
     const agent = { db: service, memberId: ids.owner, access: ownerAccess!, channel: 'app' as const, asPerson: true };

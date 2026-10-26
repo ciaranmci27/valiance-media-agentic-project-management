@@ -1331,6 +1331,12 @@ export const endpoints: EndpointDoc[] = [
   { method: 'POST', path: '/api/v1/inbox/messages/:id/tasks', description: 'Create the task an email asks for, on a project in the email\'s project_scope (checked before the task exists: 422 project_out_of_scope with the scope, nothing created), linked to the email as created and filed on its conversation. The body is POST /api/v1/tasks\'s. Needs tasks.create and inbound_email.triage.', group: 'Inbound Email',
     params: [{ name: 'id', type: 'uuid', required: true, description: 'Email ID' }],
   },
+  { method: 'GET', path: '/api/v1/inbox/plans', description: 'Shadow plans beside what the older triage did with the same messages, newest first, for comparing the two before a cutover: { messages: [{ message_id, subject, received_at, shadow: { plan_id, summary, suspicious, flags, items: [{ type, intent, decision, reason, project, task, what }] }, older: { outcome, summary, question, links: [{ relation, task, project }], reminders: [{ title, remind_on }] } }] }. Read only, from your inboxes.', group: 'Inbound Email',
+    queryParams: [
+      { name: 'days', type: 'integer', description: '1 to 90, default 14' },
+      { name: 'inbox_id', type: 'uuid', description: 'One granted inbox (default: every granted inbox)' },
+    ],
+  },
   { method: 'GET', path: '/api/v1/inbox/queue', description: 'The messages a triage job plans next, oldest first, each { id, inbox_id, conversation_id, subject, received_at }. mode=plans: new mail in inboxes whose triage_mode is plans, once its conversation has been quiet for 3 minutes (urgent account or security notifications at once), never in a muted conversation. mode=shadow: mail in shadow inboxes the older triage already handled, from the last 14 days, with no shadow plan yet.', group: 'Inbound Email',
     queryParams: [
       { name: 'mode', type: 'plans|shadow', description: 'Default plans' },
