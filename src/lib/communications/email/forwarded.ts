@@ -143,6 +143,21 @@ export function inlineForwardedSender(subject: string | null | undefined, text: 
   return null;
 }
 
+/**
+ * The note someone wrote above an inline forward's header block, trimmed
+ * ('' when they wrote none); null when the text is not an inline forward.
+ */
+export function forwardNote(subject: string | null | undefined, text: string | null | undefined): string | null {
+  if (!inlineForwardedSender(subject, text)) return null;
+  const note: string[] = [];
+  for (const line of (text ?? '').replace(/\r\n?/g, '\n').split('\n').map((value) => value.trim())) {
+    if (FORWARD_MARKERS.some((pattern) => pattern.test(line)) || ORIGINAL_MESSAGE.test(line) || RULE.test(line)
+      || FROM_KEYS.has(headerOf(line)?.key ?? '')) break;
+    if (line) note.push(line);
+  }
+  return note.join('\n');
+}
+
 /** A forward attached whole: message/rfc822, or an .eml file. */
 export function isAttachedMessage(contentType: string | null | undefined, filename: string | null | undefined): boolean {
   const type = (contentType ?? '').split(';')[0].trim().toLowerCase();

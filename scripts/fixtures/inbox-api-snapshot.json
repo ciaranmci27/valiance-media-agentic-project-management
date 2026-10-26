@@ -19340,7 +19340,9 @@
    "new_count": 35,
    "newest_received_at": "<time>",
    "unsummarized_count": 6,
-   "drafts_requested": 0
+   "drafts_requested": 0,
+   "plans_new_count": 0,
+   "shadow_pending_count": 0
   }
  },
  "inbox": {

@@ -2,18 +2,15 @@ import { z } from 'zod';
 import { withApi } from '@/lib/api/middleware';
 import { created, paginated } from '@/lib/api/response';
 import { parsePagination } from '@/lib/api/pagination';
-import { ApiError, badRequest } from '@/lib/api/errors';
+import { badRequest } from '@/lib/api/errors';
 import { logAudit } from '@/lib/api/audit';
 import {
+  createReminder,
   createReminderSchema,
   REMINDER_SELECT,
-  resolveReminderOwner,
-  resolveReminderPlace,
   visibleReminderFilter,
 } from '@/lib/api/reminders';
 import { postgrestList, trashedProjectIds } from '@/lib/supabase/trash';
-import { loadAccessibleMessage } from '@/lib/communications/agent-access';
-import { comms } from '@/lib/communications/db';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -85,42 +82,7 @@ export const GET = withApi(async ({ supabase, searchParams, teamMemberId, access
  */
 export const POST = withApi(async ({ supabase, body, teamMemberId, access, apiKeyId }) => {
   if (!teamMemberId) throw badRequest('API key must be linked to a team member to write reminders');
-  const input = body as z.infer<typeof createReminderSchema>;
-  const place = await resolveReminderPlace(supabase, access, input);
-  const ownerId = await resolveReminderOwner(supabase, access, teamMemberId, input.owner_id);
-  // An email the key cannot read is 404, like one that does not exist.
-  const sourceMessage = input.source_message_id ? await loadAccessibleMessage(supabase, teamMemberId, access, input.source_message_id) : null;
-  // A reminder an email sets lands only on a project in that email's scope.
-  if (sourceMessage && place.project_id) {
-    const { data: source, error: scopeError } = await comms(supabase).rpc('scope_source', { p_message_id: sourceMessage.id, p_project_id: place.project_id });
-    if (scopeError) throw scopeError;
-    if (!source) {
-      const { data: scope } = await comms(supabase).rpc('message_scope', { p_message_id: sourceMessage.id });
-      throw new ApiError(422, 'VALIDATION_ERROR', 'This email may not touch that project, so it sets no reminder there.', {
-        reason: 'project_out_of_scope',
-        project_id: place.project_id,
-        project_scope: scope ?? null,
-      });
-    }
-  }
-
-  const { data, error } = await supabase
-    .from('reminders')
-    .insert({
-      title: input.title,
-      notes: input.notes ?? '',
-      remind_on: input.remind_on ?? null,
-      remind_at: input.remind_on ? input.remind_at ?? null : null,
-      owner_id: ownerId,
-      task_id: place.task_id,
-      project_id: place.project_id,
-      created_by: teamMemberId,
-      source: sourceMessage ? 'email' : access.role === 'agent' ? 'agent' : 'manual',
-      ...(sourceMessage ? { source_message_id: sourceMessage.id } : {}),
-    })
-    .select(REMINDER_SELECT)
-    .single();
-  if (error) throw error;
+  const data = await createReminder(supabase, access, teamMemberId, body as z.infer<typeof createReminderSchema>);
 
   logAudit(supabase, { method: 'POST', endpoint: '/api/v1/reminders', entityType: 'reminder', entityId: data.id, apiKeyId, teamMemberId, requestBody: body, afterSnapshot: data, statusCode: 201 });
   return created(data);

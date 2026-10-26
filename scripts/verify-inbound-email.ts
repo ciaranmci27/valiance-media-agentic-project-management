@@ -1907,7 +1907,7 @@ async function main() {
   // The schema.sql snapshot stands on its own.
   const snapshot = await createEmailDatabase('schema');
   check('schema.sql: the inbound email section loads',
-    (await rows(snapshot, "SELECT count(*)::int AS n FROM pg_tables WHERE schemaname = 'communications'"))[0].n === 19
+    (await rows(snapshot, "SELECT count(*)::int AS n FROM pg_tables WHERE schemaname = 'communications'"))[0].n === 22
     && (await rows(snapshot, "SELECT 1 FROM pg_tables WHERE schemaname = 'public' AND tablename = 'contact_emails'")).length === 1);
   check('schema.sql: client sender addresses and the sender reason are in the snapshot',
     (await rows(snapshot, "SELECT 1 FROM pg_policies WHERE schemaname = 'communications' AND tablename = 'client_addresses'")).length === 2

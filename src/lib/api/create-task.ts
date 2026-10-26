@@ -15,15 +15,37 @@ interface CreateTaskContext {
   scopes: string[];
 }
 
+/** Who a task is created as: their client, member, access, and whether they may assign others. */
+export interface TaskActor {
+  supabase: SupabaseClient;
+  memberId: string;
+  access: AccessContext;
+  canAssignOthers: boolean;
+  /** Which of the member's permissions apply: their API ones (a key) or their app ones (a person in the app). */
+  channel?: 'api' | 'app';
+}
+
 /**
  * A task created through the API key: on a project the key may open, assigned
  * to the key's member unless the key may assign others, with its criteria and
  * blockers. endpoint names the route in the audit log.
  */
 export async function createApiTask({ supabase, body, apiKeyId, teamMemberId, access, scopes }: CreateTaskContext, endpoint: string) {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- validated by createTaskSchema at the route
+  const canAssignOthers = scopes.includes('tasks.manage_all') && accessAllows(access, 'tasks.manage_all', 'api');
+  const task = await createTaskAs({ supabase, memberId: teamMemberId, access, canAssignOthers }, body);
+  logAudit(supabase, { method: 'POST', endpoint, entityType: 'task', entityId: task.id, apiKeyId, teamMemberId, requestBody: body, afterSnapshot: task, statusCode: 201 });
+  return task;
+}
+
+/**
+ * A task created as a member with API access: on a project they may open,
+ * assigned to them unless they may assign others, with its criteria and
+ * blockers. The body is createTaskSchema's.
+ */
+export async function createTaskAs({ supabase, memberId: teamMemberId, access, canAssignOthers, channel = 'api' }: TaskActor, body: unknown) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- validated by createTaskSchema by the caller
   const { assignee_ids, acceptance_criteria, blocked_by_ids, source_note, ...taskData } = body as any;
-  if (!taskData.project_id || !accessAllowsProject(access, taskData.project_id, 'api')) {
+  if (!taskData.project_id || !accessAllowsProject(access, taskData.project_id, channel)) {
     throw forbidden('Project scope denied');
   }
   const { data: liveProject } = await supabase
@@ -33,7 +55,6 @@ export async function createApiTask({ supabase, body, apiKeyId, teamMemberId, ac
     .is('deleted_at', null)
     .maybeSingle();
   if (!liveProject) throw notFound('Project');
-  const canAssignOthers = scopes.includes('tasks.manage_all') && accessAllows(access, 'tasks.manage_all', 'api');
   const requestedAssignees = Array.isArray(assignee_ids) ? assignee_ids : [];
   if (!canAssignOthers && requestedAssignees.some((id: string) => id !== teamMemberId)) {
     throw forbidden('This API key can only assign newly created tasks to its own member');
@@ -55,6 +76,5 @@ export async function createApiTask({ supabase, body, apiKeyId, teamMemberId, ac
     criteria,
     blockedByIds
   );
-  logAudit(supabase, { method: 'POST', endpoint, entityType: 'task', entityId: task.id, apiKeyId, teamMemberId, requestBody: body, afterSnapshot: task, statusCode: 201 });
   return task;
 }

@@ -161,6 +161,83 @@ that follow it: it would put back its own versions of functions they replaced.
 
 The agent-facing contract is on the API docs page (`src/app/api/docs/docs-data.ts`).
 
+## Triage plans
+
+Each message gets one **plan** from the triage agent: a summary and items
+(`src/lib/communications/plan-schemas.ts`). The app decides each item with
+one pure policy (`triage-policy.ts`), then applies, stores and undoes them
+(`plans.ts`).
+
+| Decision | Meaning |
+| --- | --- |
+| apply | done now |
+| apply_unsure | done now, shown as unsure, one tap to undo |
+| propose | waits for a person, who is notified (one bell notification per message) |
+| reject | not done, with the reason |
+
+**Item intents.** Every item names why it exists:
+
+| Intent | Meaning |
+| --- | --- |
+| `new_work` | someone asks for a deliverable |
+| `change` | alters tracked work: revision, date, cancellation |
+| `handoff` | what the work waited on arrived |
+| `waiting_on` | someone owes Ciaran something |
+| `commitment` | Ciaran promised or asked for something |
+| `reply_owed` | someone waits on Ciaran, or on the agent |
+| `owner_instruction` | Ciaran telling the agent what to do |
+| `new_business` | leads, referrals, partnerships |
+| `money` | our own books only |
+| `account_risk` | expiries, suspensions, security |
+| `context` | facts, advice, identity changes |
+| `noise` | nothing to do |
+
+**Item types:**
+- tasks: `create_task`, `update_task`, `comment`, `attach_file`
+- reminders: `add_reminder`, `update_reminder`, `complete_reminder`
+- filing and links: `link_task`, `file_project`
+- what Ciaran owes: `reply_owed`, a point on `communications.reply_points`, one per thing owed, amended rather than repeated
+- corrections: `revert_item`, `mute_conversation`
+- facts and leads: `add_context`, `propose_mapping`, `create_lead`, `log_interaction`
+- `ask`: filing only, at most one open per conversation, and only when there is no default
+
+**Who is speaking** is worked out by the app (`speaker.ts`), never by the
+agent: owner, teammate, client, client_colleague, prospect, machine or
+stranger. The app also records whether the agent was addressed.
+
+**The policy, in order:**
+1. Only Ciaran mutes. Only Ciaran or a teammate undoes earlier work. A client's cancel becomes a comment and a reply owed.
+2. Ciaran writing to the agent is an instruction. His copied mail yields only his promises, what he waits on, and context. His forward with no note is context only.
+3. A suspicious plan or an untrusted sender only proposes. An unknown sender proposes money and account matters.
+4. A blind copy only files. Bulk mail only feeds money, account risk and context.
+5. Strangers and prospects reach no client work.
+6. A completed or archived project takes no new task. A project outside the message's scope is proposed, never refused.
+7. Facts, mappings and leads propose. A field a person set is proposed; one the agent set changes as unsure. Assignment, readiness and status wait for a person, except a teammate putting their own task in review.
+8. Low confidence, or work aimed at someone other than Ciaran or the agency, applies as unsure.
+
+**Live and shadow.** `inboxes.triage_mode` picks the triage an inbox runs:
+
+| Mode | What runs |
+| --- | --- |
+| `legacy` | the older per-tool triage |
+| `shadow` | the older triage keeps the real work; a plan triage records decisions only, so the two can be compared on real mail |
+| `plans` | the plan triage alone |
+
+The agent API:
+- `GET /api/v1/inbox/queue?mode=plans|shadow` lists the messages to plan. It waits until a conversation has been quiet for 3 minutes, and skips muted ones.
+- `GET /api/v1/inbox/messages/:id/context` returns everything to read before planning.
+- `POST /api/v1/inbox/messages/:id/plan` submits the plan.
+
+A live plan also writes a `triage` row (`triage.plan_id`), so the Inbox, the
+questions and the summary feed keep working unchanged.
+
+The full catalog of situations and expected outcomes is kept with the agent's
+evals (`evals/ashley-triage/catalog.md` in the agents repo). To add a
+situation:
+1. If it needs one, add an intent or item type to `triage-policy.ts`, `plan-schemas.ts` and the `plan_items` checks.
+2. Write one paragraph in the agent's triage instructions.
+3. Add one eval case and one row to `scripts/verify-triage-policy.ts`.
+
 ## Adding a channel (SMS, Slack, ...)
 
 Every table and rule above is shared. A new channel needs:

@@ -24,6 +24,7 @@ export const COMMUNICATIONS_MIGRATION = '../supabase/migrations/20261026091944_c
 export const CONVERSATION_SCOPE_MIGRATION = '../supabase/migrations/20261026093748_conversation_projects_scope.sql';
 export const SCOPE_HARDENING_MIGRATION = '../supabase/migrations/20261026191615_communications_scope_hardening.sql';
 export const DELIVERY_MIGRATION = '../supabase/migrations/20261026192302_message_delivery.sql';
+export const PLANS_MIGRATION = '../supabase/migrations/20261026200925_triage_plans.sql';
 const TASK_SAVE_MIGRATION = '../supabase/migrations/20260923235152_atomic_task_save.sql';
 
 async function read(path: string) {
@@ -126,7 +127,7 @@ export async function createEmailDatabase(
     await db.exec(spec);
     await db.exec(spec); // safe to re-run
     if (!stopBeforeNeedsHuman) {
-      for (const path of [NEEDS_HUMAN_MIGRATION, NEEDS_HUMAN_CLEANUP_MIGRATION, PROJECT_SOURCE_PERSON_MIGRATION, SORTING_MIGRATION, ANSWERS_MIGRATION, SHARED_FILES_MIGRATION, ANSWERED_PERSON_MIGRATION, COMMUNICATIONS_MIGRATION, CONVERSATION_SCOPE_MIGRATION, SCOPE_HARDENING_MIGRATION, DELIVERY_MIGRATION]) {
+      for (const path of [NEEDS_HUMAN_MIGRATION, NEEDS_HUMAN_CLEANUP_MIGRATION, PROJECT_SOURCE_PERSON_MIGRATION, SORTING_MIGRATION, ANSWERS_MIGRATION, SHARED_FILES_MIGRATION, ANSWERED_PERSON_MIGRATION, COMMUNICATIONS_MIGRATION, CONVERSATION_SCOPE_MIGRATION, SCOPE_HARDENING_MIGRATION, DELIVERY_MIGRATION, PLANS_MIGRATION]) {
         const sql = await read(path);
         await db.exec(sql);
         await db.exec(sql); // safe to re-run
@@ -155,6 +156,15 @@ export async function createEmailDatabase(
       email_attachment_id uuid REFERENCES ${stopBeforeNeedsHuman ? 'public.email_attachments' : 'communications.attachments'}(id) ON DELETE RESTRICT,
       deleted_at timestamptz
     );
+  `);
+  // Triage plans notify the people who can act (syncWaitingNotification).
+  await db.exec(`
+    CREATE TABLE public.team_member_notifications (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid NOT NULL, title text NOT NULL,
+      message text, link text, is_read boolean NOT NULL DEFAULT false, entity_type text, entity_id text, created_at timestamptz NOT NULL DEFAULT now());
+    CREATE FUNCTION public.upsert_notification(p_user_id uuid, p_title text, p_message text, p_link text, p_entity_type text, p_entity_id text)
+      RETURNS void LANGUAGE sql AS $$
+      INSERT INTO public.team_member_notifications (user_id, title, message, link, entity_type, entity_id)
+      VALUES (p_user_id, p_title, p_message, p_link, p_entity_type, p_entity_id) $$;
   `);
   await db.exec(`
     GRANT USAGE ON SCHEMA public, auth, storage TO service_role, authenticated;

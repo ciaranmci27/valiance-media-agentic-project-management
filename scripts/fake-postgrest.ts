@@ -63,6 +63,9 @@ function filter(column: string, expression: string, params: unknown[]): string {
       return `${col} < ${bind(value)}`;
     case "cs":
       return `${col} @> ${bind(value)}::jsonb`;
+    case "ilike":
+      // PostgREST takes * as the wildcard.
+      return `${col}::text ILIKE ${bind(value.replace(/\*/g, "%"))}`;
     case "is":
       if (value === "null") return `${col} IS NULL`;
       if (value === "true" || value === "false") return `${col} IS ${value.toUpperCase()}`;

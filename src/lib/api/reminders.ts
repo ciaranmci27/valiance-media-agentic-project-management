@@ -2,7 +2,9 @@ import { z } from 'zod';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { AccessContext } from '@/lib/access-control';
 import { accessAllows, accessAllowsProject } from './access';
-import { badRequest, forbidden, notFound } from './errors';
+import { ApiError, badRequest, forbidden, notFound } from './errors';
+import { loadAccessibleMessage } from '@/lib/communications/agent-access';
+import { comms } from '@/lib/communications/db';
 
 /**
  * Reminders over the API. Routes run with the service client, so the
@@ -102,11 +104,12 @@ export async function resolveReminderPlace(
   supabase: SupabaseClient,
   access: AccessContext,
   input: { task_id?: string | null; project_id?: string | null },
+  channel: 'api' | 'app' = 'api',
 ): Promise<{ task_id: string | null; project_id: string | null }> {
   if (input.task_id) {
     const { data: task, error } = await supabase.from('tasks').select('id, project_id').eq('id', input.task_id).is('deleted_at', null).maybeSingle();
     if (error) throw error;
-    if (!task || !accessAllowsProject(access, task.project_id, 'api')) throw notFound('Task');
+    if (!task || !accessAllowsProject(access, task.project_id, channel)) throw notFound('Task');
     if (!(await placeIsLive(supabase, { task_id: null, project_id: task.project_id }))) throw notFound('Task');
     if (input.project_id && input.project_id !== task.project_id) {
       throw badRequest('project_id does not match the task\'s project; send task_id alone');
@@ -114,7 +117,7 @@ export async function resolveReminderPlace(
     return { task_id: task.id, project_id: task.project_id };
   }
   if (input.project_id) {
-    if (!accessAllowsProject(access, input.project_id, 'api')) throw notFound('Project');
+    if (!accessAllowsProject(access, input.project_id, channel)) throw notFound('Project');
     if (!(await placeIsLive(supabase, { task_id: null, project_id: input.project_id }))) throw notFound('Project');
     return { task_id: null, project_id: input.project_id };
   }
@@ -136,4 +139,53 @@ export async function resolveReminderOwner(
   if (error) throw error;
   if (!owner || owner.status !== 'active') throw badRequest('owner_id is not an active team member');
   return owner.id;
+}
+
+/**
+ * Write a reminder as a member: on a task, on a project, or standalone. It is
+ * theirs unless owner_id names someone (agents and task managers only). One
+ * an email sets lands only on a project in that email's scope.
+ */
+export async function createReminder(
+  supabase: SupabaseClient,
+  access: AccessContext,
+  memberId: string,
+  input: z.infer<typeof createReminderSchema>,
+  channel: 'api' | 'app' = 'api',
+) {
+  const place = await resolveReminderPlace(supabase, access, input, channel);
+  const ownerId = await resolveReminderOwner(supabase, access, memberId, input.owner_id);
+  // An email the key cannot read is 404, like one that does not exist.
+  const sourceMessage = input.source_message_id ? await loadAccessibleMessage(supabase, memberId, access, input.source_message_id) : null;
+  if (sourceMessage && place.project_id) {
+    const { data: source, error: scopeError } = await comms(supabase).rpc('scope_source', { p_message_id: sourceMessage.id, p_project_id: place.project_id });
+    if (scopeError) throw scopeError;
+    if (!source) {
+      const { data: scope } = await comms(supabase).rpc('message_scope', { p_message_id: sourceMessage.id });
+      throw new ApiError(422, 'VALIDATION_ERROR', 'This email may not touch that project, so it sets no reminder there.', {
+        reason: 'project_out_of_scope',
+        project_id: place.project_id,
+        project_scope: scope ?? null,
+      });
+    }
+  }
+
+  const { data, error } = await supabase
+    .from('reminders')
+    .insert({
+      title: input.title,
+      notes: input.notes ?? '',
+      remind_on: input.remind_on ?? null,
+      remind_at: input.remind_on ? input.remind_at ?? null : null,
+      owner_id: ownerId,
+      task_id: place.task_id,
+      project_id: place.project_id,
+      created_by: memberId,
+      source: sourceMessage ? 'email' : access.role === 'agent' ? 'agent' : 'manual',
+      ...(sourceMessage ? { source_message_id: sourceMessage.id } : {}),
+    })
+    .select(REMINDER_SELECT)
+    .single();
+  if (error) throw error;
+  return data;
 }
