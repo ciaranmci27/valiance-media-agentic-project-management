@@ -1,3 +1,4 @@
+import { comms } from '@/lib/communications/db';
 import { createHash, randomUUID } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { AccessContext, PermissionKey } from '@/lib/access-control';
@@ -233,11 +234,11 @@ async function loadFile(ctx: TaskFilesContext, task: TaskRow, fileId: string): P
 async function readableInboxes(ctx: TaskFilesContext): Promise<Set<string>> {
   if (!can(ctx, 'inbound_email.read') && !can(ctx, 'inbound_email.manage')) return new Set();
   if (accessAllows(ctx.access, 'inbound_email.manage', ctx.channel)) {
-    const { data, error } = await ctx.db.from('email_inboxes').select('id');
+    const { data, error } = await comms(ctx.db).from('inboxes').select('id');
     if (error) throw error;
     return new Set((data ?? []).map((row: { id: string }) => row.id));
   }
-  const { data, error } = await ctx.db.from('email_inbox_access').select('inbox_id').eq('member_id', ctx.memberId);
+  const { data, error } = await comms(ctx.db).from('inbox_access').select('inbox_id').eq('member_id', ctx.memberId);
   if (error) throw error;
   return new Set((data ?? []).map((row: { inbox_id: string }) => row.inbox_id));
 }
@@ -247,7 +248,7 @@ async function views(ctx: TaskFilesContext, rows: FileRow[]): Promise<TaskFileVi
   const entityFileIds = rows.flatMap((row) => (row.entity_file_id ? [row.entity_file_id] : []));
   const [attachments, entityFiles] = await Promise.all([
     attachmentIds.length
-      ? ctx.db.from('email_attachments').select('id, message_id, storage_path, uploaded_at, skipped_reason').in('id', attachmentIds)
+      ? comms(ctx.db).from('attachments').select('id, message_id, storage_path, uploaded_at, skipped_reason').in('id', attachmentIds)
       : Promise.resolve({ data: [], error: null }),
     entityFileIds.length
       ? ctx.db.from('entity_files').select('id, deleted_at').in('id', entityFileIds)
@@ -261,7 +262,7 @@ async function views(ctx: TaskFilesContext, rows: FileRow[]): Promise<TaskFileVi
   const messageIds = [...new Set([...attachmentById.values()].map((row) => row.message_id))];
   const messages = new Map<string, { id: string; inbox_id: string; thread_id: string; subject: string | null }>();
   if (messageIds.length) {
-    const { data, error } = await ctx.db.from('email_messages').select('id, inbox_id, thread_id, subject').in('id', messageIds);
+    const { data, error } = await comms(ctx.db).from('messages').select('id, inbox_id, thread_id, subject').in('id', messageIds);
     if (error) throw error;
     for (const message of data ?? []) messages.set(message.id, message);
   }
@@ -478,12 +479,12 @@ export async function addTaskFile(ctx: TaskFilesContext, taskId: string, input: 
 type BaseRow = Pick<FileRow, 'task_id' | 'note' | 'added_by' | 'storage_path' | 'sha256' | 'email_attachment_id' | 'entity_file_id'>;
 
 async function addEmailAttachment(ctx: TaskFilesContext, task: TaskRow, attachmentId: string, name: string | undefined, base: BaseRow) {
-  const { data: attachment, error } = await ctx.db.from('email_attachments')
+  const { data: attachment, error } = await comms(ctx.db).from('attachments')
     .select('id, message_id, filename, content_type, size_bytes, sha256, storage_path, uploaded_at, skipped_reason')
     .eq('id', attachmentId).maybeSingle();
   if (error) throw error;
   const { data: message, error: messageError } = attachment
-    ? await ctx.db.from('email_messages').select('id, inbox_id, status, received_at').eq('id', (attachment as AttachmentRow).message_id).maybeSingle()
+    ? await comms(ctx.db).from('messages').select('id, inbox_id, status, received_at').eq('id', (attachment as AttachmentRow).message_id).maybeSingle()
     : { data: null, error: null };
   if (messageError) throw messageError;
   // An attachment the person cannot open reads as missing, as it does in the Inbox.
@@ -498,7 +499,7 @@ async function addEmailAttachment(ctx: TaskFilesContext, task: TaskRow, attachme
   const mime = cleanMime(row.content_type, fileName);
   const size = Number(row.size_bytes ?? 0);
 
-  const { data: inbox, error: inboxError } = await ctx.db.from('email_inboxes').select('retention_days').eq('id', message.inbox_id).single();
+  const { data: inbox, error: inboxError } = await comms(ctx.db).from('inboxes').select('retention_days').eq('id', message.inbox_id).single();
   if (inboxError) throw inboxError;
   const deletesAt = new Date(message.received_at).getTime() + Number(inbox.retention_days) * 86_400_000;
   if (deletesAt - Date.now() < RETENTION_MARGIN_DAYS * 86_400_000) {
@@ -601,15 +602,15 @@ export async function taskFileLink(ctx: TaskFilesContext, taskId: string, fileId
     if (!file.storage_path?.startsWith(`${task.project_id}/`)) throw notFound('Stored file');
     url = await sign(TASK_FILES_BUCKET, file.storage_path);
   } else if (file.kind === 'email_attachment') {
-    const { data: attachment, error } = await ctx.db.from('email_attachments')
+    const { data: attachment, error } = await comms(ctx.db).from('attachments')
       .select('id, message_id, filename, content_type, storage_path, uploaded_at, skipped_reason').eq('id', file.email_attachment_id!).maybeSingle();
     if (error) throw error;
     if (!attachment?.storage_path || !attachment.uploaded_at || attachment.skipped_reason) {
       throw new ApiError(409, 'CONFLICT', 'This attachment was not stored, so there is nothing to open');
     }
     if (ctx.channel === 'api') {
-      const { data: message, error: messageError } = await ctx.db.from('email_messages')
-        .select('inbox:email_inboxes!inner(agent_readable_types)').eq('id', attachment.message_id).single();
+      const { data: message, error: messageError } = await comms(ctx.db).from('messages')
+        .select('inbox:inboxes!inner(agent_readable_types)').eq('id', attachment.message_id).single();
       if (messageError) throw messageError;
       const readableTypes = ((message.inbox as unknown as { agent_readable_types: string[] | null }).agent_readable_types ?? []);
       const kind = attachmentKind(attachment.content_type, attachment.filename);
@@ -672,7 +673,7 @@ export async function taskFileCandidates(ctx: TaskFilesContext, taskId: string):
   requirePermission(ctx, 'files.upload', 'Adding files to a task needs permission to upload files');
   const task = await loadTask(ctx, taskId);
   const [links, entityFiles, current] = await Promise.all([
-    ctx.db.from('email_task_links').select('message_id').eq('task_id', task.id),
+    comms(ctx.db).from('task_links').select('message_id').eq('task_id', task.id),
     ctx.db.from('entity_files').select('id, name, file_url, mime_type, file_size, created_at')
       .eq('entity_type', 'project').eq('entity_id', task.project_id).is('deleted_at', null)
       .order('created_at', { ascending: false }).limit(200),
@@ -691,14 +692,14 @@ export async function taskFileCandidates(ctx: TaskFilesContext, taskId: string):
   const messageIds = [...new Set((links.data ?? []).map((row: { message_id: string }) => row.message_id))];
   if (messageIds.length) {
     const readable = await readableInboxes(ctx);
-    const { data: messages, error } = await ctx.db.from('email_messages')
+    const { data: messages, error } = await comms(ctx.db).from('messages')
       .select('id, inbox_id, thread_id, subject, received_at, status').in('id', messageIds);
     if (error) throw error;
     const open = new Map((messages ?? [])
       .filter((message) => message.status !== 'receiving' && readable.has(message.inbox_id))
       .map((message) => [message.id, message]));
     if (open.size) {
-      const { data: attachments, error: attachmentError } = await ctx.db.from('email_attachments')
+      const { data: attachments, error: attachmentError } = await comms(ctx.db).from('attachments')
         .select('id, message_id, position, filename, content_type, size_bytes, sha256, storage_path, uploaded_at, skipped_reason')
         .in('message_id', [...open.keys()]).not('storage_path', 'is', null).not('uploaded_at', 'is', null).is('skipped_reason', null);
       if (attachmentError) throw attachmentError;

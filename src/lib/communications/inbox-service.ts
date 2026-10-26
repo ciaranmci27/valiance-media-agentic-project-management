@@ -15,6 +15,7 @@ import type {
   InboxThreadDetail, InboxThreadList, InboxThreadSummary, MessageStatus, ProjectSource, RememberableSender, RoutingBasis,
   SetThreadProjectRequest, SetThreadProjectResult, TaskSourceEmails, ThreadProject, TriageOutcome, TrustLevel,
 } from './inbox-types';
+import { comms } from '@/lib/communications/db';
 
 /**
  * The Inbox for people signed in to the app (session routes). Reads use the
@@ -105,10 +106,10 @@ function isPerson(access: AccessContext): boolean {
 /** The inboxes this member reads (mirrors can_read_email_inbox). */
 export async function readableInboxIds(ctx: InboxContext): Promise<string[]> {
   if (accessAllows(ctx.access, 'inbound_email.manage')) {
-    return (await many<{ id: string }>(ctx.service.from('email_inboxes').select('id').order('created_at'))).map((row) => row.id);
+    return (await many<{ id: string }>(comms(ctx.service).from('inboxes').select('id').order('created_at'))).map((row) => row.id);
   }
   if (!accessAllows(ctx.access, 'inbound_email.read')) return [];
-  return (await many<{ inbox_id: string }>(ctx.service.from('email_inbox_access').select('inbox_id').eq('member_id', ctx.memberId)))
+  return (await many<{ inbox_id: string }>(comms(ctx.service).from('inbox_access').select('inbox_id').eq('member_id', ctx.memberId)))
     .map((row) => row.inbox_id);
 }
 
@@ -134,15 +135,53 @@ function projectLabel(ctx: InboxContext, names: Map<string, string>, id: string)
   return names.get(id) ?? 'Project';
 }
 
-export function ctxSelect(service: SupabaseClient, table: string, columns: string, count: 'exact' | undefined) {
+/** How strongly a project is known, as communications.project_source_rank orders it. */
+const SOURCE_RANK: Record<ProjectSource, number> = { person: 1, address: 2, mapped: 3, inferred: 4, guessed: 5 };
+
+/**
+ * Every project each thread is filed on, strongest first, named as the member
+ * may see them (with the project address that filed one, when they can reach it).
+ */
+async function threadProjects(ctx: InboxContext, threadIds: string[]): Promise<Map<string, ThreadProject[]>> {
+  const byThread = new Map<string, ThreadProject[]>();
+  if (threadIds.length === 0) return byThread;
+  const filed = await readIn<{ conversation_id: string; project_id: string; source: ProjectSource; endpoint_id: string | null; created_at: string }>(
+    [...new Set(threadIds)], (chunk, from, to, count) =>
+      ctxSelect(comms(ctx.service), 'conversation_projects', 'conversation_id, project_id, source, endpoint_id, created_at', count)
+        .in('conversation_id', chunk).order('conversation_id').order('project_id').range(from, to));
+  const endpointIds = [...new Set(filed.map((row) => row.endpoint_id).filter((id): id is string => !!id))];
+  const [names, endpoints] = await Promise.all([
+    projectNames(ctx, filed.map((row) => row.project_id)),
+    endpointIds.length
+      ? many<{ id: string; routing_address: string; public_address: string | null }>(comms(ctx.service).from('endpoints')
+          .select('id, routing_address, public_address').in('id', endpointIds))
+      : Promise.resolve([]),
+  ]);
+  filed.sort((a, b) => (SOURCE_RANK[a.source] - SOURCE_RANK[b.source]) || a.created_at.localeCompare(b.created_at) || a.project_id.localeCompare(b.project_id));
+  for (const row of filed) {
+    const endpoint = row.endpoint_id ? endpoints.find((e) => e.id === row.endpoint_id) : undefined;
+    const list = byThread.get(row.conversation_id) ?? [];
+    list.push({
+      id: row.project_id,
+      name: projectLabel(ctx, names, row.project_id),
+      source: row.source,
+      address: endpoint && accessAllowsProject(ctx.access, row.project_id) ? endpoint.public_address ?? endpoint.routing_address : null,
+    });
+    byThread.set(row.conversation_id, list);
+  }
+  return byThread;
+}
+
+/** A public table (service) or a communications one (comms(service)). */
+export function ctxSelect(service: SupabaseClient | ReturnType<typeof comms>, table: string, columns: string, count: 'exact' | undefined) {
   // trash-checked: callers name the table; project names for email history include projects in Trash.
-  return service.from(table).select(columns, count ? { count } : undefined);
+  return (service as SupabaseClient).from(table).select(columns, count ? { count } : undefined);
 }
 
 async function inboxSummaries(service: SupabaseClient, ids: string[]): Promise<InboxSummary[]> {
   if (ids.length === 0) return [];
   const inboxes = await many<{ id: string; name: string; address: string; enabled: boolean; handler_member_id: string | null }>(
-    service.from('email_inboxes').select('id, name, address, enabled, handler_member_id').in('id', ids).order('name'));
+    comms(service).from('inboxes').select('id, name, address, enabled, handler_member_id').in('id', ids).order('name'));
   const names = await memberNames(service, inboxes.map((inbox) => inbox.handler_member_id));
   return inboxes.map((inbox) => ({
     id: inbox.id,
@@ -217,24 +256,27 @@ interface ThreadEntry {
 /** Every thread in the given inboxes with its messages' states, newest activity first. */
 async function loadThreadEntries(service: SupabaseClient, inboxIds: string[], projectId: string | null): Promise<ThreadEntry[]> {
   if (inboxIds.length === 0) return [];
-  const threads = await readIn<ThreadRow & Row>(inboxIds, (chunk, from, to, count) => {
-    let query = ctxSelect(service, 'email_threads', 'id, inbox_id, subject_normalized, project_id, project_source, summary, last_message_at', count)
-      .in('inbox_id', chunk);
-    if (projectId) query = query.eq('project_id', projectId);
-    return query.order('id').range(from, to);
-  });
+  // A project's threads: every thread filed on it, whatever else it is filed on.
+  const onProject = projectId
+    ? new Set((await many<{ conversation_id: string }>(comms(service).from('conversation_projects')
+        .select('conversation_id').eq('project_id', projectId))).map((row) => row.conversation_id))
+    : null;
+  const threads = (await readIn<ThreadRow & Row>(inboxIds, (chunk, from, to, count) =>
+    ctxSelect(comms(service), 'conversations', 'id, inbox_id, subject_normalized, project_id, project_source, summary, last_message_at', count)
+      .in('inbox_id', chunk).order('id').range(from, to)))
+    .filter((thread) => !onProject || onProject.has(thread.id));
   if (threads.length === 0) return [];
   const threadIds = new Set(threads.map((thread) => thread.id));
   const messages = (await readIn<StateMessageRow & Row>(inboxIds, (chunk, from, to, count) =>
-    ctxSelect(service, 'email_messages', `id, thread_id, status, subject, received_at, auth, reviewed_at, kind, topic, ${ROUTING_COLUMNS}`, count)
+    ctxSelect(comms(service), 'messages', `id, thread_id, status, subject, received_at, auth, reviewed_at, kind, topic, ${ROUTING_COLUMNS}`, count)
       .in('inbox_id', chunk).neq('status', 'receiving').order('id').range(from, to)))
     .filter((message) => threadIds.has(message.thread_id));
   const messageIds = messages.map((message) => message.id);
   const [triage, senders] = await Promise.all([
     readIn<{ id: string; message_id: string; outcome: TriageOutcome; urgent: boolean; created_at: string }>(messageIds, (chunk, from, to, count) =>
-      ctxSelect(service, 'email_triage', 'id, message_id, outcome, urgent, created_at', count).in('message_id', chunk).order('id').range(from, to)),
+      ctxSelect(comms(service), 'triage', 'id, message_id, outcome, urgent, created_at', count).in('message_id', chunk).order('id').range(from, to)),
     readIn<{ id: string; message_id: string; address: string; name: string }>(messageIds, (chunk, from, to, count) =>
-      ctxSelect(service, 'email_message_recipients', 'id, message_id, address, name', count).in('message_id', chunk).eq('kind', 'from').order('id').range(from, to)),
+      ctxSelect(comms(service), 'participants', 'id, message_id, address, name', count).in('message_id', chunk).eq('kind', 'from').order('id').range(from, to)),
   ]);
   const latest = latestTriage(triage);
   const fromByMessage = new Map(senders.map((row) => [row.message_id, { name: row.name, address: row.address }]));
@@ -346,13 +388,16 @@ export async function listThreads(ctx: InboxContext, filters: ThreadListFilters)
     loadThreadEntries(ctx.service, scope, projectId),
   ]);
   // Only reachable project names: search must not reveal another project's threads either.
-  const names = await projectNames(ctx, entries.map((entry) => entry.thread.project_id));
+  const [names, filed] = await Promise.all([
+    projectNames(ctx, entries.map((entry) => entry.thread.project_id)),
+    threadProjects(ctx, entries.map((entry) => entry.thread.id)),
+  ]);
   const inboxNames = new Map(inboxes.map((inbox) => [inbox.id, inbox.name]));
   // The inbox for one task: threads with any email linked to it.
   let taskThreads: Set<string> | null = null;
   if (filters.taskId) {
     const taskId = assertId(filters.taskId, 'task_id');
-    const linked = await many<{ message_id: string }>(ctx.service.from('email_task_links').select('message_id').eq('task_id', taskId));
+    const linked = await many<{ message_id: string }>(comms(ctx.service).from('task_links').select('message_id').eq('task_id', taskId));
     const messageIds = new Set(linked.map((link) => link.message_id));
     taskThreads = new Set(entries.filter((entry) => entry.messages.some((message) => messageIds.has(message.id))).map((entry) => entry.thread.id));
   }
@@ -361,7 +406,7 @@ export async function listThreads(ctx: InboxContext, filters: ThreadListFilters)
     ? inTask.filter((entry) => matchesSearch(filters.search, [
         ...entry.messages.map((message) => message.subject),
         ...entry.senders.flatMap((sender) => [sender.name, sender.address]),
-        entry.thread.project_id ? names.get(entry.thread.project_id) : null,
+        ...(filed.get(entry.thread.id) ?? []).filter((project) => accessAllowsProject(ctx.access, project.id)).map((project) => project.name),
         inboxNames.get(entry.thread.inbox_id),
       ]))
     : inTask;
@@ -373,11 +418,11 @@ export async function listThreads(ctx: InboxContext, filters: ThreadListFilters)
   const pageMessageIds = page.flatMap((entry) => entry.messages.map((message) => message.id));
   const [bodies, attachments, links] = await Promise.all([
     readIn<{ id: string; new_text: string | null; text_body: string | null }>(latestIds, (chunk, from, to, count) =>
-      ctxSelect(ctx.service, 'email_messages', 'id, new_text, text_body', count).in('id', chunk).order('id').range(from, to)),
+      ctxSelect(comms(ctx.service), 'messages', 'id, new_text, text_body', count).in('id', chunk).order('id').range(from, to)),
     readIn<{ id: string; message_id: string; sha256: string | null }>(pageMessageIds, (chunk, from, to, count) =>
-      ctxSelect(ctx.service, 'email_attachments', 'id, message_id, sha256', count).in('message_id', chunk).order('id').range(from, to)),
+      ctxSelect(comms(ctx.service), 'attachments', 'id, message_id, sha256', count).in('message_id', chunk).order('id').range(from, to)),
     readIn<{ id: string; message_id: string; task_id: string }>(pageMessageIds, (chunk, from, to, count) =>
-      ctxSelect(ctx.service, 'email_task_links', 'id, message_id, task_id', count).in('message_id', chunk).order('id').range(from, to)),
+      ctxSelect(comms(ctx.service), 'task_links', 'id, message_id, task_id', count).in('message_id', chunk).order('id').range(from, to)),
   ]);
   // Counts only cover tasks the member can open and that are not in the trash.
   const linkedTaskIds = [...new Set(links.map((link) => link.task_id))];
@@ -402,6 +447,7 @@ export async function listThreads(ctx: InboxContext, filters: ThreadListFilters)
       project: entry.thread.project_id && entry.thread.project_source
         ? { id: entry.thread.project_id, name: projectLabel(ctx, names, entry.thread.project_id), source: entry.thread.project_source }
         : null,
+      projects: (filed.get(entry.thread.id) ?? []).map(({ address: _address, ...project }) => project),
       last_message_at: entry.thread.last_message_at,
       message_count: entry.messages.length,
       sender: entry.sender,
@@ -434,7 +480,7 @@ export async function attentionCount(ctx: InboxContext): Promise<InboxAttention>
 export async function loadReadableThread(ctx: InboxContext, threadId: string): Promise<ThreadRow> {
   if (!canReadInbox(ctx.access)) throw new InboxError(403, 'Forbidden');
   const id = assertId(threadId, 'thread id');
-  const thread = await one<ThreadRow & Row>(ctx.service.from('email_threads')
+  const thread = await one<ThreadRow & Row>(comms(ctx.service).from('conversations')
     .select('id, inbox_id, subject_normalized, project_id, project_source, project_address_id, summary, last_message_at').eq('id', id).maybeSingle());
   // An inbox the member cannot read looks like no thread at all.
   if (!thread || !(await readableInboxIds(ctx)).includes(thread.inbox_id)) throw new InboxError(404, 'Thread not found');
@@ -445,8 +491,8 @@ export async function loadReadableThread(ctx: InboxContext, threadId: string): P
 export async function ownAddresses(service: SupabaseClient): Promise<Set<string>> {
   const [members, inboxes, projectAddresses] = await Promise.all([
     many<{ email: string | null }>(service.from('team_members').select('email')),
-    many<{ address: string; routing_address: string }>(service.from('email_inboxes').select('address, routing_address')),
-    many<{ routing_address: string; public_address: string | null }>(service.from('email_project_addresses').select('routing_address, public_address')),
+    many<{ address: string; routing_address: string }>(comms(service).from('inboxes').select('address, routing_address')),
+    many<{ routing_address: string; public_address: string | null }>(comms(service).from('endpoints').select('routing_address, public_address')),
   ]);
   const own = new Set<string>();
   for (const member of members) if (member.email) own.add(member.email.trim().toLowerCase());
@@ -468,8 +514,8 @@ async function rememberableSenders(service: SupabaseClient, people: { address: s
   const domains = [...new Set(addresses.flatMap((address) => [domainOf(address), organizationalDomain(domainOf(address))]))];
   const [contactRows, domainRows, senderRows] = await Promise.all([
     many<{ contact_id: string; email: string }>(service.from('contact_emails').select('contact_id, email').in('email', addresses)),
-    many<{ domain: string; project_id: string }>(service.from('email_client_domains').select('domain, project_id').in('domain', domains)),
-    many<{ address: string; project_id: string }>(service.from('email_client_addresses').select('address, project_id').in('address', addresses)),
+    many<{ domain: string; project_id: string }>(comms(service).from('client_domains').select('domain, project_id').in('domain', domains)),
+    many<{ address: string; project_id: string }>(comms(service).from('client_addresses').select('address, project_id').in('address', addresses)),
   ]);
   const contactIds = [...new Set(contactRows.map((row) => row.contact_id))];
   const links = contactIds.length
@@ -497,27 +543,27 @@ async function rememberableSenders(service: SupabaseClient, people: { address: s
 export async function threadDetail(ctx: InboxContext, threadId: string): Promise<InboxThreadDetail> {
   const thread = await loadReadableThread(ctx, threadId);
   const service = ctx.service;
-  const messages = await many<Row>(service.from('email_messages')
+  const messages = await many<Row>(comms(service).from('messages')
     .select(`id, status, subject, received_at, sent_at, text_body, html_body, new_text, is_forward, auth, auto_mail_reason, kind, topic, sort_action, sort_reason, sender_rule_id, superseded_by, reviewed_at, reviewed_by, forwarded_by_member_id, ${ROUTING_COLUMNS}`)
     .eq('thread_id', thread.id).neq('status', 'receiving').order('received_at', { ascending: true }).order('id'));
   const ids = messages.map((message) => message.id as string);
   const [inbox] = await inboxSummaries(service, [thread.inbox_id]);
   const [recipients, attachments, triageRows, links, candidates, reminderRows, answerRows] = await Promise.all([
     readIn<Row & { message_id: string; kind: string; address: string; name: string; contact_id: string | null; position: number }>(ids, (chunk, from, to, count) =>
-      ctxSelect(service, 'email_message_recipients', 'id, message_id, kind, address, name, contact_id, position', count).in('message_id', chunk).order('id').range(from, to)),
+      ctxSelect(comms(service), 'participants', 'id, message_id, kind, address, name, contact_id, position', count).in('message_id', chunk).order('id').range(from, to)),
     readIn<Row>(ids, (chunk, from, to, count) =>
-      ctxSelect(service, 'email_attachments', 'id, message_id, position, filename, content_type, size_bytes, sha256, skipped_reason, uploaded_at, agent_label, content_id', count)
+      ctxSelect(comms(service), 'attachments', 'id, message_id, position, filename, content_type, size_bytes, sha256, skipped_reason, uploaded_at, agent_label, content_id', count)
         .in('message_id', chunk).order('id').range(from, to)),
     readIn<Row & { id: string; message_id: string; created_at: string }>(ids, (chunk, from, to, count) =>
-      ctxSelect(service, 'email_triage', 'id, message_id, member_id, outcome, urgent, summary, question_for_human, suggested_reply, created_at', count)
+      ctxSelect(comms(service), 'triage', 'id, message_id, member_id, outcome, urgent, summary, question_for_human, suggested_reply, created_at', count)
         .in('message_id', chunk).order('id').range(from, to)),
     readIn<Row & { message_id: string; task_id: string }>(ids, (chunk, from, to, count) =>
-      ctxSelect(service, 'email_task_links', 'id, message_id, task_id, relation, triage_id, created_at', count).in('message_id', chunk).order('id').range(from, to)),
+      ctxSelect(comms(service), 'task_links', 'id, message_id, task_id, relation, triage_id, created_at', count).in('message_id', chunk).order('id').range(from, to)),
     readIn<Row & { message_id: string; project_id: string; reason: CandidateReason }>(ids, (chunk, from, to, count) =>
-      ctxSelect(service, 'email_message_candidates', 'message_id, project_id, reason', count).in('message_id', chunk).order('message_id').order('project_id').order('reason').range(from, to)),
+      ctxSelect(comms(service), 'message_candidates', 'message_id, project_id, reason', count).in('message_id', chunk).order('message_id').order('project_id').order('reason').range(from, to)),
     emailReminders(ctx, ids, false),
     readIn<{ id: string; message_id: string; triage_id: string; answer: string; answered_by: string | null; created_at: string }>(ids, (chunk, from, to, count) =>
-      ctxSelect(service, 'email_question_answers', 'id, message_id, triage_id, answer, answered_by, created_at', count).in('message_id', chunk).order('id').range(from, to)),
+      ctxSelect(comms(service), 'answers', 'id, message_id, triage_id, answer, answered_by, created_at', count).in('message_id', chunk).order('id').range(from, to)),
   ]);
   const latest = latestTriage(triageRows);
   const taskIds = [...new Set(links.map((link) => link.task_id))];
@@ -525,8 +571,8 @@ export async function threadDetail(ctx: InboxContext, threadId: string): Promise
     ? await readIn<{ id: string; title: string; status: string; project_id: string }>(taskIds, (chunk, from, to, count) =>
         ctxSelect(service, 'tasks', 'id, title, status, project_id', count).in('id', chunk).is('deleted_at', null).order('id').range(from, to))
     : [];
-  const [names, people, viaAddress] = await Promise.all([
-    projectNames(ctx, [thread.project_id, ...candidates.map((row) => row.project_id)]),
+  const [names, people, viaAddress, filed] = await Promise.all([
+    projectNames(ctx, [thread.project_id, ...candidates.map((row) => row.project_id), ...tasks.map((task) => task.project_id)]),
     memberNames(service, [
       ...[...latest.values()].map((row) => row.member_id as string | null),
       ...messages.map((row) => row.reviewed_by as string | null),
@@ -534,9 +580,10 @@ export async function threadDetail(ctx: InboxContext, threadId: string): Promise
       ...answerRows.map((row) => row.answered_by),
     ]),
     thread.project_address_id
-      ? one<{ routing_address: string; public_address: string | null }>(service.from('email_project_addresses')
+      ? one<{ routing_address: string; public_address: string | null }>(comms(service).from('endpoints')
           .select('routing_address, public_address').eq('id', thread.project_address_id).maybeSingle())
       : Promise.resolve(null),
+    threadProjects(ctx, [thread.id]),
   ]);
 
   const peopleOf = (messageId: string, kind: string): InboxPerson[] => recipients
@@ -645,6 +692,7 @@ export async function threadDetail(ctx: InboxContext, threadId: string): Promise
             title: visible ? task.title : null,
             status: visible ? task.status : null,
             project_id: task?.project_id ?? null,
+            project_name: task ? projectLabel(ctx, names, task.project_id) : null,
           };
         }),
       reminders: reminderRows
@@ -681,6 +729,7 @@ export async function threadDetail(ctx: InboxContext, threadId: string): Promise
           address: viaAddress && accessAllowsProject(ctx.access, thread.project_id) ? viaAddress.public_address ?? viaAddress.routing_address : null,
         }
       : null,
+    projects: filed.get(thread.id) ?? [],
     state: flags.state,
     urgent: flags.urgent,
     untrusted: flags.untrusted,
@@ -704,9 +753,9 @@ export async function attachmentDownloadUrl(ctx: InboxContext, attachmentId: str
   if (!canReadInbox(ctx.access)) throw new InboxError(403, 'Forbidden');
   const id = assertId(attachmentId, 'attachment id');
   const attachment = await one<{ id: string; message_id: string; filename: string; content_type: string; storage_path: string | null; uploaded_at: string | null; skipped_reason: string | null }>(
-    ctx.service.from('email_attachments').select('id, message_id, filename, content_type, storage_path, uploaded_at, skipped_reason').eq('id', id).maybeSingle());
+    comms(ctx.service).from('attachments').select('id, message_id, filename, content_type, storage_path, uploaded_at, skipped_reason').eq('id', id).maybeSingle());
   const message = attachment
-    ? await one<{ inbox_id: string; status: string }>(ctx.service.from('email_messages').select('inbox_id, status').eq('id', attachment.message_id).maybeSingle())
+    ? await one<{ inbox_id: string; status: string }>(comms(ctx.service).from('messages').select('inbox_id, status').eq('id', attachment.message_id).maybeSingle())
     : null;
   if (!attachment || !message || message.status === 'receiving' || !(await readableInboxIds(ctx)).includes(message.inbox_id)) {
     throw new InboxError(404, 'Attachment not found');
@@ -725,13 +774,19 @@ export async function attachmentDownloadUrl(ctx: InboxContext, attachmentId: str
 }
 
 /**
- * Set or confirm the thread's project (source "person"), and optionally
- * remember the sender (the person becomes a contact on each chosen project)
- * or the sender's domain (a client domain on each chosen project). Rule 7:
- * only people create mappings, and only for a sender of this thread.
- * Everything is checked before anything is written.
+ * Set the thread's project (replace: it becomes the only one) or add one
+ * beside the others (add; adding a guessed one confirms it), as the person's
+ * (source "person"), and optionally remember the sender (the person becomes
+ * a contact on each chosen project) or the sender's domain (a client domain
+ * on each chosen project). Rule 7: only people create mappings, and only for
+ * a sender of this thread. Everything is checked before anything is written.
  */
-export async function setThreadProject(ctx: InboxContext, threadId: string, request: SetThreadProjectRequest): Promise<SetThreadProjectResult> {
+export async function setThreadProject(
+  ctx: InboxContext,
+  threadId: string,
+  request: SetThreadProjectRequest,
+  mode: 'replace' | 'add' = 'replace',
+): Promise<SetThreadProjectResult> {
   assertCanTriage(ctx.access);
   const thread = await loadReadableThread(ctx, threadId);
   const projectId = assertId(request.project_id, 'project_id');
@@ -748,11 +803,11 @@ export async function setThreadProject(ctx: InboxContext, threadId: string, requ
   let domain: string | null = null;
   if (rememberSender || rememberDomain) {
     if (!isPerson(ctx.access)) throw new InboxError(403, 'Only a person can remember a sender or domain');
-    const threadMessages = await many<{ id: string } & Row>(ctx.service.from('email_messages')
+    const threadMessages = await many<{ id: string } & Row>(comms(ctx.service).from('messages')
       .select(`id, ${ROUTING_COLUMNS}`).eq('thread_id', thread.id).neq('status', 'receiving').order('received_at'));
     const messageIds = threadMessages.map((m) => m.id);
     const fromRows = messageIds.length
-      ? await many<{ message_id: string; address: string; name: string }>(ctx.service.from('email_message_recipients')
+      ? await many<{ message_id: string; address: string; name: string }>(comms(ctx.service).from('participants')
           .select('message_id, address, name').eq('kind', 'from').in('message_id', messageIds))
       : [];
     // Oldest first, as rememberableSenders expects; a teammate's forward offers its original sender.
@@ -783,7 +838,7 @@ export async function setThreadProject(ctx: InboxContext, threadId: string, requ
   if (sender && rememberSender) {
     // A project that already has the address as a client email address
     // already maps it: nothing to link there, and no contact is needed for it.
-    const asClientAddress = new Set((await many<{ project_id: string }>(ctx.service.from('email_client_addresses')
+    const asClientAddress = new Set((await many<{ project_id: string }>(comms(ctx.service).from('client_addresses')
       .select('project_id').eq('address', sender.address))).map((row) => row.project_id));
     const wanted = [...new Set(rememberSender.project_ids)].filter((id) => !asClientAddress.has(id));
     let contactId = sender.contact_ids[0] ?? null;
@@ -815,21 +870,42 @@ export async function setThreadProject(ctx: InboxContext, threadId: string, requ
 
   let rememberedDomain: SetThreadProjectResult['remembered_domain'] = null;
   if (domain && rememberDomain) {
-    const existing = await many<{ project_id: string }>(ctx.service.from('email_client_domains').select('project_id').eq('domain', domain));
+    const existing = await many<{ project_id: string }>(comms(ctx.service).from('client_domains').select('project_id').eq('domain', domain));
     const added: string[] = [];
     for (const id of [...new Set(rememberDomain.project_ids)]) {
       if (existing.some((row) => row.project_id === id)) continue;
-      const { error } = await ctx.service.from('email_client_domains').insert({ domain, project_id: id, created_by: ctx.memberId });
+      const { error } = await comms(ctx.service).from('client_domains').insert({ domain, project_id: id, created_by: ctx.memberId });
       if (error) throw error;
       added.push(id);
     }
     rememberedDomain = { domain, added_project_ids: added };
   }
 
-  const { error } = await ctx.service.from('email_threads').update({ project_id: projectId, project_source: 'person' }).eq('id', thread.id);
+  const { error } = mode === 'add'
+    ? await comms(ctx.service).rpc('add_conversation_project', { p_conversation_id: thread.id, p_project_id: projectId, p_member_id: ctx.memberId })
+    : await comms(ctx.service).rpc('set_conversation_project', { p_conversation_id: thread.id, p_project_id: projectId, p_member_id: ctx.memberId });
   if (error) throw error;
   const project: ThreadProject = { id: projectId, name: projects.find((p) => p.id === projectId)?.name ?? 'Project', source: 'person' };
   return { project, remembered_sender: rememberedSender, remembered_domain: rememberedDomain };
+}
+
+/**
+ * A person takes a project off the thread. Refused (409) while one of its
+ * emails is linked to a task on that project: unlink or move the task first.
+ */
+export async function removeThreadProject(ctx: InboxContext, threadId: string, projectId: string): Promise<{ removed: boolean }> {
+  assertCanTriage(ctx.access);
+  const thread = await loadReadableThread(ctx, threadId);
+  const id = assertId(projectId, 'project_id');
+  if (!accessAllowsProject(ctx.access, id)) throw new InboxError(403, 'You cannot change email on that project');
+  const { data, error } = await comms(ctx.service).rpc('remove_conversation_project', { p_conversation_id: thread.id, p_project_id: id });
+  if (error) {
+    if ((error.message ?? '').includes('EMAIL_PROJECT_HAS_TASKS')) {
+      throw new InboxError(409, 'A task on that project is linked to this thread. Unlink the task, or move it, first.');
+    }
+    throw error;
+  }
+  return { removed: data === true };
 }
 
 /**
@@ -841,9 +917,9 @@ export async function markThreadHandled(ctx: InboxContext, threadId: string): Pr
   assertCanTriage(ctx.access);
   const thread = await loadReadableThread(ctx, threadId);
   const now = new Date().toISOString();
-  const handled = await many<{ id: string }>(ctx.service.from('email_messages')
+  const handled = await many<{ id: string }>(comms(ctx.service).from('messages')
     .update({ status: 'handled' }).eq('thread_id', thread.id).in('status', ['new', 'needs_human']).select('id'));
-  const reviewed = await many<{ id: string }>(ctx.service.from('email_messages')
+  const reviewed = await many<{ id: string }>(comms(ctx.service).from('messages')
     .update({ reviewed_at: now, reviewed_by: ctx.memberId })
     .eq('thread_id', thread.id).eq('status', 'handled').is('reviewed_at', null).select('id'));
   return { handled: handled.length, reviewed: reviewed.length };
@@ -853,12 +929,12 @@ export async function markThreadHandled(ctx: InboxContext, threadId: string): Pr
 export async function sendBackToAgent(ctx: InboxContext, threadId: string, messageId: string | null): Promise<{ message_id: string }> {
   assertCanTriage(ctx.access);
   const thread = await loadReadableThread(ctx, threadId);
-  const messages = await many<{ id: string; status: string }>(ctx.service.from('email_messages')
+  const messages = await many<{ id: string; status: string }>(comms(ctx.service).from('messages')
     .select('id, status').eq('thread_id', thread.id).neq('status', 'receiving').order('received_at', { ascending: false }).order('id', { ascending: false }));
   const target = messageId ? messages.find((message) => message.id === assertId(messageId, 'message_id')) : messages[0];
   if (!target) throw new InboxError(404, 'Message not found');
   if (target.status === 'new') throw new InboxError(409, 'It is already waiting for the agent');
-  const { error } = await ctx.service.from('email_messages')
+  const { error } = await comms(ctx.service).from('messages')
     .update({ status: 'new', reviewed_at: null, reviewed_by: null }).eq('id', target.id).neq('status', 'receiving');
   if (error) throw error;
   return { message_id: target.id };
@@ -872,19 +948,19 @@ export async function sendBackToAgent(ctx: InboxContext, threadId: string, messa
 export async function answerAgentQuestion(ctx: InboxContext, threadId: string, messageId: string | null, answer: string): Promise<{ message_id: string }> {
   assertCanTriage(ctx.access);
   const thread = await loadReadableThread(ctx, threadId);
-  const messages = await many<{ id: string; status: string }>(ctx.service.from('email_messages')
+  const messages = await many<{ id: string; status: string }>(comms(ctx.service).from('messages')
     .select('id, status').eq('thread_id', thread.id).neq('status', 'receiving').order('received_at', { ascending: false }).order('id', { ascending: false }));
   const ids = messages.map((message) => message.id);
-  const triage = ids.length ? latestTriage(await many<Row & { id: string; message_id: string; created_at: string }>(ctx.service.from('email_triage')
+  const triage = ids.length ? latestTriage(await many<Row & { id: string; message_id: string; created_at: string }>(comms(ctx.service).from('triage')
     .select('id, message_id, question_for_human, created_at').in('message_id', ids))) : new Map();
   const asking = (id: string) => !!triage.get(id)?.question_for_human;
   const target = messageId ? messages.find((message) => message.id === assertId(messageId, 'message_id')) : messages.find((message) => asking(message.id));
   if (!target || !asking(target.id)) throw new InboxError(404, 'No question to answer on this email');
   if (target.status === 'new') throw new InboxError(409, 'It is already waiting for the agent');
-  const { error: answerError } = await ctx.service.from('email_question_answers')
+  const { error: answerError } = await comms(ctx.service).from('answers')
     .insert({ message_id: target.id, triage_id: triage.get(target.id)!.id, answer, answered_by: ctx.memberId });
   if (answerError) throw answerError;
-  const { error } = await ctx.service.from('email_messages')
+  const { error } = await comms(ctx.service).from('messages')
     .update({ status: 'new', reviewed_at: null, reviewed_by: null }).eq('id', target.id).neq('status', 'receiving');
   if (error) throw error;
   return { message_id: target.id };
@@ -895,16 +971,16 @@ export async function taskSourceEmails(ctx: InboxContext, taskId: string): Promi
   const id = assertId(taskId, 'task id');
   const task = await one<{ id: string; project_id: string }>(ctx.service.from('tasks').select('id, project_id').eq('id', id).is('deleted_at', null).maybeSingle());
   if (!task || !accessAllowsProject(ctx.access, task.project_id)) throw new InboxError(404, 'Task not found');
-  const links = await many<{ message_id: string; relation: TaskLinkRelation; triage_id: string | null; linked_by: string | null; created_at: string }>(ctx.service.from('email_task_links')
+  const links = await many<{ message_id: string; relation: TaskLinkRelation; triage_id: string | null; linked_by: string | null; created_at: string }>(comms(ctx.service).from('task_links')
     .select('message_id, relation, triage_id, linked_by, created_at').eq('task_id', id).order('created_at'));
   if (links.length === 0 || !canReadInbox(ctx.access)) return { link_count: links.length, emails: [] };
   const readable = new Set(await readableInboxIds(ctx));
   const messageIds = [...new Set(links.map((link) => link.message_id))];
-  const messages = (await many<{ id: string; thread_id: string; inbox_id: string; subject: string; received_at: string; status: string }>(ctx.service.from('email_messages')
+  const messages = (await many<{ id: string; thread_id: string; inbox_id: string; subject: string; received_at: string; status: string }>(comms(ctx.service).from('messages')
     .select('id, thread_id, inbox_id, subject, received_at, status').in('id', messageIds)))
     .filter((message) => readable.has(message.inbox_id) && message.status !== 'receiving');
   const senders = messages.length
-    ? await many<{ message_id: string; address: string; name: string }>(ctx.service.from('email_message_recipients')
+    ? await many<{ message_id: string; address: string; name: string }>(comms(ctx.service).from('participants')
         .select('message_id, address, name').eq('kind', 'from').in('message_id', messages.map((m) => m.id)))
     : [];
   const emails = links

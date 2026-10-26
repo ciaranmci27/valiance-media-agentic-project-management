@@ -20,6 +20,8 @@ export const SORTING_MIGRATION = '../supabase/migrations/20261023194940_inbox_so
 export const ANSWERS_MIGRATION = '../supabase/migrations/20261024044106_email_question_answers.sql';
 export const SHARED_FILES_MIGRATION = '../supabase/migrations/20261024185705_email_files_stored_once.sql';
 export const ANSWERED_PERSON_MIGRATION = '../supabase/migrations/20261026043050_email_answered_project_is_person.sql';
+export const COMMUNICATIONS_MIGRATION = '../supabase/migrations/20261026091944_communications_schema.sql';
+export const CONVERSATION_SCOPE_MIGRATION = '../supabase/migrations/20261026093748_conversation_projects_scope.sql';
 const TASK_SAVE_MIGRATION = '../supabase/migrations/20260923235152_atomic_task_save.sql';
 
 async function read(path: string) {
@@ -106,7 +108,7 @@ export async function createEmailDatabase(
   const roleTables = canonical.match(/CREATE TABLE public\.role_permissions \([\s\S]*?\n\);\n\nCREATE TABLE public\.team_member_permissions \([\s\S]*?\n\);/)?.[0];
   assert.ok(roleTables, 'permission tables in schema.sql');
   await db.exec(roleTables);
-  for (const name of ['current_team_member_id', 'has_permission', 'can_access_project']) {
+  for (const name of ['current_team_member_id', 'has_permission', 'can_access_project', 'project_is_live']) {
     await db.exec(fn(name));
   }
 
@@ -122,7 +124,7 @@ export async function createEmailDatabase(
     await db.exec(spec);
     await db.exec(spec); // safe to re-run
     if (!stopBeforeNeedsHuman) {
-      for (const path of [NEEDS_HUMAN_MIGRATION, NEEDS_HUMAN_CLEANUP_MIGRATION, PROJECT_SOURCE_PERSON_MIGRATION, SORTING_MIGRATION, ANSWERS_MIGRATION, SHARED_FILES_MIGRATION, ANSWERED_PERSON_MIGRATION]) {
+      for (const path of [NEEDS_HUMAN_MIGRATION, NEEDS_HUMAN_CLEANUP_MIGRATION, PROJECT_SOURCE_PERSON_MIGRATION, SORTING_MIGRATION, ANSWERS_MIGRATION, SHARED_FILES_MIGRATION, ANSWERED_PERSON_MIGRATION, COMMUNICATIONS_MIGRATION, CONVERSATION_SCOPE_MIGRATION]) {
         const sql = await read(path);
         await db.exec(sql);
         await db.exec(sql); // safe to re-run
@@ -148,7 +150,7 @@ export async function createEmailDatabase(
       kind text NOT NULL,
       storage_path text,
       sha256 text,
-      email_attachment_id uuid REFERENCES public.email_attachments(id) ON DELETE RESTRICT,
+      email_attachment_id uuid REFERENCES ${stopBeforeNeedsHuman ? 'public.email_attachments' : 'communications.attachments'}(id) ON DELETE RESTRICT,
       deleted_at timestamptz
     );
   `);

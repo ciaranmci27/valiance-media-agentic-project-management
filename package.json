@@ -26,7 +26,7 @@
     "test:task-files": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-task-files.ts && tsx --tsconfig tsconfig.mcp-test.json scripts/verify-task-files-api.ts",
     "test:soft-delete-api": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-soft-delete-api.ts",
     "test:soft-delete-reads":"tsx --tsconfig tsconfig.mcp-test.json scripts/verify-soft-delete-reads.ts",
-    "test:inbound-email": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-inbound-email-lib.ts && tsx --tsconfig tsconfig.mcp-test.json scripts/verify-inbound-email.ts && tsx --tsconfig tsconfig.mcp-test.json scripts/verify-inbound-email-retention.ts",
+    "test:inbound-email": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-inbound-email-lib.ts && tsx --tsconfig tsconfig.mcp-test.json scripts/verify-inbound-email.ts && tsx --tsconfig tsconfig.mcp-test.json scripts/verify-inbound-email-retention.ts && tsx --tsconfig tsconfig.mcp-test.json scripts/verify-communications-migration.ts && tsx --tsconfig tsconfig.mcp-test.json scripts/verify-conversation-scope.ts",
     "postinstall": "node -e \"require('fs').copyFileSync(require.resolve('pdfjs-dist/build/pdf.worker.min.mjs'), './public/pdf.worker.min.mjs')\""
   },
   "dependencies": {

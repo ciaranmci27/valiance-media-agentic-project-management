@@ -13,6 +13,7 @@ import { useApp } from '@/lib/store';
 import { TELEMETRY_EVENT_TYPES } from '@/lib/agent-events';
 import { toLocalDateString } from '@/lib/date-utils';
 import { inboxClient } from '@/lib/communications/inbox-client';
+import { comms } from '@/lib/communications/db';
 import {
   INBOX_TABLES, type InboxTab, type InboxThreadDetail, type InboxThreadList, type InboxThreadSummary, type TaskSourceEmails,
 } from '@/lib/communications/inbox-types';
@@ -239,7 +240,7 @@ export function useWarmActiveProjects(projectIds: readonly string[], ready: bool
 export function taskSourceRead(taskId: string): Read<TaskSource> {
   return {
     key: `task-source:${taskId}`,
-    tables: ['email_task_links'],
+    tables: ['communications.task_links'],
     ttlMs: 5 * 60_000,
     load: async () => {
       const response = await fetch(`/api/workspace/tasks/${taskId}/source`);
@@ -260,12 +261,12 @@ export function taskEmailsRead(taskId: string, isDemo: boolean): Read<TaskSource
 }
 
 /** Count of rows per task_id, read in pages: one light read for every card. */
-async function countByTask(table: 'email_task_links' | 'task_files', liveOnly: boolean): Promise<Map<string, number>> {
+async function countByTask(table: 'communications.task_links' | 'task_files', liveOnly: boolean): Promise<Map<string, number>> {
   const supabase = createClient();
   const counts = new Map<string, number>();
   for (let from = 0; ; from += 1000) {
-    // trash-checked: task_files passes liveOnly (deleted_at is null); email_task_links has no Trash.
-    let query = supabase.from(table).select('task_id');
+    // trash-checked: task_files passes liveOnly (deleted_at is null); task links have no Trash.
+    let query = (table === 'task_files' ? supabase.from(table) : comms(supabase).from('task_links')).select('task_id');
     if (liveOnly) query = query.is('deleted_at', null);
     const { data, error } = await query.order('id').range(from, from + 999);
     if (error) throw error;
@@ -278,9 +279,9 @@ async function countByTask(table: 'email_task_links' | 'task_files', liveOnly: b
 /** How many emails each task is linked to (only links the person can read), for the cards. */
 export const taskEmailCountsRead: Read<Map<string, number>> = {
   key: 'task-email-counts',
-  tables: ['email_task_links'],
+  tables: ['communications.task_links'],
   ttlMs: 5 * 60_000,
-  load: () => countByTask('email_task_links', false),
+  load: () => countByTask('communications.task_links', false),
 };
 
 /** How many live files each task holds (RLS keeps it to what the person can see), for the cards. */

@@ -1,6 +1,7 @@
 import { withApi } from '@/lib/api/middleware';
 import { success } from '@/lib/api/response';
 import { inboxScope } from '@/lib/communications/agent-access';
+import { comms } from '@/lib/communications/db';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,7 +15,9 @@ export const dynamic = 'force-dynamic';
 export const GET = withApi(async ({ supabase, searchParams, teamMemberId, access }) => {
   const inboxIds = await inboxScope(supabase, teamMemberId, access, searchParams.get('inbox_id'));
   if (inboxIds.length === 0) return success([]);
-  const { data, error } = await supabase.rpc('email_unsummarized_triage', { p_inbox_ids: inboxIds, p_limit: 200 });
+  const { data, error } = await comms(supabase).rpc('unsummarized_triage', { p_inbox_ids: inboxIds, p_limit: 200 });
   if (error) throw error;
-  return success(data ?? []);
+  // conversation_id beside the older thread_id, as every other inbox payload carries it.
+  return success(((data ?? []) as { message?: { thread_id?: string } | null }[]).map((item) => (
+    item.message ? { ...item, message: { ...item.message, conversation_id: item.message.thread_id } } : item)));
 }, { permission: 'inbound_email.read' });

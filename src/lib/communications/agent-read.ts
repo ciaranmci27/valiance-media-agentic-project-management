@@ -4,6 +4,7 @@ import { attachmentKind } from './attachments';
 import { compactLinks } from './email/display';
 import { htmlToText } from './email/html-text';
 import { isGoneError, type AccessibleMessage } from './agent-access';
+import { comms } from '@/lib/communications/db';
 
 /**
  * What the agent API returns. Reads are plain queries joined here (no
@@ -14,7 +15,7 @@ import { isGoneError, type AccessibleMessage } from './agent-access';
 type Row = Record<string, unknown>;
 
 const ROUTING_COLUMNS = 'routing_basis, forwarded_by_member_id, original_from_address, original_from_name';
-const LIST_COLUMNS = `id, inbox_id, thread_id, status, subject, received_at, sent_at, is_forward, auto_mail_reason, auth, kind, topic, sort_action, sort_reason, superseded_by, ${ROUTING_COLUMNS}`;
+const LIST_COLUMNS = `id, inbox_id, thread_id, channel, status, subject, received_at, sent_at, is_forward, auto_mail_reason, auth, kind, topic, sort_action, sort_reason, superseded_by, ${ROUTING_COLUMNS}`;
 const CURRENT_TEXT_CAP = 200_000;
 const THREAD_TEXT_CAP = 50_000;
 
@@ -87,7 +88,7 @@ async function projectNames(supabase: SupabaseClient, ids: string[]): Promise<Ma
 async function projectAddresses(supabase: SupabaseClient, ids: unknown[]): Promise<Map<string, Row>> {
   const unique = [...new Set(ids.filter((id): id is string => typeof id === 'string' && !!id))];
   if (unique.length === 0) return new Map();
-  const found = await rows<Row>(supabase.from('email_project_addresses').select('id, routing_address, public_address').in('id', unique));
+  const found = await rows<Row>(comms(supabase).from('endpoints').select('id, routing_address, public_address').in('id', unique));
   return new Map(found.map((row) => [row.id as string, row]));
 }
 
@@ -108,11 +109,63 @@ function threadProject(thread: Row | undefined, names: Map<string, string>, addr
   };
 }
 
+/** How strongly a project is known, as communications.project_source_rank orders it. */
+const SOURCE_RANK: Record<string, number> = { person: 1, address: 2, mapped: 3, inferred: 4, guessed: 5 };
+
+/**
+ * Every project each conversation is filed on, strongest first: id, name,
+ * source (how it got there) and, for address, the project address.
+ */
+async function conversationProjects(supabase: SupabaseClient, conversationIds: string[]): Promise<Map<string, Row[]>> {
+  const unique = [...new Set(conversationIds.filter(Boolean))];
+  const byConversation = new Map<string, Row[]>();
+  if (unique.length === 0) return byConversation;
+  const filed = await rows<Row>(comms(supabase).from('conversation_projects')
+    .select('conversation_id, project_id, source, endpoint_id, created_at').in('conversation_id', unique));
+  const [names, addresses] = await Promise.all([
+    projectNames(supabase, filed.map((row) => row.project_id as string)),
+    projectAddresses(supabase, filed.map((row) => row.endpoint_id)),
+  ]);
+  filed.sort((a, b) => (SOURCE_RANK[a.source as string] - SOURCE_RANK[b.source as string])
+    || String(a.created_at).localeCompare(String(b.created_at)) || String(a.project_id).localeCompare(String(b.project_id)));
+  for (const row of filed) {
+    const address = row.endpoint_id ? addresses.get(row.endpoint_id as string) : undefined;
+    const list = byConversation.get(row.conversation_id as string) ?? [];
+    list.push({
+      id: row.project_id,
+      name: names.get(row.project_id as string) ?? null,
+      source: row.source,
+      address: address ? { id: address.id, routing_address: address.routing_address, public_address: address.public_address ?? null } : null,
+    });
+    byConversation.set(row.conversation_id as string, list);
+  }
+  return byConversation;
+}
+
+/**
+ * The projects this message may touch (communications.message_scope): bases
+ * says why, projects names them with the source each would be filed with,
+ * any_project whether any project taking mail is open to it too (a verified
+ * teammate, verified meeting notes, a person's answer) and as what.
+ */
+async function projectScope(supabase: SupabaseClient, messageId: string): Promise<Row> {
+  const { data, error } = await comms(supabase).rpc('message_scope', { p_message_id: messageId });
+  if (error) throw error;
+  const scope = (data ?? {}) as { bases?: string[]; projects?: { project_id: string; source: string }[]; any_project?: boolean; any_source?: string | null };
+  const names = await projectNames(supabase, (scope.projects ?? []).map((row) => row.project_id));
+  return {
+    bases: scope.bases ?? [],
+    projects: (scope.projects ?? []).map((row) => ({ project_id: row.project_id, name: names.get(row.project_id) ?? null, source: row.source })),
+    any_project: scope.any_project ?? false,
+    any_source: scope.any_source ?? null,
+  };
+}
+
 async function latestTriageByMessage(supabase: SupabaseClient, messageIds: string[]) {
   const latest = new Map<string, Row>();
   if (messageIds.length === 0) return latest;
-  const triage = await rows<Row>(supabase.from('email_triage')
-    .select('id, message_id, member_id, outcome, urgent, summary, question_for_human, suggested_reply, project_id, summarized_at, created_at')
+  const triage = await rows<Row>(comms(supabase).from('triage')
+    .select('id, message_id, member_id, outcome, urgent, summary, question_for_human, suggested_reply, project_id, project_ids, summarized_at, created_at')
     .in('message_id', messageIds)
     .order('created_at', { ascending: false }));
   for (const row of triage) if (!latest.has(row.message_id as string)) latest.set(row.message_id as string, row);
@@ -126,15 +179,16 @@ export async function listMessages(
   page: { offset: number; limit: number },
 ): Promise<{ data: Row[]; total: number }> {
   if (inboxIds.length === 0) return { data: [], total: 0 };
-  let query = supabase.from('email_messages').select(LIST_COLUMNS, { count: 'exact' })
+  let query = comms(supabase).from('messages').select(LIST_COLUMNS, { count: 'exact' })
     .in('inbox_id', inboxIds)
     .neq('status', 'receiving');
   if (filters.status) query = query.eq('status', filters.status);
   if (filters.projectId) {
-    const threads = await rows<{ id: string }>(supabase.from('email_threads').select('id')
-      .in('inbox_id', inboxIds).eq('project_id', filters.projectId));
-    if (threads.length === 0) return { data: [], total: 0 };
-    query = query.in('thread_id', threads.map((thread) => thread.id));
+    // Conversations filed on the project, whatever else they are filed on.
+    const filed = await rows<{ conversation_id: string }>(comms(supabase).from('conversation_projects').select('conversation_id')
+      .eq('project_id', filters.projectId));
+    if (filed.length === 0) return { data: [], total: 0 };
+    query = query.in('thread_id', filed.map((row) => row.conversation_id));
   }
   const { data, count, error } = await query
     .order('received_at', { ascending: false })
@@ -145,16 +199,17 @@ export async function listMessages(
   const ids = messages.map((message) => message.id as string);
   const threadIds = [...new Set(messages.map((message) => message.thread_id as string))];
   const [senders, threads, attachments, candidates, triage] = await Promise.all([
-    ids.length ? rows<Row>(supabase.from('email_message_recipients').select('message_id, address, name').in('message_id', ids).eq('kind', 'from')) : [],
-    threadIds.length ? rows<Row>(supabase.from('email_threads').select('id, project_id, project_source, project_address_id').in('id', threadIds)) : [],
-    ids.length ? rows<Row>(supabase.from('email_attachments').select('message_id').in('message_id', ids)) : [],
-    ids.length ? rows<Row>(supabase.from('email_message_candidates').select('message_id, project_id').in('message_id', ids)) : [],
+    ids.length ? rows<Row>(comms(supabase).from('participants').select('message_id, address, name').in('message_id', ids).eq('kind', 'from')) : [],
+    threadIds.length ? rows<Row>(comms(supabase).from('conversations').select('id, project_id, project_source, project_address_id').in('id', threadIds)) : [],
+    ids.length ? rows<Row>(comms(supabase).from('attachments').select('message_id').in('message_id', ids)) : [],
+    ids.length ? rows<Row>(comms(supabase).from('message_candidates').select('message_id, project_id').in('message_id', ids)) : [],
     latestTriageByMessage(supabase, ids),
   ]);
-  const [names, addresses, forwarders] = await Promise.all([
+  const [names, addresses, forwarders, filed] = await Promise.all([
     projectNames(supabase, threads.map((thread) => thread.project_id as string)),
     projectAddresses(supabase, threads.map((thread) => thread.project_address_id)),
     forwarderNames(supabase, messages),
+    conversationProjects(supabase, threadIds),
   ]);
   const threadById = new Map(threads.map((thread) => [thread.id as string, thread]));
   return {
@@ -167,6 +222,8 @@ export async function listMessages(
         id: message.id,
         inbox_id: message.inbox_id,
         thread_id: message.thread_id,
+        conversation_id: message.thread_id,
+        channel: message.channel,
         status: message.status,
         subject: message.subject,
         from: sender ? { address: sender.address, name: sender.name } : null,
@@ -177,7 +234,9 @@ export async function listMessages(
         trust: authSummary(message.auth).trust,
         auto_mail_reason: message.auto_mail_reason,
         sorting: sortingOf(message),
+        // The strongest of its projects, as older readers know it.
         project: threadProject(thread, names, addresses),
+        projects: filed.get(message.thread_id as string) ?? [],
         candidate_project_ids: [...new Set(candidates.filter((row) => row.message_id === message.id).map((row) => row.project_id))],
         attachment_count: attachments.filter((row) => row.message_id === message.id).length,
         latest_triage: latest ? { id: latest.id, outcome: latest.outcome, urgent: latest.urgent, created_at: latest.created_at } : null,
@@ -207,14 +266,14 @@ function sortingOf(row: Row) {
  * covers every link, readable or not, so a caller can say some are hidden.
  */
 export async function taskEmails(supabase: SupabaseClient, inboxIds: string[], taskId: string): Promise<{ link_count: number; emails: Row[] }> {
-  const links = await rows<Row>(supabase.from('email_task_links')
+  const links = await rows<Row>(comms(supabase).from('task_links')
     .select('message_id, relation, triage_id, created_at').eq('task_id', taskId).order('created_at'));
   if (links.length === 0 || inboxIds.length === 0) return { link_count: links.length, emails: [] };
   const messageIds = [...new Set(links.map((link) => link.message_id as string))];
-  const messages = await rows<Row>(supabase.from('email_messages')
+  const messages = await rows<Row>(comms(supabase).from('messages')
     .select('id, thread_id, subject, received_at').in('id', messageIds).in('inbox_id', inboxIds).neq('status', 'receiving'));
   const senders = messages.length
-    ? await rows<Row>(supabase.from('email_message_recipients').select('message_id, address, name')
+    ? await rows<Row>(comms(supabase).from('participants').select('message_id, address, name')
         .in('message_id', messages.map((message) => message.id as string)).eq('kind', 'from'))
     : [];
   const emails = links.flatMap((link) => {
@@ -224,6 +283,7 @@ export async function taskEmails(supabase: SupabaseClient, inboxIds: string[], t
     return [{
       id: message.id,
       thread_id: message.thread_id,
+      conversation_id: message.thread_id,
       subject: message.subject,
       from: sender ? { address: sender.address, name: sender.name } : null,
       received_at: message.received_at,
@@ -237,14 +297,16 @@ export async function taskEmails(supabase: SupabaseClient, inboxIds: string[], t
 
 export async function waitingQuestions(supabase: SupabaseClient, inboxIds: string[], limit = 50): Promise<Row[]> {
   if (inboxIds.length === 0) return [];
-  const messages = await rows<Row>(supabase.from('email_messages').select('id, thread_id, subject, received_at')
+  const messages = await rows<Row>(comms(supabase).from('messages').select('id, thread_id, subject, received_at')
     .in('inbox_id', inboxIds).eq('status', 'needs_human').order('received_at').limit(500));
   if (messages.length === 0) return [];
   const ids = messages.map((message) => message.id as string);
-  const [triage, senders, threads] = await Promise.all([
+  const conversationIds = [...new Set(messages.map((message) => message.thread_id as string))];
+  const [triage, senders, threads, filed] = await Promise.all([
     latestTriageByMessage(supabase, ids),
-    rows<Row>(supabase.from('email_message_recipients').select('message_id, address, name').in('message_id', ids).eq('kind', 'from')),
-    rows<Row>(supabase.from('email_threads').select('id, project_id').in('id', [...new Set(messages.map((message) => message.thread_id as string))])),
+    rows<Row>(comms(supabase).from('participants').select('message_id, address, name').in('message_id', ids).eq('kind', 'from')),
+    rows<Row>(comms(supabase).from('conversations').select('id, project_id').in('id', conversationIds)),
+    conversationProjects(supabase, conversationIds),
   ]);
   const projectOf = new Map(threads.map((thread) => [thread.id as string, (thread.project_id as string | null) ?? null]));
   const names = await projectNames(supabase, [...projectOf.values()].filter((id): id is string => !!id));
@@ -259,21 +321,23 @@ export async function waitingQuestions(supabase: SupabaseClient, inboxIds: strin
       return {
         message_id: message.id,
         thread_id: message.thread_id,
+        conversation_id: message.thread_id,
         subject: message.subject,
         from: sender ? { address: sender.address, name: sender.name } : null,
         question: asked!.question_for_human,
         asked_at: asked!.created_at,
         project: projectId ? { id: projectId, name: names.get(projectId) ?? null } : null,
+        projects: (filed.get(message.thread_id as string) ?? []).map((project) => ({ id: project.id, name: project.name, source: project.source })),
       };
     });
 }
 
 export async function messageDetail(supabase: SupabaseClient, message: AccessibleMessage): Promise<Row> {
   const [inbox, thread, threadMessages] = await Promise.all([
-    supabase.from('email_inboxes').select('id, name, address, agent_readable_types').eq('id', message.inbox_id).single(),
-    supabase.from('email_threads').select('id, subject_normalized, project_id, project_source, project_address_id, summary, last_message_at').eq('id', message.thread_id).single(),
-    rows<Row>(supabase.from('email_messages')
-      .select(`id, status, subject, received_at, sent_at, text_body, html_body, new_text, is_forward, auth, auto_mail_reason, internet_message_id, kind, topic, sort_action, sort_reason, superseded_by, ${ROUTING_COLUMNS}`)
+    comms(supabase).from('inboxes').select('id, name, address, agent_readable_types').eq('id', message.inbox_id).single(),
+    comms(supabase).from('conversations').select('id, subject_normalized, project_id, project_source, project_address_id, summary, last_message_at').eq('id', message.thread_id).single(),
+    rows<Row>(comms(supabase).from('messages')
+      .select(`id, channel, status, subject, received_at, sent_at, text_body, html_body, new_text, is_forward, auth, auto_mail_reason, internet_message_id, kind, topic, sort_action, sort_reason, superseded_by, ${ROUTING_COLUMNS}`)
       .eq('thread_id', message.thread_id)
       .neq('status', 'receiving')
       .order('received_at', { ascending: true })),
@@ -285,18 +349,18 @@ export async function messageDetail(supabase: SupabaseClient, message: Accessibl
   const ids = threadMessages.map((row) => row.id as string);
 
   const [recipients, triage, links, attachments, candidates, answers] = await Promise.all([
-    rows<Row>(supabase.from('email_message_recipients').select('message_id, kind, address, name, contact_id, position').in('message_id', ids).order('position')),
+    rows<Row>(comms(supabase).from('participants').select('message_id, kind, address, name, contact_id, position').in('message_id', ids).order('position')),
     latestTriageByMessage(supabase, ids),
-    rows<Row>(supabase.from('email_task_links').select('message_id, task_id, relation, created_at').in('message_id', ids).order('created_at')),
-    rows<Row>(supabase.from('email_attachments')
+    rows<Row>(comms(supabase).from('task_links').select('message_id, task_id, relation, created_at').in('message_id', ids).order('created_at')),
+    rows<Row>(comms(supabase).from('attachments')
       .select('id, message_id, position, filename, content_type, size_bytes, disposition, skipped_reason, uploaded_at, page_count, agent_label')
       .in('message_id', ids).order('position')),
-    rows<Row>(supabase.from('email_message_candidates').select('project_id, reason').eq('message_id', message.id)),
-    rows<Row>(supabase.from('email_question_answers').select('message_id, triage_id, answer, answered_by, created_at').in('message_id', ids).order('created_at')),
+    rows<Row>(comms(supabase).from('message_candidates').select('project_id, reason').eq('message_id', message.id)),
+    rows<Row>(comms(supabase).from('answers').select('message_id, triage_id, answer, answered_by, created_at').in('message_id', ids).order('created_at')),
   ]);
   // A person's answers to questions the agent asked on these emails, with each question.
   const [askedRows, answerers] = answers.length ? await Promise.all([
-    rows<Row>(supabase.from('email_triage').select('id, question_for_human').in('id', [...new Set(answers.map((row) => row.triage_id as string))])),
+    rows<Row>(comms(supabase).from('triage').select('id, question_for_human').in('id', [...new Set(answers.map((row) => row.triage_id as string))])),
     rows<{ id: string; name: string }>(supabase.from('team_members').select('id, name').in('id', [...new Set(answers.map((row) => row.answered_by as string).filter(Boolean))])),
   ]) : [[], []];
   const questionOf = new Map(askedRows.map((row) => [row.id as string, row.question_for_human as string | null]));
@@ -305,10 +369,12 @@ export async function messageDetail(supabase: SupabaseClient, message: Accessibl
   const tasks = taskIds.length
     ? await rows<Row>(supabase.from('tasks').select('id, title, status, ai_readiness, project_id').in('id', taskIds).is('deleted_at', null))
     : [];
-  const [names, addresses, forwarders] = await Promise.all([
-    projectNames(supabase, [thread.data.project_id, ...candidates.map((row) => row.project_id as string)]),
+  const [names, addresses, forwarders, filed, scope] = await Promise.all([
+    projectNames(supabase, [thread.data.project_id, ...candidates.map((row) => row.project_id as string), ...tasks.map((task) => task.project_id as string)]),
     projectAddresses(supabase, [thread.data.project_address_id]),
     forwarderNames(supabase, threadMessages),
+    conversationProjects(supabase, [message.thread_id]),
+    projectScope(supabase, message.id),
   ]);
 
   const present = (row: Row, textCap: number) => {
@@ -354,7 +420,10 @@ export async function messageDetail(supabase: SupabaseClient, message: Accessibl
         .filter((link) => link.message_id === row.id)
         .map((link) => {
           const task = tasks.find((t) => t.id === link.task_id);
-          return { task_id: link.task_id, relation: link.relation, title: task?.title ?? null, status: task?.status ?? null, ai_readiness: task?.ai_readiness ?? null };
+          return {
+            task_id: link.task_id, relation: link.relation, title: task?.title ?? null, status: task?.status ?? null, ai_readiness: task?.ai_readiness ?? null,
+            project_id: task?.project_id ?? null, project_name: task ? names.get(task.project_id as string) ?? null : null,
+          };
         }),
       attachments: attachments
         .filter((attachment) => attachment.message_id === row.id)
@@ -384,7 +453,14 @@ export async function messageDetail(supabase: SupabaseClient, message: Accessibl
     ...present(currentRow, CURRENT_TEXT_CAP),
     inbox: { id: inbox.data.id, name: inbox.data.name, address: inbox.data.address },
     thread_id: message.thread_id,
+    conversation_id: message.thread_id,
+    channel: currentRow.channel,
+    // The strongest of its projects, as older readers know it.
     project: threadProject(thread.data as Row, names, addresses),
+    // Every project the conversation is filed on, strongest first.
+    projects: filed.get(message.thread_id) ?? [],
+    // The projects this email may touch: each item goes on one of them.
+    project_scope: scope,
     candidates: candidateIds.map((projectId) => ({
       project_id: projectId,
       name: names.get(projectId) ?? null,

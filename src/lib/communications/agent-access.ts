@@ -2,12 +2,13 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { ApiError, badRequest, forbidden, notFound } from '@/lib/api/errors';
 import { accessAllows } from '@/lib/api/access';
 import type { AccessContext } from '@/lib/access-control';
+import { comms } from '@/lib/communications/db';
 
 /**
  * Rule 4: an API key reads the inboxes its member can read, as the Inbox
  * scopes them: every inbox for a member who manages inboxes through the API
  * (the owner), otherwise only the inboxes the member was granted
- * (email_inbox_access, how an agent is narrowed to its own). Checked on the
+ * (communications.inbox_access, how an agent is narrowed to its own). Checked on the
  * server for every request; the key's own inbound_email scopes still decide
  * what it may do there. Messages
  * still receiving are invisible to agents, and so is every email in an inbox
@@ -42,11 +43,11 @@ export function isGoneError(error: unknown): boolean {
 
 export async function memberInboxIds(supabase: SupabaseClient, memberId: string, access: AccessContext): Promise<string[]> {
   if (accessAllows(access, 'inbound_email.manage', 'api')) {
-    const { data, error } = await supabase.from('email_inboxes').select('id').order('created_at');
+    const { data, error } = await comms(supabase).from('inboxes').select('id').order('created_at');
     if (error) throw error;
     return ((data ?? []) as { id: string }[]).map((row) => row.id);
   }
-  const { data, error } = await supabase.from('email_inbox_access').select('inbox_id').eq('member_id', memberId);
+  const { data, error } = await comms(supabase).from('inbox_access').select('inbox_id').eq('member_id', memberId);
   if (error) throw error;
   return ((data ?? []) as { inbox_id: string }[]).map((row) => row.inbox_id);
 }
@@ -74,8 +75,8 @@ export async function loadAccessibleMessage(
   messageId: string,
 ): Promise<AccessibleMessage> {
   const id = assertUuid(messageId, 'id');
-  const { data, error } = await supabase
-    .from('email_messages')
+  const { data, error } = await comms(supabase)
+    .from('messages')
     .select('id, inbox_id, thread_id, status')
     .eq('id', id)
     .maybeSingle();

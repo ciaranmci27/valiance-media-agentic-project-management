@@ -3,6 +3,7 @@ import { success } from '@/lib/api/response';
 import { badRequest } from '@/lib/api/errors';
 import { inboxScope } from '@/lib/communications/agent-access';
 import { DRAFT_COLUMNS } from '@/lib/communications/inbox-drafts';
+import { comms } from '@/lib/communications/db';
 
 export const dynamic = 'force-dynamic';
 
@@ -28,12 +29,12 @@ export const GET = withApi(async ({ supabase, searchParams, teamMemberId, access
   const drafts: DraftRow[] = [];
   const newestFirst = status !== 'requested';
   for (let from = 0; drafts.length < 50; from += 500) {
-    const { data, error } = await supabase.from('email_reply_drafts').select(DRAFT_COLUMNS).eq('status', status)
+    const { data, error } = await comms(supabase).from('reply_drafts').select(DRAFT_COLUMNS).eq('status', status)
       .order('created_at', { ascending: !newestFirst }).range(from, from + 499);
     if (error) throw error;
     const page = (data ?? []) as DraftRow[];
     if (page.length === 0) break;
-    const { data: owned, error: ownedError } = await supabase.from('email_messages').select('id')
+    const { data: owned, error: ownedError } = await comms(supabase).from('messages').select('id')
       .in('id', [...new Set(page.map((draft) => draft.message_id))]).in('inbox_id', inboxIds);
     if (ownedError) throw ownedError;
     const mine = new Set(((owned ?? []) as { id: string }[]).map((row) => row.id));
@@ -42,7 +43,7 @@ export const GET = withApi(async ({ supabase, searchParams, teamMemberId, access
   }
   if (drafts.length === 0) return success([]);
   const [{ data: messages, error: messageError }, { data: people, error: peopleError }] = await Promise.all([
-    supabase.from('email_messages').select('id, inbox_id, subject').in('id', [...new Set(drafts.map((draft) => draft.message_id))]),
+    comms(supabase).from('messages').select('id, inbox_id, subject').in('id', [...new Set(drafts.map((draft) => draft.message_id))]),
     supabase.from('team_members').select('id, name').in('id', [...new Set(drafts.map((draft) => draft.requested_by).filter((id): id is string => !!id))]),
   ]);
   if (messageError) throw messageError;
@@ -55,6 +56,7 @@ export const GET = withApi(async ({ supabase, searchParams, teamMemberId, access
       id: draft.id,
       status: draft.status,
       thread_id: draft.thread_id,
+      conversation_id: draft.thread_id,
       message_id: draft.message_id,
       subject: messageById.get(draft.message_id)?.subject ?? '',
       instructions: draft.instructions,

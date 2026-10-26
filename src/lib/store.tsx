@@ -124,7 +124,8 @@ import { findStalePausedEntries, isStalePause } from '@/lib/time-entry-utils';
 import { hasPermission, canReadTasks } from '@/lib/access-control';
 import { loadRetainerFinanceInputs } from '@/lib/finance/use-retainer-finance';
 import { rollbackScope } from '@/lib/optimistic';
-import { INBOX_UPDATED_EVENT } from '@/lib/communications/inbox-types';
+import { INBOX_TABLES, INBOX_UPDATED_EVENT } from '@/lib/communications/inbox-types';
+import { COMMS_SCHEMA } from '@/lib/communications/db';
 import { parsePaymentRuleError } from '@/lib/invoice-payments';
 import { restoreFromTrash, TRASH_TABLES, TrashError, type TrashTable } from '@/lib/supabase/trash';
 
@@ -236,18 +237,9 @@ const REALTIME_TABLE_SLICES: Record<string, RealtimeSlice> = {
   client_communications: 'comms',
   // Its own slice: a contact_emails failure must never make contacts look failed.
   contact_emails: 'contactEmails',
-  // The Inbox reads through session routes; these are invalidation pings.
-  email_inboxes: 'emails',
-  email_inbox_access: 'emails',
-  email_client_domains: 'emails',
-  email_project_addresses: 'emails',
-  email_threads: 'emails',
-  email_messages: 'emails',
-  email_message_recipients: 'emails',
-  email_message_candidates: 'emails',
-  email_attachments: 'emails',
-  email_triage: 'emails',
-  email_task_links: 'emails',
+  // The Inbox reads through session routes; these are invalidation pings
+  // (the communications schema, named schema-qualified).
+  ...Object.fromEntries(INBOX_TABLES.map((table) => [table, 'emails'])),
 };
 
 const ALL_REALTIME_SLICES = [...new Set(Object.values(REALTIME_TABLE_SLICES))];
@@ -1231,6 +1223,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const slice = REALTIME_TABLE_SLICES[payload.table];
         if (!slice) return;
         queue(slice);
+      })
+      // The Inbox's tables live in the communications schema; they are named
+      // schema-qualified here, in the slices and in the reads, so a bare name
+      // never collides with a public table.
+      .on('postgres_changes', { event: '*', schema: COMMS_SCHEMA }, (payload) => {
+        const table = `${COMMS_SCHEMA}.${payload.table}`;
+        invalidateTables([table]);
+        const slice = REALTIME_TABLE_SLICES[table];
+        if (slice) queue(slice);
       })
       .subscribe((status, err) => {
         if (disposed) return;

@@ -5,6 +5,7 @@ import { logAudit } from '@/lib/api/audit';
 import { assertUuid, isGoneError, loadAccessibleMessage } from '@/lib/communications/agent-access';
 import { nullableNumber } from '@/lib/communications/agent-read';
 import { attachmentLabelSchema } from '@/lib/communications/schemas';
+import { comms } from '@/lib/communications/db';
 
 export const dynamic = 'force-dynamic';
 
@@ -13,11 +14,11 @@ export const PATCH = withApi<{ agent_label: string | null }, { id: string; aid: 
   async ({ supabase, params, body, teamMemberId, apiKeyId, access }) => {
     const message = await loadAccessibleMessage(supabase, teamMemberId, access, params.id);
     const attachmentId = assertUuid(params.aid, 'attachment id');
-    const { data: before, error: beforeError } = await supabase.from('email_attachments')
+    const { data: before, error: beforeError } = await comms(supabase).from('attachments')
       .select('id, agent_label').eq('id', attachmentId).eq('message_id', message.id).maybeSingle();
     if (beforeError) throw beforeError;
     if (!before) throw notFound('Attachment');
-    const { data, error } = await supabase.from('email_attachments')
+    const { data, error } = await comms(supabase).from('attachments')
       .update({ agent_label: body.agent_label })
       .eq('id', attachmentId)
       .eq('message_id', message.id)

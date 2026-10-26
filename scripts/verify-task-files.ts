@@ -18,10 +18,9 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { PGlite } from '@electric-sql/pglite';
-import { actAs, createFullSchemaDatabase } from './full-schema-db';
+import { actAs, applyMigrationsFrom, createFullSchemaDatabase, schemaBeforeMigration } from './full-schema-db';
 
-const MIGRATIONS = ['20261024072858_task_files.sql', '20261024074521_task_files_server_writes.sql']
-  .map((name) => join(__dirname, '..', 'supabase', 'migrations', name));
+const FIRST_MIGRATION = '20261024072858_task_files.sql';
 const OWNER_USER = '00000000-0000-0000-0000-0000000000d1';
 const MEMBER_USER = '00000000-0000-0000-0000-0000000000d2';
 const SHA_A = 'a'.repeat(64);
@@ -41,14 +40,6 @@ async function attempt(db: PGlite, sql: string, params: unknown[] = []): Promise
   } catch (error) {
     return (error as Error).message;
   }
-}
-
-/** schema.sql from just before the first task files migration was committed. */
-function schemaBefore(): string {
-  const git = (args: string[]) => execFileSync('git', args, { cwd: join(__dirname, '..'), encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
-  const added = git(['log', '--diff-filter=A', '--format=%H', '--', 'supabase/migrations/20261024072858_task_files.sql']).trim().split('\n').pop();
-  if (!added) throw new Error('the task files migration is not committed');
-  return git(['show', `${added}^:app/supabase/schema.sql`]);
 }
 
 async function run(db: PGlite, label: string) {
@@ -80,13 +71,13 @@ async function run(db: PGlite, label: string) {
     VALUES ('project', $1, 'brand-guide.pdf', 'https://example.com/brand-guide.pdf', $2) RETURNING id`, [project, owner]))[0].id;
   await superuser();
   await db.exec(`
-    INSERT INTO public.email_inboxes (id, name, address, routing_domain, routing_local_part)
+    INSERT INTO communications.inboxes (id, name, address, routing_domain, routing_local_part)
       VALUES ('00000000-0000-4000-8000-0000000000f1', 'Ops', 'ops@example.com', 'relay.example.com', 'ops');
-    INSERT INTO public.email_threads (id, inbox_id) VALUES ('00000000-0000-4000-8000-0000000000f2', '00000000-0000-4000-8000-0000000000f1');
-    INSERT INTO public.email_messages (id, inbox_id, thread_id, status, provider, provider_email_id, internet_message_id)
+    INSERT INTO communications.conversations (id, inbox_id) VALUES ('00000000-0000-4000-8000-0000000000f2', '00000000-0000-4000-8000-0000000000f1');
+    INSERT INTO communications.messages (id, inbox_id, thread_id, status, provider, provider_email_id, internet_message_id)
       VALUES ('00000000-0000-4000-8000-0000000000f3', '00000000-0000-4000-8000-0000000000f1', '00000000-0000-4000-8000-0000000000f2',
               'handled', 'resend', 'tf-1', 'tf-1@example.com');
-    INSERT INTO public.email_attachments (id, message_id, position, filename, content_type, storage_path, sha256, size_bytes, uploaded_at)
+    INSERT INTO communications.attachments (id, message_id, position, filename, content_type, storage_path, sha256, size_bytes, uploaded_at)
       VALUES ('00000000-0000-4000-8000-0000000000f4', '00000000-0000-4000-8000-0000000000f3', 0, 'screenshot.png', 'image/png',
               'inbox/msg/att', '${SHA_B}', 1200, now());
   `);
@@ -128,7 +119,7 @@ async function run(db: PGlite, label: string) {
   // --- A link holds its source -------------------------------------------------------
   await superuser();
   check(t('a linked email attachment cannot be deleted from under the task'),
-    /violates foreign key|task_files/.test((await attempt(db, 'DELETE FROM public.email_attachments WHERE id = $1', [attachment])) ?? ''));
+    /violates foreign key|task_files/.test((await attempt(db, 'DELETE FROM communications.attachments WHERE id = $1', [attachment])) ?? ''));
   check(t('rows are never hard-deleted'), (await attempt(db, 'DELETE FROM public.task_files WHERE task_id = $1', [task])) !== null);
 
   // --- Trash, like comments ------------------------------------------------------------
@@ -166,11 +157,10 @@ async function run(db: PGlite, label: string) {
 }
 
 async function main() {
-  const migrated = await createFullSchemaDatabase({ schemaSql: schemaBefore() });
+  const migrated = await createFullSchemaDatabase({ schemaSql: schemaBeforeMigration(FIRST_MIGRATION) });
   await migrated.exec('RESET ROLE');
-  for (let pass = 0; pass < 2; pass++) {
-    for (const path of MIGRATIONS) await migrated.exec(readFileSync(path, 'utf8'));
-  }
+  // The task files migrations and everything after them, to today's schema.
+  await applyMigrationsFrom(migrated, FIRST_MIGRATION);
   await run(migrated, 'migrated');
   await migrated.close();
 

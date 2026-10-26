@@ -48,7 +48,7 @@ export interface SortInput {
   fromTeam: boolean;
   /** The sender is a known contact or client address. */
   knownPerson: boolean;
-  /** The inbox filters bulk mail its headers mark (email_inboxes.filter_auto_mail). */
+  /** The inbox filters bulk mail its headers mark (communications.inboxes.filter_auto_mail). */
   filterAutoMail: boolean;
   rules: readonly SenderRule[];
 }

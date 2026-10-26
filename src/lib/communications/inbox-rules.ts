@@ -3,6 +3,7 @@ import { RULE_ACTIONS } from './sorting';
 import { describeRule, liveRuleFor, ruleTarget, RULE_COLUMNS, senderRuleSchema, type SenderRuleRow } from './sender-rules';
 import { InboxError, assertCanManageInboxes, loadReadableThread, many, one, type InboxContext } from './inbox-service';
 import { domainOf, organizationalDomain } from './email/addresses';
+import { comms } from '@/lib/communications/db';
 
 /**
  * Sender rules from the Inbox (session routes): list them, make one (from a
@@ -40,7 +41,7 @@ async function present(ctx: InboxContext, rules: SenderRuleRow[]): Promise<Inbox
 /** Live rules first (newest first), then the switched-off ones. */
 export async function listSenderRules(ctx: InboxContext): Promise<{ rules: InboxSenderRule[] }> {
   assertCanManageInboxes(ctx.access);
-  const rows = await many<SenderRuleRow & Record<string, unknown>>(ctx.service.from('email_sender_rules').select(RULE_COLUMNS)
+  const rows = await many<SenderRuleRow & Record<string, unknown>>(comms(ctx.service).from('sender_rules').select(RULE_COLUMNS)
     .order('created_at', { ascending: false }).limit(500));
   const ordered = [...rows.filter((rule) => !rule.disabled_at), ...rows.filter((rule) => rule.disabled_at)];
   return { rules: await present(ctx, ordered) };
@@ -55,11 +56,11 @@ export async function createSenderRule(ctx: InboxContext, request: CreateSenderR
   // The same sender and topic: switched off and replaced, so the history shows both.
   const existing = await liveRuleFor(ctx.service, request.match_kind, target.value, request.topic);
   if (existing) {
-    const { error } = await ctx.service.from('email_sender_rules')
+    const { error } = await comms(ctx.service).from('sender_rules')
       .update({ disabled_at: new Date().toISOString(), disabled_by: ctx.memberId }).eq('id', existing.id).is('disabled_at', null);
     if (error) throw error;
   }
-  const rule = await one<SenderRuleRow & Record<string, unknown>>(ctx.service.from('email_sender_rules').insert({
+  const rule = await one<SenderRuleRow & Record<string, unknown>>(comms(ctx.service).from('sender_rules').insert({
     match_kind: request.match_kind,
     match_value: target.value,
     topic: request.topic,
@@ -77,10 +78,10 @@ export async function createSenderRule(ctx: InboxContext, request: CreateSenderR
 
 /** The open mail in one thread from the rule's sender (and topic) is filtered now, as if it had just arrived. */
 async function filterThreadNow(ctx: InboxContext, threadId: string, rule: SenderRuleRow): Promise<number> {
-  const messages = await many<{ id: string; topic: string | null; routing_basis: string; original_from_address: string | null }>(ctx.service.from('email_messages')
+  const messages = await many<{ id: string; topic: string | null; routing_basis: string; original_from_address: string | null }>(comms(ctx.service).from('messages')
     .select('id, topic, routing_basis, original_from_address').eq('thread_id', threadId).in('status', ['new', 'needs_human']));
   if (messages.length === 0) return 0;
-  const fromRows = await many<{ message_id: string; address: string }>(ctx.service.from('email_message_recipients')
+  const fromRows = await many<{ message_id: string; address: string }>(comms(ctx.service).from('participants')
     .select('message_id, address').eq('kind', 'from').in('message_id', messages.map((message) => message.id)));
   // A teammate's forward is sorted by the person it came from, so it is matched by them too.
   const senders = messages.map((message) => ({
@@ -98,7 +99,7 @@ async function filterThreadNow(ctx: InboxContext, threadId: string, rule: Sender
     .filter((message) => (!rule.topic || message.topic === rule.topic) && senders.some((row) => row.message_id === message.id && matches(row.address)))
     .map((message) => message.id);
   if (ids.length === 0) return 0;
-  const { error } = await ctx.service.from('email_messages').update({
+  const { error } = await comms(ctx.service).from('messages').update({
     status: 'ignored',
     sort_action: 'ignore',
     sort_reason: `Filtered by the rule for ${describeRule(rule).replace(/^./, (first) => first.toLowerCase())}.`,
@@ -110,7 +111,7 @@ async function filterThreadNow(ctx: InboxContext, threadId: string, rule: Sender
 
 export async function updateSenderRule(ctx: InboxContext, ruleId: string, request: UpdateSenderRuleRequest): Promise<{ rule: InboxSenderRule }> {
   assertCanManageInboxes(ctx.access);
-  const rule = await one<SenderRuleRow & Record<string, unknown>>(ctx.service.from('email_sender_rules').select(RULE_COLUMNS).eq('id', ruleId).maybeSingle());
+  const rule = await one<SenderRuleRow & Record<string, unknown>>(comms(ctx.service).from('sender_rules').select(RULE_COLUMNS).eq('id', ruleId).maybeSingle());
   if (!rule) throw new InboxError(404, 'Rule not found');
   const patch: Record<string, unknown> = {};
   if (request.action !== undefined) patch.action = request.action;
@@ -127,7 +128,7 @@ export async function updateSenderRule(ctx: InboxContext, ruleId: string, reques
   if (Object.keys(patch).length === 0) return { rule: (await present(ctx, [rule]))[0] };
   // A person who changes what the rule does makes it theirs; switching it off or on does not.
   if (request.action !== undefined && request.action !== rule.action) patch.source = 'person';
-  const updated = await one<SenderRuleRow & Record<string, unknown>>(ctx.service.from('email_sender_rules')
+  const updated = await one<SenderRuleRow & Record<string, unknown>>(comms(ctx.service).from('sender_rules')
     .update(patch).eq('id', rule.id).select(RULE_COLUMNS).single());
   if (!updated) throw new InboxError(404, 'Rule not found');
   return { rule: (await present(ctx, [updated]))[0] };

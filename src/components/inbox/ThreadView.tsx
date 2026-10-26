@@ -19,12 +19,12 @@ import { Popover } from '@/components/ui/Popover';
 import { RowActionsMenu, type RowAction } from '@/components/ui/RowActionsMenu';
 import { toast } from '@/components/ui/Toast';
 import { announceInboxChange, inboxClient } from '@/lib/communications/inbox-client';
-import { skippedReasonLabel, type InboxAnswer, type InboxAttachment, type InboxLinkedTask, type InboxMessage, type InboxReminder, type InboxThreadDetail, type InboxTriage, type TriageOutcome } from '@/lib/communications/inbox-types';
+import { skippedReasonLabel, type InboxAnswer, type InboxAttachment, type InboxLinkedTask, type InboxMessage, type InboxReminder, type InboxThreadDetail, type InboxTriage, type ThreadProject, type TriageOutcome } from '@/lib/communications/inbox-types';
 import { hasQuotedHtml, inlineImageIds, linkParts, opensAsHtml } from '@/lib/communications/email/display';
 import { FilePreviewModal } from '@/components/ui/FilePreviewModal';
 import { Textarea } from '@/components/ui/inputs/Textarea';
 import { EmailBodyFrame } from './EmailBodyFrame';
-import { ProjectChip, ThreadStateDot, TrustBadge, TrustNote, formatBytes, formatFullTime, formatListTime } from './inbox-badges';
+import { ProjectChips, ThreadStateDot, TrustBadge, TrustNote, formatBytes, formatFullTime, formatListTime } from './inbox-badges';
 import { ThreadProjectDialog } from './ThreadProjectDialog';
 import { LinkTaskDialog } from './LinkTaskDialog';
 import { SenderRuleDialog } from './SenderRuleDialog';
@@ -76,6 +76,8 @@ interface TaskUndo {
   pending: string | null;
 }
 const TaskUndoContext = createContext<TaskUndo>({ trashed: {}, undo: async () => {}, pending: null });
+/** True when the thread is filed on several projects: each linked task then names its own. */
+const ProjectLabelsContext = createContext(false);
 
 export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: ThreadViewProps) {
   const { isDemoMode } = useDemo();
@@ -284,7 +286,25 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
   const latest = detail.messages[detail.messages.length - 1];
   const canHandle = detail.state === 'needs_you' || detail.state === 'new' || detail.state === 'needs_reply';
   const canSendBack = !!latest && latest.status !== 'new';
-  const projectColor = detail.project ? projects.find((p) => p.id === detail.project!.id)?.color : undefined;
+  const projectColor = (projectId: string) => projects.find((p) => p.id === projectId)?.color;
+  const confirmProject = async (project: ThreadProject) => {
+    try {
+      await client.addProject(detail.id, { project_id: project.id });
+      toast('success', `Confirmed ${project.name}`);
+      await refresh();
+    } catch (err) {
+      toast('error', err instanceof Error ? err.message : 'Could not confirm the project');
+    }
+  };
+  const removeProject = async (project: ThreadProject) => {
+    try {
+      await client.removeProject(detail.id, project.id);
+      toast('success', `Removed ${project.name}`);
+      await refresh();
+    } catch (err) {
+      toast('error', err instanceof Error ? err.message : 'Could not remove the project');
+    }
+  };
   const multiDay = new Set(detail.messages.map((message) => dayLabel(message.received_at))).size > 1;
   const agentAvatar = team.find((member) => member.id === detail.inbox.handler?.id)?.avatar || undefined;
   const refresh = async () => {
@@ -340,12 +360,14 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
             )}
             {/* Then what the thread is: its project, its size, and what it is tied to. Its items wrap one by one with the status. */}
             <span className="contents text-xs text-zinc-400">
-              <ProjectChip
-                project={detail.project}
+              <ProjectChips
+                projects={detail.projects}
                 candidates={detail.candidates}
                 agentName={agentName}
-                color={projectColor}
-                onEdit={canTriage ? () => setProjectDialog(true) : undefined}
+                colorOf={projectColor}
+                onAdd={canTriage ? () => setProjectDialog(true) : undefined}
+                onConfirm={canTriage ? (project) => void confirmProject(project) : undefined}
+                onRemove={canTriage ? (project) => void removeProject(project) : undefined}
               />
               {fileCount > 0 && (
                 <>
@@ -431,6 +453,7 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
       {/* Messages */}
       <div ref={scrollRef} className="relative min-h-0 flex-1 overflow-y-auto px-2 py-3 sm:px-5 sm:py-4">
         <TaskUndoContext.Provider value={taskUndo}>
+        <ProjectLabelsContext.Provider value={detail.projects.length > 1}>
         <ol className="space-y-3">
           {detail.messages.map((message) => {
             const day = dayLabel(message.received_at);
@@ -462,6 +485,7 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
             );
           })}
         </ol>
+        </ProjectLabelsContext.Provider>
         </TaskUndoContext.Provider>
         {detail.reply_draft && (
           <div className="mt-4">
@@ -592,6 +616,7 @@ function ThreadLinks({ detail, canEdit, onLink, onUnlink }: {
                 ) : (
                   <span className="min-w-0 flex-1 truncate text-zinc-300">A task in another project</span>
                 )}
+                {detail.projects.length > 1 && <TaskProjectLabel task={task} />}
                 {canEdit && (
                   <button
                     type="button"
@@ -959,6 +984,12 @@ function NotePill({ label, icon, align = 'start', width = 360, className = '', c
   );
 }
 
+/** Which project a linked task sits in, beside it, for a thread filed on several. */
+function TaskProjectLabel({ task }: { task: InboxLinkedTask }) {
+  if (!task.project_name) return null;
+  return <span className="max-w-[8rem] flex-shrink-0 truncate text-[11px] text-zinc-400" title={task.project_name}>{task.project_name}</span>;
+}
+
 /** Who triaged and when, at the top of a note card. */
 function NoteCardHeader({ name, avatar, at }: { name: string; avatar?: string; at: string }) {
   return (
@@ -977,6 +1008,7 @@ function NoteCardHeader({ name, avatar, at }: { name: string; avatar?: string; a
  */
 function TaskReceipt({ task, messageId }: { task: InboxMessage['linked_tasks'][number]; messageId: string }) {
   const { trashed, notATask, undo, pending } = useContext(TaskUndoContext);
+  const projectLabels = useContext(ProjectLabelsContext);
   const verb = task.relation === 'created' ? 'Created' : task.relation === 'updated' ? 'Updated' : 'About';
   const title = task.title ?? 'Task';
   const busy = pending === task.task_id;
@@ -1011,6 +1043,7 @@ function TaskReceipt({ task, messageId }: { task: InboxMessage['linked_tasks'][n
       ) : (
         <span className="min-w-0 flex-1 truncate text-zinc-300">{title}</span>
       )}
+      {projectLabels && <TaskProjectLabel task={task} />}
       {dismissable && (
         <Tooltip content="Moves it to Trash. Undo brings it back.">
           <Button size="sm" variant="ghost" className="!rounded-md !px-2 !py-0.5 flex-shrink-0" disabled={busy}

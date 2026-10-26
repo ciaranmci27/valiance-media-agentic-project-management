@@ -294,7 +294,7 @@ async function main() {
   const cut = await readCapped(new Response(decodedBody, { headers: { 'content-length': '12' } }), 1024).then(() => 'stored', (error: Error) => error.message);
   check(/Content-Length said 12/.test(cut), true, 'without an encoding a length mismatch is still an error');
 
-  // Client sender addresses (email_client_addresses): mapping, validation and the project list.
+  // Client sender addresses (communications.client_addresses): mapping, validation and the project list.
   const bySender = resolveMapping({ contactProjectIds: [], domainProjectIds: [], senderProjectIds: ['p1'] });
   check([bySender.project_id, bySender.candidates], ['p1', [{ project_id: 'p1', reason: 'sender' }]], 'a client sender address alone maps, with reason sender');
   const senderTwice = resolveMapping({ contactProjectIds: [], domainProjectIds: [], senderProjectIds: ['p1', 'p2'] });

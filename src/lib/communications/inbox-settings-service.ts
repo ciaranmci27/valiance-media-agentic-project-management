@@ -1,3 +1,4 @@
+import { comms } from '@/lib/communications/db';
 import { promises as dns } from 'node:dns';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { accessAllows, accessAllowsProject } from '@/lib/api/access';
@@ -39,13 +40,13 @@ export async function relayDomain(service: SupabaseClient): Promise<{ id: unknow
 }
 
 async function messageCount(service: SupabaseClient, inboxId: string): Promise<number> {
-  const { count, error } = await service.from('email_messages').select('id', { count: 'exact', head: true }).eq('inbox_id', inboxId);
+  const { count, error } = await comms(service).from('messages').select('id', { count: 'exact', head: true }).eq('inbox_id', inboxId);
   if (error) throw error;
   return count ?? 0;
 }
 
 async function projectAddressCount(service: SupabaseClient, inboxId: string): Promise<number> {
-  const { count, error } = await service.from('email_project_addresses').select('id', { count: 'exact', head: true }).eq('inbox_id', inboxId);
+  const { count, error } = await comms(service).from('endpoints').select('id', { count: 'exact', head: true }).eq('inbox_id', inboxId);
   if (error) throw error;
   return count ?? 0;
 }
@@ -81,8 +82,8 @@ export async function listInboxSettings(ctx: InboxContext): Promise<InboxSetting
   requireManage(ctx);
   const [relay, inboxes, access] = await Promise.all([
     relayDomain(ctx.service),
-    many<Row>(ctx.service.from('email_inboxes').select(INBOX_COLUMNS).order('created_at')),
-    many<{ inbox_id: string; member_id: string }>(ctx.service.from('email_inbox_access').select('inbox_id, member_id')),
+    many<Row>(comms(ctx.service).from('inboxes').select(INBOX_COLUMNS).order('created_at')),
+    many<{ inbox_id: string; member_id: string }>(comms(ctx.service).from('inbox_access').select('inbox_id, member_id')),
   ]);
   const [counts, addressCounts] = await Promise.all([
     Promise.all(inboxes.map((inbox) => messageCount(ctx.service, inbox.id as string))),
@@ -112,16 +113,16 @@ async function validate(ctx: InboxContext, input: InboxSettingsRequest) {
 }
 
 async function setAccess(ctx: InboxContext, inboxId: string, memberIds: string[]) {
-  const current = (await many<{ member_id: string }>(ctx.service.from('email_inbox_access').select('member_id').eq('inbox_id', inboxId)))
+  const current = (await many<{ member_id: string }>(comms(ctx.service).from('inbox_access').select('member_id').eq('inbox_id', inboxId)))
     .map((row) => row.member_id);
   const removed = current.filter((id) => !memberIds.includes(id));
   const added = memberIds.filter((id) => !current.includes(id));
   if (removed.length) {
-    const { error } = await ctx.service.from('email_inbox_access').delete().eq('inbox_id', inboxId).in('member_id', removed);
+    const { error } = await comms(ctx.service).from('inbox_access').delete().eq('inbox_id', inboxId).in('member_id', removed);
     if (error) throw error;
   }
   if (added.length) {
-    const { error } = await ctx.service.from('email_inbox_access').insert(added.map((member_id) => ({ inbox_id: inboxId, member_id, created_by: ctx.memberId })));
+    const { error } = await comms(ctx.service).from('inbox_access').insert(added.map((member_id) => ({ inbox_id: inboxId, member_id, created_by: ctx.memberId })));
     if (error) throw error;
   }
 }
@@ -144,10 +145,10 @@ function friendly(error: unknown): never {
 }
 
 async function inboxById(ctx: InboxContext, id: string): Promise<InboxSettings> {
-  const { data, error } = await ctx.service.from('email_inboxes').select(INBOX_COLUMNS).eq('id', id).maybeSingle();
+  const { data, error } = await comms(ctx.service).from('inboxes').select(INBOX_COLUMNS).eq('id', id).maybeSingle();
   if (error) throw error;
   if (!data) throw new InboxError(404, 'Inbox not found');
-  const access = (await many<{ member_id: string }>(ctx.service.from('email_inbox_access').select('member_id').eq('inbox_id', id))).map((row) => row.member_id);
+  const access = (await many<{ member_id: string }>(comms(ctx.service).from('inbox_access').select('member_id').eq('inbox_id', id))).map((row) => row.member_id);
   const [messages, projectAddresses] = await Promise.all([messageCount(ctx.service, id), projectAddressCount(ctx.service, id)]);
   return present(data as Row, access, messages, projectAddresses);
 }
@@ -155,7 +156,7 @@ async function inboxById(ctx: InboxContext, id: string): Promise<InboxSettings> 
 export async function createInbox(ctx: InboxContext, input: InboxSettingsRequest): Promise<InboxSettings> {
   requireManage(ctx);
   const { address, memberIds } = await validate(ctx, input);
-  const { data, error } = await ctx.service.from('email_inboxes').insert({
+  const { data, error } = await comms(ctx.service).from('inboxes').insert({
     name: input.name,
     address,
     // Empty values take the defaults: the address's local part, the relay domain.
@@ -181,7 +182,7 @@ export async function updateInbox(ctx: InboxContext, inboxId: string, input: Inb
   const id = assertId(inboxId, 'inbox id');
   await inboxById(ctx, id);
   const { address, memberIds } = await validate(ctx, input);
-  const { error } = await ctx.service.from('email_inboxes').update({
+  const { error } = await comms(ctx.service).from('inboxes').update({
     name: input.name,
     address,
     routing_local_part: input.routing_local_part || '',
@@ -250,7 +251,7 @@ function requireProject(ctx: InboxContext, projectId: string): string {
 export async function listClientDomains(ctx: InboxContext, projectId: string): Promise<ClientEmailDomain[]> {
   const id = requireProject(ctx, projectId);
   if (!canReadDomains(ctx)) throw new InboxError(403, 'Forbidden');
-  return many<ClientEmailDomain & Row>(ctx.service.from('email_client_domains').select('id, domain, project_id, created_at').eq('project_id', id).order('domain'));
+  return many<ClientEmailDomain & Row>(comms(ctx.service).from('client_domains').select('id, domain, project_id, created_at').eq('project_id', id).order('domain'));
 }
 
 export async function addClientDomain(ctx: InboxContext, projectId: string, input: string): Promise<ClientEmailDomain> {
@@ -258,9 +259,9 @@ export async function addClientDomain(ctx: InboxContext, projectId: string, inpu
   if (!canManageDomains(ctx)) throw new InboxError(403, 'Forbidden');
   const valid = validateClientDomain(input);
   if (!valid.ok) throw new InboxError(422, valid.error);
-  const existing = await many<{ id: string }>(ctx.service.from('email_client_domains').select('id').eq('project_id', id).eq('domain', valid.domain));
+  const existing = await many<{ id: string }>(comms(ctx.service).from('client_domains').select('id').eq('project_id', id).eq('domain', valid.domain));
   if (existing.length) throw new InboxError(409, `${valid.domain} is already on this project.`);
-  const { data, error } = await ctx.service.from('email_client_domains')
+  const { data, error } = await comms(ctx.service).from('client_domains')
     .insert({ domain: valid.domain, project_id: id, created_by: ctx.memberId })
     .select('id, domain, project_id, created_at').single();
   if (error) friendly(error);
@@ -271,14 +272,14 @@ export async function removeClientDomain(ctx: InboxContext, projectId: string, d
   const id = requireProject(ctx, projectId);
   if (!canManageDomains(ctx)) throw new InboxError(403, 'Forbidden');
   const target = assertId(domainId, 'domain id');
-  const removed = await many<{ id: string }>(ctx.service.from('email_client_domains').delete().eq('id', target).eq('project_id', id).select('id'));
+  const removed = await many<{ id: string }>(comms(ctx.service).from('client_domains').delete().eq('id', target).eq('project_id', id).select('id'));
   if (removed.length === 0) throw new InboxError(404, 'Domain not found');
 }
 
 // -- Client email addresses (on a project) ----------------------------------
 // Who sends the project mail, one exact address at a time: every address of
 // the project's contacts (read here, managed in Contacts) and client email
-// addresses added on the project (email_client_addresses, public email
+// addresses added on the project (communications.client_addresses, public email
 // services included). The same people as client domains read and manage
 // them; contact names and ids only reach members who can read contacts.
 
@@ -320,7 +321,7 @@ export async function listClientSenders(ctx: InboxContext, projectId: string): P
   const id = requireProject(ctx, projectId);
   if (!canReadDomains(ctx)) throw new InboxError(403, 'Forbidden');
   const [manual, contactAddresses] = await Promise.all([
-    many<{ id: string; address: string; created_at: string }>(ctx.service.from('email_client_addresses').select(SENDER_COLUMNS).eq('project_id', id)),
+    many<{ id: string; address: string; created_at: string }>(comms(ctx.service).from('client_addresses').select(SENDER_COLUMNS).eq('project_id', id)),
     projectContactAddresses(ctx.service, id),
   ]);
   return { addresses: mergeClientSenders(contactAddresses, manual, canReadContacts(ctx)) };
@@ -335,14 +336,14 @@ export async function addClientSender(ctx: InboxContext, projectId: string, inpu
     throw new InboxError(422, `${valid.address} is one of your own addresses, not a client's.`);
   }
   const [existing, contactAddresses] = await Promise.all([
-    many<{ id: string }>(ctx.service.from('email_client_addresses').select('id').eq('project_id', id).eq('address', valid.address)),
+    many<{ id: string }>(comms(ctx.service).from('client_addresses').select('id').eq('project_id', id).eq('address', valid.address)),
     projectContactAddresses(ctx.service, id),
   ]);
   if (existing.length) throw new InboxError(409, `${valid.address} is already on this project.`);
   if (contactAddresses.some((row) => row.address === valid.address)) {
     throw new InboxError(409, `${valid.address} belongs to a contact on this project, so it already routes here.`);
   }
-  const { data, error } = await ctx.service.from('email_client_addresses')
+  const { data, error } = await comms(ctx.service).from('client_addresses')
     .insert({ address: valid.address, project_id: id, created_by: ctx.memberId })
     .select(SENDER_COLUMNS).single();
   if (error) {
@@ -356,7 +357,7 @@ export async function removeClientSender(ctx: InboxContext, projectId: string, s
   const id = requireProject(ctx, projectId);
   if (!canManageDomains(ctx)) throw new InboxError(403, 'Forbidden');
   const target = assertId(senderId, 'sender id');
-  const removed = await many<{ id: string }>(ctx.service.from('email_client_addresses').delete().eq('id', target).eq('project_id', id).select('id'));
+  const removed = await many<{ id: string }>(comms(ctx.service).from('client_addresses').delete().eq('id', target).eq('project_id', id).select('id'));
   if (removed.length === 0) throw new InboxError(404, 'Address not found');
 }
 
@@ -395,7 +396,7 @@ async function requireExistingProject(ctx: InboxContext, projectId: string): Pro
 async function addressValues(ctx: InboxContext, input: ProjectAddressPatch): Promise<Row> {
   const values: Row = {};
   if (input.inbox_id !== undefined) {
-    const { data, error } = await ctx.service.from('email_inboxes').select('id').eq('id', input.inbox_id).maybeSingle();
+    const { data, error } = await comms(ctx.service).from('inboxes').select('id').eq('id', input.inbox_id).maybeSingle();
     if (error) throw error;
     if (!data) throw new InboxError(422, 'Choose the inbox that receives this address.');
     values.inbox_id = input.inbox_id;
@@ -418,8 +419,8 @@ export async function listProjectAddresses(ctx: InboxContext, projectId: string)
   if (!canReadDomains(ctx)) throw new InboxError(403, 'Forbidden');
   const [relay, addresses, inboxes] = await Promise.all([
     relayDomain(ctx.service),
-    many<Row>(ctx.service.from('email_project_addresses').select(ADDRESS_COLUMNS).eq('project_id', id).order('created_at')),
-    many<{ id: string; name: string; address: string; enabled: boolean }>(ctx.service.from('email_inboxes').select('id, name, address, enabled').order('created_at')),
+    many<Row>(comms(ctx.service).from('endpoints').select(ADDRESS_COLUMNS).eq('project_id', id).order('created_at')),
+    many<{ id: string; name: string; address: string; enabled: boolean }>(comms(ctx.service).from('inboxes').select('id, name, address, enabled').order('created_at')),
   ]);
   return { relay_domain: relay?.domain ?? '', addresses: addresses.map(presentAddress), inboxes };
 }
@@ -430,7 +431,7 @@ export async function addProjectAddress(ctx: InboxContext, projectId: string, in
   await requireExistingProject(ctx, id);
   const values = await addressValues(ctx, input);
   if (!values.routing_local_part && !values.public_address) throw new InboxError(422, NEEDS_ROUTING);
-  const { data, error } = await ctx.service.from('email_project_addresses').insert({
+  const { data, error } = await comms(ctx.service).from('endpoints').insert({
     ...values,
     project_id: id,
     // Empty takes the relay domain (email_project_addresses_before_write).
@@ -446,14 +447,14 @@ export async function updateProjectAddress(ctx: InboxContext, projectId: string,
   const id = requireProject(ctx, projectId);
   if (!canManageDomains(ctx)) throw new InboxError(403, 'Forbidden');
   const target = assertId(addressId, 'address id');
-  const { data: current, error: currentError } = await ctx.service.from('email_project_addresses')
+  const { data: current, error: currentError } = await comms(ctx.service).from('endpoints')
     .select('public_address').eq('id', target).eq('project_id', id).maybeSingle();
   if (currentError) throw currentError;
   if (!current) throw new InboxError(404, 'Address not found');
   const values = await addressValues(ctx, input);
   const publicAddress = values.public_address !== undefined ? values.public_address : current.public_address;
   if (values.routing_local_part === '' && !publicAddress) throw new InboxError(422, NEEDS_ROUTING);
-  const { data, error } = await ctx.service.from('email_project_addresses').update(values)
+  const { data, error } = await comms(ctx.service).from('endpoints').update(values)
     .eq('id', target).eq('project_id', id).select(ADDRESS_COLUMNS);
   if (error) friendly(error);
   const row = ((data ?? []) as Row[])[0];
@@ -466,6 +467,6 @@ export async function removeProjectAddress(ctx: InboxContext, projectId: string,
   const id = requireProject(ctx, projectId);
   if (!canManageDomains(ctx)) throw new InboxError(403, 'Forbidden');
   const target = assertId(addressId, 'address id');
-  const removed = await many<{ id: string }>(ctx.service.from('email_project_addresses').delete().eq('id', target).eq('project_id', id).select('id'));
+  const removed = await many<{ id: string }>(comms(ctx.service).from('endpoints').delete().eq('id', target).eq('project_id', id).select('id'));
   if (removed.length === 0) throw new InboxError(404, 'Address not found');
 }

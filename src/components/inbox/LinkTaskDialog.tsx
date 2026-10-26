@@ -20,9 +20,10 @@ const RELATIONS: { value: TaskLinkRelation; label: string; description: string }
 ];
 
 /**
- * Ties the thread to a task in its project (any reachable project while the
- * thread has none: linking files it there). Tasks it already links are left
- * out; open ones list before done ones.
+ * Ties the thread to a task in any project the member can open: a task on a
+ * project the thread is not filed on yet adds that project to it. Tasks it
+ * already links are left out; the thread's own projects list first, then
+ * open tasks before done ones.
  */
 export function LinkTaskDialog({ isOpen, onClose, detail, onLinked }: {
   isOpen: boolean;
@@ -39,16 +40,19 @@ export function LinkTaskDialog({ isOpen, onClose, detail, onLinked }: {
   const linked = useMemo(() => new Set(detail.messages.flatMap((message) => message.linked_tasks.map((task) => task.task_id))), [detail.messages]);
   const options = useMemo(() => {
     const projectName = (id: string) => projects.find((project) => project.id === id)?.name ?? '';
+    const filed = new Set(detail.projects.map((project) => project.id));
     return tasks
-      .filter((task) => !linked.has(task.id) && (!detail.project || task.project_id === detail.project.id))
-      .sort((a, b) => Number(a.status === 'done') - Number(b.status === 'done') || a.title.localeCompare(b.title))
+      .filter((task) => !linked.has(task.id))
+      .sort((a, b) => Number(!filed.has(a.project_id)) - Number(!filed.has(b.project_id))
+        || Number(a.status === 'done') - Number(b.status === 'done')
+        || a.title.localeCompare(b.title))
       .map((task) => ({
         value: task.id,
         label: task.title,
-        detail: detail.project ? STATUS_LABELS[task.status] : `${projectName(task.project_id)} · ${STATUS_LABELS[task.status]}`,
+        detail: `${projectName(task.project_id)} · ${STATUS_LABELS[task.status]}`,
         keywords: projectName(task.project_id),
       }));
-  }, [tasks, projects, linked, detail.project]);
+  }, [tasks, projects, linked, detail.projects]);
 
   const close = () => {
     setTaskId('');
@@ -61,7 +65,7 @@ export function LinkTaskDialog({ isOpen, onClose, detail, onLinked }: {
     setSaving(true);
     try {
       const result = await inboxClient(isDemoMode).linkTask(detail.id, { task_id: taskId, relation });
-      toast('success', result.project_set ? 'Linked, and the thread is filed in that task\'s project' : 'Linked to the task');
+      toast('success', result.project_set ? 'Linked, and the thread is now filed on that task\'s project too' : 'Linked to the task');
       setTaskId('');
       setRelation('related');
       await onLinked();
@@ -85,7 +89,9 @@ export function LinkTaskDialog({ isOpen, onClose, detail, onLinked }: {
           searchable
           placeholder={options.length ? 'Search tasks' : 'No tasks to link'}
           emptyText="No matching tasks."
-          helperText={detail.project ? `Tasks in ${detail.project.name}.` : 'This thread has no project yet: linking files it in the task\'s project.'}
+          helperText={detail.projects.length
+            ? `Tasks in ${detail.projects.map((project) => project.name).join(', ')} list first. A task in another project adds that project to the thread.`
+            : 'This thread has no project yet: linking files it on the task\'s project.'}
         />
         <RadioGroup
           label="How it relates"

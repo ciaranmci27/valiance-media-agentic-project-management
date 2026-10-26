@@ -4,8 +4,8 @@ import { validateClientDomain } from './email/public-domains';
 import { attentionCounts, matchesSearch, snippetOf, tabCounts, threadFlags, threadInTab, type InboxAttention, type MessageState } from './inbox-view';
 import type {
   ClientEmailDomain, ClientSenderAddress, ClientSenderAddressList, InboxMessage, InboxSettings, InboxSettingsInput, InboxSettingsList, InboxSummary, InboxTab,
-  InboxThreadDetail, InboxThreadList, InboxThreadSummary, MxStatus, ProjectEmailAddress, ProjectEmailAddressInput,
-  ProjectEmailAddressList, SetThreadProjectRequest, SetThreadProjectResult, TaskSourceEmails,
+  InboxLinkedTask, InboxThreadDetail, InboxThreadList, InboxThreadSummary, MxStatus, ProjectEmailAddress, ProjectEmailAddressInput,
+  ProjectEmailAddressList, SetThreadProjectRequest, SetThreadProjectResult, TaskSourceEmails, ThreadProject,
 } from './inbox-types';
 
 /**
@@ -40,7 +40,11 @@ const UNTRUSTED = { level: 'untrusted' as const, reason: 'DKIM failed for the Fr
 let counter = 0;
 const id = (prefix: string) => `${prefix}-${String(++counter).padStart(4, '0')}-4000-8000-${String(counter).padStart(12, '0')}`;
 
-function message(partial: Partial<InboxMessage> & Pick<InboxMessage, 'subject' | 'received_at' | 'from' | 'new_text'>): InboxMessage {
+type DemoMessage = Omit<Partial<InboxMessage>, 'linked_tasks'> & Pick<InboxMessage, 'subject' | 'received_at' | 'from' | 'new_text'> & {
+  linked_tasks?: Omit<InboxLinkedTask, 'project_name'>[];
+};
+
+function message({ linked_tasks: links = [], ...partial }: DemoMessage): InboxMessage {
   return {
     id: id('9f9f9f9f'),
     status: 'handled',
@@ -58,11 +62,11 @@ function message(partial: Partial<InboxMessage> & Pick<InboxMessage, 'subject' |
     html_body: null,
     attachments: [],
     triage: null,
-    linked_tasks: [],
     reminders: [],
     reviewed_at: null,
     reviewed_by: null,
     ...partial,
+    linked_tasks: links.map((link) => ({ ...link, project_name: link.project_id ? PROJECT_NAMES[link.project_id] ?? 'Project' : null })),
   };
 }
 
@@ -76,8 +80,8 @@ const triage = (partial: Omit<InboxMessage['triage'] & object, 'id' | 'member' |
 
 function buildThreads(): InboxThreadDetail[] {
   counter = 0;
-  const thread = (detail: Omit<InboxThreadDetail, 'id' | 'state' | 'urgent' | 'untrusted' | 'summary'> & { summary?: string | null }): InboxThreadDetail => ({
-    id: id('9c9c9c9c'), state: 'handled', urgent: false, untrusted: false, summary: null, ...detail,
+  const thread = (detail: Omit<InboxThreadDetail, 'id' | 'state' | 'urgent' | 'untrusted' | 'summary' | 'projects'> & { summary?: string | null; projects?: ThreadProject[] }): InboxThreadDetail => ({
+    id: id('9c9c9c9c'), state: 'handled', urgent: false, untrusted: false, summary: null, projects: detail.project ? [detail.project] : [], ...detail,
   });
   return [
     thread({
@@ -351,6 +355,7 @@ function summary(detail: InboxThreadDetail): InboxThreadSummary {
     inbox_name: detail.inbox.name,
     subject: latest.subject || detail.subject,
     project: detail.project,
+    projects: detail.projects.map(({ address: _address, ...project }) => project),
     last_message_at: latest.received_at,
     message_count: detail.messages.length,
     sender: latest.original_sender ?? (latest.from ? { name: latest.from.name, address: latest.from.address } : null),
@@ -406,6 +411,7 @@ export const demoInbox = {
     const detail = store().find((t) => t.id === threadId);
     if (!detail) throw new Error('Thread not found');
     detail.project = { id: request.project_id, name: PROJECT_NAMES[request.project_id] ?? 'Project', source: 'person' };
+    detail.projects = [detail.project];
     let rememberedDomain: SetThreadProjectResult['remembered_domain'] = null;
     if (request.remember_domain) {
       const valid = validateClientDomain(request.remember_domain.domain);
@@ -421,6 +427,30 @@ export const demoInbox = {
         : null,
       remembered_domain: rememberedDomain,
     };
+  },
+
+  async addProject(threadId: string, request: SetThreadProjectRequest): Promise<SetThreadProjectResult> {
+    await pause();
+    const detail = store().find((t) => t.id === threadId);
+    if (!detail) throw new Error('Thread not found');
+    const project = { id: request.project_id, name: PROJECT_NAMES[request.project_id] ?? 'Project', source: 'person' as const };
+    // A person's project ranks first; the agent's choices and the rest follow.
+    detail.projects = [project, ...detail.projects.filter((p) => p.id !== project.id)];
+    detail.project = detail.projects[0];
+    return { project, remembered_sender: null, remembered_domain: null };
+  },
+
+  async removeProject(threadId: string, projectId: string): Promise<{ removed: boolean }> {
+    await pause();
+    const detail = store().find((t) => t.id === threadId);
+    if (!detail) throw new Error('Thread not found');
+    if (detail.messages.some((m) => m.linked_tasks.some((task) => task.project_id === projectId))) {
+      throw new Error('A task on that project is linked to this thread. Unlink the task, or move it, first.');
+    }
+    const before = detail.projects.length;
+    detail.projects = detail.projects.filter((p) => p.id !== projectId);
+    detail.project = detail.projects[0] ?? null;
+    return { removed: detail.projects.length < before };
   },
 
   async markHandled(threadId: string): Promise<{ handled: number; reviewed: number }> {

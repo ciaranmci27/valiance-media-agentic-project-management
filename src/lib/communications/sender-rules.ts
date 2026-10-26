@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { isHostname, normalizeAddress } from './email/addresses';
 import { isPublicEmailDomain } from './email/public-domains';
 import { MAIL_TOPICS, RULE_ACTIONS, type MailTopic, type RuleAction } from './sorting';
+import { comms } from '@/lib/communications/db';
 
 /**
  * Sender rules: what to do with mail from an address or a domain, for every
@@ -93,7 +94,7 @@ export function rulesOverlap(a: Pick<SenderRuleRow, 'match_kind' | 'match_value'
 
 /** The live rule with the same sender and topic, if any. */
 export async function liveRuleFor(supabase: SupabaseClient, kind: string, value: string, topic: string | null): Promise<SenderRuleRow | null> {
-  let query = supabase.from('email_sender_rules').select(RULE_COLUMNS)
+  let query = comms(supabase).from('sender_rules').select(RULE_COLUMNS)
     .eq('match_kind', kind).eq('match_value', value).is('disabled_at', null);
   query = topic ? query.eq('topic', topic) : query.is('topic', null);
   const { data, error } = await query.maybeSingle();

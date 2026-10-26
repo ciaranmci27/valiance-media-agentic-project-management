@@ -9,7 +9,7 @@
  *   resumes; the batch budget leaves the rest for the next run;
  * - the orphan sweep deletes only objects no row owns, keeps a young
  *   receiving message's files and paths it does not recognize;
- * - each run is recorded in email_maintenance_runs.
+ * - each run is recorded in communications.maintenance_runs.
  *
  * Run: npx tsx --tsconfig tsconfig.mcp-test.json scripts/verify-inbound-email-retention.ts
  */
@@ -48,11 +48,11 @@ async function makeMessage(db: PGlite, storage: FakeStorage, options: {
   const status = options.status ?? 'new';
   let thread = options.thread ?? null;
   if (!thread && options.newThread !== false && status !== 'receiving') {
-    thread = (await rows(db, "INSERT INTO email_threads(inbox_id, subject_normalized) VALUES ($1, 'subject') RETURNING id", [options.inbox]))[0].id;
+    thread = (await rows(db, "INSERT INTO communications.conversations(inbox_id, subject_normalized) VALUES ($1, 'subject') RETURNING id", [options.inbox]))[0].id;
   }
   const raw = options.raw !== false ? `${options.inbox}/${id}/raw.eml` : null;
   await db.query(
-    `INSERT INTO email_messages(id, inbox_id, thread_id, status, provider, provider_email_id, internet_message_id, subject,
+    `INSERT INTO communications.messages(id, inbox_id, thread_id, status, provider, provider_email_id, internet_message_id, subject,
        received_at, created_at, raw_storage_path, completed_at)
      VALUES ($1::uuid,$2,$3,$4::text,'test',$1::text,$1::text || '@test.example','Subject',
        now() - make_interval(days => $5::int), now() - make_interval(hours => $6::int), $7,
@@ -63,15 +63,15 @@ async function makeMessage(db: PGlite, storage: FakeStorage, options: {
   for (let position = 0; position < (options.attachments ?? 0); position++) {
     const attachment = randomUUID();
     const path = `${options.inbox}/${id}/${attachment}`;
-    await db.query('INSERT INTO email_attachments(id, message_id, position, filename, storage_path) VALUES ($1,$2,$3,$4,$5)', [attachment, id, position, `file-${position}.pdf`, path]);
+    await db.query('INSERT INTO communications.attachments(id, message_id, position, filename, storage_path) VALUES ($1,$2,$3,$4,$5)', [attachment, id, position, `file-${position}.pdf`, path]);
     paths.push(path);
   }
   for (const path of paths) storage.objects.set(`${BUCKET}/${path}`, { bytes: Buffer.from(`bytes of ${path}`), contentType: 'application/octet-stream' });
-  await db.query("INSERT INTO email_message_recipients(message_id, kind, address, contact_id) VALUES ($1,'from','dana@client.example',$2),($1,'to','ashley@relay.example',NULL)", [id, ids.contact]);
-  await db.query("INSERT INTO email_message_candidates(message_id, project_id, reason) VALUES ($1,$2,'contact')", [id, ids.project]);
+  await db.query("INSERT INTO communications.participants(message_id, kind, address, contact_id) VALUES ($1,'from','dana@client.example',$2),($1,'to','ashley@relay.example',NULL)", [id, ids.contact]);
+  await db.query("INSERT INTO communications.message_candidates(message_id, project_id, reason) VALUES ($1,$2,'contact')", [id, ids.project]);
   if (options.triage) {
-    const triage = (await rows(db, "INSERT INTO email_triage(message_id, outcome, summary) VALUES ($1,'task','Did a thing') RETURNING id", [id]))[0].id;
-    if (options.task) await db.query("INSERT INTO email_task_links(message_id, task_id, relation, triage_id) VALUES ($1,$2,'created',$3)", [id, options.task, triage]);
+    const triage = (await rows(db, "INSERT INTO communications.triage(message_id, outcome, summary) VALUES ($1,'task','Did a thing') RETURNING id", [id]))[0].id;
+    if (options.task) await db.query("INSERT INTO communications.task_links(message_id, task_id, relation, triage_id) VALUES ($1,$2,'created',$3)", [id, options.task, triage]);
   }
   return { id, thread, paths };
 }
@@ -81,7 +81,7 @@ async function main() {
   await db.query(`INSERT INTO team_members(id, name, role) VALUES ($1,'Sam','owner')`, [ids.owner]);
   await db.query(`INSERT INTO projects(id, name) VALUES ($1,'Acme')`, [ids.project]);
   await db.query(`INSERT INTO contacts(id, name, email) VALUES ($1,'Dana','dana@client.example')`, [ids.contact]);
-  await db.query(`INSERT INTO email_inboxes(id, name, address, retention_days) VALUES ($1,'Ashley','ashley@agency.example',90),($2,'Billing','billing@agency.example',7)`, [ids.inboxA, ids.inboxB]);
+  await db.query(`INSERT INTO communications.inboxes(id, name, address, retention_days) VALUES ($1,'Ashley','ashley@agency.example',90),($2,'Billing','billing@agency.example',7)`, [ids.inboxA, ids.inboxB]);
   const task = (await rows(db, "INSERT INTO tasks(project_id, title, description, created_by) VALUES ($1,'From an email','Every detail copied here',$2) RETURNING id", [ids.project, ids.owner]))[0].id as string;
 
   const storage = new FakeStorage();
@@ -93,8 +93,8 @@ async function main() {
   });
   const supabase = createClient(server.url, 'fake-service-key', { auth: { persistSession: false } });
   const exists = (path: string) => storage.objects.has(`${BUCKET}/${path}`);
-  const messageExists = async (id: string) => (await rows(db, 'SELECT 1 FROM email_messages WHERE id=$1', [id])).length === 1;
-  const lastRun = async (kind: string) => (await rows(db, 'SELECT * FROM email_maintenance_runs WHERE kind=$1', [kind]))[0];
+  const messageExists = async (id: string) => (await rows(db, 'SELECT 1 FROM communications.messages WHERE id=$1', [id])).length === 1;
+  const lastRun = async (kind: string) => (await rows(db, 'SELECT * FROM communications.maintenance_runs WHERE kind=$1', [kind]))[0];
 
   try {
     const { runRetention, runOrphanSweep } = await import('../src/lib/communications/retention');
@@ -118,7 +118,7 @@ async function main() {
     const weak = await call(retentionRoute, '/api/internal/inbound-email/retention', 'Bearer short');
     process.env.CRON_SECRET = CRON_SECRET;
     check('auth: without CRON_SECRET the routes are off (404); a too-short secret is 503', off.status === 404 && weak.status === 503, [off.status, weak.status]);
-    check('auth: refused requests ran nothing', (await rows(db, 'SELECT 1 FROM email_maintenance_runs')).length === 0);
+    check('auth: refused requests ran nothing', (await rows(db, 'SELECT 1 FROM communications.maintenance_runs')).length === 0);
 
     // ---- Retention ------------------------------------------------------
     const oldAlone = await makeMessage(db, storage, { inbox: ids.inboxA, days: 100, attachments: 2, triage: true, task });
@@ -138,7 +138,7 @@ async function main() {
     storage.onRemove = async (paths) => {
       removeCalls++;
       for (const path of paths) {
-        const owned = await rows(db, 'SELECT 1 FROM email_messages WHERE raw_storage_path=$1 UNION ALL SELECT 1 FROM email_attachments WHERE storage_path=$1', [path]);
+        const owned = await rows(db, 'SELECT 1 FROM communications.messages WHERE raw_storage_path=$1 UNION ALL SELECT 1 FROM communications.attachments WHERE storage_path=$1', [path]);
         if (owned.length === 0) orderViolations.push(path);
       }
     };
@@ -153,20 +153,20 @@ async function main() {
     check('retention: per inbox retention_days (30 days kept at 90, gone at 7)', await messageExists(keptA.id) && keptA.paths.every(exists) && !(await messageExists(oldB.id)));
     check('retention: recent messages are kept with their files', await messageExists(youngInThread.id) && await messageExists(youngB.id) && [...youngInThread.paths, ...youngB.paths].every(exists));
     check('retention: a receiving row under 24 h old is kept, however old its received_at', await messageExists(receivingYoung.id) && receivingYoung.paths.every(exists));
-    const leftovers = await rows(db, `SELECT 'attachments' AS t FROM email_attachments WHERE message_id = ANY($1::uuid[])
-      UNION ALL SELECT 'triage' FROM email_triage WHERE message_id = ANY($1::uuid[])
-      UNION ALL SELECT 'links' FROM email_task_links WHERE message_id = ANY($1::uuid[])
-      UNION ALL SELECT 'recipients' FROM email_message_recipients WHERE message_id = ANY($1::uuid[])
-      UNION ALL SELECT 'candidates' FROM email_message_candidates WHERE message_id = ANY($1::uuid[])`,
+    const leftovers = await rows(db, `SELECT 'attachments' AS t FROM communications.attachments WHERE message_id = ANY($1::uuid[])
+      UNION ALL SELECT 'triage' FROM communications.triage WHERE message_id = ANY($1::uuid[])
+      UNION ALL SELECT 'links' FROM communications.task_links WHERE message_id = ANY($1::uuid[])
+      UNION ALL SELECT 'recipients' FROM communications.participants WHERE message_id = ANY($1::uuid[])
+      UNION ALL SELECT 'candidates' FROM communications.message_candidates WHERE message_id = ANY($1::uuid[])`,
       [[oldAlone.id, oldInThread.id, oldB.id, stuck.id]]);
     check('retention: attachments, triage, task links, recipients and candidates go with the message', leftovers.length === 0, leftovers);
     check('retention: a thread left empty is dropped; a thread with a recent message stays',
-      (await rows(db, 'SELECT 1 FROM email_threads WHERE id = ANY($1::uuid[])', [[oldAlone.thread, oldB.thread]])).length === 0
-      && (await rows(db, 'SELECT 1 FROM email_threads WHERE id = $1', [oldInThread.thread])).length === 1);
+      (await rows(db, 'SELECT 1 FROM communications.conversations WHERE id = ANY($1::uuid[])', [[oldAlone.thread, oldB.thread]])).length === 0
+      && (await rows(db, 'SELECT 1 FROM communications.conversations WHERE id = $1', [oldInThread.thread])).length === 1);
     check('retention: tasks keep their own content', JSON.stringify(await rows(db, 'SELECT id, title, description, status FROM tasks ORDER BY id')) === JSON.stringify(tasksBefore));
     check('retention: counts', s1.messages_deleted === 3 && s1.stuck_deleted === 1 && s1.threads_deleted === 2 && s1.files_deleted === 3 + 2 + 2 + 2 && s1.failures === 0
       && s1.by_inbox[ids.inboxA]?.messages_deleted === 2 && s1.by_inbox[ids.inboxA]?.stuck_deleted === 1 && s1.by_inbox[ids.inboxB]?.messages_deleted === 1, s1);
-    const lastErrors = await rows(db, 'SELECT id, last_error FROM email_inboxes WHERE id = ANY($1::uuid[])', [[ids.inboxA, ids.inboxB]]);
+    const lastErrors = await rows(db, 'SELECT id, last_error FROM communications.inboxes WHERE id = ANY($1::uuid[])', [[ids.inboxA, ids.inboxB]]);
     check('retention: an inbox that lost a stuck email shows it as its last error; the other is untouched',
       /Retention deleted 1 email that never finished arriving/.test(lastErrors.find((r) => r.id === ids.inboxA)?.last_error ?? '')
       && !lastErrors.find((r) => r.id === ids.inboxB)?.last_error, lastErrors);
@@ -185,9 +185,9 @@ async function main() {
     storage.failRemove.add(flakyA.paths[1]);
     const partial = await runRetention(supabase, { batchSize: 2 });
     check('failure: the message whose file failed keeps its rows and files', await messageExists(flakyA.id) && flakyA.paths.every(exists)
-      && (await rows(db, 'SELECT 1 FROM email_attachments WHERE message_id=$1', [flakyA.id])).length === 2
-      && (await rows(db, 'SELECT 1 FROM email_triage WHERE message_id=$1', [flakyA.id])).length === 1
-      && (await rows(db, 'SELECT 1 FROM email_threads WHERE id=$1', [flakyA.thread])).length === 1);
+      && (await rows(db, 'SELECT 1 FROM communications.attachments WHERE message_id=$1', [flakyA.id])).length === 2
+      && (await rows(db, 'SELECT 1 FROM communications.triage WHERE message_id=$1', [flakyA.id])).length === 1
+      && (await rows(db, 'SELECT 1 FROM communications.conversations WHERE id=$1', [flakyA.thread])).length === 1);
     check('failure: the rest of the batch still goes', !(await messageExists(fineA.id)) && !(await messageExists(fineB.id)) && [...fineA.paths, ...fineB.paths].every((path) => !exists(path)));
     check('failure: counted and reported as partial', partial.outcome === 'partial' && partial.failures === 1 && partial.failed_message_ids[0] === flakyA.id
       && partial.messages_deleted === 2 && /storage delete failed/.test(partial.last_error ?? ''), partial);
@@ -196,7 +196,7 @@ async function main() {
     storage.failRemove.clear();
     const resumed = await runRetention(supabase, { batchSize: 2 });
     check('failure: the next run resumes and finishes', resumed.outcome === 'complete' && resumed.messages_deleted === 1 && !(await messageExists(flakyA.id))
-      && flakyA.paths.every((path) => !exists(path)) && (await rows(db, 'SELECT 1 FROM email_threads WHERE id=$1', [flakyA.thread])).length === 0, resumed);
+      && flakyA.paths.every((path) => !exists(path)) && (await rows(db, 'SELECT 1 FROM communications.conversations WHERE id=$1', [flakyA.thread])).length === 0, resumed);
 
     // Bounded batches: a run stops at its budget and says more is pending.
     const many = [];
@@ -236,7 +236,7 @@ async function main() {
 
     // Once the receiving row is over 24 h old, its unclaimed file is an orphan
     // (its claimed files go with the row in retention).
-    await db.query("UPDATE email_messages SET created_at = now() - interval '25 hours' WHERE id=$1", [receivingYoung.id]);
+    await db.query("UPDATE communications.messages SET created_at = now() - interval '25 hours' WHERE id=$1", [receivingYoung.id]);
     const later = await runOrphanSweep(supabase);
     check('sweep: an old receiving row protects only its own paths', !exists(youngReceivingExtra) && receivingYoung.paths.every(exists) && later.files_deleted === 1, later);
 
@@ -245,12 +245,12 @@ async function main() {
     const withCopy = async (days: number, sha256: string) => {
       const made = await makeMessage(db, storage, { inbox: ids.inboxA, days, raw: false, status: 'handled' });
       const attachment = randomUUID();
-      await db.query("INSERT INTO email_attachments(id, message_id, position, filename) VALUES ($1,$2,0,'logo.png')", [attachment, made.id]);
-      const { data, error } = await supabase.rpc('email_claim_file', { p_attachment_id: attachment, p_sha256: sha256, p_size_bytes: 4 });
+      await db.query("INSERT INTO communications.attachments(id, message_id, position, filename) VALUES ($1,$2,0,'logo.png')", [attachment, made.id]);
+      const { data, error } = await supabase.schema('communications').rpc('claim_file', { p_attachment_id: attachment, p_sha256: sha256, p_size_bytes: 4 });
       if (error) throw new Error(error.message);
       const copy = data as { file_id: string; storage_path: string; stored: boolean };
       if (!copy.stored) storage.objects.set(`${BUCKET}/${copy.storage_path}`, { bytes: Buffer.from('logo'), contentType: 'image/png' });
-      const stored = await supabase.rpc('email_file_stored', { p_attachment_id: attachment });
+      const stored = await supabase.schema('communications').rpc('file_stored', { p_attachment_id: attachment });
       if (stored.error) throw new Error(stored.error.message);
       return { ...made, attachment, copy };
     };
@@ -263,23 +263,23 @@ async function main() {
     const keptCopy = await runRetention(supabase);
     check('copies: deleting one email keeps a copy another email still uses',
       !(await messageExists(firstLogo.id)) && exists(firstLogo.copy.storage_path) && keptCopy.copies_released === 0
-        && (await rows(db, 'SELECT 1 FROM email_files WHERE id=$1', [firstLogo.copy.file_id])).length === 1, keptCopy);
-    await db.query("UPDATE email_messages SET received_at = now() - interval '100 days' WHERE id=$1", [secondLogo.id]);
+        && (await rows(db, 'SELECT 1 FROM communications.files WHERE id=$1', [firstLogo.copy.file_id])).length === 1, keptCopy);
+    await db.query("UPDATE communications.messages SET received_at = now() - interval '100 days' WHERE id=$1", [secondLogo.id]);
     const releasedCopy = await runRetention(supabase);
     check('copies: once its last email goes, the copy and its bytes go too',
       !(await messageExists(secondLogo.id)) && !exists(secondLogo.copy.storage_path) && releasedCopy.copies_released === 1
-        && (await rows(db, 'SELECT 1 FROM email_files WHERE id=$1', [secondLogo.copy.file_id])).length === 0, releasedCopy);
+        && (await rows(db, 'SELECT 1 FROM communications.files WHERE id=$1', [secondLogo.copy.file_id])).length === 0, releasedCopy);
     // A copy marked for deletion is never reused: the next email gets a new one at its own path.
     const marked = await withCopy(1, 'b'.repeat(64));
-    await db.query('UPDATE email_files SET deleting_at = now() WHERE id=$1', [marked.copy.file_id]);
+    await db.query('UPDATE communications.files SET deleting_at = now() WHERE id=$1', [marked.copy.file_id]);
     const fresh = await withCopy(1, 'b'.repeat(64));
     check('copies: a copy being deleted is never handed to a new email',
       fresh.copy.file_id !== marked.copy.file_id && fresh.copy.storage_path !== marked.copy.storage_path && !fresh.copy.stored, [marked.copy, fresh.copy]);
-    await db.query('DELETE FROM email_messages WHERE id=$1', [marked.id]);
+    await db.query('DELETE FROM communications.messages WHERE id=$1', [marked.id]);
     // A copy something still points at is never forgotten, whatever asked.
-    const { data: forgotten } = await supabase.rpc('email_files_forget', { p_ids: [fresh.copy.file_id] });
+    const { data: forgotten } = await supabase.schema('communications').rpc('files_forget', { p_ids: [fresh.copy.file_id] });
     check('copies: a copy in use is never dropped', Number(forgotten) === 0
-      && (await rows(db, 'SELECT 1 FROM email_files WHERE id=$1', [fresh.copy.file_id])).length === 1, forgotten);
+      && (await rows(db, 'SELECT 1 FROM communications.files WHERE id=$1', [fresh.copy.file_id])).length === 1, forgotten);
     // The sweep knows copies' paths: a stored copy is never an orphan.
     const sweepCopies = await runOrphanSweep(supabase);
     check('copies: the sweep keeps a stored copy', exists(fresh.copy.storage_path) && sweepCopies.outcome === 'complete', sweepCopies);
@@ -287,21 +287,21 @@ async function main() {
     // An upload that keeps failing: giving up lets go of the copy it claimed, and the copy is released.
     const failing = await makeMessage(db, storage, { inbox: ids.inboxA, status: 'receiving', days: 0, createdHours: 1, raw: false });
     const failingAttachment = randomUUID();
-    await db.query("INSERT INTO email_attachments(id, message_id, position, filename) VALUES ($1,$2,0,'big.pdf')", [failingAttachment, failing.id]);
-    const claimedThenFailed = await supabase.rpc('email_claim_file', { p_attachment_id: failingAttachment, p_sha256: 'c'.repeat(64), p_size_bytes: 9 });
-    const gaveUp = await supabase.rpc('email_files_failed', {
+    await db.query("INSERT INTO communications.attachments(id, message_id, position, filename) VALUES ($1,$2,0,'big.pdf')", [failingAttachment, failing.id]);
+    const claimedThenFailed = await supabase.schema('communications').rpc('claim_file', { p_attachment_id: failingAttachment, p_sha256: 'c'.repeat(64), p_size_bytes: 9 });
+    const gaveUp = await supabase.schema('communications').rpc('files_failed', {
       p_message_id: failing.id, p_attachment_ids: [failingAttachment], p_raw: false, p_max_failures: 1, p_max_age_minutes: 360,
     });
-    const afterGiveUp = (await rows(db, 'SELECT file_id, skipped_reason, storage_path FROM email_attachments WHERE id=$1', [failingAttachment]))[0];
+    const afterGiveUp = (await rows(db, 'SELECT file_id, skipped_reason, storage_path FROM communications.attachments WHERE id=$1', [failingAttachment]))[0];
     const releasedFailed = await runRetention(supabase);
     check('copies: giving up on a file lets go of its copy, which is then released',
       !claimedThenFailed.error && (gaveUp.data as Row)?.gave_up === true && afterGiveUp.file_id === null && afterGiveUp.skipped_reason === 'download_failed'
         && afterGiveUp.storage_path === null && releasedFailed.copies_released >= 1
-        && (await rows(db, 'SELECT 1 FROM email_files WHERE id=$1', [(claimedThenFailed.data as Row).file_id])).length === 0, { gaveUp: gaveUp.data, afterGiveUp, releasedFailed });
+        && (await rows(db, 'SELECT 1 FROM communications.files WHERE id=$1', [(claimedThenFailed.data as Row).file_id])).length === 0, { gaveUp: gaveUp.data, afterGiveUp, releasedFailed });
 
     // Only the service role may run the database side.
     let refused = '';
-    try { await db.query("SELECT public.email_retention_delete($1::jsonb)", [JSON.stringify([keptA.id])]); } catch (error) { refused = (error as Error).message; }
+    try { await db.query("SELECT communications.retention_delete($1::jsonb)", [JSON.stringify([keptA.id])]); } catch (error) { refused = (error as Error).message; }
     check('database: retention functions need the service role', /Service role required/.test(refused) && await messageExists(keptA.id), refused);
   } finally {
     await server.close();
@@ -310,9 +310,9 @@ async function main() {
 
   // The schema.sql snapshot carries the same functions.
   const snapshot = await createEmailDatabase('schema');
-  const fns = await rows(snapshot, "SELECT proname FROM pg_proc WHERE proname IN ('email_retention_due','email_retention_delete','email_storage_known_paths','email_record_maintenance_run','email_claim_file','email_file_stored','email_files_release','email_files_forget')");
-  check('schema.sql: the retention section loads', fns.length === 8 && (await rows(snapshot, "SELECT 1 FROM pg_tables WHERE tablename='email_maintenance_runs'")).length === 1
-    && (await rows(snapshot, "SELECT 1 FROM pg_tables WHERE tablename='email_files'")).length === 1);
+  const fns = await rows(snapshot, "SELECT proname FROM pg_proc WHERE pronamespace = 'communications'::regnamespace AND proname IN ('retention_due','retention_delete','storage_known_paths','record_maintenance_run','claim_file','file_stored','files_release','files_forget')");
+  check('schema.sql: the retention section loads', fns.length === 8 && (await rows(snapshot, "SELECT 1 FROM pg_tables WHERE schemaname='communications' AND tablename='maintenance_runs'")).length === 1
+    && (await rows(snapshot, "SELECT 1 FROM pg_tables WHERE schemaname='communications' AND tablename='files'")).length === 1);
   await snapshot.close();
 
   if (failures.length) {

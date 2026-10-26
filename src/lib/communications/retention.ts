@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { keepLinkedTaskFiles } from '@/lib/task-files/retention';
 import { INBOUND_EMAIL_BUCKET, recordInboxError } from './email/ingest';
+import { comms } from '@/lib/communications/db';
 
 /**
  * Retention and the orphan sweep for the inbound-email bucket, run by Vercel
@@ -29,7 +30,7 @@ import { INBOUND_EMAIL_BUCKET, recordInboxError } from './email/ingest';
  * delete.
  *
  * Each run logs one structured line and stores its counts in
- * email_maintenance_runs (one row per job) for the settings status. A
+ * communications.maintenance_runs (one row per job) for the settings status. A
  * message deleted while still receiving is client email that never arrived,
  * so each inbox that lost one also gets it as its last_error, which the
  * settings card shows.
@@ -138,13 +139,13 @@ function finish<T extends MaintenanceSummary>(summary: T, now: () => number): T 
   return summary;
 }
 
-/** One structured log line per run, then the run's row in email_maintenance_runs. */
+/** One structured log line per run, then the run's row in communications.maintenance_runs. */
 async function report(supabase: SupabaseClient, summary: RetentionSummary | OrphanSweepSummary): Promise<void> {
   const line = JSON.stringify({ event: `inbound_email.${summary.kind}`, ...summary });
   if (summary.outcome === 'failed') console.error(line);
   else if (summary.outcome === 'partial') console.warn(line);
   else console.log(line);
-  const { error } = await supabase.rpc('email_record_maintenance_run', {
+  const { error } = await comms(supabase).rpc('record_maintenance_run', {
     p_kind: summary.kind,
     p_run: {
       started_at: summary.started_at,
@@ -164,7 +165,7 @@ async function report(supabase: SupabaseClient, summary: RetentionSummary | Orph
 }
 
 async function listDue(supabase: SupabaseClient, limit: number, exclude: string[]): Promise<DueMessage[]> {
-  const { data, error } = await supabase.rpc('email_retention_due', { p_limit: limit, p_exclude: exclude });
+  const { data, error } = await comms(supabase).rpc('retention_due', { p_limit: limit, p_exclude: exclude });
   if (error) throw new Error(`listing due messages failed: ${error.message}`);
   return (data ?? []) as DueMessage[];
 }
@@ -179,7 +180,7 @@ async function listDue(supabase: SupabaseClient, limit: number, exclude: string[
 async function releaseUnusedCopies(supabase: SupabaseClient, summary: RetentionSummary, startedAt: number, budgetMs: number, now: () => number): Promise<void> {
   try {
     while (now() - startedAt < budgetMs) {
-      const { data, error } = await supabase.rpc('email_files_release', { p_limit: RELEASE_BATCH });
+      const { data, error } = await comms(supabase).rpc('files_release', { p_limit: RELEASE_BATCH });
       if (error) throw new Error(`releasing copies failed: ${error.message}`);
       const copies = (data ?? []) as { id: string; path: string }[];
       if (copies.length === 0) return;
@@ -190,7 +191,7 @@ async function releaseUnusedCopies(supabase: SupabaseClient, summary: RetentionS
         return;
       }
       summary.files_deleted += removed.removed;
-      const { data: forgotten, error: forgetError } = await supabase.rpc('email_files_forget', { p_ids: copies.map((copy) => copy.id) });
+      const { data: forgotten, error: forgetError } = await comms(supabase).rpc('files_forget', { p_ids: copies.map((copy) => copy.id) });
       if (forgetError) throw new Error(`forgetting released copies failed: ${forgetError.message}`);
       summary.copies_released += Number(forgotten ?? 0);
       if (copies.length < RELEASE_BATCH) return;
@@ -266,7 +267,7 @@ export async function runRetention(supabase: SupabaseClient, options: Maintenanc
       if (cleared.length === 0) continue;
 
       // Then the rows, only of messages whose files are gone.
-      const { data, error } = await supabase.rpc('email_retention_delete', { p_message_ids: cleared.map((message) => message.id) });
+      const { data, error } = await comms(supabase).rpc('retention_delete', { p_message_ids: cleared.map((message) => message.id) });
       if (error) throw new Error(`deleting rows failed: ${error.message}`);
       const result = data as DeleteResult;
       for (const row of result.deleted) {
@@ -326,7 +327,7 @@ export async function runOrphanSweep(supabase: SupabaseClient, options: Maintena
         console.warn(`[inbound-email] orphan sweep left ${paths.length - recognized.length} object(s) with unexpected paths alone`);
       }
       if (recognized.length) {
-        const { data: known, error: knownError } = await supabase.rpc('email_storage_known_paths', { p_paths: recognized });
+        const { data: known, error: knownError } = await comms(supabase).rpc('storage_known_paths', { p_paths: recognized });
         if (knownError) throw new Error(`checking paths failed: ${knownError.message}`);
         const owned = new Set((known ?? []) as string[]);
         const orphans = recognized.filter((path) => !owned.has(path));

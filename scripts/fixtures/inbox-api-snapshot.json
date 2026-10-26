@@ -6,6 +6,8 @@
     "id": "<message:Ashley/attach-8-again@acme-roofing.example>",
     "inbox_id": "<ids.inboxA>",
     "thread_id": "<thread:Ashley/attach-8-again@acme-roofing.example>",
+    "conversation_id": "<thread:Ashley/attach-8-again@acme-roofing.example>",
+    "channel": "email",
     "status": "new",
     "subject": "Photos and the signed quote",
     "from": {
@@ -28,6 +30,7 @@
      "superseded_by": null
     },
     "project": null,
+    "projects": [],
     "candidate_project_ids": [
      "<ids.acme>",
      "<ids.acme2>"
@@ -39,6 +42,8 @@
     "id": "<message:Ashley/attach-8@acme-roofing.example>",
     "inbox_id": "<ids.inboxA>",
     "thread_id": "<thread:Ashley/attach-8-again@acme-roofing.example>",
+    "conversation_id": "<thread:Ashley/attach-8-again@acme-roofing.example>",
+    "channel": "email",
     "status": "new",
     "subject": "Photos and the signed quote",
     "from": {
@@ -61,6 +66,7 @@
      "superseded_by": null
     },
     "project": null,
+    "projects": [],
     "candidate_project_ids": [
      "<ids.acme>",
      "<ids.acme2>"
@@ -72,6 +78,8 @@
     "id": "<message:Ashley/BN8PR11MB1234outlook@BN8PR11MB1234.namprd11.prod.outlook.example>",
     "inbox_id": "<ids.inboxA>",
     "thread_id": "<thread:Ashley/BN8PR11MB1234outlook@BN8PR11MB1234.namprd11.prod.outlook.example>",
+    "conversation_id": "<thread:Ashley/BN8PR11MB1234outlook@BN8PR11MB1234.namprd11.prod.outlook.example>",
+    "channel": "email",
     "status": "needs_human",
     "subject": "RE: Invoice question",
     "from": {
@@ -99,6 +107,14 @@
      "source": "person",
      "address": null
     },
+    "projects": [
+     {
+      "id": "<ids.birch>",
+      "name": "Birch Partners",
+      "source": "person",
+      "address": null
+     }
+    ],
     "candidate_project_ids": [
      "<ids.birch>"
     ],
@@ -114,6 +130,8 @@
     "id": "<message:Ashley/bounce-7@mx.google.example>",
     "inbox_id": "<ids.inboxA>",
     "thread_id": "<thread:Ashley/bounce-7@mx.google.example>",
+    "conversation_id": "<thread:Ashley/bounce-7@mx.google.example>",
+    "channel": "email",
     "status": "ignored",
     "subject": "Delivery Status Notification (Failure)",
     "from": {
@@ -136,6 +154,7 @@
      "superseded_by": null
     },
     "project": null,
+    "projects": [],
     "candidate_project_ids": [],
     "attachment_count": 1,
     "latest_triage": null
@@ -144,6 +163,8 @@
     "id": "<message:Ashley/CAF2xGmail-reply-1@mail.gmail.com>",
     "inbox_id": "<ids.inboxA>",
     "thread_id": "<thread:Ashley/CAF2xGmail-reply-1@mail.gmail.com>",
+    "conversation_id": "<thread:Ashley/CAF2xGmail-reply-1@mail.gmail.com>",
+    "channel": "email",
     "status": "handled",
     "subject": "Re: Homepage banner",
     "from": {
@@ -171,6 +192,20 @@
      "source": "person",
      "address": null
     },
+    "projects": [
+     {
+      "id": "<ids.acme>",
+      "name": "Acme Roofing",
+      "source": "person",
+      "address": null
+     },
+     {
+      "id": "<ids.acme2>",
+      "name": "Acme Gutters LLC",
+      "source": "inferred",
+      "address": null
+     }
+    ],
     "candidate_project_ids": [
      "<ids.acme>",
      "<ids.acme2>"
@@ -187,6 +222,8 @@
     "id": "<message:Ashley/cs-desk@gmail.example>",
     "inbox_id": "<ids.inboxA>",
     "thread_id": "<thread:Ashley/cs-desk@gmail.example>",
+    "conversation_id": "<thread:Ashley/cs-desk@gmail.example>",
+    "channel": "email",
     "status": "new",
     "subject": "Through the desk",
     "from": {
@@ -218,6 +255,18 @@
       "public_address": null
      }
     },
+    "projects": [
+     {
+      "id": "<project:Bob Desk>",
+      "name": "Bob Desk",
+      "source": "address",
+      "address": {
+       "id": "<endpoint:bob-desk@relay.example.test>",
+       "routing_address": "bob-desk@relay.example.test",
+       "public_address": null
+      }
+     }
+    ],
     "candidate_project_ids": [
      "<project:Bob Plumbing>",
      "<project:Bob Side Gig>"
@@ -229,6 +278,8 @@
     "id": "<message:Ashley/cs-one@gmail.example>",
     "inbox_id": "<ids.inboxA>",
     "thread_id": "<thread:Ashley/cs-one@gmail.example>",
+    "conversation_id": "<thread:Ashley/cs-one@gmail.example>",
+    "channel": "email",
     "status": "new",
     "subject": "Leaky tap quote",
     "from": {
@@ -256,6 +307,14 @@
      "source": "mapped",
      "address": null
     },
+    "projects": [
+     {
+      "id": "<project:Bob Plumbing>",
+      "name": "Bob Plumbing",
+      "source": "mapped",
+      "address": null
+     }
+    ],
     "candidate_project_ids": [
      "<project:Bob Plumbing>"
     ],
@@ -266,6 +325,8 @@
     "id": "<message:Ashley/cs-two@gmail.example>",
     "inbox_id": "<ids.inboxA>",
     "thread_id": "<thread:Ashley/cs-two@gmail.example>",
+    "conversation_id": "<thread:Ashley/cs-two@gmail.example>",
+    "channel": "email",
     "status": "new",
     "subject": "Side gig invoice",
     "from": {
@@ -293,6 +354,14 @@
      "source": "person",
      "address": null
     },
+    "projects": [
+     {
+      "id": "<project:Bob Plumbing>",
+      "name": "Bob Plumbing",
+      "source": "person",
+      "address": null
+     }
+    ],
     "candidate_project_ids": [
      "<project:Bob Plumbing>",
      "<project:Bob Side Gig>"
@@ -304,6 +373,8 @@
     "id": "<message:Ashley/dead-file@acme-roofing.example>",
     "inbox_id": "<ids.inboxA>",
     "thread_id": "<thread:Ashley/attach-8-again@acme-roofing.example>",
+    "conversation_id": "<thread:Ashley/attach-8-again@acme-roofing.example>",
+    "channel": "email",
     "status": "new",
     "subject": "Photos and the signed quote",
     "from": {
@@ -326,6 +397,7 @@
      "superseded_by": null
     },
     "project": null,
+    "projects": [],
     "candidate_project_ids": [
      "<ids.acme>",
      "<ids.acme2>"
@@ -337,6 +409,8 @@
     "id": "<message:Ashley/flaky@acme-roofing.example>",
     "inbox_id": "<ids.inboxA>",
     "thread_id": "<thread:Ashley/attach-8-again@acme-roofing.example>",
+    "conversation_id": "<thread:Ashley/attach-8-again@acme-roofing.example>",
+    "channel": "email",
     "status": "new",
     "subject": "Photos and the signed quote",
     "from": {
@@ -359,6 +433,7 @@
      "superseded_by": null
     },
     "project": null,
+    "projects": [],
     "candidate_project_ids": [
      "<ids.acme>",
      "<ids.acme2>"
@@ -370,6 +445,8 @@
     "id": "<message:Ashley/followup-2@acme-roofing.example>",
     "inbox_id": "<ids.inboxA>",
     "thread_id": "<thread:Ashley/CAF2xGmail-reply-1@mail.gmail.com>",
+    "conversation_id": "<thread:Ashley/CAF2xGmail-reply-1@mail.gmail.com>",
+    "channel": "email",
     "status": "handled",
     "subject": "RE: Re: [EXTERNAL] Homepage banner",
     "from": {
@@ -397,6 +474,20 @@
      "source": "person",
      "address": null
     },
+    "projects": [
+     {
+      "id": "<ids.acme>",
+      "name": "Acme Roofing",
+      "source": "person",
+      "address": null
+     },
+     {
+      "id": "<ids.acme2>",
+      "name": "Acme Gutters LLC",
+      "source": "inferred",
+      "address": null
+     }
+    ],
     "candidate_project_ids": [
      "<ids.acme>",
      "<ids.acme2>"
@@ -413,6 +504,8 @@
     "id": "<message:Ashley/forwarded@agency.example>",
     "inbox_id": "<ids.inboxA>",
     "thread_id": "<thread:Ashley/CAF2xGmail-reply-1@mail.gmail.com>",
+    "conversation_id": "<thread:Ashley/CAF2xGmail-reply-1@mail.gmail.com>",
+    "channel": "email",
     "status": "handled",
     "subject": "Homepage banner",
     "from": {
@@ -440,6 +533,20 @@
      "source": "person",
      "address": null
     },
+    "projects": [
+     {
+      "id": "<ids.acme>",
+      "name": "Acme Roofing",
+      "source": "person",
+      "address": null
+     },
+     {
+      "id": "<ids.acme2>",
+      "name": "Acme Gutters LLC",
+      "source": "inferred",
+      "address": null
+     }
+    ],
     "candidate_project_ids": [],
     "attachment_count": 0,
     "latest_triage": null
@@ -448,6 +555,8 @@
     "id": "<message:Ashley/fw-agent@agency.example>",
     "inbox_id": "<ids.inboxA>",
     "thread_id": "<thread:Ashley/fw-agent@agency.example>",
+    "conversation_id": "<thread:Ashley/fw-agent@agency.example>",
+    "channel": "email",
     "status": "new",
     "subject": "Fwd: New homepage copy",
     "from": {
@@ -470,6 +579,7 @@
      "superseded_by": null
     },
     "project": null,
+    "projects": [],
     "candidate_project_ids": [],
     "attachment_count": 0,
     "latest_triage": null
@@ -478,6 +588,8 @@
     "id": "<message:Ashley/fw-apple@agency.example>",
     "inbox_id": "<ids.inboxA>",
     "thread_id": "<thread:Ashley/fw-apple@agency.example>",
+    "conversation_id": "<thread:Ashley/fw-apple@agency.example>",
+    "channel": "email",
     "status": "new",
     "subject": "Fwd: Logo feedback",
     "from": {
@@ -511,6 +623,14 @@
      "source": "mapped",
      "address": null
     },
+    "projects": [
+     {
+      "id": "<project:Vera Studio>",
+      "name": "Vera Studio",
+      "source": "mapped",
+      "address": null
+     }
+    ],
     "candidate_project_ids": [
      "<project:Vera Studio>"
     ],
@@ -521,6 +641,8 @@
     "id": "<message:Ashley/fw-client@cliffbuilders.example>",
     "inbox_id": "<ids.inboxA>",
     "thread_id": "<thread:Ashley/fw-client@cliffbuilders.example>",
+    "conversation_id": "<thread:Ashley/fw-client@cliffbuilders.example>",
+    "channel": "email",
     "status": "new",
     "subject": "Fwd: Hosting renewal",
     "from": {
@@ -548,6 +670,14 @@
      "source": "mapped",
      "address": null
     },
+    "projects": [
+     {
+      "id": "<project:Cliff Builders>",
+      "name": "Cliff Builders",
+      "source": "mapped",
+      "address": null
+     }
+    ],
     "candidate_project_ids": [
      "<project:Cliff Builders>"
     ],
@@ -558,6 +688,8 @@
     "id": "<message:Ashley/fw-desk@agency.example>",
     "inbox_id": "<ids.inboxA>",
     "thread_id": "<thread:Ashley/fw-desk@agency.example>",
+    "conversation_id": "<thread:Ashley/fw-desk@agency.example>",
+    "channel": "email",
     "status": "new",
     "subject": "Fwd: Desk copy",
     "from": {
@@ -595,6 +727,18 @@
       "public_address": null
      }
     },
+    "projects": [
+     {
+      "id": "<project:Forward Desk>",
+      "name": "Forward Desk",
+      "source": "address",
+      "address": {
+       "id": "<endpoint:fwd-desk@relay.example.test>",
+       "routing_address": "fwd-desk@relay.example.test",
+       "public_address": null
+      }
+     }
+    ],
     "candidate_project_ids": [
      "<project:Vera Studio>"
     ],
@@ -605,6 +749,8 @@
     "id": "<message:Ashley/fw-eml@agency.example>",
     "inbox_id": "<ids.inboxA>",
     "thread_id": "<thread:Ashley/fw-eml@agency.example>",
+    "conversation_id": "<thread:Ashley/fw-eml@agency.example>",
+    "channel": "email",
     "status": "new",
     "subject": "Fwd: Invoice question",
     "from": {
@@ -638,6 +784,14 @@
      "source": "mapped",
      "address": null
     },
+    "projects": [
+     {
+      "id": "<project:Vera Studio>",
+      "name": "Vera Studio",
+      "source": "mapped",
+      "address": null
+     }
+    ],
     "candidate_project_ids": [
      "<project:Vera Studio>"
     ],
@@ -648,6 +802,8 @@
     "id": "<message:Ashley/fw-far@agency.example>",
     "inbox_id": "<ids.inboxA>",
     "thread_id": "<thread:Ashley/fw-far@agency.example>",
+    "conversation_id": "<thread:Ashley/fw-far@agency.example>",
+    "channel": "email",
     "status": "new",
     "subject": "Fwd: Launch plan",
     "from": {
@@ -678,6 +834,14 @@
      "source": "mapped",
      "address": null
     },
+    "projects": [
+     {
+      "id": "<project:Vera Studio>",
+      "name": "Vera Studio",
+      "source": "mapped",
+      "address": null
+     }
+    ],
     "candidate_project_ids": [
      "<project:Vera Studio>"
     ],
@@ -688,6 +852,8 @@
     "id": "<message:Ashley/fw-gmail@agency.example>",
     "inbox_id": "<ids.inboxA>",
     "thread_id": "<thread:Ashley/fw-gmail@agency.example>",
+    "conversation_id": "<thread:Ashley/fw-gmail@agency.example>",
+    "channel": "email",
     "status": "handled",
     "subject": "Fwd: New homepage copy",
     "from": {
@@ -721,6 +887,14 @@
      "source": "mapped",
      "address": null
     },
+    "projects": [
+     {
+      "id": "<project:Vera Studio>",
+      "name": "Vera Studio",
+      "source": "mapped",
+      "address": null
+     }
+    ],
     "candidate_project_ids": [
      "<project:Vera Studio>"
     ],
@@ -736,6 +910,8 @@
     "id": "<message:Ashley/fw-html@agency.example>",
     "inbox_id": "<ids.inboxA>",
     "thread_id": "<thread:Ashley/fw-html@agency.example>",
+    "conversation_id": "<thread:Ashley/fw-html@agency.example>",
+    "channel": "email",
     "status": "new",
     "subject": "Fwd: Photos",
     "from": {
@@ -769,6 +945,14 @@
      "source": "mapped",
      "address": null
     },
+    "projects": [
+     {
+      "id": "<project:Vera Studio>",
+      "name": "Vera Studio",
+      "source": "mapped",
+      "address": null
+     }
+    ],
     "candidate_project_ids": [
      "<project:Vera Studio>"
     ],
@@ -779,6 +963,8 @@
     "id": "<message:Ashley/fw-outlook@agency.example>",
     "inbox_id": "<ids.inboxA>",
     "thread_id": "<thread:Ashley/fw-outlook@agency.example>",
+    "conversation_id": "<thread:Ashley/fw-outlook@agency.example>",
+    "channel": "email",
     "status": "new",
     "subject": "FW: Kickoff notes",
     "from": {
@@ -812,6 +998,14 @@
      "source": "mapped",
      "address": null
     },
+    "projects": [
+     {
+      "id": "<project:Vera Studio>",
+      "name": "Vera Studio",
+      "source": "mapped",
+      "address": null
+     }
+    ],
     "candidate_project_ids": [
      "<project:Vera Studio>"
     ],
@@ -822,6 +1016,8 @@
     "id": "<message:Ashley/fw-suspended@agency.example>",
     "inbox_id": "<ids.inboxA>",
     "thread_id": "<thread:Ashley/fw-suspended@agency.example>",
+    "conversation_id": "<thread:Ashley/fw-suspended@agency.example>",
+    "channel": "email",
     "status": "new",
     "subject": "Fwd: New homepage copy",
     "from": {
@@ -844,6 +1040,7 @@
      "superseded_by": null
     },
     "project": null,
+    "projects": [],
     "candidate_project_ids": [],
     "attachment_count": 0,
     "latest_triage": null
@@ -852,6 +1049,8 @@
     "id": "<message:Ashley/fw-unknown@agency.example>",
     "inbox_id": "<ids.inboxA>",
     "thread_id": "<thread:Ashley/fw-unknown@agency.example>",
+    "conversation_id": "<thread:Ashley/fw-unknown@agency.example>",
+    "channel": "email",
     "status": "new",
     "subject": "Fwd: Cold pitch",
     "from": {
@@ -885,6 +1084,14 @@
      "source": "person",
      "address": null
     },
+    "projects": [
+     {
+      "id": "<project:Cliff Builders>",
+      "name": "Cliff Builders",
+      "source": "person",
+      "address": null
+     }
+    ],
     "candidate_project_ids": [],
     "attachment_count": 0,
     "latest_triage": null
@@ -893,6 +1100,8 @@
     "id": "<message:Ashley/fw-unverified@agency.example>",
     "inbox_id": "<ids.inboxA>",
     "thread_id": "<thread:Ashley/fw-unverified@agency.example>",
+    "conversation_id": "<thread:Ashley/fw-unverified@agency.example>",
+    "channel": "email",
     "status": "new",
     "subject": "Fwd: New homepage copy",
     "from": {
@@ -915,6 +1124,7 @@
      "superseded_by": null
     },
     "project": null,
+    "projects": [],
     "candidate_project_ids": [],
     "attachment_count": 0,
     "latest_triage": null
@@ -923,6 +1133,8 @@
     "id": "<message:Ashley/fwd-3@agency.example>",
     "inbox_id": "<ids.inboxA>",
     "thread_id": "<thread:Ashley/fwd-3@agency.example>",
+    "conversation_id": "<thread:Ashley/fwd-3@agency.example>",
+    "channel": "email",
     "status": "handled",
     "subject": "Fwd: Site down?",
     "from": {
@@ -945,6 +1157,7 @@
      "superseded_by": null
     },
     "project": null,
+    "projects": [],
     "candidate_project_ids": [],
     "attachment_count": 0,
     "latest_triage": {
@@ -955,28 +1168,33 @@
     }
    },
    {
-    "id": "<message:Ashley/guess@unknown-co.example>",
+    "id": "<message:Ashley/guess@agency.example>",
     "inbox_id": "<ids.inboxA>",
-    "thread_id": "<thread:Ashley/guess@unknown-co.example>",
+    "thread_id": "<thread:Ashley/guess@agency.example>",
+    "conversation_id": "<thread:Ashley/guess@agency.example>",
+    "channel": "email",
     "status": "new",
-    "subject": "Question about our site",
+    "subject": "Question about the site",
     "from": {
-     "address": "quinn@unknown-co.example",
-     "name": "Quinn"
+     "address": "owner@agency.example",
+     "name": "Sam Owner"
     },
     "received_at": "<time>",
     "sent_at": "<time>",
     "is_forward": false,
-    "routing_basis": "sender",
-    "forwarded_by": null,
+    "routing_basis": "team_recipients",
+    "forwarded_by": {
+     "member_id": "<ids.owner>",
+     "name": "Sam"
+    },
     "original_sender": null,
     "trust": "trusted",
     "auto_mail_reason": null,
     "sorting": {
-     "kind": "person",
+     "kind": "team",
      "topic": null,
      "action": "triage",
-     "reason": "From a person.",
+     "reason": "From a teammate.",
      "superseded_by": null
     },
     "project": {
@@ -985,10 +1203,18 @@
      "source": "person",
      "address": null
     },
+    "projects": [
+     {
+      "id": "<project:Vera Studio>",
+      "name": "Vera Studio",
+      "source": "person",
+      "address": null
+     }
+    ],
     "candidate_project_ids": [],
     "attachment_count": 0,
     "latest_triage": {
-     "id": "<triage:guess@unknown-co.example/Probably Vera Studio>",
+     "id": "<triage:guess@agency.example/Probably Vera Studio>",
      "outcome": "needs_human",
      "urgent": false,
      "created_at": "<time>"
@@ -998,6 +1224,8 @@
     "id": "<message:Ashley/html-only-4@mail.gmail.com>",
     "inbox_id": "<ids.inboxA>",
     "thread_id": "<thread:Ashley/html-only-4@mail.gmail.com>",
+    "conversation_id": "<thread:Ashley/html-only-4@mail.gmail.com>",
+    "channel": "email",
     "status": "new",
     "subject": "New logo files",
     "from": {
@@ -1020,6 +1248,14 @@
      "superseded_by": null
     },
     "project": null,
+    "projects": [
+     {
+      "id": "<ids.acme>",
+      "name": "Acme Roofing",
+      "source": "person",
+      "address": null
+     }
+    ],
     "candidate_project_ids": [],
     "attachment_count": 0,
     "latest_triage": {
@@ -1033,6 +1269,8 @@
     "id": "<message:Ashley/newsletter-6@acme-supplies.example>",
     "inbox_id": "<ids.inboxA>",
     "thread_id": "<thread:Ashley/newsletter-6@acme-supplies.example>",
+    "conversation_id": "<thread:Ashley/newsletter-6@acme-supplies.example>",
+    "channel": "email",
     "status": "new",
     "subject": "October deals",
     "from": {
@@ -1064,6 +1302,18 @@
       "public_address": "p4tf@agency.example"
      }
     },
+    "projects": [
+     {
+      "id": "<project:P4TF Rebrand>",
+      "name": "P4TF Rebrand",
+      "source": "address",
+      "address": {
+       "id": "<endpoint:p4tf@relay.example.test>",
+       "routing_address": "p4tf@relay.example.test",
+       "public_address": "p4tf@agency.example"
+      }
+     }
+    ],
     "candidate_project_ids": [],
     "attachment_count": 0,
     "latest_triage": null
@@ -1072,6 +1322,8 @@
     "id": "<message:Ashley/newsletter-6b@acme-supplies.example>",
     "inbox_id": "<ids.inboxA>",
     "thread_id": "<thread:Ashley/newsletter-6@acme-supplies.example>",
+    "conversation_id": "<thread:Ashley/newsletter-6@acme-supplies.example>",
+    "channel": "email",
     "status": "new",
     "subject": "October deals",
     "from": {
@@ -1103,6 +1355,18 @@
       "public_address": "p4tf@agency.example"
      }
     },
+    "projects": [
+     {
+      "id": "<project:P4TF Rebrand>",
+      "name": "P4TF Rebrand",
+      "source": "address",
+      "address": {
+       "id": "<endpoint:p4tf@relay.example.test>",
+       "routing_address": "p4tf@relay.example.test",
+       "public_address": "p4tf@agency.example"
+      }
+     }
+    ],
     "candidate_project_ids": [],
     "attachment_count": 0,
     "latest_triage": null
@@ -1111,6 +1375,8 @@
     "id": "<message:Ashley/old-file@acme-roofing.example>",
     "inbox_id": "<ids.inboxA>",
     "thread_id": "<thread:Ashley/attach-8-again@acme-roofing.example>",
+    "conversation_id": "<thread:Ashley/attach-8-again@acme-roofing.example>",
+    "channel": "email",
     "status": "new",
     "subject": "Photos and the signed quote",
     "from": {
@@ -1133,6 +1399,7 @@
      "superseded_by": null
     },
     "project": null,
+    "projects": [],
     "candidate_project_ids": [
      "<ids.acme>",
      "<ids.acme2>"
@@ -1144,6 +1411,8 @@
     "id": "<message:Ashley/ooo-5@acme-roofing.example>",
     "inbox_id": "<ids.inboxA>",
     "thread_id": "<thread:Ashley/ooo-5@acme-roofing.example>",
+    "conversation_id": "<thread:Ashley/ooo-5@acme-roofing.example>",
+    "channel": "email",
     "status": "ignored",
     "subject": "Automatic reply: Homepage banner",
     "from": {
@@ -1166,6 +1435,7 @@
      "superseded_by": null
     },
     "project": null,
+    "projects": [],
     "candidate_project_ids": [
      "<ids.acme>",
      "<ids.acme2>"
@@ -1177,6 +1447,8 @@
     "id": "<message:Ashley/orig-1@agency.example>",
     "inbox_id": "<ids.inboxA>",
     "thread_id": "<thread:Ashley/CAF2xGmail-reply-1@mail.gmail.com>",
+    "conversation_id": "<thread:Ashley/CAF2xGmail-reply-1@mail.gmail.com>",
+    "channel": "email",
     "status": "handled",
     "subject": "Homepage banner",
     "from": {
@@ -1204,6 +1476,20 @@
      "source": "person",
      "address": null
     },
+    "projects": [
+     {
+      "id": "<ids.acme>",
+      "name": "Acme Roofing",
+      "source": "person",
+      "address": null
+     },
+     {
+      "id": "<ids.acme2>",
+      "name": "Acme Gutters LLC",
+      "source": "inferred",
+      "address": null
+     }
+    ],
     "candidate_project_ids": [],
     "attachment_count": 0,
     "latest_triage": {
@@ -1217,6 +1503,8 @@
     "id": "<message:Ashley/oversized-10@birchpartners.example>",
     "inbox_id": "<ids.inboxA>",
     "thread_id": "<thread:Ashley/oversized-10@birchpartners.example>",
+    "conversation_id": "<thread:Ashley/oversized-10@birchpartners.example>",
+    "channel": "email",
     "status": "new",
     "subject": "Drone footage for the site",
     "from": {
@@ -1244,6 +1532,14 @@
      "source": "mapped",
      "address": null
     },
+    "projects": [
+     {
+      "id": "<ids.birch>",
+      "name": "Birch Partners",
+      "source": "mapped",
+      "address": null
+     }
+    ],
     "candidate_project_ids": [
      "<ids.birch>"
     ],
@@ -1254,6 +1550,8 @@
     "id": "<message:Ashley/oversized-10b@birchpartners.example>",
     "inbox_id": "<ids.inboxA>",
     "thread_id": "<thread:Ashley/oversized-10@birchpartners.example>",
+    "conversation_id": "<thread:Ashley/oversized-10@birchpartners.example>",
+    "channel": "email",
     "status": "new",
     "subject": "Drone footage for the site",
     "from": {
@@ -1281,6 +1579,14 @@
      "source": "mapped",
      "address": null
     },
+    "projects": [
+     {
+      "id": "<ids.birch>",
+      "name": "Birch Partners",
+      "source": "mapped",
+      "address": null
+     }
+    ],
     "candidate_project_ids": [
      "<ids.birch>"
     ],
@@ -1291,6 +1597,8 @@
     "id": "<message:Ashley/pa-cross@oldco.example>",
     "inbox_id": "<ids.inboxA>",
     "thread_id": "<thread:Ashley/pa-cross@oldco.example>",
+    "conversation_id": "<thread:Ashley/pa-cross@oldco.example>",
+    "channel": "email",
     "status": "new",
     "subject": "Across inboxes",
     "from": {
@@ -1322,6 +1630,18 @@
       "public_address": "birch@agency.example"
      }
     },
+    "projects": [
+     {
+      "id": "<ids.birch>",
+      "name": "Birch Partners",
+      "source": "address",
+      "address": {
+       "id": "<endpoint:birch-web@relay.example.test>",
+       "routing_address": "birch-web@relay.example.test",
+       "public_address": "birch@agency.example"
+      }
+     }
+    ],
     "candidate_project_ids": [],
     "attachment_count": 0,
     "latest_triage": null
@@ -1330,6 +1650,8 @@
     "id": "<message:Ashley/pa-new@acme-roofing.example>",
     "inbox_id": "<ids.inboxA>",
     "thread_id": "<thread:Ashley/pa-new@acme-roofing.example>",
+    "conversation_id": "<thread:Ashley/pa-new@acme-roofing.example>",
+    "channel": "email",
     "status": "handled",
     "subject": "Rebrand kickoff notes",
     "from": {
@@ -1357,13 +1679,21 @@
      "source": "mapped",
      "address": null
     },
+    "projects": [
+     {
+      "id": "<ids.birch>",
+      "name": "Birch Partners",
+      "source": "person",
+      "address": null
+     }
+    ],
     "candidate_project_ids": [
      "<ids.acme>",
      "<ids.acme2>"
     ],
     "attachment_count": 0,
     "latest_triage": {
-     "id": "<triage:pa-new@acme-roofing.example/Kickoff notes>",
+     "id": "<triage:pa-new@acme-roofing.example/Kickoff notes#2>",
      "outcome": "no_action",
      "urgent": false,
      "created_at": "<time>"
@@ -1373,6 +1703,8 @@
     "id": "<message:Ashley/pa-news@acme-supplies.example>",
     "inbox_id": "<ids.inboxA>",
     "thread_id": "<thread:Ashley/newsletter-6@acme-supplies.example>",
+    "conversation_id": "<thread:Ashley/newsletter-6@acme-supplies.example>",
+    "channel": "email",
     "status": "ignored",
     "subject": "October deals",
     "from": {
@@ -1404,6 +1736,18 @@
       "public_address": "p4tf@agency.example"
      }
     },
+    "projects": [
+     {
+      "id": "<project:P4TF Rebrand>",
+      "name": "P4TF Rebrand",
+      "source": "address",
+      "address": {
+       "id": "<endpoint:p4tf@relay.example.test>",
+       "routing_address": "p4tf@relay.example.test",
+       "public_address": "p4tf@agency.example"
+      }
+     }
+    ],
     "candidate_project_ids": [],
     "attachment_count": 0,
     "latest_triage": null
@@ -1412,6 +1756,8 @@
     "id": "<message:Ashley/pa-reply@acme-roofing.example>",
     "inbox_id": "<ids.inboxA>",
     "thread_id": "<thread:Ashley/CAF2xGmail-reply-1@mail.gmail.com>",
+    "conversation_id": "<thread:Ashley/CAF2xGmail-reply-1@mail.gmail.com>",
+    "channel": "email",
     "status": "handled",
     "subject": "Re: Homepage banner",
     "from": {
@@ -1439,6 +1785,20 @@
      "source": "person",
      "address": null
     },
+    "projects": [
+     {
+      "id": "<ids.acme>",
+      "name": "Acme Roofing",
+      "source": "person",
+      "address": null
+     },
+     {
+      "id": "<ids.acme2>",
+      "name": "Acme Gutters LLC",
+      "source": "inferred",
+      "address": null
+     }
+    ],
     "candidate_project_ids": [
      "<ids.acme>",
      "<ids.acme2>"
@@ -1450,6 +1810,8 @@
     "id": "<message:Ashley/pa-shelved@oldco.example>",
     "inbox_id": "<ids.inboxA>",
     "thread_id": "<thread:Ashley/pa-shelved@oldco.example>",
+    "conversation_id": "<thread:Ashley/pa-shelved@oldco.example>",
+    "channel": "email",
     "status": "new",
     "subject": "Are you still there?",
     "from": {
@@ -1477,6 +1839,14 @@
      "source": "address",
      "address": null
     },
+    "projects": [
+     {
+      "id": "<project:Old client>",
+      "name": "Old client",
+      "source": "address",
+      "address": null
+     }
+    ],
     "candidate_project_ids": [],
     "attachment_count": 0,
     "latest_triage": null
@@ -1485,6 +1855,8 @@
     "id": "<message:Ashley/pa-two-a@oldco.example>",
     "inbox_id": "<ids.inboxA>",
     "thread_id": "<thread:Ashley/pa-two-a@oldco.example>",
+    "conversation_id": "<thread:Ashley/pa-two-a@oldco.example>",
+    "channel": "email",
     "status": "new",
     "subject": "Two addresses A",
     "from": {
@@ -1516,6 +1888,18 @@
       "public_address": "birch@agency.example"
      }
     },
+    "projects": [
+     {
+      "id": "<ids.birch>",
+      "name": "Birch Partners",
+      "source": "address",
+      "address": {
+       "id": "<endpoint:birch-web@relay.example.test>",
+       "routing_address": "birch-web@relay.example.test",
+       "public_address": "birch@agency.example"
+      }
+     }
+    ],
     "candidate_project_ids": [],
     "attachment_count": 0,
     "latest_triage": null
@@ -1524,6 +1908,8 @@
     "id": "<message:Ashley/pa-two-b@oldco.example>",
     "inbox_id": "<ids.inboxA>",
     "thread_id": "<thread:Ashley/pa-two-b@oldco.example>",
+    "conversation_id": "<thread:Ashley/pa-two-b@oldco.example>",
+    "channel": "email",
     "status": "new",
     "subject": "Two addresses B",
     "from": {
@@ -1555,6 +1941,51 @@
       "public_address": "p4tf@agency.example"
      }
     },
+    "projects": [
+     {
+      "id": "<project:P4TF Rebrand>",
+      "name": "P4TF Rebrand",
+      "source": "address",
+      "address": {
+       "id": "<endpoint:p4tf@relay.example.test>",
+       "routing_address": "p4tf@relay.example.test",
+       "public_address": "p4tf@agency.example"
+      }
+     }
+    ],
+    "candidate_project_ids": [],
+    "attachment_count": 0,
+    "latest_triage": null
+   },
+   {
+    "id": "<message:Ashley/stranger@unknown-co.example>",
+    "inbox_id": "<ids.inboxA>",
+    "thread_id": "<thread:Ashley/stranger@unknown-co.example>",
+    "conversation_id": "<thread:Ashley/stranger@unknown-co.example>",
+    "channel": "email",
+    "status": "new",
+    "subject": "Question about our site",
+    "from": {
+     "address": "quinn@unknown-co.example",
+     "name": "Quinn"
+    },
+    "received_at": "<time>",
+    "sent_at": "<time>",
+    "is_forward": false,
+    "routing_basis": "sender",
+    "forwarded_by": null,
+    "original_sender": null,
+    "trust": "trusted",
+    "auto_mail_reason": null,
+    "sorting": {
+     "kind": "person",
+     "topic": null,
+     "action": "triage",
+     "reason": "From a person.",
+     "superseded_by": null
+    },
+    "project": null,
+    "projects": [],
     "candidate_project_ids": [],
     "attachment_count": 0,
     "latest_triage": null
@@ -1563,6 +1994,8 @@
     "id": "<message:Ashley/team-cc-two@agency.example>",
     "inbox_id": "<ids.inboxA>",
     "thread_id": "<thread:Ashley/team-cc-two@agency.example>",
+    "conversation_id": "<thread:Ashley/team-cc-two@agency.example>",
+    "channel": "email",
     "status": "handled",
     "subject": "Joint call",
     "from": {
@@ -1593,6 +2026,14 @@
      "source": "inferred",
      "address": null
     },
+    "projects": [
+     {
+      "id": "<project:Cliff Builders>",
+      "name": "Cliff Builders",
+      "source": "inferred",
+      "address": null
+     }
+    ],
     "candidate_project_ids": [
      "<project:Cliff Builders>",
      "<project:Vera Studio>"
@@ -1609,6 +2050,8 @@
     "id": "<message:Ashley/team-cc@agency.example>",
     "inbox_id": "<ids.inboxA>",
     "thread_id": "<thread:Ashley/team-cc@agency.example>",
+    "conversation_id": "<thread:Ashley/team-cc@agency.example>",
+    "channel": "email",
     "status": "new",
     "subject": "Next steps on the site",
     "from": {
@@ -1639,6 +2082,14 @@
      "source": "mapped",
      "address": null
     },
+    "projects": [
+     {
+      "id": "<project:Vera Studio>",
+      "name": "Vera Studio",
+      "source": "mapped",
+      "address": null
+     }
+    ],
     "candidate_project_ids": [
      "<project:Vera Studio>"
     ],
@@ -1649,6 +2100,8 @@
     "id": "<message:Ashley/tt-1@agency.example>",
     "inbox_id": "<ids.inboxA>",
     "thread_id": "<thread:Ashley/tt-1@agency.example>",
+    "conversation_id": "<thread:Ashley/tt-1@agency.example>",
+    "channel": "email",
     "status": "new",
     "subject": "Weekly update",
     "from": {
@@ -1679,6 +2132,14 @@
      "source": "mapped",
      "address": null
     },
+    "projects": [
+     {
+      "id": "<project:Vera Studio>",
+      "name": "Vera Studio",
+      "source": "mapped",
+      "address": null
+     }
+    ],
     "candidate_project_ids": [
      "<project:Vera Studio>"
     ],
@@ -1689,6 +2150,8 @@
     "id": "<message:Ashley/tt-2@agency.example>",
     "inbox_id": "<ids.inboxA>",
     "thread_id": "<thread:Ashley/tt-2@agency.example>",
+    "conversation_id": "<thread:Ashley/tt-2@agency.example>",
+    "channel": "email",
     "status": "new",
     "subject": "Weekly update",
     "from": {
@@ -1719,6 +2182,14 @@
      "source": "mapped",
      "address": null
     },
+    "projects": [
+     {
+      "id": "<project:Cliff Builders>",
+      "name": "Cliff Builders",
+      "source": "mapped",
+      "address": null
+     }
+    ],
     "candidate_project_ids": [
      "<project:Cliff Builders>"
     ],
@@ -1729,6 +2200,8 @@
     "id": "<message:Ashley/tt-3@verastudio.example>",
     "inbox_id": "<ids.inboxA>",
     "thread_id": "<thread:Ashley/tt-1@agency.example>",
+    "conversation_id": "<thread:Ashley/tt-1@agency.example>",
+    "channel": "email",
     "status": "new",
     "subject": "Re: Weekly update",
     "from": {
@@ -1756,6 +2229,14 @@
      "source": "mapped",
      "address": null
     },
+    "projects": [
+     {
+      "id": "<project:Vera Studio>",
+      "name": "Vera Studio",
+      "source": "mapped",
+      "address": null
+     }
+    ],
     "candidate_project_ids": [
      "<project:Vera Studio>"
     ],
@@ -1766,6 +2247,8 @@
     "id": "<message:Ashley/two-inboxes@agency.example>",
     "inbox_id": "<ids.inboxA>",
     "thread_id": "<thread:Ashley/CAF2xGmail-reply-1@mail.gmail.com>",
+    "conversation_id": "<thread:Ashley/CAF2xGmail-reply-1@mail.gmail.com>",
+    "channel": "email",
     "status": "handled",
     "subject": "Homepage banner",
     "from": {
@@ -1793,6 +2276,20 @@
      "source": "person",
      "address": null
     },
+    "projects": [
+     {
+      "id": "<ids.acme>",
+      "name": "Acme Roofing",
+      "source": "person",
+      "address": null
+     },
+     {
+      "id": "<ids.acme2>",
+      "name": "Acme Gutters LLC",
+      "source": "inferred",
+      "address": null
+     }
+    ],
     "candidate_project_ids": [],
     "attachment_count": 0,
     "latest_triage": null
@@ -1801,6 +2298,8 @@
     "id": "<message:Ashley/upper@agency.example>",
     "inbox_id": "<ids.inboxA>",
     "thread_id": "<thread:Ashley/CAF2xGmail-reply-1@mail.gmail.com>",
+    "conversation_id": "<thread:Ashley/CAF2xGmail-reply-1@mail.gmail.com>",
+    "channel": "email",
     "status": "handled",
     "subject": "Homepage banner",
     "from": {
@@ -1828,6 +2327,20 @@
      "source": "person",
      "address": null
     },
+    "projects": [
+     {
+      "id": "<ids.acme>",
+      "name": "Acme Roofing",
+      "source": "person",
+      "address": null
+     },
+     {
+      "id": "<ids.acme2>",
+      "name": "Acme Gutters LLC",
+      "source": "inferred",
+      "address": null
+     }
+    ],
     "candidate_project_ids": [],
     "attachment_count": 0,
     "latest_triage": null
@@ -1836,6 +2349,8 @@
     "id": "<message:Ashley/usage-50@tool.example>",
     "inbox_id": "<ids.inboxA>",
     "thread_id": "<thread:Ashley/usage-50@tool.example>",
+    "conversation_id": "<thread:Ashley/usage-50@tool.example>",
+    "channel": "email",
     "status": "ignored",
     "subject": "Your plan limit is at 50%",
     "from": {
@@ -1858,6 +2373,7 @@
      "superseded_by": null
     },
     "project": null,
+    "projects": [],
     "candidate_project_ids": [],
     "attachment_count": 0,
     "latest_triage": null
@@ -1866,6 +2382,8 @@
     "id": "<message:Ashley/usage-75@tool.example>",
     "inbox_id": "<ids.inboxA>",
     "thread_id": "<thread:Ashley/usage-75@tool.example>",
+    "conversation_id": "<thread:Ashley/usage-75@tool.example>",
+    "channel": "email",
     "status": "handled",
     "subject": "Your plan limit is at 75%",
     "from": {
@@ -1888,6 +2406,7 @@
      "superseded_by": "<message:Ashley/usage-90@tool.example>"
     },
     "project": null,
+    "projects": [],
     "candidate_project_ids": [],
     "attachment_count": 0,
     "latest_triage": null
@@ -1896,6 +2415,8 @@
     "id": "<message:Ashley/usage-90@tool.example>",
     "inbox_id": "<ids.inboxA>",
     "thread_id": "<thread:Ashley/usage-90@tool.example>",
+    "conversation_id": "<thread:Ashley/usage-90@tool.example>",
+    "channel": "email",
     "status": "ignored",
     "subject": "Your plan limit is at 90%",
     "from": {
@@ -1918,6 +2439,7 @@
      "superseded_by": null
     },
     "project": null,
+    "projects": [],
     "candidate_project_ids": [],
     "attachment_count": 0,
     "latest_triage": {
@@ -1931,6 +2453,8 @@
     "id": "<message:Ashley/verify-10@agency.example>",
     "inbox_id": "<ids.inboxA>",
     "thread_id": "<thread:Ashley/verify-10@agency.example>",
+    "conversation_id": "<thread:Ashley/verify-10@agency.example>",
+    "channel": "email",
     "status": "new",
     "subject": "Inbox check VM-7K2Q",
     "from": {
@@ -1953,6 +2477,7 @@
      "superseded_by": null
     },
     "project": null,
+    "projects": [],
     "candidate_project_ids": [],
     "attachment_count": 0,
     "latest_triage": null
@@ -1961,7 +2486,7 @@
   "meta": {
    "page": 1,
    "limit": 100,
-   "total": 52,
+   "total": 53,
    "total_pages": 1
   }
  },
@@ -2091,7 +2616,29 @@
      "address": "ashley@agency.example"
     },
     "thread_id": "<thread:Ashley/attach-8-again@acme-roofing.example>",
+    "conversation_id": "<thread:Ashley/attach-8-again@acme-roofing.example>",
+    "channel": "email",
     "project": null,
+    "projects": [],
+    "project_scope": {
+     "bases": [
+      "mapped"
+     ],
+     "projects": [
+      {
+       "project_id": "<ids.acme>",
+       "name": "Acme Roofing",
+       "source": "inferred"
+      },
+      {
+       "project_id": "<ids.acme2>",
+       "name": "Acme Gutters LLC",
+       "source": "inferred"
+      }
+     ],
+     "any_project": false,
+     "any_source": null
+    },
     "candidates": [
      {
       "project_id": "<ids.acme>",
@@ -2807,7 +3354,29 @@
      "address": "ashley@agency.example"
     },
     "thread_id": "<thread:Ashley/attach-8-again@acme-roofing.example>",
+    "conversation_id": "<thread:Ashley/attach-8-again@acme-roofing.example>",
+    "channel": "email",
     "project": null,
+    "projects": [],
+    "project_scope": {
+     "bases": [
+      "mapped"
+     ],
+     "projects": [
+      {
+       "project_id": "<ids.acme>",
+       "name": "Acme Roofing",
+       "source": "inferred"
+      },
+      {
+       "project_id": "<ids.acme2>",
+       "name": "Acme Gutters LLC",
+       "source": "inferred"
+      }
+     ],
+     "any_project": false,
+     "any_source": null
+    },
     "candidates": [
      {
       "project_id": "<ids.acme>",
@@ -3457,6 +4026,7 @@
      "question_for_human": null,
      "suggested_reply": null,
      "project_id": null,
+     "project_ids": [],
      "summarized_at": "<time>",
      "created_at": "<time>"
     },
@@ -3469,11 +4039,36 @@
      "address": "ashley@agency.example"
     },
     "thread_id": "<thread:Ashley/BN8PR11MB1234outlook@BN8PR11MB1234.namprd11.prod.outlook.example>",
+    "conversation_id": "<thread:Ashley/BN8PR11MB1234outlook@BN8PR11MB1234.namprd11.prod.outlook.example>",
+    "channel": "email",
     "project": {
      "id": "<ids.birch>",
      "name": "Birch Partners",
      "source": "person",
      "address": null
+    },
+    "projects": [
+     {
+      "id": "<ids.birch>",
+      "name": "Birch Partners",
+      "source": "person",
+      "address": null
+     }
+    ],
+    "project_scope": {
+     "bases": [
+      "conversation",
+      "mapped"
+     ],
+     "projects": [
+      {
+       "project_id": "<ids.birch>",
+       "name": "Birch Partners",
+       "source": "person"
+      }
+     ],
+     "any_project": false,
+     "any_source": null
     },
     "candidates": [
      {
@@ -3548,6 +4143,7 @@
         "question_for_human": null,
         "suggested_reply": null,
         "project_id": null,
+        "project_ids": [],
         "summarized_at": "<time>",
         "created_at": "<time>"
        },
@@ -3632,7 +4228,16 @@
      "address": "ashley@agency.example"
     },
     "thread_id": "<thread:Ashley/bounce-7@mx.google.example>",
+    "conversation_id": "<thread:Ashley/bounce-7@mx.google.example>",
+    "channel": "email",
     "project": null,
+    "projects": [],
+    "project_scope": {
+     "bases": [],
+     "projects": [],
+     "any_project": false,
+     "any_source": null
+    },
     "candidates": [],
     "thread": {
      "id": "<thread:Ashley/bounce-7@mx.google.example>",
@@ -3774,7 +4379,10 @@
      "summary": "Dana thanked us for the finished footer.",
      "question_for_human": null,
      "suggested_reply": null,
-     "project_id": null,
+     "project_id": "<ids.acme>",
+     "project_ids": [
+      "<ids.acme>"
+     ],
      "summarized_at": "<time>",
      "created_at": "<time>"
     },
@@ -3785,28 +4393,45 @@
       "relation": "created",
       "title": "Bigger phone number in the banner",
       "status": "todo",
-      "ai_readiness": "ai_ready"
+      "ai_readiness": "ai_ready",
+      "project_id": "<ids.acme>",
+      "project_name": "Acme Roofing"
      },
      {
       "task_id": "<task:Birch-only task title>",
       "relation": "updated",
       "title": "Birch-only task title",
       "status": "todo",
-      "ai_readiness": null
+      "ai_readiness": null,
+      "project_id": "<ids.birch>",
+      "project_name": "Birch Partners"
      },
      {
       "task_id": "<task:Footer copy>",
       "relation": "related",
       "title": "Footer copy",
       "status": "done",
-      "ai_readiness": null
+      "ai_readiness": null,
+      "project_id": "<ids.acme>",
+      "project_name": "Acme Roofing"
+     },
+     {
+      "task_id": "<task:Gutter quote>",
+      "relation": "created",
+      "title": "Gutter quote",
+      "status": "todo",
+      "ai_readiness": null,
+      "project_id": "<ids.acme2>",
+      "project_name": "Acme Gutters LLC"
      },
      {
       "task_id": "<task:Swap banner photo>",
       "relation": "created",
       "title": "Swap banner photo",
       "status": "todo",
-      "ai_readiness": "ai_ready"
+      "ai_readiness": "ai_ready",
+      "project_id": "<ids.acme>",
+      "project_name": "Acme Roofing"
      }
     ],
     "attachments": [],
@@ -3816,11 +4441,47 @@
      "address": "ashley@agency.example"
     },
     "thread_id": "<thread:Ashley/CAF2xGmail-reply-1@mail.gmail.com>",
+    "conversation_id": "<thread:Ashley/CAF2xGmail-reply-1@mail.gmail.com>",
+    "channel": "email",
     "project": {
      "id": "<ids.acme>",
      "name": "Acme Roofing",
      "source": "person",
      "address": null
+    },
+    "projects": [
+     {
+      "id": "<ids.acme>",
+      "name": "Acme Roofing",
+      "source": "person",
+      "address": null
+     },
+     {
+      "id": "<ids.acme2>",
+      "name": "Acme Gutters LLC",
+      "source": "inferred",
+      "address": null
+     }
+    ],
+    "project_scope": {
+     "bases": [
+      "conversation",
+      "mapped"
+     ],
+     "projects": [
+      {
+       "project_id": "<ids.acme>",
+       "name": "Acme Roofing",
+       "source": "person"
+      },
+      {
+       "project_id": "<ids.acme2>",
+       "name": "Acme Gutters LLC",
+       "source": "inferred"
+      }
+     ],
+     "any_project": false,
+     "any_source": null
     },
     "candidates": [
      {
@@ -3906,7 +4567,10 @@
         "summary": "Dana thanked us for the finished footer.",
         "question_for_human": null,
         "suggested_reply": null,
-        "project_id": null,
+        "project_id": "<ids.acme>",
+        "project_ids": [
+         "<ids.acme>"
+        ],
         "summarized_at": "<time>",
         "created_at": "<time>"
        },
@@ -3917,28 +4581,45 @@
          "relation": "created",
          "title": "Bigger phone number in the banner",
          "status": "todo",
-         "ai_readiness": "ai_ready"
+         "ai_readiness": "ai_ready",
+         "project_id": "<ids.acme>",
+         "project_name": "Acme Roofing"
         },
         {
          "task_id": "<task:Birch-only task title>",
          "relation": "updated",
          "title": "Birch-only task title",
          "status": "todo",
-         "ai_readiness": null
+         "ai_readiness": null,
+         "project_id": "<ids.birch>",
+         "project_name": "Birch Partners"
         },
         {
          "task_id": "<task:Footer copy>",
          "relation": "related",
          "title": "Footer copy",
          "status": "done",
-         "ai_readiness": null
+         "ai_readiness": null,
+         "project_id": "<ids.acme>",
+         "project_name": "Acme Roofing"
+        },
+        {
+         "task_id": "<task:Gutter quote>",
+         "relation": "created",
+         "title": "Gutter quote",
+         "status": "todo",
+         "ai_readiness": null,
+         "project_id": "<ids.acme2>",
+         "project_name": "Acme Gutters LLC"
         },
         {
          "task_id": "<task:Swap banner photo>",
          "relation": "created",
          "title": "Swap banner photo",
          "status": "todo",
-         "ai_readiness": "ai_ready"
+         "ai_readiness": "ai_ready",
+         "project_id": "<ids.acme>",
+         "project_name": "Acme Roofing"
         }
        ],
        "attachments": []
@@ -4000,6 +4681,7 @@
         "question_for_human": null,
         "suggested_reply": null,
         "project_id": null,
+        "project_ids": [],
         "summarized_at": null,
         "created_at": "<time>"
        },
@@ -4128,6 +4810,7 @@
         "question_for_human": null,
         "suggested_reply": null,
         "project_id": null,
+        "project_ids": [],
         "summarized_at": null,
         "created_at": "<time>"
        },
@@ -4366,6 +5049,8 @@
      "address": "ashley@agency.example"
     },
     "thread_id": "<thread:Ashley/cs-desk@gmail.example>",
+    "conversation_id": "<thread:Ashley/cs-desk@gmail.example>",
+    "channel": "email",
     "project": {
      "id": "<project:Bob Desk>",
      "name": "Bob Desk",
@@ -4375,6 +5060,44 @@
       "routing_address": "bob-desk@relay.example.test",
       "public_address": null
      }
+    },
+    "projects": [
+     {
+      "id": "<project:Bob Desk>",
+      "name": "Bob Desk",
+      "source": "address",
+      "address": {
+       "id": "<endpoint:bob-desk@relay.example.test>",
+       "routing_address": "bob-desk@relay.example.test",
+       "public_address": null
+      }
+     }
+    ],
+    "project_scope": {
+     "bases": [
+      "conversation",
+      "endpoint",
+      "mapped"
+     ],
+     "projects": [
+      {
+       "project_id": "<project:Bob Desk>",
+       "name": "Bob Desk",
+       "source": "address"
+      },
+      {
+       "project_id": "<project:Bob Plumbing>",
+       "name": "Bob Plumbing",
+       "source": "inferred"
+      },
+      {
+       "project_id": "<project:Bob Side Gig>",
+       "name": "Bob Side Gig",
+       "source": "inferred"
+      }
+     ],
+     "any_project": false,
+     "any_source": null
     },
     "candidates": [
      {
@@ -4513,11 +5236,36 @@
      "address": "ashley@agency.example"
     },
     "thread_id": "<thread:Ashley/cs-one@gmail.example>",
+    "conversation_id": "<thread:Ashley/cs-one@gmail.example>",
+    "channel": "email",
     "project": {
      "id": "<project:Bob Plumbing>",
      "name": "Bob Plumbing",
      "source": "mapped",
      "address": null
+    },
+    "projects": [
+     {
+      "id": "<project:Bob Plumbing>",
+      "name": "Bob Plumbing",
+      "source": "mapped",
+      "address": null
+     }
+    ],
+    "project_scope": {
+     "bases": [
+      "conversation",
+      "mapped"
+     ],
+     "projects": [
+      {
+       "project_id": "<project:Bob Plumbing>",
+       "name": "Bob Plumbing",
+       "source": "mapped"
+      }
+     ],
+     "any_project": false,
+     "any_source": null
     },
     "candidates": [
      {
@@ -4649,11 +5397,41 @@
      "address": "ashley@agency.example"
     },
     "thread_id": "<thread:Ashley/cs-two@gmail.example>",
+    "conversation_id": "<thread:Ashley/cs-two@gmail.example>",
+    "channel": "email",
     "project": {
      "id": "<project:Bob Plumbing>",
      "name": "Bob Plumbing",
      "source": "person",
      "address": null
+    },
+    "projects": [
+     {
+      "id": "<project:Bob Plumbing>",
+      "name": "Bob Plumbing",
+      "source": "person",
+      "address": null
+     }
+    ],
+    "project_scope": {
+     "bases": [
+      "conversation",
+      "mapped"
+     ],
+     "projects": [
+      {
+       "project_id": "<project:Bob Plumbing>",
+       "name": "Bob Plumbing",
+       "source": "person"
+      },
+      {
+       "project_id": "<project:Bob Side Gig>",
+       "name": "Bob Side Gig",
+       "source": "inferred"
+      }
+     ],
+     "any_project": false,
+     "any_source": null
     },
     "candidates": [
      {
@@ -4858,7 +5636,29 @@
      "address": "ashley@agency.example"
     },
     "thread_id": "<thread:Ashley/attach-8-again@acme-roofing.example>",
+    "conversation_id": "<thread:Ashley/attach-8-again@acme-roofing.example>",
+    "channel": "email",
     "project": null,
+    "projects": [],
+    "project_scope": {
+     "bases": [
+      "mapped"
+     ],
+     "projects": [
+      {
+       "project_id": "<ids.acme>",
+       "name": "Acme Roofing",
+       "source": "inferred"
+      },
+      {
+       "project_id": "<ids.acme2>",
+       "name": "Acme Gutters LLC",
+       "source": "inferred"
+      }
+     ],
+     "any_project": false,
+     "any_source": null
+    },
     "candidates": [
      {
       "project_id": "<ids.acme>",
@@ -5548,7 +6348,29 @@
      "address": "ashley@agency.example"
     },
     "thread_id": "<thread:Ashley/attach-8-again@acme-roofing.example>",
+    "conversation_id": "<thread:Ashley/attach-8-again@acme-roofing.example>",
+    "channel": "email",
     "project": null,
+    "projects": [],
+    "project_scope": {
+     "bases": [
+      "mapped"
+     ],
+     "projects": [
+      {
+       "project_id": "<ids.acme>",
+       "name": "Acme Roofing",
+       "source": "inferred"
+      },
+      {
+       "project_id": "<ids.acme2>",
+       "name": "Acme Gutters LLC",
+       "source": "inferred"
+      }
+     ],
+     "any_project": false,
+     "any_source": null
+    },
     "candidates": [
      {
       "project_id": "<ids.acme>",
@@ -6198,6 +7020,7 @@
      "question_for_human": null,
      "suggested_reply": null,
      "project_id": null,
+     "project_ids": [],
      "summarized_at": null,
      "created_at": "<time>"
     },
@@ -6210,11 +7033,47 @@
      "address": "ashley@agency.example"
     },
     "thread_id": "<thread:Ashley/CAF2xGmail-reply-1@mail.gmail.com>",
+    "conversation_id": "<thread:Ashley/CAF2xGmail-reply-1@mail.gmail.com>",
+    "channel": "email",
     "project": {
      "id": "<ids.acme>",
      "name": "Acme Roofing",
      "source": "person",
      "address": null
+    },
+    "projects": [
+     {
+      "id": "<ids.acme>",
+      "name": "Acme Roofing",
+      "source": "person",
+      "address": null
+     },
+     {
+      "id": "<ids.acme2>",
+      "name": "Acme Gutters LLC",
+      "source": "inferred",
+      "address": null
+     }
+    ],
+    "project_scope": {
+     "bases": [
+      "conversation",
+      "mapped"
+     ],
+     "projects": [
+      {
+       "project_id": "<ids.acme>",
+       "name": "Acme Roofing",
+       "source": "person"
+      },
+      {
+       "project_id": "<ids.acme2>",
+       "name": "Acme Gutters LLC",
+       "source": "inferred"
+      }
+     ],
+     "any_project": false,
+     "any_source": null
     },
     "candidates": [
      {
@@ -6300,7 +7159,10 @@
         "summary": "Dana thanked us for the finished footer.",
         "question_for_human": null,
         "suggested_reply": null,
-        "project_id": null,
+        "project_id": "<ids.acme>",
+        "project_ids": [
+         "<ids.acme>"
+        ],
         "summarized_at": "<time>",
         "created_at": "<time>"
        },
@@ -6311,28 +7173,45 @@
          "relation": "created",
          "title": "Bigger phone number in the banner",
          "status": "todo",
-         "ai_readiness": "ai_ready"
+         "ai_readiness": "ai_ready",
+         "project_id": "<ids.acme>",
+         "project_name": "Acme Roofing"
         },
         {
          "task_id": "<task:Birch-only task title>",
          "relation": "updated",
          "title": "Birch-only task title",
          "status": "todo",
-         "ai_readiness": null
+         "ai_readiness": null,
+         "project_id": "<ids.birch>",
+         "project_name": "Birch Partners"
         },
         {
          "task_id": "<task:Footer copy>",
          "relation": "related",
          "title": "Footer copy",
          "status": "done",
-         "ai_readiness": null
+         "ai_readiness": null,
+         "project_id": "<ids.acme>",
+         "project_name": "Acme Roofing"
+        },
+        {
+         "task_id": "<task:Gutter quote>",
+         "relation": "created",
+         "title": "Gutter quote",
+         "status": "todo",
+         "ai_readiness": null,
+         "project_id": "<ids.acme2>",
+         "project_name": "Acme Gutters LLC"
         },
         {
          "task_id": "<task:Swap banner photo>",
          "relation": "created",
          "title": "Swap banner photo",
          "status": "todo",
-         "ai_readiness": "ai_ready"
+         "ai_readiness": "ai_ready",
+         "project_id": "<ids.acme>",
+         "project_name": "Acme Roofing"
         }
        ],
        "attachments": []
@@ -6394,6 +7273,7 @@
         "question_for_human": null,
         "suggested_reply": null,
         "project_id": null,
+        "project_ids": [],
         "summarized_at": null,
         "created_at": "<time>"
        },
@@ -6522,6 +7402,7 @@
         "question_for_human": null,
         "suggested_reply": null,
         "project_id": null,
+        "project_ids": [],
         "summarized_at": null,
         "created_at": "<time>"
        },
@@ -6766,11 +7647,46 @@
      "address": "ashley@agency.example"
     },
     "thread_id": "<thread:Ashley/CAF2xGmail-reply-1@mail.gmail.com>",
+    "conversation_id": "<thread:Ashley/CAF2xGmail-reply-1@mail.gmail.com>",
+    "channel": "email",
     "project": {
      "id": "<ids.acme>",
      "name": "Acme Roofing",
      "source": "person",
      "address": null
+    },
+    "projects": [
+     {
+      "id": "<ids.acme>",
+      "name": "Acme Roofing",
+      "source": "person",
+      "address": null
+     },
+     {
+      "id": "<ids.acme2>",
+      "name": "Acme Gutters LLC",
+      "source": "inferred",
+      "address": null
+     }
+    ],
+    "project_scope": {
+     "bases": [
+      "conversation"
+     ],
+     "projects": [
+      {
+       "project_id": "<ids.acme>",
+       "name": "Acme Roofing",
+       "source": "person"
+      },
+      {
+       "project_id": "<ids.acme2>",
+       "name": "Acme Gutters LLC",
+       "source": "inferred"
+      }
+     ],
+     "any_project": false,
+     "any_source": null
     },
     "candidates": [],
     "thread": {
@@ -6841,7 +7757,10 @@
         "summary": "Dana thanked us for the finished footer.",
         "question_for_human": null,
         "suggested_reply": null,
-        "project_id": null,
+        "project_id": "<ids.acme>",
+        "project_ids": [
+         "<ids.acme>"
+        ],
         "summarized_at": "<time>",
         "created_at": "<time>"
        },
@@ -6852,28 +7771,45 @@
          "relation": "created",
          "title": "Bigger phone number in the banner",
          "status": "todo",
-         "ai_readiness": "ai_ready"
+         "ai_readiness": "ai_ready",
+         "project_id": "<ids.acme>",
+         "project_name": "Acme Roofing"
         },
         {
          "task_id": "<task:Birch-only task title>",
          "relation": "updated",
          "title": "Birch-only task title",
          "status": "todo",
-         "ai_readiness": null
+         "ai_readiness": null,
+         "project_id": "<ids.birch>",
+         "project_name": "Birch Partners"
         },
         {
          "task_id": "<task:Footer copy>",
          "relation": "related",
          "title": "Footer copy",
          "status": "done",
-         "ai_readiness": null
+         "ai_readiness": null,
+         "project_id": "<ids.acme>",
+         "project_name": "Acme Roofing"
+        },
+        {
+         "task_id": "<task:Gutter quote>",
+         "relation": "created",
+         "title": "Gutter quote",
+         "status": "todo",
+         "ai_readiness": null,
+         "project_id": "<ids.acme2>",
+         "project_name": "Acme Gutters LLC"
         },
         {
          "task_id": "<task:Swap banner photo>",
          "relation": "created",
          "title": "Swap banner photo",
          "status": "todo",
-         "ai_readiness": "ai_ready"
+         "ai_readiness": "ai_ready",
+         "project_id": "<ids.acme>",
+         "project_name": "Acme Roofing"
         }
        ],
        "attachments": []
@@ -6935,6 +7871,7 @@
         "question_for_human": null,
         "suggested_reply": null,
         "project_id": null,
+        "project_ids": [],
         "summarized_at": null,
         "created_at": "<time>"
        },
@@ -7063,6 +8000,7 @@
         "question_for_human": null,
         "suggested_reply": null,
         "project_id": null,
+        "project_ids": [],
         "summarized_at": null,
         "created_at": "<time>"
        },
@@ -7301,7 +8239,16 @@
      "address": "ashley@agency.example"
     },
     "thread_id": "<thread:Ashley/fw-agent@agency.example>",
+    "conversation_id": "<thread:Ashley/fw-agent@agency.example>",
+    "channel": "email",
     "project": null,
+    "projects": [],
+    "project_scope": {
+     "bases": [],
+     "projects": [],
+     "any_project": false,
+     "any_source": null
+    },
     "candidates": [],
     "thread": {
      "id": "<thread:Ashley/fw-agent@agency.example>",
@@ -7430,11 +8377,37 @@
      "address": "ashley@agency.example"
     },
     "thread_id": "<thread:Ashley/fw-apple@agency.example>",
+    "conversation_id": "<thread:Ashley/fw-apple@agency.example>",
+    "channel": "email",
     "project": {
      "id": "<project:Vera Studio>",
      "name": "Vera Studio",
      "source": "mapped",
      "address": null
+    },
+    "projects": [
+     {
+      "id": "<project:Vera Studio>",
+      "name": "Vera Studio",
+      "source": "mapped",
+      "address": null
+     }
+    ],
+    "project_scope": {
+     "bases": [
+      "conversation",
+      "mapped",
+      "team"
+     ],
+     "projects": [
+      {
+       "project_id": "<project:Vera Studio>",
+       "name": "Vera Studio",
+       "source": "mapped"
+      }
+     ],
+     "any_project": true,
+     "any_source": "guessed"
     },
     "candidates": [
      {
@@ -7572,11 +8545,36 @@
      "address": "ashley@agency.example"
     },
     "thread_id": "<thread:Ashley/fw-client@cliffbuilders.example>",
+    "conversation_id": "<thread:Ashley/fw-client@cliffbuilders.example>",
+    "channel": "email",
     "project": {
      "id": "<project:Cliff Builders>",
      "name": "Cliff Builders",
      "source": "mapped",
      "address": null
+    },
+    "projects": [
+     {
+      "id": "<project:Cliff Builders>",
+      "name": "Cliff Builders",
+      "source": "mapped",
+      "address": null
+     }
+    ],
+    "project_scope": {
+     "bases": [
+      "conversation",
+      "mapped"
+     ],
+     "projects": [
+      {
+       "project_id": "<project:Cliff Builders>",
+       "name": "Cliff Builders",
+       "source": "mapped"
+      }
+     ],
+     "any_project": false,
+     "any_source": null
     },
     "candidates": [
      {
@@ -7714,6 +8712,8 @@
      "address": "ashley@agency.example"
     },
     "thread_id": "<thread:Ashley/fw-desk@agency.example>",
+    "conversation_id": "<thread:Ashley/fw-desk@agency.example>",
+    "channel": "email",
     "project": {
      "id": "<project:Forward Desk>",
      "name": "Forward Desk",
@@ -7723,6 +8723,40 @@
       "routing_address": "fwd-desk@relay.example.test",
       "public_address": null
      }
+    },
+    "projects": [
+     {
+      "id": "<project:Forward Desk>",
+      "name": "Forward Desk",
+      "source": "address",
+      "address": {
+       "id": "<endpoint:fwd-desk@relay.example.test>",
+       "routing_address": "fwd-desk@relay.example.test",
+       "public_address": null
+      }
+     }
+    ],
+    "project_scope": {
+     "bases": [
+      "conversation",
+      "endpoint",
+      "mapped",
+      "team"
+     ],
+     "projects": [
+      {
+       "project_id": "<project:Forward Desk>",
+       "name": "Forward Desk",
+       "source": "address"
+      },
+      {
+       "project_id": "<project:Vera Studio>",
+       "name": "Vera Studio",
+       "source": "mapped"
+      }
+     ],
+     "any_project": true,
+     "any_source": "guessed"
     },
     "candidates": [
      {
@@ -7880,11 +8914,37 @@
      "address": "ashley@agency.example"
     },
     "thread_id": "<thread:Ashley/fw-eml@agency.example>",
+    "conversation_id": "<thread:Ashley/fw-eml@agency.example>",
+    "channel": "email",
     "project": {
      "id": "<project:Vera Studio>",
      "name": "Vera Studio",
      "source": "mapped",
      "address": null
+    },
+    "projects": [
+     {
+      "id": "<project:Vera Studio>",
+      "name": "Vera Studio",
+      "source": "mapped",
+      "address": null
+     }
+    ],
+    "project_scope": {
+     "bases": [
+      "conversation",
+      "mapped",
+      "team"
+     ],
+     "projects": [
+      {
+       "project_id": "<project:Vera Studio>",
+       "name": "Vera Studio",
+       "source": "mapped"
+      }
+     ],
+     "any_project": true,
+     "any_source": "guessed"
     },
     "candidates": [
      {
@@ -8045,11 +9105,37 @@
      "address": "ashley@agency.example"
     },
     "thread_id": "<thread:Ashley/fw-far@agency.example>",
+    "conversation_id": "<thread:Ashley/fw-far@agency.example>",
+    "channel": "email",
     "project": {
      "id": "<project:Vera Studio>",
      "name": "Vera Studio",
      "source": "mapped",
      "address": null
+    },
+    "projects": [
+     {
+      "id": "<project:Vera Studio>",
+      "name": "Vera Studio",
+      "source": "mapped",
+      "address": null
+     }
+    ],
+    "project_scope": {
+     "bases": [
+      "conversation",
+      "mapped",
+      "team"
+     ],
+     "projects": [
+      {
+       "project_id": "<project:Vera Studio>",
+       "name": "Vera Studio",
+       "source": "mapped"
+      }
+     ],
+     "any_project": true,
+     "any_source": "guessed"
     },
     "candidates": [
      {
@@ -8196,6 +9282,7 @@
      "question_for_human": null,
      "suggested_reply": null,
      "project_id": null,
+     "project_ids": [],
      "summarized_at": null,
      "created_at": "<time>"
     },
@@ -8208,11 +9295,37 @@
      "address": "ashley@agency.example"
     },
     "thread_id": "<thread:Ashley/fw-gmail@agency.example>",
+    "conversation_id": "<thread:Ashley/fw-gmail@agency.example>",
+    "channel": "email",
     "project": {
      "id": "<project:Vera Studio>",
      "name": "Vera Studio",
      "source": "mapped",
      "address": null
+    },
+    "projects": [
+     {
+      "id": "<project:Vera Studio>",
+      "name": "Vera Studio",
+      "source": "mapped",
+      "address": null
+     }
+    ],
+    "project_scope": {
+     "bases": [
+      "conversation",
+      "mapped",
+      "team"
+     ],
+     "projects": [
+      {
+       "project_id": "<project:Vera Studio>",
+       "name": "Vera Studio",
+       "source": "mapped"
+      }
+     ],
+     "any_project": true,
+     "any_source": "guessed"
     },
     "candidates": [
      {
@@ -8292,6 +9405,7 @@
         "question_for_human": null,
         "suggested_reply": null,
         "project_id": null,
+        "project_ids": [],
         "summarized_at": null,
         "created_at": "<time>"
        },
@@ -8368,11 +9482,37 @@
      "address": "ashley@agency.example"
     },
     "thread_id": "<thread:Ashley/fw-html@agency.example>",
+    "conversation_id": "<thread:Ashley/fw-html@agency.example>",
+    "channel": "email",
     "project": {
      "id": "<project:Vera Studio>",
      "name": "Vera Studio",
      "source": "mapped",
      "address": null
+    },
+    "projects": [
+     {
+      "id": "<project:Vera Studio>",
+      "name": "Vera Studio",
+      "source": "mapped",
+      "address": null
+     }
+    ],
+    "project_scope": {
+     "bases": [
+      "conversation",
+      "mapped",
+      "team"
+     ],
+     "projects": [
+      {
+       "project_id": "<project:Vera Studio>",
+       "name": "Vera Studio",
+       "source": "mapped"
+      }
+     ],
+     "any_project": true,
+     "any_source": "guessed"
     },
     "candidates": [
      {
@@ -8516,11 +9656,37 @@
      "address": "ashley@agency.example"
     },
     "thread_id": "<thread:Ashley/fw-outlook@agency.example>",
+    "conversation_id": "<thread:Ashley/fw-outlook@agency.example>",
+    "channel": "email",
     "project": {
      "id": "<project:Vera Studio>",
      "name": "Vera Studio",
      "source": "mapped",
      "address": null
+    },
+    "projects": [
+     {
+      "id": "<project:Vera Studio>",
+      "name": "Vera Studio",
+      "source": "mapped",
+      "address": null
+     }
+    ],
+    "project_scope": {
+     "bases": [
+      "conversation",
+      "mapped",
+      "team"
+     ],
+     "projects": [
+      {
+       "project_id": "<project:Vera Studio>",
+       "name": "Vera Studio",
+       "source": "mapped"
+      }
+     ],
+     "any_project": true,
+     "any_source": "guessed"
     },
     "candidates": [
      {
@@ -8658,7 +9824,16 @@
      "address": "ashley@agency.example"
     },
     "thread_id": "<thread:Ashley/fw-suspended@agency.example>",
+    "conversation_id": "<thread:Ashley/fw-suspended@agency.example>",
+    "channel": "email",
     "project": null,
+    "projects": [],
+    "project_scope": {
+     "bases": [],
+     "projects": [],
+     "any_project": false,
+     "any_source": null
+    },
     "candidates": [],
     "thread": {
      "id": "<thread:Ashley/fw-suspended@agency.example>",
@@ -8787,11 +9962,36 @@
      "address": "ashley@agency.example"
     },
     "thread_id": "<thread:Ashley/fw-unknown@agency.example>",
+    "conversation_id": "<thread:Ashley/fw-unknown@agency.example>",
+    "channel": "email",
     "project": {
      "id": "<project:Cliff Builders>",
      "name": "Cliff Builders",
      "source": "person",
      "address": null
+    },
+    "projects": [
+     {
+      "id": "<project:Cliff Builders>",
+      "name": "Cliff Builders",
+      "source": "person",
+      "address": null
+     }
+    ],
+    "project_scope": {
+     "bases": [
+      "conversation",
+      "team"
+     ],
+     "projects": [
+      {
+       "project_id": "<project:Cliff Builders>",
+       "name": "Cliff Builders",
+       "source": "person"
+      }
+     ],
+     "any_project": true,
+     "any_source": "guessed"
     },
     "candidates": [],
     "thread": {
@@ -8921,7 +10121,16 @@
      "address": "ashley@agency.example"
     },
     "thread_id": "<thread:Ashley/fw-unverified@agency.example>",
+    "conversation_id": "<thread:Ashley/fw-unverified@agency.example>",
+    "channel": "email",
     "project": null,
+    "projects": [],
+    "project_scope": {
+     "bases": [],
+     "projects": [],
+     "any_project": false,
+     "any_source": null
+    },
     "candidates": [],
     "thread": {
      "id": "<thread:Ashley/fw-unverified@agency.example>",
@@ -9044,6 +10253,7 @@
      "question_for_human": "Restart the server?",
      "suggested_reply": null,
      "project_id": null,
+     "project_ids": [],
      "summarized_at": "<time>",
      "created_at": "<time>"
     },
@@ -9056,7 +10266,16 @@
      "address": "ashley@agency.example"
     },
     "thread_id": "<thread:Ashley/fwd-3@agency.example>",
+    "conversation_id": "<thread:Ashley/fwd-3@agency.example>",
+    "channel": "email",
     "project": null,
+    "projects": [],
+    "project_scope": {
+     "bases": [],
+     "projects": [],
+     "any_project": false,
+     "any_source": null
+    },
     "candidates": [],
     "thread": {
      "id": "<thread:Ashley/fwd-3@agency.example>",
@@ -9121,6 +10340,7 @@
         "question_for_human": "Restart the server?",
         "suggested_reply": null,
         "project_id": null,
+        "project_ids": [],
         "summarized_at": "<time>",
         "created_at": "<time>"
        },
@@ -9135,15 +10355,15 @@
   {
    "success": true,
    "data": {
-    "id": "<message:Ashley/guess@unknown-co.example>",
+    "id": "<message:Ashley/guess@agency.example>",
     "status": "new",
-    "subject": "Question about our site",
-    "internet_message_id": "guess@unknown-co.example",
+    "subject": "Question about the site",
+    "internet_message_id": "guess@agency.example",
     "received_at": "<time>",
     "sent_at": "<time>",
     "from": {
-     "address": "quinn@unknown-co.example",
-     "name": "Quinn",
+     "address": "owner@agency.example",
+     "name": "Sam Owner",
      "contact_id": null
     },
     "to": [
@@ -9156,8 +10376,11 @@
     "cc": [],
     "reply_to": [],
     "is_forward": false,
-    "routing_basis": "sender",
-    "forwarded_by": null,
+    "routing_basis": "team_recipients",
+    "forwarded_by": {
+     "member_id": "<ids.owner>",
+     "name": "Sam"
+    },
     "original_sender": null,
     "auth": {
      "trust": "trusted",
@@ -9170,20 +10393,20 @@
     },
     "auto_mail_reason": null,
     "sorting": {
-     "kind": "person",
+     "kind": "team",
      "topic": null,
      "action": "triage",
-     "reason": "From a person.",
+     "reason": "From a teammate.",
      "superseded_by": null
     },
-    "new_text": "Who handles our site?",
-    "text": "Who handles our site?\n",
+    "new_text": "Who handles the Vera site again?",
+    "text": "Who handles the Vera site again?\n",
     "text_truncated": false,
     "html_text": null,
     "html_text_truncated": false,
     "latest_triage": {
-     "id": "<triage:guess@unknown-co.example/Probably Vera Studio>",
-     "message_id": "<message:Ashley/guess@unknown-co.example>",
+     "id": "<triage:guess@agency.example/Probably Vera Studio>",
+     "message_id": "<message:Ashley/guess@agency.example>",
      "member_id": "<ids.ashley>",
      "outcome": "needs_human",
      "urgent": false,
@@ -9191,6 +10414,9 @@
      "question_for_human": "Which project is this for? Default: Acme Roofing.",
      "suggested_reply": null,
      "project_id": "<project:Vera Studio>",
+     "project_ids": [
+      "<project:Vera Studio>"
+     ],
      "summarized_at": null,
      "created_at": "<time>"
     },
@@ -9209,30 +10435,56 @@
      "name": "Ashley",
      "address": "ashley@agency.example"
     },
-    "thread_id": "<thread:Ashley/guess@unknown-co.example>",
+    "thread_id": "<thread:Ashley/guess@agency.example>",
+    "conversation_id": "<thread:Ashley/guess@agency.example>",
+    "channel": "email",
     "project": {
      "id": "<project:Vera Studio>",
      "name": "Vera Studio",
      "source": "person",
      "address": null
     },
+    "projects": [
+     {
+      "id": "<project:Vera Studio>",
+      "name": "Vera Studio",
+      "source": "person",
+      "address": null
+     }
+    ],
+    "project_scope": {
+     "bases": [
+      "answered",
+      "conversation",
+      "team"
+     ],
+     "projects": [
+      {
+       "project_id": "<project:Vera Studio>",
+       "name": "Vera Studio",
+       "source": "person"
+      }
+     ],
+     "any_project": true,
+     "any_source": "person"
+    },
     "candidates": [],
     "thread": {
-     "id": "<thread:Ashley/guess@unknown-co.example>",
-     "subject_normalized": "question about our site",
+     "id": "<thread:Ashley/guess@agency.example>",
+     "subject_normalized": "question about the site",
      "summary": null,
      "last_message_at": "<time>",
      "messages": [
       {
-       "id": "<message:Ashley/guess@unknown-co.example>",
+       "id": "<message:Ashley/guess@agency.example>",
        "status": "new",
-       "subject": "Question about our site",
-       "internet_message_id": "guess@unknown-co.example",
+       "subject": "Question about the site",
+       "internet_message_id": "guess@agency.example",
        "received_at": "<time>",
        "sent_at": "<time>",
        "from": {
-        "address": "quinn@unknown-co.example",
-        "name": "Quinn",
+        "address": "owner@agency.example",
+        "name": "Sam Owner",
         "contact_id": null
        },
        "to": [
@@ -9245,8 +10497,11 @@
        "cc": [],
        "reply_to": [],
        "is_forward": false,
-       "routing_basis": "sender",
-       "forwarded_by": null,
+       "routing_basis": "team_recipients",
+       "forwarded_by": {
+        "member_id": "<ids.owner>",
+        "name": "Sam"
+       },
        "original_sender": null,
        "auth": {
         "trust": "trusted",
@@ -9259,20 +10514,20 @@
        },
        "auto_mail_reason": null,
        "sorting": {
-        "kind": "person",
+        "kind": "team",
         "topic": null,
         "action": "triage",
-        "reason": "From a person.",
+        "reason": "From a teammate.",
         "superseded_by": null
        },
-       "new_text": "Who handles our site?",
-       "text": "Who handles our site?\n",
+       "new_text": "Who handles the Vera site again?",
+       "text": "Who handles the Vera site again?\n",
        "text_truncated": false,
        "html_text": null,
        "html_text_truncated": false,
        "latest_triage": {
-        "id": "<triage:guess@unknown-co.example/Probably Vera Studio>",
-        "message_id": "<message:Ashley/guess@unknown-co.example>",
+        "id": "<triage:guess@agency.example/Probably Vera Studio>",
+        "message_id": "<message:Ashley/guess@agency.example>",
         "member_id": "<ids.ashley>",
         "outcome": "needs_human",
         "urgent": false,
@@ -9280,6 +10535,9 @@
         "question_for_human": "Which project is this for? Default: Acme Roofing.",
         "suggested_reply": null,
         "project_id": "<project:Vera Studio>",
+        "project_ids": [
+         "<project:Vera Studio>"
+        ],
         "summarized_at": null,
         "created_at": "<time>"
        },
@@ -9357,6 +10615,7 @@
      "question_for_human": null,
      "suggested_reply": "Thanks Carla, on it.",
      "project_id": null,
+     "project_ids": [],
      "summarized_at": "<time>",
      "created_at": "<time>"
     },
@@ -9369,7 +10628,31 @@
      "address": "ashley@agency.example"
     },
     "thread_id": "<thread:Ashley/html-only-4@mail.gmail.com>",
+    "conversation_id": "<thread:Ashley/html-only-4@mail.gmail.com>",
+    "channel": "email",
     "project": null,
+    "projects": [
+     {
+      "id": "<ids.acme>",
+      "name": "Acme Roofing",
+      "source": "person",
+      "address": null
+     }
+    ],
+    "project_scope": {
+     "bases": [
+      "conversation"
+     ],
+     "projects": [
+      {
+       "project_id": "<ids.acme>",
+       "name": "Acme Roofing",
+       "source": "person"
+      }
+     ],
+     "any_project": false,
+     "any_source": null
+    },
     "candidates": [],
     "thread": {
      "id": "<thread:Ashley/html-only-4@mail.gmail.com>",
@@ -9434,6 +10717,7 @@
         "question_for_human": null,
         "suggested_reply": "Thanks Carla, on it.",
         "project_id": null,
+        "project_ids": [],
         "summarized_at": "<time>",
         "created_at": "<time>"
        },
@@ -9504,6 +10788,8 @@
      "address": "ashley@agency.example"
     },
     "thread_id": "<thread:Ashley/newsletter-6@acme-supplies.example>",
+    "conversation_id": "<thread:Ashley/newsletter-6@acme-supplies.example>",
+    "channel": "email",
     "project": {
      "id": "<project:P4TF Rebrand>",
      "name": "P4TF Rebrand",
@@ -9513,6 +10799,32 @@
       "routing_address": "p4tf@relay.example.test",
       "public_address": "p4tf@agency.example"
      }
+    },
+    "projects": [
+     {
+      "id": "<project:P4TF Rebrand>",
+      "name": "P4TF Rebrand",
+      "source": "address",
+      "address": {
+       "id": "<endpoint:p4tf@relay.example.test>",
+       "routing_address": "p4tf@relay.example.test",
+       "public_address": "p4tf@agency.example"
+      }
+     }
+    ],
+    "project_scope": {
+     "bases": [
+      "conversation"
+     ],
+     "projects": [
+      {
+       "project_id": "<project:P4TF Rebrand>",
+       "name": "P4TF Rebrand",
+       "source": "address"
+      }
+     ],
+     "any_project": false,
+     "any_source": null
     },
     "candidates": [],
     "thread": {
@@ -9740,6 +11052,8 @@
      "address": "ashley@agency.example"
     },
     "thread_id": "<thread:Ashley/newsletter-6@acme-supplies.example>",
+    "conversation_id": "<thread:Ashley/newsletter-6@acme-supplies.example>",
+    "channel": "email",
     "project": {
      "id": "<project:P4TF Rebrand>",
      "name": "P4TF Rebrand",
@@ -9749,6 +11063,32 @@
       "routing_address": "p4tf@relay.example.test",
       "public_address": "p4tf@agency.example"
      }
+    },
+    "projects": [
+     {
+      "id": "<project:P4TF Rebrand>",
+      "name": "P4TF Rebrand",
+      "source": "address",
+      "address": {
+       "id": "<endpoint:p4tf@relay.example.test>",
+       "routing_address": "p4tf@relay.example.test",
+       "public_address": "p4tf@agency.example"
+      }
+     }
+    ],
+    "project_scope": {
+     "bases": [
+      "conversation"
+     ],
+     "projects": [
+      {
+       "project_id": "<project:P4TF Rebrand>",
+       "name": "P4TF Rebrand",
+       "source": "address"
+      }
+     ],
+     "any_project": false,
+     "any_source": null
     },
     "candidates": [],
     "thread": {
@@ -10042,7 +11382,29 @@
      "address": "ashley@agency.example"
     },
     "thread_id": "<thread:Ashley/attach-8-again@acme-roofing.example>",
+    "conversation_id": "<thread:Ashley/attach-8-again@acme-roofing.example>",
+    "channel": "email",
     "project": null,
+    "projects": [],
+    "project_scope": {
+     "bases": [
+      "mapped"
+     ],
+     "projects": [
+      {
+       "project_id": "<ids.acme>",
+       "name": "Acme Roofing",
+       "source": "inferred"
+      },
+      {
+       "project_id": "<ids.acme2>",
+       "name": "Acme Gutters LLC",
+       "source": "inferred"
+      }
+     ],
+     "any_project": false,
+     "any_source": null
+    },
     "candidates": [
      {
       "project_id": "<ids.acme>",
@@ -10692,7 +12054,29 @@
      "address": "ashley@agency.example"
     },
     "thread_id": "<thread:Ashley/ooo-5@acme-roofing.example>",
+    "conversation_id": "<thread:Ashley/ooo-5@acme-roofing.example>",
+    "channel": "email",
     "project": null,
+    "projects": [],
+    "project_scope": {
+     "bases": [
+      "mapped"
+     ],
+     "projects": [
+      {
+       "project_id": "<ids.acme>",
+       "name": "Acme Roofing",
+       "source": "inferred"
+      },
+      {
+       "project_id": "<ids.acme2>",
+       "name": "Acme Gutters LLC",
+       "source": "inferred"
+      }
+     ],
+     "any_project": false,
+     "any_source": null
+    },
     "candidates": [
      {
       "project_id": "<ids.acme>",
@@ -10836,6 +12220,7 @@
      "question_for_human": null,
      "suggested_reply": null,
      "project_id": null,
+     "project_ids": [],
      "summarized_at": null,
      "created_at": "<time>"
     },
@@ -10848,11 +12233,46 @@
      "address": "ashley@agency.example"
     },
     "thread_id": "<thread:Ashley/CAF2xGmail-reply-1@mail.gmail.com>",
+    "conversation_id": "<thread:Ashley/CAF2xGmail-reply-1@mail.gmail.com>",
+    "channel": "email",
     "project": {
      "id": "<ids.acme>",
      "name": "Acme Roofing",
      "source": "person",
      "address": null
+    },
+    "projects": [
+     {
+      "id": "<ids.acme>",
+      "name": "Acme Roofing",
+      "source": "person",
+      "address": null
+     },
+     {
+      "id": "<ids.acme2>",
+      "name": "Acme Gutters LLC",
+      "source": "inferred",
+      "address": null
+     }
+    ],
+    "project_scope": {
+     "bases": [
+      "conversation"
+     ],
+     "projects": [
+      {
+       "project_id": "<ids.acme>",
+       "name": "Acme Roofing",
+       "source": "person"
+      },
+      {
+       "project_id": "<ids.acme2>",
+       "name": "Acme Gutters LLC",
+       "source": "inferred"
+      }
+     ],
+     "any_project": false,
+     "any_source": null
     },
     "candidates": [],
     "thread": {
@@ -10923,7 +12343,10 @@
         "summary": "Dana thanked us for the finished footer.",
         "question_for_human": null,
         "suggested_reply": null,
-        "project_id": null,
+        "project_id": "<ids.acme>",
+        "project_ids": [
+         "<ids.acme>"
+        ],
         "summarized_at": "<time>",
         "created_at": "<time>"
        },
@@ -10934,28 +12357,45 @@
          "relation": "created",
          "title": "Bigger phone number in the banner",
          "status": "todo",
-         "ai_readiness": "ai_ready"
+         "ai_readiness": "ai_ready",
+         "project_id": "<ids.acme>",
+         "project_name": "Acme Roofing"
         },
         {
          "task_id": "<task:Birch-only task title>",
          "relation": "updated",
          "title": "Birch-only task title",
          "status": "todo",
-         "ai_readiness": null
+         "ai_readiness": null,
+         "project_id": "<ids.birch>",
+         "project_name": "Birch Partners"
         },
         {
          "task_id": "<task:Footer copy>",
          "relation": "related",
          "title": "Footer copy",
          "status": "done",
-         "ai_readiness": null
+         "ai_readiness": null,
+         "project_id": "<ids.acme>",
+         "project_name": "Acme Roofing"
+        },
+        {
+         "task_id": "<task:Gutter quote>",
+         "relation": "created",
+         "title": "Gutter quote",
+         "status": "todo",
+         "ai_readiness": null,
+         "project_id": "<ids.acme2>",
+         "project_name": "Acme Gutters LLC"
         },
         {
          "task_id": "<task:Swap banner photo>",
          "relation": "created",
          "title": "Swap banner photo",
          "status": "todo",
-         "ai_readiness": "ai_ready"
+         "ai_readiness": "ai_ready",
+         "project_id": "<ids.acme>",
+         "project_name": "Acme Roofing"
         }
        ],
        "attachments": []
@@ -11017,6 +12457,7 @@
         "question_for_human": null,
         "suggested_reply": null,
         "project_id": null,
+        "project_ids": [],
         "summarized_at": null,
         "created_at": "<time>"
        },
@@ -11145,6 +12586,7 @@
         "question_for_human": null,
         "suggested_reply": null,
         "project_id": null,
+        "project_ids": [],
         "summarized_at": null,
         "created_at": "<time>"
        },
@@ -11410,11 +12852,36 @@
      "address": "ashley@agency.example"
     },
     "thread_id": "<thread:Ashley/oversized-10@birchpartners.example>",
+    "conversation_id": "<thread:Ashley/oversized-10@birchpartners.example>",
+    "channel": "email",
     "project": {
      "id": "<ids.birch>",
      "name": "Birch Partners",
      "source": "mapped",
      "address": null
+    },
+    "projects": [
+     {
+      "id": "<ids.birch>",
+      "name": "Birch Partners",
+      "source": "mapped",
+      "address": null
+     }
+    ],
+    "project_scope": {
+     "bases": [
+      "conversation",
+      "mapped"
+     ],
+     "projects": [
+      {
+       "project_id": "<ids.birch>",
+       "name": "Birch Partners",
+       "source": "mapped"
+      }
+     ],
+     "any_project": false,
+     "any_source": null
     },
     "candidates": [
      {
@@ -11680,11 +13147,36 @@
      "address": "ashley@agency.example"
     },
     "thread_id": "<thread:Ashley/oversized-10@birchpartners.example>",
+    "conversation_id": "<thread:Ashley/oversized-10@birchpartners.example>",
+    "channel": "email",
     "project": {
      "id": "<ids.birch>",
      "name": "Birch Partners",
      "source": "mapped",
      "address": null
+    },
+    "projects": [
+     {
+      "id": "<ids.birch>",
+      "name": "Birch Partners",
+      "source": "mapped",
+      "address": null
+     }
+    ],
+    "project_scope": {
+     "bases": [
+      "conversation",
+      "mapped"
+     ],
+     "projects": [
+      {
+       "project_id": "<ids.birch>",
+       "name": "Birch Partners",
+       "source": "mapped"
+      }
+     ],
+     "any_project": false,
+     "any_source": null
     },
     "candidates": [
      {
@@ -11923,6 +13415,8 @@
      "address": "ashley@agency.example"
     },
     "thread_id": "<thread:Ashley/pa-cross@oldco.example>",
+    "conversation_id": "<thread:Ashley/pa-cross@oldco.example>",
+    "channel": "email",
     "project": {
      "id": "<ids.birch>",
      "name": "Birch Partners",
@@ -11932,6 +13426,33 @@
       "routing_address": "birch-web@relay.example.test",
       "public_address": "birch@agency.example"
      }
+    },
+    "projects": [
+     {
+      "id": "<ids.birch>",
+      "name": "Birch Partners",
+      "source": "address",
+      "address": {
+       "id": "<endpoint:birch-web@relay.example.test>",
+       "routing_address": "birch-web@relay.example.test",
+       "public_address": "birch@agency.example"
+      }
+     }
+    ],
+    "project_scope": {
+     "bases": [
+      "conversation",
+      "endpoint"
+     ],
+     "projects": [
+      {
+       "project_id": "<ids.birch>",
+       "name": "Birch Partners",
+       "source": "address"
+      }
+     ],
+     "any_project": false,
+     "any_source": null
     },
     "candidates": [],
     "thread": {
@@ -12046,7 +13567,7 @@
     "html_text": null,
     "html_text_truncated": false,
     "latest_triage": {
-     "id": "<triage:pa-new@acme-roofing.example/Kickoff notes>",
+     "id": "<triage:pa-new@acme-roofing.example/Kickoff notes#2>",
      "message_id": "<message:Ashley/pa-new@acme-roofing.example>",
      "member_id": "<ids.ashley>",
      "outcome": "no_action",
@@ -12054,7 +13575,10 @@
      "summary": "Kickoff notes",
      "question_for_human": null,
      "suggested_reply": null,
-     "project_id": null,
+     "project_id": "<project:P4TF Rebrand>",
+     "project_ids": [
+      "<project:P4TF Rebrand>"
+     ],
      "summarized_at": null,
      "created_at": "<time>"
     },
@@ -12067,11 +13591,52 @@
      "address": "ashley@agency.example"
     },
     "thread_id": "<thread:Ashley/pa-new@acme-roofing.example>",
+    "conversation_id": "<thread:Ashley/pa-new@acme-roofing.example>",
+    "channel": "email",
     "project": {
      "id": "<ids.birch>",
      "name": "Birch Partners",
      "source": "mapped",
      "address": null
+    },
+    "projects": [
+     {
+      "id": "<ids.birch>",
+      "name": "Birch Partners",
+      "source": "person",
+      "address": null
+     }
+    ],
+    "project_scope": {
+     "bases": [
+      "conversation",
+      "endpoint",
+      "mapped"
+     ],
+     "projects": [
+      {
+       "project_id": "<ids.acme>",
+       "name": "Acme Roofing",
+       "source": "inferred"
+      },
+      {
+       "project_id": "<ids.acme2>",
+       "name": "Acme Gutters LLC",
+       "source": "inferred"
+      },
+      {
+       "project_id": "<ids.birch>",
+       "name": "Birch Partners",
+       "source": "person"
+      },
+      {
+       "project_id": "<project:P4TF Rebrand>",
+       "name": "P4TF Rebrand",
+       "source": "address"
+      }
+     ],
+     "any_project": false,
+     "any_source": null
     },
     "candidates": [
      {
@@ -12143,7 +13708,7 @@
        "html_text": null,
        "html_text_truncated": false,
        "latest_triage": {
-        "id": "<triage:pa-new@acme-roofing.example/Kickoff notes>",
+        "id": "<triage:pa-new@acme-roofing.example/Kickoff notes#2>",
         "message_id": "<message:Ashley/pa-new@acme-roofing.example>",
         "member_id": "<ids.ashley>",
         "outcome": "no_action",
@@ -12151,7 +13716,10 @@
         "summary": "Kickoff notes",
         "question_for_human": null,
         "suggested_reply": null,
-        "project_id": null,
+        "project_id": "<project:P4TF Rebrand>",
+        "project_ids": [
+         "<project:P4TF Rebrand>"
+        ],
         "summarized_at": null,
         "created_at": "<time>"
        },
@@ -12222,6 +13790,8 @@
      "address": "ashley@agency.example"
     },
     "thread_id": "<thread:Ashley/newsletter-6@acme-supplies.example>",
+    "conversation_id": "<thread:Ashley/newsletter-6@acme-supplies.example>",
+    "channel": "email",
     "project": {
      "id": "<project:P4TF Rebrand>",
      "name": "P4TF Rebrand",
@@ -12231,6 +13801,33 @@
       "routing_address": "p4tf@relay.example.test",
       "public_address": "p4tf@agency.example"
      }
+    },
+    "projects": [
+     {
+      "id": "<project:P4TF Rebrand>",
+      "name": "P4TF Rebrand",
+      "source": "address",
+      "address": {
+       "id": "<endpoint:p4tf@relay.example.test>",
+       "routing_address": "p4tf@relay.example.test",
+       "public_address": "p4tf@agency.example"
+      }
+     }
+    ],
+    "project_scope": {
+     "bases": [
+      "conversation",
+      "endpoint"
+     ],
+     "projects": [
+      {
+       "project_id": "<project:P4TF Rebrand>",
+       "name": "P4TF Rebrand",
+       "source": "address"
+      }
+     ],
+     "any_project": false,
+     "any_source": null
     },
     "candidates": [],
     "thread": {
@@ -12458,11 +14055,53 @@
      "address": "ashley@agency.example"
     },
     "thread_id": "<thread:Ashley/CAF2xGmail-reply-1@mail.gmail.com>",
+    "conversation_id": "<thread:Ashley/CAF2xGmail-reply-1@mail.gmail.com>",
+    "channel": "email",
     "project": {
      "id": "<ids.acme>",
      "name": "Acme Roofing",
      "source": "person",
      "address": null
+    },
+    "projects": [
+     {
+      "id": "<ids.acme>",
+      "name": "Acme Roofing",
+      "source": "person",
+      "address": null
+     },
+     {
+      "id": "<ids.acme2>",
+      "name": "Acme Gutters LLC",
+      "source": "inferred",
+      "address": null
+     }
+    ],
+    "project_scope": {
+     "bases": [
+      "conversation",
+      "endpoint",
+      "mapped"
+     ],
+     "projects": [
+      {
+       "project_id": "<ids.acme>",
+       "name": "Acme Roofing",
+       "source": "person"
+      },
+      {
+       "project_id": "<ids.acme2>",
+       "name": "Acme Gutters LLC",
+       "source": "inferred"
+      },
+      {
+       "project_id": "<project:P4TF Rebrand>",
+       "name": "P4TF Rebrand",
+       "source": "address"
+      }
+     ],
+     "any_project": false,
+     "any_source": null
     },
     "candidates": [
      {
@@ -12548,7 +14187,10 @@
         "summary": "Dana thanked us for the finished footer.",
         "question_for_human": null,
         "suggested_reply": null,
-        "project_id": null,
+        "project_id": "<ids.acme>",
+        "project_ids": [
+         "<ids.acme>"
+        ],
         "summarized_at": "<time>",
         "created_at": "<time>"
        },
@@ -12559,28 +14201,45 @@
          "relation": "created",
          "title": "Bigger phone number in the banner",
          "status": "todo",
-         "ai_readiness": "ai_ready"
+         "ai_readiness": "ai_ready",
+         "project_id": "<ids.acme>",
+         "project_name": "Acme Roofing"
         },
         {
          "task_id": "<task:Birch-only task title>",
          "relation": "updated",
          "title": "Birch-only task title",
          "status": "todo",
-         "ai_readiness": null
+         "ai_readiness": null,
+         "project_id": "<ids.birch>",
+         "project_name": "Birch Partners"
         },
         {
          "task_id": "<task:Footer copy>",
          "relation": "related",
          "title": "Footer copy",
          "status": "done",
-         "ai_readiness": null
+         "ai_readiness": null,
+         "project_id": "<ids.acme>",
+         "project_name": "Acme Roofing"
+        },
+        {
+         "task_id": "<task:Gutter quote>",
+         "relation": "created",
+         "title": "Gutter quote",
+         "status": "todo",
+         "ai_readiness": null,
+         "project_id": "<ids.acme2>",
+         "project_name": "Acme Gutters LLC"
         },
         {
          "task_id": "<task:Swap banner photo>",
          "relation": "created",
          "title": "Swap banner photo",
          "status": "todo",
-         "ai_readiness": "ai_ready"
+         "ai_readiness": "ai_ready",
+         "project_id": "<ids.acme>",
+         "project_name": "Acme Roofing"
         }
        ],
        "attachments": []
@@ -12642,6 +14301,7 @@
         "question_for_human": null,
         "suggested_reply": null,
         "project_id": null,
+        "project_ids": [],
         "summarized_at": null,
         "created_at": "<time>"
        },
@@ -12770,6 +14430,7 @@
         "question_for_human": null,
         "suggested_reply": null,
         "project_id": null,
+        "project_ids": [],
         "summarized_at": null,
         "created_at": "<time>"
        },
@@ -13008,11 +14669,35 @@
      "address": "ashley@agency.example"
     },
     "thread_id": "<thread:Ashley/pa-shelved@oldco.example>",
+    "conversation_id": "<thread:Ashley/pa-shelved@oldco.example>",
+    "channel": "email",
     "project": {
      "id": "<project:Old client>",
      "name": "Old client",
      "source": "address",
      "address": null
+    },
+    "projects": [
+     {
+      "id": "<project:Old client>",
+      "name": "Old client",
+      "source": "address",
+      "address": null
+     }
+    ],
+    "project_scope": {
+     "bases": [
+      "conversation"
+     ],
+     "projects": [
+      {
+       "project_id": "<project:Old client>",
+       "name": "Old client",
+       "source": "address"
+      }
+     ],
+     "any_project": false,
+     "any_source": null
     },
     "candidates": [],
     "thread": {
@@ -13136,6 +14821,8 @@
      "address": "ashley@agency.example"
     },
     "thread_id": "<thread:Ashley/pa-two-a@oldco.example>",
+    "conversation_id": "<thread:Ashley/pa-two-a@oldco.example>",
+    "channel": "email",
     "project": {
      "id": "<ids.birch>",
      "name": "Birch Partners",
@@ -13145,6 +14832,38 @@
       "routing_address": "birch-web@relay.example.test",
       "public_address": "birch@agency.example"
      }
+    },
+    "projects": [
+     {
+      "id": "<ids.birch>",
+      "name": "Birch Partners",
+      "source": "address",
+      "address": {
+       "id": "<endpoint:birch-web@relay.example.test>",
+       "routing_address": "birch-web@relay.example.test",
+       "public_address": "birch@agency.example"
+      }
+     }
+    ],
+    "project_scope": {
+     "bases": [
+      "conversation",
+      "endpoint"
+     ],
+     "projects": [
+      {
+       "project_id": "<ids.birch>",
+       "name": "Birch Partners",
+       "source": "address"
+      },
+      {
+       "project_id": "<project:P4TF Rebrand>",
+       "name": "P4TF Rebrand",
+       "source": "address"
+      }
+     ],
+     "any_project": false,
+     "any_source": null
     },
     "candidates": [],
     "thread": {
@@ -13268,6 +14987,8 @@
      "address": "ashley@agency.example"
     },
     "thread_id": "<thread:Ashley/pa-two-b@oldco.example>",
+    "conversation_id": "<thread:Ashley/pa-two-b@oldco.example>",
+    "channel": "email",
     "project": {
      "id": "<project:P4TF Rebrand>",
      "name": "P4TF Rebrand",
@@ -13277,6 +14998,38 @@
       "routing_address": "p4tf@relay.example.test",
       "public_address": "p4tf@agency.example"
      }
+    },
+    "projects": [
+     {
+      "id": "<project:P4TF Rebrand>",
+      "name": "P4TF Rebrand",
+      "source": "address",
+      "address": {
+       "id": "<endpoint:p4tf@relay.example.test>",
+       "routing_address": "p4tf@relay.example.test",
+       "public_address": "p4tf@agency.example"
+      }
+     }
+    ],
+    "project_scope": {
+     "bases": [
+      "conversation",
+      "endpoint"
+     ],
+     "projects": [
+      {
+       "project_id": "<ids.birch>",
+       "name": "Birch Partners",
+       "source": "address"
+      },
+      {
+       "project_id": "<project:P4TF Rebrand>",
+       "name": "P4TF Rebrand",
+       "source": "address"
+      }
+     ],
+     "any_project": false,
+     "any_source": null
     },
     "candidates": [],
     "thread": {
@@ -13329,6 +15082,138 @@
        },
        "new_text": "Hello, a quick note about the project.",
        "text": "Hello, a quick note about the project.\n",
+       "text_truncated": false,
+       "html_text": null,
+       "html_text_truncated": false,
+       "latest_triage": null,
+       "answers": [],
+       "linked_tasks": [],
+       "attachments": []
+      }
+     ]
+    }
+   }
+  },
+  {
+   "success": true,
+   "data": {
+    "id": "<message:Ashley/stranger@unknown-co.example>",
+    "status": "new",
+    "subject": "Question about our site",
+    "internet_message_id": "stranger@unknown-co.example",
+    "received_at": "<time>",
+    "sent_at": "<time>",
+    "from": {
+     "address": "quinn@unknown-co.example",
+     "name": "Quinn",
+     "contact_id": null
+    },
+    "to": [
+     {
+      "address": "ashley@agency.example",
+      "name": "",
+      "contact_id": null
+     }
+    ],
+    "cc": [],
+    "reply_to": [],
+    "is_forward": false,
+    "routing_basis": "sender",
+    "forwarded_by": null,
+    "original_sender": null,
+    "auth": {
+     "trust": "trusted",
+     "trusted": true,
+     "source": "provider",
+     "spf": "pass",
+     "dkim": "pass",
+     "dmarc": "pass",
+     "reason": "provider: DKIM pass aligned with From"
+    },
+    "auto_mail_reason": null,
+    "sorting": {
+     "kind": "person",
+     "topic": null,
+     "action": "triage",
+     "reason": "From a person.",
+     "superseded_by": null
+    },
+    "new_text": "Who handles our site?",
+    "text": "Who handles our site?\n",
+    "text_truncated": false,
+    "html_text": null,
+    "html_text_truncated": false,
+    "latest_triage": null,
+    "answers": [],
+    "linked_tasks": [],
+    "attachments": [],
+    "inbox": {
+     "id": "<ids.inboxA>",
+     "name": "Ashley",
+     "address": "ashley@agency.example"
+    },
+    "thread_id": "<thread:Ashley/stranger@unknown-co.example>",
+    "conversation_id": "<thread:Ashley/stranger@unknown-co.example>",
+    "channel": "email",
+    "project": null,
+    "projects": [],
+    "project_scope": {
+     "bases": [],
+     "projects": [],
+     "any_project": false,
+     "any_source": null
+    },
+    "candidates": [],
+    "thread": {
+     "id": "<thread:Ashley/stranger@unknown-co.example>",
+     "subject_normalized": "question about our site",
+     "summary": null,
+     "last_message_at": "<time>",
+     "messages": [
+      {
+       "id": "<message:Ashley/stranger@unknown-co.example>",
+       "status": "new",
+       "subject": "Question about our site",
+       "internet_message_id": "stranger@unknown-co.example",
+       "received_at": "<time>",
+       "sent_at": "<time>",
+       "from": {
+        "address": "quinn@unknown-co.example",
+        "name": "Quinn",
+        "contact_id": null
+       },
+       "to": [
+        {
+         "address": "ashley@agency.example",
+         "name": "",
+         "contact_id": null
+        }
+       ],
+       "cc": [],
+       "reply_to": [],
+       "is_forward": false,
+       "routing_basis": "sender",
+       "forwarded_by": null,
+       "original_sender": null,
+       "auth": {
+        "trust": "trusted",
+        "trusted": true,
+        "source": "provider",
+        "spf": "pass",
+        "dkim": "pass",
+        "dmarc": "pass",
+        "reason": "provider: DKIM pass aligned with From"
+       },
+       "auto_mail_reason": null,
+       "sorting": {
+        "kind": "person",
+        "topic": null,
+        "action": "triage",
+        "reason": "From a person.",
+        "superseded_by": null
+       },
+       "new_text": "Who handles our site?",
+       "text": "Who handles our site?\n",
        "text_truncated": false,
        "html_text": null,
        "html_text_truncated": false,
@@ -13414,6 +15299,9 @@
      "question_for_human": null,
      "suggested_reply": null,
      "project_id": "<project:Cliff Builders>",
+     "project_ids": [
+      "<project:Cliff Builders>"
+     ],
      "summarized_at": null,
      "created_at": "<time>"
     },
@@ -13426,11 +15314,42 @@
      "address": "ashley@agency.example"
     },
     "thread_id": "<thread:Ashley/team-cc-two@agency.example>",
+    "conversation_id": "<thread:Ashley/team-cc-two@agency.example>",
+    "channel": "email",
     "project": {
      "id": "<project:Cliff Builders>",
      "name": "Cliff Builders",
      "source": "inferred",
      "address": null
+    },
+    "projects": [
+     {
+      "id": "<project:Cliff Builders>",
+      "name": "Cliff Builders",
+      "source": "inferred",
+      "address": null
+     }
+    ],
+    "project_scope": {
+     "bases": [
+      "conversation",
+      "mapped",
+      "team"
+     ],
+     "projects": [
+      {
+       "project_id": "<project:Cliff Builders>",
+       "name": "Cliff Builders",
+       "source": "inferred"
+      },
+      {
+       "project_id": "<project:Vera Studio>",
+       "name": "Vera Studio",
+       "source": "inferred"
+      }
+     ],
+     "any_project": true,
+     "any_source": "guessed"
     },
     "candidates": [
      {
@@ -13525,6 +15444,9 @@
         "question_for_human": null,
         "suggested_reply": null,
         "project_id": "<project:Cliff Builders>",
+        "project_ids": [
+         "<project:Cliff Builders>"
+        ],
         "summarized_at": null,
         "created_at": "<time>"
        },
@@ -13609,11 +15531,37 @@
      "address": "ashley@agency.example"
     },
     "thread_id": "<thread:Ashley/team-cc@agency.example>",
+    "conversation_id": "<thread:Ashley/team-cc@agency.example>",
+    "channel": "email",
     "project": {
      "id": "<project:Vera Studio>",
      "name": "Vera Studio",
      "source": "mapped",
      "address": null
+    },
+    "projects": [
+     {
+      "id": "<project:Vera Studio>",
+      "name": "Vera Studio",
+      "source": "mapped",
+      "address": null
+     }
+    ],
+    "project_scope": {
+     "bases": [
+      "conversation",
+      "mapped",
+      "team"
+     ],
+     "projects": [
+      {
+       "project_id": "<project:Vera Studio>",
+       "name": "Vera Studio",
+       "source": "mapped"
+      }
+     ],
+     "any_project": true,
+     "any_source": "guessed"
     },
     "candidates": [
      {
@@ -13768,11 +15716,37 @@
      "address": "ashley@agency.example"
     },
     "thread_id": "<thread:Ashley/tt-1@agency.example>",
+    "conversation_id": "<thread:Ashley/tt-1@agency.example>",
+    "channel": "email",
     "project": {
      "id": "<project:Vera Studio>",
      "name": "Vera Studio",
      "source": "mapped",
      "address": null
+    },
+    "projects": [
+     {
+      "id": "<project:Vera Studio>",
+      "name": "Vera Studio",
+      "source": "mapped",
+      "address": null
+     }
+    ],
+    "project_scope": {
+     "bases": [
+      "conversation",
+      "mapped",
+      "team"
+     ],
+     "projects": [
+      {
+       "project_id": "<project:Vera Studio>",
+       "name": "Vera Studio",
+       "source": "mapped"
+      }
+     ],
+     "any_project": true,
+     "any_source": "guessed"
     },
     "candidates": [
      {
@@ -13980,11 +15954,37 @@
      "address": "ashley@agency.example"
     },
     "thread_id": "<thread:Ashley/tt-2@agency.example>",
+    "conversation_id": "<thread:Ashley/tt-2@agency.example>",
+    "channel": "email",
     "project": {
      "id": "<project:Cliff Builders>",
      "name": "Cliff Builders",
      "source": "mapped",
      "address": null
+    },
+    "projects": [
+     {
+      "id": "<project:Cliff Builders>",
+      "name": "Cliff Builders",
+      "source": "mapped",
+      "address": null
+     }
+    ],
+    "project_scope": {
+     "bases": [
+      "conversation",
+      "mapped",
+      "team"
+     ],
+     "projects": [
+      {
+       "project_id": "<project:Cliff Builders>",
+       "name": "Cliff Builders",
+       "source": "mapped"
+      }
+     ],
+     "any_project": true,
+     "any_source": "guessed"
     },
     "candidates": [
      {
@@ -14131,11 +16131,36 @@
      "address": "ashley@agency.example"
     },
     "thread_id": "<thread:Ashley/tt-1@agency.example>",
+    "conversation_id": "<thread:Ashley/tt-1@agency.example>",
+    "channel": "email",
     "project": {
      "id": "<project:Vera Studio>",
      "name": "Vera Studio",
      "source": "mapped",
      "address": null
+    },
+    "projects": [
+     {
+      "id": "<project:Vera Studio>",
+      "name": "Vera Studio",
+      "source": "mapped",
+      "address": null
+     }
+    ],
+    "project_scope": {
+     "bases": [
+      "conversation",
+      "mapped"
+     ],
+     "projects": [
+      {
+       "project_id": "<project:Vera Studio>",
+       "name": "Vera Studio",
+       "source": "mapped"
+      }
+     ],
+     "any_project": false,
+     "any_source": null
     },
     "candidates": [
      {
@@ -14340,11 +16365,46 @@
      "address": "ashley@agency.example"
     },
     "thread_id": "<thread:Ashley/CAF2xGmail-reply-1@mail.gmail.com>",
+    "conversation_id": "<thread:Ashley/CAF2xGmail-reply-1@mail.gmail.com>",
+    "channel": "email",
     "project": {
      "id": "<ids.acme>",
      "name": "Acme Roofing",
      "source": "person",
      "address": null
+    },
+    "projects": [
+     {
+      "id": "<ids.acme>",
+      "name": "Acme Roofing",
+      "source": "person",
+      "address": null
+     },
+     {
+      "id": "<ids.acme2>",
+      "name": "Acme Gutters LLC",
+      "source": "inferred",
+      "address": null
+     }
+    ],
+    "project_scope": {
+     "bases": [
+      "conversation"
+     ],
+     "projects": [
+      {
+       "project_id": "<ids.acme>",
+       "name": "Acme Roofing",
+       "source": "person"
+      },
+      {
+       "project_id": "<ids.acme2>",
+       "name": "Acme Gutters LLC",
+       "source": "inferred"
+      }
+     ],
+     "any_project": false,
+     "any_source": null
     },
     "candidates": [],
     "thread": {
@@ -14415,7 +16475,10 @@
         "summary": "Dana thanked us for the finished footer.",
         "question_for_human": null,
         "suggested_reply": null,
-        "project_id": null,
+        "project_id": "<ids.acme>",
+        "project_ids": [
+         "<ids.acme>"
+        ],
         "summarized_at": "<time>",
         "created_at": "<time>"
        },
@@ -14426,28 +16489,45 @@
          "relation": "created",
          "title": "Bigger phone number in the banner",
          "status": "todo",
-         "ai_readiness": "ai_ready"
+         "ai_readiness": "ai_ready",
+         "project_id": "<ids.acme>",
+         "project_name": "Acme Roofing"
         },
         {
          "task_id": "<task:Birch-only task title>",
          "relation": "updated",
          "title": "Birch-only task title",
          "status": "todo",
-         "ai_readiness": null
+         "ai_readiness": null,
+         "project_id": "<ids.birch>",
+         "project_name": "Birch Partners"
         },
         {
          "task_id": "<task:Footer copy>",
          "relation": "related",
          "title": "Footer copy",
          "status": "done",
-         "ai_readiness": null
+         "ai_readiness": null,
+         "project_id": "<ids.acme>",
+         "project_name": "Acme Roofing"
+        },
+        {
+         "task_id": "<task:Gutter quote>",
+         "relation": "created",
+         "title": "Gutter quote",
+         "status": "todo",
+         "ai_readiness": null,
+         "project_id": "<ids.acme2>",
+         "project_name": "Acme Gutters LLC"
         },
         {
          "task_id": "<task:Swap banner photo>",
          "relation": "created",
          "title": "Swap banner photo",
          "status": "todo",
-         "ai_readiness": "ai_ready"
+         "ai_readiness": "ai_ready",
+         "project_id": "<ids.acme>",
+         "project_name": "Acme Roofing"
         }
        ],
        "attachments": []
@@ -14509,6 +16589,7 @@
         "question_for_human": null,
         "suggested_reply": null,
         "project_id": null,
+        "project_ids": [],
         "summarized_at": null,
         "created_at": "<time>"
        },
@@ -14637,6 +16718,7 @@
         "question_for_human": null,
         "suggested_reply": null,
         "project_id": null,
+        "project_ids": [],
         "summarized_at": null,
         "created_at": "<time>"
        },
@@ -14881,11 +16963,46 @@
      "address": "ashley@agency.example"
     },
     "thread_id": "<thread:Ashley/CAF2xGmail-reply-1@mail.gmail.com>",
+    "conversation_id": "<thread:Ashley/CAF2xGmail-reply-1@mail.gmail.com>",
+    "channel": "email",
     "project": {
      "id": "<ids.acme>",
      "name": "Acme Roofing",
      "source": "person",
      "address": null
+    },
+    "projects": [
+     {
+      "id": "<ids.acme>",
+      "name": "Acme Roofing",
+      "source": "person",
+      "address": null
+     },
+     {
+      "id": "<ids.acme2>",
+      "name": "Acme Gutters LLC",
+      "source": "inferred",
+      "address": null
+     }
+    ],
+    "project_scope": {
+     "bases": [
+      "conversation"
+     ],
+     "projects": [
+      {
+       "project_id": "<ids.acme>",
+       "name": "Acme Roofing",
+       "source": "person"
+      },
+      {
+       "project_id": "<ids.acme2>",
+       "name": "Acme Gutters LLC",
+       "source": "inferred"
+      }
+     ],
+     "any_project": false,
+     "any_source": null
     },
     "candidates": [],
     "thread": {
@@ -14956,7 +17073,10 @@
         "summary": "Dana thanked us for the finished footer.",
         "question_for_human": null,
         "suggested_reply": null,
-        "project_id": null,
+        "project_id": "<ids.acme>",
+        "project_ids": [
+         "<ids.acme>"
+        ],
         "summarized_at": "<time>",
         "created_at": "<time>"
        },
@@ -14967,28 +17087,45 @@
          "relation": "created",
          "title": "Bigger phone number in the banner",
          "status": "todo",
-         "ai_readiness": "ai_ready"
+         "ai_readiness": "ai_ready",
+         "project_id": "<ids.acme>",
+         "project_name": "Acme Roofing"
         },
         {
          "task_id": "<task:Birch-only task title>",
          "relation": "updated",
          "title": "Birch-only task title",
          "status": "todo",
-         "ai_readiness": null
+         "ai_readiness": null,
+         "project_id": "<ids.birch>",
+         "project_name": "Birch Partners"
         },
         {
          "task_id": "<task:Footer copy>",
          "relation": "related",
          "title": "Footer copy",
          "status": "done",
-         "ai_readiness": null
+         "ai_readiness": null,
+         "project_id": "<ids.acme>",
+         "project_name": "Acme Roofing"
+        },
+        {
+         "task_id": "<task:Gutter quote>",
+         "relation": "created",
+         "title": "Gutter quote",
+         "status": "todo",
+         "ai_readiness": null,
+         "project_id": "<ids.acme2>",
+         "project_name": "Acme Gutters LLC"
         },
         {
          "task_id": "<task:Swap banner photo>",
          "relation": "created",
          "title": "Swap banner photo",
          "status": "todo",
-         "ai_readiness": "ai_ready"
+         "ai_readiness": "ai_ready",
+         "project_id": "<ids.acme>",
+         "project_name": "Acme Roofing"
         }
        ],
        "attachments": []
@@ -15050,6 +17187,7 @@
         "question_for_human": null,
         "suggested_reply": null,
         "project_id": null,
+        "project_ids": [],
         "summarized_at": null,
         "created_at": "<time>"
        },
@@ -15178,6 +17316,7 @@
         "question_for_human": null,
         "suggested_reply": null,
         "project_id": null,
+        "project_ids": [],
         "summarized_at": null,
         "created_at": "<time>"
        },
@@ -15416,7 +17555,16 @@
      "address": "ashley@agency.example"
     },
     "thread_id": "<thread:Ashley/usage-50@tool.example>",
+    "conversation_id": "<thread:Ashley/usage-50@tool.example>",
+    "channel": "email",
     "project": null,
+    "projects": [],
+    "project_scope": {
+     "bases": [],
+     "projects": [],
+     "any_project": false,
+     "any_source": null
+    },
     "candidates": [],
     "thread": {
      "id": "<thread:Ashley/usage-50@tool.example>",
@@ -15539,7 +17687,16 @@
      "address": "ashley@agency.example"
     },
     "thread_id": "<thread:Ashley/usage-75@tool.example>",
+    "conversation_id": "<thread:Ashley/usage-75@tool.example>",
+    "channel": "email",
     "project": null,
+    "projects": [],
+    "project_scope": {
+     "bases": [],
+     "projects": [],
+     "any_project": false,
+     "any_source": null
+    },
     "candidates": [],
     "thread": {
      "id": "<thread:Ashley/usage-75@tool.example>",
@@ -15662,6 +17819,7 @@
      "question_for_human": null,
      "suggested_reply": null,
      "project_id": null,
+     "project_ids": [],
      "summarized_at": "<time>",
      "created_at": "<time>"
     },
@@ -15674,7 +17832,16 @@
      "address": "ashley@agency.example"
     },
     "thread_id": "<thread:Ashley/usage-90@tool.example>",
+    "conversation_id": "<thread:Ashley/usage-90@tool.example>",
+    "channel": "email",
     "project": null,
+    "projects": [],
+    "project_scope": {
+     "bases": [],
+     "projects": [],
+     "any_project": false,
+     "any_source": null
+    },
     "candidates": [],
     "thread": {
      "id": "<thread:Ashley/usage-90@tool.example>",
@@ -15739,6 +17906,7 @@
         "question_for_human": null,
         "suggested_reply": null,
         "project_id": null,
+        "project_ids": [],
         "summarized_at": "<time>",
         "created_at": "<time>"
        },
@@ -15809,7 +17977,16 @@
      "address": "ashley@agency.example"
     },
     "thread_id": "<thread:Ashley/verify-10@agency.example>",
+    "conversation_id": "<thread:Ashley/verify-10@agency.example>",
+    "channel": "email",
     "project": null,
+    "projects": [],
+    "project_scope": {
+     "bases": [],
+     "projects": [],
+     "any_project": false,
+     "any_source": null
+    },
     "candidates": [],
     "thread": {
      "id": "<thread:Ashley/verify-10@agency.example>",
@@ -15896,7 +18073,8 @@
      "sort_action": "triage",
      "forwarded_by": null,
      "routing_basis": "sender",
-     "original_sender": null
+     "original_sender": null,
+     "conversation_id": "<thread:Ashley/CAF2xGmail-reply-1@mail.gmail.com>"
     },
     "outcome": "no_action",
     "project": {
@@ -15905,10 +18083,23 @@
      "source": "person"
     },
     "summary": "Race",
+    "projects": [
+     {
+      "id": "<ids.acme>",
+      "name": "Acme Roofing",
+      "source": "person"
+     },
+     {
+      "id": "<ids.acme2>",
+      "name": "Acme Gutters LLC",
+      "source": "inferred"
+     }
+    ],
     "reminders": [],
     "triage_id": "<triage:followup-2@acme-roofing.example/Race>",
     "created_at": "<time>",
     "project_id": null,
+    "project_ids": [],
     "thread_summary": "Footer done; Dana is happy with it.",
     "question_for_human": null,
     "has_suggested_reply": false,
@@ -15941,7 +18132,8 @@
      "original_sender": {
       "name": "Vera Lane",
       "address": "vera@verastudio.example"
-     }
+     },
+     "conversation_id": "<thread:Ashley/fw-gmail@agency.example>"
     },
     "outcome": "no_action",
     "project": {
@@ -15950,10 +18142,18 @@
      "source": "mapped"
     },
     "summary": "Homepage copy from Vera",
+    "projects": [
+     {
+      "id": "<project:Vera Studio>",
+      "name": "Vera Studio",
+      "source": "mapped"
+     }
+    ],
     "reminders": [],
     "triage_id": "<triage:fw-gmail@agency.example/Homepage copy from Vera>",
     "created_at": "<time>",
     "project_id": null,
+    "project_ids": [],
     "thread_summary": null,
     "question_for_human": null,
     "has_suggested_reply": false,
@@ -15963,22 +18163,26 @@
     "links": [],
     "urgent": false,
     "message": {
-     "id": "<message:Ashley/guess@unknown-co.example>",
+     "id": "<message:Ashley/guess@agency.example>",
      "from": {
-      "name": "Quinn",
-      "address": "quinn@unknown-co.example"
+      "name": "Sam Owner",
+      "address": "owner@agency.example"
      },
-     "kind": "person",
+     "kind": "team",
      "topic": null,
      "status": "new",
-     "subject": "Question about our site",
+     "subject": "Question about the site",
      "inbox_id": "<ids.inboxA>",
-     "thread_id": "<thread:Ashley/guess@unknown-co.example>",
+     "thread_id": "<thread:Ashley/guess@agency.example>",
      "received_at": "<time>",
      "sort_action": "triage",
-     "forwarded_by": null,
-     "routing_basis": "sender",
-     "original_sender": null
+     "forwarded_by": {
+      "name": "Sam",
+      "member_id": "<ids.owner>"
+     },
+     "routing_basis": "team_recipients",
+     "original_sender": null,
+     "conversation_id": "<thread:Ashley/guess@agency.example>"
     },
     "outcome": "needs_human",
     "project": {
@@ -15987,10 +18191,20 @@
      "source": "person"
     },
     "summary": "Probably Vera Studio",
+    "projects": [
+     {
+      "id": "<project:Vera Studio>",
+      "name": "Vera Studio",
+      "source": "person"
+     }
+    ],
     "reminders": [],
-    "triage_id": "<triage:guess@unknown-co.example/Probably Vera Studio>",
+    "triage_id": "<triage:guess@agency.example/Probably Vera Studio>",
     "created_at": "<time>",
     "project_id": "<project:Vera Studio>",
+    "project_ids": [
+     "<project:Vera Studio>"
+    ],
     "thread_summary": null,
     "question_for_human": "Which project is this for? Default: Acme Roofing.",
     "has_suggested_reply": false,
@@ -16015,7 +18229,8 @@
      "sort_action": "triage",
      "forwarded_by": null,
      "routing_basis": "sender",
-     "original_sender": null
+     "original_sender": null,
+     "conversation_id": "<thread:Ashley/CAF2xGmail-reply-1@mail.gmail.com>"
     },
     "outcome": "no_action",
     "project": {
@@ -16024,10 +18239,23 @@
      "source": "person"
     },
     "summary": "Thanks for the update",
+    "projects": [
+     {
+      "id": "<ids.acme>",
+      "name": "Acme Roofing",
+      "source": "person"
+     },
+     {
+      "id": "<ids.acme2>",
+      "name": "Acme Gutters LLC",
+      "source": "inferred"
+     }
+    ],
     "reminders": [],
     "triage_id": "<triage:orig-1@agency.example/Thanks for the update>",
     "created_at": "<time>",
     "project_id": null,
+    "project_ids": [],
     "thread_summary": "Footer done; Dana is happy with it.",
     "question_for_human": null,
     "has_suggested_reply": false,
@@ -16052,7 +18280,8 @@
      "sort_action": "triage",
      "forwarded_by": null,
      "routing_basis": "sender",
-     "original_sender": null
+     "original_sender": null,
+     "conversation_id": "<thread:Ashley/pa-new@acme-roofing.example>"
     },
     "outcome": "no_action",
     "project": {
@@ -16061,14 +18290,26 @@
      "source": "mapped"
     },
     "summary": "Kickoff notes",
+    "projects": [
+     {
+      "id": "<ids.birch>",
+      "name": "Birch Partners",
+      "source": "person"
+     }
+    ],
     "reminders": [],
-    "triage_id": "<triage:pa-new@acme-roofing.example/Kickoff notes>",
+    "triage_id": "<triage:pa-new@acme-roofing.example/Kickoff notes#2>",
     "created_at": "<time>",
-    "project_id": null,
+    "project_id": "<project:P4TF Rebrand>",
+    "project_ids": [
+     "<project:P4TF Rebrand>"
+    ],
     "thread_summary": null,
     "question_for_human": null,
     "has_suggested_reply": false,
-    "superseded_triage_ids": []
+    "superseded_triage_ids": [
+     "<triage:pa-new@acme-roofing.example/Kickoff notes>"
+    ]
    },
    {
     "links": [],
@@ -16092,7 +18333,8 @@
       "member_id": "<ids.owner>"
      },
      "routing_basis": "team_recipients",
-     "original_sender": null
+     "original_sender": null,
+     "conversation_id": "<thread:Ashley/team-cc-two@agency.example>"
     },
     "outcome": "no_action",
     "project": {
@@ -16101,10 +18343,20 @@
      "source": "inferred"
     },
     "summary": "The joint call is Cliff's project",
+    "projects": [
+     {
+      "id": "<project:Cliff Builders>",
+      "name": "Cliff Builders",
+      "source": "inferred"
+     }
+    ],
     "reminders": [],
     "triage_id": "<triage:team-cc-two@agency.example/The joint call is Cliff's project>",
     "created_at": "<time>",
     "project_id": "<project:Cliff Builders>",
+    "project_ids": [
+     "<project:Cliff Builders>"
+    ],
     "thread_summary": null,
     "question_for_human": null,
     "has_suggested_reply": false,
@@ -16119,7 +18371,7 @@
  "signal": {
   "success": true,
   "data": {
-   "new_count": 34,
+   "new_count": 35,
    "newest_received_at": "<time>",
    "unsummarized_count": 6,
    "drafts_requested": 0
@@ -16165,6 +18417,7 @@
     "inbox_name": "Ashley",
     "subject": "Photos and the signed quote",
     "project": null,
+    "projects": [],
     "last_message_at": "<time>",
     "message_count": 5,
     "sender": {
@@ -16193,6 +18446,13 @@
      "name": "Birch Partners",
      "source": "person"
     },
+    "projects": [
+     {
+      "id": "<ids.birch>",
+      "name": "Birch Partners",
+      "source": "person"
+     }
+    ],
     "last_message_at": "<time>",
     "message_count": 1,
     "sender": {
@@ -16221,6 +18481,18 @@
      "name": "Acme Roofing",
      "source": "person"
     },
+    "projects": [
+     {
+      "id": "<ids.acme>",
+      "name": "Acme Roofing",
+      "source": "person"
+     },
+     {
+      "id": "<ids.acme2>",
+      "name": "Acme Gutters LLC",
+      "source": "inferred"
+     }
+    ],
     "last_message_at": "<time>",
     "message_count": 7,
     "sender": {
@@ -16236,7 +18508,7 @@
     "untrusted": false,
     "attachment_count": 0,
     "summary": "Footer done; Dana is happy with it.",
-    "task_count": 4,
+    "task_count": 5,
     "reminder_count": 2
    },
    {
@@ -16249,6 +18521,13 @@
      "name": "Bob Desk",
      "source": "address"
     },
+    "projects": [
+     {
+      "id": "<project:Bob Desk>",
+      "name": "Bob Desk",
+      "source": "address"
+     }
+    ],
     "last_message_at": "<time>",
     "message_count": 1,
     "sender": {
@@ -16277,6 +18556,13 @@
      "name": "Bob Plumbing",
      "source": "mapped"
     },
+    "projects": [
+     {
+      "id": "<project:Bob Plumbing>",
+      "name": "Bob Plumbing",
+      "source": "mapped"
+     }
+    ],
     "last_message_at": "<time>",
     "message_count": 1,
     "sender": {
@@ -16305,6 +18591,13 @@
      "name": "Bob Plumbing",
      "source": "person"
     },
+    "projects": [
+     {
+      "id": "<project:Bob Plumbing>",
+      "name": "Bob Plumbing",
+      "source": "person"
+     }
+    ],
     "last_message_at": "<time>",
     "message_count": 1,
     "sender": {
@@ -16329,6 +18622,7 @@
     "inbox_name": "Ashley",
     "subject": "Fwd: New homepage copy",
     "project": null,
+    "projects": [],
     "last_message_at": "<time>",
     "message_count": 1,
     "sender": {
@@ -16357,6 +18651,13 @@
      "name": "Vera Studio",
      "source": "mapped"
     },
+    "projects": [
+     {
+      "id": "<project:Vera Studio>",
+      "name": "Vera Studio",
+      "source": "mapped"
+     }
+    ],
     "last_message_at": "<time>",
     "message_count": 1,
     "sender": {
@@ -16385,6 +18686,13 @@
      "name": "Cliff Builders",
      "source": "mapped"
     },
+    "projects": [
+     {
+      "id": "<project:Cliff Builders>",
+      "name": "Cliff Builders",
+      "source": "mapped"
+     }
+    ],
     "last_message_at": "<time>",
     "message_count": 1,
     "sender": {
@@ -16413,6 +18721,13 @@
      "name": "Forward Desk",
      "source": "address"
     },
+    "projects": [
+     {
+      "id": "<project:Forward Desk>",
+      "name": "Forward Desk",
+      "source": "address"
+     }
+    ],
     "last_message_at": "<time>",
     "message_count": 1,
     "sender": {
@@ -16441,6 +18756,13 @@
      "name": "Vera Studio",
      "source": "mapped"
     },
+    "projects": [
+     {
+      "id": "<project:Vera Studio>",
+      "name": "Vera Studio",
+      "source": "mapped"
+     }
+    ],
     "last_message_at": "<time>",
     "message_count": 1,
     "sender": {
@@ -16469,6 +18791,13 @@
      "name": "Vera Studio",
      "source": "mapped"
     },
+    "projects": [
+     {
+      "id": "<project:Vera Studio>",
+      "name": "Vera Studio",
+      "source": "mapped"
+     }
+    ],
     "last_message_at": "<time>",
     "message_count": 1,
     "sender": {
@@ -16497,6 +18826,13 @@
      "name": "Vera Studio",
      "source": "mapped"
     },
+    "projects": [
+     {
+      "id": "<project:Vera Studio>",
+      "name": "Vera Studio",
+      "source": "mapped"
+     }
+    ],
     "last_message_at": "<time>",
     "message_count": 1,
     "sender": {
@@ -16525,6 +18861,13 @@
      "name": "Vera Studio",
      "source": "mapped"
     },
+    "projects": [
+     {
+      "id": "<project:Vera Studio>",
+      "name": "Vera Studio",
+      "source": "mapped"
+     }
+    ],
     "last_message_at": "<time>",
     "message_count": 1,
     "sender": {
@@ -16553,6 +18896,13 @@
      "name": "Vera Studio",
      "source": "mapped"
     },
+    "projects": [
+     {
+      "id": "<project:Vera Studio>",
+      "name": "Vera Studio",
+      "source": "mapped"
+     }
+    ],
     "last_message_at": "<time>",
     "message_count": 1,
     "sender": {
@@ -16577,6 +18927,7 @@
     "inbox_name": "Ashley",
     "subject": "Fwd: New homepage copy",
     "project": null,
+    "projects": [],
     "last_message_at": "<time>",
     "message_count": 1,
     "sender": {
@@ -16605,6 +18956,13 @@
      "name": "Cliff Builders",
      "source": "person"
     },
+    "projects": [
+     {
+      "id": "<project:Cliff Builders>",
+      "name": "Cliff Builders",
+      "source": "person"
+     }
+    ],
     "last_message_at": "<time>",
     "message_count": 1,
     "sender": {
@@ -16629,6 +18987,7 @@
     "inbox_name": "Ashley",
     "subject": "Fwd: New homepage copy",
     "project": null,
+    "projects": [],
     "last_message_at": "<time>",
     "message_count": 1,
     "sender": {
@@ -16653,6 +19012,7 @@
     "inbox_name": "Ashley",
     "subject": "Fwd: Site down?",
     "project": null,
+    "projects": [],
     "last_message_at": "<time>",
     "message_count": 1,
     "sender": {
@@ -16672,22 +19032,29 @@
     "reminder_count": 0
    },
    {
-    "id": "<thread:Ashley/guess@unknown-co.example>",
+    "id": "<thread:Ashley/guess@agency.example>",
     "inbox_id": "<ids.inboxA>",
     "inbox_name": "Ashley",
-    "subject": "Question about our site",
+    "subject": "Question about the site",
     "project": {
      "id": "<project:Vera Studio>",
      "name": "Vera Studio",
      "source": "person"
     },
+    "projects": [
+     {
+      "id": "<project:Vera Studio>",
+      "name": "Vera Studio",
+      "source": "person"
+     }
+    ],
     "last_message_at": "<time>",
     "message_count": 1,
     "sender": {
-     "name": "Quinn",
-     "address": "quinn@unknown-co.example"
+     "name": "Sam Owner",
+     "address": "owner@agency.example"
     },
-    "snippet": "Who handles our site?",
+    "snippet": "Who handles the Vera site again?",
     "state": "new",
     "needs_you": false,
     "needs_reply": false,
@@ -16705,6 +19072,13 @@
     "inbox_name": "Ashley",
     "subject": "New logo files",
     "project": null,
+    "projects": [
+     {
+      "id": "<ids.acme>",
+      "name": "Acme Roofing",
+      "source": "person"
+     }
+    ],
     "last_message_at": "<time>",
     "message_count": 1,
     "sender": {
@@ -16733,6 +19107,13 @@
      "name": "Birch Partners",
      "source": "mapped"
     },
+    "projects": [
+     {
+      "id": "<ids.birch>",
+      "name": "Birch Partners",
+      "source": "mapped"
+     }
+    ],
     "last_message_at": "<time>",
     "message_count": 2,
     "sender": {
@@ -16761,6 +19142,13 @@
      "name": "Birch Partners",
      "source": "address"
     },
+    "projects": [
+     {
+      "id": "<ids.birch>",
+      "name": "Birch Partners",
+      "source": "address"
+     }
+    ],
     "last_message_at": "<time>",
     "message_count": 1,
     "sender": {
@@ -16789,6 +19177,13 @@
      "name": "Birch Partners",
      "source": "mapped"
     },
+    "projects": [
+     {
+      "id": "<ids.birch>",
+      "name": "Birch Partners",
+      "source": "person"
+     }
+    ],
     "last_message_at": "<time>",
     "message_count": 1,
     "sender": {
@@ -16817,6 +19212,13 @@
      "name": "Old client",
      "source": "address"
     },
+    "projects": [
+     {
+      "id": "<project:Old client>",
+      "name": "Old client",
+      "source": "address"
+     }
+    ],
     "last_message_at": "<time>",
     "message_count": 1,
     "sender": {
@@ -16845,6 +19247,13 @@
      "name": "Birch Partners",
      "source": "address"
     },
+    "projects": [
+     {
+      "id": "<ids.birch>",
+      "name": "Birch Partners",
+      "source": "address"
+     }
+    ],
     "last_message_at": "<time>",
     "message_count": 1,
     "sender": {
@@ -16873,6 +19282,13 @@
      "name": "P4TF Rebrand",
      "source": "address"
     },
+    "projects": [
+     {
+      "id": "<project:P4TF Rebrand>",
+      "name": "P4TF Rebrand",
+      "source": "address"
+     }
+    ],
     "last_message_at": "<time>",
     "message_count": 1,
     "sender": {
@@ -16880,6 +19296,31 @@
      "address": "kim@oldco.example"
     },
     "snippet": "Hello, a quick note about the project.",
+    "state": "new",
+    "needs_you": false,
+    "needs_reply": false,
+    "has_new": true,
+    "urgent": false,
+    "untrusted": false,
+    "attachment_count": 0,
+    "summary": null,
+    "task_count": 0,
+    "reminder_count": 0
+   },
+   {
+    "id": "<thread:Ashley/stranger@unknown-co.example>",
+    "inbox_id": "<ids.inboxA>",
+    "inbox_name": "Ashley",
+    "subject": "Question about our site",
+    "project": null,
+    "projects": [],
+    "last_message_at": "<time>",
+    "message_count": 1,
+    "sender": {
+     "name": "Quinn",
+     "address": "quinn@unknown-co.example"
+    },
+    "snippet": "Who handles our site?",
     "state": "new",
     "needs_you": false,
     "needs_reply": false,
@@ -16901,6 +19342,13 @@
      "name": "Cliff Builders",
      "source": "inferred"
     },
+    "projects": [
+     {
+      "id": "<project:Cliff Builders>",
+      "name": "Cliff Builders",
+      "source": "inferred"
+     }
+    ],
     "last_message_at": "<time>",
     "message_count": 1,
     "sender": {
@@ -16929,6 +19377,13 @@
      "name": "Vera Studio",
      "source": "mapped"
     },
+    "projects": [
+     {
+      "id": "<project:Vera Studio>",
+      "name": "Vera Studio",
+      "source": "mapped"
+     }
+    ],
     "last_message_at": "<time>",
     "message_count": 1,
     "sender": {
@@ -16957,6 +19412,13 @@
      "name": "Vera Studio",
      "source": "mapped"
     },
+    "projects": [
+     {
+      "id": "<project:Vera Studio>",
+      "name": "Vera Studio",
+      "source": "mapped"
+     }
+    ],
     "last_message_at": "<time>",
     "message_count": 2,
     "sender": {
@@ -16985,6 +19447,13 @@
      "name": "Cliff Builders",
      "source": "mapped"
     },
+    "projects": [
+     {
+      "id": "<project:Cliff Builders>",
+      "name": "Cliff Builders",
+      "source": "mapped"
+     }
+    ],
     "last_message_at": "<time>",
     "message_count": 1,
     "sender": {
@@ -17009,6 +19478,7 @@
     "inbox_name": "Ashley",
     "subject": "Inbox check VM-7K2Q",
     "project": null,
+    "projects": [],
     "last_message_at": "<time>",
     "message_count": 1,
     "sender": {
@@ -17037,6 +19507,13 @@
      "name": "P4TF Rebrand",
      "source": "address"
     },
+    "projects": [
+     {
+      "id": "<project:P4TF Rebrand>",
+      "name": "P4TF Rebrand",
+      "source": "address"
+     }
+    ],
     "last_message_at": "<time>",
     "message_count": 1,
     "sender": {
@@ -17061,6 +19538,7 @@
     "inbox_name": "Billing",
     "subject": "Homepage banner",
     "project": null,
+    "projects": [],
     "last_message_at": "<time>",
     "message_count": 1,
     "sender": {
@@ -17080,16 +19558,16 @@
     "reminder_count": 0
    }
   ],
-  "total": 34,
+  "total": 35,
   "counts": {
-   "all": 34,
+   "all": 35,
    "needs_you": 1,
    "needs_reply": 0,
-   "new": 29,
+   "new": 30,
    "updates": 2,
    "handled": 6,
    "ignored": 4,
-   "unassigned": 8
+   "unassigned": 9
   }
  },
  "threads": [
@@ -17107,6 +19585,7 @@
    },
    "subject": "Photos and the signed quote",
    "project": null,
+   "projects": [],
    "state": "new",
    "urgent": false,
    "untrusted": false,
@@ -17697,6 +20176,14 @@
     "source": "person",
     "address": null
    },
+   "projects": [
+    {
+     "id": "<ids.birch>",
+     "name": "Birch Partners",
+     "source": "person",
+     "address": null
+    }
+   ],
    "state": "needs_you",
    "urgent": false,
    "untrusted": true,
@@ -17813,6 +20300,20 @@
     "source": "person",
     "address": null
    },
+   "projects": [
+    {
+     "id": "<ids.acme>",
+     "name": "Acme Roofing",
+     "source": "person",
+     "address": null
+    },
+    {
+     "id": "<ids.acme2>",
+     "name": "Acme Gutters LLC",
+     "source": "inferred",
+     "address": null
+    }
+   ],
    "state": "handled",
    "urgent": false,
    "untrusted": false,
@@ -17903,7 +20404,8 @@
        "by": "agent",
        "title": "Bigger phone number in the banner",
        "status": "todo",
-       "project_id": "<ids.acme>"
+       "project_id": "<ids.acme>",
+       "project_name": "Acme Roofing"
       },
       {
        "task_id": "<task:Birch-only task title>",
@@ -17911,7 +20413,8 @@
        "by": "person",
        "title": "Birch-only task title",
        "status": "todo",
-       "project_id": "<ids.birch>"
+       "project_id": "<ids.birch>",
+       "project_name": "Birch Partners"
       },
       {
        "task_id": "<task:Footer copy>",
@@ -17919,7 +20422,17 @@
        "by": "agent",
        "title": "Footer copy",
        "status": "done",
-       "project_id": "<ids.acme>"
+       "project_id": "<ids.acme>",
+       "project_name": "Acme Roofing"
+      },
+      {
+       "task_id": "<task:Gutter quote>",
+       "relation": "created",
+       "by": "person",
+       "title": "Gutter quote",
+       "status": "todo",
+       "project_id": "<ids.acme2>",
+       "project_name": "Acme Gutters LLC"
       },
       {
        "task_id": "<task:Swap banner photo>",
@@ -17927,7 +20440,8 @@
        "by": "agent",
        "title": "Swap banner photo",
        "status": "todo",
-       "project_id": "<ids.acme>"
+       "project_id": "<ids.acme>",
+       "project_name": "Acme Roofing"
       }
      ],
      "reminders": [
@@ -18357,6 +20871,14 @@
     "source": "address",
     "address": "bob-desk@relay.example.test"
    },
+   "projects": [
+    {
+     "id": "<project:Bob Desk>",
+     "name": "Bob Desk",
+     "source": "address",
+     "address": "bob-desk@relay.example.test"
+    }
+   ],
    "state": "new",
    "urgent": false,
    "untrusted": false,
@@ -18466,6 +20988,14 @@
     "source": "mapped",
     "address": null
    },
+   "projects": [
+    {
+     "id": "<project:Bob Plumbing>",
+     "name": "Bob Plumbing",
+     "source": "mapped",
+     "address": null
+    }
+   ],
    "state": "new",
    "urgent": false,
    "untrusted": false,
@@ -18568,6 +21098,14 @@
     "source": "person",
     "address": null
    },
+   "projects": [
+    {
+     "id": "<project:Bob Plumbing>",
+     "name": "Bob Plumbing",
+     "source": "person",
+     "address": null
+    }
+   ],
    "state": "new",
    "urgent": false,
    "untrusted": false,
@@ -18672,6 +21210,7 @@
    },
    "subject": "Fwd: New homepage copy",
    "project": null,
+   "projects": [],
    "state": "new",
    "urgent": false,
    "untrusted": false,
@@ -18760,6 +21299,14 @@
     "source": "mapped",
     "address": null
    },
+   "projects": [
+    {
+     "id": "<project:Vera Studio>",
+     "name": "Vera Studio",
+     "source": "mapped",
+     "address": null
+    }
+   ],
    "state": "new",
    "urgent": false,
    "untrusted": false,
@@ -18866,6 +21413,14 @@
     "source": "mapped",
     "address": null
    },
+   "projects": [
+    {
+     "id": "<project:Cliff Builders>",
+     "name": "Cliff Builders",
+     "source": "mapped",
+     "address": null
+    }
+   ],
    "state": "new",
    "urgent": false,
    "untrusted": false,
@@ -18966,6 +21521,14 @@
     "source": "address",
     "address": "fwd-desk@relay.example.test"
    },
+   "projects": [
+    {
+     "id": "<project:Forward Desk>",
+     "name": "Forward Desk",
+     "source": "address",
+     "address": "fwd-desk@relay.example.test"
+    }
+   ],
    "state": "new",
    "urgent": false,
    "untrusted": false,
@@ -19072,6 +21635,14 @@
     "source": "mapped",
     "address": null
    },
+   "projects": [
+    {
+     "id": "<project:Vera Studio>",
+     "name": "Vera Studio",
+     "source": "mapped",
+     "address": null
+    }
+   ],
    "state": "new",
    "urgent": false,
    "untrusted": false,
@@ -19191,6 +21762,14 @@
     "source": "mapped",
     "address": null
    },
+   "projects": [
+    {
+     "id": "<project:Vera Studio>",
+     "name": "Vera Studio",
+     "source": "mapped",
+     "address": null
+    }
+   ],
    "state": "new",
    "urgent": false,
    "untrusted": false,
@@ -19286,6 +21865,14 @@
     "source": "mapped",
     "address": null
    },
+   "projects": [
+    {
+     "id": "<project:Vera Studio>",
+     "name": "Vera Studio",
+     "source": "mapped",
+     "address": null
+    }
+   ],
    "state": "handled",
    "urgent": false,
    "untrusted": false,
@@ -19404,6 +21991,14 @@
     "source": "mapped",
     "address": null
    },
+   "projects": [
+    {
+     "id": "<project:Vera Studio>",
+     "name": "Vera Studio",
+     "source": "mapped",
+     "address": null
+    }
+   ],
    "state": "new",
    "urgent": false,
    "untrusted": false,
@@ -19510,6 +22105,14 @@
     "source": "mapped",
     "address": null
    },
+   "projects": [
+    {
+     "id": "<project:Vera Studio>",
+     "name": "Vera Studio",
+     "source": "mapped",
+     "address": null
+    }
+   ],
    "state": "new",
    "urgent": false,
    "untrusted": false,
@@ -19611,6 +22214,7 @@
    },
    "subject": "Fwd: New homepage copy",
    "project": null,
+   "projects": [],
    "state": "new",
    "urgent": false,
    "untrusted": false,
@@ -19699,6 +22303,14 @@
     "source": "person",
     "address": null
    },
+   "projects": [
+    {
+     "id": "<project:Cliff Builders>",
+     "name": "Cliff Builders",
+     "source": "person",
+     "address": null
+    }
+   ],
    "state": "new",
    "urgent": false,
    "untrusted": false,
@@ -19792,6 +22404,7 @@
    },
    "subject": "Fwd: New homepage copy",
    "project": null,
+   "projects": [],
    "state": "new",
    "urgent": false,
    "untrusted": true,
@@ -19865,6 +22478,7 @@
    },
    "subject": "Fwd: Site down?",
    "project": null,
+   "projects": [],
    "state": "handled",
    "urgent": false,
    "untrusted": false,
@@ -19940,7 +22554,7 @@
    "senders": []
   },
   {
-   "id": "<thread:Ashley/guess@unknown-co.example>",
+   "id": "<thread:Ashley/guess@agency.example>",
    "inbox": {
     "id": "<ids.inboxA>",
     "name": "Ashley",
@@ -19951,27 +22565,35 @@
      "name": "Ashley P."
     }
    },
-   "subject": "Question about our site",
+   "subject": "Question about the site",
    "project": {
     "id": "<project:Vera Studio>",
     "name": "Vera Studio",
     "source": "person",
     "address": null
    },
+   "projects": [
+    {
+     "id": "<project:Vera Studio>",
+     "name": "Vera Studio",
+     "source": "person",
+     "address": null
+    }
+   ],
    "state": "new",
    "urgent": false,
    "untrusted": false,
    "candidates": [],
    "messages": [
     {
-     "id": "<message:Ashley/guess@unknown-co.example>",
+     "id": "<message:Ashley/guess@agency.example>",
      "status": "new",
-     "subject": "Question about our site",
+     "subject": "Question about the site",
      "received_at": "<time>",
      "sent_at": "<time>",
      "from": {
-      "address": "quinn@unknown-co.example",
-      "name": "Quinn",
+      "address": "owner@agency.example",
+      "name": "Sam Owner",
       "contact_id": null
      },
      "to": [
@@ -19983,8 +22605,11 @@
      ],
      "cc": [],
      "is_forward": false,
-     "routing_basis": "sender",
-     "forwarded_by": null,
+     "routing_basis": "team_recipients",
+     "forwarded_by": {
+      "member_id": "<ids.owner>",
+      "name": "Sam"
+     },
      "original_sender": null,
      "trust": {
       "level": "trusted",
@@ -19995,19 +22620,19 @@
      },
      "auto_mail_reason": null,
      "sorting": {
-      "kind": "person",
+      "kind": "team",
       "topic": null,
       "action": "triage",
-      "reason": "From a person.",
+      "reason": "From a teammate.",
       "rule_id": null,
       "superseded_by": null
      },
-     "new_text": "Who handles our site?",
-     "text_body": "Who handles our site?\n",
+     "new_text": "Who handles the Vera site again?",
+     "text_body": "Who handles the Vera site again?\n",
      "html_body": null,
      "attachments": [],
      "triage": {
-      "id": "<triage:guess@unknown-co.example/Probably Vera Studio>",
+      "id": "<triage:guess@agency.example/Probably Vera Studio>",
       "outcome": "needs_human",
       "urgent": false,
       "summary": "Probably Vera Studio",
@@ -20034,17 +22659,7 @@
     }
    ],
    "summary": null,
-   "senders": [
-    {
-     "address": "quinn@unknown-co.example",
-     "name": "Quinn",
-     "domain": "unknown-co.example",
-     "domain_is_public": false,
-     "contact_ids": [],
-     "mapped_project_ids": [],
-     "domain_project_ids": []
-    }
-   ]
+   "senders": []
   },
   {
    "id": "<thread:Ashley/html-only-4@mail.gmail.com>",
@@ -20060,6 +22675,14 @@
    },
    "subject": "New logo files",
    "project": null,
+   "projects": [
+    {
+     "id": "<ids.acme>",
+     "name": "Acme Roofing",
+     "source": "person",
+     "address": null
+    }
+   ],
    "state": "new",
    "urgent": false,
    "untrusted": false,
@@ -20165,6 +22788,14 @@
     "source": "mapped",
     "address": null
    },
+   "projects": [
+    {
+     "id": "<ids.birch>",
+     "name": "Birch Partners",
+     "source": "mapped",
+     "address": null
+    }
+   ],
    "state": "new",
    "urgent": false,
    "untrusted": false,
@@ -20369,6 +23000,14 @@
     "source": "address",
     "address": "birch@agency.example"
    },
+   "projects": [
+    {
+     "id": "<ids.birch>",
+     "name": "Birch Partners",
+     "source": "address",
+     "address": "birch@agency.example"
+    }
+   ],
    "state": "new",
    "urgent": false,
    "untrusted": false,
@@ -20457,6 +23096,14 @@
     "source": "mapped",
     "address": null
    },
+   "projects": [
+    {
+     "id": "<ids.birch>",
+     "name": "Birch Partners",
+     "source": "person",
+     "address": null
+    }
+   ],
    "state": "handled",
    "urgent": false,
    "untrusted": false,
@@ -20521,7 +23168,7 @@
      "html_body": null,
      "attachments": [],
      "triage": {
-      "id": "<triage:pa-new@acme-roofing.example/Kickoff notes>",
+      "id": "<triage:pa-new@acme-roofing.example/Kickoff notes#2>",
       "outcome": "no_action",
       "urgent": false,
       "summary": "Kickoff notes",
@@ -20578,6 +23225,14 @@
     "source": "address",
     "address": null
    },
+   "projects": [
+    {
+     "id": "<project:Old client>",
+     "name": "Old client",
+     "source": "address",
+     "address": null
+    }
+   ],
    "state": "new",
    "urgent": false,
    "untrusted": false,
@@ -20666,6 +23321,14 @@
     "source": "address",
     "address": "birch@agency.example"
    },
+   "projects": [
+    {
+     "id": "<ids.birch>",
+     "name": "Birch Partners",
+     "source": "address",
+     "address": "birch@agency.example"
+    }
+   ],
    "state": "new",
    "urgent": false,
    "untrusted": false,
@@ -20754,6 +23417,14 @@
     "source": "address",
     "address": "p4tf@agency.example"
    },
+   "projects": [
+    {
+     "id": "<project:P4TF Rebrand>",
+     "name": "P4TF Rebrand",
+     "source": "address",
+     "address": "p4tf@agency.example"
+    }
+   ],
    "state": "new",
    "urgent": false,
    "untrusted": false,
@@ -20824,6 +23495,90 @@
    ]
   },
   {
+   "id": "<thread:Ashley/stranger@unknown-co.example>",
+   "inbox": {
+    "id": "<ids.inboxA>",
+    "name": "Ashley",
+    "address": "ashley@agency.example",
+    "enabled": true,
+    "handler": {
+     "id": "<ids.ashley>",
+     "name": "Ashley P."
+    }
+   },
+   "subject": "Question about our site",
+   "project": null,
+   "projects": [],
+   "state": "new",
+   "urgent": false,
+   "untrusted": false,
+   "candidates": [],
+   "messages": [
+    {
+     "id": "<message:Ashley/stranger@unknown-co.example>",
+     "status": "new",
+     "subject": "Question about our site",
+     "received_at": "<time>",
+     "sent_at": "<time>",
+     "from": {
+      "address": "quinn@unknown-co.example",
+      "name": "Quinn",
+      "contact_id": null
+     },
+     "to": [
+      {
+       "address": "ashley@agency.example",
+       "name": "",
+       "contact_id": null
+      }
+     ],
+     "cc": [],
+     "is_forward": false,
+     "routing_basis": "sender",
+     "forwarded_by": null,
+     "original_sender": null,
+     "trust": {
+      "level": "trusted",
+      "reason": "provider: DKIM pass aligned with From",
+      "spf": "pass",
+      "dkim": "pass",
+      "dmarc": "pass"
+     },
+     "auto_mail_reason": null,
+     "sorting": {
+      "kind": "person",
+      "topic": null,
+      "action": "triage",
+      "reason": "From a person.",
+      "rule_id": null,
+      "superseded_by": null
+     },
+     "new_text": "Who handles our site?",
+     "text_body": "Who handles our site?\n",
+     "html_body": null,
+     "attachments": [],
+     "triage": null,
+     "answer": null,
+     "linked_tasks": [],
+     "reminders": [],
+     "reviewed_at": null,
+     "reviewed_by": null
+    }
+   ],
+   "summary": null,
+   "senders": [
+    {
+     "address": "quinn@unknown-co.example",
+     "name": "Quinn",
+     "domain": "unknown-co.example",
+     "domain_is_public": false,
+     "contact_ids": [],
+     "mapped_project_ids": [],
+     "domain_project_ids": []
+    }
+   ]
+  },
+  {
    "id": "<thread:Ashley/team-cc-two@agency.example>",
    "inbox": {
     "id": "<ids.inboxA>",
@@ -20842,6 +23597,14 @@
     "source": "inferred",
     "address": null
    },
+   "projects": [
+    {
+     "id": "<project:Cliff Builders>",
+     "name": "Cliff Builders",
+     "source": "inferred",
+     "address": null
+    }
+   ],
    "state": "handled",
    "urgent": false,
    "untrusted": false,
@@ -20961,6 +23724,14 @@
     "source": "mapped",
     "address": null
    },
+   "projects": [
+    {
+     "id": "<project:Vera Studio>",
+     "name": "Vera Studio",
+     "source": "mapped",
+     "address": null
+    }
+   ],
    "state": "new",
    "urgent": false,
    "untrusted": false,
@@ -21061,6 +23832,14 @@
     "source": "mapped",
     "address": null
    },
+   "projects": [
+    {
+     "id": "<project:Vera Studio>",
+     "name": "Vera Studio",
+     "source": "mapped",
+     "address": null
+    }
+   ],
    "state": "new",
    "urgent": false,
    "untrusted": false,
@@ -21226,6 +24005,14 @@
     "source": "mapped",
     "address": null
    },
+   "projects": [
+    {
+     "id": "<project:Cliff Builders>",
+     "name": "Cliff Builders",
+     "source": "mapped",
+     "address": null
+    }
+   ],
    "state": "new",
    "urgent": false,
    "untrusted": false,
@@ -21316,6 +24103,7 @@
    },
    "subject": "Inbox check VM-7K2Q",
    "project": null,
+   "projects": [],
    "state": "new",
    "urgent": false,
    "untrusted": false,
@@ -21394,6 +24182,14 @@
     "source": "address",
     "address": "p4tf-billing@relay.example.test"
    },
+   "projects": [
+    {
+     "id": "<project:P4TF Rebrand>",
+     "name": "P4TF Rebrand",
+     "source": "address",
+     "address": "p4tf-billing@relay.example.test"
+    }
+   ],
    "state": "new",
    "urgent": false,
    "untrusted": false,
@@ -21477,6 +24273,7 @@
    },
    "subject": "Homepage banner",
    "project": null,
+   "projects": [],
    "state": "new",
    "urgent": false,
    "untrusted": false,
@@ -21552,6 +24349,7 @@
      {
       "id": "<message:Ashley/CAF2xGmail-reply-1@mail.gmail.com>",
       "thread_id": "<thread:Ashley/CAF2xGmail-reply-1@mail.gmail.com>",
+      "conversation_id": "<thread:Ashley/CAF2xGmail-reply-1@mail.gmail.com>",
       "subject": "Re: Homepage banner",
       "from": {
        "address": "dana@acme-roofing.example",
@@ -21573,6 +24371,7 @@
      {
       "id": "<message:Ashley/CAF2xGmail-reply-1@mail.gmail.com>",
       "thread_id": "<thread:Ashley/CAF2xGmail-reply-1@mail.gmail.com>",
+      "conversation_id": "<thread:Ashley/CAF2xGmail-reply-1@mail.gmail.com>",
       "subject": "Re: Homepage banner",
       "from": {
        "address": "dana@acme-roofing.example",
@@ -21594,6 +24393,29 @@
      {
       "id": "<message:Ashley/CAF2xGmail-reply-1@mail.gmail.com>",
       "thread_id": "<thread:Ashley/CAF2xGmail-reply-1@mail.gmail.com>",
+      "conversation_id": "<thread:Ashley/CAF2xGmail-reply-1@mail.gmail.com>",
+      "subject": "Re: Homepage banner",
+      "from": {
+       "address": "dana@acme-roofing.example",
+       "name": "Dana Wu"
+      },
+      "received_at": "<time>",
+      "relation": "created",
+      "linked_by": "person",
+      "linked_at": "<time>"
+     }
+    ]
+   }
+  },
+  {
+   "success": true,
+   "data": {
+    "link_count": 1,
+    "emails": [
+     {
+      "id": "<message:Ashley/CAF2xGmail-reply-1@mail.gmail.com>",
+      "thread_id": "<thread:Ashley/CAF2xGmail-reply-1@mail.gmail.com>",
+      "conversation_id": "<thread:Ashley/CAF2xGmail-reply-1@mail.gmail.com>",
       "subject": "Re: Homepage banner",
       "from": {
        "address": "dana@acme-roofing.example",
@@ -21615,6 +24437,7 @@
      {
       "id": "<message:Ashley/CAF2xGmail-reply-1@mail.gmail.com>",
       "thread_id": "<thread:Ashley/CAF2xGmail-reply-1@mail.gmail.com>",
+      "conversation_id": "<thread:Ashley/CAF2xGmail-reply-1@mail.gmail.com>",
       "subject": "Re: Homepage banner",
       "from": {
        "address": "dana@acme-roofing.example",

@@ -14,9 +14,9 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { PGlite } from '@electric-sql/pglite';
-import { actAs, createFullSchemaDatabase, SCHEMA_PATH } from './full-schema-db';
+import { actAs, applyMigrationsFrom, createFullSchemaDatabase, schemaBeforeMigration } from './full-schema-db';
 
-const MIGRATION = join(__dirname, '..', 'supabase', 'migrations', '20261025011928_task_unread_updates.sql');
+const MIGRATION = '20261025011928_task_unread_updates.sql';
 const OWNER_USER = '00000000-0000-0000-0000-0000000000d1';
 const MEMBER_USER = '00000000-0000-0000-0000-0000000000d2';
 
@@ -45,14 +45,6 @@ type Update = {
   last_via: string;
   last_kind: string;
 };
-
-/** schema.sql without the Unread tasks section: production's shape before the migration. */
-function schemaBeforeMigration(): string {
-  const sql = readFileSync(SCHEMA_PATH, 'utf8').replace(/\r\n/g, '\n');
-  const section = sql.indexOf('\n-- ---------------------------------------------------------------------------\n-- Unread tasks');
-  if (section < 0) throw new Error('schema.sql no longer has the Unread tasks section this test removes');
-  return sql.slice(0, section) + '\n';
-}
 
 async function run(db: PGlite, label: string) {
   const q = async <T = Record<string, unknown>>(sql: string, params: unknown[] = []) => (await db.query<T>(sql, params)).rows;
@@ -211,10 +203,10 @@ async function run(db: PGlite, label: string) {
 
 async function main() {
   {
-    const db = await createFullSchemaDatabase({ schemaSql: schemaBeforeMigration() });
+    const db = await createFullSchemaDatabase({ schemaSql: schemaBeforeMigration(MIGRATION) });
     await db.exec('RESET ROLE');
-    await db.exec(readFileSync(MIGRATION, 'utf8'));
-    await db.exec(readFileSync(MIGRATION, 'utf8'));
+    // This migration and everything after it, to today's schema.
+    await applyMigrationsFrom(db, MIGRATION);
     await run(db, 'migrated');
     await db.close();
   }

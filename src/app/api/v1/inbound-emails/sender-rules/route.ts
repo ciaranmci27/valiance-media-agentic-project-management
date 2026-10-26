@@ -1,3 +1,4 @@
+import { comms } from '@/lib/communications/db';
 import { withApi } from '@/lib/api/middleware';
 import { created, success } from '@/lib/api/response';
 import { ApiError } from '@/lib/api/errors';
@@ -8,7 +9,7 @@ export const dynamic = 'force-dynamic';
 
 /** The live sender rules, each with a plain label ("Usage alerts from okendo.io"). */
 export const GET = withApi(async ({ supabase }) => {
-  const { data, error } = await supabase.from('email_sender_rules').select(RULE_COLUMNS).is('disabled_at', null).order('created_at', { ascending: false });
+  const { data, error } = await comms(supabase).from('sender_rules').select(RULE_COLUMNS).is('disabled_at', null).order('created_at', { ascending: false });
   if (error) throw error;
   return success(((data ?? []) as SenderRuleRow[]).map((rule) => ({ ...rule, label: describeRule(rule) })));
 }, { permission: 'inbound_email.read' });
@@ -35,7 +36,7 @@ export const POST = withApi<SenderRuleInput>(async ({ supabase, body, teamMember
   if (!target.ok) throw new ApiError(422, 'VALIDATION_ERROR', target.error);
   const wanted = { match_kind: body.match_kind, match_value: target.value, topic: body.topic };
   // A person's rule that could match the same mail, or one a person switched off.
-  const { data: peopleRules, error: peopleError } = await supabase.from('email_sender_rules').select(`${RULE_COLUMNS}, disabled_by`)
+  const { data: peopleRules, error: peopleError } = await comms(supabase).from('sender_rules').select(`${RULE_COLUMNS}, disabled_by`)
     .or('source.eq.person,disabled_by.not.is.null');
   if (peopleError) throw peopleError;
   const rows = (peopleRules ?? []) as (SenderRuleRow & { disabled_by: string | null })[];
@@ -55,11 +56,11 @@ export const POST = withApi<SenderRuleInput>(async ({ supabase, body, teamMember
   }
   const existing = await liveRuleFor(supabase, body.match_kind, target.value, body.topic);
   if (existing) {
-    const { error } = await supabase.from('email_sender_rules')
+    const { error } = await comms(supabase).from('sender_rules')
       .update({ disabled_at: new Date().toISOString(), disabled_by: teamMemberId }).eq('id', existing.id).is('disabled_at', null);
     if (error) throw error;
   }
-  const { data, error } = await supabase.from('email_sender_rules').insert({
+  const { data, error } = await comms(supabase).from('sender_rules').insert({
     match_kind: body.match_kind,
     match_value: target.value,
     topic: body.topic,

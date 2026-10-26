@@ -4,6 +4,7 @@ import { ApiError } from '@/lib/api/errors';
 import { logAudit } from '@/lib/api/audit';
 import { memberInboxIds } from '@/lib/communications/agent-access';
 import { markSummarizedSchema } from '@/lib/communications/schemas';
+import { comms } from '@/lib/communications/db';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,7 +15,7 @@ export const dynamic = 'force-dynamic';
  */
 export const POST = withApi<{ triage_ids: string[] }>(async ({ supabase, body, teamMemberId, apiKeyId, access }) => {
   const inboxIds = await memberInboxIds(supabase, teamMemberId, access);
-  const { data, error } = await supabase.rpc('email_mark_triage_summarized', {
+  const { data, error } = await comms(supabase).rpc('mark_triage_summarized', {
     p_triage_ids: body.triage_ids,
     p_inbox_ids: inboxIds,
   });

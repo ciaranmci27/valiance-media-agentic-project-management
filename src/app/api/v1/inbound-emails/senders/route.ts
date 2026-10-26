@@ -5,6 +5,7 @@ import { domainOf, organizationalDomain } from '@/lib/communications/email/addre
 import { describeRule, RULE_COLUMNS, type SenderRuleRow } from '@/lib/communications/sender-rules';
 import { matchRule, type MailTopic } from '@/lib/communications/sorting';
 import { fetchAllRows } from '@/lib/supabase/fetch-all';
+import { comms } from '@/lib/communications/db';
 
 export const dynamic = 'force-dynamic';
 
@@ -26,7 +27,7 @@ export const GET = withApi(async ({ supabase, searchParams, teamMemberId, access
   const since = new Date(Date.now() - days * 86_400_000).toISOString();
 
   const messages = (await fetchAllRows<MessageRow>((from, to, count) =>
-    supabase.from('email_messages').select('id, kind, topic, sort_action, received_at', { count })
+    comms(supabase).from('messages').select('id, kind, topic, sort_action, received_at', { count })
       .in('inbox_id', inboxIds).neq('status', 'receiving').gte('received_at', since)
       .order('received_at', { ascending: false }).range(from, to))).slice(0, MAX_MESSAGES);
   const ids = messages.map((message) => message.id);
@@ -36,9 +37,9 @@ export const GET = withApi(async ({ supabase, searchParams, teamMemberId, access
   for (let i = 0; i < ids.length; i += CHUNK) {
     const chunk = ids.slice(i, i + CHUNK);
     const [s, t, l] = await Promise.all([
-      supabase.from('email_message_recipients').select('message_id, address, name').eq('kind', 'from').in('message_id', chunk),
-      supabase.from('email_triage').select('message_id, outcome, created_at').in('message_id', chunk),
-      supabase.from('email_task_links').select('message_id, task_id').in('message_id', chunk),
+      comms(supabase).from('participants').select('message_id, address, name').eq('kind', 'from').in('message_id', chunk),
+      comms(supabase).from('triage').select('message_id, outcome, created_at').in('message_id', chunk),
+      comms(supabase).from('task_links').select('message_id, task_id').in('message_id', chunk),
     ]);
     if (s.error) throw s.error;
     if (t.error) throw t.error;
@@ -47,7 +48,7 @@ export const GET = withApi(async ({ supabase, searchParams, teamMemberId, access
     triage.push(...(t.data ?? []) as typeof triage);
     links.push(...(l.data ?? []) as typeof links);
   }
-  const { data: ruleRows, error: ruleError } = await supabase.from('email_sender_rules').select(RULE_COLUMNS).is('disabled_at', null);
+  const { data: ruleRows, error: ruleError } = await comms(supabase).from('sender_rules').select(RULE_COLUMNS).is('disabled_at', null);
   if (ruleError) throw ruleError;
   const rules = (ruleRows ?? []) as SenderRuleRow[];
 

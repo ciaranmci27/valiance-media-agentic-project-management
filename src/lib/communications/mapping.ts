@@ -1,7 +1,7 @@
 /**
  * Project mapping for a sender. Contact addresses (contact_emails, through
  * every contact that has the address, to their projects), client domains and
- * client sender addresses (email_client_addresses, one exact address on a
+ * client sender addresses (communications.client_addresses, one exact address on a
  * project, no contact needed) all yield candidates. One distinct candidate maps the message; several
  * leave the project for the agent to choose among them; none leaves it to
  * the agent to infer. A project address the email came through outranks

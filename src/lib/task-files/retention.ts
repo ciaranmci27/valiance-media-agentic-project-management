@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { copyAttachmentToProject, TASK_FILES_BUCKET } from './service';
+import { comms } from '@/lib/communications/db';
 
 /**
  * Before retention deletes an email, every task file linking one of its
@@ -39,7 +40,7 @@ export interface KeptTaskFiles {
 export async function keepLinkedTaskFiles(supabase: SupabaseClient, messageIds: string[]): Promise<KeptTaskFiles> {
   const result: KeptTaskFiles = { kept: 0, failed: [], last_error: null };
   if (messageIds.length === 0) return result;
-  const attachments = await inChunks<Attachment>(messageIds, (chunk) => supabase.from('email_attachments')
+  const attachments = await inChunks<Attachment>(messageIds, (chunk) => comms(supabase).from('attachments')
     .select('id, message_id, filename, content_type, storage_path, sha256').in('message_id', chunk));
   if (attachments.length === 0) return result;
   // Every link, in Trash or not: the foreign key holds either way.

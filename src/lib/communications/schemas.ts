@@ -11,6 +11,9 @@ export const triageSchema = z.object({
   summary: z.string().trim().min(1).max(4000),
   question_for_human: z.string().trim().min(1).max(4000).nullable().optional(),
   suggested_reply: z.string().trim().min(1).max(20_000).nullable().optional(),
+  // Projects the email is about beyond those of the tasks it links (each in
+  // the email's project scope). project_id is the older single-project form.
+  project_ids: z.array(z.string().uuid()).max(20).optional(),
   project_id: z.string().uuid().nullable().optional(),
   links: z.array(z.object({
     task_id: z.string().uuid(),

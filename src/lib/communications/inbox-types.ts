@@ -67,6 +67,8 @@ export interface InboxThreadSummary {
   inbox_name: string;
   subject: string;
   project: ThreadProject | null;
+  /** Every project the thread is filed on, strongest first (project is the first of them). */
+  projects: ThreadProject[];
   last_message_at: string;
   message_count: number;
   /** The latest message's sender: for a teammate's forward, the original sender. */
@@ -129,7 +131,7 @@ export interface InboxAttachment {
   sha256: string | null;
 }
 
-/** Why an attachment was not stored (email_attachments.skipped_reason). */
+/** Why an attachment was not stored (communications.attachments.skipped_reason). */
 export type AttachmentSkippedReason = 'over_size_cap' | 'download_failed';
 
 export const ATTACHMENT_SKIPPED_LABELS: Record<AttachmentSkippedReason, string> = {
@@ -164,6 +166,8 @@ export interface InboxLinkedTask {
   title: string | null;
   status: string | null;
   project_id: string | null;
+  /** The task's project, or a neutral label when the member cannot reach it. */
+  project_name: string | null;
 }
 
 export interface InboxAnswer {
@@ -237,6 +241,8 @@ export interface InboxThreadDetail {
   inbox: InboxSummary;
   subject: string;
   project: ThreadProject | null;
+  /** Every project the thread is filed on, strongest first (project is the first of them). */
+  projects: ThreadProject[];
   state: ThreadState;
   urgent: boolean;
   untrusted: boolean;
@@ -373,7 +379,7 @@ export interface ClientEmailDomain {
  * An address whose mail maps to the project. source contact: an address of one
  * of the project's contacts, managed in Contacts (contact_id and contact_name
  * are null for a member who cannot read contacts). source manual: a client
- * email address added on the project (email_client_addresses). id is the
+ * email address added on the project (communications.client_addresses). id is the
  * manual row, set whenever one exists, so a contact address that is also a
  * manual row can still have that row removed.
  */
@@ -432,9 +438,14 @@ export interface ProjectEmailAddressInput {
 /** Fired on window when inbox data may have changed (sidebar badge, open views). */
 export const INBOX_UPDATED_EVENT = 'inbox-updated';
 
-/** The tables inbox views read from: a cached inbox read goes stale when any of them changes. */
+/**
+ * The tables inbox views read from (communications schema, named
+ * schema-qualified as live sync reports them): a cached inbox read goes stale
+ * when any of them changes.
+ */
 export const INBOX_TABLES = [
-  'email_inboxes', 'email_inbox_access', 'email_client_domains', 'email_client_addresses', 'email_project_addresses', 'email_threads',
-  'email_messages', 'email_message_recipients', 'email_message_candidates', 'email_attachments', 'email_triage',
-  'email_task_links',
+  'communications.inboxes', 'communications.inbox_access', 'communications.client_domains', 'communications.client_addresses',
+  'communications.endpoints', 'communications.conversations', 'communications.conversation_projects',
+  'communications.messages', 'communications.participants', 'communications.message_candidates', 'communications.attachments',
+  'communications.triage', 'communications.task_links',
 ] as const;

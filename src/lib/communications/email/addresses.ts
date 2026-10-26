@@ -10,7 +10,7 @@ export function normalizeAddress(value: string | null | undefined): string | nul
 }
 
 /**
- * Validates a client sender address (email_client_addresses): one exact
+ * Validates a client sender address (communications.client_addresses): one exact
  * address, public email services such as gmail.com included.
  */
 export function validateClientSenderAddress(input: string):

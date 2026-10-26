@@ -9,6 +9,7 @@ import { prepareEmail, readableBody, type PreparedEmail } from './prepare';
 import { alertSeriesKey, sortEmail, type SenderRule } from '../sorting';
 import { chooseThread, referencedIds, THREAD_SUBJECT_WINDOW_DAYS, type SubjectThread } from './threading';
 import { trashedProjectIds } from '@/lib/supabase/trash';
+import { comms } from '@/lib/communications/db';
 
 /**
  * The provider-agnostic ingestion core. A transport hands it one received
@@ -85,8 +86,8 @@ interface StartRpcResult {
 
 /** Records the newest ingestion failure on the inbox, for the settings status. Best effort. */
 export async function recordInboxError(supabase: SupabaseClient, inboxId: string, message: string): Promise<void> {
-  const { error } = await supabase
-    .from('email_inboxes')
+  const { error } = await comms(supabase)
+    .from('inboxes')
     .update({ last_error: message.slice(0, 1000), last_error_at: new Date().toISOString() })
     .eq('id', inboxId);
   if (error) console.error('[inbound-email] could not record inbox error', error);
@@ -101,10 +102,15 @@ interface ProjectAddressRow {
   public_address: string | null;
 }
 
-/** One inbox the email goes to, and the project address that sends it there, if any. */
+/**
+ * One inbox the email goes to, the project address that sends it there, if
+ * any, and every project address of that inbox it matched (the scope's
+ * endpoint basis: mail to two project addresses may touch both projects).
+ */
 interface InboxTarget {
   inbox: InboxRow;
   projectAddress: ProjectAddressRow | null;
+  viaAddressIds: string[];
 }
 
 const INBOX_COLUMNS = 'id, address, routing_address, enabled, max_attachment_mb, verification_code, verified_at, filter_auto_mail';
@@ -120,18 +126,19 @@ const INBOX_COLUMNS = 'id, address, routing_address, enabled, max_attachment_mb,
  * project address, or a disabled inbox is not stored.
  *
  * Each matched inbox takes the email once. When project addresses match, the
- * one that comes first in that recipient order decides the project for its
- * inbox; others for the same inbox are ignored, and an inbox's own routing
- * address never outranks a project address (it names no project). Project
- * addresses on different inboxes each deliver a copy with their own project.
+ * one that comes first in that recipient order files the project on a new
+ * conversation; every matched one is recorded on the message, so its scope
+ * reaches each of their projects. An inbox's own routing address never
+ * outranks a project address (it names no project). Project addresses on
+ * different inboxes each deliver a copy with their own project.
  */
 async function matchInboxes(supabase: SupabaseClient, prepared: PreparedEmail): Promise<InboxTarget[]> {
   const headerAddresses = prepared.recipients.filter((r) => r.kind === 'to' || r.kind === 'cc').map((r) => r.address);
   const lookup = [...new Set([...prepared.deliveredTo, ...headerAddresses])];
   if (lookup.length === 0) return [];
   const [direct, addressed] = await Promise.all([
-    supabase.from('email_inboxes').select(INBOX_COLUMNS).in('routing_address', lookup),
-    supabase.from('email_project_addresses').select('id, project_id, inbox_id, routing_address, public_address')
+    comms(supabase).from('inboxes').select(INBOX_COLUMNS).in('routing_address', lookup),
+    comms(supabase).from('endpoints').select('id, project_id, inbox_id, routing_address, public_address')
       .in('routing_address', lookup).eq('enabled', true),
   ]);
   if (direct.error) throw direct.error;
@@ -142,7 +149,7 @@ async function matchInboxes(supabase: SupabaseClient, prepared: PreparedEmail): 
   const inboxes = new Map(((direct.data ?? []) as InboxRow[]).map((inbox) => [inbox.id, inbox]));
   const missing = [...new Set(projectAddresses.map((row) => row.inbox_id))].filter((id) => !inboxes.has(id));
   if (missing.length) {
-    const { data, error } = await supabase.from('email_inboxes').select(INBOX_COLUMNS).in('id', missing);
+    const { data, error } = await comms(supabase).from('inboxes').select(INBOX_COLUMNS).in('id', missing);
     if (error) throw error;
     for (const inbox of (data ?? []) as InboxRow[]) inboxes.set(inbox.id, inbox);
   }
@@ -153,11 +160,12 @@ async function matchInboxes(supabase: SupabaseClient, prepared: PreparedEmail): 
     if (!inbox?.enabled) return;
     const existing = targets.get(inbox.id);
     if (!existing) {
-      targets.set(inbox.id, { target: { inbox, projectAddress }, position });
+      targets.set(inbox.id, { target: { inbox, projectAddress, viaAddressIds: projectAddress ? [projectAddress.id] : [] }, position });
       return;
     }
     existing.position = Math.min(existing.position, position);
     if (!existing.target.projectAddress && projectAddress) existing.target.projectAddress = projectAddress;
+    if (projectAddress && !existing.target.viaAddressIds.includes(projectAddress.id)) existing.target.viaAddressIds.push(projectAddress.id);
   };
   // Mail to the address of a project in Trash still lands in the inbox (never
   // lost), just not filed to that project.
@@ -178,9 +186,9 @@ export async function ingestInbound(supabase: SupabaseClient, email: InboundEmai
     return { kind: 'no_inbox', delivered_to: prepared.deliveredTo };
   }
   const outcomes: InboxOutcome[] = [];
-  for (const { inbox, projectAddress } of targets) {
+  for (const { inbox, projectAddress, viaAddressIds } of targets) {
     try {
-      outcomes.push(await ingestIntoInbox(supabase, inbox, projectAddress, email, prepared));
+      outcomes.push(await ingestIntoInbox(supabase, inbox, projectAddress, viaAddressIds, email, prepared));
     } catch (error) {
       await recordInboxError(supabase, inbox.id, `Could not take in ${email.provider} email ${email.provider_email_id}: ${(error as Error).message}`);
       throw error;
@@ -270,13 +278,13 @@ async function storeFiles(supabase: SupabaseClient, inbox: InboxRow, email: Inbo
     }
     if (!rawFailed) {
       // Too large for the bucket (read null): the parsed bodies and attachments still stand.
-      const { error } = await supabase.from('email_messages').update(read
+      const { error } = await comms(supabase).from('messages').update(read
         ? { raw_size_bytes: read.bytes.byteLength, raw_sha256: read.sha256, raw_uploaded_at: new Date().toISOString() }
         : { raw_storage_path: null }).eq('id', message.id);
       if (error) throw error;
     }
   } else if (message.raw_storage_path && !message.raw_uploaded_at && !email.raw) {
-    const { error } = await supabase.from('email_messages').update({ raw_storage_path: null }).eq('id', message.id);
+    const { error } = await comms(supabase).from('messages').update({ raw_storage_path: null }).eq('id', message.id);
     if (error) throw error;
   }
 
@@ -295,7 +303,7 @@ async function storeFiles(supabase: SupabaseClient, inbox: InboxRow, email: Inbo
       read = await readCapped(await fetchFile(source.source, `attachment ${row.position}`), cap);
       if (read) {
         // The inbox's copy of these bytes, uploaded only when it is new.
-        const { data: claimed, error: claimError } = await supabase.rpc('email_claim_file', {
+        const { data: claimed, error: claimError } = await comms(supabase).rpc('claim_file', {
           p_attachment_id: row.id,
           p_sha256: read.sha256,
           p_size_bytes: read.bytes.byteLength,
@@ -310,7 +318,7 @@ async function storeFiles(supabase: SupabaseClient, inbox: InboxRow, email: Inbo
       continue;
     }
     if (!read) {
-      const { error } = await supabase.from('email_attachments')
+      const { error } = await comms(supabase).from('attachments')
         .update({ storage_path: null, file_id: null, skipped_reason: 'over_size_cap' }).eq('id', row.id);
       if (error) throw error;
       continue;
@@ -320,13 +328,13 @@ async function storeFiles(supabase: SupabaseClient, inbox: InboxRow, email: Inbo
       console.warn(`[inbound-email] attachment ${row.id} is ${read.bytes.byteLength} bytes; the provider listed ${row.size_bytes}`);
     }
     // The attachment is stored at its copy's path, with the copy's hash and size.
-    const { error } = await supabase.rpc('email_file_stored', { p_attachment_id: row.id });
+    const { error } = await comms(supabase).rpc('file_stored', { p_attachment_id: row.id });
     if (error) throw error;
   }
 
   if (failed.length === 0) return;
   const summary = failed.join('; ');
-  const { data, error } = await supabase.rpc('email_files_failed', {
+  const { data, error } = await comms(supabase).rpc('files_failed', {
     p_message_id: message.id,
     p_attachment_ids: failedAttachmentIds,
     p_raw: rawFailed,
@@ -346,10 +354,11 @@ async function ingestIntoInbox(
   supabase: SupabaseClient,
   inbox: InboxRow,
   projectAddress: ProjectAddressRow | null,
+  viaAddressIds: string[],
   email: InboundEmail,
   prepared: PreparedEmail,
 ): Promise<InboxOutcome> {
-  const { data, error } = await supabase.rpc('email_start_message', {
+  const { data, error } = await comms(supabase).rpc('email_start_message', {
     p_inbox_id: inbox.id,
     p_message: prepared.message,
     p_recipients: prepared.recipients,
@@ -375,11 +384,11 @@ async function ingestIntoInbox(
   // some), then the row. Once verified, the code is ordinary text.
   if (!inbox.verified_at && prepared.message.subject.toUpperCase().includes(inbox.verification_code.toUpperCase())) {
     const now = new Date().toISOString();
-    const { error: verifyError } = await supabase.from('email_inboxes').update({ verified_at: now, last_received_at: now }).eq('id', inbox.id);
+    const { error: verifyError } = await comms(supabase).from('inboxes').update({ verified_at: now, last_received_at: now }).eq('id', inbox.id);
     if (verifyError) throw verifyError;
     if (projectAddress) {
       // It came through a project address, which is connected too.
-      const { error: addressError } = await supabase.from('email_project_addresses').update({ last_received_at: now }).eq('id', projectAddress.id);
+      const { error: addressError } = await comms(supabase).from('endpoints').update({ last_received_at: now }).eq('id', projectAddress.id);
       if (addressError) throw addressError;
     }
     // Its own files only: a shared copy may be another email's too, and is
@@ -390,13 +399,13 @@ async function ingestIntoInbox(
       const { error: removeError } = await supabase.storage.from(INBOUND_EMAIL_BUCKET).remove(paths);
       if (removeError) throw new Error(`could not delete the verification email's files: ${removeError.message}`);
     }
-    const { error: deleteError } = await supabase.from('email_messages').delete().eq('id', messageId);
+    const { error: deleteError } = await comms(supabase).from('messages').delete().eq('id', messageId);
     if (deleteError) throw deleteError;
     return { inbox_id: inbox.id, outcome: 'verified' };
   }
 
   await storeFiles(supabase, inbox, email, started);
-  return finalize(supabase, inbox, projectAddress, messageId, prepared, email);
+  return finalize(supabase, inbox, projectAddress, viaAddressIds, messageId, prepared, email);
 }
 
 /** A response body's first `limit` bytes; the rest is never read. */
@@ -425,7 +434,7 @@ async function readHead(response: Response, limit: number): Promise<Uint8Array> 
  * email then routes as a teammate's own.
  */
 async function attachedForwardSender(supabase: SupabaseClient, messageId: string, email: InboundEmail): Promise<ForwardedSender | null> {
-  const { data, error } = await supabase.from('email_attachments')
+  const { data, error } = await comms(supabase).from('attachments')
     .select('position, filename, content_type, provider_attachment_id, storage_path, uploaded_at')
     .eq('message_id', messageId).order('position');
   if (error) throw error;
@@ -461,19 +470,20 @@ async function finalize(
   supabase: SupabaseClient,
   inbox: InboxRow,
   projectAddress: ProjectAddressRow | null,
+  viaAddressIds: string[],
   messageId: string,
   prepared: PreparedEmail,
   email: InboundEmail,
 ): Promise<InboxOutcome> {
   const [{ data: message, error: messageError }, inboxRows, projectAddressRows, memberRows, ruleRows] = await Promise.all([
-    supabase.from('email_messages')
+    comms(supabase).from('messages')
       .select('id, subject_normalized, in_reply_to, reference_ids, received_at, auto_mail_reason')
       .eq('id', messageId)
       .single(),
-    supabase.from('email_inboxes').select('address, routing_address'),
-    supabase.from('email_project_addresses').select('routing_address, public_address'),
+    comms(supabase).from('inboxes').select('address, routing_address'),
+    comms(supabase).from('endpoints').select('routing_address, public_address'),
     supabase.from('team_members').select('id, email, role, status'),
-    supabase.from('email_sender_rules').select('id, match_kind, match_value, topic, action').is('disabled_at', null),
+    comms(supabase).from('sender_rules').select('id, match_kind, match_value, topic, action').is('disabled_at', null),
   ]);
   if (messageError) throw messageError;
   if (inboxRows.error) throw inboxRows.error;
@@ -541,10 +551,10 @@ async function finalize(
       ? supabase.from('project_contacts').select('project_id').in('contact_id', senderContactIds)
       : Promise.resolve({ data: [], error: null }),
     mappingDomains.length
-      ? supabase.from('email_client_domains').select('project_id').in('domain', mappingDomains)
+      ? comms(supabase).from('client_domains').select('project_id').in('domain', mappingDomains)
       : Promise.resolve({ data: [], error: null }),
     mappingAddresses.length
-      ? supabase.from('email_client_addresses').select('project_id').in('address', mappingAddresses)
+      ? comms(supabase).from('client_addresses').select('project_id').in('address', mappingAddresses)
       : Promise.resolve({ data: [], error: null }),
   ]);
   if (contactProjects.error) throw contactProjects.error;
@@ -569,7 +579,7 @@ async function finalize(
   // Threading, inside this inbox only.
   const ids = referencedIds((message.in_reply_to ?? []) as string[], (message.reference_ids ?? []) as string[]);
   const { data: referenced, error: referencedError } = ids.length
-    ? await supabase.from('email_messages').select('thread_id, received_at')
+    ? await comms(supabase).from('messages').select('thread_id, received_at')
         .eq('inbox_id', inbox.id).in('internet_message_id', ids).not('thread_id', 'is', null)
     : { data: [], error: null };
   if (referencedError) throw referencedError;
@@ -577,7 +587,7 @@ async function finalize(
   let subjectThreads: SubjectThread[] = [];
   if (message.subject_normalized && !(referenced ?? []).length) {
     const since = new Date(Date.parse(message.received_at) - THREAD_SUBJECT_WINDOW_DAYS * 86_400_000).toISOString();
-    const { data: threads, error: threadError } = await supabase.from('email_threads')
+    const { data: threads, error: threadError } = await comms(supabase).from('conversations')
       .select('id, subject_normalized, last_message_at')
       .eq('inbox_id', inbox.id)
       .eq('subject_normalized', message.subject_normalized)
@@ -587,7 +597,7 @@ async function finalize(
     if (threadError) throw threadError;
     const threadIds = ((threads ?? []) as { id: string }[]).map((thread) => thread.id);
     const { data: participants, error: participantError } = threadIds.length
-      ? await supabase.from('email_thread_participants').select('thread_id, address').in('thread_id', threadIds)
+      ? await comms(supabase).from('conversation_participants').select('thread_id, address').in('thread_id', threadIds)
       : { data: [], error: null };
     if (participantError) throw participantError;
     subjectThreads = ((threads ?? []) as { id: string; subject_normalized: string; last_message_at: string }[]).map((thread) => ({
@@ -610,7 +620,7 @@ async function finalize(
 
   let joinedThread: { project_id: string | null } | null = null;
   if (choice.kind === 'existing') {
-    const { data: thread, error } = await supabase.from('email_threads').select('project_id').eq('id', choice.thread_id).single();
+    const { data: thread, error } = await comms(supabase).from('conversations').select('project_id').eq('id', choice.thread_id).single();
     if (error) throw error;
     joinedThread = thread;
   }
@@ -629,13 +639,14 @@ async function finalize(
     rules: (ruleRows.data ?? []) as SenderRule[],
   });
   const status = sorted.action === 'ignore' ? 'ignored' : 'new';
-  const { data: completed, error: completeError } = await supabase.rpc('email_complete_message', {
+  const { data: completed, error: completeError } = await comms(supabase).rpc('email_complete_message', {
     p_message_id: messageId,
     p_decision: {
       status,
       thread_id: choice.kind === 'existing' ? choice.thread_id : null,
       ...threadProjectDecision(joinedThread, mapping, projectAddress),
       received_via_address_id: projectAddress?.id ?? null,
+      received_via_address_ids: viaAddressIds,
       routing_basis: basis,
       forwarded_by_member_id: teamSender?.id ?? null,
       original_from_address: original?.address ?? null,
@@ -679,7 +690,7 @@ async function supersedeAlerts(
 ): Promise<void> {
   const since = new Date(Date.parse(receivedAt) - ALERT_SERIES_DAYS * 86_400_000).toISOString();
   const key = alertSeriesKey(subject);
-  const { data: open, error: openError } = await supabase.from('email_messages')
+  const { data: open, error: openError } = await comms(supabase).from('messages')
     .select('id, subject, routing_basis, original_from_address')
     .eq('inbox_id', inboxId).eq('kind', 'notification').eq('topic', topic)
     .in('status', ['new', 'needs_human']).neq('id', messageId)
@@ -688,7 +699,7 @@ async function supersedeAlerts(
   const series = ((open ?? []) as { id: string; subject: string; routing_basis: string; original_from_address: string | null }[])
     .filter((row) => alertSeriesKey(row.subject) === key);
   if (series.length === 0) return;
-  const { data: senderRows, error: senderError } = await supabase.from('email_message_recipients')
+  const { data: senderRows, error: senderError } = await comms(supabase).from('participants')
     .select('message_id, address').eq('kind', 'from').in('message_id', series.map((row) => row.id));
   if (senderError) throw senderError;
   const senderOf = new Map(((senderRows ?? []) as { message_id: string; address: string }[]).map((row) => [row.message_id, row.address]));
@@ -696,7 +707,7 @@ async function supersedeAlerts(
     .filter((row) => (row.routing_basis === 'forwarded_original' ? row.original_from_address : senderOf.get(row.id)) === fromAddress)
     .map((row) => row.id);
   if (replaced.length === 0) return;
-  const { error } = await supabase.from('email_messages')
+  const { error } = await comms(supabase).from('messages')
     .update({ status: 'handled', superseded_by: messageId }).in('id', replaced).in('status', ['new', 'needs_human']);
   if (error) throw error;
 }

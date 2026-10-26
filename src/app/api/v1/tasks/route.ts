@@ -2,11 +2,9 @@ import { withApi } from '@/lib/api/middleware';
 import { created, paginated } from '@/lib/api/response';
 import { createTaskSchema } from '@/lib/schemas';
 import { parsePagination, sanitizeSearch, validateSort } from '@/lib/api/pagination';
-import { insertTask } from '@/lib/supabase/queries';
-import { logAudit } from '@/lib/api/audit';
-import { accessAllows, accessAllowsProject } from '@/lib/api/access';
-import { forbidden, notFound } from '@/lib/api/errors';
-import { assertAssigneesCanOpenProject, assertBlockersInProject, assertGoalInProject, liveTaskIds } from '@/lib/api/task-guards';
+import { accessAllows } from '@/lib/api/access';
+import { createApiTask } from '@/lib/api/create-task';
+import { liveTaskIds } from '@/lib/api/task-guards';
 import { postgrestList, trashedProjectIds } from '@/lib/supabase/trash';
 
 export const GET = withApi(async ({ supabase, searchParams, access }) => {
@@ -83,40 +81,6 @@ export const GET = withApi(async ({ supabase, searchParams, access }) => {
   return paginated(tasks, { page, limit, total: count || 0 });
 });
 
-export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId, access, scopes }) => {
-  const { assignee_ids, acceptance_criteria, blocked_by_ids, source_note, ...taskData } = body as any;
-  if (!taskData.project_id || !accessAllowsProject(access, taskData.project_id, 'api')) {
-    throw forbidden('Project scope denied');
-  }
-  const { data: liveProject } = await supabase
-    .from('projects')
-    .select('id')
-    .eq('id', taskData.project_id)
-    .is('deleted_at', null)
-    .maybeSingle();
-  if (!liveProject) throw notFound('Project');
-  const canAssignOthers = scopes.includes('tasks.manage_all') && accessAllows(access, 'tasks.manage_all', 'api');
-  const requestedAssignees = Array.isArray(assignee_ids) ? assignee_ids : [];
-  if (!canAssignOthers && requestedAssignees.some((id: string) => id !== teamMemberId)) {
-    throw forbidden('This API key can only assign newly created tasks to its own member');
-  }
-  const effectiveAssignees = canAssignOthers ? requestedAssignees : [teamMemberId];
-  await assertAssigneesCanOpenProject(supabase, effectiveAssignees.filter(Boolean), taskData.project_id);
-  const blockedByIds: string[] = Array.isArray(blocked_by_ids) ? blocked_by_ids : [];
-  if (blockedByIds.length > 0) {
-    await assertBlockersInProject(supabase, blockedByIds, taskData.project_id);
-  }
-  if (taskData.project_goal_id) {
-    await assertGoalInProject(supabase, taskData.project_goal_id, taskData.project_id);
-  }
-  const criteria: string[] = Array.isArray(acceptance_criteria) ? acceptance_criteria : [];
-  const task = await insertTask(
-    supabase,
-    { ...taskData, created_by: teamMemberId || null, created_note: source_note ?? null },
-    effectiveAssignees,
-    criteria,
-    blockedByIds
-  );
-  logAudit(supabase, { method: 'POST', endpoint: '/api/v1/tasks', entityType: 'task', entityId: task.id, apiKeyId, teamMemberId, requestBody: body, afterSnapshot: task, statusCode: 201 });
-  return created(task);
+export const POST = withApi(async (ctx) => {
+  return created(await createApiTask(ctx, '/api/v1/tasks'));
 }, { schema: createTaskSchema });

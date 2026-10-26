@@ -1,9 +1,9 @@
 'use client';
 
-import { ShieldAlert, ShieldQuestion, Sparkles } from 'lucide-react';
+import { Plus, ShieldAlert, ShieldQuestion, Sparkles, X } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Tooltip } from '@/components/ui/Tooltip';
-import type { ThreadProject, ThreadState, TrustLevel } from '@/lib/communications/inbox-types';
+import { isAgentChoice, type ThreadProject, type ThreadState, type TrustLevel } from '@/lib/communications/inbox-types';
 
 /** A project the member cannot open: the server sends no name for it. */
 export const OTHER_PROJECT = 'Another project';
@@ -63,44 +63,96 @@ const CHIP = 'inline-flex max-w-full items-center gap-1.5 rounded-md px-1.5 py-0
 const CHIP_BUTTON = 'transition-colors hover:bg-white/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500';
 
 /**
- * The thread's project as text that opens the project dialog. Settled
- * (mapped, project address, set by a person) reads quiet; the agent's own
- * choice is amber with "Confirm", and no project at all is an amber "Set
- * project". The how-it-was-chosen sentence is the tooltip, and the dialog
- * shows it as text.
+ * A thread on no project: an amber "Set project" (or "Pick a project" when
+ * its sender maps to several) that opens the project dialog.
  */
-export function ProjectChip({ project, candidates, agentName, color, onEdit }: {
-  project: ThreadProject | null;
+function NoProjectChip({ candidates, onEdit }: {
   candidates: { name: string | null }[];
-  agentName: string;
-  color?: string;
   /** Absent for members who can only view the inbox. */
   onEdit?: () => void;
 }) {
-  const agentChoice = project?.source === 'inferred' || project?.source === 'guessed';
-  const hint = project
-    ? projectSourceHint(project, agentName)
-    : candidates.length > 1 ? `Matched ${candidates.length} projects: ${candidates.map((c) => c.name ?? OTHER_PROJECT).join(', ')}` : 'No project yet.';
-  const tone = project && !agentChoice ? 'text-zinc-200' : 'text-amber-300';
-  const body = (
-    <>
-      {project && color && <span className="h-2 w-2 flex-shrink-0 rounded-full" style={{ backgroundColor: color }} aria-hidden="true" />}
-      {agentChoice && <Sparkles size={11} className="flex-shrink-0" aria-hidden="true" />}
-      <span className="truncate">{project ? project.name : candidates.length > 1 ? `Pick a project (${candidates.length} match)` : 'Set project'}</span>
-      {agentChoice && onEdit && <span className="flex-shrink-0 font-normal text-amber-300/80">Confirm</span>}
-    </>
-  );
+  const hint = candidates.length > 1 ? `Matched ${candidates.length} projects: ${candidates.map((c) => c.name ?? OTHER_PROJECT).join(', ')}` : 'No project yet.';
+  const label = candidates.length > 1 ? `Pick a project (${candidates.length} match)` : 'Set project';
   return (
     <Tooltip content={hint}>
       {onEdit ? (
-        <button type="button" onClick={onEdit} className={`${CHIP} ${tone} ${CHIP_BUTTON}`}>
-          {body}
-          <span className="sr-only">. {hint} Change the project.</span>
+        <button type="button" onClick={onEdit} className={`${CHIP} text-amber-300 ${CHIP_BUTTON}`}>
+          <span className="truncate">{label}</span>
+          <span className="sr-only">. {hint}</span>
         </button>
       ) : (
-        <span className={`${CHIP} ${tone}`}>{body}<span className="sr-only">. {hint}</span></span>
+        <span className={`${CHIP} text-amber-300`}><span className="truncate">{label}</span><span className="sr-only">. {hint}</span></span>
       )}
     </Tooltip>
+  );
+}
+
+/**
+ * Every project a thread is filed on, strongest first, each a chip: the
+ * agent's own choice reads amber with a "Confirm" button, and a member who
+ * can triage removes one with its X and adds another with "+ Project". With
+ * no project at all it is the single "Set project" chip.
+ */
+export function ProjectChips({ projects, candidates, agentName, colorOf, onAdd, onConfirm, onRemove }: {
+  projects: ThreadProject[];
+  candidates: { name: string | null }[];
+  agentName: string;
+  colorOf: (projectId: string) => string | undefined;
+  /** These three are absent for members who can only view the inbox. */
+  onAdd?: () => void;
+  onConfirm?: (project: ThreadProject) => void;
+  onRemove?: (project: ThreadProject) => void;
+}) {
+  if (projects.length === 0) {
+    return <NoProjectChip candidates={candidates} onEdit={onAdd} />;
+  }
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1" aria-label="Projects">
+      {projects.map((project) => {
+        const agentChoice = isAgentChoice(project.source);
+        const hint = projectSourceHint(project, agentName);
+        const color = colorOf(project.id);
+        return (
+          <span key={project.id} className={`${CHIP} ${agentChoice ? 'text-amber-300' : 'text-zinc-200'} bg-white/[0.03] pr-0.5`}>
+            <Tooltip content={hint}>
+              {/* Focusable so a keyboard reaches how the project was chosen. */}
+              <span tabIndex={0} className="inline-flex min-w-0 items-center gap-1.5 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
+                {color && <span className="h-2 w-2 flex-shrink-0 rounded-full" style={{ backgroundColor: color }} aria-hidden="true" />}
+                {agentChoice && <Sparkles size={11} className="flex-shrink-0" aria-hidden="true" />}
+                <span className="truncate">{project.name}</span>
+                <span className="sr-only">. {hint}</span>
+              </span>
+            </Tooltip>
+            {agentChoice && onConfirm && (
+              <button
+                type="button"
+                onClick={() => onConfirm(project)}
+                className={`ml-0.5 rounded px-1 font-normal text-amber-300/90 ${CHIP_BUTTON}`}
+              >
+                Confirm<span className="sr-only"> {project.name}</span>
+              </button>
+            )}
+            {onRemove && (
+              <button
+                type="button"
+                onClick={() => onRemove(project)}
+                aria-label={`Remove ${project.name} from this thread`}
+                className={`rounded p-0.5 text-zinc-500 hover:text-white ${CHIP_BUTTON}`}
+              >
+                <X size={11} aria-hidden="true" />
+              </button>
+            )}
+          </span>
+        );
+      })}
+      {onAdd && (
+        <button type="button" onClick={onAdd} className={`${CHIP} text-zinc-400 hover:text-white ${CHIP_BUTTON}`}>
+          <Plus size={11} aria-hidden="true" />
+          Project
+          <span className="sr-only"> (add another project to this thread)</span>
+        </button>
+      )}
+    </span>
   );
 }
 

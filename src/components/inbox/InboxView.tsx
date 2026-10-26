@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/Button';
 import { Select } from '@/components/ui/inputs/Select';
 import { TextInput } from '@/components/ui/inputs/TextInput';
 import { inboxClient } from '@/lib/communications/inbox-client';
-import { INBOX_TAB_LABELS, INBOX_TABS, type InboxSummary, type InboxTab, type InboxTabCounts, type InboxThreadSummary } from '@/lib/communications/inbox-types';
+import { INBOX_TAB_LABELS, INBOX_TABS, isAgentChoice, type InboxSummary, type InboxTab, type InboxTabCounts, type InboxThreadSummary } from '@/lib/communications/inbox-types';
 import { isInboxTab } from '@/lib/communications/inbox-view';
 import { ThreadStateBadge, TrustBadge, formatListTime, projectSourceHint } from './inbox-badges';
 import { Tooltip } from '@/components/ui/Tooltip';
@@ -25,6 +25,8 @@ import { useInboxUpdates } from './use-inbox-updates';
 const PAGE_SIZE = INBOX_PAGE_SIZE;
 /** The most a quiet refresh re-reads at once (the route's cap). */
 const MAX_REFRESH = 1000;
+/** Projects a row names before counting the rest. */
+const ROW_PROJECTS = 2;
 
 type LoadOptions =
   /** First page for the current filters, with the skeleton on first load. */
@@ -425,19 +427,32 @@ export function InboxView({ projectId, embedded = false, emptyState, searchQuery
                       {/* The project leads the details: which client, then what the thread led to. */}
                       {(!lockedProject || thread.state === 'needs_you' || thread.state === 'needs_reply' || thread.urgent || thread.untrusted || thread.task_count > 0 || thread.reminder_count > 0 || thread.attachment_count > 0) && (
                         <span className="mt-2 flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
-                          {!lockedProject && (thread.project ? (
-                            <Tooltip content={`${thread.project.name}: ${projectSourceHint(thread.project, 'The agent')}`}>
-                              <span className="inline-flex max-w-[170px] items-center gap-1.5 rounded-full bg-white/[0.05] px-2 py-0.5 text-[11px] text-zinc-300">
-                                <span className="h-1.5 w-1.5 flex-shrink-0 rounded-full" style={{ backgroundColor: projectColor(thread.project.id) ?? 'currentColor' }} aria-hidden="true" />
-                                <span className="truncate">{thread.project.name}</span>
-                                {(thread.project.source === 'inferred' || thread.project.source === 'guessed') && (
-                                  <>
-                                    <Sparkles size={10} className="flex-shrink-0 text-amber-300" aria-hidden="true" />
-                                    <span className="sr-only">({thread.project.source}, needs confirming)</span>
-                                  </>
-                                )}
-                              </span>
-                            </Tooltip>
+                          {/* Up to two projects, strongest first; the rest are counted. */}
+                          {!lockedProject && (thread.projects.length > 0 ? (
+                            <>
+                              {thread.projects.slice(0, ROW_PROJECTS).map((project) => (
+                                <Tooltip key={project.id} content={`${project.name}: ${projectSourceHint(project, 'The agent')}`}>
+                                  <span className="inline-flex max-w-[170px] items-center gap-1.5 rounded-full bg-white/[0.05] px-2 py-0.5 text-[11px] text-zinc-300">
+                                    <span className="h-1.5 w-1.5 flex-shrink-0 rounded-full" style={{ backgroundColor: projectColor(project.id) ?? 'currentColor' }} aria-hidden="true" />
+                                    <span className="truncate">{project.name}</span>
+                                    {isAgentChoice(project.source) && (
+                                      <>
+                                        <Sparkles size={10} className="flex-shrink-0 text-amber-300" aria-hidden="true" />
+                                        <span className="sr-only">({project.source}, needs confirming)</span>
+                                      </>
+                                    )}
+                                  </span>
+                                </Tooltip>
+                              ))}
+                              {thread.projects.length > ROW_PROJECTS && (
+                                <Tooltip content={thread.projects.slice(ROW_PROJECTS).map((project) => project.name).join(', ')}>
+                                  <span className="rounded-full bg-white/[0.05] px-2 py-0.5 text-[11px] tabular-nums text-zinc-300">
+                                    +{thread.projects.length - ROW_PROJECTS}
+                                    <span className="sr-only"> more projects: {thread.projects.slice(ROW_PROJECTS).map((project) => project.name).join(', ')}</span>
+                                  </span>
+                                </Tooltip>
+                              )}
+                            </>
                           ) : thread.state !== 'ignored' && (
                             <Tooltip content="No project yet. Open the thread to set one.">
                               <span className="rounded-full border border-dashed border-white/[0.16] px-2 py-0.5 text-[11px] text-zinc-400">No project</span>

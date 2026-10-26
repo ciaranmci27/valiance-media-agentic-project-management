@@ -67,18 +67,18 @@ async function seed(db: PGlite, storage: FakeStorage) {
     VALUES ('project', $1, 'apex.pdf', 'https://files.example.com/apex.pdf') RETURNING id`, [elsewhere]))[0].id;
 
   await db.exec(`
-    INSERT INTO public.email_inboxes (id, name, address, routing_domain, routing_local_part, retention_days)
+    INSERT INTO communications.inboxes (id, name, address, routing_domain, routing_local_part, retention_days)
       VALUES ('${ids.inbox}', 'Ops', 'ops@example.com', 'relay.example.com', 'ops', 90),
              ('${ids.hiddenInbox}', 'Billing', 'billing@example.com', 'relay.example.com', 'billing', 90);
-    INSERT INTO public.email_inbox_access (inbox_id, member_id) VALUES ('${ids.inbox}', '${agent}');
-    INSERT INTO public.email_threads (id, inbox_id) VALUES ('${ids.thread}', '${ids.inbox}'), ('${ids.hiddenThread}', '${ids.hiddenInbox}');
-    INSERT INTO public.email_messages (id, inbox_id, thread_id, status, provider, provider_email_id, internet_message_id, subject, received_at) VALUES
+    INSERT INTO communications.inbox_access (inbox_id, member_id) VALUES ('${ids.inbox}', '${agent}');
+    INSERT INTO communications.conversations (id, inbox_id) VALUES ('${ids.thread}', '${ids.inbox}'), ('${ids.hiddenThread}', '${ids.hiddenInbox}');
+    INSERT INTO communications.messages (id, inbox_id, thread_id, status, provider, provider_email_id, internet_message_id, subject, received_at) VALUES
       ('${ids.message}', '${ids.inbox}', '${ids.thread}', 'handled', 'resend', 'tfa-1', 'tfa-1@example.com', 'Banner feedback', now() - interval '1 day'),
       ('${ids.oldMessage}', '${ids.inbox}', '${ids.thread}', 'handled', 'resend', 'tfa-2', 'tfa-2@example.com', 'Old banner', now() - interval '89 days'),
       ('${ids.hiddenMessage}', '${ids.hiddenInbox}', '${ids.hiddenThread}', 'handled', 'resend', 'tfa-3', 'tfa-3@example.com', 'Invoice', now() - interval '1 day');
   `);
   const attach = (id: string, message: string, position: number, filename: string, type: string, bytes: Buffer | null) => db.query(
-    `INSERT INTO public.email_attachments (id, message_id, position, filename, content_type, storage_path, sha256, size_bytes, uploaded_at, skipped_reason)
+    `INSERT INTO communications.attachments (id, message_id, position, filename, content_type, storage_path, sha256, size_bytes, uploaded_at, skipped_reason)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
     [id, message, position, filename, type, bytes ? `${ids.inbox}/${message}/${id}` : null, bytes ? sha(bytes) : null,
       bytes?.length ?? 99_000_000, bytes ? new Date().toISOString() : null, bytes ? null : 'over_size_cap']);
@@ -260,14 +260,14 @@ async function main() {
     const trashedDoc = await call(one.DELETE, 'DELETE', `${base}/${doc.body.data?.id}`, { id: s.task, fileId: doc.body.data?.id });
     // A second email whose file is gone from Storage: its copy fails, so it waits.
     const lost = { message: '00000000-0000-4000-8000-0000000000a8', attachment: '00000000-0000-4000-8000-0000000000b6' };
-    await q(`INSERT INTO public.email_messages (id, inbox_id, thread_id, status, provider, provider_email_id, internet_message_id, subject, received_at)
+    await q(`INSERT INTO communications.messages (id, inbox_id, thread_id, status, provider, provider_email_id, internet_message_id, subject, received_at)
       VALUES ($1, $2, $3, 'handled', 'resend', 'tfa-4', 'tfa-4@example.com', 'Lost file', now() - interval '1 day')`, [lost.message, ids.inbox, ids.thread]);
-    await q(`INSERT INTO public.email_attachments (id, message_id, position, filename, content_type, storage_path, sha256, size_bytes, uploaded_at)
+    await q(`INSERT INTO communications.attachments (id, message_id, position, filename, content_type, storage_path, sha256, size_bytes, uploaded_at)
       VALUES ($1, $2, 0, 'lost.png', 'image/png', $3, $4, 4, now())`, [lost.attachment, lost.message, `${ids.inbox}/${lost.message}/${lost.attachment}`, sha(Buffer.from('lost'))]);
     storage.objects.set(`inbound-email/${ids.inbox}/${lost.message}/${lost.attachment}`, { bytes: Buffer.from('lost'), contentType: 'image/png' });
     const lostLink = await add({ email_attachment_id: lost.attachment });
     storage.objects.delete(`inbound-email/${ids.inbox}/${lost.message}/${lost.attachment}`);
-    await q("UPDATE public.email_messages SET received_at = now() - interval '100 days' WHERE id IN ($1, $2)", [ids.message, lost.message]);
+    await q("UPDATE communications.messages SET received_at = now() - interval '100 days' WHERE id IN ($1, $2)", [ids.message, lost.message]);
 
     const { runRetention } = await import('../src/lib/communications/retention');
     const { getServiceClient: service } = await import('../src/lib/api/supabase-service');
@@ -278,14 +278,14 @@ async function main() {
     check('retention: a linked attachment becomes the task\'s own copy before its email is deleted',
       run.task_files_kept === 3 && keptShot?.kind === 'upload' && keptShot.storage_path === `${s.project}/${sha(SHOT)}` && keptShot.deleted_at === null
         && storage.objects.has(`task-files/${s.project}/${sha(SHOT)}`)
-        && (await q('SELECT 1 FROM public.email_messages WHERE id = $1', [ids.message])).length === 0, { run, keptShot });
+        && (await q('SELECT 1 FROM communications.messages WHERE id = $1', [ids.message])).length === 0, { run, keptShot });
     check('retention: a link in Trash keeps its file for a restore', trashedDoc.status === 200 && keptDoc?.kind === 'upload' && keptDoc.deleted_at !== null, keptDoc);
     check('retention: a task that already has the bytes keeps its upload; the link goes to Trash',
       keptSibling?.kind === 'upload' && keptSibling.deleted_at !== null
         && (await q("SELECT 1 FROM public.task_files WHERE task_id = $1 AND name = 'screenshot copy.png' AND deleted_at IS NULL", [s.sibling])).length === 1, keptSibling);
     check('retention: an email whose file cannot be copied is held back whole, its link untouched',
       run.failed_message_ids.includes(lost.message) && keptLost?.kind === 'email_attachment'
-        && (await q('SELECT 1 FROM public.email_attachments WHERE id = $1', [lost.attachment])).length === 1, { run, keptLost });
+        && (await q('SELECT 1 FROM communications.attachments WHERE id = $1', [lost.attachment])).length === 1, { run, keptLost });
     const afterRetention = await call(files.GET, 'GET', base, { id: s.task });
     const shotAfter = (afterRetention.body.data as unknown as { id: string; kind: string; source: unknown; available: boolean }[]).find((file) => file.id === shot.body.data?.id);
     check('retention: the file reads as the task\'s own afterwards', shotAfter?.kind === 'upload' && shotAfter.source === null && shotAfter.available, shotAfter);
@@ -301,21 +301,21 @@ async function main() {
       && appLink.source.subject === 'Lost file', appView.map((file) => [file.name, file.source]));
 
     // What can be added without uploading: the task's email attachments (not body images) and project files.
-    await q("INSERT INTO public.email_task_links (message_id, task_id, relation) VALUES ($1, $2, 'related')", [lost.message, s.task]);
-    await q(`INSERT INTO public.email_attachments (message_id, position, filename, content_type, storage_path, sha256, size_bytes, uploaded_at, disposition)
+    await q("INSERT INTO communications.task_links (message_id, task_id, relation) VALUES ($1, $2, 'related')", [lost.message, s.task]);
+    await q(`INSERT INTO communications.attachments (message_id, position, filename, content_type, storage_path, sha256, size_bytes, uploaded_at, disposition)
       VALUES ($1, 1, 'logo.png', 'image/png', 'x/y/z', $2, 10, now(), 'inline')`, [lost.message, 'f'.repeat(64)]);
     // The same image again: in a reply quoting it (same conversation, so still
     // one), and in another conversation (a signature logo's pattern: two).
     const reply = '00000000-0000-4000-8000-0000000000a9';
     const elsewhere = { thread: '00000000-0000-4000-8000-0000000000aa', message: '00000000-0000-4000-8000-0000000000ab' };
-    await q('INSERT INTO public.email_threads (id, inbox_id) VALUES ($1, $2)', [elsewhere.thread, ids.inbox]);
-    await q(`INSERT INTO public.email_messages (id, inbox_id, thread_id, status, provider, provider_email_id, internet_message_id, subject, received_at)
+    await q('INSERT INTO communications.conversations (id, inbox_id) VALUES ($1, $2)', [elsewhere.thread, ids.inbox]);
+    await q(`INSERT INTO communications.messages (id, inbox_id, thread_id, status, provider, provider_email_id, internet_message_id, subject, received_at)
       VALUES ($1, $2, $3, 'handled', 'resend', 'tfa-5', 'tfa-5@example.com', 'Re: Lost file', now()),
              ($4, $2, $5, 'handled', 'resend', 'tfa-6', 'tfa-6@example.com', 'Another topic', now())`, [reply, ids.inbox, ids.thread, elsewhere.message, elsewhere.thread]);
-    await q(`INSERT INTO public.email_attachments (message_id, position, filename, content_type, storage_path, sha256, size_bytes, uploaded_at, disposition)
+    await q(`INSERT INTO communications.attachments (message_id, position, filename, content_type, storage_path, sha256, size_bytes, uploaded_at, disposition)
       VALUES ($1, 0, 'logo.png', 'image/png', 'x/y/again', $3, 10, now(), 'inline'), ($2, 0, 'logo.png', 'image/png', 'x/y/elsewhere', $3, 10, now(), 'inline')`,
       [reply, elsewhere.message, 'f'.repeat(64)]);
-    await q("INSERT INTO public.email_task_links (message_id, task_id, relation) VALUES ($1, $3, 'updated'), ($2, $3, 'related')", [reply, elsewhere.message, s.task]);
+    await q("INSERT INTO communications.task_links (message_id, task_id, relation) VALUES ($1, $3, 'updated'), ($2, $3, 'related')", [reply, elsewhere.message, s.task]);
     const { taskFileCandidates } = await import('../src/lib/task-files/service');
     const candidates = await taskFileCandidates({ db: getServiceClient(), access: ownerAccess, memberId: s.owner, channel: 'app' }, s.task);
     check("candidates: the task's email attachments (pasted images too, each file once, from the email that first sent it, counted by conversation) and project files, marked when already added",

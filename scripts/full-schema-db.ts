@@ -8,7 +8,8 @@
  * to load another copy (for example the schema before a migration, from git),
  * then apply the migration on top and compare.
  */
-import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { PGlite } from '@electric-sql/pglite';
 
@@ -152,6 +153,28 @@ export async function createFullSchemaDatabase(options: { schemaSql?: string; ag
   await db.exec(`ALTER TABLE public.team_members DROP CONSTRAINT IF EXISTS team_members_role_check,
     ADD CONSTRAINT team_members_role_check CHECK (role IN ('owner', 'admin', 'member', 'guest', 'agent'))`);
   return db;
+}
+
+/** schema.sql as it was just before a migration was committed (its parent commit's copy). */
+export function schemaBeforeMigration(migration: string): string {
+  const git = (args: string[]) => execFileSync('git', args, { cwd: join(__dirname, '..'), encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  const added = git(['log', '--diff-filter=A', '--format=%H', '--', `supabase/migrations/${migration}`]).trim().split('\n').pop();
+  if (!added) throw new Error(`${migration} is not committed`);
+  return git(['show', `${added}^:app/supabase/schema.sql`]);
+}
+
+/**
+ * Every migration from `first` on, in order, each applied twice in a row (they
+ * re-run safely): a database from schemaBeforeMigration(first) then reaches
+ * today's schema, comparable with schema.sql.
+ */
+export async function applyMigrationsFrom(db: PGlite, first: string): Promise<void> {
+  const dir = join(__dirname, '..', 'supabase', 'migrations');
+  for (const name of readdirSync(dir).filter((file) => file.endsWith('.sql') && file >= first).sort()) {
+    const sql = readFileSync(join(dir, name), 'utf8');
+    await db.exec(sql);
+    await db.exec(sql);
+  }
 }
 
 /** Run as a signed-in member (RLS applies), or as the service role with `null`. */

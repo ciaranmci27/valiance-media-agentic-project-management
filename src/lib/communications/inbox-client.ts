@@ -72,6 +72,16 @@ export function inboxClient(isDemo: boolean) {
     setProject(threadId: string, request: SetThreadProjectRequest): Promise<SetThreadProjectResult> {
       return isDemo ? demoInbox.setProject(threadId, request) : post(`/api/workspace/inbox/threads/${threadId}/project`, request);
     },
+    /** Add a project beside the thread's others, or confirm one the agent chose. */
+    addProject(threadId: string, request: SetThreadProjectRequest): Promise<SetThreadProjectResult> {
+      return isDemo ? demoInbox.addProject(threadId, request) : post(`/api/workspace/inbox/threads/${threadId}/projects`, request);
+    },
+    /** Take a project off the thread (refused while a task on it is linked). */
+    removeProject(threadId: string, projectId: string): Promise<{ removed: boolean }> {
+      return isDemo
+        ? demoInbox.removeProject(threadId, projectId)
+        : call(`/api/workspace/inbox/threads/${threadId}/projects/${encodeURIComponent(projectId)}`, { method: 'DELETE' });
+    },
     markHandled(threadId: string): Promise<{ handled: number; reviewed: number }> {
       return isDemo ? demoInbox.markHandled(threadId) : post(`/api/workspace/inbox/threads/${threadId}/handled`);
     },

@@ -5,6 +5,7 @@ import { ApiError, notFound } from '@/lib/api/errors';
 import { logAudit } from '@/lib/api/audit';
 import { assertUuid, memberInboxIds } from '@/lib/communications/agent-access';
 import { DRAFT_COLUMNS } from '@/lib/communications/inbox-drafts';
+import { comms } from '@/lib/communications/db';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,10 +23,10 @@ type DraftResult = z.infer<typeof draftResultSchema>;
  */
 export const PUT = withApi<DraftResult, { id: string }>(async ({ supabase, params, body, teamMemberId, apiKeyId, access }) => {
   const id = assertUuid(params.id, 'id');
-  const { data: draft, error } = await supabase.from('email_reply_drafts').select(DRAFT_COLUMNS).eq('id', id).maybeSingle();
+  const { data: draft, error } = await comms(supabase).from('reply_drafts').select(DRAFT_COLUMNS).eq('id', id).maybeSingle();
   if (error) throw error;
   const { data: message, error: messageError } = draft
-    ? await supabase.from('email_messages').select('inbox_id').eq('id', draft.message_id).maybeSingle()
+    ? await comms(supabase).from('messages').select('inbox_id').eq('id', draft.message_id).maybeSingle()
     : { data: null, error: null };
   if (messageError) throw messageError;
   // A draft in an inbox the key cannot read is 404, like one that does not exist.
@@ -34,7 +35,7 @@ export const PUT = withApi<DraftResult, { id: string }>(async ({ supabase, param
   if (draft.status !== 'requested') {
     throw new ApiError(409, 'CONFLICT', 'This draft request is already answered', { reason: 'draft_answered', status: draft.status });
   }
-  const { data: updated, error: updateError } = await supabase.from('email_reply_drafts').update({
+  const { data: updated, error: updateError } = await comms(supabase).from('reply_drafts').update({
     status: body.body !== undefined ? 'ready' : 'failed',
     body: body.body ?? null,
     failure: body.failure ?? null,

@@ -5,6 +5,7 @@ import { assertUuid, isGoneError, loadAccessibleMessage } from '@/lib/communicat
 import { nullableNumber } from '@/lib/communications/agent-read';
 import { attachmentKind } from '@/lib/communications/attachments';
 import { INBOUND_EMAIL_BUCKET } from '@/lib/communications/email/ingest';
+import { comms } from '@/lib/communications/db';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,10 +26,10 @@ export const GET = withApi<unknown, { id: string; aid: string }>(async ({ supaba
   const message = await loadAccessibleMessage(supabase, teamMemberId, access, params.id);
   const attachmentId = assertUuid(params.aid, 'attachment id');
   const [{ data: attachment, error }, { data: inbox, error: inboxError }] = await Promise.all([
-    supabase.from('email_attachments')
+    comms(supabase).from('attachments')
       .select('id, message_id, filename, content_type, size_bytes, storage_path, skipped_reason, uploaded_at')
       .eq('id', attachmentId).eq('message_id', message.id).maybeSingle(),
-    supabase.from('email_inboxes').select('agent_readable_types').eq('id', message.inbox_id).single(),
+    comms(supabase).from('inboxes').select('agent_readable_types').eq('id', message.inbox_id).single(),
   ]);
   if (error) throw error;
   if (inboxError) throw isGoneError(inboxError) ? notFound('Email') : inboxError;

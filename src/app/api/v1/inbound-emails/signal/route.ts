@@ -1,6 +1,7 @@
 import { withApi } from '@/lib/api/middleware';
 import { success } from '@/lib/api/response';
 import { inboxScope } from '@/lib/communications/agent-access';
+import { comms } from '@/lib/communications/db';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,7 +13,7 @@ export const dynamic = 'force-dynamic';
 export const GET = withApi(async ({ supabase, searchParams, teamMemberId, access }) => {
   const inboxIds = await inboxScope(supabase, teamMemberId, access, searchParams.get('inbox_id'));
   if (inboxIds.length === 0) return success({ new_count: 0, newest_received_at: null, unsummarized_count: 0, drafts_requested: 0 });
-  const { data, error } = await supabase.rpc('email_signal', { p_inbox_ids: inboxIds });
+  const { data, error } = await comms(supabase).rpc('signal', { p_inbox_ids: inboxIds });
   if (error) throw error;
   const signal = (data ?? {}) as { new_count?: number | string; newest_received_at?: string | null; unsummarized_count?: number | string; drafts_requested?: number | string };
   return success({
