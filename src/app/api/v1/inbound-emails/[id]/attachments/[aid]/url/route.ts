@@ -21,8 +21,8 @@ function isMissingObject(error: unknown): boolean {
  * inbox lets agents read (agent_readable_types: image, pdf, text) and never
  * for a skipped or unstored file.
  */
-export const GET = withApi<unknown, { id: string; aid: string }>(async ({ supabase, params, teamMemberId }) => {
-  const message = await loadAccessibleMessage(supabase, teamMemberId, params.id);
+export const GET = withApi<unknown, { id: string; aid: string }>(async ({ supabase, params, teamMemberId, access }) => {
+  const message = await loadAccessibleMessage(supabase, teamMemberId, access, params.id);
   const attachmentId = assertUuid(params.aid, 'attachment id');
   const [{ data: attachment, error }, { data: inbox, error: inboxError }] = await Promise.all([
     supabase.from('email_attachments')

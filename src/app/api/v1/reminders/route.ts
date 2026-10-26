@@ -88,7 +88,7 @@ export const POST = withApi(async ({ supabase, body, teamMemberId, access, apiKe
   const place = await resolveReminderPlace(supabase, access, input);
   const ownerId = await resolveReminderOwner(supabase, access, teamMemberId, input.owner_id);
   // An email the key cannot read is 404, like one that does not exist.
-  const sourceMessage = input.source_message_id ? await loadAccessibleMessage(supabase, teamMemberId, input.source_message_id) : null;
+  const sourceMessage = input.source_message_id ? await loadAccessibleMessage(supabase, teamMemberId, access, input.source_message_id) : null;
 
   const { data, error } = await supabase
     .from('reminders')

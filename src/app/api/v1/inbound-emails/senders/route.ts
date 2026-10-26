@@ -19,8 +19,8 @@ interface MessageRow { id: string; kind: string | null; topic: string | null; so
  * emails, their kinds, topics and sorting actions, the latest triage
  * outcomes, how many tasks they led to, and the live rules that cover them.
  */
-export const GET = withApi(async ({ supabase, searchParams, teamMemberId }) => {
-  const inboxIds = await inboxScope(supabase, teamMemberId, searchParams.get('inbox_id'));
+export const GET = withApi(async ({ supabase, searchParams, teamMemberId, access }) => {
+  const inboxIds = await inboxScope(supabase, teamMemberId, access, searchParams.get('inbox_id'));
   const days = Math.min(90, Math.max(1, Number(searchParams.get('days') ?? 30) || 30));
   if (inboxIds.length === 0) return success({ days, senders: [] });
   const since = new Date(Date.now() - days * 86_400_000).toISOString();

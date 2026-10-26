@@ -9,8 +9,8 @@ export const dynamic = 'force-dynamic';
  * waiting for the batched summary, and reply drafts people asked for,
  * across the member's inboxes (or one).
  */
-export const GET = withApi(async ({ supabase, searchParams, teamMemberId }) => {
-  const inboxIds = await inboxScope(supabase, teamMemberId, searchParams.get('inbox_id'));
+export const GET = withApi(async ({ supabase, searchParams, teamMemberId, access }) => {
+  const inboxIds = await inboxScope(supabase, teamMemberId, access, searchParams.get('inbox_id'));
   if (inboxIds.length === 0) return success({ new_count: 0, newest_received_at: null, unsummarized_count: 0, drafts_requested: 0 });
   const { data, error } = await supabase.rpc('email_signal', { p_inbox_ids: inboxIds });
   if (error) throw error;

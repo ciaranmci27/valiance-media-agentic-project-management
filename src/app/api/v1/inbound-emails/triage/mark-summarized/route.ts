@@ -12,8 +12,8 @@ export const dynamic = 'force-dynamic';
  * of the same emails). All or nothing: an id that is not in the member's
  * inboxes marks nothing and is reported.
  */
-export const POST = withApi<{ triage_ids: string[] }>(async ({ supabase, body, teamMemberId, apiKeyId }) => {
-  const inboxIds = await memberInboxIds(supabase, teamMemberId);
+export const POST = withApi<{ triage_ids: string[] }>(async ({ supabase, body, teamMemberId, apiKeyId, access }) => {
+  const inboxIds = await memberInboxIds(supabase, teamMemberId, access);
   const { data, error } = await supabase.rpc('email_mark_triage_summarized', {
     p_triage_ids: body.triage_ids,
     p_inbox_ids: inboxIds,

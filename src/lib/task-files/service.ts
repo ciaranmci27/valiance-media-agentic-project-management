@@ -225,14 +225,18 @@ async function loadFile(ctx: TaskFilesContext, task: TaskRow, fileId: string): P
   return data as FileRow;
 }
 
-/** The inboxes this reader opens: in the app as the Inbox scopes them, through a key only with inbound_email.read on both sides. */
+/**
+ * The inboxes this reader opens, as the Inbox scopes them: every inbox for a
+ * member who manages inboxes, otherwise the granted ones. Through a key, only
+ * with inbound_email.read (or manage) on both sides, as the email API reads.
+ */
 async function readableInboxes(ctx: TaskFilesContext): Promise<Set<string>> {
-  if (ctx.channel === 'app' && accessAllows(ctx.access, 'inbound_email.manage', 'app')) {
+  if (!can(ctx, 'inbound_email.read') && !can(ctx, 'inbound_email.manage')) return new Set();
+  if (accessAllows(ctx.access, 'inbound_email.manage', ctx.channel)) {
     const { data, error } = await ctx.db.from('email_inboxes').select('id');
     if (error) throw error;
     return new Set((data ?? []).map((row: { id: string }) => row.id));
   }
-  if (!can(ctx, 'inbound_email.read') && !can(ctx, 'inbound_email.manage')) return new Set();
   const { data, error } = await ctx.db.from('email_inbox_access').select('inbox_id').eq('member_id', ctx.memberId);
   if (error) throw error;
   return new Set((data ?? []).map((row: { inbox_id: string }) => row.inbox_id));

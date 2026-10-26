@@ -20,7 +20,7 @@ type DraftResult = z.infer<typeof draftResultSchema>;
  * otherwise). The person copies the draft into their own mail; nothing is
  * sent.
  */
-export const PUT = withApi<DraftResult, { id: string }>(async ({ supabase, params, body, teamMemberId, apiKeyId }) => {
+export const PUT = withApi<DraftResult, { id: string }>(async ({ supabase, params, body, teamMemberId, apiKeyId, access }) => {
   const id = assertUuid(params.id, 'id');
   const { data: draft, error } = await supabase.from('email_reply_drafts').select(DRAFT_COLUMNS).eq('id', id).maybeSingle();
   if (error) throw error;
@@ -29,7 +29,7 @@ export const PUT = withApi<DraftResult, { id: string }>(async ({ supabase, param
     : { data: null, error: null };
   if (messageError) throw messageError;
   // A draft in an inbox the key cannot read is 404, like one that does not exist.
-  const granted = await memberInboxIds(supabase, teamMemberId);
+  const granted = await memberInboxIds(supabase, teamMemberId, access);
   if (!draft || !message || !granted.includes(message.inbox_id)) throw notFound('Reply draft');
   if (draft.status !== 'requested') {
     throw new ApiError(409, 'CONFLICT', 'This draft request is already answered', { reason: 'draft_answered', status: draft.status });

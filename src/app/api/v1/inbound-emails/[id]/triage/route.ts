@@ -73,7 +73,7 @@ async function priorTriage(supabase: SupabaseClient, message: AccessibleMessage,
  * second activity) and a different body is 409. Nothing here sends email.
  */
 export const POST = withApi<TriageRequest, { id: string }>(async ({ supabase, params, body, teamMemberId, apiKeyId, access }) => {
-  const message = await loadAccessibleMessage(supabase, teamMemberId, params.id);
+  const message = await loadAccessibleMessage(supabase, teamMemberId, access, params.id);
   const key = body.idempotency_key ?? null;
   const hash = key ? requestHash(body) : null;
   if (key && hash) {

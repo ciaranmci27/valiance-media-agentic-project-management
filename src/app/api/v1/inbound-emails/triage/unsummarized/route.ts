@@ -11,8 +11,8 @@ export const dynamic = 'force-dynamic';
  * the thread's project with its source, and linked tasks (no bodies). superseded_triage_ids lists older unsummarized
  * triage of the same email, which mark-summarized clears too.
  */
-export const GET = withApi(async ({ supabase, searchParams, teamMemberId }) => {
-  const inboxIds = await inboxScope(supabase, teamMemberId, searchParams.get('inbox_id'));
+export const GET = withApi(async ({ supabase, searchParams, teamMemberId, access }) => {
+  const inboxIds = await inboxScope(supabase, teamMemberId, access, searchParams.get('inbox_id'));
   if (inboxIds.length === 0) return success([]);
   const { data, error } = await supabase.rpc('email_unsummarized_triage', { p_inbox_ids: inboxIds, p_limit: 200 });
   if (error) throw error;

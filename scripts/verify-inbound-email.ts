@@ -50,7 +50,7 @@ const ids = {
 const RELAY = 'relay.example.test';
 const SECRET = `whsec_${Buffer.from('inbound-email-test-signing-secret!').toString('base64')}`;
 const hash = (key: string) => createHash('sha256').update(key).digest('hex');
-const keys = { ashley: `pk_live_${randomUUID()}`, ashleyNoEmail: `pk_live_${randomUUID()}`, jeff: `pk_live_${randomUUID()}` };
+const keys = { ashley: `pk_live_${randomUUID()}`, ashleyNoEmail: `pk_live_${randomUUID()}`, jeff: `pk_live_${randomUUID()}`, owner: `pk_live_${randomUUID()}` };
 
 async function rows<T = Payload>(db: PGlite, sql: string, params: unknown[] = []): Promise<T[]> {
   return (await db.query<T>(sql, params)).rows;
@@ -84,6 +84,8 @@ async function seed(db: PGlite) {
     hash(keys.ashleyNoEmail), scopes.filter((s) => !s.startsWith('inbound_email')),
     hash(keys.jeff), ids.jeff,
   ]);
+  // The owner's own read-only key: inbound_email.read but not triage, listed on no inbox.
+  await db.query('INSERT INTO api_keys(key_hash, team_member_id, scopes) VALUES ($1,$2,$3)', [hash(keys.owner), ids.owner, ['inbound_email.read', 'tasks.read', 'projects.read']]);
 }
 
 async function main() {
@@ -422,6 +424,14 @@ async function main() {
       && JSON.stringify(jeffReads.body) === JSON.stringify(unknownRead.body), [jeffReads.body, unknownRead.body]);
     const jeffList = await api(list.GET, 'GET', '/api/v1/inbound-emails', keys.jeff);
     check('scope: a member lists only their own inbox', jeffList.body.data.every((m: Payload) => m.inbox_id === ids.inboxB) && jeffList.body.data.length === 1, jeffList.body.data.length);
+    const ownerKeyList = await api(list.GET, 'GET', '/api/v1/inbound-emails?limit=100', keys.owner);
+    const listedInboxes = new Set(ownerKeyList.body.data?.map((m: Payload) => m.inbox_id));
+    check('scope: an owner key reads every inbox, as the owner does in the app, without being listed on any',
+      ownerKeyList.status === 200 && listedInboxes.has(ids.inboxA) && listedInboxes.has(ids.inboxB)
+      && (await rows(db, 'SELECT 1 FROM email_inbox_access WHERE member_id=$1', [ids.owner])).length === 0, ownerKeyList.body);
+    check('scope: an owner key opens an email in any inbox', (await api(detail.GET, 'GET', `/api/v1/inbound-emails/${reply.id}`, keys.owner, { id: reply.id })).status === 200);
+    const ownerTriage = await api(triage.POST, 'POST', `/api/v1/inbound-emails/${reply.id}/triage`, keys.owner, { id: reply.id }, { outcome: 'fyi', urgent: false, summary: 'x' });
+    check('scope: reading every inbox never lets a read-only key triage', ownerTriage.status === 403, ownerTriage.body);
     const noScope = await api(list.GET, 'GET', '/api/v1/inbound-emails', keys.ashleyNoEmail);
     check('scope: a key without inbound_email.read is 403 missing_key_scope', noScope.status === 403 && noScope.body.error.details.reason === 'missing_key_scope', noScope.body);
     const noSignal = await api(signal.GET, 'GET', '/api/v1/inbound-emails/signal', keys.ashleyNoEmail);

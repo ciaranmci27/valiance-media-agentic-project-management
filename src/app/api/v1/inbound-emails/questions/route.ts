@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic';
  * question and when it was asked. Answering one in the Inbox, or marking the
  * thread handled, takes it off.
  */
-export const GET = withApi(async ({ supabase, searchParams, teamMemberId }) => {
-  const inboxIds = await inboxScope(supabase, teamMemberId, searchParams.get('inbox_id'));
+export const GET = withApi(async ({ supabase, searchParams, teamMemberId, access }) => {
+  const inboxIds = await inboxScope(supabase, teamMemberId, access, searchParams.get('inbox_id'));
   return success(await waitingQuestions(supabase, inboxIds));
 }, { permission: 'inbound_email.read' });

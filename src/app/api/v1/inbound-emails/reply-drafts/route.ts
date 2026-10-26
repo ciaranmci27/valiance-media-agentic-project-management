@@ -19,10 +19,10 @@ interface DraftRow {
  * (message_id, its thread and subject) and what the person wants said.
  * Read the email with GET /api/v1/inbound-emails/:message_id first.
  */
-export const GET = withApi(async ({ supabase, searchParams, teamMemberId }) => {
+export const GET = withApi(async ({ supabase, searchParams, teamMemberId, access }) => {
   const status = searchParams.get('status') ?? 'requested';
   if (!(STATUSES as readonly string[]).includes(status)) throw badRequest('status must be requested, ready or failed');
-  const inboxIds = await inboxScope(supabase, teamMemberId, searchParams.get('inbox_id'));
+  const inboxIds = await inboxScope(supabase, teamMemberId, access, searchParams.get('inbox_id'));
   if (inboxIds.length === 0) return success([]);
   // Scoped to the key's inboxes before any cap: the drafts on its threads only.
   const drafts: DraftRow[] = [];

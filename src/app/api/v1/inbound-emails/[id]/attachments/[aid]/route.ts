@@ -10,8 +10,8 @@ export const dynamic = 'force-dynamic';
 
 /** Sets the one-line display label on an attachment (UI only), and nothing else. */
 export const PATCH = withApi<{ agent_label: string | null }, { id: string; aid: string }>(
-  async ({ supabase, params, body, teamMemberId, apiKeyId }) => {
-    const message = await loadAccessibleMessage(supabase, teamMemberId, params.id);
+  async ({ supabase, params, body, teamMemberId, apiKeyId, access }) => {
+    const message = await loadAccessibleMessage(supabase, teamMemberId, access, params.id);
     const attachmentId = assertUuid(params.aid, 'attachment id');
     const { data: before, error: beforeError } = await supabase.from('email_attachments')
       .select('id, agent_label').eq('id', attachmentId).eq('message_id', message.id).maybeSingle();
