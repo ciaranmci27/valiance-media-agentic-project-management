@@ -29,7 +29,9 @@ const STATUS_STYLE: Record<string, { bg: string; text: string; border: string }>
   todo: { bg: 'bg-white/[0.03]', text: 'text-zinc-300', border: 'border-l-zinc-400' },
 };
 
-export function CalendarView({ tasks, onViewTask, onAddTask }: CalendarViewProps) {
+export function CalendarView({ tasks: allTasks, onViewTask, onAddTask }: CalendarViewProps) {
+  // Backlog is not committed work, so it has no place on a schedule.
+  const tasks = useMemo(() => allTasks.filter(t => t.status !== 'backlog'), [allTasks]);
   const [currentDate, setCurrentDate] = useState(new Date());
   const [expandedDay, setExpandedDay] = useState<number | null>(null);
   // Folded by default: with an agent proposing work faster than it gets

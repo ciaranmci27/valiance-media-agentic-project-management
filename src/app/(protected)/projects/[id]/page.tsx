@@ -486,7 +486,7 @@ export default function ProjectDetailPage() {
                   </div>
                   <p className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">Set Status</p>
                   <div className="grid grid-cols-2 gap-1 px-2 pb-1">
-                    {(['todo', 'in_progress', 'in_review', 'done'] as const).map(s => (
+                    {(['backlog', 'todo', 'in_progress', 'in_review', 'done'] as const).map(s => (
                       <button key={s} onClick={() => bulkUpdateStatus(s)} className="text-left px-2 py-1.5 text-sm text-zinc-300 rounded-md hover:bg-white/[0.06]">
                         {s.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
                       </button>

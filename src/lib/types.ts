@@ -250,7 +250,7 @@ export interface Task {
   project_id: string;
   title: string;
   description: string;
-  status: 'todo' | 'in_progress' | 'in_review' | 'done';
+  status: 'backlog' | 'todo' | 'in_progress' | 'in_review' | 'done';
   priority: 'low' | 'medium' | 'high' | 'urgent';
   assignee_ids: string[];
   due_date: string | null;

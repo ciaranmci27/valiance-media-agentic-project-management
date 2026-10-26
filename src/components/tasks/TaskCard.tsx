@@ -38,7 +38,7 @@ interface TaskCardProps {
   onMove?: (taskId: string, status: Task['status']) => void;
 }
 
-const MOVE_ORDER: Task['status'][] = ['todo', 'in_progress', 'in_review', 'done'];
+const MOVE_ORDER: Task['status'][] = ['backlog', 'todo', 'in_progress', 'in_review', 'done'];
 
 export function TaskCard({ task, onView, onDelete, onMove }: TaskCardProps) {
   const { team, tasks, getProject, reminders } = useApp();
@@ -65,7 +65,7 @@ export function TaskCard({ task, onView, onDelete, onMove }: TaskCardProps) {
   const formatDate = (date: string | null) => {
     if (!date) return null;
     const d = parseDateOnly(date);
-    const isOverdue = isDateOverdue(date) && task.status !== 'done';
+    const isOverdue = isDateOverdue(date) && task.status !== 'done' && task.status !== 'backlog';
     return {
       text: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
       isOverdue

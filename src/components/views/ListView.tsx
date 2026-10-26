@@ -12,12 +12,14 @@ type SortDir = 'asc' | 'desc';
 
 const PRIORITY_ORDER: Record<string, number> = { urgent: 0, high: 1, medium: 2, low: 3 };
 
-// Board column order, so list and board tell the same story.
+// Board column order, so list and board tell the same story. Backlog comes
+// last, folded, the way the board keeps it below To Do.
 const STATUS_GROUPS: { key: Task['status']; label: string; dot: string }[] = [
   { key: 'todo', label: 'To Do', dot: 'bg-zinc-300' },
   { key: 'in_progress', label: 'In Progress', dot: 'bg-brand-500' },
   { key: 'in_review', label: 'In Review', dot: 'bg-amber-500' },
   { key: 'done', label: 'Done', dot: 'bg-emerald-500' },
+  { key: 'backlog', label: 'Backlog', dot: 'border border-dashed border-zinc-400' },
 ];
 
 interface ListViewProps {
@@ -44,8 +46,9 @@ export function ListView({ tasks, onViewTask, onDeleteTask, selectedIds, onToggl
   const [sortField, setSortField] = useState<SortField | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>('asc');
   // Done starts folded: on a mature project it is the largest group and the
-  // least useful to scan, and it buried the live work under history.
-  const [collapsed, setCollapsed] = useState<Set<Task['status']>>(() => new Set(['done']));
+  // least useful to scan, and it buried the live work under history. Backlog
+  // too: it is looked at rarely, on purpose.
+  const [collapsed, setCollapsed] = useState<Set<Task['status']>>(() => new Set(['done', 'backlog']));
 
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
   const [dropIndicator, setDropIndicator] = useState<ListDropIndicator | null>(null);
@@ -162,7 +165,8 @@ export function ListView({ tasks, onViewTask, onDeleteTask, selectedIds, onToggl
 
   const groups = STATUS_GROUPS
     .map(g => ({ ...g, tasks: sortedTasks.filter(t => t.status === g.key) }))
-    .filter(g => g.tasks.length > 0);
+    // Backlog stays even when empty: its header is where a row is dropped to shelve it.
+    .filter(g => g.tasks.length > 0 || g.key === 'backlog');
 
   const groupTasksOf = (group: Task['status']) =>
     groups.find(g => g.key === group)?.tasks ?? [];

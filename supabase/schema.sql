@@ -167,7 +167,7 @@ create table public.tasks (
   project_id uuid not null references public.projects(id) on delete cascade,
   title text not null,
   description text not null default '',
-  status text not null default 'todo' check (status in ('todo', 'in_progress', 'in_review', 'done')),
+  status text not null default 'todo' check (status in ('backlog', 'todo', 'in_progress', 'in_review', 'done')),
   priority text not null default 'medium' check (priority in ('low', 'medium', 'high', 'urgent')),
   due_date text,
   tags text[] not null default '{}',

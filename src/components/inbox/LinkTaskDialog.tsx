@@ -11,7 +11,7 @@ import { useDemo } from '@/lib/demo-context';
 import { inboxClient } from '@/lib/inbound-email/inbox-client';
 import type { InboxThreadDetail, TaskLinkRelation } from '@/lib/inbound-email/inbox-types';
 
-const STATUS_LABELS: Record<string, string> = { todo: 'To do', in_progress: 'In progress', in_review: 'In review', done: 'Done' };
+const STATUS_LABELS: Record<string, string> = { backlog: 'Backlog', todo: 'To do', in_progress: 'In progress', in_review: 'In review', done: 'Done' };
 
 const RELATIONS: { value: TaskLinkRelation; label: string; description: string }[] = [
   { value: 'related', label: 'About this task', description: 'The email is about it but asks for no change.' },

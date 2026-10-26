@@ -29,7 +29,7 @@ const limit = (fallback: number) =>
   z.number().int().min(1).max(100).default(fallback).describe(`Rows per page (1-100, default ${fallback})`);
 const order = z.enum(['asc', 'desc']).optional().describe('Default desc');
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD');
-const TASK_STATUS = z.enum(['todo', 'in_progress', 'in_review', 'done']);
+const TASK_STATUS = z.enum(['backlog', 'todo', 'in_progress', 'in_review', 'done']);
 const PRIORITY = z.enum(['low', 'medium', 'high', 'urgent']);
 const TASK_TYPE = z.enum(['engineering', 'research', 'audit', 'marketing', 'copywriting', 'operations', 'general']);
 // null or human_only: a person does it. needs_spec: meant for the dev agent,

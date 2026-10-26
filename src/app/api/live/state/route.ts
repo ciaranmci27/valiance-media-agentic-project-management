@@ -43,7 +43,7 @@ export async function GET() {
       supabase
         .from('tasks')
         .select('id, title, status, priority, updated_at, ai_readiness, task_assignees(member_id), project:projects!inner(id)')
-        .neq('status', 'done')
+        .not('status', 'in', '(done,backlog)')
         .is('deleted_at', null)
         .is('project.deleted_at', null)
         .order('updated_at', { ascending: false })

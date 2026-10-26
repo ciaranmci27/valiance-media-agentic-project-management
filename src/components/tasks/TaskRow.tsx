@@ -73,7 +73,7 @@ export function TaskRow({ task, onView, onDelete }: TaskRowProps) {
   const formatDate = (date: string | null) => {
     if (!date) return null;
     const d = parseDateOnly(date);
-    const isOverdue = isDateOverdue(date) && task.status !== 'done';
+    const isOverdue = isDateOverdue(date) && task.status !== 'done' && task.status !== 'backlog';
     return {
       text: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
       isOverdue
@@ -98,6 +98,7 @@ export function TaskRow({ task, onView, onDelete }: TaskRowProps) {
             task.status === 'done' ? 'bg-emerald-500' :
             task.status === 'in_progress' ? 'bg-brand-500' :
             task.status === 'in_review' ? 'bg-amber-500' :
+            task.status === 'backlog' ? 'border border-dashed border-zinc-400' :
             'bg-zinc-300'
           }`} />
         </div>
@@ -252,7 +253,7 @@ export function TaskRowDesktop({ task, onView, onDelete, selected, onToggleSelec
   const formatDate = (date: string | null) => {
     if (!date) return null;
     const d = parseDateOnly(date);
-    const isOverdue = isDateOverdue(date) && task.status !== 'done';
+    const isOverdue = isDateOverdue(date) && task.status !== 'done' && task.status !== 'backlog';
     return {
       text: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
       isOverdue

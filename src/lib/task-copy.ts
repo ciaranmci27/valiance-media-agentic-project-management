@@ -9,6 +9,7 @@ import { toast } from '@/components/ui/Toast';
  */
 
 export const TASK_STATUS_LABELS: Record<Task['status'], string> = {
+  backlog: 'Backlog',
   todo: 'To Do',
   in_progress: 'In Progress',
   in_review: 'In Review',

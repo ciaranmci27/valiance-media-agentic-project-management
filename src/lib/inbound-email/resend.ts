@@ -95,7 +95,11 @@ export function createResendReceiving(options: {
       headers: { Authorization: `Bearer ${options.apiKey}`, Accept: 'application/json' },
       signal: AbortSignal.timeout(15_000),
     });
-    if (!response.ok) throw new ResendApiError(response.status, `Resend ${path} answered ${response.status}`);
+    if (!response.ok) {
+      // Resend's body names the cause (a revoked or send-only key, say)
+      const detail = (await response.text().catch(() => '')).replace(/\s+/g, ' ').trim().slice(0, 300);
+      throw new ResendApiError(response.status, `Resend ${path} answered ${response.status}${detail ? `: ${detail}` : ''}`);
+    }
     return (await response.json()) as T;
   };
   return {

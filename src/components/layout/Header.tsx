@@ -26,7 +26,7 @@ export function Header({ title, subtitle, actions, searchPlaceholder, showFilter
   const { filters, setFilters, team, tasks } = useApp();
   const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
 
-  const statusOptions = ['todo', 'in_progress', 'in_review', 'done'];
+  const statusOptions = ['backlog', 'todo', 'in_progress', 'in_review', 'done'];
   const priorityOptions = ['low', 'medium', 'high', 'urgent'];
   const allTags = Array.from(new Set(tasks.flatMap(t => t.tags))).sort();
 

@@ -484,7 +484,7 @@ export const endpoints: EndpointDoc[] = [
   // ─── Tasks ────────────────────────────────────────────────────────
   { method: 'GET', path: '/api/v1/tasks', description: 'List all tasks across projects with filtering. Each task includes inline subtasks, comments, assignee_ids, acceptance_criteria, and blocked_by_ids, plus where it came from: created_via (app, api, mcp, system, or unknown for tasks from before tracking), created_by_key_id and created_note. Paginated.', group: 'Tasks',
     queryParams: [
-      { name: 'status', type: 'todo|in_progress|in_review|done', description: 'Filter by task status' },
+      { name: 'status', type: 'backlog|todo|in_progress|in_review|done', description: 'Filter by task status' },
       { name: 'priority', type: 'low|medium|high|urgent', description: 'Filter by priority' },
       { name: 'project_id', type: 'uuid', description: 'Filter by project' },
       { name: 'assignee_id', type: 'uuid', description: 'Filter by assigned team member' },
@@ -503,7 +503,7 @@ export const endpoints: EndpointDoc[] = [
       { name: 'project_id', type: 'uuid', required: true, description: 'Project ID this task belongs to' },
       { name: 'title', type: 'string', required: true, description: 'Task title' },
       { name: 'description', type: 'string', required: false, description: 'Task description (supports plain text)' },
-      { name: 'status', type: 'todo|in_progress|in_review|done', required: false, description: 'Initial status (default todo)' },
+      { name: 'status', type: 'backlog|todo|in_progress|in_review|done', required: false, description: 'Initial status (default todo)' },
       { name: 'priority', type: 'low|medium|high|urgent', required: false, description: 'Priority level (default medium)' },
       { name: 'due_date', type: 'string|null', required: false, description: 'Due date (ISO date string or null)' },
       { name: 'tags', type: 'string[]', required: false, description: 'Tag labels' },
@@ -524,7 +524,7 @@ export const endpoints: EndpointDoc[] = [
     body: [
       { name: 'title', type: 'string', required: false, description: 'Task title' },
       { name: 'description', type: 'string', required: false, description: 'Task description' },
-      { name: 'status', type: 'todo|in_progress|in_review|done', required: false, description: 'Task status' },
+      { name: 'status', type: 'backlog|todo|in_progress|in_review|done', required: false, description: 'Task status' },
       { name: 'priority', type: 'low|medium|high|urgent', required: false, description: 'Priority level' },
       { name: 'due_date', type: 'string|null', required: false, description: 'Due date or null to clear' },
       { name: 'tags', type: 'string[]', required: false, description: 'Replace tag labels' },

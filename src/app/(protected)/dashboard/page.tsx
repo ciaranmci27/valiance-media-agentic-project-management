@@ -88,13 +88,13 @@ export default function DashboardPage() {
   const weekAgo = new Date(today.getTime() - 6 * 24 * 60 * 60 * 1000);
 
   const dueThisWeek = scopedTasks.filter(t => {
-    if (!t.due_date || t.status === 'done') return false;
+    if (!t.due_date || t.status === 'done' || t.status === 'backlog') return false;
     const due = parseDateOnly(t.due_date);
     return due >= today && due <= thisWeekEnd;
   });
 
   const overdue = scopedTasks.filter(t => {
-    if (!t.due_date || t.status === 'done') return false;
+    if (!t.due_date || t.status === 'done' || t.status === 'backlog') return false;
     return parseDateOnly(t.due_date) < today;
   });
 
@@ -416,7 +416,8 @@ export default function DashboardPage() {
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 divide-x divide-white/[0.06]">
               {projects.slice(0, 6).map((project) => {
-                const projectTasks = tasks.filter(t => t.project_id === project.id);
+                // Backlog is not committed work, so it does not count against progress.
+                const projectTasks = tasks.filter(t => t.project_id === project.id && t.status !== 'backlog');
                 const done = projectTasks.filter(t => t.status === 'done').length;
                 const progress = projectTasks.length > 0 ? Math.round((done / projectTasks.length) * 100) : 0;
                 return (

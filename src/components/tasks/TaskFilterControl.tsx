@@ -29,7 +29,7 @@ export function TaskFilterControl({ tasks }: { tasks: Task[] }) {
   const anchorRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
 
-  const statusOptions = ['todo', 'in_progress', 'in_review', 'done'];
+  const statusOptions = ['backlog', 'todo', 'in_progress', 'in_review', 'done'];
   const priorityOptions = ['low', 'medium', 'high', 'urgent'];
   const tagOptions = Array.from(new Set(tasks.flatMap(t => t.tags))).sort();
   // Every active member, viewer first: the point of the assignee filter is

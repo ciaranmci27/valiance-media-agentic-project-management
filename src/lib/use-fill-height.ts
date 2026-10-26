@@ -38,11 +38,12 @@ export function useFillHeight<T extends HTMLElement>(
       setHeight(Math.max(min, Math.floor(window.innerHeight - top - gap)));
     };
     measure();
-    // The element itself resizes when its tab is shown; the body resizes when
-    // anything above it changes height. Same value twice is a no-op render.
+    // The element itself resizes when its tab is shown; an ancestor resizes
+    // when anything above it changes height (a banner closing). The body alone
+    // is not enough: min-h-screen page wrappers hold it at the viewport, so it
+    // never shrinks. Same value twice is a no-op render.
     const observer = new ResizeObserver(measure);
-    observer.observe(el);
-    observer.observe(document.body);
+    for (let node: HTMLElement | null = el; node; node = node.parentElement) observer.observe(node);
     window.addEventListener('resize', measure);
     return () => {
       observer.disconnect();

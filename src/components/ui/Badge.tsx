@@ -57,6 +57,7 @@ export function PriorityBadge({ priority, tooltip = true }: { priority: string; 
 export function StatusBadge({ status, tooltip = true }: { status: string; tooltip?: boolean }) {
   // Reserve color for the states that matter at a glance; the rest go neutral.
   const config = {
+    backlog: { variant: 'default' as const, label: 'Backlog', hint: 'Kept for later, not committed to yet' },
     todo: { variant: 'default' as const, label: 'To Do', hint: 'Not started yet' },
     in_progress: { variant: 'info' as const, label: 'In Progress', hint: 'Being worked on right now' },
     in_review: { variant: 'default' as const, label: 'In Review', hint: 'Work finished, awaiting review or merge' },
