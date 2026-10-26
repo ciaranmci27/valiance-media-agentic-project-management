@@ -108,7 +108,7 @@ export function decideItem(message: PolicyMessage, item: PolicyItem): PolicyDeci
   if (message.speaker === 'owner') {
     if (instruction) {
       if (item.projectStatus && item.projectStatus !== 'active' && item.type === 'create_task') {
-        return decided('propose', 'The project is finished; Ciaran confirms a new task on it.');
+        return decided('propose', 'That project is finished, so a new task on it waits for your OK.');
       }
       return decided('apply', 'Ciaran asked for it.');
     }
@@ -123,10 +123,10 @@ export function decideItem(message: PolicyMessage, item: PolicyItem): PolicyDeci
   }
 
   // 3. Trust.
-  if (message.suspicious) return decided('propose', 'The message looks suspicious, so nothing applies on its own.');
-  if (message.trust === 'untrusted') return decided('propose', 'The sender is not verified, so nothing applies on its own.');
+  if (message.suspicious) return decided('propose', 'This message looks suspicious, so nothing happens without your OK.');
+  if (message.trust === 'untrusted') return decided('propose', 'The sender could not be verified, so nothing happens without your OK.');
   if (message.trust === 'unknown' && SENSITIVE_INTENTS.includes(item.intent) && message.speaker !== 'machine') {
-    return decided('propose', 'Money or account matters from an unverified sender wait for Ciaran.');
+    return decided('propose', 'Money or account matters from an unverified sender wait for your OK.');
   }
 
   // 4. Delivery.
@@ -140,7 +140,7 @@ export function decideItem(message: PolicyMessage, item: PolicyItem): PolicyDeci
 
   // 5. Strangers and prospects.
   if (message.speaker === 'stranger' && !['ask', 'propose_mapping', 'create_lead', 'reply_owed'].includes(item.type)) {
-    return decided('propose', 'An unknown sender reaches no client work until Ciaran says so.');
+    return decided('propose', 'An unknown sender cannot change client work without your OK.');
   }
   if (message.speaker === 'prospect' && ['create_task', 'update_task', 'revert_item'].includes(item.type)) {
     return decided('propose', 'A prospect is not a client yet.');
@@ -151,7 +151,7 @@ export function decideItem(message: PolicyMessage, item: PolicyItem): PolicyDeci
     return decided('reject', 'A finished project takes no new tasks: raise a reply owed decision instead.');
   }
   if (item.hasProject && item.projectSource === null && !['reply_owed', 'ask'].includes(item.type)) {
-    return decided('propose', 'This message may not touch that project on its own; Ciaran confirms it.');
+    return decided('propose', 'This sender is not tied to that project, so it waits for your OK.');
   }
 
   // 7. The type's own rule.
@@ -160,18 +160,18 @@ export function decideItem(message: PolicyMessage, item: PolicyItem): PolicyDeci
     case 'add_context':
     case 'propose_mapping':
     case 'create_lead':
-      decision = decided('propose', 'Facts, mappings and leads wait for Ciaran.');
+      decision = decided('propose', 'Notes, sender mappings and new leads wait for your OK.');
       break;
     case 'update_task': {
       const changes = item.changes ?? [];
       if (item.teammateOwnReview && changes.length === 1 && changes[0] === 'status') {
         decision = decided('apply_unsure', 'A teammate reported their own task ready for review.');
       } else if (changes.some((field) => PERSON_FIELDS.includes(field))) {
-        decision = decided('propose', 'Assignment, readiness and status change only with Ciaran.');
+        decision = decided('propose', 'Assignment, readiness and status only change with your OK.');
       } else if (changes.includes('description') && !item.targetUntouched) {
         decision = decided('reject', 'Only the agent\'s own untouched draft has its description rewritten; comment instead.');
       } else if (item.changesPersonSet) {
-        decision = decided('propose', 'A person set what this changes.');
+        decision = decided('propose', 'A person set this, so the change waits for your OK.');
       } else {
         decision = decided('apply_unsure', 'Changes what the agent set.');
       }

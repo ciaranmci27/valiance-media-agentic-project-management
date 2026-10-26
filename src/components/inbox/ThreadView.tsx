@@ -19,7 +19,7 @@ import { Popover } from '@/components/ui/Popover';
 import { RowActionsMenu, type RowAction } from '@/components/ui/RowActionsMenu';
 import { toast } from '@/components/ui/Toast';
 import { announceInboxChange, inboxClient } from '@/lib/communications/inbox-client';
-import { skippedReasonLabel, type InboxAnswer, type InboxAttachment, type InboxLinkedTask, type InboxMessage, type InboxReminder, type InboxThreadDetail, type InboxTriage, type ThreadProject, type TriageOutcome } from '@/lib/communications/inbox-types';
+import { skippedReasonLabel, type InboxAnswer, type InboxAttachment, type InboxLinkedTask, type InboxMessage, type InboxPlan, type InboxPlanItem, type InboxReminder, type InboxReplyPoint, type InboxThreadDetail, type InboxTriage, type ThreadProject, type TriageOutcome } from '@/lib/communications/inbox-types';
 import { hasQuotedHtml, inlineImageIds, linkParts, opensAsHtml } from '@/lib/communications/email/display';
 import { FilePreviewModal } from '@/components/ui/FilePreviewModal';
 import { Textarea } from '@/components/ui/inputs/Textarea';
@@ -78,6 +78,21 @@ interface TaskUndo {
 const TaskUndoContext = createContext<TaskUndo>({ trashed: {}, undo: async () => {}, pending: null });
 /** True when the thread is filed on several projects: each linked task then names its own. */
 const ProjectLabelsContext = createContext(false);
+
+/**
+ * What a person does with the agent's plan from the thread: accept or dismiss
+ * a proposal, undo one item or the whole plan, mark a reply owed as done.
+ * Absent (undefined) for members who only view the inbox.
+ */
+type PlanAction = 'accept' | 'dismiss' | 'undo' | 'undo_plan' | 'resolve';
+interface PlanActions {
+  act?: (action: PlanAction, id: string) => Promise<void>;
+  pending: string | null;
+}
+const PlanActionsContext = createContext<PlanActions>({ pending: null });
+/** Item types whose effect can be put back. */
+const UNDOABLE = new Set(['create_task', 'update_task', 'comment', 'attach_file', 'add_reminder', 'update_reminder', 'complete_reminder',
+  'link_task', 'reply_owed', 'mute_conversation', 'add_context', 'create_lead', 'log_interaction']);
 
 export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: ThreadViewProps) {
   const { isDemoMode } = useDemo();
@@ -197,6 +212,38 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
       },
     };
   }, [trashedIn, threadId, taskPending, canTrashTasks, deleteTask, restoreRecord, load]);
+
+  const [planPending, setPlanPending] = useState<string | null>(null);
+  const planActions = useMemo((): PlanActions => ({
+    pending: planPending,
+    act: canTriage ? async (action, id) => {
+      setPlanPending(id);
+      try {
+        if (action === 'accept') {
+          await client.acceptPlanItem(id);
+          toast('success', 'Approved');
+        } else if (action === 'dismiss') {
+          await client.dismissPlanItem(id);
+          toast('success', 'Dismissed');
+        } else if (action === 'undo') {
+          const result = await client.undoPlanItem(id);
+          toast(result.changed_since ? 'info' : 'success', result.changed_since ? 'Someone changed it since, so it was left as it is' : result.skipped ? 'That one cannot be undone here' : 'Undone');
+        } else if (action === 'undo_plan') {
+          await client.undoPlan(id);
+          toast('success', 'Undid what was done with this email');
+        } else {
+          await client.resolveReplyPoint(id);
+          toast('success', 'Marked as replied');
+        }
+        announceInboxChange({ threadId });
+        await load(true);
+      } catch (err) {
+        toast('error', err instanceof Error ? err.message : 'That did not go through');
+      } finally {
+        setPlanPending(null);
+      }
+    } : undefined,
+  }), [canTriage, client, load, planPending, threadId]);
 
   // While the agent writes a requested draft, look again every few seconds,
   // for ten minutes at most; the request closes itself after half an hour.
@@ -453,6 +500,7 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
       {/* Messages */}
       <div ref={scrollRef} className="relative min-h-0 flex-1 overflow-y-auto px-2 py-3 sm:px-5 sm:py-4">
         <TaskUndoContext.Provider value={taskUndo}>
+        <PlanActionsContext.Provider value={planActions}>
         <ProjectLabelsContext.Provider value={detail.projects.length > 1}>
         <ol className="space-y-3">
           {detail.messages.map((message) => {
@@ -486,6 +534,7 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
           })}
         </ol>
         </ProjectLabelsContext.Provider>
+        </PlanActionsContext.Provider>
         </TaskUndoContext.Provider>
         {detail.reply_draft && (
           <div className="mt-4">
@@ -738,7 +787,7 @@ function MessageCard({ message, agentName, focused, busy, viewUrl, onSendToAgent
       .map((entry) => entry.task);
     return [...live, ...gone];
   }, [message.linked_tasks, message.id, trashed]);
-  const noteMode = message.triage ? agentNoteMode(message.triage, agentLinks, message.reminders) : null;
+  const noteMode = message.triage ? agentNoteMode(message.triage, agentLinks, message.reminders, message.plan ?? null, message.reply_points ?? []) : null;
   // Images the HTML already shows in place are not listed again under it.
   const referenced = useMemo(() => inlineImageIds(message.html_body), [message.html_body]);
   const listed = showingHtml
@@ -837,7 +886,7 @@ function MessageCard({ message, agentName, focused, busy, viewUrl, onSendToAgent
 
       {message.triage && noteMode && (
         <AgentNote messageId={message.id} triage={message.triage} agentName={agentName} linkedTasks={agentLinks} reminders={message.reminders} collapsed={noteMode === 'summary'} handled={!!message.reviewed_at}
-          answer={message.answer ?? null} waiting={message.status === 'new'} onAnswer={onAnswer} />
+          answer={message.answer ?? null} waiting={message.status === 'new'} onAnswer={onAnswer} plan={message.plan ?? null} points={message.reply_points ?? []} />
       )}
       {message.sorting?.superseded_by && (
         <p className="mx-4 mb-3 text-[11px] text-zinc-400">Replaced by a newer alert from the same sender, so it no longer waits on anyone.</p>
@@ -927,8 +976,9 @@ function AttachmentList({ attachments, agentName, viewUrl, onDownload, onPreview
  * under it: an action receipt when it did something or needs you
  * ("actions"), else one quiet "No action" row with the summary a click away.
  */
-function agentNoteMode(triage: InboxTriage, linkedTasks: InboxMessage['linked_tasks'], reminders: InboxReminder[]): 'actions' | 'summary' {
+function agentNoteMode(triage: InboxTriage, linkedTasks: InboxMessage['linked_tasks'], reminders: InboxReminder[], plan: InboxPlan | null, points: InboxReplyPoint[]): 'actions' | 'summary' {
   if (triage.outcome !== 'no_action' || triage.urgent || triage.question_for_human || linkedTasks.length > 0 || reminders.length > 0) return 'actions';
+  if ((plan?.items.some((item) => item.state !== 'skipped') ?? false) || points.length > 0) return 'actions';
   return 'summary';
 }
 
@@ -1129,8 +1179,12 @@ function QuestionAnswer({ agentName, answer, waiting, onAnswer }: {
  * set, a question for you (amber until the thread is handled) and an old
  * suggested reply. Nothing repeats the email or spreads across the page.
  */
-function AgentNote({ messageId, triage, agentName, linkedTasks, reminders, collapsed, handled, answer, waiting, onAnswer }: {
+function AgentNote({ messageId, triage, agentName, linkedTasks, reminders, collapsed, handled, answer, waiting, onAnswer, plan, points }: {
   messageId: string;
+  /** The plan behind this triage, when the agent planned it: its pills replace the task and reminder ones. */
+  plan: InboxPlan | null;
+  /** Replies owed this email raised. */
+  points: InboxReplyPoint[];
   /** A person's answer to this triage's question. */
   answer: InboxAnswer | null;
   /** The email is back with the agent (after an answer, say). */
@@ -1176,7 +1230,7 @@ function AgentNote({ messageId, triage, agentName, linkedTasks, reminders, colla
             Urgent
           </span>
         )}
-        {linkedTasks.length === 0 && reminders.length === 0 && !triage.question_for_human && (
+        {linkedTasks.length === 0 && reminders.length === 0 && !triage.question_for_human && !plan && (
           <span className={`inline-flex items-center gap-1 text-[11px] font-medium ${outcome.className}`}>
             <OutcomeIcon size={11} aria-hidden="true" />
             {collapsed ? 'No action' : outcome.label}
@@ -1186,7 +1240,8 @@ function AgentNote({ messageId, triage, agentName, linkedTasks, reminders, colla
           <NoteCardHeader name={who} avatar={avatar} at={triage.created_at} />
           <p className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-200">{triage.summary}</p>
         </NotePill>
-        {linkedTasks.length > 0 && (
+        {plan && <PlanPills plan={plan} points={points} who={who} avatar={avatar} at={triage.created_at} />}
+        {!plan && linkedTasks.length > 0 && (
           <NotePill
             label={`${linkedTasks.length} ${linkedTasks.length === 1 ? 'task' : 'tasks'}`}
             icon={<SquareCheck size={11} className="text-emerald-300" aria-hidden="true" />}
@@ -1198,7 +1253,7 @@ function AgentNote({ messageId, triage, agentName, linkedTasks, reminders, colla
             </ul>
           </NotePill>
         )}
-        {reminders.length > 0 && (
+        {!plan && reminders.length > 0 && (
           <NotePill
             label={`${reminders.length} ${reminders.length === 1 ? 'reminder' : 'reminders'}`}
             icon={<Bell size={11} className="text-amber-300" aria-hidden="true" />}
@@ -1249,5 +1304,161 @@ function AgentNote({ messageId, triage, agentName, linkedTasks, reminders, colla
         )}
       </div>
     </section>
+  );
+}
+
+const spinner = <Loader2 size={12} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />;
+
+/**
+ * A plan's items as pills beside the summary: what the agent did (each with
+ * an "Unsure" mark when it applied it without being sure, and Undo), what
+ * waits for your OK (Accept or Dismiss, with the reason it waits), and the
+ * replies you owe (Done).
+ */
+function PlanPills({ plan, points, who, avatar, at }: { plan: InboxPlan; points: InboxReplyPoint[]; who: string; avatar?: string; at: string }) {
+  const { act, pending } = useContext(PlanActionsContext);
+  const done = plan.items.filter((item) => ['done', 'accepted', 'undone', 'failed'].includes(item.state) && item.type !== 'reply_owed');
+  const proposals = plan.items.filter((item) => item.state === 'pending');
+  const owed = points.filter((point) => point.state === 'open');
+  const unsure = done.filter((item) => item.decision === 'apply_unsure' && item.state === 'done').length;
+  const undoable = done.some((item) => (item.state === 'done' || item.state === 'accepted') && UNDOABLE.has(item.type));
+  return (
+    <>
+      {done.length > 0 && (
+        <NotePill
+          label={unsure ? `${done.length} done · ${unsure} unsure` : `${done.length} done`}
+          icon={<SquareCheck size={11} className="text-emerald-300" aria-hidden="true" />}
+          width={460}
+        >
+          <NoteCardHeader name={who} avatar={avatar} at={at} />
+          <ul className="space-y-2">
+            {done.map((item) => <PlanItemRow key={item.id} item={item} />)}
+          </ul>
+          {act && undoable && plan.status !== 'undone' && (
+            <div className="mt-3 flex justify-end border-t border-white/[0.06] pt-2.5">
+              <Button size="sm" variant="ghost" disabled={pending !== null} onClick={() => void act('undo_plan', plan.id)}
+                icon={pending === plan.id ? spinner : <Undo2 size={12} aria-hidden="true" />}>
+                Undo all of it
+              </Button>
+            </div>
+          )}
+        </NotePill>
+      )}
+      {proposals.length > 0 && (
+        <NotePill
+          label={`${proposals.length} to approve`}
+          icon={<HelpCircle size={11} aria-hidden="true" />}
+          width={460}
+          className="!bg-amber-500/[0.14] !text-amber-200 hover:!bg-amber-500/[0.22]"
+        >
+          <NoteCardHeader name={who} avatar={avatar} at={at} />
+          <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-amber-300">Waiting for your OK</p>
+          <ul className="space-y-3">
+            {proposals.map((item) => (
+              <li key={item.id} className="rounded-lg bg-white/[0.03] px-3 py-2.5">
+                <p className="text-sm font-medium text-zinc-100">{item.label}</p>
+                {item.project_name && <p className="mt-0.5 text-[11px] text-zinc-400">{item.project_name}</p>}
+                {item.decision_reason && <p className="mt-1 text-xs text-zinc-300">{item.decision_reason}</p>}
+                {item.evidence && <p className="mt-1 text-xs italic text-zinc-400">&ldquo;{item.evidence}&rdquo;</p>}
+                {act && (
+                  <div className="mt-2 flex flex-wrap justify-end gap-2">
+                    <Button size="sm" variant="ghost" disabled={pending !== null} onClick={() => void act('dismiss', item.id)}
+                      aria-label={`Dismiss: ${item.label}`} icon={<X size={12} aria-hidden="true" />}>
+                      Dismiss
+                    </Button>
+                    <Button size="sm" disabled={pending !== null} onClick={() => void act('accept', item.id)}
+                      aria-label={`Accept: ${item.label}`} icon={pending === item.id ? spinner : <Check size={12} aria-hidden="true" />}>
+                      Accept
+                    </Button>
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
+        </NotePill>
+      )}
+      {owed.length > 0 && (
+        <NotePill
+          label={`${owed.length} ${owed.length === 1 ? 'reply' : 'replies'} owed`}
+          icon={<MessageSquareReply size={11} className="text-sky-300" aria-hidden="true" />}
+          width={440}
+        >
+          <NoteCardHeader name={who} avatar={avatar} at={at} />
+          <ul className="space-y-2.5">
+            {owed.map((point) => (
+              <li key={point.id} className="flex items-start gap-2 text-xs">
+                <MessageSquareReply size={12} className="mt-0.5 flex-shrink-0 text-sky-300" aria-hidden="true" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm text-zinc-100">
+                    <span className="font-semibold">{point.to_agent ? `${who} owes ${point.who}` : point.who}</span>: {point.what}
+                  </p>
+                  <p className="mt-0.5 text-[11px] text-zinc-400">
+                    {REPLY_KIND[point.kind]}{point.by_when ? ` · by ${shortDate(point.by_when)}` : ''}{point.urgent ? ' · urgent' : ''}
+                  </p>
+                  {point.note && <p className="mt-1 text-xs text-zinc-300">{point.note}</p>}
+                </div>
+                {act && (
+                  <Button size="sm" variant="ghost" className="!rounded-md !px-2 !py-0.5 flex-shrink-0" disabled={pending !== null}
+                    onClick={() => void act('resolve', point.id)} aria-label={`Mark as replied: ${point.what}`}
+                    icon={pending === point.id ? spinner : <Check size={12} aria-hidden="true" />}>
+                    Done
+                  </Button>
+                )}
+              </li>
+            ))}
+          </ul>
+        </NotePill>
+      )}
+    </>
+  );
+}
+
+const REPLY_KIND: Record<InboxReplyPoint['kind'], string> = {
+  info: 'They want an answer',
+  decision: 'Your decision',
+  security: 'Access or security',
+  schedule: 'Scheduling',
+};
+
+/** One thing the agent did: what, where, unsure or undone, and Undo. */
+function PlanItemRow({ item }: { item: InboxPlanItem }) {
+  const { act, pending } = useContext(PlanActionsContext);
+  const undone = item.state === 'undone';
+  const failed = item.state === 'failed';
+  const linkable = !!item.task_id && !!item.project_id && !undone && ['create_task', 'update_task', 'comment', 'attach_file', 'link_task'].includes(item.type);
+  return (
+    <li className="flex min-w-0 items-start gap-2 text-xs">
+      {failed
+        ? <AlertTriangle size={12} className="mt-0.5 flex-shrink-0 text-red-300" aria-hidden="true" />
+        : <SquareCheck size={12} className={`mt-0.5 flex-shrink-0 ${undone ? 'text-zinc-500' : 'text-emerald-300'}`} aria-hidden="true" />}
+      <div className="min-w-0 flex-1">
+        {linkable ? (
+          <Link href={`/projects/${item.project_id}?task=${item.task_id}`}
+            className="rounded font-medium text-zinc-100 underline decoration-white/20 underline-offset-2 hover:text-brand-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
+            {item.label}
+          </Link>
+        ) : (
+          <span className={`font-medium ${undone ? 'text-zinc-400 line-through' : 'text-zinc-100'}`}>{item.label}</span>
+        )}
+        <span className="ml-1.5 inline-flex flex-wrap items-center gap-1 align-middle">
+          {item.decision === 'apply_unsure' && !undone && (
+            <Tooltip content={item.decision_reason ?? 'Applied without being sure: check it, or undo it.'}>
+              <span className="rounded-full bg-amber-500/[0.14] px-1.5 py-px text-[10px] font-semibold text-amber-200">Unsure</span>
+            </Tooltip>
+          )}
+          {item.state === 'accepted' && <span className="rounded-full bg-white/[0.06] px-1.5 py-px text-[10px] text-zinc-300">You approved</span>}
+          {undone && <span className="text-[11px] text-zinc-400">Undone</span>}
+        </span>
+        {item.project_name && !undone && <p className="mt-0.5 text-[11px] text-zinc-400">{item.project_name}</p>}
+        {failed && <p className="mt-0.5 text-[11px] text-red-300">Did not go through: {item.error ?? 'unknown error'}</p>}
+      </div>
+      {act && (item.state === 'done' || item.state === 'accepted') && UNDOABLE.has(item.type) && (
+        <Button size="sm" variant="ghost" className="!rounded-md !px-2 !py-0.5 flex-shrink-0" disabled={pending !== null}
+          onClick={() => void act('undo', item.id)} aria-label={`Undo: ${item.label}`}
+          icon={pending === item.id ? spinner : <Undo2 size={12} aria-hidden="true" />}>
+          Undo
+        </Button>
+      )}
+    </li>
   );
 }

@@ -328,6 +328,10 @@ async function main() {
       ],
     });
     const [contextItem, birchItem, owedItem] = (twoProposals.body.data?.items ?? []) as Row[];
+    const shown = (await inboxService.threadDetail(ownerCtx, proposing.conversation)).messages.find((m) => m.id === proposing.message);
+    check('inbox: the thread shows the plan, item by item, and the reply owed',
+      shown?.plan?.items.length === 3 && shown.plan.items.some((i) => i.state === 'pending' && i.label.startsWith('New task: Birch audit'))
+      && shown.plan.items.some((i) => i.label.startsWith('Note for Acme')) && shown.reply_points?.[0]?.who === 'Dana', shown?.plan);
     await inboxPlans.acceptPlanItem(ownerCtx, contextItem.id as string);
     const [contextRow] = await q("SELECT is_active, source FROM public.project_context WHERE content = 'Acme closes Dec 20 to Jan 5.'");
     check('inbox: accepting a fact adds it to the project\'s context', contextRow?.is_active === true && contextRow.source === 'agent', contextRow);

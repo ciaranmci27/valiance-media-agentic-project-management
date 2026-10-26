@@ -148,7 +148,32 @@ function buildThreads(): InboxThreadDetail[] {
           from: person('Monica Reeves', 'monica@bloomwell.co', 'b2b2b2b2-0002-4000-8000-000000000002'),
           new_text: 'Hi team,\n\nOur compliance review slipped a week. Could we move the beta launch to next Friday, and would that change the cost?\n\nMonica',
           status: 'needs_human',
-          triage: triage({ outcome: 'needs_human', urgent: false, summary: 'Monica asks to move the beta launch a week (compliance review slipped) and whether it changes the cost.', question_for_human: 'Moving the launch touches the schedule and possibly the price. Do you want to keep the original date, or move it at no charge?', suggested_reply: null, created_at: hoursAgo(2.8) }),
+          triage: triage({ outcome: 'needs_human', urgent: false, summary: 'Monica asks to move the beta launch a week (compliance review slipped) and whether it changes the cost. Noted on the launch task; the new date waits for you, and the cost is yours to answer.', question_for_human: null, suggested_reply: null, created_at: hoursAgo(2.8) }),
+          plan: {
+            id: '9d9d9d9d-0001-4000-8000-000000000001',
+            status: 'applied',
+            created_at: hoursAgo(2.8),
+            items: [
+              {
+                id: '9d9d9d9d-0101-4000-8000-000000000001', type: 'comment', intent: 'change', decision: 'apply', decision_reason: 'Within scope.', state: 'done',
+                label: 'Comment on Beta launch', evidence: 'Our compliance review slipped a week.', project_id: BLOOMWELL, project_name: PROJECT_NAMES[BLOOMWELL],
+                task_id: '7c7c7c7c-0201-4000-8000-000000000001', error: null,
+              },
+              {
+                id: '9d9d9d9d-0102-4000-8000-000000000002', type: 'add_reminder', intent: 'waiting_on', decision: 'apply_unsure', decision_reason: 'Applied, not sure.', state: 'done',
+                label: 'Reminder: Confirm the compliance sign-off with Monica', evidence: null, project_id: BLOOMWELL, project_name: PROJECT_NAMES[BLOOMWELL],
+                task_id: null, error: null,
+              },
+              {
+                id: '9d9d9d9d-0103-4000-8000-000000000003', type: 'update_task', intent: 'change', decision: 'propose', decision_reason: 'A person set this, so the change waits for your OK.', state: 'pending',
+                label: 'Change due date on Beta launch', evidence: 'Could we move the beta launch to next Friday', project_id: BLOOMWELL, project_name: PROJECT_NAMES[BLOOMWELL],
+                task_id: '7c7c7c7c-0201-4000-8000-000000000001', error: null,
+              },
+            ],
+          },
+          reply_points: [
+            { id: '9d9d9d9d-0201-4000-8000-000000000001', who: 'Monica', what: 'Whether moving the launch changes the cost', kind: 'decision', by_when: null, urgent: false, to_agent: false, note: null, state: 'open' },
+          ],
         }),
       ],
     }),
@@ -438,6 +463,32 @@ export const demoInbox = {
     detail.projects = [project, ...detail.projects.filter((p) => p.id !== project.id)];
     detail.project = detail.projects[0];
     return { project, remembered_sender: null, remembered_domain: null };
+  },
+
+  /** A person resolves one plan item: accepted or dismissed (a proposal), or undone (applied). */
+  async resolvePlanItem(itemId: string, state: 'accepted' | 'dismissed' | 'undone'): Promise<{ undone?: boolean }> {
+    await pause();
+    const item = store().flatMap((t) => t.messages.flatMap((m) => m.plan?.items ?? [])).find((i) => i.id === itemId);
+    if (!item) throw new Error('Not found');
+    item.state = state;
+    return state === 'undone' ? { undone: true } : {};
+  },
+
+  async undoPlan(planId: string): Promise<{ items: unknown[] }> {
+    await pause();
+    const plan = store().flatMap((t) => t.messages.map((m) => m.plan)).find((p) => p?.id === planId);
+    if (!plan) throw new Error('Not found');
+    for (const item of plan.items) if (item.state === 'done' || item.state === 'accepted') item.state = 'undone';
+    plan.status = 'undone';
+    return { items: [] };
+  },
+
+  async resolveReplyPoint(pointId: string): Promise<{ resolved: true }> {
+    await pause();
+    const point = store().flatMap((t) => t.messages.flatMap((m) => m.reply_points ?? [])).find((p) => p.id === pointId);
+    if (!point) throw new Error('Not found');
+    point.state = 'resolved';
+    return { resolved: true };
   },
 
   async removeProject(threadId: string, projectId: string): Promise<{ removed: boolean }> {

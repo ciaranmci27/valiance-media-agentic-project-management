@@ -88,6 +88,21 @@ export function inboxClient(isDemo: boolean) {
     sendBack(threadId: string, messageId: string | null): Promise<{ message_id: string }> {
       return isDemo ? demoInbox.sendBack(threadId, messageId) : post(`/api/workspace/inbox/threads/${threadId}/send-back`, { message_id: messageId });
     },
+    acceptPlanItem(itemId: string, edits: { project_id?: string; task_id?: string; title?: string; due_date?: string | null } = {}): Promise<unknown> {
+      return isDemo ? demoInbox.resolvePlanItem(itemId, 'accepted') : post(`/api/workspace/inbox/plan-items/${itemId}/accept`, edits);
+    },
+    dismissPlanItem(itemId: string): Promise<unknown> {
+      return isDemo ? demoInbox.resolvePlanItem(itemId, 'dismissed') : post(`/api/workspace/inbox/plan-items/${itemId}/dismiss`);
+    },
+    undoPlanItem(itemId: string): Promise<{ undone?: boolean; changed_since?: boolean; skipped?: string }> {
+      return isDemo ? demoInbox.resolvePlanItem(itemId, 'undone') : post(`/api/workspace/inbox/plan-items/${itemId}/undo`);
+    },
+    undoPlan(planId: string): Promise<unknown> {
+      return isDemo ? demoInbox.undoPlan(planId) : post(`/api/workspace/inbox/plans/${planId}/undo`);
+    },
+    resolveReplyPoint(pointId: string): Promise<unknown> {
+      return isDemo ? demoInbox.resolveReplyPoint(pointId) : post(`/api/workspace/inbox/reply-points/${pointId}/resolve`);
+    },
     async answerQuestion(threadId: string, messageId: string, answer: string): Promise<{ message_id: string }> {
       if (isDemo) throw new Error('Answers are off in demo mode');
       return post(`/api/workspace/inbox/threads/${threadId}/answer`, { message_id: messageId, answer });

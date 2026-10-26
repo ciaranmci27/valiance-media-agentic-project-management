@@ -205,8 +205,51 @@ export interface InboxMessage {
   reminders: InboxReminder[];
   /** A person's answer to the question on the triage shown, if any. */
   answer?: InboxAnswer | null;
+  /** The newest triage plan for it: what the agent did and proposed, item by item. */
+  plan?: InboxPlan | null;
+  /** What someone waits on a person (or the agent) for, raised by this email. */
+  reply_points?: InboxReplyPoint[];
   reviewed_at: string | null;
   reviewed_by: { id: string; name: string } | null;
+}
+
+/** One item of a triage plan, as a person reads it. */
+export interface InboxPlanItem {
+  id: string;
+  type: string;
+  intent: string;
+  decision: 'apply' | 'apply_unsure' | 'propose' | 'reject';
+  /** Why the app decided so. */
+  decision_reason: string | null;
+  state: 'applying' | 'done' | 'failed' | 'pending' | 'accepted' | 'dismissed' | 'expired' | 'undone' | 'skipped';
+  /** What it does, in a line: "New task: Add the size chart". */
+  label: string;
+  /** The words or attachment that justify it. */
+  evidence: string | null;
+  project_id: string | null;
+  project_name: string | null;
+  task_id: string | null;
+  error: string | null;
+}
+
+export interface InboxPlan {
+  id: string;
+  status: 'applying' | 'applied' | 'partial' | 'undone';
+  created_at: string;
+  items: InboxPlanItem[];
+}
+
+export interface InboxReplyPoint {
+  id: string;
+  who: string;
+  what: string;
+  kind: 'info' | 'decision' | 'security' | 'schedule';
+  by_when: string | null;
+  urgent: boolean;
+  /** Owed by the agent rather than a person (a teammate asked it). */
+  to_agent: boolean;
+  note: string | null;
+  state: 'open' | 'resolved' | 'expired';
 }
 
 /** How a candidate's reason reads in the UI ("matched by contact and client email address"). */
