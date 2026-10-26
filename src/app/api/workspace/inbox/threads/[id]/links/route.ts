@@ -1,6 +1,6 @@
-import { inboxRoute, readBody } from '@/lib/inbound-email/inbox-route';
-import { linkTaskSchema, linkThreadTask, unlinkThreadTask } from '@/lib/inbound-email/inbox-links';
-import { InboxError } from '@/lib/inbound-email/inbox-service';
+import { inboxRoute, readBody } from '@/lib/communications/inbox-route';
+import { linkTaskSchema, linkThreadTask, unlinkThreadTask } from '@/lib/communications/inbox-links';
+import { InboxError } from '@/lib/communications/inbox-service';
 
 export const dynamic = 'force-dynamic';
 

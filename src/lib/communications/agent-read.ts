@@ -1,8 +1,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { notFound } from '@/lib/api/errors';
 import { attachmentKind } from './attachments';
-import { compactLinks } from './display';
-import { htmlToText } from './html-text';
+import { compactLinks } from './email/display';
+import { htmlToText } from './email/html-text';
 import { isGoneError, type AccessibleMessage } from './agent-access';
 
 /**

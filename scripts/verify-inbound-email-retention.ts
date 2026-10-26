@@ -97,7 +97,7 @@ async function main() {
   const lastRun = async (kind: string) => (await rows(db, 'SELECT * FROM email_maintenance_runs WHERE kind=$1', [kind]))[0];
 
   try {
-    const { runRetention, runOrphanSweep } = await import('../src/lib/inbound-email/retention');
+    const { runRetention, runOrphanSweep } = await import('../src/lib/communications/retention');
     const retentionRoute = await import('../src/app/api/internal/inbound-email/retention/route');
     const sweepRoute = await import('../src/app/api/internal/inbound-email/orphan-sweep/route');
     const call = async (route: { GET: (r: Request) => Promise<Response> }, path: string, authorization?: string) => {

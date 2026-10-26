@@ -1,8 +1,8 @@
 import { withApi } from '@/lib/api/middleware';
 import { success } from '@/lib/api/response';
 import { badRequest } from '@/lib/api/errors';
-import { inboxScope } from '@/lib/inbound-email/agent-access';
-import { DRAFT_COLUMNS } from '@/lib/inbound-email/inbox-drafts';
+import { inboxScope } from '@/lib/communications/agent-access';
+import { DRAFT_COLUMNS } from '@/lib/communications/inbox-drafts';
 
 export const dynamic = 'force-dynamic';
 

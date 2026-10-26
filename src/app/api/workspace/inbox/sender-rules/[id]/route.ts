@@ -1,6 +1,6 @@
-import { inboxRoute, readBody } from '@/lib/inbound-email/inbox-route';
-import { updateSenderRule, updateSenderRuleSchema } from '@/lib/inbound-email/inbox-rules';
-import { assertId } from '@/lib/inbound-email/inbox-service';
+import { inboxRoute, readBody } from '@/lib/communications/inbox-route';
+import { updateSenderRule, updateSenderRuleSchema } from '@/lib/communications/inbox-rules';
+import { assertId } from '@/lib/communications/inbox-service';
 
 export const dynamic = 'force-dynamic';
 

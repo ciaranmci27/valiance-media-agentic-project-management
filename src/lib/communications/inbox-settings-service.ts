@@ -1,9 +1,9 @@
 import { promises as dns } from 'node:dns';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { accessAllows, accessAllowsProject } from '@/lib/api/access';
-import { isHostname, normalizeAddress, validateClientSenderAddress } from './addresses';
+import { isHostname, normalizeAddress, validateClientSenderAddress } from './email/addresses';
 import { mergeClientSenders, type ProjectContactAddress } from './mapping';
-import { validateClientDomain } from './public-domains';
+import { validateClientDomain } from './email/public-domains';
 import { assertId, InboxError, ownAddresses, type InboxContext } from './inbox-service';
 import type { InboxSettingsRequest, ProjectAddressPatch, ProjectAddressRequest } from './schemas';
 import type {

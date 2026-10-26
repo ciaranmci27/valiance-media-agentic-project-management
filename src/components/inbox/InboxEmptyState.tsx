@@ -4,7 +4,7 @@ import { Check, Forward, Inbox as InboxIcon, Settings, Sparkles } from 'lucide-r
 import { Button } from '@/components/ui/Button';
 import { hasPermission } from '@/lib/access-control';
 import { useAuth } from '@/lib/auth-context';
-import type { InboxSummary } from '@/lib/inbound-email/inbox-types';
+import type { InboxSummary } from '@/lib/communications/inbox-types';
 
 /** The whole Inbox before any email has arrived: what it is and how mail gets here. */
 export function InboxEmptyState({ inboxes }: { inboxes: InboxSummary[] }) {

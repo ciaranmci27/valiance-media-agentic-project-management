@@ -8,8 +8,8 @@ import { RadioGroup } from '@/components/ui/inputs/RadioGroup';
 import { toast } from '@/components/ui/Toast';
 import { useApp } from '@/lib/store';
 import { useDemo } from '@/lib/demo-context';
-import { inboxClient } from '@/lib/inbound-email/inbox-client';
-import type { InboxThreadDetail, TaskLinkRelation } from '@/lib/inbound-email/inbox-types';
+import { inboxClient } from '@/lib/communications/inbox-client';
+import type { InboxThreadDetail, TaskLinkRelation } from '@/lib/communications/inbox-types';
 
 const STATUS_LABELS: Record<string, string> = { backlog: 'Backlog', todo: 'To do', in_progress: 'In progress', in_review: 'In review', done: 'Done' };
 

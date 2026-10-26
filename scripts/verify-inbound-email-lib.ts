@@ -8,27 +8,27 @@
  * Run: npx tsx --tsconfig tsconfig.mcp-test.json scripts/verify-inbound-email-lib.ts
  */
 import assert from 'node:assert/strict';
-import { normalizeSubject, hasForwardPrefix } from '../src/lib/inbound-email/subject';
-import { chooseThread, referencedIds } from '../src/lib/inbound-email/threading';
-import { mergeClientSenders, resolveMapping, threadProjectDecision } from '../src/lib/inbound-email/mapping';
-import { detectAutoMail } from '../src/lib/inbound-email/auto-mail';
-import { extractNewText, isForwardedMessage } from '../src/lib/inbound-email/quoted';
-import { htmlToText } from '../src/lib/inbound-email/html-text';
-import { compactLinks, hasQuotedHtml, inlineImageIds, isTrackingLink, linkParts, normalizeContentId, opensAsHtml, shortUrl } from '../src/lib/inbound-email/display';
-import { alertSeriesKey, sortEmail } from '../src/lib/inbound-email/sorting';
-import { evaluateAuth, parseAuthenticationResults } from '../src/lib/inbound-email/auth-results';
-import { organizationalDomain, parseAddressList, normalizeAddress, validateClientSenderAddress } from '../src/lib/inbound-email/addresses';
-import { isPublicEmailDomain, validateClientDomain } from '../src/lib/inbound-email/public-domains';
-import { attachmentKind } from '../src/lib/inbound-email/attachments';
-import { signSvix, verifySvixSignature } from '../src/lib/inbound-email/svix';
-import { parseMessageIdList } from '../src/lib/inbound-email/message-ids';
-import { createResendReceiving, inboundFromResend } from '../src/lib/inbound-email/resend';
-import { prepareEmail, readableBody } from '../src/lib/inbound-email/prepare';
-import { fromRfc822Head, inlineForwardedSender, isAttachedMessage, parseForwardedFrom } from '../src/lib/inbound-email/forwarded';
-import { readCapped } from '../src/lib/inbound-email/ingest';
-import { skippedReasonLabel } from '../src/lib/inbound-email/inbox-types';
+import { normalizeSubject, hasForwardPrefix } from '../src/lib/communications/email/subject';
+import { chooseThread, referencedIds } from '../src/lib/communications/email/threading';
+import { mergeClientSenders, resolveMapping, threadProjectDecision } from '../src/lib/communications/mapping';
+import { detectAutoMail } from '../src/lib/communications/email/auto-mail';
+import { extractNewText, isForwardedMessage } from '../src/lib/communications/email/quoted';
+import { htmlToText } from '../src/lib/communications/email/html-text';
+import { compactLinks, hasQuotedHtml, inlineImageIds, isTrackingLink, linkParts, normalizeContentId, opensAsHtml, shortUrl } from '../src/lib/communications/email/display';
+import { alertSeriesKey, sortEmail } from '../src/lib/communications/sorting';
+import { evaluateAuth, parseAuthenticationResults } from '../src/lib/communications/email/auth-results';
+import { organizationalDomain, parseAddressList, normalizeAddress, validateClientSenderAddress } from '../src/lib/communications/email/addresses';
+import { isPublicEmailDomain, validateClientDomain } from '../src/lib/communications/email/public-domains';
+import { attachmentKind } from '../src/lib/communications/attachments';
+import { signSvix, verifySvixSignature } from '../src/lib/communications/email/svix';
+import { parseMessageIdList } from '../src/lib/communications/email/message-ids';
+import { createResendReceiving, inboundFromResend } from '../src/lib/communications/email/resend';
+import { prepareEmail, readableBody } from '../src/lib/communications/email/prepare';
+import { fromRfc822Head, inlineForwardedSender, isAttachedMessage, parseForwardedFrom } from '../src/lib/communications/email/forwarded';
+import { readCapped } from '../src/lib/communications/email/ingest';
+import { skippedReasonLabel } from '../src/lib/communications/inbox-types';
 import { verifySignatureHeader } from '../src/lib/webhooks/sign';
-import { attentionCounts, matchesSearch, needsAttention, snippetOf, tabCounts, threadFlags, threadInTab, type MessageState } from '../src/lib/inbound-email/inbox-view';
+import { attentionCounts, matchesSearch, needsAttention, snippetOf, tabCounts, threadFlags, threadInTab, type MessageState } from '../src/lib/communications/inbox-view';
 import { FakeResend, readEml, resendFixture } from './inbound-email-fixtures';
 
 let checks = 0;

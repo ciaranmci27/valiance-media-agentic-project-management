@@ -1,7 +1,7 @@
 import { getServiceClient } from '@/lib/api/supabase-service';
-import { ingestInbound } from '@/lib/inbound-email/ingest';
-import { createResendReceiving, inboundFromResend, type ResendWebhookEvent } from '@/lib/inbound-email/resend';
-import { verifySvixSignature } from '@/lib/inbound-email/svix';
+import { ingestInbound } from '@/lib/communications/email/ingest';
+import { createResendReceiving, inboundFromResend, type ResendWebhookEvent } from '@/lib/communications/email/resend';
+import { verifySvixSignature } from '@/lib/communications/email/svix';
 import { privateHeaders, readCappedJsonText } from '@/lib/webhooks/internal-auth';
 
 export const runtime = 'nodejs';

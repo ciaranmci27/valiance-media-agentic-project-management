@@ -6,7 +6,7 @@ import Modal from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Textarea } from '@/components/ui/inputs/Textarea';
 import { toast } from '@/components/ui/Toast';
-import type { InboxReplyDraft } from '@/lib/inbound-email/inbox-types';
+import type { InboxReplyDraft } from '@/lib/communications/inbox-types';
 import { formatFullTime } from './inbox-badges';
 
 /** Ask the agent for a reply draft, optionally saying what it should say. */

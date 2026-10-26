@@ -1,9 +1,9 @@
 import { withApi } from '@/lib/api/middleware';
 import { success } from '@/lib/api/response';
-import { inboxScope } from '@/lib/inbound-email/agent-access';
-import { domainOf, organizationalDomain } from '@/lib/inbound-email/addresses';
-import { describeRule, RULE_COLUMNS, type SenderRuleRow } from '@/lib/inbound-email/sender-rules';
-import { matchRule, type MailTopic } from '@/lib/inbound-email/sorting';
+import { inboxScope } from '@/lib/communications/agent-access';
+import { domainOf, organizationalDomain } from '@/lib/communications/email/addresses';
+import { describeRule, RULE_COLUMNS, type SenderRuleRow } from '@/lib/communications/sender-rules';
+import { matchRule, type MailTopic } from '@/lib/communications/sorting';
 import { fetchAllRows } from '@/lib/supabase/fetch-all';
 
 export const dynamic = 'force-dynamic';

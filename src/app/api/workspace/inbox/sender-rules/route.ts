@@ -1,5 +1,5 @@
-import { inboxRoute, readBody } from '@/lib/inbound-email/inbox-route';
-import { createSenderRule, createSenderRuleSchema, listSenderRules } from '@/lib/inbound-email/inbox-rules';
+import { inboxRoute, readBody } from '@/lib/communications/inbox-route';
+import { createSenderRule, createSenderRuleSchema, listSenderRules } from '@/lib/communications/inbox-rules';
 
 export const dynamic = 'force-dynamic';
 

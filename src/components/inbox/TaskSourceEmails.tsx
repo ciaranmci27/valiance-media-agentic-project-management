@@ -8,7 +8,7 @@ import { NewSinceDivider } from '@/components/tasks/TaskUnread';
 import { useDemo } from '@/lib/demo-context';
 import { useRead } from '@/lib/query-cache';
 import { taskEmailCountsRead, taskEmailsRead } from '@/lib/reads';
-import type { TaskSourceEmails as TaskSourceEmailsData } from '@/lib/inbound-email/inbox-types';
+import type { TaskSourceEmails as TaskSourceEmailsData } from '@/lib/communications/inbox-types';
 import { formatFullTime } from './inbox-badges';
 
 /** The client emails linked to a task: a cached read, warmed before the panel opens. */

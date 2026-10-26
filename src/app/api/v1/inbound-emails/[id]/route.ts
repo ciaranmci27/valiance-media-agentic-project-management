@@ -1,7 +1,7 @@
 import { withApi } from '@/lib/api/middleware';
 import { success } from '@/lib/api/response';
-import { loadAccessibleMessage } from '@/lib/inbound-email/agent-access';
-import { messageDetail } from '@/lib/inbound-email/agent-read';
+import { loadAccessibleMessage } from '@/lib/communications/agent-access';
+import { messageDetail } from '@/lib/communications/agent-read';
 
 export const dynamic = 'force-dynamic';
 

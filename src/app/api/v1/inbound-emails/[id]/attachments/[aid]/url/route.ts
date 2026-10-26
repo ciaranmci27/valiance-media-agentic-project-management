@@ -1,10 +1,10 @@
 import { withApi } from '@/lib/api/middleware';
 import { success } from '@/lib/api/response';
 import { ApiError, forbidden, notFound } from '@/lib/api/errors';
-import { assertUuid, isGoneError, loadAccessibleMessage } from '@/lib/inbound-email/agent-access';
-import { nullableNumber } from '@/lib/inbound-email/agent-read';
-import { attachmentKind } from '@/lib/inbound-email/attachments';
-import { INBOUND_EMAIL_BUCKET } from '@/lib/inbound-email/ingest';
+import { assertUuid, isGoneError, loadAccessibleMessage } from '@/lib/communications/agent-access';
+import { nullableNumber } from '@/lib/communications/agent-read';
+import { attachmentKind } from '@/lib/communications/attachments';
+import { INBOUND_EMAIL_BUCKET } from '@/lib/communications/email/ingest';
 
 export const dynamic = 'force-dynamic';
 

@@ -1,5 +1,5 @@
-import { inboxRoute, readBody } from '@/lib/inbound-email/inbox-route';
-import { requestDraftSchema, requestReplyDraft } from '@/lib/inbound-email/inbox-drafts';
+import { inboxRoute, readBody } from '@/lib/communications/inbox-route';
+import { requestDraftSchema, requestReplyDraft } from '@/lib/communications/inbox-drafts';
 
 export const dynamic = 'force-dynamic';
 

@@ -7,11 +7,11 @@ import { RadioGroup } from '@/components/ui/inputs/RadioGroup';
 import { Checkbox } from '@/components/ui/inputs/Checkbox';
 import { toast } from '@/components/ui/Toast';
 import { useDemo } from '@/lib/demo-context';
-import { inboxClient } from '@/lib/inbound-email/inbox-client';
-import { domainOf, organizationalDomain } from '@/lib/inbound-email/addresses';
-import { isPublicEmailDomain } from '@/lib/inbound-email/public-domains';
-import { TOPIC_PLURALS } from '@/lib/inbound-email/sender-rules';
-import type { InboxMessage } from '@/lib/inbound-email/inbox-types';
+import { inboxClient } from '@/lib/communications/inbox-client';
+import { domainOf, organizationalDomain } from '@/lib/communications/email/addresses';
+import { isPublicEmailDomain } from '@/lib/communications/email/public-domains';
+import { TOPIC_PLURALS } from '@/lib/communications/sender-rules';
+import type { InboxMessage } from '@/lib/communications/inbox-types';
 
 type Action = 'ignore' | 'fyi' | 'always';
 

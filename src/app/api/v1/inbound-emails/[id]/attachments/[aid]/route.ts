@@ -2,9 +2,9 @@ import { withApi } from '@/lib/api/middleware';
 import { success } from '@/lib/api/response';
 import { notFound } from '@/lib/api/errors';
 import { logAudit } from '@/lib/api/audit';
-import { assertUuid, isGoneError, loadAccessibleMessage } from '@/lib/inbound-email/agent-access';
-import { nullableNumber } from '@/lib/inbound-email/agent-read';
-import { attachmentLabelSchema } from '@/lib/inbound-email/schemas';
+import { assertUuid, isGoneError, loadAccessibleMessage } from '@/lib/communications/agent-access';
+import { nullableNumber } from '@/lib/communications/agent-read';
+import { attachmentLabelSchema } from '@/lib/communications/schemas';
 
 export const dynamic = 'force-dynamic';
 

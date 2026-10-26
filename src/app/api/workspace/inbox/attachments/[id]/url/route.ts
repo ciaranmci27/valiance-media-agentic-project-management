@@ -1,5 +1,5 @@
-import { inboxRoute } from '@/lib/inbound-email/inbox-route';
-import { attachmentDownloadUrl } from '@/lib/inbound-email/inbox-service';
+import { inboxRoute } from '@/lib/communications/inbox-route';
+import { attachmentDownloadUrl } from '@/lib/communications/inbox-service';
 
 export const dynamic = 'force-dynamic';
 

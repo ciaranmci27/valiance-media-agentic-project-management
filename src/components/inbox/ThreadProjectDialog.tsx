@@ -12,8 +12,8 @@ import { Checkbox } from '@/components/ui/inputs/Checkbox';
 import { MultiSelect } from '@/components/ui/inputs/MultiSelect';
 import { Select } from '@/components/ui/inputs/Select';
 import { toast } from '@/components/ui/Toast';
-import { inboxClient } from '@/lib/inbound-email/inbox-client';
-import { CANDIDATE_REASON_LABELS, isAgentChoice, type InboxThreadDetail } from '@/lib/inbound-email/inbox-types';
+import { inboxClient } from '@/lib/communications/inbox-client';
+import { CANDIDATE_REASON_LABELS, isAgentChoice, type InboxThreadDetail } from '@/lib/communications/inbox-types';
 import { OTHER_PROJECT, projectSourceHint } from './inbox-badges';
 
 interface ThreadProjectDialogProps {

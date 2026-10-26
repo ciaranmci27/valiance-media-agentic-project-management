@@ -1,6 +1,6 @@
-import { inboxRoute } from '@/lib/inbound-email/inbox-route';
-import { listThreads } from '@/lib/inbound-email/inbox-service';
-import { isInboxTab } from '@/lib/inbound-email/inbox-view';
+import { inboxRoute } from '@/lib/communications/inbox-route';
+import { listThreads } from '@/lib/communications/inbox-service';
+import { isInboxTab } from '@/lib/communications/inbox-view';
 
 export const dynamic = 'force-dynamic';
 

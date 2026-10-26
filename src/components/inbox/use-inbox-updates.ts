@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { INBOX_UPDATED_EVENT } from '@/lib/inbound-email/inbox-types';
-import type { InboxChangeDetail } from '@/lib/inbound-email/inbox-client';
+import { INBOX_UPDATED_EVENT } from '@/lib/communications/inbox-types';
+import type { InboxChangeDetail } from '@/lib/communications/inbox-client';
 
 /** Realtime pings and local actions arrive in bursts; one refetch covers each burst. */
 const INBOX_REFRESH_DEBOUNCE_MS = 300;

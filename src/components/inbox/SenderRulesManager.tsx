@@ -8,8 +8,8 @@ import { Toggle } from '@/components/ui/Toggle';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { toast } from '@/components/ui/Toast';
 import { useDemo } from '@/lib/demo-context';
-import { inboxClient } from '@/lib/inbound-email/inbox-client';
-import type { InboxSenderRule } from '@/lib/inbound-email/inbox-rules';
+import { inboxClient } from '@/lib/communications/inbox-client';
+import type { InboxSenderRule } from '@/lib/communications/inbox-rules';
 
 const ACTION_OPTIONS = [
   { value: 'ignore', label: 'Filter' },

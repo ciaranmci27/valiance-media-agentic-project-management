@@ -7,8 +7,8 @@ import { logAudit } from '@/lib/api/audit';
 import { afterResponse } from '@/lib/api/after-response';
 import { accessAllowsProject } from '@/lib/api/access';
 import { formatEventTitle } from '@/lib/agent-events';
-import { isGoneError, loadAccessibleMessage, type AccessibleMessage } from '@/lib/inbound-email/agent-access';
-import { triageSchema, type TriageRequest } from '@/lib/inbound-email/schemas';
+import { isGoneError, loadAccessibleMessage, type AccessibleMessage } from '@/lib/communications/agent-access';
+import { triageSchema, type TriageRequest } from '@/lib/communications/schemas';
 
 export const dynamic = 'force-dynamic';
 

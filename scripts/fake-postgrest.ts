@@ -6,7 +6,9 @@
  * order, limit and offset, exact counts (Prefer: count=exact) and one level
  * of embedded resources found through a foreign key (filtered by
  * `alias.column`, and `!inner` keeps only parents with a match); inserts, updates and
- * deletes. `handle` can serve other paths (a Storage stand-in). Every request
+ * deletes. Accept-Profile (reads) and Content-Profile (writes and rpc) pick
+ * the schema, as supabase-js's .schema() sends them; without one it is public.
+ * `handle` can serve other paths (a Storage stand-in). Every request
  * runs in its own transaction as service_role with service_role claims and no
  * user, the way PostgREST runs a service-key request. Requests are serialized
  * because pglite has one connection.
@@ -123,16 +125,17 @@ export async function startFakePostgrest(db: PGlite, options: { maxRows?: number
   // Array columns take JS arrays (pglite writes a Postgres array); everything
   // else that is an object goes in as JSON, the way PostgREST reads a body.
   const arrayColumns = new Map<string, Set<string>>();
-  const columnValue = async (table: string, column: string, value: unknown) => {
+  const columnValue = async (schema: string, table: string, column: string, value: unknown) => {
     if (!Array.isArray(value)) return scalar(value);
-    if (!arrayColumns.has(table)) {
+    const key = `${schema}.${table}`;
+    if (!arrayColumns.has(key)) {
       const result = await db.query<{ column_name: string }>(
-        "SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = $1 AND data_type = 'ARRAY'",
-        [table],
+        "SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2 AND data_type = 'ARRAY'",
+        [schema, table],
       );
-      arrayColumns.set(table, new Set(result.rows.map((row) => row.column_name)));
+      arrayColumns.set(key, new Set(result.rows.map((row) => row.column_name)));
     }
-    return arrayColumns.get(table)!.has(column) ? value : scalar(value);
+    return arrayColumns.get(key)!.has(column) ? value : scalar(value);
   };
 
   // Like PostgREST, the request's headers are readable as request.headers.
@@ -163,16 +166,22 @@ export async function startFakePostgrest(db: PGlite, options: { maxRows?: number
       send(code === "23505" ? 409 : 400, { code, message: (error as Error).message, details: null, hint: null });
     };
     const rest = url.pathname.replace(/^\/rest\/v1\//, "");
+    // The schema the request names: Accept-Profile on a read, Content-Profile
+    // on a write or rpc, as PostgREST reads them.
+    const reading = request.method === "GET" || request.method === "HEAD";
+    const profile = request.headers[reading ? "accept-profile" : "content-profile"];
+    const schemaName = (Array.isArray(profile) ? profile[0] : profile) || "public";
 
     try {
       if (options.handle && (await options.handle(request, response, url))) return;
+      const schema = ident(schemaName);
       if (rest.startsWith("rpc/") && request.method === "POST") {
         const fn = rest.slice(4);
         const args = JSON.parse((await body(request)) || "{}") as Record<string, unknown>;
         // A JSON array for an array-typed argument (uuid[], text[]) becomes a Postgres array, as PostgREST does.
         const argTypes = await db.query<{ n: string; t: string }>(
-          "SELECT unnest(proargnames) AS n, unnest(proargtypes::regtype[]::text[]) AS t FROM pg_proc WHERE proname = $1 AND pronamespace = 'public'::regnamespace",
-          [rest.slice(4)],
+          "SELECT unnest(proargnames) AS n, unnest(proargtypes::regtype[]::text[]) AS t FROM pg_proc WHERE proname = $1 AND pronamespace = $2::regnamespace",
+          [rest.slice(4), schemaName],
         );
         const typeOf = new Map(argTypes.rows.map((row) => [row.n, row.t]));
         const params: unknown[] = [];
@@ -180,11 +189,11 @@ export async function startFakePostgrest(db: PGlite, options: { maxRows?: number
           params.push(Array.isArray(value) && typeOf.get(key)?.endsWith("[]") ? value : scalar(value));
           return `${ident(key)} => $${params.length}`;
         });
-        const call = `public.${ident(fn)}(${named.join(", ")})`;
+        const call = `${schema}.${ident(fn)}(${named.join(", ")})`;
         // A set-returning function (returns table / setof) comes back as an array of rows, as from PostgREST.
         const setReturning = await db.query<{ s: boolean }>(
-          "SELECT bool_or(proretset) AS s FROM pg_proc WHERE proname = $1 AND pronamespace = 'public'::regnamespace",
-          [fn],
+          "SELECT bool_or(proretset) AS s FROM pg_proc WHERE proname = $1 AND pronamespace = $2::regnamespace",
+          [fn, schemaName],
         );
         const sql = setReturning.rows[0]?.s
           ? `SELECT coalesce(json_agg(t), '[]'::json) AS r FROM ${call} t`
@@ -248,7 +257,7 @@ export async function startFakePostgrest(db: PGlite, options: { maxRows?: number
                JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = c.conkey[1]
                JOIN pg_attribute af ON af.attrelid = c.confrelid AND af.attnum = c.confkey[1]
                WHERE c.contype = 'f' AND c.conrelid = $1::regclass AND c.confrelid = $2::regclass LIMIT 1`,
-              [`public.${from}`, `public.${to}`],
+              [`${schema}.${ident(from)}`, `${schema}.${ident(to)}`],
             )).rows[0];
           // How each embed joins: the child column and the parent column it matches.
           const joins = new Map<string, { childCol: string; parentCol: string; many: boolean }>();
@@ -263,12 +272,12 @@ export async function startFakePostgrest(db: PGlite, options: { maxRows?: number
             if (embed.inner) {
               const join = joins.get(embed.key)!;
               const conditions = filters.map(([column, expression]) => filter(column, expression, params));
-              where.push(`EXISTS (SELECT 1 FROM public.${ident(embed.table)} WHERE ${ident(join.childCol)}::text = public.${table}.${ident(join.parentCol)}::text${
+              where.push(`EXISTS (SELECT 1 FROM ${schema}.${ident(embed.table)} WHERE ${ident(join.childCol)}::text = ${schema}.${table}.${ident(join.parentCol)}::text${
                 conditions.map((condition) => ` AND ${condition}`).join("")})`);
             }
           }
           const whereSql = where.length ? " WHERE " + where.join(" AND ") : "";
-          const found = (await db.query<Record<string, unknown>>(`SELECT * FROM public.${table}${whereSql}${order} LIMIT ${limit} OFFSET ${offset}`, params)).rows;
+          const found = (await db.query<Record<string, unknown>>(`SELECT * FROM ${schema}.${table}${whereSql}${order} LIMIT ${limit} OFFSET ${offset}`, params)).rows;
           for (const embed of select.embeds) {
             const child = ident(embed.table);
             const childColumns = embed.columns === "*" ? "*" : embed.columns.split(",").map((c) => ident(c.trim())).join(", ");
@@ -278,13 +287,13 @@ export async function startFakePostgrest(db: PGlite, options: { maxRows?: number
               if (value == null) { row[embed.key] = join.many ? [] : null; continue; }
               const childParams: unknown[] = [String(value)];
               const conditions = (embedFilters.get(embed.key) ?? []).map(([column, expression]) => filter(column, expression, childParams));
-              const childRows = (await db.query(`SELECT ${childColumns} FROM public.${child} WHERE ${ident(join.childCol)}::text = $1${
+              const childRows = (await db.query(`SELECT ${childColumns} FROM ${schema}.${child} WHERE ${ident(join.childCol)}::text = $1${
                 conditions.map((condition) => ` AND ${condition}`).join("")}`, childParams)).rows;
               row[embed.key] = join.many ? childRows : childRows[0] ?? null;
             }
           }
           const total = counted
-            ? Number((await db.query<{ n: number }>(`SELECT count(*)::int AS n FROM public.${table}${whereSql}`, params)).rows[0].n)
+            ? Number((await db.query<{ n: number }>(`SELECT count(*)::int AS n FROM ${schema}.${table}${whereSql}`, params)).rows[0].n)
             : null;
           return { rows: found, total };
         });
@@ -314,7 +323,7 @@ export async function startFakePostgrest(db: PGlite, options: { maxRows?: number
           if (key === "select" || key === "columns") continue;
           where.push(filter(key, value, params));
         }
-        const rows = (await asService(request.headers, () => db.query(`DELETE FROM public.${table}${where.length ? " WHERE " + where.join(" AND ") : ""} RETURNING *`, params))).rows;
+        const rows = (await asService(request.headers, () => db.query(`DELETE FROM ${schema}.${table}${where.length ? " WHERE " + where.join(" AND ") : ""} RETURNING *`, params))).rows;
         const returning = (request.headers.prefer ?? "").includes("return=representation");
         return returning ? send(200, rows) : send(204);
       }
@@ -327,9 +336,9 @@ export async function startFakePostgrest(db: PGlite, options: { maxRows?: number
         await asService(request.headers, async () => {
           for (const record of records) {
             const keys = Object.keys(record);
-            const params = await Promise.all(keys.map((key) => columnValue(rest, key, record[key])));
+            const params = await Promise.all(keys.map((key) => columnValue(schemaName, rest, key, record[key])));
             const result = await db.query(
-              `INSERT INTO public.${table} (${keys.map(ident).join(", ")}) VALUES (${keys.map((_, i) => `$${i + 1}`).join(", ")})${returning ? " RETURNING *" : ""}`,
+              `INSERT INTO ${schema}.${table} (${keys.map(ident).join(", ")}) VALUES (${keys.map((_, i) => `$${i + 1}`).join(", ")})${returning ? " RETURNING *" : ""}`,
               params,
             );
             out.push(...result.rows);
@@ -341,13 +350,13 @@ export async function startFakePostgrest(db: PGlite, options: { maxRows?: number
         const changes = JSON.parse(await body(request)) as Record<string, unknown>;
         const keys = Object.keys(changes);
         if (keys.length === 0) return send(400, { code: "PGRST000", message: "Empty update" });
-        const params: unknown[] = await Promise.all(keys.map((key) => columnValue(rest, key, changes[key])));
+        const params: unknown[] = await Promise.all(keys.map((key) => columnValue(schemaName, rest, key, changes[key])));
         const where: string[] = [];
         for (const [key, value] of url.searchParams) {
           if (key === "select" || key === "columns") continue;
           where.push(filter(key, value, params));
         }
-        const sql = `UPDATE public.${table} SET ${keys.map((key, i) => `${ident(key)} = $${i + 1}`).join(", ")}${
+        const sql = `UPDATE ${schema}.${table} SET ${keys.map((key, i) => `${ident(key)} = $${i + 1}`).join(", ")}${
           where.length ? " WHERE " + where.join(" AND ") : ""
         } RETURNING *`;
         const rows = (await asService(request.headers, () => db.query(sql, params))).rows;

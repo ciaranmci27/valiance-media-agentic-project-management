@@ -1,6 +1,6 @@
-import { inboxRoute, readBody } from '@/lib/inbound-email/inbox-route';
-import { addClientSender, listClientSenders } from '@/lib/inbound-email/inbox-settings-service';
-import { clientSenderSchema } from '@/lib/inbound-email/schemas';
+import { inboxRoute, readBody } from '@/lib/communications/inbox-route';
+import { addClientSender, listClientSenders } from '@/lib/communications/inbox-settings-service';
+import { clientSenderSchema } from '@/lib/communications/schemas';
 
 export const dynamic = 'force-dynamic';
 

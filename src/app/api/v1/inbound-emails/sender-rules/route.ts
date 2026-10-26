@@ -2,7 +2,7 @@ import { withApi } from '@/lib/api/middleware';
 import { created, success } from '@/lib/api/response';
 import { ApiError } from '@/lib/api/errors';
 import { logAudit } from '@/lib/api/audit';
-import { describeRule, liveRuleFor, PROTECTED_TOPICS, ruleTarget, rulesOverlap, RULE_COLUMNS, senderRuleSchema, type SenderRuleInput, type SenderRuleRow } from '@/lib/inbound-email/sender-rules';
+import { describeRule, liveRuleFor, PROTECTED_TOPICS, ruleTarget, rulesOverlap, RULE_COLUMNS, senderRuleSchema, type SenderRuleInput, type SenderRuleRow } from '@/lib/communications/sender-rules';
 
 export const dynamic = 'force-dynamic';
 

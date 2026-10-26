@@ -2,8 +2,8 @@ import { withApi } from '@/lib/api/middleware';
 import { success } from '@/lib/api/response';
 import { ApiError } from '@/lib/api/errors';
 import { logAudit } from '@/lib/api/audit';
-import { memberInboxIds } from '@/lib/inbound-email/agent-access';
-import { markSummarizedSchema } from '@/lib/inbound-email/schemas';
+import { memberInboxIds } from '@/lib/communications/agent-access';
+import { markSummarizedSchema } from '@/lib/communications/schemas';
 
 export const dynamic = 'force-dynamic';
 

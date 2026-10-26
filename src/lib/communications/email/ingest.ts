@@ -3,10 +3,10 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { domainOf, organizationalDomain } from './addresses';
 import { trustedAuthservIds } from './auth-results';
 import { ATTACHED_HEAD_BYTES, fromRfc822Head, inlineForwardedSender, isAttachedMessage, type ForwardedSender } from './forwarded';
-import { resolveMapping, threadProjectDecision } from './mapping';
+import { resolveMapping, threadProjectDecision } from '../mapping';
 import type { InboundEmail, InboundFile } from './normalized';
 import { prepareEmail, readableBody, type PreparedEmail } from './prepare';
-import { alertSeriesKey, sortEmail, type SenderRule } from './sorting';
+import { alertSeriesKey, sortEmail, type SenderRule } from '../sorting';
 import { chooseThread, referencedIds, THREAD_SUBJECT_WINDOW_DAYS, type SubjectThread } from './threading';
 import { trashedProjectIds } from '@/lib/supabase/trash';
 

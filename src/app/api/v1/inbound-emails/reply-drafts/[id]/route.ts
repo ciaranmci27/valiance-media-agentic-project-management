@@ -3,8 +3,8 @@ import { withApi } from '@/lib/api/middleware';
 import { success } from '@/lib/api/response';
 import { ApiError, notFound } from '@/lib/api/errors';
 import { logAudit } from '@/lib/api/audit';
-import { assertUuid, memberInboxIds } from '@/lib/inbound-email/agent-access';
-import { DRAFT_COLUMNS } from '@/lib/inbound-email/inbox-drafts';
+import { assertUuid, memberInboxIds } from '@/lib/communications/agent-access';
+import { DRAFT_COLUMNS } from '@/lib/communications/inbox-drafts';
 
 export const dynamic = 'force-dynamic';
 

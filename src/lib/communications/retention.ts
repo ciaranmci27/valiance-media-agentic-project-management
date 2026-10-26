@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { keepLinkedTaskFiles } from '@/lib/task-files/retention';
-import { INBOUND_EMAIL_BUCKET, recordInboxError } from './ingest';
+import { INBOUND_EMAIL_BUCKET, recordInboxError } from './email/ingest';
 
 /**
  * Retention and the orphan sweep for the inbound-email bucket, run by Vercel

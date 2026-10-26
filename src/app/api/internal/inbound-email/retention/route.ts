@@ -1,5 +1,5 @@
 import { getServiceClient } from '@/lib/api/supabase-service';
-import { runRetention } from '@/lib/inbound-email/retention';
+import { runRetention } from '@/lib/communications/retention';
 import { cronAuthorization, privateHeaders } from '@/lib/webhooks/internal-auth';
 
 export const runtime = 'nodejs';

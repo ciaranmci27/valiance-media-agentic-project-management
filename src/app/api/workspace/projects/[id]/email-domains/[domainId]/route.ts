@@ -1,5 +1,5 @@
-import { inboxRoute } from '@/lib/inbound-email/inbox-route';
-import { removeClientDomain } from '@/lib/inbound-email/inbox-settings-service';
+import { inboxRoute } from '@/lib/communications/inbox-route';
+import { removeClientDomain } from '@/lib/communications/inbox-settings-service';
 
 export const dynamic = 'force-dynamic';
 

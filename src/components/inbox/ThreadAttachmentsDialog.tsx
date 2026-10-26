@@ -3,7 +3,7 @@
 import { Download, Eye, FileText, Image as ImageIcon } from 'lucide-react';
 import Modal from '@/components/ui/Modal';
 import { Tooltip } from '@/components/ui/Tooltip';
-import { skippedReasonLabel, type InboxAttachment, type InboxMessage } from '@/lib/inbound-email/inbox-types';
+import { skippedReasonLabel, type InboxAttachment, type InboxMessage } from '@/lib/communications/inbox-types';
 import { formatBytes, formatFullTime } from './inbox-badges';
 
 /** Every file in a conversation, the images shown inside its emails included. */

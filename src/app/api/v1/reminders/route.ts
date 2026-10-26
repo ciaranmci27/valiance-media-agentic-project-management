@@ -12,7 +12,7 @@ import {
   visibleReminderFilter,
 } from '@/lib/api/reminders';
 import { postgrestList, trashedProjectIds } from '@/lib/supabase/trash';
-import { loadAccessibleMessage } from '@/lib/inbound-email/agent-access';
+import { loadAccessibleMessage } from '@/lib/communications/agent-access';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

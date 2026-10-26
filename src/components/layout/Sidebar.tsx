@@ -38,7 +38,7 @@ import { hasPermission } from '@/lib/access-control';
 import { prefetchAgentAnalytics } from '@/lib/use-agent-analytics-events';
 import { defaultAgentAnalyticsRange } from '@/lib/agent-range';
 import { reminderGroup } from '@/lib/reminders';
-import type { InboxAttention } from '@/lib/inbound-email/inbox-view';
+import type { InboxAttention } from '@/lib/communications/inbox-view';
 
 export function Sidebar() {
   const pathname = usePathname();

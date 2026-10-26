@@ -3,7 +3,7 @@
 import { ShieldAlert, ShieldQuestion, Sparkles } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Tooltip } from '@/components/ui/Tooltip';
-import type { ThreadProject, ThreadState, TrustLevel } from '@/lib/inbound-email/inbox-types';
+import type { ThreadProject, ThreadState, TrustLevel } from '@/lib/communications/inbox-types';
 
 /** A project the member cannot open: the server sends no name for it. */
 export const OTHER_PROJECT = 'Another project';

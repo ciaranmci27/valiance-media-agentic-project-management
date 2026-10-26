@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { z } from 'zod';
-import { isHostname, normalizeAddress } from './addresses';
-import { isPublicEmailDomain } from './public-domains';
+import { isHostname, normalizeAddress } from './email/addresses';
+import { isPublicEmailDomain } from './email/public-domains';
 import { MAIL_TOPICS, RULE_ACTIONS, type MailTopic, type RuleAction } from './sorting';
 
 /**

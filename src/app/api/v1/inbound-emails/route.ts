@@ -2,9 +2,9 @@ import { withApi } from '@/lib/api/middleware';
 import { paginated } from '@/lib/api/response';
 import { parsePagination } from '@/lib/api/pagination';
 import { badRequest } from '@/lib/api/errors';
-import { assertUuid, inboxScope } from '@/lib/inbound-email/agent-access';
-import { listMessages } from '@/lib/inbound-email/agent-read';
-import { AGENT_MESSAGE_STATUSES } from '@/lib/inbound-email/schemas';
+import { assertUuid, inboxScope } from '@/lib/communications/agent-access';
+import { listMessages } from '@/lib/communications/agent-read';
+import { AGENT_MESSAGE_STATUSES } from '@/lib/communications/schemas';
 
 export const dynamic = 'force-dynamic';
 

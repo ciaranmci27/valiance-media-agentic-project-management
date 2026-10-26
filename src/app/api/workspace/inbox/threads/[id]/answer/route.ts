@@ -1,6 +1,6 @@
-import { inboxRoute, readBody } from '@/lib/inbound-email/inbox-route';
-import { answerAgentQuestion } from '@/lib/inbound-email/inbox-service';
-import { answerQuestionSchema } from '@/lib/inbound-email/schemas';
+import { inboxRoute, readBody } from '@/lib/communications/inbox-route';
+import { answerAgentQuestion } from '@/lib/communications/inbox-service';
+import { answerQuestionSchema } from '@/lib/communications/schemas';
 
 export const dynamic = 'force-dynamic';
 

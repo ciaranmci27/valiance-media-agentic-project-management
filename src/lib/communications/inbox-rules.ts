@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { RULE_ACTIONS } from './sorting';
 import { describeRule, liveRuleFor, ruleTarget, RULE_COLUMNS, senderRuleSchema, type SenderRuleRow } from './sender-rules';
 import { InboxError, assertCanManageInboxes, loadReadableThread, many, one, type InboxContext } from './inbox-service';
-import { domainOf, organizationalDomain } from './addresses';
+import { domainOf, organizationalDomain } from './email/addresses';
 
 /**
  * Sender rules from the Inbox (session routes): list them, make one (from a

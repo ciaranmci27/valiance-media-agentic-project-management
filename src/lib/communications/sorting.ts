@@ -1,4 +1,4 @@
-import { domainOf, organizationalDomain } from './addresses';
+import { domainOf, organizationalDomain } from './email/addresses';
 
 /**
  * Sorting, as an email arrives and before any agent sees it. Pure, so the

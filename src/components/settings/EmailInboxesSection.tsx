@@ -23,7 +23,7 @@ import { CopyValueButton, EmailConnectChecklist, relativeTime } from '@/componen
 import { SenderRulesManager } from '@/components/inbox/SenderRulesManager';
 import { useApp } from '@/lib/store';
 import { useDemo } from '@/lib/demo-context';
-import { announceInboxChange, inboxSettingsClient } from '@/lib/inbound-email/inbox-client';
+import { announceInboxChange, inboxSettingsClient } from '@/lib/communications/inbox-client';
 import {
   AGENT_READABLE_TYPES,
   type AgentReadableType,
@@ -31,7 +31,7 @@ import {
   type InboxSettingsInput,
   type InboxSettingsList,
   type MxStatus,
-} from '@/lib/inbound-email/inbox-types';
+} from '@/lib/communications/inbox-types';
 import type { TeamMember } from '@/lib/types';
 
 /**

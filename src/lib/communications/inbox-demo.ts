@@ -1,6 +1,6 @@
-import { normalizeAddress, validateClientSenderAddress } from './addresses';
+import { normalizeAddress, validateClientSenderAddress } from './email/addresses';
 import { mergeClientSenders, type ProjectContactAddress } from './mapping';
-import { validateClientDomain } from './public-domains';
+import { validateClientDomain } from './email/public-domains';
 import { attentionCounts, matchesSearch, snippetOf, tabCounts, threadFlags, threadInTab, type InboxAttention, type MessageState } from './inbox-view';
 import type {
   ClientEmailDomain, ClientSenderAddress, ClientSenderAddressList, InboxMessage, InboxSettings, InboxSettingsInput, InboxSettingsList, InboxSummary, InboxTab,

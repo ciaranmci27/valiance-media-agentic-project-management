@@ -1,5 +1,5 @@
-import { inboxRoute } from '@/lib/inbound-email/inbox-route';
-import { attentionCount } from '@/lib/inbound-email/inbox-service';
+import { inboxRoute } from '@/lib/communications/inbox-route';
+import { attentionCount } from '@/lib/communications/inbox-service';
 
 export const dynamic = 'force-dynamic';
 

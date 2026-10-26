@@ -1,6 +1,6 @@
-import { inboxRoute, readBody } from '@/lib/inbound-email/inbox-route';
-import { addProjectAddress, listProjectAddresses } from '@/lib/inbound-email/inbox-settings-service';
-import { projectAddressSchema } from '@/lib/inbound-email/schemas';
+import { inboxRoute, readBody } from '@/lib/communications/inbox-route';
+import { addProjectAddress, listProjectAddresses } from '@/lib/communications/inbox-settings-service';
+import { projectAddressSchema } from '@/lib/communications/schemas';
 
 export const dynamic = 'force-dynamic';
 

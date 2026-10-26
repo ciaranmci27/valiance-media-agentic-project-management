@@ -269,7 +269,7 @@ async function main() {
     storage.objects.delete(`inbound-email/${ids.inbox}/${lost.message}/${lost.attachment}`);
     await q("UPDATE public.email_messages SET received_at = now() - interval '100 days' WHERE id IN ($1, $2)", [ids.message, lost.message]);
 
-    const { runRetention } = await import('../src/lib/inbound-email/retention');
+    const { runRetention } = await import('../src/lib/communications/retention');
     const { getServiceClient: service } = await import('../src/lib/api/supabase-service');
     const run = await runRetention(service(), { budgetMs: 20_000 });
     type Kept = { kind: string; storage_path: string | null; email_attachment_id: string | null; deleted_at: string | null };

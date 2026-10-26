@@ -2,8 +2,8 @@ import { permissionAlternatives, withApi } from '@/lib/api/middleware';
 import { success } from '@/lib/api/response';
 import { forbidden } from '@/lib/api/errors';
 import { apiKeyAllows } from '@/lib/api/access';
-import { memberInboxIds } from '@/lib/inbound-email/agent-access';
-import { taskEmails } from '@/lib/inbound-email/agent-read';
+import { memberInboxIds } from '@/lib/communications/agent-access';
+import { taskEmails } from '@/lib/communications/agent-read';
 
 export const dynamic = 'force-dynamic';
 

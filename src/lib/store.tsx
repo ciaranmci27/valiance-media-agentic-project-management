@@ -124,7 +124,7 @@ import { findStalePausedEntries, isStalePause } from '@/lib/time-entry-utils';
 import { hasPermission, canReadTasks } from '@/lib/access-control';
 import { loadRetainerFinanceInputs } from '@/lib/finance/use-retainer-finance';
 import { rollbackScope } from '@/lib/optimistic';
-import { INBOX_UPDATED_EVENT } from '@/lib/inbound-email/inbox-types';
+import { INBOX_UPDATED_EVENT } from '@/lib/communications/inbox-types';
 import { parsePaymentRuleError } from '@/lib/invoice-payments';
 import { restoreFromTrash, TRASH_TABLES, TrashError, type TrashTable } from '@/lib/supabase/trash';
 

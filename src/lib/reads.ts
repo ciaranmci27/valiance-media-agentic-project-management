@@ -12,16 +12,16 @@ import {
 import { useApp } from '@/lib/store';
 import { TELEMETRY_EVENT_TYPES } from '@/lib/agent-events';
 import { toLocalDateString } from '@/lib/date-utils';
-import { inboxClient } from '@/lib/inbound-email/inbox-client';
+import { inboxClient } from '@/lib/communications/inbox-client';
 import {
   INBOX_TABLES, type InboxTab, type InboxThreadDetail, type InboxThreadList, type InboxThreadSummary, type TaskSourceEmails,
-} from '@/lib/inbound-email/inbox-types';
+} from '@/lib/communications/inbox-types';
 import { listTaskFiles, taskFileCandidates, type TaskFileCandidates, type TaskFileView } from '@/lib/task-files/client';
 import { invalidateTables, peekRead, warmReads, type Read } from '@/lib/query-cache';
 import type {
   AgentActivity, BillingForecastItem, ProjectBillingPlan, ProjectBillingRun, ProjectContext, TaskSource, TeamActivity,
 } from '@/lib/types';
-import type { InboxAttention } from '@/lib/inbound-email/inbox-view';
+import type { InboxAttention } from '@/lib/communications/inbox-view';
 import { demoNotifications } from '@/lib/demo-data';
 
 /**

@@ -3,8 +3,8 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { AccessContext, PermissionKey } from '@/lib/access-control';
 import { accessAllows, accessAllowsProject } from '@/lib/api/access';
 import { ApiError, badRequest, forbidden, notFound } from '@/lib/api/errors';
-import { attachmentKind } from '@/lib/inbound-email/attachments';
-import { INBOUND_EMAIL_BUCKET } from '@/lib/inbound-email/ingest';
+import { attachmentKind } from '@/lib/communications/attachments';
+import { INBOUND_EMAIL_BUCKET } from '@/lib/communications/email/ingest';
 import { trashApiError } from '@/lib/api/trash';
 import { moveToTrash } from '@/lib/supabase/trash';
 

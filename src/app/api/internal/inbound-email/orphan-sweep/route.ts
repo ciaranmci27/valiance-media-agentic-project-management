@@ -1,5 +1,5 @@
 import { getServiceClient } from '@/lib/api/supabase-service';
-import { runOrphanSweep } from '@/lib/inbound-email/retention';
+import { runOrphanSweep } from '@/lib/communications/retention';
 import { sweepAbandonedUploads } from '@/lib/task-files/retention';
 import { cronAuthorization, privateHeaders } from '@/lib/webhooks/internal-auth';
 

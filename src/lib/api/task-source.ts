@@ -2,7 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { AccessContext } from '@/lib/access-control';
 import type { TaskCreatedVia, TaskSource } from '@/lib/types';
 import { accessAllowsProject } from '@/lib/api/access';
-import { taskSourceEmails } from '@/lib/inbound-email/inbox-service';
+import { taskSourceEmails } from '@/lib/communications/inbox-service';
 
 export class TaskSourceError extends Error {
   constructor(public status: number, message: string) {

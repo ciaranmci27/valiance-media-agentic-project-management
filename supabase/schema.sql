@@ -6587,7 +6587,7 @@ $$;
 
 -- The obvious public webmail domains. A client domain mapping on one of these
 -- would map every stranger on that service to the project. The app keeps the
--- fuller list (src/lib/inbound-email/public-domains.ts) and refuses first;
+-- fuller list (src/lib/communications/email/public-domains.ts) and refuses first;
 -- this is the backstop.
 CREATE OR REPLACE FUNCTION public.email_domain_is_public(p_domain text)
 RETURNS boolean

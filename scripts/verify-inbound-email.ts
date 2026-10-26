@@ -31,7 +31,7 @@ import type { PGlite } from '@electric-sql/pglite';
 import { startFakePostgrest } from './fake-postgrest';
 import { NEEDS_HUMAN_CLEANUP_MIGRATION, NEEDS_HUMAN_MIGRATION, PROJECT_SOURCE_PERSON_MIGRATION, SPEC_MIGRATION, asPerson, asService, createEmailDatabase, readMigration } from './inbound-email-db';
 import { FakeResend, FakeStorage, readEml, resendFixture } from './inbound-email-fixtures';
-import { signSvix } from '../src/lib/inbound-email/svix';
+import { signSvix } from '../src/lib/communications/email/svix';
 
 let passed = 0;
 const failures: string[] = [];
@@ -728,8 +728,8 @@ async function main() {
 
     // ---- Inbox UI (session routes' services, people only) ---------------
     const { getServiceClient } = await import('../src/lib/api/supabase-service');
-    const inbox = await import('../src/lib/inbound-email/inbox-service');
-    const inboxSettings = await import('../src/lib/inbound-email/inbox-settings-service');
+    const inbox = await import('../src/lib/communications/inbox-service');
+    const inboxSettings = await import('../src/lib/communications/inbox-settings-service');
     const service = getServiceClient();
     type Access = import('../src/lib/access-control').AccessContext;
     const person = (memberId: string, role: Access['role'], app: Access['app_permissions'], projectIds: string[] = []) =>
@@ -930,8 +930,8 @@ async function main() {
     check('project address: editing in place to an inbox\'s address is 409',
       (await failsWith(() => inboxSettings.updateProjectAddress(manage, p4tf, address.id, { routing_local_part: 'billing' }))) === 409);
     check('project address: a bad local part is 422 at the route', (await failsWith(async () => {
-      const { readBody } = await import('../src/lib/inbound-email/inbox-route');
-      const { projectAddressSchema } = await import('../src/lib/inbound-email/schemas');
+      const { readBody } = await import('../src/lib/communications/inbox-route');
+      const { projectAddressSchema } = await import('../src/lib/communications/schemas');
       await readBody(new Request('http://localhost/x', { method: 'POST', body: JSON.stringify({ inbox_id: ids.inboxA, routing_local_part: 'p4tf!', public_address: null, enabled: true }) }), projectAddressSchema);
     })) === 422);
 
@@ -1160,8 +1160,8 @@ async function main() {
         && (await failsWith(() => inboxSettings.addClientSender(manage, bobA, 'Ashley@Agency.example'))) === 422
         && (await failsWith(() => inboxSettings.addClientSender(manage, bobA, 'owner@agency.example'))) === 422);
       check('senders: an empty body is 422 at the route', (await failsWith(async () => {
-        const { readBody } = await import('../src/lib/inbound-email/inbox-route');
-        const { clientSenderSchema } = await import('../src/lib/inbound-email/schemas');
+        const { readBody } = await import('../src/lib/communications/inbox-route');
+        const { clientSenderSchema } = await import('../src/lib/communications/schemas');
         await readBody(new Request('http://localhost/x', { method: 'POST', body: JSON.stringify({ address: '' }) }), clientSenderSchema);
       })) === 422);
       check('senders: the database refuses a mixed-case or invalid address and a duplicate',
@@ -1528,7 +1528,7 @@ async function main() {
 
     // ---- Sender rules from the Inbox and from the agent -------------------
     {
-      const rules = await import('../src/lib/inbound-email/inbox-rules');
+      const rules = await import('../src/lib/communications/inbox-rules');
       const agentRules = await import('../src/app/api/v1/inbound-emails/sender-rules/route');
       const sendersRoute = await import('../src/app/api/v1/inbound-emails/senders/route');
       await db.query("UPDATE email_messages SET status = 'new' WHERE id = $1", [usage90.id]);
@@ -1590,7 +1590,7 @@ async function main() {
 
     // ---- Relations: related links, thread summary, people's links, reminders
     {
-      const links = await import('../src/lib/inbound-email/inbox-links');
+      const links = await import('../src/lib/communications/inbox-links');
       const [acmeTask] = await rows(db, "INSERT INTO tasks (title, project_id, status) VALUES ('Footer copy', $1, 'done') RETURNING id", [ids.acme]);
       const related = await triageOf(reply.id, {
         outcome: 'no_action', urgent: false, summary: 'Dana thanked us for the finished footer.',
@@ -1639,7 +1639,7 @@ async function main() {
 
     // ---- Reply drafts on request -------------------------------------------
     {
-      const drafts = await import('../src/lib/inbound-email/inbox-drafts');
+      const drafts = await import('../src/lib/communications/inbox-drafts');
       const draftList = await import('../src/app/api/v1/inbound-emails/reply-drafts/route');
       const draftAnswer = await import('../src/app/api/v1/inbound-emails/reply-drafts/[id]/route');
       const asked = await drafts.requestReplyDraft(owner, reply.thread_id, { instructions: 'Thank her and confirm Friday.' });
@@ -1701,6 +1701,86 @@ async function main() {
         check('answers: answering again while the agent has it is 409',
           (await failsWith(() => inbox.answerAgentQuestion(owner, asked.thread_id, asked.message_id, 'Again'))) === 409);
       }
+    }
+
+    // ---- Response snapshot ---------------------------------------------
+    // What the agent API and the Inbox return at the end of this run, with
+    // ids and times normalized. Storage moves under it must not change a byte;
+    // INBOX_SNAPSHOT=update rewrites it after an intended change.
+    {
+      await settle();
+      const questions = await import('../src/app/api/v1/inbound-emails/questions/route');
+      const listed = await api(list.GET, 'GET', '/api/v1/inbound-emails?limit=100', keys.ashley);
+      const messageIds = ((listed.body.data ?? []) as Payload[]).map((row) => String(row.id));
+      const details = [];
+      for (const id of messageIds) details.push((await api(detail.GET, 'GET', `/api/v1/inbound-emails/${id}`, keys.ashley, { id })).body);
+      const ownerThreads = await inbox.listThreads(owner, allThreads);
+      const threadDetails = [];
+      for (const thread of ownerThreads.threads) threadDetails.push(await inbox.threadDetail(owner, thread.id));
+      const taskIds = (await rows<{ task_id: string }>(db, 'SELECT DISTINCT task_id FROM email_task_links ORDER BY task_id')).map((row) => row.task_id);
+      const taskEmails = [];
+      for (const id of taskIds) taskEmails.push((await api(taskEmailsRoute.GET, 'GET', `/api/v1/tasks/${id}/emails`, keys.ashley, { id })).body);
+      const captured = {
+        list: listed.body,
+        details,
+        unsummarized: (await api(unsummarized.GET, 'GET', '/api/v1/inbound-emails/triage/unsummarized', keys.ashley)).body,
+        questions: (await api(questions.GET, 'GET', '/api/v1/inbound-emails/questions', keys.ashley)).body,
+        signal: (await api(signal.GET, 'GET', '/api/v1/inbound-emails/signal', keys.ashley)).body,
+        inbox: ownerThreads,
+        threads: threadDetails,
+        taskEmails,
+      };
+      // Every id is named by what it is, from data that does not change run to
+      // run (random ids and arrival order do); then arrays are sorted, so the
+      // comparison is about content, not order (the checks above own order).
+      const labels = new Map<string, string>();
+      const name = (id: unknown, label: string) => {
+        if (typeof id === 'string' && !labels.has(id)) labels.set(id, label);
+      };
+      const label = async (sql: string, prefix: string) => {
+        const seen = new Map<string, number>();
+        for (const row of await rows<{ id: string; k: string | null }>(db, sql)) {
+          const key = `${prefix}:${row.k ?? '?'}`;
+          const n = (seen.get(key) ?? 0) + 1;
+          seen.set(key, n);
+          name(row.id, n === 1 ? key : `${key}#${n}`);
+        }
+      };
+      for (const [key, value] of Object.entries(ids)) name(value, `ids.${key}`);
+      await label('SELECT id, name AS k FROM team_members ORDER BY name, id', 'member');
+      await label('SELECT id, name AS k FROM projects ORDER BY name, id', 'project');
+      await label('SELECT id, name AS k FROM contacts ORDER BY name, id', 'contact');
+      await label('SELECT id, name AS k FROM email_inboxes ORDER BY name, id', 'inbox');
+      await label('SELECT id, title AS k FROM tasks ORDER BY title, created_at, id', 'task');
+      await label("SELECT m.id, i.name || '/' || coalesce(m.internet_message_id, m.provider_email_id) AS k FROM email_messages m JOIN email_inboxes i ON i.id = m.inbox_id ORDER BY 2, m.created_at", 'message');
+      await label(`SELECT t.id, i.name || '/' || (SELECT min(coalesce(m.internet_message_id, m.provider_email_id)) FROM email_messages m WHERE m.thread_id = t.id) AS k
+        FROM email_threads t JOIN email_inboxes i ON i.id = t.inbox_id ORDER BY 2, t.created_at`, 'thread');
+      await label("SELECT a.id, coalesce(m.internet_message_id, m.provider_email_id) || '#' || a.position AS k FROM email_attachments a JOIN email_messages m ON m.id = a.message_id ORDER BY 2", 'attachment');
+      await label('SELECT id, sha256 AS k FROM email_files ORDER BY sha256, created_at', 'file');
+      await label("SELECT t.id, coalesce(m.internet_message_id, m.provider_email_id) || '/' || t.summary AS k FROM email_triage t JOIN email_messages m ON m.id = t.message_id ORDER BY 2, t.created_at", 'triage');
+      await label("SELECT a.id, coalesce(m.internet_message_id, m.provider_email_id) || '/' || a.answer AS k FROM email_question_answers a JOIN email_messages m ON m.id = a.message_id ORDER BY 2, a.created_at", 'answer');
+      await label("SELECT d.id, coalesce(m.internet_message_id, m.provider_email_id) || '/' || coalesce(d.instructions, '') AS k FROM email_reply_drafts d JOIN email_messages m ON m.id = d.message_id ORDER BY 2, d.created_at", 'draft');
+      await label("SELECT id, match_kind || ':' || match_value || ':' || coalesce(topic, '') AS k FROM email_sender_rules ORDER BY 2, created_at", 'rule');
+      await label('SELECT id, routing_address AS k FROM email_project_addresses ORDER BY routing_address', 'endpoint');
+      await label('SELECT id, title AS k FROM reminders ORDER BY title, created_at', 'reminder');
+      const canonical = (value: unknown): unknown => {
+        if (Array.isArray(value)) return value.map(canonical).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+        if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, inner]) => [key, canonical(inner)]));
+        return value;
+      };
+      const named = JSON.stringify(captured)
+        .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, (id) => `<${labels.get(id.toLowerCase()) ?? 'unknown id'}>`)
+        .replace(/\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}(:?\d{2})?)?/g, '<time>')
+        .replace(/"request_id":"[^"]*"/g, '"request_id":"<request>"');
+      const normalized = JSON.stringify(canonical(JSON.parse(named)), null, 1);
+      const { readFile, writeFile } = await import('node:fs/promises');
+      const snapshotPath = new URL('./fixtures/inbox-api-snapshot.json', import.meta.url);
+      const stored = await readFile(snapshotPath, 'utf8').catch(() => null);
+      const storedLines = stored?.replace(/\r/g, '').split('\n') ?? null;
+      const lines = `${normalized}\n`.split('\n');
+      if (storedLines === null || process.env.INBOX_SNAPSHOT === 'update') await writeFile(snapshotPath, `${normalized}\n`);
+      else check('snapshot: agent API and Inbox responses match the stored snapshot', storedLines.join('\n') === lines.join('\n'),
+        lines.map((line, i) => [i + 1, line, storedLines[i]]).find(([, line, was]) => line !== was));
     }
 
     check('no deletes: no inbound email route exports DELETE', [list, detail, attachmentUrl, attachmentLabel, triage, unsummarized, markSummarized, signal, webhook].every((m) => !('DELETE' in m)));

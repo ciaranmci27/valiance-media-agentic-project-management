@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { requireSessionAccess } from '@/lib/api/access';
-import { InboxError, attachmentDownloadUrl } from '@/lib/inbound-email/inbox-service';
+import { InboxError, attachmentDownloadUrl } from '@/lib/communications/inbox-service';
 
 export const dynamic = 'force-dynamic';
 

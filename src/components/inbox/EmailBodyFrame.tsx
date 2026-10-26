@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import DOMPurify from 'dompurify';
-import { normalizeContentId } from '@/lib/inbound-email/display';
+import { normalizeContentId } from '@/lib/communications/email/display';
 
 /**
  * Renders inbound email HTML (untrusted, from strangers) inside a sandboxed
