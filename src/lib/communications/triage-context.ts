@@ -57,7 +57,7 @@ export async function triageContext(supabase: SupabaseClient, message: Accessibl
       .in('source_message_id', ((detail.thread as Row).messages as Row[]).map((m) => m.id as string))),
   ]);
   const planItems = plans.length
-    ? await rows<Row>(comms(supabase).from('plan_items').select('plan_id, type, intent, project_id, task_id, decision, state, payload, resolved_by')
+    ? await rows<Row>(comms(supabase).from('plan_items').select('id, plan_id, type, intent, project_id, task_id, decision, state, payload, resolved_by')
       .in('plan_id', plans.map((p) => p.id as string)).order('position'))
     : [];
 
@@ -71,12 +71,14 @@ export async function triageContext(supabase: SupabaseClient, message: Accessibl
     rows<Row>(supabase.from('projects').select('id, name, status, archived_at').in('id', projectIds).is('deleted_at', null)),
     rows<Row>(supabase.from('tasks').select('id, project_id, title, status, due_date, priority, updated_at, created_by')
       .in('project_id', projectIds).is('deleted_at', null).neq('status', 'done').order('updated_at', { ascending: false }).limit(OPEN_TASKS_PER_PROJECT * projectIds.length)),
-    rows<Row>(comms(supabase).from('plan_items').select('type, intent, project_id, task_id, state, payload, conversation_id, created_at')
+    rows<Row>(comms(supabase).from('plan_items').select('id, type, intent, project_id, task_id, state, payload, conversation_id, created_at')
       .in('project_id', projectIds).eq('mode', 'live').in('state', ['done', 'accepted', 'pending'])
       .gte('created_at', new Date(Date.now() - RECENT_DAYS * 86_400_000).toISOString()).order('created_at', { ascending: false }).limit(100)),
   ]) : [[], [], []];
 
   const brief = (item: Row) => ({
+    // What a revert_item names.
+    id: item.id,
     type: item.type,
     intent: item.intent,
     project_id: item.project_id,
@@ -146,8 +148,12 @@ export async function triageQueue(supabase: SupabaseClient, inboxIds: string[], 
   const wanted = inboxIds.filter((id) => modes.get(id) === mode);
   if (!wanted.length) return [];
   if (mode === 'plans') {
-    const candidates = await rows<Row>(comms(supabase).from('messages').select('id, inbox_id, thread_id, subject, received_at, kind, topic')
-      .in('inbox_id', wanted).eq('status', 'new').order('received_at').limit(limit * 3));
+    // Muted conversations are left out in the query, so they never fill the window.
+    const muted = (await rows<{ id: string }>(comms(supabase).from('conversations').select('id').in('inbox_id', wanted).not('muted_at', 'is', null))).map((c) => c.id);
+    let query = comms(supabase).from('messages').select('id, inbox_id, thread_id, subject, received_at, kind, topic')
+      .in('inbox_id', wanted).eq('status', 'new');
+    if (muted.length) query = query.not('thread_id', 'in', `(${muted.join(',')})`);
+    const candidates = await rows<Row>(query.order('received_at').limit(limit * 3));
     if (!candidates.length) return [];
     const conversations = await rows<{ id: string; last_message_at: string | null; muted_at: string | null }>(comms(supabase).from('conversations')
       .select('id, last_message_at, muted_at').in('id', [...new Set(candidates.map((m) => m.thread_id as string))]));
@@ -161,12 +167,14 @@ export async function triageQueue(supabase: SupabaseClient, inboxIds: string[], 
     }).slice(0, limit).map((m) => ({ id: m.id, inbox_id: m.inbox_id, conversation_id: m.thread_id, subject: m.subject, received_at: m.received_at }));
   }
   const since = new Date(Date.now() - 14 * 86_400_000).toISOString();
-  const handled = await rows<Row>(comms(supabase).from('messages').select('id, inbox_id, thread_id, subject, received_at')
-    .in('inbox_id', wanted).in('status', ['handled', 'needs_human']).gte('received_at', since).order('received_at').limit(limit * 3));
-  if (!handled.length) return [];
-  const planned = new Set((await rows<{ message_id: string }>(comms(supabase).from('plans').select('message_id')
-    .eq('mode', 'shadow').in('message_id', handled.map((m) => m.id as string)))).map((p) => p.message_id));
-  return handled.filter((m) => !planned.has(m.id as string)).slice(0, limit)
+  // What shadow already planned is left out in the query, so the window never fills with it.
+  const planned = [...new Set((await rows<{ message_id: string }>(comms(supabase).from('plans').select('message_id')
+    .eq('mode', 'shadow').gte('created_at', since))).map((p) => p.message_id))];
+  let query = comms(supabase).from('messages').select('id, inbox_id, thread_id, subject, received_at')
+    .in('inbox_id', wanted).in('status', ['handled', 'needs_human']).gte('received_at', since);
+  if (planned.length) query = query.not('id', 'in', `(${planned.join(',')})`);
+  const handled = await rows<Row>(query.order('received_at').limit(limit));
+  return handled
     .map((m) => ({ id: m.id, inbox_id: m.inbox_id, conversation_id: m.thread_id, subject: m.subject, received_at: m.received_at }));
 }
 

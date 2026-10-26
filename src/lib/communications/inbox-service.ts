@@ -972,13 +972,18 @@ export async function answerAgentQuestion(ctx: InboxContext, threadId: string, m
   const { error } = await comms(ctx.service).from('messages')
     .update({ status: 'new', reviewed_at: null, reviewed_by: null }).eq('id', target.id).neq('status', 'receiving');
   if (error) throw error;
-  // A plan's open question on the conversation is answered.
-  const { error: askError } = await comms(ctx.service).from('plan_items')
-    .update({ state: 'accepted', resolved_by: ctx.memberId, resolved_at: new Date().toISOString(), result: { answer } })
-    .eq('conversation_id', thread.id).eq('type', 'ask').eq('state', 'pending').eq('mode', 'live');
-  if (askError) throw askError;
-  const { data: asked } = await comms(ctx.service).from('messages').select('id, thread_id, inbox_id, subject').eq('id', target.id).single();
-  await syncWaitingNotification(ctx.service, asked as PlanMessage, await inboxAgentName(ctx.service, (asked as PlanMessage).inbox_id));
+  // A plan's open question on the conversation is answered. Bookkeeping only:
+  // the answer is stored and with the agent whatever happens here.
+  try {
+    const { error: askError } = await comms(ctx.service).from('plan_items')
+      .update({ state: 'accepted', resolved_by: ctx.memberId, resolved_at: new Date().toISOString(), result: { answer } })
+      .eq('conversation_id', thread.id).eq('type', 'ask').eq('state', 'pending').eq('mode', 'live');
+    if (askError) throw askError;
+    const { data: asked } = await comms(ctx.service).from('messages').select('id, thread_id, inbox_id, subject').eq('id', target.id).single();
+    await syncWaitingNotification(ctx.service, asked as PlanMessage, await inboxAgentName(ctx.service, (asked as PlanMessage).inbox_id));
+  } catch (bookkeeping) {
+    console.error('[inbox] answer: plan bookkeeping failed:', bookkeeping);
+  }
   return { message_id: target.id };
 }
 

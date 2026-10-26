@@ -32,7 +32,7 @@ export const POST = withApi<PlanRequest, { id: string }>(async ({ supabase, para
   const result = await submitPlan({ db: supabase, memberId: teamMemberId, access, channel: 'api', scopes, asPerson: false }, message, body, agentName);
   if (result.replayed) return success(result);
 
-  if (access.role === 'agent' && body.mode === 'live') {
+  if (access.role === 'agent' && result.plan.mode === 'live') {
     const count = (state: string) => result.items.filter((item) => item.state === state).length;
     const projectIds = [...new Set(result.items.map((item) => item.project_id as string | null).filter((id): id is string => !!id))];
     const payload = { message_id: message.id, thread_id: message.thread_id, outcome: 'plan', urgent: body.urgent, links: result.items.filter((i) => i.type === 'link_task' || i.type === 'create_task').length };

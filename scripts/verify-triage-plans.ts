@@ -369,6 +369,55 @@ async function main() {
     const [lapsed] = await q('SELECT state FROM communications.plan_items WHERE id = $1', [(staleProposal.body.data?.items as Row[])[0].id]);
     check('expiry: a proposal waiting over two weeks lapses quietly', expired.proposals >= 1 && lapsed.state === 'expired', [expired, lapsed]);
 
+    // ---- Review fixes -----------------------------------------------------------------------
+    // The inbox decides: a live plan on an inbox not switched to plans is recorded as shadow.
+    await q("UPDATE communications.inboxes SET triage_mode = 'shadow' WHERE id = $1", [ids.inbox]);
+    const shadowInbox = await message(db);
+    const forced = await plan(shadowInbox.message, { mode: 'live', summary: 'Asked live', items: [{ type: 'create_task', intent: 'new_work', project_id: ids.acme, title: 'Never made' }] });
+    const [neverMade] = await q("SELECT count(*)::int AS n FROM public.tasks WHERE title = 'Never made'");
+    check('mode: a live plan on a shadow inbox is recorded as shadow and applies nothing',
+      forced.body.data?.plan.mode === 'shadow' && (forced.body.data?.items as Row[])[0]?.state === 'skipped' && neverMade.n === 0, [forced.body, neverMade]);
+    await q("UPDATE communications.inboxes SET triage_mode = 'plans' WHERE id = $1", [ids.inbox]);
+
+    // Accepting needs the project: a member who cannot open Birch cannot approve work there.
+    const outside = await message(db);
+    const birchProposal = await plan(outside.message, { summary: 'Birch work', items: [{ type: 'create_task', intent: 'new_work', project_id: ids.birch, title: 'Birch only' }] });
+    const tomAccess = await resolveMemberAccess(service, ids.tom);
+    let refusedAccept = 0;
+    try {
+      await plans.acceptItem({ db: service, memberId: ids.tom, access: tomAccess!, channel: 'app', asPerson: true }, (birchProposal.body.data?.items as Row[])[0].id as string);
+    } catch (error) { refusedAccept = (error as { statusCode?: number }).statusCode ?? 0; }
+    const [birchOnly] = await q("SELECT count(*)::int AS n FROM public.tasks WHERE title = 'Birch only'");
+    check('accept: a member who cannot open the project cannot approve work on it', refusedAccept === 403 && birchOnly.n === 0, [refusedAccept, birchOnly]);
+
+    // A revert of something a person approved waits for them.
+    const teammateNote = await message(db, { teammate: ids.tom, from: 'tom@agency.example' });
+    const revertAccepted = await plan(teammateNote.message, { summary: 'Scrap it', items: [{ type: 'revert_item', intent: 'change', plan_item_id: contextItem.id }] });
+    check('revert: undoing what a person approved is proposed, not applied', (revertAccepted.body.data?.items as Row[])?.[0]?.decision === 'propose', revertAccepted.body);
+
+    // A message edits only the reminders its own conversation set.
+    const [otherReminder] = await q("INSERT INTO public.reminders (title, owner_id, created_by, source) VALUES ('Private', $1, $1, 'manual') RETURNING id", [ids.owner]);
+    const nosy = await message(db);
+    const tick = await plan(nosy.message, { summary: 'All sorted', items: [{ type: 'complete_reminder', intent: 'handoff', reminder_id: otherReminder.id }] });
+    check('reminders: a message cannot tick off a reminder its conversation did not set',
+      tick.status === 422 && tick.body.error?.details?.items?.[0]?.reason === 'reminder_not_on_this_conversation', tick.body);
+
+    // One live plan at a time per message.
+    const busy = await message(db);
+    await q("INSERT INTO communications.plans (message_id, conversation_id, mode, status, summary) VALUES ($1, $2, 'live', 'applying', 'Running')", [busy.message, busy.conversation]);
+    const overlapping = await plan(busy.message, { summary: 'Again', items: [] });
+    check('concurrency: a second live plan while one is applying is refused', overlapping.status === 409 && overlapping.body.error?.details?.reason === 'plan_in_progress', overlapping.body);
+
+    // Undoing an amendment puts the reply owed back as it was.
+    const amendFirst = await message(db);
+    const original = await plan(amendFirst.message, { summary: 'Asks the price', items: [{ type: 'reply_owed', intent: 'reply_owed', who: 'Dana', what: 'The price', kind: 'decision' }] });
+    const [originalPoint] = await q('SELECT id FROM communications.reply_points WHERE plan_item_id = $1', [(original.body.data?.items as Row[])[0].id]);
+    const amendSecond = await message(db, { conversation: amendFirst.conversation });
+    const amended = await plan(amendSecond.message, { summary: 'Asks again', items: [{ type: 'reply_owed', intent: 'reply_owed', point_id: originalPoint.id, who: 'Dana', what: 'The price, urgently', kind: 'decision', urgent: true }] });
+    await plans.undoItem(agent, (amended.body.data?.items as Row[])[0].id as string);
+    const [restored] = await q('SELECT what, urgent, state FROM communications.reply_points WHERE id = $1', [originalPoint.id]);
+    check('undo: undoing an amendment restores the reply owed, still open', restored.what === 'The price' && restored.urgent === false && restored.state === 'open', restored);
+
     // ---- Nobody signed in writes plans ------------------------------------------------------
     await db.exec(`RESET ROLE; INSERT INTO auth.users (id, email) VALUES ('${id(90)}', 'rae@agency.example')`);
     await db.query("SELECT set_config('request.jwt.claim.sub', $1, false)", [id(90)]);

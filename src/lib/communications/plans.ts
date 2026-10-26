@@ -151,7 +151,25 @@ async function prepare(actor: PlanActor, message: PlanMessage, facts: MessageFac
   const { db, access, channel } = actor;
   const items = body.items;
   const problems: { index: number; reason: string }[] = [];
-  const taskIds = items.flatMap((item) => (itemTaskId(item) ? [itemTaskId(item)!] : []));
+
+  // Earlier items a revert names: on this inbox, with the task each touched.
+  const revertIds = items.flatMap((item) => (item.type === 'revert_item' ? [item.plan_item_id] : []));
+  const { data: revertRows, error: revertError } = revertIds.length
+    ? await comms(db).from('plan_items').select('id, type, state, task_id, conversation_id').in('id', revertIds)
+    : { data: [], error: null };
+  if (revertError) throw revertError;
+  const revertConversations = [...new Set(((revertRows ?? []) as Row[]).map((row) => row.conversation_id as string))];
+  const { data: revertInboxRows, error: revertInboxError } = revertConversations.length
+    ? await comms(db).from('conversations').select('id, inbox_id').in('id', revertConversations)
+    : { data: [], error: null };
+  if (revertInboxError) throw revertInboxError;
+  const inboxOf = new Map(((revertInboxRows ?? []) as { id: string; inbox_id: string }[]).map((row) => [row.id, row.inbox_id]));
+  const reverts = new Map<string, Row & { inbox_id?: string }>(((revertRows ?? []) as Row[]).map((row) => [row.id as string, { ...row, inbox_id: inboxOf.get(row.conversation_id as string) }]));
+
+  const taskIds = [
+    ...items.flatMap((item) => (itemTaskId(item) ? [itemTaskId(item)!] : [])),
+    ...((revertRows ?? []) as Row[]).map((row) => row.task_id as string | null).filter((id): id is string => !!id),
+  ];
   const tasks = await loadTasks(db, taskIds);
 
   const projectIds = [...new Set(items.flatMap((item) => {
@@ -180,27 +198,20 @@ async function prepare(actor: PlanActor, message: PlanMessage, facts: MessageFac
   if (attachmentError) throw attachmentError;
   const ownAttachments = new Set(((attachmentRows ?? []) as { id: string }[]).map((row) => row.id));
 
-  // Earlier items a revert names: on this inbox.
-  const revertIds = items.flatMap((item) => (item.type === 'revert_item' ? [item.plan_item_id] : []));
-  const { data: revertRows, error: revertError } = revertIds.length
-    ? await comms(db).from('plan_items').select('id, type, state, task_id, conversation_id').in('id', revertIds)
-    : { data: [], error: null };
-  if (revertError) throw revertError;
-  const revertConversations = [...new Set(((revertRows ?? []) as Row[]).map((row) => row.conversation_id as string))];
-  const { data: revertInboxRows, error: revertInboxError } = revertConversations.length
-    ? await comms(db).from('conversations').select('id, inbox_id').in('id', revertConversations)
-    : { data: [], error: null };
-  if (revertInboxError) throw revertInboxError;
-  const inboxOf = new Map(((revertInboxRows ?? []) as { id: string; inbox_id: string }[]).map((row) => [row.id, row.inbox_id]));
-  const reverts = new Map<string, Row & { inbox_id?: string }>(((revertRows ?? []) as Row[]).map((row) => [row.id as string, { ...row, inbox_id: inboxOf.get(row.conversation_id as string) }]));
-
   // Reminders an item edits, leads it logs on, points it amends.
   const reminderIds = items.flatMap((item) => ('reminder_id' in item ? [item.reminder_id] : []));
   const { data: reminderRows, error: reminderError } = reminderIds.length
-    ? await db.from('reminders').select('id').in('id', reminderIds).is('deleted_at', null)
+    ? await db.from('reminders').select('id, source_message_id').in('id', reminderIds).is('deleted_at', null)
     : { data: [], error: null };
   if (reminderError) throw reminderError;
-  const reminders = new Set(((reminderRows ?? []) as { id: string }[]).map((row) => row.id));
+  // Only a reminder an email of this conversation set: a message never edits anyone else's.
+  const { data: threadRows, error: threadError } = reminderIds.length
+    ? await comms(db).from('messages').select('id').eq('thread_id', message.thread_id)
+    : { data: [], error: null };
+  if (threadError) throw threadError;
+  const threadMessages = new Set(((threadRows ?? []) as { id: string }[]).map((row) => row.id));
+  const reminders = new Set(((reminderRows ?? []) as { id: string; source_message_id: string | null }[])
+    .filter((row) => !!row.source_message_id && threadMessages.has(row.source_message_id)).map((row) => row.id));
   const leadIds = items.flatMap((item) => (item.type === 'log_interaction' ? [item.lead_id] : []));
   const { data: leadRows, error: leadError } = leadIds.length
     ? await db.from('leads').select('id').in('id', leadIds).is('deleted_at', null)
@@ -223,7 +234,7 @@ async function prepare(actor: PlanActor, message: PlanMessage, facts: MessageFac
     if (projectId && !projects.has(projectId)) problem('project_not_found');
     if (projectId && projects.has(projectId) && !accessAllowsProject(access, projectId, channel)) problem('project_scope_denied');
     if ('attachment_ids' in item && item.attachment_ids?.some((id) => !ownAttachments.has(id))) problem('attachment_not_on_this_message');
-    if ('reminder_id' in item && !reminders.has(item.reminder_id)) problem('reminder_not_found');
+    if ('reminder_id' in item && !reminders.has(item.reminder_id)) problem('reminder_not_on_this_conversation');
     if (item.type === 'log_interaction' && !leads.has(item.lead_id)) problem('lead_not_found');
     if (item.type === 'reply_owed' && item.point_id && !points.has(item.point_id)) problem('reply_point_not_on_this_conversation');
     if (item.type === 'revert_item') {
@@ -240,6 +251,9 @@ async function prepare(actor: PlanActor, message: PlanMessage, facts: MessageFac
 
     const task = taskId ? tasks.get(taskId) : undefined;
     const project = projectId ? projects.get(projectId) : undefined;
+    // Moving a task: its current project must be in reach and in scope too.
+    const moveFrom = item.type === 'update_task' && item.changes.project_id && task && item.changes.project_id !== task.project_id ? task.project_id : null;
+    if (moveFrom && !accessAllowsProject(access, moveFrom, channel)) problem('project_scope_denied');
     const changes = item.type === 'update_task' ? Object.keys(item.changes).filter((key) => (item.changes as Row)[key] !== undefined) : undefined;
     const revertTarget = item.type === 'revert_item' ? reverts.get(item.plan_item_id) : undefined;
     const revertTask = revertTarget?.task_id ? tasks.get(revertTarget.task_id as string) : undefined;
@@ -249,12 +263,13 @@ async function prepare(actor: PlanActor, message: PlanMessage, facts: MessageFac
       addressee: item.addressee,
       confidence: item.confidence,
       hasProject: !!projectId,
-      projectSource: projectId ? sources.get(projectId) ?? null : null,
+      projectSource: projectId && !(moveFrom && !sources.get(moveFrom)) ? sources.get(projectId) ?? null : null,
       projectStatus: project ? (project.archived_at ? 'archived' : project.status as 'active' | 'completed' | 'archived') : null,
       changes,
       changesPersonSet: task ? !task.agentMade || task.personTouched : undefined,
+      // A revert of something a person approved, or worked on since, waits for them.
       targetUntouched: item.type === 'revert_item'
-        ? (revertTask ? revertTask.agentMade && !revertTask.personTouched : true)
+        ? (revertTarget?.state === 'accepted' ? false : revertTask ? revertTask.agentMade && !revertTask.personTouched : true)
         : task ? task.agentMade && !task.personTouched : undefined,
       teammateOwnReview: !!task && facts.speaker === 'teammate' && !!facts.senderMemberId && task.assignees.includes(facts.senderMemberId),
     };
@@ -287,24 +302,35 @@ async function link(actor: PlanActor, message: PlanMessage, taskId: string, rela
 export async function applyItem(actor: PlanActor, message: PlanMessage, item: PlanItemRequest, existing: Row = {}): Promise<Row> {
   const { db, memberId, access } = actor;
   const owner = await ownerId(db);
+  // A retry of this item: what an earlier try already did, and since when to look.
+  const prior = (existing.result ?? {}) as Row;
+  const since = (existing.created_at as string | undefined) ?? new Date(0).toISOString();
+  const save = async (partial: Row) => {
+    if (!existing.id) return;
+    const { error } = await comms(db).from('plan_items').update({ result: partial, task_id: (partial.task_id as string | undefined) ?? null }).eq('id', existing.id as string);
+    if (error) throw error;
+  };
   switch (item.type) {
     case 'create_task': {
-      // A retry of an item whose task was made before the result was saved: find it, never make a second.
-      const { data: earlier } = await comms(db).from('task_links').select('task_id, task:tasks!inner(title, deleted_at)')
-        .eq('message_id', message.id).eq('relation', 'created').eq('task.title', item.title).is('task.deleted_at', null).limit(1);
-      const found = ((earlier ?? []) as { task_id: string }[])[0];
-      const canAssignOthers = accessAllows(access, 'tasks.manage_all', actor.channel);
-      const assignee = owner && canAssignOthers ? [owner] : undefined;
-      const task = found ? { id: found.task_id } : await createTaskAs({ supabase: db, memberId, access, canAssignOthers, channel: actor.channel }, {
-        project_id: item.project_id,
-        title: item.title,
-        description: item.description ?? '',
-        ...(item.due_date !== undefined ? { due_date: item.due_date } : {}),
-        ...(item.priority ? { priority: item.priority } : {}),
-        ...(assignee ? { assignee_ids: assignee } : {}),
-        source_note: message.subject ? `From the email "${message.subject}"` : 'From an email',
-      });
-      if (!found) await link(actor, message, task.id, 'created');
+      // A retry never makes a second task: the id is saved the moment the task exists.
+      let taskId = (prior.task_id as string | undefined) ?? null;
+      if (!taskId) {
+        const canAssignOthers = accessAllows(access, 'tasks.manage_all', actor.channel);
+        const assignee = owner && canAssignOthers ? [owner] : undefined;
+        const created = await createTaskAs({ supabase: db, memberId, access, canAssignOthers, channel: actor.channel }, {
+          project_id: item.project_id,
+          title: item.title,
+          description: item.description ?? '',
+          ...(item.due_date !== undefined ? { due_date: item.due_date } : {}),
+          ...(item.priority ? { priority: item.priority } : {}),
+          ...(assignee ? { assignee_ids: assignee } : {}),
+          source_note: message.subject ? `From the email "${message.subject}"` : 'From an email',
+        });
+        taskId = created.id as string;
+        await save({ task_id: taskId });
+      }
+      const task = { id: taskId };
+      await link(actor, message, task.id, 'created');
       const files: string[] = [];
       for (const attachmentId of item.attachment_ids ?? []) {
         const { file } = await addTaskFile(filesContext(actor), task.id, { email_attachment_id: attachmentId });
@@ -326,7 +352,11 @@ export async function applyItem(actor: PlanActor, message: PlanMessage, item: Pl
       return { task_id: item.task_id, before: previous, after: changes };
     }
     case 'comment': {
-      const comment = await insertComment(db, item.task_id, memberId, item.text);
+      const { data: same } = existing.id
+        ? await db.from('task_comments').select('id').eq('task_id', item.task_id).eq('user_id', memberId).eq('text', item.text)
+          .is('deleted_at', null).gte('created_at', since).limit(1)
+        : { data: [] };
+      const comment = ((same ?? []) as { id: string }[])[0] ?? await insertComment(db, item.task_id, memberId, item.text);
       await link(actor, message, item.task_id, 'updated');
       return { comment_id: comment.id, task_id: item.task_id };
     }
@@ -397,6 +427,11 @@ export async function applyItem(actor: PlanActor, message: PlanMessage, item: Pl
         if (updateError) throw updateError;
         return { point_id: item.point_id, before };
       }
+      const { data: same } = existing.id
+        ? await comms(db).from('reply_points').select('id').eq('plan_item_id', existing.id as string).limit(1)
+        : { data: [] };
+      const found = ((same ?? []) as { id: string }[])[0];
+      if (found) return { point_id: found.id };
       const { data, error } = await comms(db).from('reply_points').insert(fields).select('id').single();
       if (error) throw error;
       return { point_id: (data as { id: string }).id };
@@ -409,6 +444,9 @@ export async function applyItem(actor: PlanActor, message: PlanMessage, item: Pl
       return { conversation_id: message.thread_id };
     }
     case 'add_context': {
+      const { data: same } = await db.from('project_context').select('id').eq('project_id', item.project_id).eq('content', item.content).eq('is_active', true).limit(1);
+      const found = ((same ?? []) as { id: string }[])[0];
+      if (found) return { context_id: found.id };
       const { data, error } = await db.from('project_context')
         .insert({ project_id: item.project_id, category: item.category, content: item.content, source: 'agent', is_active: true })
         .select('id').single();
@@ -425,6 +463,11 @@ export async function applyItem(actor: PlanActor, message: PlanMessage, item: Pl
       return { table, id: ((data ?? []) as { id: string }[])[0]?.id ?? null };
     }
     case 'create_lead': {
+      const { data: same } = existing.id
+        ? await db.from('leads').select('id').eq('name', item.name).eq('created_by', memberId).is('deleted_at', null).gte('created_at', since).limit(1)
+        : { data: [] };
+      const found = ((same ?? []) as { id: string }[])[0];
+      if (found) return { lead_id: found.id };
       const { data, error } = await db.from('leads').insert({
         name: item.name, email: item.email ?? '', company: item.company ?? '', notes: item.notes ?? '',
         source: item.source ?? 'other', created_by: memberId,
@@ -433,6 +476,12 @@ export async function applyItem(actor: PlanActor, message: PlanMessage, item: Pl
       return { lead_id: (data as { id: string }).id };
     }
     case 'log_interaction': {
+      const { data: same } = existing.id
+        ? await db.from('lead_interactions').select('id').eq('lead_id', item.lead_id).eq('title', item.title).eq('created_by', memberId)
+          .is('deleted_at', null).gte('created_at', since).limit(1)
+        : { data: [] };
+      const found = ((same ?? []) as { id: string }[])[0];
+      if (found) return { interaction_id: found.id };
       const { data, error } = await db.from('lead_interactions').insert({
         lead_id: item.lead_id, type: item.kind, title: item.title, description: item.description ?? '',
         scheduled_at: item.scheduled_at ?? null, created_by: memberId,
@@ -459,9 +508,17 @@ export async function undoItem(actor: PlanActor, itemId: string): Promise<Row> {
   const result = item.result ?? {};
   const notes: Row = {};
   switch (item.type) {
-    case 'create_task':
+    case 'create_task': {
+      if (!actor.asPerson) {
+        const facts = (await loadTasks(db, [result.task_id as string])).get(result.task_id as string);
+        if (facts?.personTouched) {
+          notes.changed_since = true;
+          break;
+        }
+      }
       await moveToTrash(db, 'tasks', result.task_id as string, memberId);
       break;
+    }
     case 'comment':
       await moveToTrash(db, 'task_comments', result.comment_id as string, memberId);
       break;
@@ -496,8 +553,13 @@ export async function undoItem(actor: PlanActor, itemId: string): Promise<Row> {
       break;
     }
     case 'reply_owed': {
-      const { error: updateError } = await comms(db).from('reply_points').update({ state: 'resolved', resolved_by: memberId, resolved_at: new Date().toISOString() })
-        .eq('id', result.point_id as string);
+      // An amended point goes back to what it was; a new one is resolved.
+      const before = result.before as Row | undefined;
+      const patch = before
+        ? Object.fromEntries(['message_id', 'plan_item_id', 'project_id', 'who', 'what', 'kind', 'to_agent', 'note', 'by_when', 'urgent', 'state', 'resolved_by', 'resolved_at']
+          .map((key) => [key, before[key] ?? null]))
+        : { state: 'resolved', resolved_by: memberId, resolved_at: new Date().toISOString() };
+      const { error: updateError } = await comms(db).from('reply_points').update(patch).eq('id', result.point_id as string);
       if (updateError) throw updateError;
       break;
     }
@@ -624,6 +686,8 @@ export async function syncWaitingNotification(db: SupabaseClient, message: PlanM
   const { data: plans, error } = await comms(db).from('plans').select('id').eq('message_id', message.id).eq('mode', 'live');
   if (error) throw error;
   const planIds = ((plans ?? []) as { id: string }[]).map((p) => p.id);
+  // A message no plan handled is the older triage's: its notifications are not ours to touch.
+  if (!planIds.length) return;
   const [{ data: pending, error: pendingError }, { data: owed, error: owedError }] = await Promise.all([
     planIds.length ? comms(db).from('plan_items').select('type, payload').in('plan_id', planIds).eq('state', 'pending') : Promise.resolve({ data: [], error: null }),
     comms(db).from('reply_points').select('what').eq('message_id', message.id).eq('state', 'open').eq('to_agent', false),
@@ -674,21 +738,40 @@ async function applyPending(actor: PlanActor, message: PlanMessage, planId: stri
   }
 }
 
+/** A live plan still being applied, by another request, if one started in the last few minutes. */
+const APPLYING_GRACE_MS = 5 * 60_000;
+
 export async function submitPlan(actor: PlanActor, message: PlanMessage, body: PlanRequest, agentName: string): Promise<SubmittedPlan> {
   const { db } = actor;
+  // The inbox decides: only an inbox switched to plans applies a plan. Anything
+  // else (the older triage's inboxes, a shadow inbox) records it as shadow.
+  const { data: inbox, error: inboxError } = await comms(db).from('inboxes').select('triage_mode').eq('id', message.inbox_id).single();
+  if (inboxError) throw inboxError;
+  const mode: 'live' | 'shadow' = body.mode === 'live' && (inbox as { triage_mode: string }).triage_mode === 'plans' ? 'live' : 'shadow';
   const key = body.idempotency_key ?? null;
   const hash = planHash(body);
   if (key) {
-    const { data: prior, error } = await comms(db).from('plans').select('id, status, request_hash').eq('message_id', message.id).eq('mode', body.mode).eq('idempotency_key', key).maybeSingle();
+    const { data: prior, error } = await comms(db).from('plans').select('id, status, request_hash, created_at').eq('message_id', message.id).eq('mode', mode).eq('idempotency_key', key).maybeSingle();
     if (error) throw error;
     if (prior) {
-      if ((prior as Row).request_hash !== hash) {
-        throw new PlanError(409, 'CONFLICT', 'This idempotency_key was already used for a different plan of this message', { reason: 'idempotency_conflict', plan_id: (prior as Row).id });
+      const row = prior as Row;
+      if (row.request_hash !== hash) {
+        throw new PlanError(409, 'CONFLICT', 'This idempotency_key was already used for a different plan of this message', { reason: 'idempotency_conflict', plan_id: row.id });
       }
-      if (body.mode === 'live' && ['applying', 'partial'].includes((prior as Row).status as string)) {
-        await finishLive(actor, message, (prior as Row).id as string, body, agentName);
+      // Finish an interrupted plan; one another request is still applying is left to it.
+      const stale = Date.now() - Date.parse(row.created_at as string) > APPLYING_GRACE_MS;
+      if (mode === 'live' && (row.status === 'partial' || (row.status === 'applying' && stale))) {
+        await finishLive(actor, message, row.id as string, body, agentName);
       }
-      return { ...(await readPlan(db, (prior as Row).id as string)), replayed: true };
+      return { ...(await readPlan(db, row.id as string)), replayed: true };
+    }
+  }
+  if (mode === 'live') {
+    const { data: running, error: runningError } = await comms(db).from('plans').select('id').eq('message_id', message.id).eq('mode', 'live')
+      .eq('status', 'applying').gte('created_at', new Date(Date.now() - APPLYING_GRACE_MS).toISOString()).limit(1);
+    if (runningError) throw runningError;
+    if ((running ?? []).length) {
+      throw new PlanError(409, 'CONFLICT', 'A plan for this message is still being applied', { reason: 'plan_in_progress', plan_id: (running as Row[])[0].id });
     }
   }
 
@@ -698,8 +781,8 @@ export async function submitPlan(actor: PlanActor, message: PlanMessage, body: P
     message_id: message.id,
     conversation_id: message.thread_id,
     member_id: actor.memberId,
-    mode: body.mode,
-    status: body.mode === 'shadow' ? 'applied' : 'applying',
+    mode,
+    status: mode === 'shadow' ? 'applied' : 'applying',
     summary: body.summary,
     thread_summary: body.thread_summary ?? null,
     urgent: body.urgent,
@@ -709,8 +792,11 @@ export async function submitPlan(actor: PlanActor, message: PlanMessage, body: P
     request_hash: key ? hash : null,
   }).select('id').single();
   if (planError) {
-    // A concurrent retry with the same key stored it first.
-    if ((planError as { code?: string }).code === '23505' && key) return submitPlan(actor, message, body, agentName);
+    // A concurrent retry with the same key stored it first: that request applies it.
+    if ((planError as { code?: string }).code === '23505' && key) {
+      const { data: winner } = await comms(db).from('plans').select('id').eq('message_id', message.id).eq('mode', mode).eq('idempotency_key', key).single();
+      return { ...(await readPlan(db, (winner as Row).id as string)), replayed: true };
+    }
     throw planError;
   }
   const planId = (plan as { id: string }).id;
@@ -718,7 +804,7 @@ export async function submitPlan(actor: PlanActor, message: PlanMessage, body: P
     plan_id: planId,
     position,
     conversation_id: message.thread_id,
-    mode: body.mode,
+    mode,
     type: p.item.type,
     intent: p.item.intent,
     project_id: p.projectId,
@@ -731,7 +817,7 @@ export async function submitPlan(actor: PlanActor, message: PlanMessage, body: P
     decision: p.decision,
     decision_reason: p.reason,
     // An applied question waits for its answer.
-    state: body.mode === 'shadow' ? 'skipped' : p.item.type === 'ask' && p.decision !== 'reject' ? 'pending' : STATE_OF[p.decision],
+    state: mode === 'shadow' ? 'skipped' : p.item.type === 'ask' && p.decision !== 'reject' ? 'pending' : STATE_OF[p.decision],
   })));
   if (itemsError) {
     await comms(db).from('plans').delete().eq('id', planId);
@@ -741,7 +827,7 @@ export async function submitPlan(actor: PlanActor, message: PlanMessage, body: P
     }
     throw itemsError;
   }
-  if (body.mode === 'live') await finishLive(actor, message, planId, body, agentName);
+  if (mode === 'live') await finishLive(actor, message, planId, body, agentName);
   return readPlan(db, planId);
 }
 
@@ -799,11 +885,33 @@ export async function loadPlanItem(db: SupabaseClient, itemId: string): Promise<
   return { item: row, message: message as PlanMessage };
 }
 
+/** What a proposal touches (its project, its task's project, a reminder) must be in the person's reach. */
+async function assertCanReach(actor: PlanActor, item: PlanItemRequest): Promise<void> {
+  const denied = () => new PlanError(403, 'FORBIDDEN', 'You cannot open what this would change');
+  const taskId = itemTaskId(item);
+  const tasks = await loadTasks(actor.db, taskId ? [taskId] : []);
+  if (taskId) {
+    const task = tasks.get(taskId);
+    if (!task) throw new PlanError(404, 'NOT_FOUND', 'That task no longer exists');
+    if (!accessAllowsProject(actor.access, task.project_id, actor.channel)) throw denied();
+  }
+  const projectId = itemProject(item, tasks);
+  if (projectId && !accessAllowsProject(actor.access, projectId, actor.channel)) throw denied();
+  if ('reminder_id' in item) {
+    const { data: reminder } = await actor.db.from('reminders').select('owner_id, created_by, project_id').eq('id', item.reminder_id).maybeSingle();
+    const row = reminder as { owner_id: string; created_by: string | null; project_id: string | null } | null;
+    if (!row) throw new PlanError(404, 'NOT_FOUND', 'That reminder no longer exists');
+    const reach = row.owner_id === actor.memberId || row.created_by === actor.memberId || (!!row.project_id && accessAllowsProject(actor.access, row.project_id, actor.channel));
+    if (!reach) throw denied();
+  }
+}
+
 /** A person accepts a proposal (optionally edited): applied as theirs. */
 export async function acceptItem(actor: PlanActor, itemId: string, edits: Partial<PlanItemRequest> = {}, agentName = ''): Promise<Row> {
   const { item, message } = await loadPlanItem(actor.db, itemId);
   if (item.state !== 'pending' || item.type === 'ask') throw new PlanError(409, 'CONFLICT', 'Only a waiting proposal can be accepted', { reason: 'not_pending', state: item.state });
   const payload = { ...(item.payload as Row), ...edits } as PlanItemRequest;
+  await assertCanReach(actor, payload);
   const result = await applyItem({ ...actor, asPerson: true }, message, payload, item);
   const { error } = await comms(actor.db).from('plan_items').update({
     state: 'accepted', result, payload, error: null, task_id: (result.task_id as string | undefined) ?? (item.task_id as string | null) ?? null,
