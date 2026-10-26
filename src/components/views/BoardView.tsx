@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect, type ReactNode } from 'react';
 import { ChevronUp } from 'lucide-react';
 import { Task } from '@/lib/types';
 import { TaskCard } from '@/components/tasks/TaskCard';
@@ -14,17 +14,32 @@ import { useFillHeight } from '@/lib/use-fill-height';
 const SCROLL_EDGE_PX = 72;
 const SCROLL_MAX_STEP_PX = 16;
 
-// Backlog lives in a tray pinned to the bottom of To Do: tasks kept for later
-// that nobody has committed to. It is folded until opened, and remembers
-// how it was left. Holding a dragged card over the folded bar opens it, so a
-// card can be dropped at an exact spot instead of only at the top.
+// Two columns end in a footer that folds a second list away. Backlog, under
+// To Do, holds tasks kept for later that nobody has committed to; holding a
+// dragged card over its folded bar opens it, so a card can be dropped at an
+// exact spot instead of only at the top. Archive, under Done, holds what was
+// finished more than a week ago: it fills itself, so cards leave it but are
+// never dropped into it. Each remembers whether it was left open.
 const BACKLOG_OPEN_KEY = 'board.backlog-open';
+const ARCHIVE_OPEN_KEY = 'board.archive-open';
 const BACKLOG_SPRING_MS = 650;
+const ARCHIVE_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
 
-function savedBacklogOpen(): boolean {
+function savedOpen(key: string): boolean {
   if (typeof window === 'undefined') return false;
-  try { return window.localStorage.getItem(BACKLOG_OPEN_KEY) === '1'; } catch { return false; }
+  try { return window.localStorage.getItem(key) === '1'; } catch { return false; }
 }
+
+function rememberOpen(key: string, open: boolean) {
+  try { window.localStorage.setItem(key, open ? '1' : '0'); } catch { /* not remembered */ }
+}
+
+/** When a done task was finished; older rows without a stamp use their last edit. */
+function finishedAt(task: Task): number {
+  return new Date(task.completed_at ?? task.updated_at).getTime();
+}
+
+const bySortOrder = (a: Task, b: Task) => (a.sort_order ?? 0) - (b.sort_order ?? 0);
 
 export const BOARD_COLUMNS = [
   { id: 'todo', title: 'To Do', color: 'bg-zinc-400' },
@@ -62,6 +77,95 @@ function DropLine({ edge }: { edge: 'top' | 'bottom' }) {
   );
 }
 
+interface ColumnFooterProps {
+  /** id of the list it opens, for aria-controls. */
+  listId: string;
+  label: string;
+  /** The status dot, built like a column header's one step down. */
+  dot: string;
+  count: number;
+  open: boolean;
+  animates: boolean;
+  onToggle: () => void;
+  /** Open height on desktop (a flex-basis class). */
+  openBasis: string;
+  /** A held card is over it and will land in it. */
+  dropping?: boolean;
+  /** A card is in hand that it would take. */
+  inviting?: boolean;
+  /** Replaces the label while dropping onto the folded bar. */
+  dropLabel?: string;
+  dragHandlers?: Pick<React.HTMLAttributes<HTMLDivElement>, 'onDragOver' | 'onDragLeave' | 'onDrop'>;
+  scrollRef?: (el: HTMLDivElement | null) => void;
+  children: ReactNode;
+}
+
+/** A footer flush with the bottom of a column that opens upward into a
+ *  second, separately scrolled list of cards. */
+function ColumnFooter({
+  listId, label, dot, count, open, animates, onToggle, openBasis,
+  dropping = false, inviting = false, dropLabel, dragHandlers, scrollRef, children,
+}: ColumnFooterProps) {
+  const showDropLabel = dropping && !open && !!dropLabel;
+  return (
+    <div
+      {...dragHandlers}
+      // The negative margins undo the column's side padding so it runs edge
+      // to edge.
+      className={`flex flex-col min-h-0 overflow-hidden -mx-2 lg:-mx-3 rounded-b-xl border-t ${
+        animates ? 'transition-[flex-basis,background-color,border-color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none' : ''
+      } ${
+        open ? `lg:shrink ${openBasis}` : 'shrink-0 lg:basis-11'
+      } ${
+        dropping
+          ? 'bg-brand-500/15 border-brand-300/60'
+          : inviting
+            ? 'bg-white/[0.03] border-brand-500/40'
+            : open
+              ? 'bg-black/15 border-white/[0.08]'
+              : 'bg-white/[0.02] border-white/[0.06] hover:bg-white/[0.04]'
+      }`}
+    >
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        aria-controls={listId}
+        className="group flex h-11 flex-shrink-0 items-center gap-2 px-3 lg:px-4 text-left focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand-500"
+      >
+        <span className={`w-2.5 h-2.5 rounded-full transition-colors ${dot}`} aria-hidden="true" />
+        <span className={`text-sm font-semibold ${dropping ? 'text-brand-200' : 'text-zinc-200 group-hover:text-zinc-100 transition-colors'}`}>
+          {showDropLabel ? dropLabel : label}
+        </span>
+        {!showDropLabel && (
+          <span className="text-xs text-zinc-400 bg-white/[0.06] px-1.5 py-0.5 rounded tabular-nums">
+            {count}
+            <span className="sr-only"> {count === 1 ? 'task' : 'tasks'}</span>
+          </span>
+        )}
+        <ChevronUp
+          size={14}
+          className={`ml-auto text-zinc-500 group-hover:text-zinc-300 transition-transform duration-300 motion-reduce:transition-none ${open ? 'rotate-180' : ''}`}
+          aria-hidden="true"
+        />
+      </button>
+
+      {open && (
+        // Same side padding as the column, so these cards line up with the
+        // column's cards above them.
+        <div id={listId} className="flex-1 min-h-0 flex flex-col px-2 lg:px-3 animate-fadeIn">
+          <div
+            ref={scrollRef}
+            className="flex-1 min-h-0 overflow-y-auto max-h-[50vh] lg:max-h-none pt-2.5 pb-6 [mask-image:linear-gradient(to_bottom,#000_calc(100%-1.5rem),transparent)] board-column-scroll"
+          >
+            {children}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function BoardView({ tasks, onViewTask, onDeleteTask, onStatusChange, onReorder }: BoardViewProps) {
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
   const [dropIndicator, setDropIndicator] = useState<DropIndicator | null>(null);
@@ -75,15 +179,20 @@ export function BoardView({ tasks, onViewTask, onDeleteTask, onStatusChange, onR
   const dragPointerRef = useRef<{ x: number; y: number } | null>(null);
   const autoScrollRafRef = useRef<number | null>(null);
   const [backlogOpen, setBacklogOpen] = useState(false);
-  // Off for the first frame, so a tray left open does not slide open again on
-  // every page load.
+  const [archiveOpen, setArchiveOpen] = useState(false);
+  // Off for the first frame, so a footer left open does not slide open again
+  // on every page load.
   const [trayAnimates, setTrayAnimates] = useState(false);
   const springTimerRef = useRef<number | null>(null);
+  // Where Done ends and Archive begins, fixed for the life of the board so a
+  // card does not jump between them while it is on screen.
+  const [archiveBefore] = useState(() => Date.now() - ARCHIVE_AFTER_MS);
 
   // Read after mount: the server render has no storage, and reading it during
   // the first render would not match the HTML it sent.
   useEffect(() => {
-    setBacklogOpen(savedBacklogOpen());
+    setBacklogOpen(savedOpen(BACKLOG_OPEN_KEY));
+    setArchiveOpen(savedOpen(ARCHIVE_OPEN_KEY));
     const frame = requestAnimationFrame(() => setTrayAnimates(true));
     return () => cancelAnimationFrame(frame);
   }, []);
@@ -91,8 +200,15 @@ export function BoardView({ tasks, onViewTask, onDeleteTask, onStatusChange, onR
   const toggleBacklog = useCallback((open?: boolean) => {
     setBacklogOpen(prev => {
       const next = open ?? !prev;
-      try { window.localStorage.setItem(BACKLOG_OPEN_KEY, next ? '1' : '0'); } catch { /* not remembered */ }
+      rememberOpen(BACKLOG_OPEN_KEY, next);
       return next;
+    });
+  }, []);
+
+  const toggleArchive = useCallback(() => {
+    setArchiveOpen(prev => {
+      rememberOpen(ARCHIVE_OPEN_KEY, !prev);
+      return !prev;
     });
   }, []);
 
@@ -197,11 +313,21 @@ export function BoardView({ tasks, onViewTask, onDeleteTask, onStatusChange, onR
 
   useEffect(() => endDrag, [endDrag]);
 
+  // The cards a column shows: for Done, only what was finished this week.
   const getColumnTasks = useCallback((columnId: string) => {
     return tasks
-      .filter(t => t.status === columnId)
-      .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
-  }, [tasks]);
+      .filter(t => t.status === columnId && (columnId !== 'done' || finishedAt(t) >= archiveBefore))
+      .sort(bySortOrder);
+  }, [tasks, archiveBefore]);
+
+  // A drop position counts the cards Done shows, but the move places the task
+  // among every done task: land before the same neighbour there, or at the end.
+  const toColumnIndex = (columnId: string, taskId: string, visibleIndex: number) => {
+    if (columnId !== 'done') return visibleIndex;
+    const anchor = getColumnTasks('done').filter(t => t.id !== taskId)[visibleIndex];
+    const all = tasks.filter(t => t.status === 'done' && t.id !== taskId).sort(bySortOrder);
+    return anchor ? all.findIndex(t => t.id === anchor.id) : all.length;
+  };
 
   const handleDragStart = (e: React.DragEvent, taskId: string) => {
     draggedTaskIdRef.current = taskId;
@@ -308,27 +434,30 @@ export function BoardView({ tasks, onViewTask, onDeleteTask, onStatusChange, onR
       if (!onReorder || !indicator || indicator.columnId !== columnId) return;
       const columnTasks = getColumnTasks(columnId);
       const currentIndex = columnTasks.findIndex(t => t.id === taskId);
+      // A card from Archive dropped back on Done: it stays where it is.
+      if (currentIndex === -1) return;
       let targetIndex = indicator.index;
       // Dragging downward: the card's own slot closes up before it lands.
       if (currentIndex < targetIndex) targetIndex--;
       if (currentIndex !== targetIndex && targetIndex >= 0) {
-        onReorder(taskId, targetIndex);
+        onReorder(taskId, toColumnIndex(columnId, taskId, targetIndex));
       }
     } else if (onStatusChange) {
       const columnTasks = getColumnTasks(columnId);
       const targetIndex = indicator?.columnId === columnId ? indicator.index : columnTasks.length;
-      onStatusChange(taskId, columnId as Task['status'], targetIndex);
+      onStatusChange(taskId, columnId as Task['status'], toColumnIndex(columnId, taskId, targetIndex));
     }
   };
 
   const moveTask = onStatusChange
-    ? (taskId: string, status: Task['status']) => onStatusChange(taskId, status, getColumnTasks(status).length)
+    ? (taskId: string, status: Task['status']) => onStatusChange(taskId, status, tasks.filter(t => t.status === status).length)
     : undefined;
 
   const isDragging = draggedTaskId !== null;
   const draggedTask = isDragging ? tasks.find(t => t.id === draggedTaskId) : null;
 
-  const renderCards = (listId: Task['status'], listTasks: Task[], indicatorIndex: number | null) => (
+  // listId null: the cards can be dragged out but nothing lands between them.
+  const renderCards = (listId: Task['status'] | null, listTasks: Task[], indicatorIndex: number | null) => (
     <ul className="space-y-3">
       {listTasks.map((task, idx) => (
         <li
@@ -337,7 +466,7 @@ export function BoardView({ tasks, onViewTask, onDeleteTask, onStatusChange, onR
           draggable
           onDragStart={(e) => handleDragStart(e, task.id)}
           onDragEnd={endDrag}
-          onDragOver={(e) => handleCardDragOver(e, listId, idx)}
+          onDragOver={listId ? (e) => handleCardDragOver(e, listId, idx) : undefined}
           className={`relative transition-opacity duration-150 ${draggedTaskId === task.id ? 'opacity-40' : ''}`}
         >
           {indicatorIndex === idx && <DropLine edge="top" />}
@@ -358,6 +487,10 @@ export function BoardView({ tasks, onViewTask, onDeleteTask, onStatusChange, onR
   const shelving = isDragging && dropIndicator?.columnId === 'backlog' && draggedTask?.status !== 'backlog';
   // While a committed card is in hand, the folded bar hints that it takes drops.
   const backlogInvites = isDragging && !backlogOpen && draggedTask?.status !== 'backlog';
+  // Most recently finished first: the order anyone looks for something by.
+  const archiveTasks = tasks
+    .filter(t => t.status === 'done' && finishedAt(t) < archiveBefore)
+    .sort((a, b) => finishedAt(b) - finishedAt(a));
 
   return (
     <div
@@ -428,88 +561,62 @@ export function BoardView({ tasks, onViewTask, onDeleteTask, onStatusChange, onR
                   </div>
                 ) : (
                   <div className="py-8 text-center">
-                    <p className="text-sm text-zinc-500">No tasks</p>
+                    <p className="text-sm text-zinc-500">
+                      {column.id === 'done' && archiveTasks.length > 0 ? 'Nothing finished this week' : 'No tasks'}
+                    </p>
                   </div>
                 )
               )}
             </div>
 
             {column.id === 'todo' && (
-              <div
-                onDragOver={handleBacklogDragOver}
-                onDragLeave={handleBacklogDragLeave}
-                onDrop={handleBacklogDrop}
-                // A footer flush with the column: the negative margins undo
-                // the column's side padding so it runs edge to edge.
-                className={`flex flex-col min-h-0 overflow-hidden -mx-2 lg:-mx-3 rounded-b-xl border-t ${
-                  trayAnimates ? 'transition-[flex-basis,background-color,border-color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none' : ''
-                } ${
-                  // With To Do empty the tray takes most of the column, leaving
-                  // To Do just enough room to drop a card into. An empty
-                  // backlog only needs room for its hint.
-                  backlogOpen
-                    ? `lg:shrink ${backlogTasks.length === 0 ? 'lg:basis-44' : columnTasks.length === 0 ? 'lg:basis-[72%]' : 'lg:basis-[58%]'}`
-                    : 'shrink-0 lg:basis-11'
-                } ${
-                  shelving
-                    ? 'bg-brand-500/15 border-brand-300/60'
-                    : backlogInvites
-                      ? 'bg-white/[0.03] border-brand-500/40'
-                      : backlogOpen
-                        ? 'bg-black/15 border-white/[0.08]'
-                        : 'bg-white/[0.02] border-white/[0.06] hover:bg-white/[0.04]'
-                }`}
+              <ColumnFooter
+                listId="board-backlog"
+                label="Backlog"
+                dropLabel="Drop to move to backlog"
+                // The backlog status dot: dashed, as in List and the status pickers.
+                dot={`border border-dashed ${shelving ? 'border-brand-300' : 'border-zinc-400'}`}
+                count={backlogTasks.length}
+                open={backlogOpen}
+                animates={trayAnimates}
+                onToggle={() => toggleBacklog()}
+                // With To Do empty the backlog takes most of the column, leaving
+                // To Do just enough room to drop a card into. An empty backlog
+                // only needs room for its hint.
+                openBasis={backlogTasks.length === 0 ? 'lg:basis-44' : columnTasks.length === 0 ? 'lg:basis-[72%]' : 'lg:basis-[58%]'}
+                dropping={shelving}
+                inviting={backlogInvites}
+                dragHandlers={{ onDragOver: handleBacklogDragOver, onDragLeave: handleBacklogDragLeave, onDrop: handleBacklogDrop }}
+                scrollRef={(el) => { scrollAreasRef.current.backlog = el; }}
               >
-                <button
-                  type="button"
-                  onClick={() => toggleBacklog()}
-                  aria-expanded={backlogOpen}
-                  aria-controls="board-backlog"
-                  className="group flex h-11 flex-shrink-0 items-center gap-2 px-3 lg:px-4 text-left focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand-500"
-                >
-                  {/* Built like a column header one step down: the backlog
-                      status dot (dashed, as in List and the status pickers),
-                      the name, the count. */}
-                  <span
-                    className={`w-2.5 h-2.5 rounded-full border border-dashed transition-colors ${shelving ? 'border-brand-300' : 'border-zinc-400'}`}
-                    aria-hidden="true"
-                  />
-                  <span className={`text-sm font-semibold ${shelving ? 'text-brand-200' : 'text-zinc-200 group-hover:text-zinc-100 transition-colors'}`}>
-                    {shelving && !backlogOpen ? 'Drop to move to backlog' : 'Backlog'}
-                  </span>
-                  {!(shelving && !backlogOpen) && (
-                    <span className="text-xs text-zinc-400 bg-white/[0.06] px-1.5 py-0.5 rounded tabular-nums">
-                      {backlogTasks.length}
-                      <span className="sr-only"> {backlogTasks.length === 1 ? 'task' : 'tasks'}</span>
-                    </span>
-                  )}
-                  <ChevronUp
-                    size={14}
-                    className={`ml-auto text-zinc-500 group-hover:text-zinc-300 transition-transform duration-300 motion-reduce:transition-none ${backlogOpen ? 'rotate-180' : ''}`}
-                    aria-hidden="true"
-                  />
-                </button>
-
-                {backlogOpen && (
-                  // Same side padding as the column, so backlog cards line up
-                  // with the To Do cards above them.
-                  <div id="board-backlog" className="flex-1 min-h-0 flex flex-col px-2 lg:px-3 animate-fadeIn">
-                    <div
-                      ref={(el) => { scrollAreasRef.current.backlog = el; }}
-                      className="flex-1 min-h-0 overflow-y-auto max-h-[50vh] lg:max-h-none pt-2.5 pb-6 [mask-image:linear-gradient(to_bottom,#000_calc(100%-1.5rem),transparent)] board-column-scroll"
-                    >
-                      {backlogTasks.length > 0
-                        ? renderCards('backlog', backlogTasks, backlogIndicator)
-                        : (
-                          <div className="py-4 px-4 text-center">
-                            <p className="text-sm text-zinc-400">Nothing saved for later</p>
-                            <p className="mt-1 text-xs text-zinc-500">Drag a task here to keep it without committing to it.</p>
-                          </div>
-                        )}
+                {backlogTasks.length > 0
+                  ? renderCards('backlog', backlogTasks, backlogIndicator)
+                  : (
+                    <div className="py-4 px-4 text-center">
+                      <p className="text-sm text-zinc-400">Nothing saved for later</p>
+                      <p className="mt-1 text-xs text-zinc-500">Drag a task here to keep it without committing to it.</p>
                     </div>
-                  </div>
-                )}
-              </div>
+                  )}
+              </ColumnFooter>
+            )}
+
+            {/* Nothing old enough yet, no footer: it takes no drops, so an
+                empty one would only be noise. */}
+            {column.id === 'done' && archiveTasks.length > 0 && (
+              <ColumnFooter
+                listId="board-archive"
+                label="Archive"
+                // Done's dot, quieter: still done, just not this week.
+                dot="bg-emerald-500/40"
+                count={archiveTasks.length}
+                open={archiveOpen}
+                animates={trayAnimates}
+                onToggle={toggleArchive}
+                openBasis={columnTasks.length === 0 ? 'lg:basis-[72%]' : 'lg:basis-[58%]'}
+                scrollRef={(el) => { scrollAreasRef.current.archive = el; }}
+              >
+                {renderCards(null, archiveTasks, null)}
+              </ColumnFooter>
             )}
           </section>
         );
