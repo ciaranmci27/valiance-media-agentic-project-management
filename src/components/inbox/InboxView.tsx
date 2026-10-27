@@ -499,8 +499,8 @@ export function InboxView({ projectId, embedded = false, emptyState, searchQuery
 
   return (
     <div
-      className={embedded ? 'min-h-0 flex-1 overflow-hidden' : 'glass-card overflow-hidden rounded-xl'}
-      style={embedded ? undefined : { height: 'calc(100dvh - 150px)', minHeight: 520 }}
+      // On the Inbox page it fills the space under the header (the page is a full-height column).
+      className={embedded ? 'min-h-0 flex-1 overflow-hidden' : 'glass-card min-h-[520px] flex-1 overflow-hidden rounded-xl'}
     >
       <SenderRulesManager isOpen={rulesOpen} onClose={() => setRulesOpen(false)} onChanged={() => void load({ mode: 'refresh' })} />
       {neverHadEmail ? (embedded ? emptyState : <InboxEmptyState inboxes={inboxes} />) : (

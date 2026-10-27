@@ -44,6 +44,11 @@ export interface SelectProps {
   helperText?: string;
   error?: string;
   disabled?: boolean;
+  /**
+   * Shown as unavailable and ignores input, but keeps focus: for a field
+   * whose change is saving, so the keyboard stays where it was.
+   */
+  ariaDisabled?: boolean;
   required?: boolean;
   name?: string;
   id?: string;
@@ -75,6 +80,7 @@ export const Select = forwardRef<HTMLButtonElement, SelectProps>(function Select
     description,
     error,
     disabled,
+    ariaDisabled,
     required,
     name,
     id,
@@ -181,7 +187,7 @@ export const Select = forwardRef<HTMLButtonElement, SelectProps>(function Select
     });
   const show = () => {
     preparePopup();
-    if (disabled) return;
+    if (disabled || ariaDisabled) return;
     setQuery('');
     // Every group opens except those marked closed; the chosen value's group always opens.
     const initial = new Set(
@@ -365,6 +371,7 @@ export const Select = forwardRef<HTMLButtonElement, SelectProps>(function Select
           aria-controls={open ? listId : undefined}
           aria-describedby={describedBy}
           aria-invalid={!!error || undefined}
+          aria-disabled={ariaDisabled || undefined}
           disabled={disabled}
           onClick={() => (open ? close() : show())}
           onKeyDown={(event) => {
@@ -373,7 +380,7 @@ export const Select = forwardRef<HTMLButtonElement, SelectProps>(function Select
               show();
             }
           }}
-          className={`${fieldClass} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-input-ring disabled:opacity-50 disabled:cursor-not-allowed ${open ? 'ring-2 ring-input-ring' : ''}`}
+          className={`${fieldClass} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-input-ring disabled:opacity-50 disabled:cursor-not-allowed aria-disabled:opacity-50 aria-disabled:cursor-not-allowed ${open ? 'ring-2 ring-input-ring' : ''}`}
         >
           {children || (
             <span

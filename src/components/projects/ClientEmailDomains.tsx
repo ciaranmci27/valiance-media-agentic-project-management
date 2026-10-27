@@ -118,14 +118,14 @@ export function ClientEmailDomains({ isOpen, projectId }: ClientEmailDomainsProp
         <div className="flex items-center gap-2">
           <Globe size={14} className="text-zinc-400 flex-shrink-0" aria-hidden="true" />
           <h4 id={`${inputId}-heading`} className="text-sm font-medium text-white">
-            Client email domains <span className="font-normal text-zinc-400">(optional)</span>
+            Client domains <span className="font-normal text-zinc-400">(optional)</span>
           </h4>
           {loading && (
             <Loader2 size={14} className="text-zinc-500 animate-spin motion-reduce:animate-none" aria-label="Loading domains" role="status" />
           )}
         </div>
         <p className="text-xs text-zinc-400">
-          Mail from anyone at these domains maps to this project. Public services like gmail.com can&apos;t be added here; add the exact address above.
+          Mail from anyone at these domains goes to this project. Public services like gmail.com can&apos;t be added here; add the exact address above.
         </p>
       </div>
 

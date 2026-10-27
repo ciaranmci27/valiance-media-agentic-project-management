@@ -3666,7 +3666,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (!response.ok) throw new Error(payload.error || 'Failed to create API key');
       const { key, secret } = payload.data as { key: ApiKey; secret: string };
       setApiKeys(prev => [key, ...prev]);
-      notify(adminMemberIds(), `New API key created: "${name}"`, `${actorName()} generated an API key.`, '/settings', 'member', null, 'api_keys');
+      notify(adminMemberIds(), `New API key created: "${name}"`, `${actorName()} generated an API key.`, '/settings/developers#api-keys', 'member', null, 'api_keys');
       return secret;
     } catch (err) {
       toast('error', err instanceof Error ? err.message : 'Failed to create API key');
@@ -3687,7 +3687,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const revoked = payload.data as ApiKey;
       setApiKeys(keys => keys.map(k => k.id === id ? revoked : k));
       if (existing) {
-        notify(adminMemberIds(), `API key revoked: "${existing.name}"`, `${actorName()} revoked an API key.`, '/settings', 'member', null, 'api_keys');
+        notify(adminMemberIds(), `API key revoked: "${existing.name}"`, `${actorName()} revoked an API key.`, '/settings/developers#api-keys', 'member', null, 'api_keys');
       }
     } catch (err) {
       setApiKeys(rollbackScope(prev, k => k.id === id));
@@ -3706,7 +3706,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (!response.ok) throw new Error(payload.error || 'Failed to update API key');
     const updated = payload.data as ApiKey;
     setApiKeys(keys => keys.map(k => k.id === id ? updated : k));
-    notify(adminMemberIds(), `API key edited: "${updated.name}"`, `${actorName()} changed an API key's name or scopes.`, '/settings', 'member', null, 'api_keys');
+    notify(adminMemberIds(), `API key edited: "${updated.name}"`, `${actorName()} changed an API key's name or scopes.`, '/settings/developers#api-keys', 'member', null, 'api_keys');
     return updated;
   };
 

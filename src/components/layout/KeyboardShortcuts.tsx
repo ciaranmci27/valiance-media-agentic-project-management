@@ -75,7 +75,7 @@ export function KeyboardShortcuts() {
           l: '/leads',
           c: '/contacts',
           t: '/team',
-          s: '/settings',
+          s: '/settings/account',
         };
 
         if (routes[key] && pathname !== routes[key]) {

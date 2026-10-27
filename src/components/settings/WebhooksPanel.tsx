@@ -395,9 +395,9 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
 
       {/* Endpoints list */}
       {loading ? (
-        <p className="text-sm text-zinc-500">Loading…</p>
+        <p className="text-sm text-zinc-400">Loading…</p>
       ) : endpoints.length === 0 ? (
-        <p className="text-sm text-zinc-500">
+        <p className="text-sm text-zinc-400">
           No webhook endpoints yet. Create one to start relaying events.
         </p>
       ) : (
@@ -412,7 +412,7 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
                   <div className="flex items-center gap-2">
                     <span className="font-medium text-white truncate">{endpoint.name}</span>
                     {!endpoint.is_active && (
-                      <span className="text-[11px] uppercase tracking-wide text-zinc-500 border border-white/[0.1] rounded px-1.5 py-0.5">
+                      <span className="text-[11px] uppercase tracking-wide text-zinc-400 border border-white/[0.1] rounded px-1.5 py-0.5">
                         Paused
                       </span>
                     )}
@@ -428,7 +428,7 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
                       </span>
                     ))}
                   </div>
-                  <p className="text-[11px] text-zinc-500 mt-2">
+                  <p className="text-[11px] text-zinc-400 mt-2">
                     Last delivery: {formatWhen(endpoint.last_delivery_at)}
                   </p>
                   <Select
@@ -504,13 +504,19 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
               aria-label="Refresh deliveries"
               className="p-1.5 text-zinc-400 hover:text-white hover:bg-white/[0.06] rounded-md transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
             >
-              <RefreshCw size={14} />
+              <RefreshCw size={14} aria-hidden="true" />
             </button>
           </div>
-          <div className="overflow-x-auto rounded-lg border border-white/[0.08]">
+          {/* Rows keep their height; the list scrolls past about ten, with its column names pinned. */}
+          <div
+            role="region"
+            tabIndex={0}
+            aria-label="Recent deliveries"
+            className="max-h-96 overflow-auto rounded-lg border border-white/[0.08] focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+          >
             <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-[11px] uppercase tracking-wide text-zinc-500 border-b border-white/[0.06]">
+              <thead className="sticky top-0 z-[1] bg-surface-raised">
+                <tr className="text-left text-[11px] uppercase tracking-wide text-zinc-400 border-b border-white/[0.06]">
                   <th className="px-3 py-2 font-medium">Event</th>
                   <th className="px-3 py-2 font-medium">Status</th>
                   <th className="px-3 py-2 font-medium">Code</th>
@@ -545,7 +551,7 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
                     >
                       {deliveryDetail(d)}
                     </td>
-                    <td className="px-3 py-2 text-zinc-500 whitespace-nowrap">
+                    <td className="px-3 py-2 text-zinc-400 whitespace-nowrap">
                       {formatWhen(d.created_at)}
                     </td>
                     <td className="px-3 py-2 text-right">

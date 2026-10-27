@@ -16,7 +16,7 @@ import { Tooltip } from '@/components/ui/Tooltip';
  */
 
 const COPY_BUTTON =
-  'p-1 rounded text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.06] transition-colors flex-shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500';
+  'p-1 rounded text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.06] transition-colors flex-shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500';
 
 /** "just now", "5m ago", "2h ago", "3d ago", then a date. */
 export function relativeTime(iso: string): string {

@@ -191,7 +191,9 @@ async function main() {
     check('legacy: the single-project triage still files its project', (await projectsOf(db, legacy.conversation))[ids.birch] === 'inferred');
 
     // ---- Delivery: how a message reached us ------------------------------------
-    await db.exec("RESET ROLE; UPDATE communications.inboxes SET aliases = '{me@personal.example}'");
+    // One of your addresses with no project, and a domain of yours.
+    await db.exec("RESET ROLE; INSERT INTO communications.endpoints (inbox_id, public_address) SELECT id, 'me@personal.example' FROM communications.inboxes LIMIT 1; "
+      + "INSERT INTO communications.own_domains (domain) VALUES ('ours.example')");
     await actAs(db, null);
     const delivered = async (to: string[], cc: string[] = [], fields: { forwarded?: boolean; autoMail?: boolean } = {}) => {
       const sent = await message(db);
@@ -207,8 +209,9 @@ async function main() {
     const client = (n: number) => `client${n}@acme.example`;
     check('delivery: to the inbox with one other is direct', JSON.stringify(await delivered(['ashley@agency.example', client(1)]))
       === JSON.stringify({ delivery: 'direct', audience_size: 2 }));
-    check('delivery: to a project address or an alias is direct',
-      (await delivered(['hi@acme.example'])).delivery === 'direct' && (await delivered(['me@personal.example'])).delivery === 'direct');
+    check('delivery: to a project address, one of your addresses or any address on your domain is direct',
+      (await delivered(['hi@acme.example'])).delivery === 'direct' && (await delivered(['me@personal.example'])).delivery === 'direct'
+      && (await delivered(['anyone@ours.example'])).delivery === 'direct');
     check('delivery: to a teammate is direct', (await delivered(['tom@agency.example'])).delivery === 'direct');
     check('delivery: to us among three others is a group', (await delivered(['ashley@agency.example', client(1), client(2)], [client(3)])).delivery === 'group');
     check('delivery: only in copy is cc', (await delivered([client(1)], ['ashley@agency.example'])).delivery === 'cc');

@@ -54,7 +54,7 @@ export const Toggle = forwardRef<HTMLButtonElement, ToggleProps>(function Toggle
             .join(' ') || undefined
         }
         onClick={() => onChange(!checked)}
-        className={`group inline-flex items-center gap-2.5 rounded-input ${labelSizeClass(size)} font-medium text-input-text focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50`}
+        className={`group inline-flex items-center gap-2.5 rounded-input ${labelSizeClass(size)} font-medium text-input-text focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 aria-disabled:cursor-not-allowed aria-disabled:opacity-50`}
       >
         <span
           aria-hidden="true"

@@ -972,6 +972,76 @@ async function main() {
     check('settings: each inbox counts the project addresses that route to it', countedSettings.inboxes.find((i) => i.id === ids.inboxA)?.project_address_count === 2
       && countedSettings.inboxes.find((i) => i.id === ids.inboxB)?.project_address_count === 1);
 
+    // Your addresses: one list, with or without a project, and whose it is.
+    const companyAddress = await inboxSettings.addYourAddress(manage, { address: 'Hello@Agency.example', project_id: null, owner_member_id: null });
+    check('your addresses: one with no project keeps no relay address and belongs to the company',
+      companyAddress.address === 'hello@agency.example' && companyAddress.project_id === null && companyAddress.routing_address === null
+      && companyAddress.owner_member_id === null, companyAddress);
+    const ownerAddress = await inboxSettings.addYourAddress(manage, { address: 'ciaran@agency.example', project_id: null, owner_member_id: ids.owner });
+    check('your addresses: an address can be a person\'s', ownerAddress.owner_member_id === ids.owner, ownerAddress);
+    check('your addresses: the same address twice, or the inbox\'s own, is 409',
+      (await failsWith(() => inboxSettings.addYourAddress(manage, { address: 'hello@agency.example', project_id: null, owner_member_id: null }))) === 409
+      && (await failsWith(() => inboxSettings.addYourAddress(manage, { address: 'ashley@agency.example', project_id: null, owner_member_id: null }))) === 409);
+    check('your addresses: only inbox managers see or change the list',
+      (await failsWith(() => inboxSettings.listYourAddresses(projectReader))) === 403
+      && (await failsWith(() => inboxSettings.addYourAddress(projectReader, { address: 'x@agency.example', project_id: null, owner_member_id: null }))) === 403);
+    const yourList = await inboxSettings.listYourAddresses(manage);
+    check('your addresses: the list holds project addresses and the rest, and says where the rest forward',
+      yourList.addresses.some((a) => a.id === address.id && a.project_id === p4tf) && yourList.addresses.some((a) => a.id === companyAddress.id)
+      && yourList.inboxes.some((i) => i.id === ids.inboxA && i.routing_address === `ashley@${RELAY}`) && yourList.unlisted.length === 0, yourList);
+    const givenProject = await inboxSettings.updateYourAddress(manage, companyAddress.id, { project_id: ids.birch });
+    check('your addresses: giving one a project gives it a relay address of its own', givenProject.routing_address === `hello@${RELAY}` && givenProject.project_id === ids.birch, givenProject);
+    await inboxSettings.removeYourAddress(manage, companyAddress.id);
+    check('your addresses: removed', !(await inboxSettings.listYourAddresses(manage)).addresses.some((a) => a.id === companyAddress.id));
+    // Mail written to one of your addresses, arriving through the inbox, reads as written to you.
+    await sendRaw('re_your_address', { from: 'Dana Wu <dana@acme-roofing.example>', to: 'ciaran@agency.example', subject: 'Seminar banner', id: 'your-address@acme-roofing.example' },
+      ['ciaran@agency.example'], [`ashley@${RELAY}`]);
+    const [toYou] = await messageBy('your-address@acme-roofing.example');
+    check('your addresses: mail to one of them is direct, not blind-copied', toYou?.delivery === 'direct', toYou?.delivery);
+    const [stamped] = await rows(db, 'SELECT last_received_at FROM communications.endpoints WHERE id = $1', [ownerAddress.id]);
+    check('your addresses: one with no relay of its own knows its last email', !!stamped?.last_received_at, stamped);
+    // Unlisted: an address on your own domain is suggested; a client's staff never are, even
+    // when one of your project addresses sits on the client's domain.
+    const clientMailbox = await inboxSettings.addYourAddress(manage, { address: 'ciaran@acme-roofing.example', project_id: ids.birch, owner_member_id: ids.owner });
+    await sendRaw('re_unlisted', { from: 'Dana Wu <dana@acme-roofing.example>', to: 'accounts@agency.example, ops@acme-roofing.example', subject: 'Invoice question', id: 'unlisted@acme-roofing.example' },
+      ['accounts@agency.example'], [`ashley@${RELAY}`]);
+    const reviewed = async () => (await inboxSettings.listYourAddresses(manage, { review: true })).unlisted.flatMap((row) => row.addresses.map((a) => a.address));
+    const onGmail = await inboxSettings.addYourAddress(manage, { address: 'ciaran.personal@gmail.com', project_id: null, owner_member_id: ids.owner });
+    await sendRaw('re_public_domain', { from: 'Dana Wu <dana@acme-roofing.example>', to: 'ciaran.personal@gmail.com, someone.else@gmail.com', subject: 'Personal', id: 'public-domain@acme-roofing.example' },
+      ['ciaran.personal@gmail.com'], [`ashley@${RELAY}`]);
+    const suggested = await reviewed();
+    const reviewRows = (await inboxSettings.listYourAddresses(manage, { review: true })).unlisted.flatMap((row) => row.addresses);
+    check('your addresses: a public mail domain is never scanned, and a suggestion names the inbox its mail arrived at',
+      !suggested.includes('someone.else@gmail.com') && reviewRows.find((a) => a.address === 'accounts@agency.example')?.inbox_id === ids.inboxA, reviewRows);
+    await inboxSettings.removeYourAddress(manage, onGmail.id);
+    check('your addresses: unlisted ones on your own domain are suggested, a client\'s staff are not',
+      suggested.includes('accounts@agency.example') && !suggested.includes('ops@acme-roofing.example'),
+      suggested);
+    await inboxSettings.removeYourAddress(manage, clientMailbox.id);
+    // Not yours: dismissed, never suggested again; a removed address is not suggested again either.
+    await inboxSettings.ignoreAddress(manage, 'accounts@agency.example');
+    check('your addresses: a dismissed address is not suggested again', !(await reviewed()).includes('accounts@agency.example'));
+    // A domain of yours: every address on it is yours, listed or not.
+    const ownDomain = await inboxSettings.addOwnDomain(manage, '@Agency.example');
+    await sendRaw('re_own_domain', { from: 'Dana Wu <dana@acme-roofing.example>', to: 'anything@agency.example', subject: 'Domain catch-all', id: 'own-domain@acme-roofing.example' },
+      ['anything@agency.example'], [`ashley@${RELAY}`]);
+    const [toDomain] = await messageBy('own-domain@acme-roofing.example');
+    check('your domains: mail to any address on one is direct', ownDomain.domain === 'agency.example' && toDomain?.delivery === 'direct', [ownDomain, toDomain?.delivery]);
+    check('your domains: twice is 409, a public mail domain or a client\'s domain is refused',
+      (await failsWith(() => inboxSettings.addOwnDomain(manage, 'agency.example'))) === 409
+      && (await failsWith(() => inboxSettings.addOwnDomain(manage, 'gmail.com'))) === 422
+      && (await failsWith(() => inboxSettings.addOwnDomain(manage, 'birchpartners.example'))) === 409);
+    await inboxSettings.removeOwnDomain(manage, ownDomain.id);
+    // Two addresses with the same local part can both have a project: the second relay steps aside.
+    const helloOne = await inboxSettings.addYourAddress(manage, { address: 'hello@agency.example', project_id: ids.birch, owner_member_id: null });
+    const helloTwo = await inboxSettings.addYourAddress(manage, { address: 'hello@birchpartners.example', project_id: ids.birch, owner_member_id: null, inbox_id: ids.inboxB });
+    check('your addresses: a taken relay name gets a short suffix; an address can deliver to another inbox',
+      helloOne.routing_address === `hello@${RELAY}` && /^hello-[0-9a-f]{4}@/.test(helloTwo.routing_address ?? '') && helloTwo.inbox_id === ids.inboxB, [helloOne, helloTwo]);
+    const unfiled = await inboxSettings.updateYourAddress(manage, helloOne.id, { project_id: null });
+    check('your addresses: taking the project away keeps its relay address, so mail still arrives', unfiled.routing_address === `hello@${RELAY}` && unfiled.project_id === null, unfiled);
+    await inboxSettings.removeYourAddress(manage, helloOne.id);
+    await inboxSettings.removeYourAddress(manage, helloTwo.id);
+
     // Ingestion: a new thread is filed on the project, ahead of the mapping.
     const viaForwarder = await sendRaw('re_pa_new', { from: 'Dana Wu <dana@acme-roofing.example>', to: 'p4tf@agency.example', subject: 'Rebrand kickoff notes', id: 'pa-new@acme-roofing.example' },
       ['p4tf@agency.example'], [`P4TF@${RELAY.toUpperCase()}`]);
@@ -1907,7 +1977,7 @@ async function main() {
   // The schema.sql snapshot stands on its own.
   const snapshot = await createEmailDatabase('schema');
   check('schema.sql: the inbound email section loads',
-    (await rows(snapshot, "SELECT count(*)::int AS n FROM pg_tables WHERE schemaname = 'communications'"))[0].n === 22
+    (await rows(snapshot, "SELECT count(*)::int AS n FROM pg_tables WHERE schemaname = 'communications'"))[0].n === 24
     && (await rows(snapshot, "SELECT 1 FROM pg_tables WHERE schemaname = 'public' AND tablename = 'contact_emails'")).length === 1);
   check('schema.sql: client sender addresses and the sender reason are in the snapshot',
     (await rows(snapshot, "SELECT 1 FROM pg_policies WHERE schemaname = 'communications' AND tablename = 'client_addresses'")).length === 2

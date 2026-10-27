@@ -114,3 +114,25 @@ export type ProjectAddressRequest = z.infer<typeof projectAddressSchema>;
 export const projectAddressPatchSchema = projectAddressSchema.partial().strict()
   .refine((value) => Object.keys(value).length > 0, 'Send at least one field to change');
 export type ProjectAddressPatch = z.infer<typeof projectAddressPatchSchema>;
+
+/** One of your addresses: what people write to, its project (if any) and whose it is (a person, or null for the company). */
+export const yourAddressSchema = z.object({
+  address: z.string().trim().toLowerCase().min(3).max(320),
+  project_id: z.string().uuid().nullable(),
+  owner_member_id: z.string().uuid().nullable(),
+  inbox_id: z.string().uuid().optional(),
+}).strict();
+export type YourAddressRequest = z.infer<typeof yourAddressSchema>;
+
+/** A domain of yours, or an address that is not yours. */
+export const ownDomainSchema = z.object({ domain: z.string().trim().toLowerCase().min(3).max(253) }).strict();
+export const ignoredAddressSchema = z.object({ address: z.string().trim().toLowerCase().min(3).max(320) }).strict();
+
+export const yourAddressPatchSchema = z.object({
+  project_id: z.string().uuid().nullable(),
+  owner_member_id: z.string().uuid().nullable(),
+  enabled: z.boolean(),
+  inbox_id: z.string().uuid(),
+}).partial().strict()
+  .refine((value) => Object.keys(value).length > 0, 'Send at least one field to change');
+export type YourAddressPatch = z.infer<typeof yourAddressPatchSchema>;

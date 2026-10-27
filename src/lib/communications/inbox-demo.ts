@@ -1,11 +1,12 @@
 import { normalizeAddress, validateClientSenderAddress } from './email/addresses';
 import { mergeClientSenders, type ProjectContactAddress } from './mapping';
-import { validateClientDomain } from './email/public-domains';
+import { isPublicEmailDomain, validateClientDomain } from './email/public-domains';
 import { attentionCounts, matchesSearch, snippetOf, tabCounts, threadFlags, threadInTab, type InboxAttention, type MessageState } from './inbox-view';
 import type {
   ClientEmailDomain, ClientSenderAddress, ClientSenderAddressList, InboxMessage, InboxSettings, InboxSettingsInput, InboxSettingsList, InboxSummary, InboxTab,
   InboxLinkedTask, InboxThreadDetail, InboxThreadList, InboxThreadSummary, MxStatus, ProjectEmailAddress, ProjectEmailAddressInput,
   ProjectEmailAddressList, SetThreadProjectRequest, SetThreadProjectResult, TaskSourceEmails, ThreadProject,
+  OwnDomain, UnlistedAddress, UnlistedDomain, YourAddress, YourAddressInput, YourAddressList, YourAddressPatchInput,
 } from './inbox-types';
 
 /**
@@ -338,7 +339,7 @@ let demoSenders: { id: string; address: string; project_id: string; created_at: 
 let demoAddresses: ProjectEmailAddress[] = [
   {
     id: '9b9b9b9b-0001-4000-8000-000000000001', project_id: CREST, inbox_id: INBOX_SCOUT.id, routing_local_part: 'crest',
-    routing_domain: 'relay.valiancemedia.com', routing_address: 'crest@relay.valiancemedia.com', public_address: 'crest@valiancemedia.com',
+    routing_domain: 'relay.valiancemedia.com', routing_address: 'crest@relay.valiancemedia.com', public_address: 'crest@valiancemedia.com', owner_member_id: null,
     enabled: true, last_received_at: hoursAgo(2), created_at: hoursAgo(380), updated_at: hoursAgo(380),
   },
 ];
@@ -615,7 +616,7 @@ export const demoInbox = {
     const now = new Date().toISOString();
     const row = demoAddressRow({
       id: crypto.randomUUID(), project_id: projectId, inbox_id: input.inbox_id, routing_local_part: '', routing_domain: relay,
-      routing_address: '', public_address: null, enabled: true, last_received_at: null, created_at: now, updated_at: now,
+      routing_address: '', public_address: null, owner_member_id: null, enabled: true, last_received_at: null, created_at: now, updated_at: now,
     }, input);
     demoAddresses = [...demoAddresses, row];
     return structuredClone(row);
@@ -675,7 +676,7 @@ function applyInput(base: InboxSettings, input: InboxSettingsInput): InboxSettin
 export const demoInboxSettings = {
   async list(): Promise<InboxSettingsList> {
     await pause();
-    const inboxes = settings.map((inbox) => ({ ...inbox, project_address_count: demoAddresses.filter((row) => row.inbox_id === inbox.id).length }));
+    const inboxes = settings.map((inbox) => ({ ...inbox, project_address_count: allYourAddresses().filter((row) => row.inbox_id === inbox.id).length }));
     return structuredClone({ relay_domain: relay, inboxes });
   },
   async create(input: InboxSettingsInput): Promise<InboxSettings> {
@@ -709,4 +710,161 @@ export const demoInboxSettings = {
       ? { domain, found: true, records: [{ exchange: 'inbound-smtp.us-east-1.amazonaws.com', priority: 10 }], error: null }
       : { domain, found: false, records: [], error: null };
   },
+
+  // Your addresses: the project rows above plus addresses with no project
+  // (some keep the relay address a project once gave them), your domains and
+  // addresses that are not yours.
+  async yourAddresses({ review = false }: { review?: boolean } = {}): Promise<YourAddressList> {
+    await pause();
+    return structuredClone({
+      addresses: allYourAddresses(),
+      domains: demoOwnDomains,
+      inboxes: settings.map(({ id, name, routing_address, enabled, handler_member_id }) => ({ id, name, routing_address, enabled, handler_member_id })),
+      unlisted: review ? demoUnlistedByDomain() : [],
+      relay_domain: relay,
+    });
+  },
+  async addYourAddress(input: YourAddressInput): Promise<YourAddress> {
+    await pause();
+    const address = normalizeAddress(input.address);
+    if (!address) throw new Error('Enter the address in full, such as hello@yourdomain.com.');
+    if (allYourAddresses().some((row) => row.address === address)) throw new Error(`${address} is already one of your addresses.`);
+    if (settings.some((inbox) => inbox.address === address || inbox.routing_address === address)) throw new Error(`${address} is an inbox's own address.`);
+    const inbox = input.inbox_id ? settings.find((row) => row.id === input.inbox_id) : primaryInbox();
+    if (!inbox) throw new Error(input.inbox_id ? 'Choose the inbox this address delivers to.' : 'Set up an inbox first.');
+    demoIgnored.delete(address);
+    if (input.project_id) {
+      const now = new Date().toISOString();
+      const row = demoAddressRow({
+        id: crypto.randomUUID(), project_id: input.project_id, inbox_id: inbox.id, routing_local_part: '', routing_domain: relay,
+        routing_address: '', public_address: null, owner_member_id: input.owner_member_id, enabled: true, last_received_at: null, created_at: now, updated_at: now,
+      }, { public_address: address });
+      demoAddresses = [...demoAddresses, row];
+      return structuredClone(fromProjectRow(row));
+    }
+    const row: YourAddress = {
+      id: crypto.randomUUID(), address, project_id: null, owner_member_id: input.owner_member_id, routing_address: null,
+      inbox_id: inbox.id, enabled: true, last_received_at: null,
+    };
+    demoForwarders = [...demoForwarders, row];
+    return structuredClone(row);
+  },
+  /** As on the server: a project brings a relay address of its own; losing the project keeps it. */
+  async updateYourAddress(addressId: string, input: YourAddressPatchInput): Promise<YourAddress> {
+    await pause();
+    const projectRow = demoAddresses.find((row) => row.id === addressId);
+    const forwarder = demoForwarders.find((row) => row.id === addressId);
+    if (!projectRow && !forwarder) throw new Error('Address not found');
+    if (input.inbox_id && !settings.some((inbox) => inbox.id === input.inbox_id)) throw new Error('Choose the inbox this address delivers to.');
+    const current = projectRow ? fromProjectRow(projectRow) : forwarder!;
+    const next: YourAddress = { ...current, ...input };
+    if (!next.project_id) {
+      demoAddresses = demoAddresses.filter((existing) => existing.id !== addressId);
+      demoForwarders = forwarder ? demoForwarders.map((existing) => (existing.id === addressId ? next : existing)) : [...demoForwarders, next];
+      return structuredClone(next);
+    }
+    if (projectRow) {
+      const row: ProjectEmailAddress = {
+        ...projectRow, project_id: next.project_id, owner_member_id: next.owner_member_id, inbox_id: next.inbox_id, enabled: next.enabled,
+        updated_at: new Date().toISOString(),
+      };
+      demoAddresses = demoAddresses.map((existing) => (existing.id === addressId ? row : existing));
+      return structuredClone(fromProjectRow(row));
+    }
+    const now = new Date().toISOString();
+    const kept = next.routing_address;
+    const base: ProjectEmailAddress = {
+      id: addressId, project_id: next.project_id, inbox_id: next.inbox_id,
+      routing_local_part: kept ? kept.split('@')[0] : '', routing_domain: kept ? kept.split('@')[1] : relay, routing_address: kept ?? '',
+      public_address: next.address, owner_member_id: next.owner_member_id, enabled: next.enabled,
+      last_received_at: kept ? next.last_received_at : null, created_at: now, updated_at: now,
+    };
+    const row = kept ? base : demoAddressRow(base, { public_address: next.address });
+    demoForwarders = demoForwarders.filter((existing) => existing.id !== addressId);
+    demoAddresses = [...demoAddresses, row];
+    return structuredClone(fromProjectRow(row));
+  },
+  async removeYourAddress(addressId: string): Promise<void> {
+    await pause();
+    const removed = allYourAddresses().find((row) => row.id === addressId);
+    if (!removed) throw new Error('Address not found');
+    demoAddresses = demoAddresses.filter((row) => row.id !== addressId);
+    demoForwarders = demoForwarders.filter((row) => row.id !== addressId);
+    demoIgnored.add(removed.address);
+  },
+  async ignoreAddress(input: string): Promise<void> {
+    await pause();
+    const address = normalizeAddress(input);
+    if (!address) throw new Error('Enter the address in full.');
+    demoIgnored.add(address);
+  },
+  async addOwnDomain(input: string): Promise<OwnDomain> {
+    await pause();
+    const domain = input.trim().toLowerCase().replace(/^@/, '');
+    if (!DOMAIN_PATTERN.test(domain)) throw new Error('Enter a domain such as yourdomain.com.');
+    if (!validateClientDomain(domain).ok) throw new Error('A public email domain (like gmail.com) cannot be yours.');
+    if (demoDomains.some((row) => row.domain === domain)) throw new Error(`${domain} is a client's domain on a project.`);
+    if (demoOwnDomains.some((row) => row.domain === domain)) throw new Error(`${domain} is already one of your domains.`);
+    const row: OwnDomain = { id: crypto.randomUUID(), domain, created_at: new Date().toISOString() };
+    demoOwnDomains = [...demoOwnDomains, row].sort((a, b) => a.domain.localeCompare(b.domain));
+    return structuredClone(row);
+  },
+  async removeOwnDomain(domainId: string): Promise<void> {
+    await pause();
+    if (!demoOwnDomains.some((row) => row.id === domainId)) throw new Error('Domain not found');
+    demoOwnDomains = demoOwnDomains.filter((row) => row.id !== domainId);
+  },
 };
+
+const DOMAIN_PATTERN = /^(?=.{3,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
+
+let demoForwarders: YourAddress[] = [
+  {
+    id: '9b9b9b9b-0101-4000-8000-000000000001', address: 'sarah@valiancemedia.com', project_id: null, owner_member_id: SARAH.id,
+    routing_address: null, inbox_id: INBOX_SCOUT.id, enabled: true, last_received_at: hoursAgo(5),
+  },
+];
+let demoOwnDomains: OwnDomain[] = [];
+const demoIgnored = new Set<string>();
+const demoUnlisted: UnlistedAddress[] = [
+  { address: 'hello@valiancemedia.com', messages: 3, last_seen: hoursAgo(26), inbox_id: INBOX_SCOUT.id },
+  { address: 'info@valiancemedia.com', messages: 2, last_seen: hoursAgo(50), inbox_id: INBOX_SCOUT.id },
+  { address: 'accounts@valiancemedia.com', messages: 2, last_seen: hoursAgo(70), inbox_id: INBOX_BILLING.id },
+  { address: 'careers@valiancemedia.com', messages: 1, last_seen: hoursAgo(120), inbox_id: INBOX_SCOUT.id },
+  // Never suggested: a public mail domain is nobody's, as on the server.
+  { address: 'someone@gmail.com', messages: 1, last_seen: hoursAgo(30), inbox_id: INBOX_SCOUT.id },
+];
+
+/**
+ * Unlisted addresses as the server's review returns them, by domain: not
+ * listed or dismissed, and never on a domain of yours, a client's or a
+ * public mail service's. Each names the inbox its latest mail arrived at.
+ */
+function demoUnlistedByDomain(): UnlistedDomain[] {
+  const listed = new Set(allYourAddresses().map((row) => row.address));
+  const notOurs = new Set([relay, ...demoOwnDomains.map((row) => row.domain), ...demoDomains.map((row) => row.domain)]);
+  const byDomain = new Map<string, UnlistedAddress[]>();
+  for (const row of demoUnlisted) {
+    const domain = row.address.split('@')[1] ?? '';
+    if (listed.has(row.address) || demoIgnored.has(row.address) || notOurs.has(domain) || isPublicEmailDomain(domain)) continue;
+    byDomain.set(domain, [...(byDomain.get(domain) ?? []), row]);
+  }
+  return [...byDomain.entries()]
+    .map(([domain, addresses]) => ({ domain, addresses: [...addresses].sort((a, b) => b.last_seen.localeCompare(a.last_seen)) }))
+    .sort((a, b) => b.addresses.length - a.addresses.length);
+}
+
+function primaryInbox(): InboxSettings | null {
+  return settings.find((inbox) => inbox.enabled) ?? settings[0] ?? null;
+}
+
+function fromProjectRow(row: ProjectEmailAddress): YourAddress {
+  return {
+    id: row.id, address: row.public_address ?? row.routing_address, project_id: row.project_id, owner_member_id: row.owner_member_id,
+    routing_address: row.routing_address, inbox_id: row.inbox_id, enabled: row.enabled, last_received_at: row.last_received_at,
+  };
+}
+
+function allYourAddresses(): YourAddress[] {
+  return [...demoAddresses.map(fromProjectRow), ...demoForwarders];
+}

@@ -40,7 +40,7 @@ interface FormErrors {
 const LOCAL_PART_PATTERN = /^[a-z0-9]([a-z0-9._-]{0,62}[a-z0-9])?$/;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const ICON_BUTTON =
-  'p-1 rounded text-zinc-500 transition-colors flex-shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500';
+  'p-1 rounded text-zinc-400 transition-colors flex-shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500';
 /** How often the list refreshes while an address waits for its first email. */
 const WAITING_POLL_MS = 20_000;
 
@@ -48,16 +48,18 @@ const WAITING_POLL_MS = 20_000;
 const shownAddress = (row: ProjectEmailAddress) => row.public_address ?? row.routing_address;
 
 /**
- * The project's own email addresses: mail to one lands in the inbox it names,
- * filed on this project. A project can have several, so an address can change
- * without dropping mail from clients still writing to the old one: add the new
- * one and turn the old one off later. Readers see the list; people who manage
+ * The project's own email addresses (the Sent to group of How mail finds this
+ * project): mail to one lands in the inbox it names, filed on this project.
+ * They are the same records as Settings > Email > Your addresses, where whose
+ * each one is can be changed; here it is shown. A project can have several,
+ * so an address can change without dropping mail from clients still writing
+ * to the old one: add the new one and turn the old one off later. Readers see the list; people who manage
  * contacts or the inbox add, edit, turn off and delete. Each address shows how
  * to connect it (EmailConnectChecklist) and whether mail has come through.
  */
 export function ProjectEmailAddresses({ isOpen, projectId }: ProjectEmailAddressesProps) {
-  const { emailsRefreshSignal } = useApp();
-  const { access } = useAuth();
+  const { emailsRefreshSignal, team } = useApp();
+  const { access, teamMemberId } = useAuth();
   const { isDemoMode } = useDemo();
   const canManage = hasPermission(access, 'contacts.manage') || hasPermission(access, 'inbound_email.manage');
   const canManageInboxes = hasPermission(access, 'inbound_email.manage');
@@ -127,6 +129,8 @@ export function ProjectEmailAddresses({ isOpen, projectId }: ProjectEmailAddress
   const addresses = data?.addresses ?? [];
   const inboxes = useMemo(() => data?.inboxes ?? [], [data]);
   const inboxName = (id: string) => inboxes.find((inbox) => inbox.id === id);
+  /** Whose an address is, as Settings > Email > Your addresses shows it. */
+  const whose = (id: string | null) => (!id ? 'Company' : id === teamMemberId ? 'You' : team.find((m) => m.id === id)?.name ?? 'Unknown member');
   const inboxOptions = useMemo<SelectOption[]>(
     () => inboxes.map((inbox) => ({ value: inbox.id, label: inbox.enabled ? inbox.name : `${inbox.name} (off)`, detail: inbox.address })),
     [inboxes],
@@ -170,7 +174,7 @@ export function ProjectEmailAddresses({ isOpen, projectId }: ProjectEmailAddress
   const validate = (): FormErrors => {
     const next: FormErrors = {};
     if (local && !LOCAL_PART_PATTERN.test(local)) next.local = 'Use letters, numbers, dots, dashes or underscores';
-    if (!local && !publicAddress) next.local = 'Enter the routing address, such as p4tf';
+    if (!local && !publicAddress) next.local = 'Enter the relay address, such as p4tf';
     if (publicAddress && !EMAIL_PATTERN.test(publicAddress)) next.publicAddress = 'Enter a full address, such as p4tf@yourdomain.com';
     if (!form?.inboxId) next.inboxId = 'Choose the inbox that receives this mail';
     return next;
@@ -239,14 +243,14 @@ export function ProjectEmailAddresses({ isOpen, projectId }: ProjectEmailAddress
         <div className="flex items-center gap-2">
           <AtSign size={14} className="text-zinc-400 flex-shrink-0" aria-hidden="true" />
           <h4 id={headingId} className="text-sm font-medium text-white">
-            Project addresses <span className="font-normal text-zinc-400">(optional)</span>
+            This project&apos;s addresses <span className="font-normal text-zinc-400">(optional)</span>
           </h4>
           {loading && (
             <Loader2 size={14} className="text-zinc-500 animate-spin motion-reduce:animate-none" aria-label="Loading addresses" role="status" />
           )}
         </div>
         <p className="text-xs text-zinc-400">
-          Mail to one of these lands in its inbox, already filed on this project. Keep an old address on while clients still use it.
+          Everything sent to one of these goes to this project. Keep an old address on while clients still use it.
         </p>
       </div>
 
@@ -265,7 +269,7 @@ export function ProjectEmailAddresses({ isOpen, projectId }: ProjectEmailAddress
             return (
               <li key={row.id} className="px-3 py-2.5 space-y-1.5">
                 <div className="flex items-start justify-between gap-3">
-                  <p className={`min-w-0 font-mono text-sm break-all ${row.enabled ? 'text-zinc-200' : 'text-zinc-500'}`}>{shown}</p>
+                  <p className={`min-w-0 font-mono text-sm break-all ${row.enabled ? 'text-zinc-200' : 'text-zinc-400'}`}>{shown}</p>
                   {canManage ? (
                     <div className="flex items-center gap-1 flex-shrink-0">
                       <Tooltip content={row.enabled ? 'Turn off' : 'Turn on'}>
@@ -299,20 +303,21 @@ export function ProjectEmailAddresses({ isOpen, projectId }: ProjectEmailAddress
                       </Tooltip>
                     </div>
                   ) : (
-                    <span className="text-xs text-zinc-500 flex-shrink-0">{row.enabled ? 'On' : 'Off'}</span>
+                    <span className="text-xs text-zinc-400 flex-shrink-0">{row.enabled ? 'On' : 'Off'}</span>
                   )}
                 </div>
 
                 <div className="flex items-center gap-1.5 min-w-0">
-                  <span className="text-xs text-zinc-500 flex-shrink-0">Routing</span>
+                  <span className="text-xs text-zinc-400 flex-shrink-0">Forward it to</span>
                   <code className="min-w-0 truncate px-1.5 py-0.5 bg-white/[0.06] rounded text-xs font-mono text-zinc-300">
                     {row.routing_address}
                   </code>
                   <CopyValueButton value={row.routing_address} label={`Copy ${row.routing_address}`} />
                 </div>
 
-                <p className="text-xs text-zinc-400">
-                  Inbox: <span className="text-zinc-300">{inbox?.name ?? 'Unknown inbox'}</span>
+                <p className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-zinc-400">
+                  <span>Whose: <span className="text-zinc-300">{whose(row.owner_member_id)}</span></span>
+                  <span>Inbox: <span className="text-zinc-300">{inbox?.name ?? 'Unknown inbox'}</span></span>
                 </p>
 
                 <EmailConnectChecklist
@@ -341,7 +346,7 @@ export function ProjectEmailAddresses({ isOpen, projectId }: ProjectEmailAddress
             {!canManageInboxes && ' Ask an admin to add an inbox.'}
           </p>
           {canManageInboxes && (
-            <Button href="/settings#email-inboxes" size="sm" variant="secondary" className="flex-shrink-0" icon={<Settings size={14} aria-hidden="true" />}>
+            <Button href="/settings/email/handler" size="sm" variant="secondary" className="flex-shrink-0" icon={<Settings size={14} aria-hidden="true" />}>
               Add an inbox in Settings
             </Button>
           )}
@@ -366,7 +371,7 @@ export function ProjectEmailAddresses({ isOpen, projectId }: ProjectEmailAddress
               disabled={saving}
             />
             <TextInput
-              label="Routing address"
+              label="Relay address"
               value={form.local}
               onChange={(value) => change('local', value)}
               placeholder={publicAddress ? effectiveLocal || 'p4tf' : 'p4tf'}
@@ -421,7 +426,7 @@ export function ProjectEmailAddresses({ isOpen, projectId }: ProjectEmailAddress
             className="w-full"
             variant="secondary"
           >
-            Add email address
+            Add an address
           </Button>
         )
       )}

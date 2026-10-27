@@ -13,7 +13,7 @@ const STATE: Record<ThreadState, { label: string; variant: 'danger' | 'info' | '
   new: { label: 'New', variant: 'info', hint: 'Waiting for the agent to triage it' },
   needs_reply: { label: 'Needs reply', variant: 'default', hint: 'Someone is waiting on your reply' },
   handled: { label: 'Handled', variant: 'success', hint: 'Dealt with' },
-  ignored: { label: 'Filtered', variant: 'default', hint: 'Nobody needs to read it: your sender rules, bulk mail, usage alerts, promotions, auto-replies' },
+  ignored: { label: 'Filtered', variant: 'default', hint: 'Nobody needs to read it: your mail rules, bulk mail, usage alerts, promotions, auto-replies' },
 };
 
 export function ThreadStateBadge({ state, tooltip = true }: { state: ThreadState; tooltip?: boolean }) {

@@ -42,6 +42,8 @@ import type { InboxAttention } from '@/lib/communications/inbox-view';
 
 export function Sidebar() {
   const pathname = usePathname();
+  // The profile row opens Settings, so it reads active anywhere in that area.
+  const inSettings = pathname === '/settings' || pathname.startsWith('/settings/');
   const { projects, team, loading, getPendingSuggestionCount, timeEntries, tasks, taskSuggestions, agentActivity, reminders } = useApp();
   const { user, teamMemberId, access, signOut } = useAuth();
 
@@ -374,16 +376,16 @@ export function Sidebar() {
             </div>
           ) : (
             <Link
-              href="/settings"
+              href="/settings/account"
               onClick={closeSidebar}
               className={`flex items-center gap-3 px-2 py-2 rounded-lg transition-colors ${
-                pathname === '/settings' ? 'bg-brand-500/15 glow-brand-soft' : 'hover:bg-white/5'
+                inSettings ? 'bg-brand-500/15 glow-brand-soft' : 'hover:bg-white/5'
               }`}
             >
               <Avatar name={displayName} src={currentMember?.avatar || undefined} size="sm" />
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-zinc-200 truncate">{displayName}</p>
-                <p className={`text-xs truncate capitalize ${pathname === '/settings' ? 'text-brand-300' : 'text-zinc-500'}`}>{displayRole}</p>
+                <p className={`text-xs truncate capitalize ${inSettings ? 'text-brand-300' : 'text-zinc-500'}`}>{displayRole}</p>
               </div>
             </Link>
           )}

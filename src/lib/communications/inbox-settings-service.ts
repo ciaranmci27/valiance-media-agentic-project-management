@@ -1,14 +1,16 @@
 import { comms } from '@/lib/communications/db';
 import { promises as dns } from 'node:dns';
+import { randomBytes } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { accessAllows, accessAllowsProject } from '@/lib/api/access';
-import { isHostname, normalizeAddress, validateClientSenderAddress } from './email/addresses';
+import { domainOf, isHostname, normalizeAddress, validateClientSenderAddress } from './email/addresses';
 import { mergeClientSenders, type ProjectContactAddress } from './mapping';
-import { validateClientDomain } from './email/public-domains';
+import { isPublicEmailDomain, validateClientDomain } from './email/public-domains';
 import { assertId, InboxError, ownAddresses, type InboxContext } from './inbox-service';
-import type { InboxSettingsRequest, ProjectAddressPatch, ProjectAddressRequest } from './schemas';
+import type { InboxSettingsRequest, ProjectAddressPatch, ProjectAddressRequest, YourAddressPatch, YourAddressRequest } from './schemas';
 import type {
   AgentReadableType, ClientEmailDomain, ClientSenderAddress, ClientSenderAddressList, InboxSettings, InboxSettingsList, MxStatus, ProjectEmailAddress, ProjectEmailAddressList,
+  OwnDomain, UnlistedAddress, UnlistedDomain, YourAddress, YourAddressList,
 } from './inbox-types';
 
 /**
@@ -144,14 +146,14 @@ function friendly(error: unknown): never {
     // email_routing_address_guard: the address belongs to the other table.
     if (value.message?.includes('EMAIL_ROUTING_ADDRESS_TAKEN')) {
       throw new InboxError(409, value.message.includes('project email address')
-        ? 'A project email address already uses that routing address.'
-        : 'An inbox already uses that routing address.');
+        ? 'A project email address already uses that relay address.'
+        : 'An inbox already uses that relay address.');
     }
-    if (value.message?.includes('email_project_addresses_routing_address_key')) throw new InboxError(409, 'Another project email address already uses that routing address.');
-    if (value.message?.includes('routing_address')) throw new InboxError(409, 'Another inbox already uses that routing address.');
+    if (value.message?.includes('email_project_addresses_routing_address_key')) throw new InboxError(409, 'Another project email address already uses that relay address.');
+    if (value.message?.includes('routing_address')) throw new InboxError(409, 'Another inbox already uses that relay address.');
     throw new InboxError(409, 'That value is already in use.');
   }
-  if (value?.code === '23514') throw new InboxError(422, 'One of the values is not allowed. Check the address, routing address and limits.');
+  if (value?.code === '23514') throw new InboxError(422, 'One of the values is not allowed. Check the address, relay address and limits.');
   throw error;
 }
 
@@ -380,8 +382,8 @@ export async function removeClientSender(ctx: InboxContext, projectId: string, s
 // The same people as client domains: whoever reads those reads these, and
 // whoever manages those manages these.
 
-const ADDRESS_COLUMNS = 'id, project_id, inbox_id, routing_local_part, routing_domain, routing_address, public_address, enabled, last_received_at, created_at, updated_at';
-const NEEDS_ROUTING = 'Enter the routing address, such as p4tf, or a public address to take it from.';
+const ADDRESS_COLUMNS = 'id, project_id, inbox_id, routing_local_part, routing_domain, routing_address, public_address, owner_member_id, enabled, last_received_at, created_at, updated_at';
+const NEEDS_ROUTING = 'Enter the relay address, such as p4tf, or a public address to take it from.';
 
 function presentAddress(row: Row): ProjectEmailAddress {
   return {
@@ -392,6 +394,7 @@ function presentAddress(row: Row): ProjectEmailAddress {
     routing_domain: row.routing_domain as string,
     routing_address: row.routing_address as string,
     public_address: (row.public_address as string | null) ?? null,
+    owner_member_id: (row.owner_member_id as string | null) ?? null,
     enabled: Boolean(row.enabled),
     last_received_at: (row.last_received_at as string | null) ?? null,
     created_at: row.created_at as string,
@@ -484,4 +487,268 @@ export async function removeProjectAddress(ctx: InboxContext, projectId: string,
   const target = assertId(addressId, 'address id');
   const removed = await many<{ id: string }>(comms(ctx.service).from('endpoints').delete().eq('id', target).eq('project_id', id).select('id'));
   if (removed.length === 0) throw new InboxError(404, 'Address not found');
+}
+
+// -- Your addresses (Settings > Email) -----------------------------------------
+// Every address mail comes in on, with or without a project, whose it is and
+// which inbox it delivers to; your domains (a catch-all); and addresses that
+// are not yours. A project address here is the same row a project's
+// Communication tab shows.
+
+/** How far back unlisted addresses are looked for, and how many messages are read. */
+const UNLISTED_DAYS = 60;
+const UNLISTED_MESSAGES = 1000;
+const UNLISTED_PER_DOMAIN = 25;
+
+function presentYourAddress(row: Row): YourAddress {
+  return {
+    id: row.id as string,
+    address: ((row.public_address as string | null) ?? (row.routing_address as string | null)) ?? '',
+    project_id: (row.project_id as string | null) ?? null,
+    owner_member_id: (row.owner_member_id as string | null) ?? null,
+    routing_address: (row.routing_address as string | null) ?? null,
+    inbox_id: row.inbox_id as string,
+    enabled: Boolean(row.enabled),
+    last_received_at: (row.last_received_at as string | null) ?? null,
+  };
+}
+
+type InboxChoice = { id: string; name: string; address: string; routing_address: string; enabled: boolean; handler_member_id: string | null };
+
+async function inboxChoices(service: SupabaseClient): Promise<InboxChoice[]> {
+  return many<InboxChoice>(comms(service).from('inboxes').select('id, name, address, routing_address, enabled, handler_member_id').order('created_at'));
+}
+
+/**
+ * Addresses mail was written to lately that nobody listed or dismissed, by
+ * domain: on a domain of an address of yours with no project, or an inbox's.
+ * Never a client's domain (ciaran@client.com sits there, its staff are not
+ * yours), and nothing on a domain you already own (those are yours anyway).
+ */
+async function unlistedAddresses(service: SupabaseClient, rows: Row[], inboxes: InboxChoice[], ownDomains: string[]): Promise<UnlistedDomain[]> {
+  const [relay, clientDomains, ignored] = await Promise.all([
+    relayDomain(service),
+    many<{ domain: string }>(comms(service).from('client_domains').select('domain')),
+    many<{ address: string }>(comms(service).from('ignored_addresses').select('address')),
+  ]);
+  const ownDomainAddresses = rows
+    .filter((row) => !row.project_id)
+    .map((row) => row.public_address as string | null)
+    .filter((value): value is string => !!value);
+  const notOurs = new Set([relay?.domain ?? '', ...clientDomains.map((row) => row.domain), ...ownDomains]);
+  // A public mail domain (gmail.com) is nobody's: its other users are not yours.
+  const domains = new Set([...ownDomainAddresses, ...inboxes.map((row) => row.address)].map(domainOf)
+    .filter((domain) => domain && !notOurs.has(domain) && !isPublicEmailDomain(domain)));
+  if (domains.size === 0) return [];
+  const since = new Date(Date.now() - UNLISTED_DAYS * 86_400_000).toISOString();
+  const messages = await many<{ id: string; received_at: string; inbox_id: string }>(comms(service).from('messages')
+    .select('id, received_at, inbox_id').gte('received_at', since).neq('status', 'receiving').order('received_at', { ascending: false }).limit(UNLISTED_MESSAGES));
+  const own = await ownAddresses(service);
+  const skip = new Set(ignored.map((row) => row.address));
+  const byId = new Map(messages.map((message) => [message.id, message]));
+  const found = new Map<string, UnlistedAddress>();
+  for (let start = 0; start < messages.length; start += 200) {
+    const ids = messages.slice(start, start + 200).map((message) => message.id);
+    const recipients = await many<{ message_id: string; address: string }>(comms(service).from('participants')
+      .select('message_id, address').in('kind', ['to', 'cc']).in('message_id', ids));
+    for (const row of recipients) {
+      const address = row.address.toLowerCase();
+      if (own.has(address) || skip.has(address) || !domains.has(domainOf(address))) continue;
+      const message = byId.get(row.message_id);
+      const at = message?.received_at ?? '';
+      const entry = found.get(address) ?? { address, messages: 0, last_seen: at, inbox_id: message?.inbox_id ?? '' };
+      entry.messages++;
+      // The inbox its latest mail arrived at: where it is added.
+      if (at > entry.last_seen) { entry.last_seen = at; entry.inbox_id = message?.inbox_id ?? entry.inbox_id; }
+      found.set(address, entry);
+    }
+  }
+  const byDomain = new Map<string, UnlistedAddress[]>();
+  for (const entry of found.values()) {
+    const list = byDomain.get(domainOf(entry.address)) ?? [];
+    list.push(entry);
+    byDomain.set(domainOf(entry.address), list);
+  }
+  return [...byDomain.entries()]
+    .map(([domain, list]) => ({ domain, addresses: list.sort((a, b) => b.last_seen.localeCompare(a.last_seen)).slice(0, UNLISTED_PER_DOMAIN) }))
+    .sort((a, b) => b.addresses.length - a.addresses.length);
+}
+
+/** The list; the scan for unlisted addresses only when asked for (the review on the addresses page). */
+export async function listYourAddresses(ctx: InboxContext, { review = false }: { review?: boolean } = {}): Promise<YourAddressList> {
+  requireManage(ctx);
+  const [relay, rows, inboxes, domains] = await Promise.all([
+    relayDomain(ctx.service),
+    many<Row>(comms(ctx.service).from('endpoints').select(ADDRESS_COLUMNS).order('created_at')),
+    inboxChoices(ctx.service),
+    many<{ id: string; domain: string; created_at: string }>(comms(ctx.service).from('own_domains').select('id, domain, created_at').order('domain')),
+  ]);
+  return {
+    addresses: rows.map(presentYourAddress),
+    domains,
+    inboxes: inboxes.map(({ id, name, routing_address, enabled, handler_member_id }) => ({ id, name, routing_address, enabled, handler_member_id })),
+    unlisted: review ? await unlistedAddresses(ctx.service, rows, inboxes, domains.map((row) => row.domain)) : [],
+    relay_domain: relay?.domain ?? '',
+  };
+}
+
+/** The project, person and inbox an address may name: a live project, an active member, an inbox that exists. */
+async function addressOwnership(ctx: InboxContext, input: { project_id?: string | null; owner_member_id?: string | null; inbox_id?: string }): Promise<Row> {
+  const values: Row = {};
+  if (input.project_id !== undefined) {
+    if (input.project_id) {
+      const { data, error } = await ctx.service.from('projects').select('id').eq('id', input.project_id).is('deleted_at', null).maybeSingle();
+      if (error) throw error;
+      if (!data) throw new InboxError(422, 'Choose a project that exists.');
+    }
+    values.project_id = input.project_id;
+  }
+  if (input.owner_member_id !== undefined) {
+    if (input.owner_member_id) {
+      const { data, error } = await ctx.service.from('team_members').select('id').eq('id', input.owner_member_id).eq('status', 'active').maybeSingle();
+      if (error) throw error;
+      if (!data) throw new InboxError(422, 'Choose someone on the team, or the company.');
+    }
+    values.owner_member_id = input.owner_member_id;
+  }
+  if (input.inbox_id !== undefined) {
+    const { data, error } = await comms(ctx.service).from('inboxes').select('id').eq('id', input.inbox_id).maybeSingle();
+    if (error) throw error;
+    if (!data) throw new InboxError(422, 'Choose the inbox this address delivers to.');
+    values.inbox_id = input.inbox_id;
+  }
+  return values;
+}
+
+/** A relay address taken by another address or an inbox: the database's 23505 from either side. */
+function routingTaken(error: unknown): boolean {
+  const value = error as { code?: string; message?: string };
+  return value?.code === '23505' && /routing_address|EMAIL_ROUTING_ADDRESS_TAKEN/.test(value.message ?? '');
+}
+
+/** The local part a project address takes from its public address, stepping around one that is taken. */
+function relayLocalPart(address: string, attempt: number): string {
+  const base = (address.split('@')[0] ?? '').replace(/[^a-z0-9._-]/g, '').replace(/^[._-]+|[._-]+$/g, '').slice(0, 58) || 'mail';
+  return attempt === 0 ? base : `${base}-${randomBytes(2).toString('hex')}`;
+}
+
+/**
+ * Writes an address that is getting a project, giving it a relay address of
+ * its own: hello@ and hello@ on two domains, or ashley@client.com beside the
+ * inbox's ashley@, step around each other with a short suffix.
+ */
+async function withRelayAddress(write: (localPart: string | undefined) => PromiseLike<{ data: unknown; error: unknown }>, address: string): Promise<unknown> {
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const { data, error } = await write(attempt === 0 ? undefined : relayLocalPart(address, attempt));
+    if (!error) return data;
+    if (!routingTaken(error)) friendly(error);
+  }
+  throw new InboxError(409, 'Could not find a free relay address for it. Try again.');
+}
+
+export async function addYourAddress(ctx: InboxContext, input: YourAddressRequest): Promise<YourAddress> {
+  requireManage(ctx);
+  const address = normalizeAddress(input.address);
+  if (!address) throw new InboxError(422, 'Enter the address in full, such as hello@yourdomain.com.');
+  const [listed, inboxes] = await Promise.all([
+    many<{ id: string }>(comms(ctx.service).from('endpoints').select('id').eq('public_address', address)),
+    inboxChoices(ctx.service),
+  ]);
+  if (listed.length) throw new InboxError(409, `${address} is already one of your addresses.`);
+  if (inboxes.some((row) => row.address === address || row.routing_address === address)) {
+    throw new InboxError(409, `${address} is an inbox's own address.`);
+  }
+  const inboxId = input.inbox_id ?? (inboxes.find((row) => row.enabled) ?? inboxes[0])?.id;
+  if (!inboxId) throw new InboxError(422, 'Set up an inbox first.');
+  const ownership = await addressOwnership(ctx, { ...input, inbox_id: inboxId });
+  const insert = (localPart: string | undefined) => comms(ctx.service).from('endpoints').insert({
+    ...ownership,
+    public_address: address,
+    // A project address takes the relay domain and its own local part
+    // (endpoints_before_write); one with no project keeps none.
+    routing_domain: input.project_id ? '' : null,
+    ...(localPart ? { routing_local_part: localPart } : {}),
+    created_by: ctx.memberId,
+  }).select(ADDRESS_COLUMNS).single();
+  const data = input.project_id ? await withRelayAddress(insert, address) : await (async () => {
+    const { data: row, error } = await insert(undefined);
+    if (error) friendly(error);
+    return row;
+  })();
+  // Listed now, so no longer dismissed.
+  await comms(ctx.service).from('ignored_addresses').delete().eq('address', address);
+  return presentYourAddress(data as Row);
+}
+
+/**
+ * Giving an address a project gives it a relay address of its own (its
+ * forwarder must point there for mail to be filed). Taking the project away
+ * keeps that relay address, so mail still arrives, unfiled.
+ */
+export async function updateYourAddress(ctx: InboxContext, addressId: string, input: YourAddressPatch): Promise<YourAddress> {
+  requireManage(ctx);
+  const target = assertId(addressId, 'address id');
+  const { data: current, error: currentError } = await comms(ctx.service).from('endpoints')
+    .select('public_address, routing_address').eq('id', target).maybeSingle();
+  if (currentError) throw currentError;
+  if (!current) throw new InboxError(404, 'Address not found');
+  const values = await addressOwnership(ctx, input);
+  if (input.enabled !== undefined) values.enabled = input.enabled;
+  const update = (localPart: string | undefined) => comms(ctx.service).from('endpoints')
+    .update({ ...values, ...(localPart ? { routing_local_part: localPart } : {}) }).eq('id', target).select(ADDRESS_COLUMNS);
+  const gainsRelay = !!input.project_id && !current.routing_address;
+  const data = gainsRelay ? await withRelayAddress(update, (current.public_address as string | null) ?? '') : await (async () => {
+    const { data: rows, error } = await update(undefined);
+    if (error) friendly(error);
+    return rows;
+  })();
+  const row = ((data ?? []) as Row[])[0];
+  if (!row) throw new InboxError(404, 'Address not found');
+  return presentYourAddress(row);
+}
+
+/** Threads it filed keep their project; only the address goes, and it is not suggested again. */
+export async function removeYourAddress(ctx: InboxContext, addressId: string): Promise<void> {
+  requireManage(ctx);
+  const target = assertId(addressId, 'address id');
+  const removed = await many<{ id: string; public_address: string | null }>(comms(ctx.service).from('endpoints').delete().eq('id', target).select('id, public_address'));
+  if (removed.length === 0) throw new InboxError(404, 'Address not found');
+  const address = removed[0].public_address;
+  if (address) await ignoreAddress(ctx, address);
+}
+
+/** Not yours: never suggested again. */
+export async function ignoreAddress(ctx: InboxContext, input: string): Promise<void> {
+  requireManage(ctx);
+  const address = normalizeAddress(input);
+  if (!address) throw new InboxError(422, 'Enter the address in full.');
+  const { error } = await comms(ctx.service).from('ignored_addresses')
+    .upsert({ address, ignored_by: ctx.memberId }, { onConflict: 'address', ignoreDuplicates: true });
+  if (error) throw error;
+}
+
+/** A domain of yours: mail to any address on it reads as written to you. */
+export async function addOwnDomain(ctx: InboxContext, input: string): Promise<OwnDomain> {
+  requireManage(ctx);
+  const domain = input.trim().toLowerCase().replace(/^@/, '');
+  if (!isHostname(domain)) throw new InboxError(422, 'Enter a domain such as yourdomain.com.');
+  const valid = validateClientDomain(domain);
+  if (!valid.ok) throw new InboxError(422, 'A public email domain (like gmail.com) cannot be yours.');
+  const { data: client, error: clientError } = await comms(ctx.service).from('client_domains').select('id').eq('domain', domain).limit(1);
+  if (clientError) throw clientError;
+  if ((client ?? []).length) throw new InboxError(409, `${domain} is a client's domain on a project.`);
+  const { data, error } = await comms(ctx.service).from('own_domains')
+    .insert({ domain, created_by: ctx.memberId }).select('id, domain, created_at').single();
+  if (error) {
+    if ((error as { code?: string }).code === '23505') throw new InboxError(409, `${domain} is already one of your domains.`);
+    friendly(error);
+  }
+  return data as OwnDomain;
+}
+
+export async function removeOwnDomain(ctx: InboxContext, domainId: string): Promise<void> {
+  requireManage(ctx);
+  const target = assertId(domainId, 'domain id');
+  const removed = await many<{ id: string }>(comms(ctx.service).from('own_domains').delete().eq('id', target).select('id'));
+  if (removed.length === 0) throw new InboxError(404, 'Domain not found');
 }

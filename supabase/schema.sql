@@ -6942,20 +6942,24 @@ CREATE INDEX idx_email_client_addresses_address ON communications.client_address
 -- A project's own addresses: mail to one lands in its inbox, filed on the
 -- project. Several per project, so an address can change without dropping
 -- mail from clients still using the old one.
+-- Your addresses: every address mail comes in on. With a project, everything
+-- sent to it is that project's, through its own relay address. Without one,
+-- it is an address of yours or the company's that forwards to the inbox's
+-- routing address and has no relay address of its own.
 CREATE TABLE communications.endpoints (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  project_id uuid NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+  project_id uuid REFERENCES public.projects(id) ON DELETE CASCADE,
   -- The inbox that receives the mail; its handler triages it.
   inbox_id uuid NOT NULL REFERENCES communications.inboxes(id) ON DELETE CASCADE,
   -- <local>@<domain>, where the forwarder delivers and what ingestion looks
-  -- up, as on inboxes. The domain defaults to
+  -- up, as on inboxes. For a project address the domain defaults to
   -- business_settings.inbound_email_domain and the local part to the public
   -- address's, when left empty (endpoints_before_write).
-  routing_domain text NOT NULL CHECK (routing_domain = lower(btrim(routing_domain)) AND public.email_is_hostname(routing_domain)),
-  routing_local_part text NOT NULL CHECK (routing_local_part ~ '^[a-z0-9]([a-z0-9._-]{0,62}[a-z0-9])?$'),
+  routing_domain text CHECK (routing_domain IS NULL OR (routing_domain = lower(btrim(routing_domain)) AND public.email_is_hostname(routing_domain))),
+  routing_local_part text CHECK (routing_local_part ~ '^[a-z0-9]([a-z0-9._-]{0,62}[a-z0-9])?$'),
   routing_address text GENERATED ALWAYS AS (routing_local_part || '@' || routing_domain) STORED,
-  -- What clients see, e.g. p4tf@valiancemedia.com: display and the forwarder
-  -- instructions only, never matched.
+  -- What clients write to, e.g. ciaran@plan4thefuture.com. Mail sent to it
+  -- reads as written to us (delivery_of).
   public_address text CHECK (public_address IS NULL OR (public_address = lower(btrim(public_address)) AND public.email_is_address(public_address))),
   enabled boolean NOT NULL DEFAULT true,
   -- When mail last came through this address (email_complete_message).
@@ -6966,10 +6970,46 @@ CREATE TABLE communications.endpoints (
   -- Where messages arrive: an email routing address today; a phone number or
   -- a chat workspace on the channels to come.
   channel text NOT NULL DEFAULT 'email' CONSTRAINT endpoints_channel_check CHECK (channel IN ('email')),
-  CONSTRAINT email_project_addresses_routing_address_key UNIQUE (routing_address)
+  -- Whose address it is: a person, or the company when null. A person's
+  -- addresses are theirs as a sender too.
+  owner_member_id uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  CONSTRAINT email_project_addresses_routing_address_key UNIQUE (routing_address),
+  -- A project address needs its own relay address: that is how mail is known
+  -- to be the project's. Every address has a relay or a public address.
+  CONSTRAINT endpoints_project_needs_routing CHECK (project_id IS NULL OR (routing_local_part IS NOT NULL AND routing_domain IS NOT NULL)),
+  CONSTRAINT endpoints_has_address CHECK (routing_local_part IS NOT NULL OR public_address IS NOT NULL),
+  CONSTRAINT endpoints_routing_whole CHECK ((routing_local_part IS NULL) = (routing_domain IS NULL))
 );
 CREATE INDEX idx_email_project_addresses_project ON communications.endpoints (project_id);
 CREATE INDEX idx_email_project_addresses_inbox ON communications.endpoints (inbox_id);
+CREATE UNIQUE INDEX endpoints_public_address_key ON communications.endpoints (public_address) WHERE public_address IS NOT NULL;
+CREATE INDEX idx_endpoints_owner ON communications.endpoints (owner_member_id) WHERE owner_member_id IS NOT NULL;
+
+-- Your domains: a catch-all, so mail written to any address on one reads as
+-- written to you, listed or not. A specific address still wins.
+CREATE TABLE communications.own_domains (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  domain text NOT NULL CONSTRAINT own_domains_domain_check CHECK (
+    domain = lower(btrim(domain)) AND public.email_is_hostname(domain) AND NOT public.email_domain_is_public(domain)
+  ),
+  created_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT own_domains_domain_key UNIQUE (domain)
+);
+
+-- Addresses marked as not yours (or removed): never suggested again.
+CREATE TABLE communications.ignored_addresses (
+  address text PRIMARY KEY CONSTRAINT ignored_addresses_address_check CHECK (address = lower(btrim(address)) AND public.email_is_address(address)),
+  ignored_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE communications.own_domains ENABLE ROW LEVEL SECURITY;
+ALTER TABLE communications.ignored_addresses ENABLE ROW LEVEL SECURITY;
+CREATE POLICY own_domains_select ON communications.own_domains FOR SELECT TO authenticated
+  USING (public.has_permission('inbound_email.read') OR public.has_permission('inbound_email.manage'));
+CREATE POLICY ignored_addresses_select ON communications.ignored_addresses FOR SELECT TO authenticated
+  USING (public.has_permission('inbound_email.manage'));
 
 CREATE OR REPLACE FUNCTION communications.endpoints_before_write()
 RETURNS trigger
@@ -6981,15 +7021,22 @@ DECLARE
   v_base text;
 BEGIN
   NEW.public_address := NULLIF(lower(btrim(COALESCE(NEW.public_address, ''))), '');
-  IF NEW.routing_domain IS NULL OR btrim(NEW.routing_domain) = '' THEN
-    SELECT inbound_email_domain INTO NEW.routing_domain FROM public.business_settings LIMIT 1;
-  END IF;
-  NEW.routing_domain := lower(btrim(NEW.routing_domain));
-  IF (NEW.routing_local_part IS NULL OR btrim(NEW.routing_local_part) = '') AND NEW.public_address IS NOT NULL THEN
-    v_base := regexp_replace(regexp_replace(split_part(NEW.public_address, '@', 1), '[^a-z0-9._-]', '', 'g'), '^[._-]+|[._-]+$', '', 'g');
-    NEW.routing_local_part := regexp_replace(left(v_base, 64), '[._-]+$', '');
+  -- An address with no project and no relay address of its own keeps none:
+  -- it arrives through the inbox's routing address.
+  IF NEW.project_id IS NULL AND (NEW.routing_local_part IS NULL OR btrim(NEW.routing_local_part) = '') THEN
+    NEW.routing_local_part := NULL;
+    NEW.routing_domain := NULL;
   ELSE
-    NEW.routing_local_part := lower(btrim(COALESCE(NEW.routing_local_part, '')));
+    IF NEW.routing_domain IS NULL OR btrim(NEW.routing_domain) = '' THEN
+      SELECT inbound_email_domain INTO NEW.routing_domain FROM public.business_settings LIMIT 1;
+    END IF;
+    NEW.routing_domain := lower(btrim(NEW.routing_domain));
+    IF (NEW.routing_local_part IS NULL OR btrim(NEW.routing_local_part) = '') AND NEW.public_address IS NOT NULL THEN
+      v_base := regexp_replace(regexp_replace(split_part(NEW.public_address, '@', 1), '[^a-z0-9._-]', '', 'g'), '^[._-]+|[._-]+$', '', 'g');
+      NEW.routing_local_part := regexp_replace(left(v_base, 64), '[._-]+$', '');
+    ELSE
+      NEW.routing_local_part := lower(btrim(COALESCE(NEW.routing_local_part, '')));
+    END IF;
   END IF;
   -- An edit, not mail arriving (last_received_at). A new route (routing or
   -- public address) waits for its first email again.
@@ -8559,13 +8606,14 @@ AS $$
   WITH ours AS (
     SELECT lower(address) AS address FROM communications.inboxes
     UNION SELECT lower(routing_address) FROM communications.inboxes
-    UNION SELECT lower(btrim(alias)) FROM communications.inboxes, unnest(aliases) AS alias
-    UNION SELECT lower(routing_address) FROM communications.endpoints
+    UNION SELECT lower(routing_address) FROM communications.endpoints WHERE routing_address IS NOT NULL
     UNION SELECT lower(public_address) FROM communications.endpoints WHERE public_address IS NOT NULL
     UNION SELECT lower(btrim(email)) FROM public.team_members WHERE email IS NOT NULL AND btrim(email) <> ''
   ),
   recipients AS (
-    SELECT p.kind, p.address, p.address IN (SELECT address FROM ours) AS is_ours
+    SELECT p.kind, p.address,
+      (p.address IN (SELECT address FROM ours)
+        OR split_part(p.address, '@', 2) IN (SELECT domain FROM communications.own_domains)) IS TRUE AS is_ours
     FROM communications.participants p
     WHERE p.message_id = p_message_id AND p.kind IN ('to', 'cc')
   )
@@ -8749,13 +8797,21 @@ CREATE POLICY email_client_addresses_manage ON communications.client_addresses F
   USING ((public.has_permission('contacts.manage') OR public.has_permission('inbound_email.manage')) AND public.can_access_project(project_id))
   WITH CHECK ((public.has_permission('contacts.manage') OR public.has_permission('inbound_email.manage')) AND public.can_access_project(project_id));
 
+-- An address with no project is the inbox team's to read and manage.
 CREATE POLICY email_project_addresses_select ON communications.endpoints FOR SELECT TO authenticated
-  USING (public.can_access_project(project_id) AND (
-    public.has_permission('contacts.read') OR public.has_permission('inbound_email.read')
-  ));
+  USING (
+    (project_id IS NULL AND (public.has_permission('inbound_email.read') OR public.has_permission('inbound_email.manage')))
+    OR (public.can_access_project(project_id) AND (public.has_permission('contacts.read') OR public.has_permission('inbound_email.read')))
+  );
 CREATE POLICY email_project_addresses_manage ON communications.endpoints FOR ALL TO authenticated
-  USING ((public.has_permission('contacts.manage') OR public.has_permission('inbound_email.manage')) AND public.can_access_project(project_id))
-  WITH CHECK ((public.has_permission('contacts.manage') OR public.has_permission('inbound_email.manage')) AND public.can_access_project(project_id));
+  USING (
+    (project_id IS NULL AND public.has_permission('inbound_email.manage'))
+    OR ((public.has_permission('contacts.manage') OR public.has_permission('inbound_email.manage')) AND public.can_access_project(project_id))
+  )
+  WITH CHECK (
+    (project_id IS NULL AND public.has_permission('inbound_email.manage'))
+    OR ((public.has_permission('contacts.manage') OR public.has_permission('inbound_email.manage')) AND public.can_access_project(project_id))
+  );
 
 CREATE POLICY email_threads_select ON communications.conversations FOR SELECT TO authenticated
   USING (communications.can_read_inbox(inbox_id));
@@ -8997,6 +9053,10 @@ CREATE POLICY reply_points_select ON communications.reply_points FOR SELECT TO a
 REVOKE ALL ON communications.plans, communications.plan_items, communications.reply_points FROM PUBLIC, anon, authenticated;
 GRANT SELECT ON communications.plans, communications.plan_items, communications.reply_points TO authenticated;
 GRANT ALL ON communications.plans, communications.plan_items, communications.reply_points TO service_role;
+-- Your domains and ignored addresses: written by the app's service role only.
+REVOKE ALL ON communications.own_domains, communications.ignored_addresses FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON communications.own_domains, communications.ignored_addresses TO authenticated;
+GRANT ALL ON communications.own_domains, communications.ignored_addresses TO service_role;
 
 -- The next batch of messages due for deletion, oldest first, with every file
 -- path they own: the raw .eml and attachments stored the old way. Shared
@@ -11372,7 +11432,7 @@ CREATE POLICY email_client_addresses_parent_live ON communications.client_addres
 CREATE POLICY email_client_domains_parent_live ON communications.client_domains AS RESTRICTIVE FOR ALL TO authenticated
   USING (public.project_is_live(project_id));
 CREATE POLICY email_project_addresses_parent_live ON communications.endpoints AS RESTRICTIVE FOR ALL TO authenticated
-  USING (public.project_is_live(project_id));
+  USING (project_id IS NULL OR public.project_is_live(project_id));
 CREATE POLICY email_message_candidates_parent_live ON communications.message_candidates AS RESTRICTIVE FOR ALL TO authenticated
   USING (public.project_is_live(project_id));
 CREATE POLICY conversation_projects_parent_live ON communications.conversation_projects AS RESTRICTIVE FOR ALL TO authenticated

@@ -15,7 +15,8 @@ import type { InboxMessage } from '@/lib/communications/inbox-types';
 
 type Action = 'ignore' | 'fyi' | 'always';
 
-const ACTIONS: { value: Action; label: string; description: string }[] = [
+/** What a rule can do, worded for people; shared with the add form in Settings > Email > Mail rules. */
+export const SENDER_RULE_ACTIONS: { value: Action; label: string; description: string }[] = [
   { value: 'ignore', label: 'Filter it', description: 'Goes straight to Filtered. Nobody reads it.' },
   { value: 'fyi', label: 'FYI only', description: 'The agent reads it and mentions it, but never flags you.' },
   { value: 'always', label: 'Always triage', description: 'The agent reads it fully, even when it looks like noise.' },
@@ -45,7 +46,7 @@ export function SenderRuleDialog({ isOpen, onClose, threadId, message, agentName
   const [filterNow, setFilterNow] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  const actions = useMemo(() => ACTIONS.map((option) => ({
+  const actions = useMemo(() => SENDER_RULE_ACTIONS.map((option) => ({
     value: option.value,
     label: option.label,
     description: option.description.replace('The agent', agentName),

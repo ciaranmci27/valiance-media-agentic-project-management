@@ -1730,6 +1730,46 @@
     "latest_triage": null
    },
    {
+    "id": "<message:Ashley/own-domain@acme-roofing.example>",
+    "inbox_id": "<ids.inboxA>",
+    "thread_id": "<thread:Ashley/own-domain@acme-roofing.example>",
+    "conversation_id": "<thread:Ashley/own-domain@acme-roofing.example>",
+    "channel": "email",
+    "status": "new",
+    "subject": "Domain catch-all",
+    "from": {
+     "address": "dana@acme-roofing.example",
+     "name": "Dana Wu"
+    },
+    "received_at": "<time>",
+    "sent_at": "<time>",
+    "is_forward": false,
+    "routing_basis": "sender",
+    "forwarded_by": null,
+    "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
+    "trust": "trusted",
+    "auto_mail_reason": null,
+    "sorting": {
+     "kind": "person",
+     "topic": null,
+     "action": "triage",
+     "reason": "From a person.",
+     "superseded_by": null
+    },
+    "project": null,
+    "projects": [],
+    "candidate_project_ids": [
+     "<ids.acme>",
+     "<ids.acme2>"
+    ],
+    "attachment_count": 0,
+    "latest_triage": null
+   },
+   {
     "id": "<message:Ashley/pa-cross@oldco.example>",
     "inbox_id": "<ids.inboxA>",
     "thread_id": "<thread:Ashley/pa-cross@oldco.example>",
@@ -2138,6 +2178,46 @@
     "latest_triage": null
    },
    {
+    "id": "<message:Ashley/public-domain@acme-roofing.example>",
+    "inbox_id": "<ids.inboxA>",
+    "thread_id": "<thread:Ashley/public-domain@acme-roofing.example>",
+    "conversation_id": "<thread:Ashley/public-domain@acme-roofing.example>",
+    "channel": "email",
+    "status": "new",
+    "subject": "Personal",
+    "from": {
+     "address": "dana@acme-roofing.example",
+     "name": "Dana Wu"
+    },
+    "received_at": "<time>",
+    "sent_at": "<time>",
+    "is_forward": false,
+    "routing_basis": "sender",
+    "forwarded_by": null,
+    "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 2,
+    "sender_member_id": null,
+    "sender_verified": true,
+    "trust": "trusted",
+    "auto_mail_reason": null,
+    "sorting": {
+     "kind": "person",
+     "topic": null,
+     "action": "triage",
+     "reason": "From a person.",
+     "superseded_by": null
+    },
+    "project": null,
+    "projects": [],
+    "candidate_project_ids": [
+     "<ids.acme>",
+     "<ids.acme2>"
+    ],
+    "attachment_count": 0,
+    "latest_triage": null
+   },
+   {
     "id": "<message:Ashley/stranger@unknown-co.example>",
     "inbox_id": "<ids.inboxA>",
     "thread_id": "<thread:Ashley/stranger@unknown-co.example>",
@@ -2503,6 +2583,46 @@
     "latest_triage": null
    },
    {
+    "id": "<message:Ashley/unlisted@acme-roofing.example>",
+    "inbox_id": "<ids.inboxA>",
+    "thread_id": "<thread:Ashley/unlisted@acme-roofing.example>",
+    "conversation_id": "<thread:Ashley/unlisted@acme-roofing.example>",
+    "channel": "email",
+    "status": "new",
+    "subject": "Invoice question",
+    "from": {
+     "address": "dana@acme-roofing.example",
+     "name": "Dana Wu"
+    },
+    "received_at": "<time>",
+    "sent_at": "<time>",
+    "is_forward": false,
+    "routing_basis": "sender",
+    "forwarded_by": null,
+    "original_sender": null,
+    "delivery": "bcc",
+    "audience_size": 2,
+    "sender_member_id": null,
+    "sender_verified": true,
+    "trust": "trusted",
+    "auto_mail_reason": null,
+    "sorting": {
+     "kind": "person",
+     "topic": null,
+     "action": "triage",
+     "reason": "From a person.",
+     "superseded_by": null
+    },
+    "project": null,
+    "projects": [],
+    "candidate_project_ids": [
+     "<ids.acme>",
+     "<ids.acme2>"
+    ],
+    "attachment_count": 0,
+    "latest_triage": null
+   },
+   {
     "id": "<message:Ashley/upper@agency.example>",
     "inbox_id": "<ids.inboxA>",
     "thread_id": "<thread:Ashley/CAF2xGmail-reply-1@mail.gmail.com>",
@@ -2709,12 +2829,52 @@
     "candidate_project_ids": [],
     "attachment_count": 0,
     "latest_triage": null
+   },
+   {
+    "id": "<message:Ashley/your-address@acme-roofing.example>",
+    "inbox_id": "<ids.inboxA>",
+    "thread_id": "<thread:Ashley/your-address@acme-roofing.example>",
+    "conversation_id": "<thread:Ashley/your-address@acme-roofing.example>",
+    "channel": "email",
+    "status": "new",
+    "subject": "Seminar banner",
+    "from": {
+     "address": "dana@acme-roofing.example",
+     "name": "Dana Wu"
+    },
+    "received_at": "<time>",
+    "sent_at": "<time>",
+    "is_forward": false,
+    "routing_basis": "sender",
+    "forwarded_by": null,
+    "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
+    "trust": "trusted",
+    "auto_mail_reason": null,
+    "sorting": {
+     "kind": "person",
+     "topic": null,
+     "action": "triage",
+     "reason": "From a person.",
+     "superseded_by": null
+    },
+    "project": null,
+    "projects": [],
+    "candidate_project_ids": [
+     "<ids.acme>",
+     "<ids.acme2>"
+    ],
+    "attachment_count": 0,
+    "latest_triage": null
    }
   ],
   "meta": {
    "page": 1,
    "limit": 100,
-   "total": 53,
+   "total": 57,
    "total_pages": 1
   }
  },
@@ -14059,6 +14219,174 @@
   {
    "success": true,
    "data": {
+    "id": "<message:Ashley/own-domain@acme-roofing.example>",
+    "status": "new",
+    "subject": "Domain catch-all",
+    "internet_message_id": "own-domain@acme-roofing.example",
+    "received_at": "<time>",
+    "sent_at": "<time>",
+    "from": {
+     "address": "dana@acme-roofing.example",
+     "name": "Dana Wu",
+     "contact_id": null
+    },
+    "to": [
+     {
+      "address": "anything@agency.example",
+      "name": "",
+      "contact_id": null
+     }
+    ],
+    "cc": [],
+    "reply_to": [],
+    "is_forward": false,
+    "routing_basis": "sender",
+    "forwarded_by": null,
+    "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
+    "auth": {
+     "trust": "trusted",
+     "trusted": true,
+     "source": "provider",
+     "spf": "pass",
+     "dkim": "pass",
+     "dmarc": "pass",
+     "reason": "provider: DKIM pass aligned with From"
+    },
+    "auto_mail_reason": null,
+    "sorting": {
+     "kind": "person",
+     "topic": null,
+     "action": "triage",
+     "reason": "From a person.",
+     "superseded_by": null
+    },
+    "new_text": "Hello, a quick note about the project.",
+    "text": "Hello, a quick note about the project.\n",
+    "text_truncated": false,
+    "html_text": null,
+    "html_text_truncated": false,
+    "latest_triage": null,
+    "answers": [],
+    "linked_tasks": [],
+    "attachments": [],
+    "inbox": {
+     "id": "<ids.inboxA>",
+     "name": "Ashley",
+     "address": "ashley@agency.example"
+    },
+    "thread_id": "<thread:Ashley/own-domain@acme-roofing.example>",
+    "conversation_id": "<thread:Ashley/own-domain@acme-roofing.example>",
+    "channel": "email",
+    "project": null,
+    "projects": [],
+    "project_scope": {
+     "bases": [
+      "mapped"
+     ],
+     "projects": [
+      {
+       "project_id": "<ids.acme>",
+       "name": "Acme Roofing",
+       "source": "inferred"
+      },
+      {
+       "project_id": "<ids.acme2>",
+       "name": "Acme Gutters LLC",
+       "source": "inferred"
+      }
+     ],
+     "any_project": false,
+     "any_source": null
+    },
+    "candidates": [
+     {
+      "project_id": "<ids.acme>",
+      "name": "Acme Roofing",
+      "reasons": [
+       "contact"
+      ]
+     },
+     {
+      "project_id": "<ids.acme2>",
+      "name": "Acme Gutters LLC",
+      "reasons": [
+       "contact"
+      ]
+     }
+    ],
+    "thread": {
+     "id": "<thread:Ashley/own-domain@acme-roofing.example>",
+     "subject_normalized": "domain catch-all",
+     "summary": null,
+     "last_message_at": "<time>",
+     "messages": [
+      {
+       "id": "<message:Ashley/own-domain@acme-roofing.example>",
+       "status": "new",
+       "subject": "Domain catch-all",
+       "internet_message_id": "own-domain@acme-roofing.example",
+       "received_at": "<time>",
+       "sent_at": "<time>",
+       "from": {
+        "address": "dana@acme-roofing.example",
+        "name": "Dana Wu",
+        "contact_id": null
+       },
+       "to": [
+        {
+         "address": "anything@agency.example",
+         "name": "",
+         "contact_id": null
+        }
+       ],
+       "cc": [],
+       "reply_to": [],
+       "is_forward": false,
+       "routing_basis": "sender",
+       "forwarded_by": null,
+       "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
+       "auth": {
+        "trust": "trusted",
+        "trusted": true,
+        "source": "provider",
+        "spf": "pass",
+        "dkim": "pass",
+        "dmarc": "pass",
+        "reason": "provider: DKIM pass aligned with From"
+       },
+       "auto_mail_reason": null,
+       "sorting": {
+        "kind": "person",
+        "topic": null,
+        "action": "triage",
+        "reason": "From a person.",
+        "superseded_by": null
+       },
+       "new_text": "Hello, a quick note about the project.",
+       "text": "Hello, a quick note about the project.\n",
+       "text_truncated": false,
+       "html_text": null,
+       "html_text_truncated": false,
+       "latest_triage": null,
+       "answers": [],
+       "linked_tasks": [],
+       "attachments": []
+      }
+     ]
+    }
+   }
+  },
+  {
+   "success": true,
+   "data": {
     "id": "<message:Ashley/pa-cross@oldco.example>",
     "status": "new",
     "subject": "Across inboxes",
@@ -15865,6 +16193,184 @@
        "original_sender": null,
        "delivery": "bcc",
        "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
+       "auth": {
+        "trust": "trusted",
+        "trusted": true,
+        "source": "provider",
+        "spf": "pass",
+        "dkim": "pass",
+        "dmarc": "pass",
+        "reason": "provider: DKIM pass aligned with From"
+       },
+       "auto_mail_reason": null,
+       "sorting": {
+        "kind": "person",
+        "topic": null,
+        "action": "triage",
+        "reason": "From a person.",
+        "superseded_by": null
+       },
+       "new_text": "Hello, a quick note about the project.",
+       "text": "Hello, a quick note about the project.\n",
+       "text_truncated": false,
+       "html_text": null,
+       "html_text_truncated": false,
+       "latest_triage": null,
+       "answers": [],
+       "linked_tasks": [],
+       "attachments": []
+      }
+     ]
+    }
+   }
+  },
+  {
+   "success": true,
+   "data": {
+    "id": "<message:Ashley/public-domain@acme-roofing.example>",
+    "status": "new",
+    "subject": "Personal",
+    "internet_message_id": "public-domain@acme-roofing.example",
+    "received_at": "<time>",
+    "sent_at": "<time>",
+    "from": {
+     "address": "dana@acme-roofing.example",
+     "name": "Dana Wu",
+     "contact_id": null
+    },
+    "to": [
+     {
+      "address": "ciaran.personal@gmail.com",
+      "name": "",
+      "contact_id": null
+     },
+     {
+      "address": "someone.else@gmail.com",
+      "name": "",
+      "contact_id": null
+     }
+    ],
+    "cc": [],
+    "reply_to": [],
+    "is_forward": false,
+    "routing_basis": "sender",
+    "forwarded_by": null,
+    "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 2,
+    "sender_member_id": null,
+    "sender_verified": true,
+    "auth": {
+     "trust": "trusted",
+     "trusted": true,
+     "source": "provider",
+     "spf": "pass",
+     "dkim": "pass",
+     "dmarc": "pass",
+     "reason": "provider: DKIM pass aligned with From"
+    },
+    "auto_mail_reason": null,
+    "sorting": {
+     "kind": "person",
+     "topic": null,
+     "action": "triage",
+     "reason": "From a person.",
+     "superseded_by": null
+    },
+    "new_text": "Hello, a quick note about the project.",
+    "text": "Hello, a quick note about the project.\n",
+    "text_truncated": false,
+    "html_text": null,
+    "html_text_truncated": false,
+    "latest_triage": null,
+    "answers": [],
+    "linked_tasks": [],
+    "attachments": [],
+    "inbox": {
+     "id": "<ids.inboxA>",
+     "name": "Ashley",
+     "address": "ashley@agency.example"
+    },
+    "thread_id": "<thread:Ashley/public-domain@acme-roofing.example>",
+    "conversation_id": "<thread:Ashley/public-domain@acme-roofing.example>",
+    "channel": "email",
+    "project": null,
+    "projects": [],
+    "project_scope": {
+     "bases": [
+      "mapped"
+     ],
+     "projects": [
+      {
+       "project_id": "<ids.acme>",
+       "name": "Acme Roofing",
+       "source": "inferred"
+      },
+      {
+       "project_id": "<ids.acme2>",
+       "name": "Acme Gutters LLC",
+       "source": "inferred"
+      }
+     ],
+     "any_project": false,
+     "any_source": null
+    },
+    "candidates": [
+     {
+      "project_id": "<ids.acme>",
+      "name": "Acme Roofing",
+      "reasons": [
+       "contact"
+      ]
+     },
+     {
+      "project_id": "<ids.acme2>",
+      "name": "Acme Gutters LLC",
+      "reasons": [
+       "contact"
+      ]
+     }
+    ],
+    "thread": {
+     "id": "<thread:Ashley/public-domain@acme-roofing.example>",
+     "subject_normalized": "personal",
+     "summary": null,
+     "last_message_at": "<time>",
+     "messages": [
+      {
+       "id": "<message:Ashley/public-domain@acme-roofing.example>",
+       "status": "new",
+       "subject": "Personal",
+       "internet_message_id": "public-domain@acme-roofing.example",
+       "received_at": "<time>",
+       "sent_at": "<time>",
+       "from": {
+        "address": "dana@acme-roofing.example",
+        "name": "Dana Wu",
+        "contact_id": null
+       },
+       "to": [
+        {
+         "address": "ciaran.personal@gmail.com",
+         "name": "",
+         "contact_id": null
+        },
+        {
+         "address": "someone.else@gmail.com",
+         "name": "",
+         "contact_id": null
+        }
+       ],
+       "cc": [],
+       "reply_to": [],
+       "is_forward": false,
+       "routing_basis": "sender",
+       "forwarded_by": null,
+       "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 2,
        "sender_member_id": null,
        "sender_verified": true,
        "auth": {
@@ -17793,6 +18299,184 @@
   {
    "success": true,
    "data": {
+    "id": "<message:Ashley/unlisted@acme-roofing.example>",
+    "status": "new",
+    "subject": "Invoice question",
+    "internet_message_id": "unlisted@acme-roofing.example",
+    "received_at": "<time>",
+    "sent_at": "<time>",
+    "from": {
+     "address": "dana@acme-roofing.example",
+     "name": "Dana Wu",
+     "contact_id": null
+    },
+    "to": [
+     {
+      "address": "accounts@agency.example",
+      "name": "",
+      "contact_id": null
+     },
+     {
+      "address": "ops@acme-roofing.example",
+      "name": "",
+      "contact_id": null
+     }
+    ],
+    "cc": [],
+    "reply_to": [],
+    "is_forward": false,
+    "routing_basis": "sender",
+    "forwarded_by": null,
+    "original_sender": null,
+    "delivery": "bcc",
+    "audience_size": 2,
+    "sender_member_id": null,
+    "sender_verified": true,
+    "auth": {
+     "trust": "trusted",
+     "trusted": true,
+     "source": "provider",
+     "spf": "pass",
+     "dkim": "pass",
+     "dmarc": "pass",
+     "reason": "provider: DKIM pass aligned with From"
+    },
+    "auto_mail_reason": null,
+    "sorting": {
+     "kind": "person",
+     "topic": null,
+     "action": "triage",
+     "reason": "From a person.",
+     "superseded_by": null
+    },
+    "new_text": "Hello, a quick note about the project.",
+    "text": "Hello, a quick note about the project.\n",
+    "text_truncated": false,
+    "html_text": null,
+    "html_text_truncated": false,
+    "latest_triage": null,
+    "answers": [],
+    "linked_tasks": [],
+    "attachments": [],
+    "inbox": {
+     "id": "<ids.inboxA>",
+     "name": "Ashley",
+     "address": "ashley@agency.example"
+    },
+    "thread_id": "<thread:Ashley/unlisted@acme-roofing.example>",
+    "conversation_id": "<thread:Ashley/unlisted@acme-roofing.example>",
+    "channel": "email",
+    "project": null,
+    "projects": [],
+    "project_scope": {
+     "bases": [
+      "mapped"
+     ],
+     "projects": [
+      {
+       "project_id": "<ids.acme>",
+       "name": "Acme Roofing",
+       "source": "inferred"
+      },
+      {
+       "project_id": "<ids.acme2>",
+       "name": "Acme Gutters LLC",
+       "source": "inferred"
+      }
+     ],
+     "any_project": false,
+     "any_source": null
+    },
+    "candidates": [
+     {
+      "project_id": "<ids.acme>",
+      "name": "Acme Roofing",
+      "reasons": [
+       "contact"
+      ]
+     },
+     {
+      "project_id": "<ids.acme2>",
+      "name": "Acme Gutters LLC",
+      "reasons": [
+       "contact"
+      ]
+     }
+    ],
+    "thread": {
+     "id": "<thread:Ashley/unlisted@acme-roofing.example>",
+     "subject_normalized": "invoice question",
+     "summary": null,
+     "last_message_at": "<time>",
+     "messages": [
+      {
+       "id": "<message:Ashley/unlisted@acme-roofing.example>",
+       "status": "new",
+       "subject": "Invoice question",
+       "internet_message_id": "unlisted@acme-roofing.example",
+       "received_at": "<time>",
+       "sent_at": "<time>",
+       "from": {
+        "address": "dana@acme-roofing.example",
+        "name": "Dana Wu",
+        "contact_id": null
+       },
+       "to": [
+        {
+         "address": "accounts@agency.example",
+         "name": "",
+         "contact_id": null
+        },
+        {
+         "address": "ops@acme-roofing.example",
+         "name": "",
+         "contact_id": null
+        }
+       ],
+       "cc": [],
+       "reply_to": [],
+       "is_forward": false,
+       "routing_basis": "sender",
+       "forwarded_by": null,
+       "original_sender": null,
+       "delivery": "bcc",
+       "audience_size": 2,
+       "sender_member_id": null,
+       "sender_verified": true,
+       "auth": {
+        "trust": "trusted",
+        "trusted": true,
+        "source": "provider",
+        "spf": "pass",
+        "dkim": "pass",
+        "dmarc": "pass",
+        "reason": "provider: DKIM pass aligned with From"
+       },
+       "auto_mail_reason": null,
+       "sorting": {
+        "kind": "person",
+        "topic": null,
+        "action": "triage",
+        "reason": "From a person.",
+        "superseded_by": null
+       },
+       "new_text": "Hello, a quick note about the project.",
+       "text": "Hello, a quick note about the project.\n",
+       "text_truncated": false,
+       "html_text": null,
+       "html_text_truncated": false,
+       "latest_triage": null,
+       "answers": [],
+       "linked_tasks": [],
+       "attachments": []
+      }
+     ]
+    }
+   }
+  },
+  {
+   "success": true,
+   "data": {
     "id": "<message:Ashley/upper@agency.example>",
     "status": "handled",
     "subject": "Homepage banner",
@@ -19005,6 +19689,174 @@
      ]
     }
    }
+  },
+  {
+   "success": true,
+   "data": {
+    "id": "<message:Ashley/your-address@acme-roofing.example>",
+    "status": "new",
+    "subject": "Seminar banner",
+    "internet_message_id": "your-address@acme-roofing.example",
+    "received_at": "<time>",
+    "sent_at": "<time>",
+    "from": {
+     "address": "dana@acme-roofing.example",
+     "name": "Dana Wu",
+     "contact_id": null
+    },
+    "to": [
+     {
+      "address": "ciaran@agency.example",
+      "name": "",
+      "contact_id": null
+     }
+    ],
+    "cc": [],
+    "reply_to": [],
+    "is_forward": false,
+    "routing_basis": "sender",
+    "forwarded_by": null,
+    "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": null,
+    "sender_verified": true,
+    "auth": {
+     "trust": "trusted",
+     "trusted": true,
+     "source": "provider",
+     "spf": "pass",
+     "dkim": "pass",
+     "dmarc": "pass",
+     "reason": "provider: DKIM pass aligned with From"
+    },
+    "auto_mail_reason": null,
+    "sorting": {
+     "kind": "person",
+     "topic": null,
+     "action": "triage",
+     "reason": "From a person.",
+     "superseded_by": null
+    },
+    "new_text": "Hello, a quick note about the project.",
+    "text": "Hello, a quick note about the project.\n",
+    "text_truncated": false,
+    "html_text": null,
+    "html_text_truncated": false,
+    "latest_triage": null,
+    "answers": [],
+    "linked_tasks": [],
+    "attachments": [],
+    "inbox": {
+     "id": "<ids.inboxA>",
+     "name": "Ashley",
+     "address": "ashley@agency.example"
+    },
+    "thread_id": "<thread:Ashley/your-address@acme-roofing.example>",
+    "conversation_id": "<thread:Ashley/your-address@acme-roofing.example>",
+    "channel": "email",
+    "project": null,
+    "projects": [],
+    "project_scope": {
+     "bases": [
+      "mapped"
+     ],
+     "projects": [
+      {
+       "project_id": "<ids.acme>",
+       "name": "Acme Roofing",
+       "source": "inferred"
+      },
+      {
+       "project_id": "<ids.acme2>",
+       "name": "Acme Gutters LLC",
+       "source": "inferred"
+      }
+     ],
+     "any_project": false,
+     "any_source": null
+    },
+    "candidates": [
+     {
+      "project_id": "<ids.acme>",
+      "name": "Acme Roofing",
+      "reasons": [
+       "contact"
+      ]
+     },
+     {
+      "project_id": "<ids.acme2>",
+      "name": "Acme Gutters LLC",
+      "reasons": [
+       "contact"
+      ]
+     }
+    ],
+    "thread": {
+     "id": "<thread:Ashley/your-address@acme-roofing.example>",
+     "subject_normalized": "seminar banner",
+     "summary": null,
+     "last_message_at": "<time>",
+     "messages": [
+      {
+       "id": "<message:Ashley/your-address@acme-roofing.example>",
+       "status": "new",
+       "subject": "Seminar banner",
+       "internet_message_id": "your-address@acme-roofing.example",
+       "received_at": "<time>",
+       "sent_at": "<time>",
+       "from": {
+        "address": "dana@acme-roofing.example",
+        "name": "Dana Wu",
+        "contact_id": null
+       },
+       "to": [
+        {
+         "address": "ciaran@agency.example",
+         "name": "",
+         "contact_id": null
+        }
+       ],
+       "cc": [],
+       "reply_to": [],
+       "is_forward": false,
+       "routing_basis": "sender",
+       "forwarded_by": null,
+       "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": null,
+       "sender_verified": true,
+       "auth": {
+        "trust": "trusted",
+        "trusted": true,
+        "source": "provider",
+        "spf": "pass",
+        "dkim": "pass",
+        "dmarc": "pass",
+        "reason": "provider: DKIM pass aligned with From"
+       },
+       "auto_mail_reason": null,
+       "sorting": {
+        "kind": "person",
+        "topic": null,
+        "action": "triage",
+        "reason": "From a person.",
+        "superseded_by": null
+       },
+       "new_text": "Hello, a quick note about the project.",
+       "text": "Hello, a quick note about the project.\n",
+       "text_truncated": false,
+       "html_text": null,
+       "html_text_truncated": false,
+       "latest_triage": null,
+       "answers": [],
+       "linked_tasks": [],
+       "attachments": []
+      }
+     ]
+    }
+   }
   }
  ],
  "unsummarized": {
@@ -19337,7 +20189,7 @@
  "signal": {
   "success": true,
   "data": {
-   "new_count": 35,
+   "new_count": 39,
    "newest_received_at": "<time>",
    "unsummarized_count": 6,
    "drafts_requested": 0,
@@ -20101,6 +20953,31 @@
     "reminder_count": 0
    },
    {
+    "id": "<thread:Ashley/own-domain@acme-roofing.example>",
+    "inbox_id": "<ids.inboxA>",
+    "inbox_name": "Ashley",
+    "subject": "Domain catch-all",
+    "project": null,
+    "projects": [],
+    "last_message_at": "<time>",
+    "message_count": 1,
+    "sender": {
+     "name": "Dana Wu",
+     "address": "dana@acme-roofing.example"
+    },
+    "snippet": "Hello, a quick note about the project.",
+    "state": "new",
+    "needs_you": false,
+    "needs_reply": false,
+    "has_new": true,
+    "urgent": false,
+    "untrusted": false,
+    "attachment_count": 0,
+    "summary": null,
+    "task_count": 0,
+    "reminder_count": 0
+   },
+   {
     "id": "<thread:Ashley/pa-cross@oldco.example>",
     "inbox_id": "<ids.inboxA>",
     "inbox_name": "Ashley",
@@ -20286,6 +21163,31 @@
     "reminder_count": 0
    },
    {
+    "id": "<thread:Ashley/public-domain@acme-roofing.example>",
+    "inbox_id": "<ids.inboxA>",
+    "inbox_name": "Ashley",
+    "subject": "Personal",
+    "project": null,
+    "projects": [],
+    "last_message_at": "<time>",
+    "message_count": 1,
+    "sender": {
+     "name": "Dana Wu",
+     "address": "dana@acme-roofing.example"
+    },
+    "snippet": "Hello, a quick note about the project.",
+    "state": "new",
+    "needs_you": false,
+    "needs_reply": false,
+    "has_new": true,
+    "urgent": false,
+    "untrusted": false,
+    "attachment_count": 0,
+    "summary": null,
+    "task_count": 0,
+    "reminder_count": 0
+   },
+   {
     "id": "<thread:Ashley/stranger@unknown-co.example>",
     "inbox_id": "<ids.inboxA>",
     "inbox_name": "Ashley",
@@ -20451,6 +21353,31 @@
     "reminder_count": 0
    },
    {
+    "id": "<thread:Ashley/unlisted@acme-roofing.example>",
+    "inbox_id": "<ids.inboxA>",
+    "inbox_name": "Ashley",
+    "subject": "Invoice question",
+    "project": null,
+    "projects": [],
+    "last_message_at": "<time>",
+    "message_count": 1,
+    "sender": {
+     "name": "Dana Wu",
+     "address": "dana@acme-roofing.example"
+    },
+    "snippet": "Hello, a quick note about the project.",
+    "state": "new",
+    "needs_you": false,
+    "needs_reply": false,
+    "has_new": true,
+    "urgent": false,
+    "untrusted": false,
+    "attachment_count": 0,
+    "summary": null,
+    "task_count": 0,
+    "reminder_count": 0
+   },
+   {
     "id": "<thread:Ashley/verify-10@agency.example>",
     "inbox_id": "<ids.inboxA>",
     "inbox_name": "Ashley",
@@ -20464,6 +21391,31 @@
      "address": "owner@agency.example"
     },
     "snippet": "Verifying the inbox route.",
+    "state": "new",
+    "needs_you": false,
+    "needs_reply": false,
+    "has_new": true,
+    "urgent": false,
+    "untrusted": false,
+    "attachment_count": 0,
+    "summary": null,
+    "task_count": 0,
+    "reminder_count": 0
+   },
+   {
+    "id": "<thread:Ashley/your-address@acme-roofing.example>",
+    "inbox_id": "<ids.inboxA>",
+    "inbox_name": "Ashley",
+    "subject": "Seminar banner",
+    "project": null,
+    "projects": [],
+    "last_message_at": "<time>",
+    "message_count": 1,
+    "sender": {
+     "name": "Dana Wu",
+     "address": "dana@acme-roofing.example"
+    },
+    "snippet": "Hello, a quick note about the project.",
     "state": "new",
     "needs_you": false,
     "needs_reply": false,
@@ -20536,16 +21488,16 @@
     "reminder_count": 0
    }
   ],
-  "total": 35,
+  "total": 39,
   "counts": {
-   "all": 35,
+   "all": 39,
    "needs_you": 1,
    "needs_reply": 0,
-   "new": 30,
+   "new": 34,
    "updates": 2,
    "handled": 6,
    "ignored": 4,
-   "unassigned": 9
+   "unassigned": 13
   }
  },
  "threads": [
@@ -24026,6 +24978,113 @@
    ]
   },
   {
+   "id": "<thread:Ashley/own-domain@acme-roofing.example>",
+   "inbox": {
+    "id": "<ids.inboxA>",
+    "name": "Ashley",
+    "address": "ashley@agency.example",
+    "enabled": true,
+    "handler": {
+     "id": "<ids.ashley>",
+     "name": "Ashley P."
+    }
+   },
+   "subject": "Domain catch-all",
+   "project": null,
+   "projects": [],
+   "state": "new",
+   "urgent": false,
+   "untrusted": false,
+   "candidates": [
+    {
+     "project_id": "<ids.acme>",
+     "name": "Acme Roofing",
+     "reasons": [
+      "contact"
+     ]
+    },
+    {
+     "project_id": "<ids.acme2>",
+     "name": "Acme Gutters LLC",
+     "reasons": [
+      "contact"
+     ]
+    }
+   ],
+   "messages": [
+    {
+     "id": "<message:Ashley/own-domain@acme-roofing.example>",
+     "status": "new",
+     "subject": "Domain catch-all",
+     "received_at": "<time>",
+     "sent_at": "<time>",
+     "from": {
+      "address": "dana@acme-roofing.example",
+      "name": "Dana Wu",
+      "contact_id": null
+     },
+     "to": [
+      {
+       "address": "anything@agency.example",
+       "name": "",
+       "contact_id": null
+      }
+     ],
+     "cc": [],
+     "is_forward": false,
+     "routing_basis": "sender",
+     "forwarded_by": null,
+     "original_sender": null,
+     "trust": {
+      "level": "trusted",
+      "reason": "provider: DKIM pass aligned with From",
+      "spf": "pass",
+      "dkim": "pass",
+      "dmarc": "pass"
+     },
+     "auto_mail_reason": null,
+     "sorting": {
+      "kind": "person",
+      "topic": null,
+      "action": "triage",
+      "reason": "From a person.",
+      "rule_id": null,
+      "superseded_by": null
+     },
+     "new_text": "Hello, a quick note about the project.",
+     "text_body": "Hello, a quick note about the project.\n",
+     "html_body": null,
+     "attachments": [],
+     "triage": null,
+     "answer": null,
+     "linked_tasks": [],
+     "reminders": [],
+     "plan": null,
+     "reply_points": [],
+     "reviewed_at": null,
+     "reviewed_by": null
+    }
+   ],
+   "summary": null,
+   "senders": [
+    {
+     "address": "dana@acme-roofing.example",
+     "name": "Dana Wu",
+     "domain": "acme-roofing.example",
+     "domain_is_public": false,
+     "contact_ids": [
+      "<contact:Shared inbox>",
+      "<ids.dana>"
+     ],
+     "mapped_project_ids": [
+      "<ids.acme>",
+      "<ids.acme2>"
+     ],
+     "domain_project_ids": []
+    }
+   ]
+  },
+  {
    "id": "<thread:Ashley/pa-cross@oldco.example>",
    "inbox": {
     "id": "<ids.inboxA>",
@@ -24556,6 +25615,118 @@
      "domain_is_public": false,
      "contact_ids": [],
      "mapped_project_ids": [],
+     "domain_project_ids": []
+    }
+   ]
+  },
+  {
+   "id": "<thread:Ashley/public-domain@acme-roofing.example>",
+   "inbox": {
+    "id": "<ids.inboxA>",
+    "name": "Ashley",
+    "address": "ashley@agency.example",
+    "enabled": true,
+    "handler": {
+     "id": "<ids.ashley>",
+     "name": "Ashley P."
+    }
+   },
+   "subject": "Personal",
+   "project": null,
+   "projects": [],
+   "state": "new",
+   "urgent": false,
+   "untrusted": false,
+   "candidates": [
+    {
+     "project_id": "<ids.acme>",
+     "name": "Acme Roofing",
+     "reasons": [
+      "contact"
+     ]
+    },
+    {
+     "project_id": "<ids.acme2>",
+     "name": "Acme Gutters LLC",
+     "reasons": [
+      "contact"
+     ]
+    }
+   ],
+   "messages": [
+    {
+     "id": "<message:Ashley/public-domain@acme-roofing.example>",
+     "status": "new",
+     "subject": "Personal",
+     "received_at": "<time>",
+     "sent_at": "<time>",
+     "from": {
+      "address": "dana@acme-roofing.example",
+      "name": "Dana Wu",
+      "contact_id": null
+     },
+     "to": [
+      {
+       "address": "ciaran.personal@gmail.com",
+       "name": "",
+       "contact_id": null
+      },
+      {
+       "address": "someone.else@gmail.com",
+       "name": "",
+       "contact_id": null
+      }
+     ],
+     "cc": [],
+     "is_forward": false,
+     "routing_basis": "sender",
+     "forwarded_by": null,
+     "original_sender": null,
+     "trust": {
+      "level": "trusted",
+      "reason": "provider: DKIM pass aligned with From",
+      "spf": "pass",
+      "dkim": "pass",
+      "dmarc": "pass"
+     },
+     "auto_mail_reason": null,
+     "sorting": {
+      "kind": "person",
+      "topic": null,
+      "action": "triage",
+      "reason": "From a person.",
+      "rule_id": null,
+      "superseded_by": null
+     },
+     "new_text": "Hello, a quick note about the project.",
+     "text_body": "Hello, a quick note about the project.\n",
+     "html_body": null,
+     "attachments": [],
+     "triage": null,
+     "answer": null,
+     "linked_tasks": [],
+     "reminders": [],
+     "plan": null,
+     "reply_points": [],
+     "reviewed_at": null,
+     "reviewed_by": null
+    }
+   ],
+   "summary": null,
+   "senders": [
+    {
+     "address": "dana@acme-roofing.example",
+     "name": "Dana Wu",
+     "domain": "acme-roofing.example",
+     "domain_is_public": false,
+     "contact_ids": [
+      "<contact:Shared inbox>",
+      "<ids.dana>"
+     ],
+     "mapped_project_ids": [
+      "<ids.acme>",
+      "<ids.acme2>"
+     ],
      "domain_project_ids": []
     }
    ]
@@ -25168,6 +26339,118 @@
    "senders": []
   },
   {
+   "id": "<thread:Ashley/unlisted@acme-roofing.example>",
+   "inbox": {
+    "id": "<ids.inboxA>",
+    "name": "Ashley",
+    "address": "ashley@agency.example",
+    "enabled": true,
+    "handler": {
+     "id": "<ids.ashley>",
+     "name": "Ashley P."
+    }
+   },
+   "subject": "Invoice question",
+   "project": null,
+   "projects": [],
+   "state": "new",
+   "urgent": false,
+   "untrusted": false,
+   "candidates": [
+    {
+     "project_id": "<ids.acme>",
+     "name": "Acme Roofing",
+     "reasons": [
+      "contact"
+     ]
+    },
+    {
+     "project_id": "<ids.acme2>",
+     "name": "Acme Gutters LLC",
+     "reasons": [
+      "contact"
+     ]
+    }
+   ],
+   "messages": [
+    {
+     "id": "<message:Ashley/unlisted@acme-roofing.example>",
+     "status": "new",
+     "subject": "Invoice question",
+     "received_at": "<time>",
+     "sent_at": "<time>",
+     "from": {
+      "address": "dana@acme-roofing.example",
+      "name": "Dana Wu",
+      "contact_id": null
+     },
+     "to": [
+      {
+       "address": "accounts@agency.example",
+       "name": "",
+       "contact_id": null
+      },
+      {
+       "address": "ops@acme-roofing.example",
+       "name": "",
+       "contact_id": null
+      }
+     ],
+     "cc": [],
+     "is_forward": false,
+     "routing_basis": "sender",
+     "forwarded_by": null,
+     "original_sender": null,
+     "trust": {
+      "level": "trusted",
+      "reason": "provider: DKIM pass aligned with From",
+      "spf": "pass",
+      "dkim": "pass",
+      "dmarc": "pass"
+     },
+     "auto_mail_reason": null,
+     "sorting": {
+      "kind": "person",
+      "topic": null,
+      "action": "triage",
+      "reason": "From a person.",
+      "rule_id": null,
+      "superseded_by": null
+     },
+     "new_text": "Hello, a quick note about the project.",
+     "text_body": "Hello, a quick note about the project.\n",
+     "html_body": null,
+     "attachments": [],
+     "triage": null,
+     "answer": null,
+     "linked_tasks": [],
+     "reminders": [],
+     "plan": null,
+     "reply_points": [],
+     "reviewed_at": null,
+     "reviewed_by": null
+    }
+   ],
+   "summary": null,
+   "senders": [
+    {
+     "address": "dana@acme-roofing.example",
+     "name": "Dana Wu",
+     "domain": "acme-roofing.example",
+     "domain_is_public": false,
+     "contact_ids": [
+      "<contact:Shared inbox>",
+      "<ids.dana>"
+     ],
+     "mapped_project_ids": [
+      "<ids.acme>",
+      "<ids.acme2>"
+     ],
+     "domain_project_ids": []
+    }
+   ]
+  },
+  {
    "id": "<thread:Ashley/verify-10@agency.example>",
    "inbox": {
     "id": "<ids.inboxA>",
@@ -25242,6 +26525,113 @@
    ],
    "summary": null,
    "senders": []
+  },
+  {
+   "id": "<thread:Ashley/your-address@acme-roofing.example>",
+   "inbox": {
+    "id": "<ids.inboxA>",
+    "name": "Ashley",
+    "address": "ashley@agency.example",
+    "enabled": true,
+    "handler": {
+     "id": "<ids.ashley>",
+     "name": "Ashley P."
+    }
+   },
+   "subject": "Seminar banner",
+   "project": null,
+   "projects": [],
+   "state": "new",
+   "urgent": false,
+   "untrusted": false,
+   "candidates": [
+    {
+     "project_id": "<ids.acme>",
+     "name": "Acme Roofing",
+     "reasons": [
+      "contact"
+     ]
+    },
+    {
+     "project_id": "<ids.acme2>",
+     "name": "Acme Gutters LLC",
+     "reasons": [
+      "contact"
+     ]
+    }
+   ],
+   "messages": [
+    {
+     "id": "<message:Ashley/your-address@acme-roofing.example>",
+     "status": "new",
+     "subject": "Seminar banner",
+     "received_at": "<time>",
+     "sent_at": "<time>",
+     "from": {
+      "address": "dana@acme-roofing.example",
+      "name": "Dana Wu",
+      "contact_id": null
+     },
+     "to": [
+      {
+       "address": "ciaran@agency.example",
+       "name": "",
+       "contact_id": null
+      }
+     ],
+     "cc": [],
+     "is_forward": false,
+     "routing_basis": "sender",
+     "forwarded_by": null,
+     "original_sender": null,
+     "trust": {
+      "level": "trusted",
+      "reason": "provider: DKIM pass aligned with From",
+      "spf": "pass",
+      "dkim": "pass",
+      "dmarc": "pass"
+     },
+     "auto_mail_reason": null,
+     "sorting": {
+      "kind": "person",
+      "topic": null,
+      "action": "triage",
+      "reason": "From a person.",
+      "rule_id": null,
+      "superseded_by": null
+     },
+     "new_text": "Hello, a quick note about the project.",
+     "text_body": "Hello, a quick note about the project.\n",
+     "html_body": null,
+     "attachments": [],
+     "triage": null,
+     "answer": null,
+     "linked_tasks": [],
+     "reminders": [],
+     "plan": null,
+     "reply_points": [],
+     "reviewed_at": null,
+     "reviewed_by": null
+    }
+   ],
+   "summary": null,
+   "senders": [
+    {
+     "address": "dana@acme-roofing.example",
+     "name": "Dana Wu",
+     "domain": "acme-roofing.example",
+     "domain_is_public": false,
+     "contact_ids": [
+      "<contact:Shared inbox>",
+      "<ids.dana>"
+     ],
+     "mapped_project_ids": [
+      "<ids.acme>",
+      "<ids.acme2>"
+     ],
+     "domain_project_ids": []
+    }
+   ]
   },
   {
    "id": "<thread:Billing/pa-cross@oldco.example>",

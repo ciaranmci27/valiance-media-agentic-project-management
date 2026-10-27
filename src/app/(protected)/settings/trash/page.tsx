@@ -140,7 +140,7 @@ function TrashPageContent() {
 
       <div className="p-4 lg:p-6 max-w-4xl mx-auto">
         <div className="mb-4">
-          <Button href="/settings" variant="ghost" size="sm" icon={<ArrowLeft size={14} />}>Settings</Button>
+          <Button href="/settings/data" variant="ghost" size="sm" icon={<ArrowLeft size={14} />}>Settings</Button>
         </div>
 
         <TabToolbar

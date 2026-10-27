@@ -34,14 +34,14 @@ export async function messageFacts(supabase: SupabaseClient, messageId: string):
   const row = message as Row;
   const [participants, inbox, candidates, filed] = await Promise.all([
     comms(supabase).from('participants').select('kind, address').eq('message_id', messageId),
-    comms(supabase).from('inboxes').select('address, routing_address, aliases, handler_member_id').eq('id', row.inbox_id as string).single(),
+    comms(supabase).from('inboxes').select('address, routing_address, handler_member_id').eq('id', row.inbox_id as string).single(),
     comms(supabase).from('message_candidates').select('project_id').eq('message_id', messageId).limit(1),
     comms(supabase).from('conversation_projects').select('source').eq('conversation_id', row.thread_id as string),
   ]);
   for (const result of [participants, inbox, candidates, filed]) if (result.error) throw result.error;
   const recipients = (participants.data ?? []) as { kind: string; address: string }[];
   const fromAddress = recipients.find((r) => r.kind === 'from')?.address ?? null;
-  const box = inbox.data as { address: string; routing_address: string; aliases: string[] | null; handler_member_id: string | null };
+  const box = inbox.data as { address: string; routing_address: string; handler_member_id: string | null };
   const senderMemberId = (row.sender_member_id as string | null) ?? null;
 
   const [members, leads] = await Promise.all([
@@ -65,7 +65,8 @@ export async function messageFacts(supabase: SupabaseClient, messageId: string):
   else if (((filed.data ?? []) as { source: string }[]).some((p) => p.source !== 'guessed')) speaker = 'client_colleague';
   else speaker = 'stranger';
 
-  const ours = new Set([box.address, box.routing_address, ...(box.aliases ?? [])].map((a) => a.toLowerCase()));
+  // Written to the agent: its own inbox address only. Your addresses are you, not the agent.
+  const ours = new Set([box.address, box.routing_address].map((a) => a.toLowerCase()));
   const opening = ((row.new_text as string | null) ?? (row.text_body as string | null) ?? '').trim().slice(0, 200);
   const named = agentName.length > 1 && new RegExp(`^(hi |hey |hello )?${agentName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(opening);
   const addressedToAshley = recipients.some((r) => r.kind === 'to' && ours.has(r.address)) || named;

@@ -352,7 +352,7 @@ export function emailLayout(options: {
 
   const defaultFooter = `
     ${footerLine('You received this because email notifications are enabled in your account.')}
-    ${footerLine(`${footerLink('/settings', 'Manage notification preferences')} &nbsp;&middot;&nbsp; &copy; ${new Date().getFullYear()} ${footerLink(siteUrl, name)}`)}`;
+    ${footerLine(`${footerLink('/settings/notifications', 'Manage notification preferences')} &nbsp;&middot;&nbsp; &copy; ${new Date().getFullYear()} ${footerLink(siteUrl, name)}`)}`;
 
   return `
 <!DOCTYPE html>

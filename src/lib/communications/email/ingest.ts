@@ -475,60 +475,75 @@ async function finalize(
   prepared: PreparedEmail,
   email: InboundEmail,
 ): Promise<InboxOutcome> {
-  const [{ data: message, error: messageError }, inboxRows, projectAddressRows, memberRows, ruleRows] = await Promise.all([
+  const [{ data: message, error: messageError }, inboxRows, projectAddressRows, memberRows, ruleRows, domainRows] = await Promise.all([
     comms(supabase).from('messages')
       .select('id, subject_normalized, in_reply_to, reference_ids, received_at, auto_mail_reason')
       .eq('id', messageId)
       .single(),
-    comms(supabase).from('inboxes').select('address, routing_address, aliases'),
-    comms(supabase).from('endpoints').select('routing_address, public_address'),
+    comms(supabase).from('inboxes').select('address, routing_address'),
+    comms(supabase).from('endpoints').select('id, routing_address, public_address, owner_member_id'),
     supabase.from('team_members').select('id, email, role, status'),
     comms(supabase).from('sender_rules').select('id, match_kind, match_value, topic, action').is('disabled_at', null),
+    comms(supabase).from('own_domains').select('domain'),
   ]);
   if (messageError) throw messageError;
   if (inboxRows.error) throw inboxRows.error;
   if (projectAddressRows.error) throw projectAddressRows.error;
   if (memberRows.error) throw memberRows.error;
   if (ruleRows.error) throw ruleRows.error;
+  if (domainRows.error) throw domainRows.error;
 
-  // Ours, never clients: every inbox's addresses and aliases, and every project address.
+  // Ours, never clients: every inbox's addresses, and every one of your addresses.
+  const yourAddresses = (projectAddressRows.data ?? []) as { id: string; routing_address: string | null; public_address: string | null; owner_member_id: string | null }[];
   const inboxAddresses = new Set([
     inbox.address,
     inbox.routing_address,
-    ...((inboxRows.data ?? []) as { address: string; routing_address: string; aliases: string[] | null }[])
-      .flatMap((row) => [row.address, row.routing_address, ...(row.aliases ?? [])]),
-    ...((projectAddressRows.data ?? []) as { routing_address: string; public_address: string | null }[])
-      .flatMap((row) => [row.routing_address, row.public_address ?? '']),
+    ...((inboxRows.data ?? []) as { address: string; routing_address: string }[])
+      .flatMap((row) => [row.address, row.routing_address]),
+    ...yourAddresses.flatMap((row) => [row.routing_address ?? '', row.public_address ?? '']),
   ].filter(Boolean).map((address) => address.toLowerCase()));
   // And the team's: never shared participants, never the client a teammate wrote to.
   const members = (memberRows.data ?? []) as TeamMemberRow[];
   const teamAddresses = new Set(members.map((member) => (member.email ?? '').trim().toLowerCase()).filter(Boolean));
   const fromAddress = prepared.fromAddress;
-  const isClient = (address: string) => !inboxAddresses.has(address) && !teamAddresses.has(address);
+  // An address on one of your domains is yours too, listed or not.
+  const ownDomains = new Set(((domainRows.data ?? []) as { domain: string }[]).map((row) => row.domain));
+  const isOurs = (address: string) => inboxAddresses.has(address) || ownDomains.has(address.slice(address.lastIndexOf('@') + 1));
+  const isClient = (address: string) => !isOurs(address) && !teamAddresses.has(address);
+  // A person's own addresses are theirs as a sender, like their team email.
+  const ownerOf = (address: string) => yourAddresses.find((row) => row.public_address === address)?.owner_member_id ?? null;
+  // An address with no relay of its own arrives through the inbox: its last email is mail written to it.
+  const writtenTo = new Set(prepared.recipients.filter((row) => row.kind === 'to' || row.kind === 'cc').map((row) => row.address));
+  const reached = yourAddresses.filter((row) => !row.routing_address && row.public_address && writtenTo.has(row.public_address)).map((row) => row.id);
+  if (reached.length) {
+    const { error: reachedError } = await comms(supabase).from('endpoints').update({ last_received_at: new Date().toISOString() }).in('id', reached);
+    if (reachedError) throw reachedError;
+  }
 
   // Routing. The visible sender decides, unless it is a verified teammate (an
   // active person, not an agent, with trusted sender auth): then a forward
   // routes by its original sender (one layer deep), and anything else, a
   // teammate's own email copied to the inbox, by the client addresses it went to.
   const teamSender = fromAddress && prepared.message.auth.trust === 'trusted'
-    ? members.find((member) => member.role !== 'agent' && member.status === 'active' && (member.email ?? '').trim().toLowerCase() === fromAddress) ?? null
+    ? members.find((member) => member.role !== 'agent' && member.status === 'active'
+      && ((member.email ?? '').trim().toLowerCase() === fromAddress || ownerOf(fromAddress) === member.id)) ?? null
     : null;
   let basis: RoutingBasis = 'sender';
   let original: ForwardedSender | null = null;
-  let mappingAddresses: string[] = fromAddress && !inboxAddresses.has(fromAddress) ? [fromAddress] : [];
+  let mappingAddresses: string[] = fromAddress && !isOurs(fromAddress) ? [fromAddress] : [];
   if (teamSender) {
     original = inlineForwardedSender(prepared.message.subject, readableBody(prepared.message.text_body, prepared.message.html_body))
       ?? await attachedForwardSender(supabase, messageId, email);
     if (original) {
       basis = 'forwarded_original';
-      mappingAddresses = inboxAddresses.has(original.address) ? [] : [original.address];
+      mappingAddresses = isOurs(original.address) ? [] : [original.address];
     } else {
       basis = 'team_recipients';
       mappingAddresses = [...new Set(prepared.recipients.filter((row) => (row.kind === 'to' || row.kind === 'cc') && isClient(row.address)).map((row) => row.address))];
     }
   }
   const people = [...new Set([
-    ...prepared.recipients.map((row) => row.address).filter((address) => !inboxAddresses.has(address)),
+    ...prepared.recipients.map((row) => row.address).filter((address) => !isOurs(address)),
     ...mappingAddresses,
   ])];
 

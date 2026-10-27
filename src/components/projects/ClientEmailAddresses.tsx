@@ -148,14 +148,14 @@ export function ClientEmailAddresses({ isOpen, projectId }: ClientEmailAddresses
         <div className="flex items-center gap-2">
           <Mail size={14} className="text-zinc-400 flex-shrink-0" aria-hidden="true" />
           <h4 id={`${inputId}-heading`} className="text-sm font-medium text-white">
-            Client email addresses <span className="font-normal text-zinc-400">(optional)</span>
+            Client people <span className="font-normal text-zinc-400">(optional)</span>
           </h4>
           {loading && (
             <Loader2 size={14} className="text-zinc-500 animate-spin motion-reduce:animate-none" aria-label="Loading addresses" role="status" />
           )}
         </div>
         <p className="text-xs text-zinc-400">
-          Mail from these exact addresses maps to this project, even from gmail.com. Contact addresses are managed in Contacts.
+          Mail from these exact addresses goes to this project, even from gmail.com. Contact addresses are managed in Contacts.
         </p>
       </div>
 

@@ -16,7 +16,7 @@ export function InboxEmptyState({ inboxes }: { inboxes: InboxSummary[] }) {
     {
       icon: InboxIcon,
       title: 'Create an inbox',
-      body: 'Pick the address clients write to and the agent that handles it.',
+      body: 'Pick the address clients write to and who handles it: an agent or a teammate.',
       done: hasInbox,
     },
     {
@@ -27,7 +27,7 @@ export function InboxEmptyState({ inboxes }: { inboxes: InboxSummary[] }) {
     },
     {
       icon: Sparkles,
-      title: 'The agent triages it',
+      title: 'Its handler sorts it',
       body: 'Tasks, drafted replies and questions for you show up here.',
       done: false,
     },
@@ -41,7 +41,7 @@ export function InboxEmptyState({ inboxes }: { inboxes: InboxSummary[] }) {
         </div>
         <h2 className="text-base font-semibold text-white">No client email yet</h2>
         <p className="mx-auto mt-1.5 max-w-md text-sm text-zinc-400">
-          Email lands here once an agent has read it, with the tasks it made and anything that needs you. Nothing is ever sent from here.
+          Email lands here once its handler has read it, with the tasks it made and anything that needs you. Replies are never sent from here; you answer from your own mail.
         </p>
 
         <ol className="mt-8 grid gap-3 text-left sm:grid-cols-3">
@@ -55,7 +55,7 @@ export function InboxEmptyState({ inboxes }: { inboxes: InboxSummary[] }) {
                   >
                     <Icon size={14} aria-hidden="true" />
                   </span>
-                  <span className="text-xs font-medium text-zinc-500">
+                  <span className="text-xs font-medium text-zinc-400">
                     Step {index + 1}
                     {step.done && <span className="sr-only"> (done)</span>}
                   </span>
@@ -85,7 +85,7 @@ export function InboxEmptyState({ inboxes }: { inboxes: InboxSummary[] }) {
 
         <div className="mt-6 flex justify-center">
           {canManage ? (
-            <Button href="/settings#email-inboxes" variant={hasInbox ? 'secondary' : 'primary'} size="sm" icon={<Settings size={14} aria-hidden="true" />}>
+            <Button href="/settings/email/handler" variant={hasInbox ? 'secondary' : 'primary'} size="sm" icon={<Settings size={14} aria-hidden="true" />}>
               {hasInbox ? 'Inbox settings' : 'Set up an inbox'}
             </Button>
           ) : (

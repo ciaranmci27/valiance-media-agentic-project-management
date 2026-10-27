@@ -24,6 +24,11 @@ interface ConfirmDialogProps {
    * enough, the button says so, and the dialog says where to restore it.
    */
   trash?: boolean;
+  /**
+   * Where focus goes on close when what opened the dialog can no longer take
+   * it (gone, disabled, or nothing was focused): the row it acted on, say.
+   */
+  returnFocus?: () => HTMLElement | null | undefined;
 }
 
 export function ConfirmDialog({
@@ -39,19 +44,29 @@ export function ConfirmDialog({
   doubleConfirmTitle = 'Are you absolutely sure?',
   doubleConfirmMessage = 'This action is permanent and cannot be undone.',
   doubleConfirmLabel,
+  returnFocus,
 }: ConfirmDialogProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
   const [step, setStep] = useState(1);
+  const returnFocusRef = useRef(returnFocus);
+  useEffect(() => {
+    returnFocusRef.current = returnFocus;
+  }, [returnFocus]);
 
   // Focus moves into the dialog on open (Cancel, the safe choice) and goes
-  // back to whatever opened it on close.
+  // back to whatever opened it on close, or to `returnFocus` when that can't
+  // take it any more.
   useEffect(() => {
     if (!isOpen) return;
     const opener = document.activeElement as HTMLElement | null;
     dialogRef.current?.querySelector<HTMLElement>('button')?.focus();
-    return () => { opener?.focus?.(); };
+    return () => {
+      const usable = opener && opener !== document.body && opener.isConnected && !opener.matches(':disabled');
+      if (usable) opener.focus();
+      if (!usable || document.activeElement !== opener) returnFocusRef.current?.()?.focus();
+    };
   }, [isOpen]);
 
   // Tab and Shift+Tab stay inside the dialog while it is open.

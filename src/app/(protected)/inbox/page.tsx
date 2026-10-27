@@ -11,9 +11,11 @@ export default function InboxPage() {
   const canRead = hasPermission(access, 'inbound_email.read') || hasPermission(access, 'inbound_email.manage');
 
   return (
-    <div className="animate-fadeIn min-h-screen">
+    // A full-height column: the inbox fills what the header leaves, with the
+    // same gap below it as at its sides.
+    <div className="animate-fadeIn flex h-dvh flex-col">
       <Header title="Inbox" subtitle="Client email, triaged by your agents. Read only: reply from your own mail." />
-      <div className="px-4 pb-6 pt-4 lg:px-6">
+      <div className="flex min-h-0 flex-1 flex-col px-4 pb-4 pt-4 lg:px-6 lg:pb-6">
         {canRead ? (
           <InboxView />
         ) : (

@@ -301,12 +301,12 @@ export function SmtpSection() {
             <Mail className="text-cyan-400" size={20} />
           </div>
           <div>
-            <h2 className="font-semibold text-white">SMTP Email</h2>
+            <h2 className="font-semibold text-white">Sending</h2>
             <p className="text-sm text-zinc-400">Loading...</p>
           </div>
         </div>
         <div className="flex justify-center py-8">
-          <Loader2 className="animate-spin text-zinc-500" size={24} />
+          <Loader2 className="animate-spin motion-reduce:animate-none text-zinc-400" size={24} role="status" aria-label="Loading sending" />
         </div>
       </section>
     );
@@ -322,9 +322,9 @@ export function SmtpSection() {
             <Mail className="text-cyan-400" size={20} />
           </div>
           <div>
-            <h2 className="font-semibold text-white">Set Up SMTP Encryption</h2>
+            <h2 className="font-semibold text-white">Sending</h2>
             <p className="text-sm text-zinc-400">
-              An encryption key is required to securely store SMTP passwords
+              Set up encryption first. It keeps SMTP passwords safe.
             </p>
           </div>
         </div>
@@ -379,9 +379,9 @@ export function SmtpSection() {
               <Mail className="text-cyan-400" size={20} />
             </div>
             <div>
-              <h2 className="font-semibold text-white">SMTP Email</h2>
+              <h2 className="font-semibold text-white">Sending</h2>
               <p className="text-sm text-zinc-400 hidden sm:block">
-                Manage outgoing email accounts
+                Accounts the app sends invoices, portal and notification email from
               </p>
             </div>
           </div>
@@ -573,7 +573,7 @@ export function SmtpSection() {
                       >
                         <div className="flex-shrink-0 mt-1">
                           {status?.online === null ? (
-                            <Loader2 className="animate-spin text-zinc-500" size={14} />
+                            <Loader2 className="animate-spin motion-reduce:animate-none text-zinc-400" size={14} aria-hidden="true" />
                           ) : (
                             <div
                               className={`w-2.5 h-2.5 rounded-full ${

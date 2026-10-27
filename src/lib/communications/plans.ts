@@ -403,7 +403,7 @@ export async function applyItem(actor: PlanActor, message: PlanMessage, item: Pl
         ? { status: 'done', completed_by: memberId }
         : Object.fromEntries(Object.entries({ title: item.title, notes: item.notes, remind_on: item.remind_on, remind_at: item.remind_at }).filter(([, v]) => v !== undefined));
       if (patch.remind_on === null) patch.remind_at = null;
-      const { error: updateError } = await db.from('reminders').update(patch).eq('id', item.reminder_id);
+      const { error: updateError } = await db.from('reminders').update(patch).eq('id', item.reminder_id).is('deleted_at', null);
       if (updateError) throw updateError;
       return { reminder_id: item.reminder_id, before: Object.fromEntries(Object.keys(patch).filter((k) => k !== 'completed_by').map((k) => [k, (before as Row)[k] ?? null])) };
     }
@@ -467,6 +467,7 @@ export async function applyItem(actor: PlanActor, message: PlanMessage, item: Pl
     case 'propose_mapping': {
       const table = item.address ? 'client_addresses' : 'client_domains';
       const value = item.address ? { address: normalizeAddress(item.address) } : { domain: item.domain };
+      // trash-checked: client addresses and client domains have no Trash.
       const { data, error } = await comms(db).from(table).upsert({ project_id: item.project_id, ...value, created_by: memberId }, {
         onConflict: item.address ? 'project_id,address' : 'domain,project_id', ignoreDuplicates: true,
       }).select('id');
@@ -541,14 +542,19 @@ export async function undoItem(actor: PlanActor, itemId: string): Promise<Row> {
       break;
     case 'update_reminder':
     case 'complete_reminder': {
-      const { error: updateError } = await db.from('reminders').update(result.before as Row).eq('id', result.reminder_id as string);
+      const { error: updateError } = await db.from('reminders').update(result.before as Row).eq('id', result.reminder_id as string).is('deleted_at', null);
       if (updateError) throw updateError;
       break;
     }
     case 'update_task': {
       const after = (result.after ?? {}) as Row;
-      const { data: now, error: nowError } = await db.from('tasks').select('*').eq('id', result.task_id as string).single();
+      const { data: now, error: nowError } = await db.from('tasks').select('*').eq('id', result.task_id as string).is('deleted_at', null).maybeSingle();
       if (nowError) throw nowError;
+      // A task in Trash is left there: a person put it there since.
+      if (!now) {
+        notes.changed_since = true;
+        break;
+      }
       const unchanged = Object.entries(after).every(([key, value]) => ((now as Row)[key] ?? null) === (value ?? null));
       if (!unchanged) {
         notes.changed_since = true;
@@ -909,7 +915,7 @@ async function assertCanReach(actor: PlanActor, item: PlanItemRequest): Promise<
   const projectId = itemProject(item, tasks);
   if (projectId && !accessAllowsProject(actor.access, projectId, actor.channel)) throw denied();
   if ('reminder_id' in item) {
-    const { data: reminder } = await actor.db.from('reminders').select('owner_id, created_by, project_id').eq('id', item.reminder_id).maybeSingle();
+    const { data: reminder } = await actor.db.from('reminders').select('owner_id, created_by, project_id').eq('id', item.reminder_id).is('deleted_at', null).maybeSingle();
     const row = reminder as { owner_id: string; created_by: string | null; project_id: string | null } | null;
     if (!row) throw new PlanError(404, 'NOT_FOUND', 'That reminder no longer exists');
     const reach = row.owner_id === actor.memberId || row.created_by === actor.memberId || (!!row.project_id && accessAllowsProject(actor.access, row.project_id, actor.channel));

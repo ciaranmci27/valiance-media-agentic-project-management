@@ -490,17 +490,21 @@ export async function loadReadableThread(ctx: InboxContext, threadId: string): P
 }
 
 /** Addresses that belong to us: teammates, inboxes and project addresses. They are never remembered as client senders. */
-export async function ownAddresses(service: SupabaseClient): Promise<Set<string>> {
-  const [members, inboxes, projectAddresses] = await Promise.all([
+/** Ours: the team's, the inboxes', your addresses, and any address on one of your domains. */
+export async function ownAddresses(service: SupabaseClient): Promise<Pick<Set<string>, 'has'>> {
+  const [members, inboxes, projectAddresses, domains] = await Promise.all([
     many<{ email: string | null }>(service.from('team_members').select('email')),
     many<{ address: string; routing_address: string }>(comms(service).from('inboxes').select('address, routing_address')),
-    many<{ routing_address: string; public_address: string | null }>(comms(service).from('endpoints').select('routing_address, public_address')),
+    many<{ routing_address: string | null; public_address: string | null }>(comms(service).from('endpoints').select('routing_address, public_address')),
+    many<{ domain: string }>(comms(service).from('own_domains').select('domain')),
   ]);
+  const ownDomains = new Set(domains.map((row) => row.domain));
   const own = new Set<string>();
   for (const member of members) if (member.email) own.add(member.email.trim().toLowerCase());
   for (const inbox of inboxes) { own.add(inbox.address); own.add(inbox.routing_address); }
-  for (const row of projectAddresses) { own.add(row.routing_address); if (row.public_address) own.add(row.public_address); }
-  return own;
+  // Your addresses: one with no project has no relay address of its own.
+  for (const row of projectAddresses) { if (row.routing_address) own.add(row.routing_address); if (row.public_address) own.add(row.public_address); }
+  return { has: (address: string) => own.has(address) || ownDomains.has(address.slice(address.lastIndexOf('@') + 1)) };
 }
 
 async function rememberableSenders(service: SupabaseClient, people: { address: string; name: string }[]): Promise<RememberableSender[]> {

@@ -4,7 +4,7 @@ import { demoInbox, demoInboxSettings } from './inbox-demo';
 import type {
   ClientEmailDomain, ClientSenderAddress, ClientSenderAddressList, InboxReplyDraft, InboxSettings, InboxSettingsInput, InboxSettingsList, InboxTab, InboxThreadDetail, InboxThreadList,
   MxStatus, ProjectEmailAddress, ProjectEmailAddressInput, ProjectEmailAddressList, SetThreadProjectRequest, SetThreadProjectResult,
-  TaskSourceEmails,
+  OwnDomain, TaskSourceEmails, YourAddress, YourAddressInput, YourAddressList, YourAddressPatchInput,
 } from './inbox-types';
 import { INBOX_TABLES, INBOX_UPDATED_EVENT } from './inbox-types';
 import { invalidateTables } from '@/lib/query-cache';
@@ -17,12 +17,22 @@ import type { InboxSenderRule } from './inbox-rules';
  * with its `error` message.
  */
 
+/** What a request that never reached the server says, instead of the browser's "Failed to fetch". */
+export const OFFLINE_MESSAGE = "Couldn't reach the server. Check your connection and try again.";
+
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, {
-    cache: 'no-store',
-    ...init,
-    headers: init?.body ? { 'Content-Type': 'application/json', ...init.headers } : init?.headers,
-  });
+  let response: Response;
+  try {
+    response = await fetch(path, {
+      cache: 'no-store',
+      ...init,
+      headers: init?.body ? { 'Content-Type': 'application/json', ...init.headers } : init?.headers,
+    });
+  } catch (error) {
+    // An abort is the caller's own doing; anything else never reached the server.
+    if (error instanceof DOMException && error.name === 'AbortError') throw error;
+    throw new Error(OFFLINE_MESSAGE);
+  }
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(payload.error || 'Request failed');
   return payload.data as T;
@@ -128,11 +138,11 @@ export function inboxClient(isDemo: boolean) {
       return call('/api/workspace/inbox/sender-rules');
     },
     async createSenderRule(request: { match_kind: 'address' | 'domain'; match_value: string; topic: string | null; action: 'ignore' | 'fyi' | 'always'; reason?: string; thread_id?: string | null }) {
-      if (isDemo) throw new Error('Sender rules are off in demo mode');
+      if (isDemo) throw new Error('Mail rules are off in demo mode');
       return post<{ rule: InboxSenderRule; filtered: number }>('/api/workspace/inbox/sender-rules', request);
     },
     async updateSenderRule(ruleId: string, request: { action?: 'ignore' | 'fyi' | 'always'; enabled?: boolean }) {
-      if (isDemo) throw new Error('Sender rules are off in demo mode');
+      if (isDemo) throw new Error('Mail rules are off in demo mode');
       return patch<{ rule: InboxSenderRule }>(`/api/workspace/inbox/sender-rules/${ruleId}`, request);
     },
     async attentionCount(): Promise<InboxAttention> {
@@ -197,6 +207,37 @@ export function inboxSettingsClient(isDemo: boolean) {
     },
     mx(domain: string): Promise<MxStatus> {
       return isDemo ? demoInboxSettings.mx(domain) : call(`/api/workspace/email-inboxes/mx?domain=${encodeURIComponent(domain)}`);
+    },
+    /**
+     * Every address mail comes in on, your domains and the inboxes an address
+     * can deliver to. `review` also scans recent mail for addresses nobody
+     * listed: slow, so only the addresses page asks, once when it opens.
+     */
+    yourAddresses({ review = false }: { review?: boolean } = {}): Promise<YourAddressList> {
+      if (isDemo) return demoInboxSettings.yourAddresses({ review });
+      return call(`/api/workspace/email-addresses${review ? '?review=1' : ''}`);
+    },
+    addYourAddress(input: YourAddressInput): Promise<YourAddress> {
+      return isDemo ? demoInboxSettings.addYourAddress(input) : post('/api/workspace/email-addresses', input);
+    },
+    updateYourAddress(addressId: string, input: YourAddressPatchInput): Promise<YourAddress> {
+      return isDemo ? demoInboxSettings.updateYourAddress(addressId, input) : patch(`/api/workspace/email-addresses/${addressId}`, input);
+    },
+    async removeYourAddress(addressId: string): Promise<void> {
+      if (isDemo) return demoInboxSettings.removeYourAddress(addressId);
+      await call(`/api/workspace/email-addresses/${addressId}`, { method: 'DELETE' });
+    },
+    /** Not ours: an address mail arrived on is never suggested again. */
+    async ignoreAddress(address: string): Promise<void> {
+      if (isDemo) return demoInboxSettings.ignoreAddress(address);
+      await post('/api/workspace/email-addresses/ignored', { address });
+    },
+    addOwnDomain(domain: string): Promise<OwnDomain> {
+      return isDemo ? demoInboxSettings.addOwnDomain(domain) : post('/api/workspace/email-domains', { domain });
+    },
+    async removeOwnDomain(domainId: string): Promise<void> {
+      if (isDemo) return demoInboxSettings.removeOwnDomain(domainId);
+      await call(`/api/workspace/email-domains/${domainId}`, { method: 'DELETE' });
     },
   };
 }

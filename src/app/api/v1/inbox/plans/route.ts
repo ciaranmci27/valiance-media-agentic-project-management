@@ -41,8 +41,10 @@ export const GET = withApi(async ({ supabase, searchParams, teamMemberId, access
     rows(supabase.from('reminders').select('source_message_id, title, remind_on').in('source_message_id', messageIds).is('deleted_at', null)),
   ]);
   const taskIds = [...new Set([...links.map((l) => l.task_id as string), ...items.map((i) => i.task_id as string | null).filter((id): id is string => !!id)])];
+  // includes-deleted: the compare report names tasks and projects even once they are in Trash.
   const tasks = taskIds.length ? await rows(supabase.from('tasks').select('id, title, project_id').in('id', taskIds)) : [];
   const projectIds = [...new Set([...tasks.map((t) => t.project_id as string), ...items.map((i) => i.project_id as string | null).filter((id): id is string => !!id)])];
+  // includes-deleted: as above, a project in Trash still has its name in the report.
   const projects = projectIds.length ? await rows(supabase.from('projects').select('id, name').in('id', projectIds)) : [];
   const projectName = (id: unknown) => (projects.find((p) => p.id === id)?.name as string | undefined) ?? null;
   const taskOf = (id: unknown) => tasks.find((t) => t.id === id);

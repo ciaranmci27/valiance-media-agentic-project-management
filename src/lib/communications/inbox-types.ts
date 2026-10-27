@@ -453,8 +453,10 @@ export interface ProjectEmailAddress {
   routing_local_part: string;
   routing_domain: string;
   routing_address: string;
-  /** What clients see, e.g. p4tf@valiancemedia.com; display and forwarder instructions only. */
+  /** What clients write to, e.g. ciaran@plan4thefuture.com; mail to it reads as written to us. */
   public_address: string | null;
+  /** Whose address it is: a person, or the company when null. */
+  owner_member_id: string | null;
   enabled: boolean;
   /** When mail last came through this address; null until the first email. */
   last_received_at: string | null;
@@ -476,6 +478,75 @@ export interface ProjectEmailAddressList {
   /** Inboxes an address can deliver to. */
   inboxes: ProjectEmailAddressInbox[];
 }
+
+/**
+ * One of your addresses (Settings > Email > Your addresses): mail comes in on
+ * it and reads as written to you or the company. With a project, everything
+ * sent to it is that project's, through its own relay address.
+ */
+export interface YourAddress {
+  id: string;
+  /** What people write to; the relay address when it has no public one. */
+  address: string;
+  project_id: string | null;
+  /** Whose it is: a person, or the company when null. */
+  owner_member_id: string | null;
+  /** Its own relay address; null when it forwards to the inbox's. */
+  routing_address: string | null;
+  inbox_id: string;
+  enabled: boolean;
+  last_received_at: string | null;
+}
+
+/** An address of ours that mail arrived on but nobody listed yet. */
+export interface UnlistedAddress {
+  address: string;
+  messages: number;
+  last_seen: string;
+  /** The inbox its latest mail arrived at: add it there. */
+  inbox_id: string;
+}
+
+/** A domain of yours: any address on it reads as written to you, listed or not. */
+export interface OwnDomain {
+  id: string;
+  domain: string;
+  created_at: string;
+}
+
+/** An inbox an address can deliver to: where its forwarder points, and who handles it. */
+export interface YourAddressInbox {
+  id: string;
+  name: string;
+  routing_address: string;
+  enabled: boolean;
+  handler_member_id: string | null;
+}
+
+/** Unlisted addresses on one domain that is not yours yet (or is, with addresses to name). */
+export interface UnlistedDomain {
+  domain: string;
+  addresses: UnlistedAddress[];
+}
+
+export interface YourAddressList {
+  addresses: YourAddress[];
+  domains: OwnDomain[];
+  inboxes: YourAddressInbox[];
+  /** Asked for with review: addresses mail arrived on, by domain, that nobody listed or dismissed. */
+  unlisted: UnlistedDomain[];
+  relay_domain: string;
+}
+
+/** A new one of your addresses; owner_member_id null is the company. inbox_id defaults to the first enabled inbox. */
+export interface YourAddressInput {
+  address: string;
+  project_id: string | null;
+  owner_member_id: string | null;
+  inbox_id?: string;
+}
+
+export type YourAddressPatchInput = Partial<Pick<YourAddress, 'project_id' | 'owner_member_id' | 'enabled' | 'inbox_id'>>;
 
 export interface ProjectEmailAddressInput {
   inbox_id: string;

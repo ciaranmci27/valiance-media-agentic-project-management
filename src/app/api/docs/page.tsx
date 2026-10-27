@@ -189,7 +189,7 @@ export default async function ApiDocsPage() {
                 <code className="px-1.5 py-0.5 bg-zinc-100 rounded text-xs font-mono">x-api-key</code>{' '}
                 header of every request. Keys can be generated in{' '}
                 <a
-                  href="/settings"
+                  href="/settings/developers#api-keys"
                   className="text-brand-600 hover:text-brand-700 underline underline-offset-2"
                 >
                   Settings
