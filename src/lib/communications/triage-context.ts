@@ -7,7 +7,8 @@
  *
  * In shadow mode the bundle leaves out what this message itself already
  * caused (the old triage ran first): its task links and the tasks they
- * created, the projects it filed, its reminders and its triage. The scope
+ * created, the projects it filed, its reminders, its triage, the status it
+ * set and the conversation summary it wrote. The scope
  * itself is still the database's, which may include a project the old
  * triage filed from this message.
  *
@@ -99,9 +100,25 @@ export async function triageContext(supabase: SupabaseClient, message: Accessibl
   });
   const current = { ...detail } as Row;
   if (mode === 'shadow') {
-    current.linked_tasks = [];
-    current.latest_triage = null;
-    current.projects = ((detail.projects ?? []) as { id: string }[]).filter((p) => !ownFiled.has(p.id));
+    // The message as it arrived: new, with no links and no triage.
+    const asArrived = (m: Row) => ({
+      ...m,
+      status: m.status === 'handled' || m.status === 'needs_human' ? 'new' : m.status,
+      linked_tasks: [],
+      latest_triage: null,
+    });
+    Object.assign(current, asArrived(current));
+    const projects = ((detail.projects ?? []) as Row[]).filter((p) => !ownFiled.has(p.id as string));
+    current.projects = projects;
+    // The strongest project left, when the old triage filed the strongest.
+    if (ownFiled.has(((detail.project ?? {}) as Row).id as string)) current.project = projects[0] ?? null;
+    // Earlier messages keep their history; the summary is the old triage's.
+    const thread = detail.thread as Row;
+    current.thread = {
+      ...thread,
+      summary: null,
+      messages: (thread.messages as Row[]).map((m) => (m.id === message.id ? asArrived(m) : m)),
+    };
   }
 
   return {

@@ -243,10 +243,29 @@ async function main() {
     // ---- Shadow ---------------------------------------------------------------------
     const legacy = await message(db, { status: 'handled' });
     await q("INSERT INTO communications.task_links (message_id, task_id, relation) VALUES ($1, $2, 'updated')", [legacy.message, ids.agentTask]);
+    // What the old triage left: its triage and the summary it wrote.
+    await q("INSERT INTO communications.triage (message_id, outcome, summary) VALUES ($1, 'task', 'Updated the hero task')", [legacy.message]);
+    await q("UPDATE communications.conversations SET summary = 'Hero swap, task updated' WHERE id = $1", [legacy.conversation]);
+    await q("INSERT INTO communications.conversation_projects (conversation_id, project_id, source, message_id) VALUES ($1, $2, 'inferred', $3)", [legacy.conversation, ids.birch, legacy.message]);
     const liveContext = await call(contextRoute.GET, 'GET', `/api/v1/inbox/messages/${legacy.message}/context`, { id: legacy.message });
     const shadowContext = await call(contextRoute.GET, 'GET', `/api/v1/inbox/messages/${legacy.message}/context?mode=shadow`, { id: legacy.message });
     check('context: the live bundle shows the message\'s links; the shadow one leaves them out',
       (liveContext.body.data?.message.linked_tasks ?? []).length === 1 && (shadowContext.body.data?.message.linked_tasks ?? []).length === 0, [liveContext.body.error, shadowContext.body.error]);
+    const inThread = (context: Body) => ((context.data?.message.thread.messages ?? []) as Row[]).find((m) => m.id === legacy.message);
+    const liveEntry = inThread(liveContext.body);
+    const shadowEntry = inThread(shadowContext.body);
+    check('context: the live thread shows the message\'s triage, links and status; the shadow one leaves them out',
+      !!(liveEntry?.latest_triage as Row | null)?.summary && (liveEntry?.linked_tasks as Row[]).length === 1 && liveEntry?.status === 'handled'
+      && !!shadowEntry && shadowEntry.latest_triage === null && (shadowEntry.linked_tasks as Row[]).length === 0 && shadowEntry.status === 'new', [liveEntry, shadowEntry]);
+    check('context: the live bundle has the summary the old triage wrote; the shadow one does not',
+      liveContext.body.data?.message.thread.summary === 'Hero swap, task updated' && shadowContext.body.data?.message.thread.summary === null,
+      [liveContext.body.data?.message.thread.summary, shadowContext.body.data?.message.thread.summary]);
+    check('context: the shadow message itself is new and untriaged',
+      liveContext.body.data?.message.latest_triage !== null && liveContext.body.data?.message.status === 'handled'
+      && shadowContext.body.data?.message.latest_triage === null && shadowContext.body.data?.message.status === 'new', [liveContext.body.data?.message.status, shadowContext.body.data?.message.status]);
+    check('context: the project the old triage filed is the live bundle\'s; the shadow one has none',
+      liveContext.body.data?.message.project?.id === ids.birch && shadowContext.body.data?.message.project === null
+      && (shadowContext.body.data?.message.projects ?? []).length === 0, [liveContext.body.data?.message.project, shadowContext.body.data?.message.project]);
     check('context: speaker, delivery and the projects in scope with their open tasks', liveContext.body.data?.speaker === 'client'
       && liveContext.body.data?.delivery === 'direct' && liveContext.body.data?.addressed_to_agent === true
       && (liveContext.body.data?.projects ?? []).some((p: Row) => p.id === ids.acme && (p.open_tasks as Row[]).length >= 2), liveContext.body.data);
@@ -257,9 +276,9 @@ async function main() {
     const [shadowTriage] = await q('SELECT count(*)::int AS n FROM communications.triage WHERE message_id = $1', [legacy.message]);
     const [shadowStatus] = await q('SELECT status FROM communications.messages WHERE id = $1', [legacy.message]);
     const [shadowNotes] = await q('SELECT count(*)::int AS n FROM public.team_member_notifications WHERE entity_id = $1', [legacy.message]);
-    check('shadow: decisions recorded, nothing applied, no triage, no status change, no notification',
+    check('shadow: decisions recorded, nothing applied, no triage beyond the old one, no status change, no notification',
       shadow.status === 201 && (shadow.body.data?.items as Row[])?.[0]?.decision === 'apply' && (shadow.body.data?.items as Row[])?.[0]?.state === 'skipped'
-      && shadowTasks.n === 0 && shadowTriage.n === 0 && shadowStatus.status === 'handled' && shadowNotes.n === 0, [shadow.body, shadowTasks, shadowTriage, shadowStatus, shadowNotes]);
+      && shadowTasks.n === 0 && shadowTriage.n === 1 && shadowStatus.status === 'handled' && shadowNotes.n === 0, [shadow.body, shadowTasks, shadowTriage, shadowStatus, shadowNotes]);
 
     const compared = await call(plansRoute.GET, 'GET', '/api/v1/inbox/plans?days=7');
     const pair = ((compared.body.data?.messages ?? []) as Row[]).find((m) => m.message_id === legacy.message) as Row & { shadow: { items: Row[] }; older: { links: Row[] } };
