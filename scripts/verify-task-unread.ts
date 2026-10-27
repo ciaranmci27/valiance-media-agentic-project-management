@@ -88,7 +88,7 @@ async function run(db: PGlite, label: string) {
   await db.exec('BEGIN');
   const fresh = (await q<{ id: string }>("INSERT INTO public.tasks (project_id, title, created_by) VALUES ($1, 'Saved with its people', $2) RETURNING id", [project, owner]))[0].id;
   await db.query('INSERT INTO public.task_assignees (task_id, member_id) VALUES ($1, $2)', [fresh, member]);
-  await db.query("INSERT INTO public.task_subtasks (task_id, title) VALUES ($1, 'First step')", [fresh]);
+  await db.query("INSERT INTO public.tasks (project_id, title, parent_task_id, created_by) VALUES ($1, 'First step', $2, $3)", [project, fresh, owner]);
   await db.exec('COMMIT');
   check(`${label}: what is saved with a new task is part of creating it`, await eventCount(fresh) === 0);
 
@@ -122,7 +122,7 @@ async function run(db: PGlite, label: string) {
   check(`${label}: the app's routes acting for me are me`, owners.get(other)?.total === 1, owners.get(other));
 
   await asServer(null);
-  await db.query("INSERT INTO public.task_subtasks (task_id, title) VALUES ($1, 'From the server')", [other]);
+  await db.query("INSERT INTO public.tasks (project_id, title, parent_task_id) VALUES ($1, 'From the server', $2)", [project, other]);
   await superuser();
   const system = (await q<{ via: string; member_id: string | null }>("SELECT via, member_id FROM public.task_events WHERE task_id = $1 AND kind = 'subtask'", [other]))[0];
   check(`${label}: the server with no one behind it is system`, system?.via === 'system' && system.member_id === null, system);

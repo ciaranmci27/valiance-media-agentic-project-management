@@ -1,5 +1,5 @@
 import { SupabaseClient } from '@supabase/supabase-js';
-import type { AiReadiness, Project, Task, TeamMember, Subtask, AcceptanceCriterion, Comment, TeamActivity, Contact, ContactEmail, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, ApiKey, ProjectGoal, TaskSuggestion, AgentActivity, FleetAgentActivity, ApiAuditEntry, TimeEntry, ProjectCredential, ProjectCredentialListItem, ProjectInvoice, InvoicePayment, InvoicePaymentMethod, BusinessSettings, InvoiceTimeEntryAllocation, WebhookEndpoint, WebhookDelivery, ProjectRetainer, ProjectRetainerAmount, ProjectRetainerShare, ProjectRetainerPeriod, RetainerDuePeriod, InvoiceLineShare, ProjectBillingPlan, ProjectBillingRun, BillingForecastItem, Reminder, TaskUpdate, TrashItem } from '@/lib/types';
+import type { AiReadiness, Project, Task, TeamMember, AcceptanceCriterion, Comment, TeamActivity, Contact, ContactEmail, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, ApiKey, ProjectGoal, TaskSuggestion, AgentActivity, FleetAgentActivity, ApiAuditEntry, TimeEntry, ProjectCredential, ProjectCredentialListItem, ProjectInvoice, InvoicePayment, InvoicePaymentMethod, BusinessSettings, InvoiceTimeEntryAllocation, WebhookEndpoint, WebhookDelivery, ProjectRetainer, ProjectRetainerAmount, ProjectRetainerShare, ProjectRetainerPeriod, RetainerDuePeriod, InvoiceLineShare, ProjectBillingPlan, ProjectBillingRun, BillingForecastItem, Reminder, TaskUpdate, TrashItem } from '@/lib/types';
 import { fetchAllRows } from '@/lib/supabase/fetch-all';
 import { notFound } from '@/lib/api/errors';
 import { siteConfig } from '@/site-config';
@@ -169,14 +169,12 @@ export async function fetchTasks(supabase: SupabaseClient) {
     .select(`
       *,
       task_assignees ( member_id ),
-      subtasks:task_subtasks ( id, task_id, title, completed, sort_order ),
       comments:task_comments ( id, task_id, user_id, text, created_at ),
       criteria:task_acceptance_criteria ( id, task_id, criterion, satisfied, sort_order ),
       reviews:task_reviews ( id, round, verdict, summary, pr_url, head_sha, reviewer_member_id, created_at ),
       task_dependencies!task_dependencies_task_id_fkey ( blocked_by_task_id )
     `, { count })
     .is('deleted_at', null)
-    .is('subtasks.deleted_at', null)
     .is('comments.deleted_at', null)
     .order('created_at', { ascending: false })
     .order('id')
@@ -185,7 +183,6 @@ export async function fetchTasks(supabase: SupabaseClient) {
   return (tasks || []).map((t: any) => ({
     ...t,
     assignee_ids: (t.task_assignees || []).map((ta: any) => ta.member_id),
-    subtasks: (t.subtasks || []).sort((a: any, b: any) => a.sort_order - b.sort_order),
     comments: (t.comments || []).sort(
       (a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
     ),
@@ -202,7 +199,7 @@ export async function fetchTasks(supabase: SupabaseClient) {
 
 export async function insertTask(
   supabase: SupabaseClient,
-  task: Omit<Task, 'id' | 'created_at' | 'updated_at' | 'assignee_ids' | 'subtasks' | 'comments' | 'acceptance_criteria' | 'blocked_by_ids'>,
+  task: Omit<Task, 'id' | 'created_at' | 'updated_at' | 'assignee_ids' | 'comments' | 'acceptance_criteria' | 'blocked_by_ids'>,
   assigneeIds: string[],
   criteria: string[] = [],
   blockedByIds: string[] = []
@@ -218,6 +215,11 @@ export async function insertTask(
     created_by: task.created_by,
   };
   if (task.project_goal_id) insertPayload.project_goal_id = task.project_goal_id;
+  // A subtask goes where its caller placed it among its siblings.
+  if (task.parent_task_id) {
+    insertPayload.parent_task_id = task.parent_task_id;
+    if (task.sort_order !== undefined) insertPayload.sort_order = task.sort_order;
+  }
   if (task.source_task_suggestion_id) insertPayload.source_task_suggestion_id = task.source_task_suggestion_id;
   if (task.task_type) insertPayload.task_type = task.task_type;
   if (task.ai_readiness !== undefined) insertPayload.ai_readiness = task.ai_readiness;
@@ -229,7 +231,6 @@ export async function insertTask(
   return {
     ...saved.task,
     assignee_ids: assigneeIds,
-    subtasks: [],
     comments: [],
     acceptance_criteria: saved.criteria,
     blocked_by_ids: blockedByIds,
@@ -238,7 +239,7 @@ export async function insertTask(
 
 /** The task row as stored (no joined lists) plus its criteria, as save_task returns them. */
 type SavedTask = {
-  task: Omit<Task, 'assignee_ids' | 'subtasks' | 'comments' | 'acceptance_criteria' | 'blocked_by_ids'>;
+  task: Omit<Task, 'assignee_ids' | 'comments' | 'acceptance_criteria' | 'blocked_by_ids'>;
   criteria: AcceptanceCriterion[];
 };
 
@@ -277,7 +278,6 @@ export async function patchTask(
 ) {
   const {
     assignee_ids,
-    subtasks,
     comments,
     task_assignees,
     acceptance_criteria,
@@ -310,81 +310,6 @@ export async function reorderTasks(
   );
   const failed = results.find(r => r.error);
   if (failed?.error) throw failed.error;
-}
-
-// ============================================================
-// SUBTASKS
-// ============================================================
-
-export async function insertSubtask(
-  supabase: SupabaseClient,
-  taskId: string,
-  title: string
-) {
-  // Get current max sort_order
-  const { data: existing } = await supabase
-    .from('task_subtasks')
-    .select('sort_order')
-    .eq('task_id', taskId)
-    .is('deleted_at', null)
-    .order('sort_order', { ascending: false })
-    .limit(1);
-
-  const sortOrder = existing && existing.length > 0 ? existing[0].sort_order + 1 : 0;
-
-  const { data, error } = await supabase
-    .from('task_subtasks')
-    .insert({ task_id: taskId, title, sort_order: sortOrder })
-    .select()
-    .single();
-
-  if (error) throw error;
-  return data as Subtask;
-}
-
-export async function toggleSubtaskCompleted(
-  supabase: SupabaseClient,
-  subtaskId: string,
-  completed: boolean
-) {
-  const { error } = await supabase
-    .from('task_subtasks')
-    .update({ completed })
-    .eq('id', subtaskId)
-    .is('deleted_at', null);
-
-  if (error) throw error;
-}
-
-export async function reorderSubtasks(
-  supabase: SupabaseClient,
-  subtaskIds: string[]
-) {
-  // Update sort_order for each subtask
-  const updates = subtaskIds.map((id, index) =>
-    supabase.from('task_subtasks').update({ sort_order: index }).eq('id', id).is('deleted_at', null)
-  );
-  const results = await Promise.all(updates);
-  const failed = results.find(r => r.error);
-  if (failed?.error) throw failed.error;
-}
-
-export async function patchSubtask(
-  supabase: SupabaseClient,
-  subtaskId: string,
-  updates: Partial<Pick<Subtask, 'title' | 'completed' | 'sort_order'>>
-) {
-  const { error } = await supabase
-    .from('task_subtasks')
-    .update(updates)
-    .eq('id', subtaskId)
-    .is('deleted_at', null);
-
-  if (error) throw error;
-}
-
-export async function removeSubtask(supabase: SupabaseClient, subtaskId: string, actor?: string | null) {
-  await moveToTrash(supabase, 'task_subtasks', subtaskId, actor);
 }
 
 // ============================================================
@@ -1995,7 +1920,6 @@ export async function approveTaskSuggestion(
     task: {
       ...task,
       assignee_ids: assignedTo ? [assignedTo] : [],
-      subtasks: [],
       comments: [],
       acceptance_criteria: insertedCriteria,
       blocked_by_ids: [],
@@ -2140,7 +2064,6 @@ ${member.description}${fix}`);
     task: {
       ...task,
       assignee_ids: assignedTo ? [assignedTo] : [],
-      subtasks: [],
       comments: [],
       acceptance_criteria: insertedCriteria,
       blocked_by_ids: [],

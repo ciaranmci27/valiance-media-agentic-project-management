@@ -144,11 +144,13 @@ async function main() {
     row?.type === 'comment.added' && row.user_id === member && row.metadata.preview === 'Sent the draft to Matthew'
       && row.description === 'Commented on "Redesign the home page"', row);
   await asOwner();
-  const subtask = (await q<{ id: string }>("INSERT INTO public.task_subtasks (task_id, title) VALUES ($1, 'Pick the hero photo') RETURNING id", [task]))[0].id;
-  await db.query('UPDATE public.task_subtasks SET completed = true WHERE id = $1', [subtask]);
-  check('subtasks log being added and checked off',
-    (await rows("type IN ('subtask.added', 'subtask.completed')")).map((r) => r.description).join(' | ')
-      === 'Added subtask "Pick the hero photo" to "Redesign the home page" | Checked off "Pick the hero photo" on "Redesign the home page"');
+  const subtask = (await q<{ id: string }>("INSERT INTO public.tasks (project_id, title, parent_task_id, created_by) VALUES ($1, 'Pick the hero photo', $2, $3) RETURNING id",
+    [project, task, owner]))[0].id;
+  await db.query("UPDATE public.tasks SET status = 'done' WHERE id = $1", [subtask]);
+  check('subtasks log being added and finished',
+    (await rows('entity_id = $1', [subtask])).map((r) => r.description).join(' | ')
+      === 'Added subtask "Pick the hero photo" to "Redesign the home page" | Completed task "Pick the hero photo"',
+    (await rows('entity_id = $1', [subtask])).map((r) => r.description));
 
   // --- Who did it ------------------------------------------------------------
   let count = await total();
@@ -213,13 +215,13 @@ async function main() {
 
   // --- Trash -------------------------------------------------------------------
   await asOwner();
-  await db.query("SELECT public.soft_delete_record('task_subtasks', $1)", [subtask]);
+  await db.query("SELECT public.soft_delete_record('tasks', $1)", [subtask]);
   row = await latest();
   check('moving to Trash is logged on the project',
-    row?.type === 'record.trashed' && row.description === 'Moved subtask "Pick the hero photo" to Trash' && row.project_id === project, row);
+    row?.type === 'record.trashed' && row.description === 'Moved task "Pick the hero photo" to Trash' && row.project_id === project, row);
   await asOwner();
-  await db.query("SELECT public.restore_record('task_subtasks', $1)", [subtask]);
-  check('restoring is logged too', (await latest())?.description === 'Restored subtask "Pick the hero photo"', await latest());
+  await db.query("SELECT public.restore_record('tasks', $1)", [subtask]);
+  check('restoring is logged too', (await latest())?.description === 'Restored task "Pick the hero photo"', await latest());
 
   // --- Who can read what ---------------------------------------------------------
   await asOwner();

@@ -3,8 +3,9 @@ import { insertTask } from '@/lib/supabase/queries';
 import { logAudit } from '@/lib/api/audit';
 import { accessAllows, accessAllowsProject } from '@/lib/api/access';
 import type { AccessContext } from '@/lib/access-control';
-import { forbidden, notFound } from '@/lib/api/errors';
+import { badRequest, forbidden, notFound } from '@/lib/api/errors';
 import { assertAssigneesCanOpenProject, assertBlockersInProject, assertGoalInProject } from '@/lib/api/task-guards';
+import { assertCanManageParent, loadParentTask, nextSubtaskOrder, subtaskRuleError } from '@/lib/api/subtasks';
 
 interface CreateTaskContext {
   supabase: SupabaseClient;
@@ -40,11 +41,22 @@ export async function createApiTask({ supabase, body, apiKeyId, teamMemberId, ac
 /**
  * A task created as a member with API access: on a project they may open,
  * assigned to them unless they may assign others, with its criteria and
- * blockers. The body is createTaskSchema's.
+ * blockers. The body is createTaskSchema's; with parent_task_id it is a
+ * subtask of a task they may manage, in that task's project.
  */
 export async function createTaskAs({ supabase, memberId: teamMemberId, access, canAssignOthers, channel = 'api' }: TaskActor, body: unknown) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- validated by createTaskSchema by the caller
-  const { assignee_ids, acceptance_criteria, blocked_by_ids, source_note, ...taskData } = body as any;
+  const { assignee_ids, acceptance_criteria, blocked_by_ids, source_note, parent_task_id, ...taskData } = body as any;
+  let sortOrder: number | undefined;
+  if (parent_task_id) {
+    const parent = await loadParentTask(supabase, parent_task_id, access, channel);
+    if (taskData.project_id && taskData.project_id !== parent.project_id) {
+      throw badRequest("A subtask is always in its parent task's project: leave out project_id, or send the parent's");
+    }
+    assertCanManageParent(parent, teamMemberId, canAssignOthers);
+    taskData.project_id = parent.project_id;
+    sortOrder = await nextSubtaskOrder(supabase, parent.id);
+  }
   if (!taskData.project_id || !accessAllowsProject(access, taskData.project_id, channel)) {
     throw forbidden('Project scope denied');
   }
@@ -69,12 +81,20 @@ export async function createTaskAs({ supabase, memberId: teamMemberId, access, c
     await assertGoalInProject(supabase, taskData.project_goal_id, taskData.project_id);
   }
   const criteria: string[] = Array.isArray(acceptance_criteria) ? acceptance_criteria : [];
-  const task = await insertTask(
-    supabase,
-    { ...taskData, created_by: teamMemberId || null, created_note: source_note ?? null },
-    effectiveAssignees,
-    criteria,
-    blockedByIds
-  );
-  return task;
+  try {
+    return await insertTask(
+      supabase,
+      {
+        ...taskData,
+        ...(parent_task_id ? { parent_task_id, sort_order: sortOrder } : {}),
+        created_by: teamMemberId || null,
+        created_note: source_note ?? null,
+      },
+      effectiveAssignees,
+      criteria,
+      blockedByIds
+    );
+  } catch (error) {
+    throw subtaskRuleError(error);
+  }
 }

@@ -9,6 +9,7 @@ import { ApiError, unauthorized, forbidden, tooManyRequests, badRequest, notFoun
 import { errorResponse } from './response';
 import { accessAllows, accessAllowsProject, resolveMemberAccess } from './access';
 import { apiRequestContext } from './request-context';
+import { liveTaskIds } from './task-guards';
 import { afterResponse } from './after-response';
 
 /** Static routes under /api/v1/tasks/ that are not a task id. */
@@ -263,12 +264,14 @@ export function withApi<TBody = unknown, TParams = Record<string, string>>(
         // A task in Trash, or in a project in Trash, reads as missing.
         const { data: task } = await supabase
           .from('tasks')
-          .select('id, project_id, task_assignees(member_id), project:projects!inner(id)')
+          .select('id, project_id, parent_task_id, task_assignees(member_id), project:projects!inner(id)')
           .eq('id', taskId)
           .is('deleted_at', null)
           .is('project.deleted_at', null)
           .maybeSingle();
-        if (!task) throw forbidden('Task scope denied', { reason: 'not_found_or_forbidden', resource: 'task' });
+        // So does a subtask whose parent is in Trash.
+        const parentGone = !!task?.parent_task_id && !(await liveTaskIds(supabase, [task.id])).has(task.id);
+        if (!task || parentGone) throw forbidden('Task scope denied', { reason: 'not_found_or_forbidden', resource: 'task' });
         if (!accessAllowsProject(access, task.project_id, 'api')) {
           throw forbidden('Project scope denied', {
             reason: 'project_scope',
@@ -280,7 +283,17 @@ export function withApi<TBody = unknown, TParams = Record<string, string>>(
         const isCommentWrite = request.nextUrl.pathname.includes('/comments') && isWrite;
         if (isWrite && !isCommentWrite && grantedPermission === 'tasks.manage_assigned') {
           const keyCanManageAll = scopes.includes('tasks.manage_all') && accessAllows(access, 'tasks.manage_all', 'api');
-          const assigned = (task.task_assignees || []).some((row: { member_id: string }) => row.member_id === keyRow.team_member_id);
+          let assigned = (task.task_assignees || []).some((row: { member_id: string }) => row.member_id === keyRow.team_member_id);
+          // A subtask is also theirs to work when its parent is.
+          if (!assigned && task.parent_task_id) {
+            const { data: onParent } = await supabase
+              .from('task_assignees')
+              .select('member_id')
+              .eq('task_id', task.parent_task_id)
+              .eq('member_id', keyRow.team_member_id)
+              .maybeSingle();
+            assigned = !!onParent;
+          }
           if (!keyCanManageAll && !assigned) {
             throw forbidden('This API key can only modify assigned tasks', {
               reason: 'assigned_only',

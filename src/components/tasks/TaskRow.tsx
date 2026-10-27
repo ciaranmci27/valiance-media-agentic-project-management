@@ -10,6 +10,8 @@ import { useState, useRef } from 'react';
 import { Popover } from '@/components/ui/Popover';
 import { useTaskEmailCount } from '@/components/inbox/TaskSourceEmails';
 import { UnreadLabel } from './TaskUnread';
+import { subtaskProgress } from '@/lib/subtasks';
+import { lastActivityAt, taskTimesTooltip, timeAgo } from '@/lib/task-times';
 import { useTaskWarmer } from '@/lib/reads';
 import { useTaskFileCount } from './task-file-counts';
 import { Tooltip } from '@/components/ui/Tooltip';
@@ -33,19 +35,6 @@ import { hasPermission, canEditTask, canManageAllTasks } from '@/lib/access-cont
 export const LIST_GRID_COLS =
   'items-center gap-x-4 px-4 grid-cols-[16px_minmax(0,1fr)_80px_88px_92px_32px] xl:grid-cols-[16px_minmax(0,1fr)_80px_88px_84px_92px_32px]';
 
-function timeAgo(dateStr: string): string {
-  const now = Date.now();
-  const then = new Date(dateStr).getTime();
-  const diffMins = Math.floor((now - then) / 60000);
-  if (diffMins < 1) return 'just now';
-  if (diffMins < 60) return `${diffMins}m ago`;
-  const hours = Math.floor(diffMins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  if (days < 7) return `${days}d ago`;
-  return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-}
-
 interface TaskRowProps {
   task: Task;
   onView?: (task: Task) => void;
@@ -55,7 +44,7 @@ interface TaskRowProps {
 }
 
 export function TaskRow({ task, onView, onDelete }: TaskRowProps) {
-  const { team, tasks, getProject } = useApp();
+  const { team, tasks, getProject, getSubtasks, getTaskUpdate } = useApp();
   const warmTask = useTaskWarmer();
   const { teamMemberId, access } = useAuth();
   const [showMenu, setShowMenu] = useState(false);
@@ -67,7 +56,9 @@ export function TaskRow({ task, onView, onDelete }: TaskRowProps) {
   const canManageAgents = hasPermission(access, 'agents.manage');
 
   const assignees = team.filter(m => task.assignee_ids.includes(m.id));
-  const canEdit = canEditTask(access, task, teamMemberId);
+  // A subtask listed on its own (My Tasks, a filtered list) names its parent.
+  const parent = task.parent_task_id ? tasks.find(t => t.id === task.parent_task_id) : undefined;
+  const canEdit = canEditTask(access, task, teamMemberId, parent);
   const canDelete = canManageAllTasks(access);
 
   const formatDate = (date: string | null) => {
@@ -81,7 +72,9 @@ export function TaskRow({ task, onView, onDelete }: TaskRowProps) {
   };
 
   const dueInfo = formatDate(task.due_date);
-  const completedSubtasks = task.subtasks.filter(s => s.completed).length;
+  const childTasks = getSubtasks(task.id);
+  const subtasks = subtaskProgress(childTasks);
+  const lastAt = lastActivityAt(task, childTasks, getTaskUpdate(task.id));
 
   // Mobile card view. The list container draws the dividers, so the card
   // itself has no border: a border here doubled up into a heavy double rule.
@@ -107,6 +100,11 @@ export function TaskRow({ task, onView, onDelete }: TaskRowProps) {
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-2">
             <h3 className="font-medium text-white text-sm leading-tight">
+              {parent && (
+                <span className="block mb-0.5 text-xs font-normal text-zinc-400 truncate">
+                  <span className="sr-only">Subtask of </span><span aria-hidden="true">In </span>{parent.title}
+                </span>
+              )}
               {task.title}
               <span className="mt-1 flex"><UnreadLabel task={task} /></span>
             </h3>
@@ -168,10 +166,10 @@ export function TaskRow({ task, onView, onDelete }: TaskRowProps) {
               </span>
             )}
 
-            {task.subtasks.length > 0 && (
+            {subtasks.total > 0 && (
               <span className="text-xs text-zinc-400 flex items-center gap-1">
-                <CheckSquare size={12} />
-                {completedSubtasks}/{task.subtasks.length}
+                <CheckSquare size={12} aria-hidden="true" />
+                {subtasks.done}/{subtasks.total}<span className="sr-only"> subtasks done</span>
               </span>
             )}
 
@@ -198,10 +196,10 @@ export function TaskRow({ task, onView, onDelete }: TaskRowProps) {
               </span>
             )}
 
-            <Tooltip content={`Created ${new Date(task.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} · updated ${new Date(task.updated_at).toLocaleString()}`}>
-              <span className="text-xs text-zinc-500 flex items-center gap-1">
+            <Tooltip content={taskTimesTooltip(task.created_at, lastAt)}>
+              <span className="text-xs text-zinc-500 flex items-center gap-1 whitespace-nowrap">
                 <Clock size={12} />
-                {timeAgo(task.updated_at)}
+                {timeAgo(lastAt)}
               </span>
             </Tooltip>
           </div>
@@ -235,7 +233,7 @@ export function TaskRow({ task, onView, onDelete }: TaskRowProps) {
 /* Desktop table row view. Every cell below maps 1:1, in order, onto
    LIST_GRID_COLS; add or remove a column there and here together. */
 export function TaskRowDesktop({ task, onView, onDelete, selected, onToggleSelect }: TaskRowProps) {
-  const { team, tasks, getProject } = useApp();
+  const { team, tasks, getProject, getSubtasks, getTaskUpdate } = useApp();
   const warmTask = useTaskWarmer();
   const { teamMemberId, access } = useAuth();
   const [showMenu, setShowMenu] = useState(false);
@@ -247,7 +245,9 @@ export function TaskRowDesktop({ task, onView, onDelete, selected, onToggleSelec
   const canManageAgents = hasPermission(access, 'agents.manage');
 
   const assignees = team.filter(m => task.assignee_ids.includes(m.id));
-  const canEdit = canEditTask(access, task, teamMemberId);
+  // A subtask listed on its own (My Tasks, a filtered list) names its parent.
+  const parent = task.parent_task_id ? tasks.find(t => t.id === task.parent_task_id) : undefined;
+  const canEdit = canEditTask(access, task, teamMemberId, parent);
   const canDelete = canManageAllTasks(access);
 
   const formatDate = (date: string | null) => {
@@ -261,7 +261,9 @@ export function TaskRowDesktop({ task, onView, onDelete, selected, onToggleSelec
   };
 
   const dueInfo = formatDate(task.due_date);
-  const completedSubtasks = task.subtasks.filter(s => s.completed).length;
+  const childTasks = getSubtasks(task.id);
+  const subtasks = subtaskProgress(childTasks);
+  const lastAt = lastActivityAt(task, childTasks, getTaskUpdate(task.id));
   const isBlocked = task.status !== 'done' && (task.blocked_by_ids || []).some(id => tasks.find(t => t.id === id)?.status !== 'done');
   // Only a task meant for the dev agent and still waiting on its spec is
   // flagged; a person's task (most tasks) carries no readiness chip.
@@ -312,6 +314,11 @@ export function TaskRowDesktop({ task, onView, onDelete, selected, onToggleSelec
             <span className="truncate">{task.title}</span>
           </button>
         </h3>
+        {parent && (
+          <span className="min-w-0 truncate text-xs text-zinc-500">
+            <span className="sr-only">Subtask of </span><span aria-hidden="true">in </span>{parent.title}
+          </span>
+        )}
         <span className="min-w-0 flex-shrink"><UnreadLabel task={task} /></span>
         {isBlocked && (
           <Tooltip content="Blocked by another task">
@@ -327,11 +334,11 @@ export function TaskRowDesktop({ task, onView, onDelete, selected, onToggleSelec
             </span>
           </Tooltip>
         )}
-        {task.subtasks.length > 0 && (
-          <Tooltip content={`${completedSubtasks} of ${task.subtasks.length} subtasks complete`}>
+        {subtasks.total > 0 && (
+          <Tooltip content={`${subtasks.done} of ${subtasks.total} subtasks complete`}>
             <span className="flex items-center gap-1 text-xs text-zinc-500 flex-shrink-0 cursor-default">
-              <CheckSquare size={12} />
-              {completedSubtasks}/{task.subtasks.length}
+              <CheckSquare size={12} aria-hidden="true" />
+              {subtasks.done}/{subtasks.total}<span className="sr-only"> subtasks done</span>
             </span>
           </Tooltip>
         )}
@@ -392,9 +399,9 @@ export function TaskRowDesktop({ task, onView, onDelete, selected, onToggleSelec
 
       {/* Updated (xl only) */}
       <div className="hidden xl:block">
-        <Tooltip content={`Created ${new Date(task.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} · updated ${new Date(task.updated_at).toLocaleString()}`}>
-          <span className="text-xs text-zinc-500">
-            {timeAgo(task.updated_at)}
+        <Tooltip content={taskTimesTooltip(task.created_at, lastAt)}>
+          <span className="text-xs text-zinc-500 whitespace-nowrap">
+            {timeAgo(lastAt)}
           </span>
         </Tooltip>
       </div>

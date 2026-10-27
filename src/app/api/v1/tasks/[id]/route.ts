@@ -1,12 +1,13 @@
 import { withApi } from '@/lib/api/middleware';
 import { success } from '@/lib/api/response';
 import { updateTaskSchema } from '@/lib/schemas';
-import { forbidden, notFound } from '@/lib/api/errors';
+import { badRequest, forbidden, notFound } from '@/lib/api/errors';
 import { patchTask } from '@/lib/supabase/queries';
 import { logAudit } from '@/lib/api/audit';
 import { trashForApi } from '@/lib/api/trash';
 import { accessAllows, accessAllowsProject } from '@/lib/api/access';
 import { assertAssigneesCanOpenProject, assertBlockersInProject, assertGoalInProject, liveTaskIds } from '@/lib/api/task-guards';
+import { loadParentTask, setTaskParentAs, subtaskRuleError, subtaskSummaries } from '@/lib/api/subtasks';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 async function currentAssigneeIds(supabase: SupabaseClient, taskId: string): Promise<string[]> {
@@ -30,13 +31,39 @@ async function currentBlockerIds(supabase: SupabaseClient, taskId: string): Prom
   return ids.filter((blockerId) => live.has(blockerId));
 }
 
+// A parent moving to another project takes its subtasks (the database moves
+// them), so they must be able to live there too: no blocker links, which stay
+// inside one project, and assignees who can open it.
+async function assertSubtasksCanMove(supabase: SupabaseClient, taskId: string, targetProjectId: string) {
+  const { data: children, error } = await supabase
+    .from('tasks')
+    .select('id, task_assignees(member_id)')
+    .eq('parent_task_id', taskId)
+    .is('deleted_at', null);
+  if (error) throw error;
+  const childIds = (children || []).map((child: { id: string }) => child.id);
+  if (childIds.length === 0) return;
+  const list = `(${childIds.join(',')})`;
+  const { data: links, error: linkError } = await supabase
+    .from('task_dependencies')
+    .select('task_id')
+    .or(`task_id.in.${list},blocked_by_task_id.in.${list}`)
+    .limit(1);
+  if (linkError) throw linkError;
+  if ((links || []).length > 0) {
+    throw badRequest('Its subtasks are blocked by, or block, tasks in this project. Remove those links before moving it to another project');
+  }
+  const assignees = (children || []).flatMap((child: { task_assignees: { member_id: string }[] | null }) =>
+    (child.task_assignees || []).map((a) => a.member_id));
+  if (assignees.length > 0) await assertAssigneesCanOpenProject(supabase, assignees, targetProjectId);
+}
+
 export const GET = withApi(async ({ supabase, params }) => {
   const { data, error } = await supabase
     .from('tasks')
     .select(`
       *,
       task_assignees(member_id),
-      subtasks:task_subtasks(id, task_id, title, completed, sort_order),
       comments:task_comments(id, task_id, user_id, text, created_at),
       criteria:task_acceptance_criteria(id, task_id, criterion, satisfied, sort_order),
       reviews:task_reviews(id, round, verdict, summary, pr_url, head_sha, reviewer_member_id, created_at),
@@ -46,12 +73,25 @@ export const GET = withApi(async ({ supabase, params }) => {
     `)
     .eq('id', (params as any).id)
     .is('deleted_at', null)
-    .is('subtasks.deleted_at', null)
     .is('comments.deleted_at', null)
     .maybeSingle();
 
   if (error) throw error;
   if (!data) throw notFound('Task');
+
+  // A subtask names its parent; a parent lists its subtasks.
+  let parent: { id: string; title: string; status: string } | null = null;
+  if (data.parent_task_id) {
+    const { data: parentRow, error: parentError } = await supabase
+      .from('tasks')
+      .select('id, title, status')
+      .eq('id', data.parent_task_id)
+      .is('deleted_at', null)
+      .maybeSingle();
+    if (parentError) throw parentError;
+    parent = parentRow;
+  }
+  const subtasks = (await subtaskSummaries(supabase, [data.id])).get(data.id) ?? [];
 
   // A blocker in Trash blocks nothing, as deleting it used to remove the
   // dependency. (The same project, so it cannot be in a trashed project.)
@@ -75,7 +115,8 @@ export const GET = withApi(async ({ supabase, params }) => {
   const task = {
     ...data,
     assignee_ids: (data.task_assignees || []).map((ta: any) => ta.member_id),
-    subtasks: (data.subtasks || []).sort((a: any, b: any) => a.sort_order - b.sort_order),
+    parent,
+    subtasks,
     comments: (data.comments || []).sort((a: any, b: any) =>
       new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
     ),
@@ -103,17 +144,28 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
   const id = (params as any).id;
   const { data: before } = await supabase.from('tasks').select('*').eq('id', id).is('deleted_at', null).maybeSingle();
   if (!before) throw notFound('Task');
-  const { assignee_ids, acceptance_criteria, blocked_by_ids, ...updates } = body as any;
+  const { assignee_ids, acceptance_criteria, blocked_by_ids, parent_task_id, ...updates } = body as any;
   const canManageAll = scopes.includes('tasks.manage_all') && accessAllows(access, 'tasks.manage_all', 'api');
+  const parentChange = parent_task_id !== undefined && parent_task_id !== before.parent_task_id;
+  if (parentChange && updates.project_id !== undefined && updates.project_id !== before.project_id) {
+    throw badRequest("Send parent_task_id or project_id, not both: a subtask takes its parent task's project");
+  }
+  if (!parentChange && before.parent_task_id && updates.project_id !== undefined && updates.project_id !== before.project_id) {
+    throw badRequest("A subtask stays in its parent task's project. Move the parent, or make it top-level first (parent_task_id: null)");
+  }
   if (assignee_ids !== undefined && !canManageAll) {
     throw forbidden('Changing task assignments requires the tasks.manage_all API scope');
   }
   const blockedByIds: string[] | undefined = Array.isArray(blocked_by_ids) ? blocked_by_ids : undefined;
 
   // The middleware only authorized the task's current project. Moving it
-  // must also be allowed on the destination, and whatever the task keeps
-  // (blockers, goal) has to live there too.
-  const targetProjectId: string = updates.project_id ?? before.project_id;
+  // (directly, or under a parent in another project) must also be allowed on
+  // the destination, and whatever the task keeps has to live there too.
+  let targetProjectId: string = updates.project_id ?? before.project_id;
+  if (parentChange && parent_task_id) {
+    const parent = await loadParentTask(supabase, parent_task_id, access);
+    targetProjectId = parent.project_id;
+  }
   const isMove = targetProjectId !== before.project_id;
   if (isMove) {
     if (!canManageAll) {
@@ -135,15 +187,19 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
       .is('deleted_at', null)
       .maybeSingle();
     if (!liveTarget) throw notFound('Project');
+    await assertSubtasksCanMove(supabase, id, targetProjectId);
   }
 
-  const effectiveBlockerIds = blockedByIds ?? (isMove ? await currentBlockerIds(supabase, id) : []);
+  // Nesting under another project's task keeps no blocker links (the database
+  // refuses, saying why) and takes the parent's goal.
+  const carries = isMove && !parentChange;
+  const effectiveBlockerIds = blockedByIds ?? (carries ? await currentBlockerIds(supabase, id) : []);
   if (effectiveBlockerIds.length > 0) {
     await assertBlockersInProject(supabase, effectiveBlockerIds, targetProjectId, id);
   }
   const goalId: string | null | undefined = updates.project_goal_id !== undefined
     ? updates.project_goal_id
-    : (isMove ? before.project_goal_id : null);
+    : (carries ? before.project_goal_id : null);
   if (goalId) {
     await assertGoalInProject(supabase, goalId, targetProjectId);
   }
@@ -156,7 +212,20 @@ export const PATCH = withApi(async ({ supabase, params, body, apiKeyId, teamMemb
     await assertAssigneesCanOpenProject(supabase, effectiveAssignees, targetProjectId);
   }
   const criteria: string[] | undefined = Array.isArray(acceptance_criteria) ? acceptance_criteria : undefined;
-  const data = await patchTask(supabase, id, updates, assignee_ids, criteria, blockedByIds);
+  // Nesting or promoting goes first, through the database's subtask rules;
+  // the rest of the change lands on the task where it now lives.
+  let data: Record<string, unknown> = before;
+  if (parentChange) {
+    data = await setTaskParentAs({ supabase, memberId: teamMemberId, access, canManageAll }, before, parent_task_id);
+  }
+  const hasOtherChanges = Object.keys(updates).length > 0 || assignee_ids !== undefined || criteria !== undefined || blockedByIds !== undefined;
+  if (hasOtherChanges) {
+    try {
+      data = await patchTask(supabase, id, updates, assignee_ids, criteria, blockedByIds);
+    } catch (error) {
+      throw subtaskRuleError(error);
+    }
+  }
   logAudit(supabase, { method: 'PATCH', endpoint: `/api/v1/tasks/${id}`, entityType: 'task', entityId: id, apiKeyId, teamMemberId, requestBody: body, beforeSnapshot: before, afterSnapshot: data, statusCode: 200 });
   return success(data);
 }, { schema: updateTaskSchema });

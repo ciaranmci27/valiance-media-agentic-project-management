@@ -418,6 +418,38 @@ async function main() {
     const [restored] = await q('SELECT what, urgent, state FROM communications.reply_points WHERE id = $1', [originalPoint.id]);
     check('undo: undoing an amendment restores the reply owed, still open', restored.what === 'The price' && restored.urgent === false && restored.state === 'open', restored);
 
+    // ---- Subtasks ---------------------------------------------------------------------
+    // The context lists top-level tasks, each with its open subtasks under it.
+    const build = id(40);
+    await q(`INSERT INTO public.tasks (id, project_id, title, created_by) VALUES ($1, $2, 'Build the product pages', $3)`, [build, ids.acme, ids.owner]);
+    await q(`INSERT INTO public.tasks (id, project_id, parent_task_id, title, created_by) VALUES ($1, $2, $3, 'Product page copy', $4)`, [id(41), ids.acme, build, ids.owner]);
+    const piece = await message(db, { subject: 'Size chart' });
+    const pieceContext = await call(contextRoute.GET, 'GET', `/api/v1/inbox/messages/${piece.message}/context`, { id: piece.message });
+    const acmeTasks = (((pieceContext.body.data?.projects ?? []) as Row[]).find((p) => p.id === ids.acme)?.open_tasks ?? []) as Row[];
+    const buildEntry = acmeTasks.find((t) => t.id === build);
+    check('subtasks: the context nests a subtask under its parent, not beside it',
+      ((buildEntry?.subtasks ?? []) as Row[]).some((s) => s.id === id(41)) && !acmeTasks.some((t) => t.id === id(41)), acmeTasks);
+    // A new piece of an open task becomes its subtask.
+    const nested = await plan(piece.message, {
+      summary: 'Dana asks for a size chart on the product pages',
+      items: [{ type: 'create_task', intent: 'new_work', project_id: ids.acme, parent_task_id: build, title: 'Add the size chart to the product pages' }],
+    });
+    const nestedId = (nested.body.data?.items as Row[] | undefined)?.[0]?.task_id as string | undefined;
+    const [nestedTask] = nestedId ? await q('SELECT parent_task_id, project_id FROM public.tasks WHERE id = $1', [nestedId]) : [];
+    check('subtasks: a create_task with a parent makes a subtask of it', nested.status === 201 && nestedTask?.parent_task_id === build && nestedTask.project_id === ids.acme, [nested.body, nestedTask]);
+    // A parent in another project, or one that is itself a subtask, is refused before anything is written.
+    const wrongParent = await message(db);
+    const refusedParents = await plan(wrongParent.message, {
+      summary: 'Two bad parents',
+      items: [
+        { type: 'create_task', intent: 'new_work', project_id: ids.birch, parent_task_id: build, title: 'Wrong project' },
+        { type: 'create_task', intent: 'new_work', project_id: ids.acme, parent_task_id: id(41), title: 'Too deep' },
+      ],
+    });
+    const reasons = ((refusedParents.body.error?.details?.items ?? []) as Row[]).map((i) => i.reason);
+    check('subtasks: a parent in another project, or a subtask as parent, is refused by name',
+      refusedParents.status === 422 && reasons.includes('project_does_not_match_parent_task') && reasons.includes('parent_task_is_a_subtask'), refusedParents.body);
+
     // ---- Nobody signed in writes plans ------------------------------------------------------
     await db.exec(`RESET ROLE; INSERT INTO auth.users (id, email) VALUES ('${id(90)}', 'rae@agency.example')`);
     await db.query("SELECT set_config('request.jwt.claim.sub', $1, false)", [id(90)]);

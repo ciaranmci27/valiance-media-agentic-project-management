@@ -100,8 +100,10 @@ export default function ProjectDetailPage() {
 
   const project = getProject(projectId);
 
-  // Unfiltered tasks for stats / progress bar
+  // Unfiltered tasks for stats / progress bar: the project's top-level tasks.
   const allProjectTasks = getTasksByProject(projectId);
+  // With their subtasks, which open in the panel and turn up in a search.
+  const everyProjectTask = tasks.filter(t => t.project_id === projectId);
 
   // Tabs the viewer can open. A tab with nothing they may read is left out,
   // rather than shown empty.
@@ -189,11 +191,11 @@ export default function ProjectDetailPage() {
 
   // Derive viewingTask from store so it stays in sync with subtask/comment changes
   const viewingTask = viewingTaskId
-    ? allProjectTasks.find(t => t.id === viewingTaskId) || null
+    ? everyProjectTask.find(t => t.id === viewingTaskId) || null
     : null;
 
   useEffect(() => {
-    if (!viewingTaskId || loading || allProjectTasks.some(t => t.id === viewingTaskId)) return;
+    if (!viewingTaskId || loading || everyProjectTask.some(t => t.id === viewingTaskId)) return;
     const elsewhere = tasks.find(t => t.id === viewingTaskId);
     if (elsewhere) {
       // A link with the wrong project still lands on the task.
@@ -202,10 +204,12 @@ export default function ProjectDetailPage() {
     }
     toast('error', 'That task no longer exists, or you do not have access to it');
     closeViewingTask();
-  }, [viewingTaskId, loading, allProjectTasks, tasks, router, closeViewingTask]);
+  }, [viewingTaskId, loading, everyProjectTask, tasks, router, closeViewingTask]);
 
-  // Filtered tasks for the views
-  let projectTasks = [...allProjectTasks];
+  // Filtered tasks for the views. Looking for someone's work or a word also
+  // finds subtasks, which name their parent on the card.
+  const findsSubtasks = !!filters.search || filters.assigneeIds.length > 0;
+  let projectTasks = [...(findsSubtasks ? everyProjectTask : allProjectTasks)];
   if (filters.unread) {
     projectTasks = projectTasks.filter((task) => !!taskUnread(task));
   }
@@ -262,7 +266,7 @@ export default function ProjectDetailPage() {
     if (!task) return;
 
     const visibleSiblings = projectTasks
-      .filter(t => t.id !== taskId && t.status === status)
+      .filter(t => t.id !== taskId && t.status === status && !t.parent_task_id)
       .sort(bySort);
     const allSiblings = allProjectTasks
       .filter(t => t.id !== taskId && t.status === status)

@@ -7,7 +7,7 @@ import { toast } from '@/components/ui/Toast';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { StatusBadge, PriorityBadge } from '@/components/ui/Badge';
-import { Avatar } from '@/components/ui/Avatar';
+import { Avatar, AvatarGroup } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
 import { TextInput } from '@/components/ui/inputs/TextInput';
 import { Textarea } from '@/components/ui/inputs/Textarea';
@@ -42,6 +42,7 @@ import {
   Paperclip,
   Briefcase,
   History,
+  CornerLeftUp,
   type LucideIcon,
 } from 'lucide-react';
 import { RowActionsMenu, type RowAction } from '@/components/ui/RowActionsMenu';
@@ -59,6 +60,11 @@ import { NewSinceDivider, useLookedSince } from './TaskUnread';
 import { TaskActivity, useTaskActivityCount } from './TaskActivity';
 import { TaskFiles } from './TaskFiles';
 import { TaskPanelShell } from './TaskPanelShell';
+import { useTaskUrlParam } from '@/lib/use-task-url';
+import { subtaskProgress } from '@/lib/subtasks';
+import { lastActivityAt, timeAgo } from '@/lib/task-times';
+import { SubtaskRing } from './SubtaskRing';
+import { useSubtaskMenuActions } from './MakeSubtaskDialog';
 import {
   DescriptionField, DetailRow, INLINE_DATE_CLASS, PeopleChips, PickField, PRIORITY_OPTIONS, STATUS_OPTIONS, TagsField, TitleField,
   taskTypeLabel, WHO_DOES_IT,
@@ -101,8 +107,11 @@ export function TaskActionsMenu({ task, onDelete, showOpenAsPage = false }: {
   const router = useRouter();
   const { team, tasks, getProject } = useApp();
   const { teamMemberId, access } = useAuth();
-  const canEdit = canEditTask(access, task, teamMemberId);
-  const canDelete = canManageAllTasks(access);
+  const parent = task.parent_task_id ? tasks.find((t) => t.id === task.parent_task_id) : undefined;
+  const canEdit = canEditTask(access, task, teamMemberId, parent);
+  // A subtask can also go by whoever works its parent (as the database allows).
+  const canDelete = canManageAllTasks(access) || (!!parent && canEditTask(access, parent, teamMemberId));
+  const subtaskMenu = useSubtaskMenuActions(task, canEdit);
 
   const actions: RowAction[] = [
     ...(canEdit && task.acceptance_criteria.length === 0 && !criteriaHasRole(task)
@@ -111,11 +120,12 @@ export function TaskActionsMenu({ task, onDelete, showOpenAsPage = false }: {
     ...(showOpenAsPage
       ? [{ label: 'Open as a page', icon: <Maximize2 size={14} />, onClick: () => router.push(`/projects/${task.project_id}/tasks/${task.id}`) }]
       : []),
+    ...subtaskMenu.actions,
     {
       label: 'Copy details',
       icon: <ClipboardCopy size={14} />,
       onClick: () => copyText(taskAsText(task, { projectName: getProject(task.project_id)?.name, team, tasks }), 'Task details'),
-      divider: canEdit || showOpenAsPage,
+      divider: canEdit || showOpenAsPage || subtaskMenu.actions.length > 0,
     },
     { label: 'Copy link', icon: <Link2 size={14} />, onClick: () => copyText(taskUrl(task), 'Task link') },
     { label: 'Copy ID', icon: <Hash size={14} />, onClick: () => copyText(task.id, 'Task ID') },
@@ -125,7 +135,12 @@ export function TaskActionsMenu({ task, onDelete, showOpenAsPage = false }: {
       : []),
   ];
 
-  return <RowActionsMenu label="Task actions" actions={actions} />;
+  return (
+    <>
+      <RowActionsMenu label="Task actions" actions={actions} />
+      {subtaskMenu.dialog}
+    </>
+  );
 }
 
 /**
@@ -133,9 +148,11 @@ export function TaskActionsMenu({ task, onDelete, showOpenAsPage = false }: {
  * RailCard; in the side panel the sections stack, split by hairlines. Same
  * heading either way: a 16px icon, a sentence-case title, a muted count.
  */
-function Section({ variant, title, icon: Icon, count, action, children }: {
+function Section({ variant, title, afterTitle, icon: Icon, count, action, children }: {
   variant: 'panel' | 'page';
   title: string;
+  /** Shown right after the title (the Subtasks ring). */
+  afterTitle?: ReactNode;
   icon: LucideIcon;
   count?: ReactNode;
   action?: ReactNode;
@@ -149,7 +166,7 @@ function Section({ variant, title, icon: Icon, count, action, children }: {
   );
   if (variant === 'page') {
     return (
-      <RailCard title={title} icon={<Icon size={16} className="text-zinc-400" aria-hidden="true" />} action={end || undefined}>
+      <RailCard title={title} afterTitle={afterTitle} icon={<Icon size={16} className="text-zinc-400" aria-hidden="true" />} action={end || undefined}>
         {children}
       </RailCard>
     );
@@ -160,6 +177,7 @@ function Section({ variant, title, icon: Icon, count, action, children }: {
         <h3 className="flex items-center gap-2 text-sm font-semibold text-white">
           <Icon size={16} className="text-zinc-400" aria-hidden="true" />
           {title}
+          {afterTitle}
         </h3>
         {end}
       </div>
@@ -276,11 +294,11 @@ export function TaskDetailPanel({ task, onClose, onDelete, variant = 'panel' }: 
     getTeamMember,
     getProject,
     updateTask,
-    toggleSubtask,
+    reorderTasks,
+    deleteTask,
+    getSubtasks,
     addSubtask,
-    updateSubtask,
-    reorderSubtasks,
-    deleteSubtask,
+    taskUnread,
     addCriterion,
     toggleCriterion,
     updateCriterion,
@@ -305,6 +323,10 @@ export function TaskDetailPanel({ task, onClose, onDelete, variant = 'panel' }: 
   // Local subtask order while dragging; persisted once on drag end
   const [dragSubtaskOrder, setDragSubtaskOrder] = useState<string[] | null>(null);
   const [deleteSubtaskTarget, setDeleteSubtaskTarget] = useState<string | null>(null);
+  // Finishing a task leaves its subtasks as they are; this offers to finish them too.
+  const [finishSubtasksOf, setFinishSubtasksOf] = useState<string | null>(null);
+  const { openTask: openTaskInPanel } = useTaskUrlParam();
+  const router = useRouter();
   const [deleteCommentTarget, setDeleteCommentTarget] = useState<string | null>(null);
   const [editingCriterionId, setEditingCriterionId] = useState<string | null>(null);
   const [editingCriterionText, setEditingCriterionText] = useState('');
@@ -355,7 +377,19 @@ export function TaskDetailPanel({ task, onClose, onDelete, variant = 'panel' }: 
   }
 
   if (!task) return null;
-  const canEdit = canEditTask(access, task, teamMemberId);
+  const parentTask = task.parent_task_id ? tasks.find((t) => t.id === task.parent_task_id) : undefined;
+  const canEdit = canEditTask(access, task, teamMemberId, parentTask);
+  const subtasks = getSubtasks(task.id);
+  const openSubtasks = subtasks.filter((s) => s.status !== 'done');
+  // A subtask opens where its parent is: in the panel, or as a page.
+  const openTask = (target: Task) => {
+    if (variant === 'page') router.push(`/projects/${target.project_id}/tasks/${target.id}`);
+    else openTaskInPanel(target.id);
+  };
+  const setStatus = (status: Task['status']) => {
+    updateTask(task.id, { status });
+    if (status === 'done' && task.status !== 'done' && openSubtasks.length > 0) setFinishSubtasksOf(task.id);
+  };
 
   const isAgentsEnabled = process.env.NEXT_PUBLIC_ENABLE_AGENTS === 'true';
   const project = getProject(task.project_id);
@@ -372,7 +406,7 @@ export function TaskDetailPanel({ task, onClose, onDelete, variant = 'panel' }: 
     .sort((a, b) => Number(a.status === 'done') - Number(b.status === 'done'));
 
   const assignees = team.filter((m) => task.assignee_ids.includes(m.id));
-  const completedSubtasks = task.subtasks.filter((s) => s.completed).length;
+  const subtaskCounts = subtaskProgress(subtasks);
   const satisfiedCriteria = task.acceptance_criteria.filter((c) => c.satisfied).length;
   const openReminders = reminders.filter((r) => r.task_id === task.id && r.status === 'open').length;
   const blockers = (task.blocked_by_ids || [])
@@ -388,6 +422,7 @@ export function TaskDetailPanel({ task, onClose, onDelete, variant = 'panel' }: 
     day: 'numeric',
     year: 'numeric',
   });
+  const lastAt = lastActivityAt(task, subtasks, getTaskUpdate(task.id));
 
   const submitComment = () => {
     if (!newComment.trim()) return;
@@ -398,6 +433,17 @@ export function TaskDetailPanel({ task, onClose, onDelete, variant = 'panel' }: 
   // ── Details: one list, every row always there ──
   const details = (
     <dl className="grid grid-cols-[6.5rem_minmax(0,1fr)] gap-x-3 gap-y-2 text-sm">
+      {parentTask && (
+        <DetailRow icon={CornerLeftUp} label="Subtask of">
+          <button
+            type="button"
+            onClick={() => openTask(parentTask)}
+            className="max-w-full truncate text-left text-zinc-200 underline decoration-white/20 underline-offset-2 hover:text-brand-300 hover:decoration-brand-300 transition-colors rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+          >
+            {parentTask.title}
+          </button>
+        </DetailRow>
+      )}
       <DetailRow icon={CircleDot} label="Status">
         <div ref={statusMenuRef}>
           <button
@@ -426,7 +472,7 @@ export function TaskDetailPanel({ task, onClose, onDelete, variant = 'panel' }: 
                   key={opt.value}
                   type="button"
                   onClick={() => {
-                    updateTask(task.id, { status: opt.value });
+                    setStatus(opt.value);
                     setShowStatusMenu(false);
                   }}
                   className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-white/[0.06] transition-colors focus:outline-none focus-visible:bg-white/[0.06] ${
@@ -603,7 +649,10 @@ export function TaskDetailPanel({ task, onClose, onDelete, variant = 'panel' }: 
         </>
       )}
       <DetailRow icon={Clock} label="Created">
-        <span className="text-zinc-300">{createdDate}</span>
+        <time dateTime={task.created_at} className="text-zinc-300">{createdDate}</time>
+      </DetailRow>
+      <DetailRow icon={History} label="Updated">
+        <time dateTime={lastAt} className="text-zinc-300">{timeAgo(lastAt)}</time>
       </DetailRow>
 
       {source && (
@@ -626,50 +675,48 @@ export function TaskDetailPanel({ task, onClose, onDelete, variant = 'panel' }: 
         <TaskReminders task={task} />
       </Section>
 
+      {/* Subtasks are tasks of their own: a row works the basics (done, name,
+          order) and opens the subtask for the rest. One level deep, so a
+          subtask has no Subtasks section. */}
+      {!task.parent_task_id && (
       <Section
         variant={variant}
         title="Subtasks"
+        // The same ring as the board card's Subtasks row.
+        afterTitle={subtasks.length > 0 ? <SubtaskRing done={subtaskCounts.done} total={subtaskCounts.total} size={16} /> : undefined}
         icon={CheckSquare}
-        count={task.subtasks.length > 0 ? `${completedSubtasks}/${task.subtasks.length}` : undefined}
+        count={subtasks.length > 0 ? `${subtaskCounts.done} of ${subtaskCounts.total}` : undefined}
       >
-        {task.subtasks.length > 0 && (
-          <div
-            className="h-1 mb-2 bg-white/[0.06] rounded-full overflow-hidden"
-            role="progressbar"
-            aria-label="Subtasks done"
-            aria-valuenow={completedSubtasks}
-            aria-valuemin={0}
-            aria-valuemax={task.subtasks.length}
-          >
-            <div
-              className="h-full bg-emerald-500 rounded-full transition-all duration-300"
-              style={{ width: `${(completedSubtasks / task.subtasks.length) * 100}%` }}
-            />
-          </div>
-        )}
-        {task.subtasks.length === 0 && !canEdit && <p className="text-sm text-zinc-500">None yet.</p>}
+        {subtasks.length === 0 && !canEdit && <p className="text-sm text-zinc-500">None yet.</p>}
 
         <ul className="space-y-0.5">
           {(dragSubtaskOrder
             ? dragSubtaskOrder
-                .map((id) => task.subtasks.find((s) => s.id === id))
-                .filter((s): s is NonNullable<typeof s> => !!s)
-            : task.subtasks
-          ).map((subtask) => (
+                .map((id) => subtasks.find((s) => s.id === id))
+                .filter((s): s is Task => !!s)
+            : subtasks
+          ).map((subtask) => {
+            const done = subtask.status === 'done';
+            const people = team.filter((member) => subtask.assignee_ids.includes(member.id));
+            const late = !!subtask.due_date && !done && isDateOverdue(subtask.due_date);
+            const unread = !!taskUnread(subtask);
+            return (
             <li
               key={subtask.id}
               draggable={canEdit && editingSubtaskId !== subtask.id}
               onDragStart={() => {
                 if (!canEdit) return;
                 setDraggedSubtaskId(subtask.id);
-                setDragSubtaskOrder(task.subtasks.map((s) => s.id));
+                setDragSubtaskOrder(subtasks.map((s) => s.id));
               }}
               onDragEnd={() => {
-                // Persist the final order once, only if it changed
+                // Persist the final order once, writing only the rows that moved
                 if (dragSubtaskOrder) {
-                  const original = task.subtasks.map((s) => s.id);
+                  const original = subtasks.map((s) => s.id);
                   if (dragSubtaskOrder.join() !== original.join()) {
-                    reorderSubtasks(task.id, dragSubtaskOrder);
+                    reorderTasks(dragSubtaskOrder
+                      .map((id, index) => ({ id, sort_order: index }))
+                      .filter(({ id, sort_order }) => subtasks.find((s) => s.id === id)?.sort_order !== sort_order));
                   }
                 }
                 setDraggedSubtaskId(null);
@@ -679,7 +726,7 @@ export function TaskDetailPanel({ task, onClose, onDelete, variant = 'panel' }: 
                 e.preventDefault();
                 if (draggedSubtaskId && draggedSubtaskId !== subtask.id) {
                   setDragSubtaskOrder((order) => {
-                    const ids = [...(order ?? task.subtasks.map((s) => s.id))];
+                    const ids = [...(order ?? subtasks.map((s) => s.id))];
                     const fromIdx = ids.indexOf(draggedSubtaskId);
                     const toIdx = ids.indexOf(subtask.id);
                     if (fromIdx === -1 || toIdx === -1 || fromIdx === toIdx) return order;
@@ -695,22 +742,22 @@ export function TaskDetailPanel({ task, onClose, onDelete, variant = 'panel' }: 
             >
               <button
                 type="button"
-                onClick={() => toggleSubtask(task.id, subtask.id)}
+                onClick={() => updateTask(subtask.id, { status: done ? 'todo' : 'done' })}
                 disabled={!canEdit}
-                aria-label={subtask.completed ? `Mark "${subtask.title}" not done` : `Mark "${subtask.title}" done`}
-                aria-pressed={subtask.completed}
+                aria-label={done ? `Mark "${subtask.title}" not done` : `Mark "${subtask.title}" done`}
+                aria-pressed={done}
                 className={`flex-shrink-0 w-[18px] h-[18px] rounded border-2 flex items-center justify-center transition-colors disabled:cursor-default focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-1 focus-visible:ring-offset-surface-raised ${
-                  subtask.completed ? 'bg-emerald-500 border-emerald-500' : 'border-white/[0.16] enabled:hover:border-emerald-400'
+                  done ? 'bg-emerald-500 border-emerald-500' : 'border-white/[0.16] enabled:hover:border-emerald-400'
                 }`}
               >
-                {subtask.completed && <Check size={12} strokeWidth={3} className="text-white" aria-hidden="true" />}
+                {done && <Check size={12} strokeWidth={3} className="text-white" aria-hidden="true" />}
               </button>
               {editingSubtaskId === subtask.id ? (
                 <form
                   onSubmit={(e) => {
                     e.preventDefault();
-                    if (editingSubtaskTitle.trim()) {
-                      updateSubtask(task.id, subtask.id, editingSubtaskTitle.trim());
+                    if (editingSubtaskTitle.trim() && editingSubtaskTitle.trim() !== subtask.title) {
+                      updateTask(subtask.id, { title: editingSubtaskTitle.trim() });
                     }
                     setEditingSubtaskId(null);
                   }}
@@ -720,48 +767,61 @@ export function TaskDetailPanel({ task, onClose, onDelete, variant = 'panel' }: 
                     value={editingSubtaskTitle}
                     onChange={setEditingSubtaskTitle}
                     onBlur={() => {
-                      if (editingSubtaskTitle.trim()) {
-                        updateSubtask(task.id, subtask.id, editingSubtaskTitle.trim());
+                      if (editingSubtaskTitle.trim() && editingSubtaskTitle.trim() !== subtask.title) {
+                        updateTask(subtask.id, { title: editingSubtaskTitle.trim() });
                       }
                       setEditingSubtaskId(null);
                     }}
-                    aria-label="Edit subtask"
+                    aria-label="Rename subtask"
                     autoFocus
                     size="sm"
                   />
                 </form>
               ) : (
-                <span
-                  className={`flex-1 min-w-0 text-sm break-words ${subtask.completed ? 'text-zinc-500 line-through' : 'text-zinc-200'}`}
-                  onDoubleClick={() => {
-                    if (!canEdit) return;
-                    setEditingSubtaskId(subtask.id);
-                    setEditingSubtaskTitle(subtask.title);
-                  }}
+                <button
+                  type="button"
+                  onClick={() => openTask(subtask)}
+                  className={`flex-1 min-w-0 text-left text-sm break-words rounded transition-colors hover:text-brand-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${
+                    done ? 'text-zinc-500 line-through' : 'text-zinc-200'
+                  }`}
                 >
                   {subtask.title}
+                  {unread && <span className="sr-only"> (has news since you last looked)</span>}
+                </button>
+              )}
+              {unread && <span className="w-1.5 h-1.5 rounded-full bg-brand-500 flex-shrink-0" aria-hidden="true" />}
+              {subtask.due_date && (
+                <span className={`flex-shrink-0 text-xs tabular-nums ${late ? 'text-red-300' : 'text-zinc-400'}`}>
+                  <span className="sr-only">Due </span>
+                  {parseDateOnly(subtask.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                  {late && <span className="sr-only"> (overdue)</span>}
+                </span>
+              )}
+              {people.length > 0 && (
+                <span className="flex-shrink-0" aria-label={`Assigned to ${people.map((p) => p.name).join(', ')}`} role="img">
+                  <AvatarGroup users={people} max={2} size="xs" />
                 </span>
               )}
               {canEdit && editingSubtaskId !== subtask.id && (
                 <div className={ROW_ACTIONS}>
-                  <Tooltip content="Edit">
+                  <Tooltip content="Rename">
                     <button
                       type="button"
                       onClick={() => {
                         setEditingSubtaskId(subtask.id);
                         setEditingSubtaskTitle(subtask.title);
                       }}
-                      aria-label={`Edit "${subtask.title}"`}
+                      aria-label={`Rename "${subtask.title}"`}
                       className={`${ROW_ICON_BUTTON} hover:text-brand-300`}
                     >
                       <Edit size={13} aria-hidden="true" />
                     </button>
                   </Tooltip>
-                  <Tooltip content="Delete">
+                  <Tooltip content="Move to Trash">
                     <button
                       type="button"
                       onClick={() => setDeleteSubtaskTarget(subtask.id)}
-                      aria-label={`Delete "${subtask.title}"`}
+                      aria-label={`Move "${subtask.title}" to Trash`}
                       className={`${ROW_ICON_BUTTON} hover:text-red-400`}
                     >
                       <X size={14} aria-hidden="true" />
@@ -771,10 +831,12 @@ export function TaskDetailPanel({ task, onClose, onDelete, variant = 'panel' }: 
                 </div>
               )}
             </li>
-          ))}
+            );
+          })}
         </ul>
-        {canEdit && <InlineAdd label="Add subtask" placeholder="Subtask title" onAdd={(text) => addSubtask(task.id, text)} />}
+        {canEdit && <InlineAdd label="Add subtask" placeholder="Subtask title" onAdd={(text) => { void addSubtask(task.id, text); }} />}
       </Section>
+      )}
 
       {showCriteria && (
       <FoldingSection
@@ -1048,12 +1110,24 @@ export function TaskDetailPanel({ task, onClose, onDelete, variant = 'panel' }: 
         isOpen={!!deleteSubtaskTarget}
         onClose={() => setDeleteSubtaskTarget(null)}
         onConfirm={async () => {
-          if (deleteSubtaskTarget && await deleteSubtask(task.id, deleteSubtaskTarget)) toast('success', 'Subtask moved to Trash');
+          if (deleteSubtaskTarget && await deleteTask(deleteSubtaskTarget)) toast('success', 'Subtask moved to Trash');
         }}
         title="Move subtask to Trash?"
-        message="The subtask goes to Trash."
+        message="The subtask goes to Trash with its comments and files."
         variant="danger"
         trash
+      />
+
+      <ConfirmDialog
+        isOpen={finishSubtasksOf === task.id && openSubtasks.length > 0}
+        onClose={() => setFinishSubtasksOf(null)}
+        onConfirm={() => {
+          openSubtasks.forEach((subtask) => updateTask(subtask.id, { status: 'done' }));
+          setFinishSubtasksOf(null);
+        }}
+        title="Finish its subtasks too?"
+        message={`"${task.title}" is done. ${openSubtasks.length === 1 ? '1 subtask is' : `${openSubtasks.length} subtasks are`} still open.`}
+        confirmLabel={openSubtasks.length === 1 ? 'Finish it' : `Finish all ${openSubtasks.length}`}
       />
 
       <ConfirmDialog

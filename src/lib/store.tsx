@@ -1,7 +1,7 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, useRef, ReactNode, type SetStateAction } from 'react';
-import { AiReadiness, Project, Task, TeamMember, FilterState, ViewMode, Subtask, AcceptanceCriterion, Comment, Contact, ContactEmail, ContactEmailDraft, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, TeamActivity, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, EntityFileType, ApiKey, NotificationCategory, ProjectGoal, TaskSuggestion, AgentActivity, TimeEntry, ProjectCredentialListItem, CredentialPayload, CredentialCategory, ProjectInvoice, InvoicePaymentMethod, BusinessSettings, EmployeeEarningsData, Reminder, TaskUpdate, TrashItem, DEFAULT_SECTION_ORDER } from './types';
+import React, { createContext, useContext, useState, useEffect, useMemo, useRef, ReactNode, type SetStateAction } from 'react';
+import { AiReadiness, Project, Task, TeamMember, FilterState, ViewMode, AcceptanceCriterion, Comment, Contact, ContactEmail, ContactEmailDraft, ProjectContact, Lead, LeadInteraction, LeadProposal, LeadField, LeadContact, TeamActivity, PortalSettings, PortalUpdate, PortalUpdateAttachment, EntityFile, EntityFileType, ApiKey, NotificationCategory, ProjectGoal, TaskSuggestion, AgentActivity, TimeEntry, ProjectCredentialListItem, CredentialPayload, CredentialCategory, ProjectInvoice, InvoicePaymentMethod, BusinessSettings, EmployeeEarningsData, Reminder, TaskUpdate, TrashItem, DEFAULT_SECTION_ORDER } from './types';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
@@ -19,11 +19,6 @@ import {
   patchTask,
   removeTask,
   reorderTasks as reorderTasksQuery,
-  insertSubtask,
-  toggleSubtaskCompleted,
-  patchSubtask,
-  reorderSubtasks as reorderSubtasksQuery,
-  removeSubtask,
   insertAcceptanceCriterion,
   patchAcceptanceCriterion,
   removeAcceptanceCriterion,
@@ -116,6 +111,7 @@ import {
   patchBusinessSettings as patchBusinessSettingsQuery,
 } from '@/lib/supabase/queries';
 import { toast } from '@/components/ui/Toast';
+import { subtasksByParent } from '@/lib/subtasks';
 import { isTelemetryEvent } from '@/lib/agent-events';
 import { clearReads, invalidateAllReads, invalidateTables, loadRead } from '@/lib/query-cache';
 import { payrollRead } from '@/lib/finance/payroll-read';
@@ -199,7 +195,6 @@ async function fetchWorkspaceData<T>(path: string): Promise<T> {
 
 const REALTIME_TABLE_SLICES: Record<string, RealtimeSlice> = {
   tasks: 'tasks',
-  task_subtasks: 'tasks',
   task_assignees: 'tasks',
   task_acceptance_criteria: 'tasks',
   task_dependencies: 'tasks',
@@ -332,12 +327,12 @@ interface AppContextType {
   /** Resolves true once deleted; false after a failure (rolled back; toasted unless silent). */
   deleteTask: (id: string, options?: TaskWriteOptions) => Promise<boolean>;
 
-  // Subtasks
-  addSubtask: (taskId: string, title: string) => void;
-  toggleSubtask: (taskId: string, subtaskId: string) => void;
-  updateSubtask: (taskId: string, subtaskId: string, title: string) => void;
-  reorderSubtasks: (taskId: string, subtaskIds: string[]) => void;
-  deleteSubtask: (taskId: string, subtaskId: string) => Promise<boolean>;
+  // Subtasks: tasks with a parent (see lib/subtasks). Work one with the task
+  // actions; these find a task's subtasks and add one by title.
+  getSubtasks: (taskId: string) => Task[];
+  addSubtask: (parentId: string, title: string) => Promise<Task | null>;
+  /** Makes a task a subtask of `parentId`, or top-level again with null. */
+  setTaskParent: (taskId: string, parentId: string | null) => Promise<boolean>;
 
   // Acceptance criteria
   addCriterion: (taskId: string, criterion: string) => void;
@@ -670,7 +665,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // Demo mode has no database, so Trash lives here: each delete records what
   // it removed and how to put it back, and Restore runs that.
   // A ref, so the Trash page reads the list as it is right after a restore.
-  // `parent` is the record it belongs to besides its project (a subtask's
+  // `parent` is the record it belongs to besides its project (a comment's
   // task, an interaction's lead), so Restore waits for that one like the
   // database does.
   type DemoTrashEntry = { item: TrashItem; putBack: () => void; parent?: { type: 'tasks' | 'leads' | 'portal_updates'; id: string } };
@@ -692,15 +687,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const present = new Set(current.map(row => row.id));
     return [...current, ...removed.filter(row => !present.has(row.id))];
   };
-  // A subtask or comment goes back where it was: ahead of the first row that
-  // followed it before the delete.
-  const putBackTaskChild = (before: Task | undefined, key: 'subtasks' | 'comments', childId: string) => {
-    const snapshot: { id: string }[] = before?.[key] ?? [];
+  // A comment goes back where it was: ahead of the first row that followed it
+  // before the delete.
+  const putBackTaskChild = (before: Task | undefined, key: 'comments', childId: string) => {
+    const snapshot: Comment[] = before?.[key] ?? [];
     const index = snapshot.findIndex(row => row.id === childId);
     if (!before || index < 0) return;
     const followers = new Set(snapshot.slice(index + 1).map(row => row.id));
     setTasks(current => current.map(task => {
-      const rows: { id: string }[] = task[key];
+      const rows: Comment[] = task[key];
       if (task.id !== before.id || rows.some(row => row.id === childId)) return task;
       const at = rows.findIndex(row => followers.has(row.id));
       const next = [...rows];
@@ -1450,7 +1445,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       ...task,
       id: optimisticId,
       assignee_ids: assigneeIds,
-      subtasks: task.subtasks || [],
       comments: task.comments || [],
       acceptance_criteria: task.acceptance_criteria || [],
       blocked_by_ids: task.blocked_by_ids || [],
@@ -1471,6 +1465,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       );
       setTasks(prev => prev.map(t => t.id === optimisticId ? newTask : t));
       const project = projects.find(p => p.id === task.project_id);
+      // A subtask is news on its parent, not a new task in the project.
+      const parent = task.parent_task_id ? tasks.find(t => t.id === task.parent_task_id) : undefined;
+      if (parent) {
+        notify(allMemberIds(), `"${parent.title}" was updated`, `${actorName()} added a subtask.`, `/projects/${parent.project_id}`, 'task', parent.id, 'task_subtasks');
+        return newTask;
+      }
       const truncTitle = newTask.title.length > 50 ? newTask.title.slice(0, 50) + '...' : newTask.title;
       notify(allMemberIds(), `New task: "${newTask.title}"`, `${actorName()} created a task${project ? ` in ${project.name}` : ''}.`, `/projects/${task.project_id}`, 'task', newTask.id, 'task_created', {
         subject: `New task${project ? ` in ${project.name}` : ''}: ${truncTitle}`,
@@ -1572,10 +1572,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const deleteTask = async (id: string, options?: TaskWriteOptions): Promise<boolean> => {
     const prev = tasks;
     const deletedTask = tasks.find(t => t.id === id);
-    setTasks(t => t.filter(task => task.id !== id));
+    // Its subtasks go out of reach with it (they come back with a restore).
+    const goesWithIt = (task: Task) => task.id === id || task.parent_task_id === id;
+    setTasks(t => t.filter(task => !goesWithIt(task)));
     if (skipSupabase) {
-      trashInDemo('tasks', id, deletedTask?.title ?? 'Task', projectName(deletedTask?.project_id), deletedTask?.project_id ?? null,
-        () => setTasks(putBackRows(prev.filter(task => task.id === id))));
+      const parent = deletedTask?.parent_task_id ? prev.find(t => t.id === deletedTask.parent_task_id) : undefined;
+      trashInDemo('tasks', id, deletedTask?.title ?? 'Task', parent ? `Subtask of ${parent.title}` : projectName(deletedTask?.project_id), deletedTask?.project_id ?? null,
+        () => setTasks(putBackRows(prev.filter(goesWithIt))), parent ? { type: 'tasks', id: parent.id } : undefined);
       return true;
     }
 
@@ -1588,146 +1591,87 @@ export function AppProvider({ children }: { children: ReactNode }) {
       (TRASH_SIDE_SLICES.tasks ?? []).forEach(slice => { void refreshSlice(slice); });
       return true;
     } catch (err) {
-      setTasks(rollbackScope(prev, task => task.id === id));
+      setTasks(rollbackScope(prev, goesWithIt));
       if (!options?.silent) toast('error', trashFailure(err, 'Failed to delete task'));
       return false;
     }
   };
 
-  // Subtasks
-  const addSubtask = async (taskId: string, title: string) => {
-    const optimisticId = crypto.randomUUID();
-    const optimistic: Subtask = { id: optimisticId, task_id: taskId, title, completed: false, sort_order: 999 };
-
-    setTasks(prev => prev.map(t =>
-      t.id === taskId
-        ? { ...t, subtasks: [...t.subtasks, optimistic], updated_at: new Date().toISOString() }
-        : t
-    ));
-    if (skipSupabase) return;
-
-    try {
-      const newSubtask = await insertSubtask(supabase, taskId, title);
-      setTasks(prev => prev.map(t =>
-        t.id === taskId
-          ? { ...t, subtasks: t.subtasks.map(s => s.id === optimisticId ? newSubtask : s) }
-          : t
-      ));
-
-      const task = tasks.find(t => t.id === taskId);
-      if (task) {
-        notify(allMemberIds(), `"${task.title}" was updated`, `${actorName()} added a subtask.`, `/projects/${task.project_id}`, 'task', taskId, 'task_subtasks');
-      }
-    } catch (err) {
-      setTasks(prev => prev.map(t =>
-        t.id === taskId
-          ? { ...t, subtasks: t.subtasks.filter(s => s.id !== optimisticId) }
-          : t
-      ));
-      toast('error', 'Failed to add subtask');
-    }
+  // Subtasks: a subtask is a task with a parent, so the task list holds them.
+  const subtaskMap = useMemo(() => subtasksByParent(tasks), [tasks]);
+  const getSubtasks = (taskId: string) => subtaskMap.get(taskId) ?? [];
+  const addSubtask = async (parentId: string, title: string): Promise<Task | null> => {
+    const parent = tasks.find(t => t.id === parentId);
+    if (!parent) return null;
+    const siblings = subtaskMap.get(parentId) ?? [];
+    return addTask({
+      project_id: parent.project_id,
+      parent_task_id: parent.id,
+      sort_order: siblings.reduce((max, sibling) => Math.max(max, (sibling.sort_order ?? 0) + 1), 0),
+      title,
+      description: '',
+      status: 'todo',
+      priority: 'medium',
+      assignee_ids: [],
+      due_date: null,
+      tags: [],
+      comments: [],
+      acceptance_criteria: [],
+      blocked_by_ids: [],
+    });
   };
-
-  const toggleSubtask = async (taskId: string, subtaskId: string) => {
+  const setTaskParent = async (taskId: string, parentId: string | null): Promise<boolean> => {
+    const prev = tasks;
     const task = tasks.find(t => t.id === taskId);
-    const subtask = task?.subtasks.find(s => s.id === subtaskId);
-    if (!subtask) return;
-
-    const newCompleted = !subtask.completed;
-
-    setTasks(prev => prev.map(t =>
-      t.id === taskId
-        ? {
-            ...t,
-            subtasks: t.subtasks.map(s => s.id === subtaskId ? { ...s, completed: newCompleted } : s),
-            updated_at: new Date().toISOString(),
-          }
-        : t
-    ));
-    if (skipSupabase) return;
-
-    try {
-      await toggleSubtaskCompleted(supabase, subtaskId, newCompleted);
-
-      const parentTask = tasks.find(t => t.id === taskId);
-      if (parentTask) {
-        const msg = newCompleted ? `${actorName()} completed a subtask.` : `${actorName()} reopened a subtask.`;
-        notify(allMemberIds(), `"${parentTask.title}" was updated`, msg, `/projects/${parentTask.project_id}`, 'task', taskId, 'task_subtasks');
-      }
-    } catch (err) {
-      setTasks(prev => prev.map(t =>
-        t.id === taskId
-          ? {
-              ...t,
-              subtasks: t.subtasks.map(s => s.id === subtaskId ? { ...s, completed: !newCompleted } : s),
-            }
-          : t
-      ));
-      toast('error', 'Failed to update subtask');
+    const parent = parentId ? tasks.find(t => t.id === parentId) : undefined;
+    if (!task || (parentId && !parent) || task.parent_task_id === parentId) return false;
+    // The database's rules, said before the round trip (and all there is in demo mode).
+    const refusal = !parent ? null
+      : parent.id === task.id ? 'A task cannot be its own subtask.'
+      : parent.parent_task_id ? `Subtasks go one level deep: "${parent.title}" is itself a subtask.`
+      : (subtaskMap.get(task.id)?.length ?? 0) > 0 ? 'It has subtasks of its own. Make them top-level or move them first.'
+      : null;
+    if (refusal) {
+      toast('error', refusal);
+      return false;
     }
-  };
-
-  const updateSubtask = async (taskId: string, subtaskId: string, title: string) => {
-    const prev = tasks;
-    setTasks(t => t.map(task =>
-      task.id === taskId
-        ? { ...task, subtasks: task.subtasks.map(s => s.id === subtaskId ? { ...s, title } : s), updated_at: new Date().toISOString() }
-        : task
-    ));
-    if (skipSupabase) return;
-
-    try {
-      await patchSubtask(supabase, subtaskId, { title });
-    } catch (err) {
-      setTasks(rollbackScope(prev, task => task.id === taskId));
-      toast('error', 'Failed to update subtask');
-    }
-  };
-
-  const reorderSubtasksAction = async (taskId: string, subtaskIds: string[]) => {
-    const prev = tasks;
-    setTasks(t => t.map(task => {
-      if (task.id !== taskId) return task;
-      const reordered = subtaskIds
-        .map(id => task.subtasks.find(s => s.id === id))
-        .filter(Boolean) as typeof task.subtasks;
-      return { ...task, subtasks: reordered, updated_at: new Date().toISOString() };
+    // Last among its new siblings.
+    const siblings = parent
+      ? subtaskMap.get(parent.id) ?? []
+      : tasks.filter(t => !t.parent_task_id && t.project_id === task.project_id && t.status === task.status);
+    const sortOrder = siblings.reduce((max, sibling) => Math.max(max, (sibling.sort_order ?? 0) + 1), 0);
+    const moved = parent && parent.project_id !== task.project_id;
+    setTasks(current => current.map(row => row.id !== taskId ? row : {
+      ...row,
+      parent_task_id: parentId,
+      project_id: parent?.project_id ?? row.project_id,
+      ...(moved ? { project_goal_id: parent.project_goal_id ?? null } : {}),
+      sort_order: sortOrder,
+      updated_at: new Date().toISOString(),
     }));
-    if (skipSupabase) return;
+    if (skipSupabase) return true;
 
     try {
-      await reorderSubtasksQuery(supabase, subtaskIds);
-    } catch (err) {
-      setTasks(rollbackScope(prev, task => task.id === taskId));
-      toast('error', 'Failed to reorder subtasks');
-    }
-  };
-
-  const deleteSubtask = async (taskId: string, subtaskId: string): Promise<boolean> => {
-    const prev = tasks;
-    setTasks(t => t.map(task =>
-      task.id === taskId
-        ? { ...task, subtasks: task.subtasks.filter(s => s.id !== subtaskId), updated_at: new Date().toISOString() }
-        : task
-    ));
-    if (skipSupabase) {
-      const parent = prev.find(t => t.id === taskId);
-      trashInDemo('task_subtasks', subtaskId, parent?.subtasks.find(s => s.id === subtaskId)?.title ?? 'Subtask', parent?.title ?? null,
-        parent?.project_id ?? null, () => putBackTaskChild(parent, 'subtasks', subtaskId),
-        { type: 'tasks', id: taskId });
-      return true;
-    }
-
-    try {
-      await removeSubtask(supabase, subtaskId);
-      const task = tasks.find(t => t.id === taskId);
-      if (task) {
-        notify(allMemberIds(), `"${task.title}" was updated`, `${actorName()} removed a subtask.`, `/projects/${task.project_id}`, 'task', taskId, 'task_subtasks');
-      }
+      const response = await fetch(`/api/workspace/tasks/${taskId}/parent`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ parent_task_id: parentId }),
+      });
+      const payload = await response.json().catch(() => null) as { data?: Partial<Task>; error?: string } | null;
+      if (!response.ok || !payload?.data) throw new Error(payload?.error || 'Could not move the task');
+      const saved = payload.data;
+      setTasks(current => current.map(row => row.id !== taskId ? row : {
+        ...row,
+        parent_task_id: saved.parent_task_id ?? null,
+        project_id: saved.project_id ?? row.project_id,
+        project_goal_id: saved.project_goal_id ?? null,
+        sort_order: saved.sort_order ?? row.sort_order,
+        updated_at: saved.updated_at ?? row.updated_at,
+      }));
       return true;
     } catch (err) {
-      setTasks(rollbackScope(prev, task => task.id === taskId));
-      toast('error', 'Failed to delete subtask');
+      setTasks(rollbackScope(prev, row => row.id === taskId));
+      toast('error', err instanceof Error ? err.message : 'Could not move the task');
       return false;
     }
   };
@@ -4330,7 +4274,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // Helpers
   const getProject = (id: string) => projects.find(p => p.id === id);
-  const getTasksByProject = (projectId: string) => tasks.filter(t => t.project_id === projectId);
+  // A project's tasks are its top-level ones; their subtasks hang off them.
+  const getTasksByProject = (projectId: string) => tasks.filter(t => t.project_id === projectId && !t.parent_task_id);
   const getTeamMember = (id: string) => team.find(m => m.id === id);
   const getContact = (id: string) => contacts.find(c => c.id === id);
   const getContactsByProject = (projectId: string) => projectContacts.filter(pc => pc.project_id === projectId);
@@ -4553,11 +4498,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       updateTask,
       reorderTasks,
       deleteTask,
+      getSubtasks,
       addSubtask,
-      toggleSubtask,
-      updateSubtask,
-      reorderSubtasks: reorderSubtasksAction,
-      deleteSubtask,
+      setTaskParent,
       addCriterion,
       toggleCriterion,
       updateCriterion,

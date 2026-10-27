@@ -131,6 +131,8 @@ export function RailLayout({ children, rail, side = 'right', stickyRail = false,
 interface RailCardProps {
   /** Sentence case, e.g. "Recent activity". */
   title: string;
+  /** Shown right after the title, inside the heading (a small indicator). */
+  afterTitle?: ReactNode;
   /** A 16px lucide icon in text-zinc-400, aria-hidden. Every titled card has one. */
   icon: ReactNode;
   /** Right-aligned in the header: a CardLink, a count, a toggle. */
@@ -149,11 +151,12 @@ interface RailCardProps {
  * header everywhere, a 16px icon and a small semibold title with an optional
  * action on the right, so the tabs read as one workspace.
  */
-export function RailCard({ title, icon, action, description, className, bodyClassName, children }: RailCardProps) {
+export function RailCard({ title, afterTitle, icon, action, description, className, bodyClassName, children }: RailCardProps) {
   const heading = (
     <h2 className="flex items-center gap-2 text-sm font-semibold text-white">
       {icon}
       {title}
+      {afterTitle}
     </h2>
   );
   return (

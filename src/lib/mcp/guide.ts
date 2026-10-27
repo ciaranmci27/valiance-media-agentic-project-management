@@ -15,6 +15,11 @@ Tasks
 - Without tasks.manage_all you can change only tasks assigned to you, and new tasks you create are assigned to you.
 - update_task with acceptance_criteria replaces them all and clears their satisfied flags. To tick one off, use update_acceptance_criterion.
 
+Subtasks
+- A subtask is a full task under a parent task (one level deep, in the parent's project): create one with create_task and parent_task_id. add_subtask is a title-only shortcut.
+- When a task turns out to belong under a bigger one, use set_task_parent to move it there rather than recreating it; parent_task_id null makes it top-level again.
+- A parent and its subtasks finish separately: finishing every subtask does not finish the parent.
+
 Task files
 - add_task_file attaches a file to a task: link an email attachment by email_attachment_id or a project file by entity_file_id (neither is copied), or send small bytes as content_base64 with a name. Add a note saying why it is there.
 - list_task_files shows what a task holds; get_task_file_link gives a short-lived link to open one.

@@ -255,9 +255,14 @@ export interface Task {
   assignee_ids: string[];
   due_date: string | null;
   tags: string[];
-  subtasks: Subtask[];
   comments: Comment[];
   sort_order?: number;
+  /**
+   * The task this is a subtask of; null or absent for a top-level task. A
+   * subtask is a whole task: its parent finds it in the task list (see
+   * lib/subtasks).
+   */
+  parent_task_id?: string | null;
   task_type?: TaskType | null;
   ai_readiness?: AiReadiness | null;
   acceptance_criteria: AcceptanceCriterion[];
@@ -360,14 +365,6 @@ export interface Reminder {
   created_by: string | null;
   created_at: string;
   updated_at: string;
-}
-
-export interface Subtask {
-  id: string;
-  task_id?: string;
-  title: string;
-  completed: boolean;
-  sort_order?: number;
 }
 
 /**

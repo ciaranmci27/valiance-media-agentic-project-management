@@ -1,5 +1,6 @@
 import type { Task, TeamMember } from '@/lib/types';
 import { parseDateOnly } from '@/lib/date-utils';
+import { bySubtaskOrder } from '@/lib/subtasks';
 import { toast } from '@/components/ui/Toast';
 
 /**
@@ -33,7 +34,7 @@ interface TaskTextContext {
   projectName?: string | null;
   team: Pick<TeamMember, 'id' | 'name'>[];
   /** Every task the app has loaded, to name what this one is waiting on. */
-  tasks: Pick<Task, 'id' | 'title' | 'status'>[];
+  tasks: Pick<Task, 'id' | 'title' | 'status' | 'parent_task_id' | 'assignee_ids' | 'sort_order' | 'created_at'>[];
 }
 
 function day(date: string): string {
@@ -53,14 +54,20 @@ export function taskAsText(task: Task, { projectName, team, tasks }: TaskTextCon
   lines.push(facts.join(' | '));
   if (task.assignee_ids.length) lines.push(`Assigned to: ${task.assignee_ids.map(nameOf).join(', ')}`);
   if (task.tags.length) lines.push(`Tags: ${task.tags.join(', ')}`);
+  const parent = task.parent_task_id ? tasks.find(t => t.id === task.parent_task_id) : undefined;
+  if (parent) lines.push(`Subtask of: ${parent.title} (${parent.id})`);
   lines.push(`Task ID: ${task.id}`, `Link: ${taskUrl(task)}`);
 
   if (task.description.trim()) lines.push('', '## Description', '', task.description.trim());
 
-  if (task.subtasks.length) {
-    const done = task.subtasks.filter(s => s.completed).length;
-    lines.push('', `## Subtasks (${done} of ${task.subtasks.length} done)`, '');
-    for (const s of task.subtasks) lines.push(`- [${s.completed ? 'x' : ' '}] ${s.title}`);
+  const subtasks = tasks.filter(t => t.parent_task_id === task.id).sort(bySubtaskOrder);
+  if (subtasks.length) {
+    const done = subtasks.filter(s => s.status === 'done').length;
+    lines.push('', `## Subtasks (${done} of ${subtasks.length} done)`, '');
+    for (const s of subtasks) {
+      const who = s.assignee_ids.length ? `, ${s.assignee_ids.map(nameOf).join(', ')}` : '';
+      lines.push(`- [${s.status === 'done' ? 'x' : ' '}] ${s.title} (${TASK_STATUS_LABELS[s.status]}${who}, ${s.id})`);
+    }
   }
 
   if (task.acceptance_criteria.length) {
@@ -70,7 +77,7 @@ export function taskAsText(task: Task, { projectName, team, tasks }: TaskTextCon
 
   const blockers = (task.blocked_by_ids || [])
     .map(id => tasks.find(t => t.id === id))
-    .filter((t): t is Pick<Task, 'id' | 'title' | 'status'> => !!t);
+    .filter((t): t is TaskTextContext['tasks'][number] => !!t);
   if (blockers.length) {
     lines.push('', '## Waiting on', '');
     for (const b of blockers) lines.push(`- ${b.title} (${TASK_STATUS_LABELS[b.status]})`);

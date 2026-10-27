@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev -p 3009",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
@@ -23,6 +23,7 @@
     "test:team-activity": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-team-activity.ts",
     "test:task-source": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-task-source.ts",
     "test:task-unread": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-task-unread.ts",
+    "test:subtasks": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-subtasks.ts && tsx --tsconfig tsconfig.mcp-test.json scripts/verify-subtasks-api.ts",
     "test:task-files": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-task-files.ts && tsx --tsconfig tsconfig.mcp-test.json scripts/verify-task-files-api.ts",
     "test:soft-delete-api": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-soft-delete-api.ts",
     "test:soft-delete-reads":"tsx --tsconfig tsconfig.mcp-test.json scripts/verify-soft-delete-reads.ts",

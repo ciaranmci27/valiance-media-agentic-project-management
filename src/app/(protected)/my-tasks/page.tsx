@@ -61,7 +61,7 @@ export default function RadarPage() {
 }
 
 function RadarPageContent() {
-  const { tasks, projects, taskSuggestions, timeEntries, agentActivity, deleteTask, reminders, addReminder } = useApp();
+  const { tasks, projects, taskSuggestions, timeEntries, agentActivity, deleteTask, reminders, addReminder, getSubtasks } = useApp();
   const { teamMemberId, access } = useAuth();
 
   // The open task is the URL's ?task=, so the address bar is a link to it.
@@ -225,6 +225,8 @@ function RadarPageContent() {
     onOpen?: () => void;
   }) => {
     const project = opts.projectId ? projectById.get(opts.projectId) : undefined;
+    // A subtask names the task it belongs to.
+    const parent = opts.task?.parent_task_id ? tasks.find(t => t.id === opts.task?.parent_task_id) : undefined;
     const inner = (
       <>
         {opts.icon}
@@ -237,6 +239,14 @@ function RadarPageContent() {
                   <span className="w-1.5 h-1.5 rounded-full inline-block flex-shrink-0" style={{ backgroundColor: project.color }} />
                 )}
                 <span className="truncate flex-shrink-0 max-w-[180px] text-zinc-400">{project.name}</span>
+                <span className="text-zinc-600" aria-hidden="true">·</span>
+              </>
+            )}
+            {parent && (
+              <>
+                <span className="truncate max-w-[180px] text-zinc-400">
+                  <span className="sr-only">Subtask of </span><span aria-hidden="true">in </span>{parent.title}
+                </span>
                 <span className="text-zinc-600" aria-hidden="true">·</span>
               </>
             )}
@@ -451,8 +461,8 @@ function RadarPageContent() {
                     icon: iconSquare(Activity, 'bg-brand-500/15 text-brand-300'),
                     title: task.title,
                     projectId: task.project_id,
-                    context: task.subtasks.length > 0
-                      ? `${task.subtasks.filter(s => s.completed).length} of ${task.subtasks.length} subtasks done`
+                    context: getSubtasks(task.id).length > 0
+                      ? `${getSubtasks(task.id).filter(s => s.status === 'done').length} of ${getSubtasks(task.id).length} subtasks done`
                       : 'Started by you',
                     task,
                     showPriority: true,

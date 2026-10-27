@@ -18,7 +18,7 @@ type Group = 'all' | 'projects' | 'tasks' | 'billing' | 'clients' | 'files';
 const GROUPS: { key: Group; label: string; types: string[] }[] = [
   { key: 'all', label: 'All', types: [] },
   { key: 'projects', label: 'Projects', types: ['projects'] },
-  { key: 'tasks', label: 'Tasks', types: ['tasks', 'task_subtasks', 'task_comments', 'task_files', 'reminders'] },
+  { key: 'tasks', label: 'Tasks', types: ['tasks', 'task_comments', 'task_files', 'reminders'] },
   {
     key: 'billing',
     label: 'Billing',
@@ -31,7 +31,6 @@ const GROUPS: { key: Group; label: string; types: string[] }[] = [
 const TYPES: Record<string, { label: string; icon: LucideIcon }> = {
   projects: { label: 'Project', icon: FolderKanban },
   tasks: { label: 'Task', icon: CheckSquare },
-  task_subtasks: { label: 'Subtask', icon: CheckSquare },
   task_comments: { label: 'Comment', icon: MessageSquare },
   task_files: { label: 'Task file', icon: FileText },
   reminders: { label: 'Reminder', icon: Clock },
@@ -203,7 +202,10 @@ function TrashPageContent() {
                         <div className="min-w-0">
                           <p className="text-sm font-medium text-white truncate">{item.label}</p>
                           <p className="text-xs text-zinc-400 truncate">
-                            {type.label}{item.context ? ` in ${item.context}` : ''}
+                            {/* A subtask's context already says whose subtask it is. */}
+                            {item.record_type === 'tasks' && item.context?.startsWith('Subtask of ')
+                              ? item.context
+                              : `${type.label}${item.context ? ` in ${item.context}` : ''}`}
                             {' · '}deleted {timeAgo(item.deleted_at)}{item.deleted_by_name ? ` by ${item.deleted_by_name}` : ''}
                           </p>
                           {item.blocker && <p className="text-xs text-amber-300 mt-1">{item.blocker}</p>}

@@ -993,7 +993,9 @@ function planItemLabel(item: Row, project: (id: string) => string | null, task: 
   const taskName = item.task_id ? task(item.task_id as string) ?? 'a task' : 'a task';
   const projectName = item.project_id ? project(item.project_id as string) ?? 'a project' : 'a project';
   switch (item.type) {
-    case 'create_task': return `New task: ${payload.title}`;
+    case 'create_task': return payload.parent_task_id
+      ? `New subtask of ${task(payload.parent_task_id as string) ?? 'a task'}: ${payload.title}`
+      : `New task: ${payload.title}`;
     case 'update_task': {
       const changes = Object.keys((payload.changes ?? {}) as Row).map((key) => (key === 'due_date' ? 'due date' : key === 'project_id' ? 'project' : key.replace('_', ' ')));
       return `Change ${changes.join(' and ')} on ${taskName}`;
@@ -1035,7 +1037,8 @@ async function threadPlans(ctx: InboxContext, threadId: string, messageIds: stri
       .select('id, message_id, who, what, kind, by_when, urgent, to_agent, note, state').eq('conversation_id', threadId).order('created_at')),
   ]);
   return {
-    taskIds: items.map((item) => item.task_id as string | null).filter((id): id is string => !!id),
+    taskIds: items.flatMap((item) => [item.task_id, ((item.payload ?? {}) as Row).parent_task_id] as (string | null | undefined)[])
+      .filter((id): id is string => typeof id === 'string' && !!id),
     projectIds: items.map((item) => item.project_id as string | null).filter((id): id is string => !!id),
     points,
     forMessage(messageId: string, project: (id: string) => string | null, task: (id: string) => string | null): InboxPlan | null {

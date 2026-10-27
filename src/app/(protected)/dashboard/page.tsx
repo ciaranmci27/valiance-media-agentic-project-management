@@ -416,8 +416,9 @@ export default function DashboardPage() {
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 divide-x divide-white/[0.06]">
               {projects.slice(0, 6).map((project) => {
-                // Backlog is not committed work, so it does not count against progress.
-                const projectTasks = tasks.filter(t => t.project_id === project.id && t.status !== 'backlog');
+                // Backlog is not committed work, so it does not count against
+                // progress; neither do subtasks, which are part of their task.
+                const projectTasks = tasks.filter(t => t.project_id === project.id && t.status !== 'backlog' && !t.parent_task_id);
                 const done = projectTasks.filter(t => t.status === 'done').length;
                 const progress = projectTasks.length > 0 ? Math.round((done / projectTasks.length) * 100) : 0;
                 return (

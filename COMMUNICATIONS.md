@@ -193,7 +193,7 @@ one pure policy (`triage-policy.ts`), then applies, stores and undoes them
 | `noise` | nothing to do |
 
 **Item types:**
-- tasks: `create_task`, `update_task`, `comment`, `attach_file`
+- tasks: `create_task`, `update_task`, `comment`, `attach_file`. A `create_task` with `parent_task_id` makes a subtask of an open, top-level task in the same project (a new piece of work that task covers); the context lists each open task with its open subtasks under it, so subtasks never crowd the task list.
 - reminders: `add_reminder`, `update_reminder`, `complete_reminder`
 - filing and links: `link_task`, `file_project`
 - what Ciaran owes: `reply_owed`, a point on `communications.reply_points`, one per thing owed, amended rather than repeated

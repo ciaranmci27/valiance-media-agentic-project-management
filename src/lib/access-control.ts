@@ -142,9 +142,12 @@ export function canEditTask(
   access: AccessContext | null | undefined,
   task: { assignee_ids: string[] },
   memberId: string | null | undefined,
+  /** For a subtask: whoever is on its parent may work it too, as the database allows. */
+  parent?: { assignee_ids: string[] } | null,
 ): boolean {
   return hasPermission(access, 'tasks.manage_all')
-    || (hasPermission(access, 'tasks.manage_assigned') && !!memberId && task.assignee_ids.includes(memberId));
+    || (hasPermission(access, 'tasks.manage_assigned') && !!memberId
+      && (task.assignee_ids.includes(memberId) || !!parent?.assignee_ids.includes(memberId)));
 }
 
 /**

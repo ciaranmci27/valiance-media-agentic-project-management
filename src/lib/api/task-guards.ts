@@ -3,16 +3,24 @@ import { badRequest } from '@/lib/api/errors';
 import { accessAllowsProject, resolveMemberAccess } from '@/lib/api/access';
 
 /**
- * The ids among `ids` whose task is live. Links (blockers, a time entry's
- * tasks) keep pointing at a task in Trash so a restore brings them back;
- * reads leave those out.
+ * The ids among `ids` whose task is live (a subtask also needs its parent out
+ * of Trash). Links (blockers, a time entry's tasks) keep pointing at a task in
+ * Trash so a restore brings them back; reads leave those out.
  */
 export async function liveTaskIds(supabase: SupabaseClient, ids: string[]): Promise<Set<string>> {
   const unique = [...new Set(ids)];
   if (unique.length === 0) return new Set();
-  const { data, error } = await supabase.from('tasks').select('id').in('id', unique).is('deleted_at', null);
+  const { data, error } = await supabase.from('tasks').select('id, parent_task_id').in('id', unique).is('deleted_at', null);
   if (error) throw error;
-  return new Set((data || []).map((row: { id: string }) => row.id));
+  const rows = (data || []) as { id: string; parent_task_id: string | null }[];
+  const parentIds = [...new Set(rows.flatMap((row) => (row.parent_task_id ? [row.parent_task_id] : [])))];
+  let liveParents = new Set<string>();
+  if (parentIds.length > 0) {
+    const { data: parents, error: parentError } = await supabase.from('tasks').select('id').in('id', parentIds).is('deleted_at', null);
+    if (parentError) throw parentError;
+    liveParents = new Set((parents || []).map((row: { id: string }) => row.id));
+  }
+  return new Set(rows.filter((row) => !row.parent_task_id || liveParents.has(row.parent_task_id)).map((row) => row.id));
 }
 
 /** Entries with task_ids narrowed to live tasks (links to a task in Trash wait for its restore). */

@@ -16,7 +16,7 @@ export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId, acc
   // Fetch the task to get project_id and status
   const { data: task } = await supabase
     .from('tasks')
-    .select('id, project_id, status, sort_order, task_assignees(member_id)')
+    .select('id, project_id, parent_task_id, status, sort_order, task_assignees(member_id)')
     .eq('id', task_id)
     .is('deleted_at', null)
     .maybeSingle();
@@ -41,13 +41,16 @@ export const POST = withApi(async ({ supabase, body, apiKeyId, teamMemberId, acc
     return success(task);
   }
 
-  // Fetch all tasks in the same project+status group, reorder them
-  const { data: siblings } = await supabase
+  // Siblings: a subtask's are its parent's other subtasks; a top-level
+  // task's are the top-level tasks in its project and status column.
+  let siblingQuery = supabase
     .from('tasks')
     .select('id, sort_order')
-    .eq('project_id', task.project_id)
-    .eq('status', task.status)
-    .is('deleted_at', null)
+    .is('deleted_at', null);
+  siblingQuery = task.parent_task_id
+    ? siblingQuery.eq('parent_task_id', task.parent_task_id)
+    : siblingQuery.eq('project_id', task.project_id).eq('status', task.status).is('parent_task_id', null);
+  const { data: siblings } = await siblingQuery
     .order('sort_order')
     .order('created_at');
 

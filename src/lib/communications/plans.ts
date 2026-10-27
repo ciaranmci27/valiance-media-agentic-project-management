@@ -85,13 +85,13 @@ async function ownerId(db: SupabaseClient): Promise<string | null> {
 // Facts for the policy
 // ---------------------------------------------------------------------------
 
-interface TaskFacts { id: string; project_id: string; status: string; due_date: string | null; priority: string; description: string; agentMade: boolean; personTouched: boolean; assignees: string[] }
+interface TaskFacts { id: string; project_id: string; parent_task_id: string | null; status: string; due_date: string | null; priority: string; description: string; agentMade: boolean; personTouched: boolean; assignees: string[] }
 
 async function loadTasks(db: SupabaseClient, ids: string[]): Promise<Map<string, TaskFacts>> {
   const unique = [...new Set(ids)];
   if (!unique.length) return new Map();
   const [{ data: tasks, error }, { data: events, error: eventError }, { data: assignees, error: assigneeError }] = await Promise.all([
-    db.from('tasks').select('id, project_id, status, due_date, priority, description, created_by').in('id', unique).is('deleted_at', null),
+    db.from('tasks').select('id, project_id, parent_task_id, status, due_date, priority, description, created_by').in('id', unique).is('deleted_at', null),
     db.from('task_events').select('task_id, member_id').in('task_id', unique).not('member_id', 'is', null),
     db.from('task_assignees').select('task_id, member_id').in('task_id', unique),
   ]);
@@ -112,6 +112,7 @@ async function loadTasks(db: SupabaseClient, ids: string[]): Promise<Map<string,
   return new Map(((tasks ?? []) as Row[]).map((task) => [task.id as string, {
     id: task.id as string,
     project_id: task.project_id as string,
+    parent_task_id: (task.parent_task_id as string | null) ?? null,
     status: task.status as string,
     due_date: (task.due_date as string | null) ?? null,
     priority: task.priority as string,
@@ -168,6 +169,7 @@ async function prepare(actor: PlanActor, message: PlanMessage, facts: MessageFac
 
   const taskIds = [
     ...items.flatMap((item) => (itemTaskId(item) ? [itemTaskId(item)!] : [])),
+    ...items.flatMap((item) => (item.type === 'create_task' && item.parent_task_id ? [item.parent_task_id] : [])),
     ...((revertRows ?? []) as Row[]).map((row) => row.task_id as string | null).filter((id): id is string => !!id),
   ];
   const tasks = await loadTasks(db, taskIds);
@@ -248,6 +250,14 @@ async function prepare(actor: PlanActor, message: PlanMessage, facts: MessageFac
     if (item.type === 'add_reminder' && item.task_id && item.project_id && tasks.get(item.task_id)?.project_id !== item.project_id) {
       problem('project_does_not_match_task');
     }
+    // A subtask goes under an open, top-level task of the same project.
+    if (item.type === 'create_task' && item.parent_task_id) {
+      const parent = tasks.get(item.parent_task_id);
+      if (!parent) problem('parent_task_not_found');
+      else if (parent.project_id !== item.project_id) problem('project_does_not_match_parent_task');
+      else if (parent.parent_task_id) problem('parent_task_is_a_subtask');
+      else if (parent.status === 'done') problem('parent_task_done');
+    }
 
     const task = taskId ? tasks.get(taskId) : undefined;
     const project = projectId ? projects.get(projectId) : undefined;
@@ -319,6 +329,7 @@ export async function applyItem(actor: PlanActor, message: PlanMessage, item: Pl
         const assignee = owner && canAssignOthers ? [owner] : undefined;
         const created = await createTaskAs({ supabase: db, memberId, access, canAssignOthers, channel: actor.channel }, {
           project_id: item.project_id,
+          ...(item.parent_task_id ? { parent_task_id: item.parent_task_id } : {}),
           title: item.title,
           description: item.description ?? '',
           ...(item.due_date !== undefined ? { due_date: item.due_date } : {}),

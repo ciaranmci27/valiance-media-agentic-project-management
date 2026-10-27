@@ -27,6 +27,8 @@ export const planItemSchema = z.discriminatedUnion('type', [
     ...base,
     type: z.literal('create_task'),
     project_id: id,
+    /** A new piece of an open task: created as its subtask (same project, one level deep). */
+    parent_task_id: id.optional(),
     title: text(500),
     description: z.string().max(20000).optional(),
     due_date: day.nullable().optional(),

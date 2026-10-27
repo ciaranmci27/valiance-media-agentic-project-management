@@ -27,6 +27,7 @@ export const QUIET_MINUTES = 3;
 /** Machine mail about these topics skips the wait. */
 const URGENT_TOPICS = ['account_risk', 'security'];
 const OPEN_TASKS_PER_PROJECT = 40;
+const SUBTASKS_PER_TASK = 15;
 const RECENT_DAYS = 14;
 
 async function rows<T = Row>(query: PromiseLike<{ data: unknown; error: unknown }>): Promise<T[]> {
@@ -69,12 +70,22 @@ export async function triageContext(supabase: SupabaseClient, message: Accessibl
   ])].filter((id) => !ownFiled.has(id) || (scope.projects ?? []).some((p) => p.project_id === id));
   const [projectRows, taskRows, recentItems] = projectIds.length ? await Promise.all([
     rows<Row>(supabase.from('projects').select('id, name, status, archived_at').in('id', projectIds).is('deleted_at', null)),
+    // Top-level tasks only: subtasks come under their parent, below, so a
+    // task split into many cannot crowd the others out.
     rows<Row>(supabase.from('tasks').select('id, project_id, title, status, due_date, priority, updated_at, created_by')
-      .in('project_id', projectIds).is('deleted_at', null).neq('status', 'done').order('updated_at', { ascending: false }).limit(OPEN_TASKS_PER_PROJECT * projectIds.length)),
+      .in('project_id', projectIds).is('deleted_at', null).is('parent_task_id', null).neq('status', 'done')
+      .order('updated_at', { ascending: false }).limit(OPEN_TASKS_PER_PROJECT * projectIds.length)),
     rows<Row>(comms(supabase).from('plan_items').select('id, type, intent, project_id, task_id, state, payload, conversation_id, created_at')
       .in('project_id', projectIds).eq('mode', 'live').in('state', ['done', 'accepted', 'pending'])
       .gte('created_at', new Date(Date.now() - RECENT_DAYS * 86_400_000).toISOString()).order('created_at', { ascending: false }).limit(100)),
   ]) : [[], [], []];
+  // Each open task's open subtasks, in order.
+  const parentIds = taskRows.filter((t) => !ownCreated.has(t.id as string)).map((t) => t.id as string);
+  const subtaskRows = parentIds.length
+    ? await rows<Row>(supabase.from('tasks').select('id, parent_task_id, title, status, due_date, sort_order, created_at')
+      .in('parent_task_id', parentIds).is('deleted_at', null).neq('status', 'done')
+      .order('sort_order').order('created_at').limit(SUBTASKS_PER_TASK * parentIds.length))
+    : [];
 
   const brief = (item: Row) => ({
     // What a revert_item names.
@@ -121,7 +132,12 @@ export async function triageContext(supabase: SupabaseClient, message: Accessibl
       name: project.name,
       status: project.archived_at ? 'archived' : project.status,
       open_tasks: taskRows.filter((t) => t.project_id === project.id && !ownCreated.has(t.id as string)).slice(0, OPEN_TASKS_PER_PROJECT)
-        .map((t) => ({ id: t.id, title: t.title, status: t.status, due_date: t.due_date, priority: t.priority, updated_at: t.updated_at })),
+        .map((t) => ({
+          id: t.id, title: t.title, status: t.status, due_date: t.due_date, priority: t.priority, updated_at: t.updated_at,
+          // Its open subtasks: the pieces it is already split into.
+          subtasks: subtaskRows.filter((s) => s.parent_task_id === t.id && !ownCreated.has(s.id as string)).slice(0, SUBTASKS_PER_TASK)
+            .map((s) => ({ id: s.id, title: s.title, status: s.status, due_date: s.due_date })),
+        })),
       // What triage did on it lately, from any conversation and channel.
       recent: recentItems.filter((i) => i.project_id === project.id && (mode === 'live' || i.conversation_id !== conversationId || !ownCreated.has(i.task_id as string)))
         .slice(0, 20).map((i) => ({ ...brief(i), conversation_id: i.conversation_id, created_at: i.created_at })),

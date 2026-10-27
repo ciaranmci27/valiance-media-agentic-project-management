@@ -1,11 +1,12 @@
 import { withApi } from '@/lib/api/middleware';
 import { created, paginated } from '@/lib/api/response';
-import { createTaskSchema } from '@/lib/schemas';
+import { createApiTaskSchema } from '@/lib/schemas';
 import { parsePagination, sanitizeSearch, validateSort } from '@/lib/api/pagination';
 import { accessAllows } from '@/lib/api/access';
 import { createApiTask } from '@/lib/api/create-task';
 import { liveTaskIds } from '@/lib/api/task-guards';
-import { postgrestList, trashedProjectIds } from '@/lib/supabase/trash';
+import { subtaskSummaries } from '@/lib/api/subtasks';
+import { hiddenSubtaskIds, postgrestList, trashedProjectIds } from '@/lib/supabase/trash';
 
 export const GET = withApi(async ({ supabase, searchParams, access }) => {
   const { page, limit, offset } = parsePagination(searchParams);
@@ -22,13 +23,11 @@ export const GET = withApi(async ({ supabase, searchParams, access }) => {
   let query = supabase.from('tasks').select(`
     *,
     ${assigneeJoin},
-    subtasks:task_subtasks(id, task_id, title, completed, sort_order),
     comments:task_comments(id, task_id, user_id, text, created_at),
     criteria:task_acceptance_criteria(id, task_id, criterion, satisfied, sort_order),
     task_dependencies!task_dependencies_task_id_fkey(blocked_by_task_id)
   `, { count: 'exact' })
     .is('deleted_at', null)
-    .is('subtasks.deleted_at', null)
     .is('comments.deleted_at', null);
   if (!accessAllows(access, 'projects.read_all', 'api')) {
     if (access.project_ids.length === 0) return paginated([], { page, limit, total: 0 });
@@ -37,6 +36,9 @@ export const GET = withApi(async ({ supabase, searchParams, access }) => {
   // Tasks of a project in Trash went to Trash with it.
   const trashed = await trashedProjectIds(supabase);
   if (trashed.length) query = query.not('project_id', 'in', postgrestList(trashed));
+  // And a parent's subtasks went with it.
+  const hiddenSubtasks = await hiddenSubtaskIds(supabase);
+  if (hiddenSubtasks.length) query = query.not('id', 'in', postgrestList(hiddenSubtasks));
 
   if (status) query = query.eq('status', status);
   if (priority) query = query.eq('priority', priority);
@@ -48,6 +50,10 @@ export const GET = withApi(async ({ supabase, searchParams, access }) => {
   if (aiReadiness === 'ai_ready' || aiReadiness === 'needs_spec' || aiReadiness === 'human_only') {
     query = query.eq('ai_readiness', aiReadiness);
   }
+  // A parent's subtasks, or only top-level tasks.
+  const parentTaskId = searchParams.get('parent_task_id');
+  if (parentTaskId) query = query.eq('parent_task_id', parentTaskId);
+  if (searchParams.get('top_level') === 'true') query = query.is('parent_task_id', null);
   const goalId = searchParams.get('project_goal_id');
   if (goalId) query = query.eq('project_goal_id', goalId);
   if (search) {
@@ -64,10 +70,11 @@ export const GET = withApi(async ({ supabase, searchParams, access }) => {
   // A blocker in Trash blocks nothing (its dependency row waits for a restore).
   const liveBlockers = await liveTaskIds(supabase, (data || []).flatMap((t: { task_dependencies?: { blocked_by_task_id: string }[] | null }) =>
     (t.task_dependencies || []).map((d) => d.blocked_by_task_id)));
+  const subtasks = await subtaskSummaries(supabase, (data || []).map((t: { id: string }) => t.id));
   const tasks = (data || []).map((t: any) => ({
     ...t,
     assignee_ids: (t.task_assignees || []).map((ta: any) => ta.member_id),
-    subtasks: (t.subtasks || []).sort((a: any, b: any) => a.sort_order - b.sort_order),
+    subtasks: subtasks.get(t.id) ?? [],
     comments: (t.comments || []).sort((a: any, b: any) =>
       new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
     ),
@@ -83,4 +90,4 @@ export const GET = withApi(async ({ supabase, searchParams, access }) => {
 
 export const POST = withApi(async (ctx) => {
   return created(await createApiTask(ctx, '/api/v1/tasks'));
-}, { schema: createTaskSchema });
+}, { schema: createApiTaskSchema });

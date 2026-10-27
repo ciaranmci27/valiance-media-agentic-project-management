@@ -84,7 +84,6 @@ export function NewTaskPanel({ projectId, initialDueDate, onClose, onCreated }: 
       assignee_ids: draft.assignee_ids,
       blocked_by_ids: draft.blocked_by_ids,
       ...(showAgentFields ? { task_type: draft.task_type, ai_readiness: draft.ai_readiness } : {}),
-      subtasks: [],
       comments: [],
       acceptance_criteria: [],
     } as unknown as Omit<Task, 'id' | 'created_at' | 'updated_at'>);

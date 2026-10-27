@@ -483,7 +483,7 @@ export const endpoints: EndpointDoc[] = [
   },
 
   // ─── Tasks ────────────────────────────────────────────────────────
-  { method: 'GET', path: '/api/v1/tasks', description: 'List all tasks across projects with filtering. Each task includes inline subtasks, comments, assignee_ids, acceptance_criteria, and blocked_by_ids, plus where it came from: created_via (app, api, mcp, system, or unknown for tasks from before tracking), created_by_key_id and created_note. Paginated.', group: 'Tasks',
+  { method: 'GET', path: '/api/v1/tasks', description: 'List all tasks across projects with filtering. Subtasks are tasks too, so they appear in the list (with parent_task_id set); top_level=true leaves them out. Each task includes its parent_task_id, its subtasks (id, title, status, completed, assignee_ids, due_date, sort_order), comments, assignee_ids, acceptance_criteria, and blocked_by_ids, plus where it came from: created_via (app, api, mcp, system, or unknown for tasks from before tracking), created_by_key_id and created_note. Paginated.', group: 'Tasks',
     queryParams: [
       { name: 'status', type: 'backlog|todo|in_progress|in_review|done', description: 'Filter by task status' },
       { name: 'priority', type: 'low|medium|high|urgent', description: 'Filter by priority' },
@@ -492,6 +492,8 @@ export const endpoints: EndpointDoc[] = [
       { name: 'task_type', type: 'string', description: 'Filter by type: engineering, research, audit, marketing, copywriting, operations, general' },
       { name: 'ai_readiness', type: 'ai_ready|needs_spec|human_only', description: 'Filter by readiness' },
       { name: 'project_goal_id', type: 'uuid', description: 'Filter by linked project goal' },
+      { name: 'parent_task_id', type: 'uuid', description: "Only this task's subtasks" },
+      { name: 'top_level', type: 'true', description: 'Only top-level tasks (no subtasks)' },
       { name: 'search', type: 'string', description: 'Search by task title or description' },
       { name: 'sort', type: 'string', description: 'Sort field (default created_at)' },
       { name: 'order', type: 'asc|desc', description: 'Sort order (default desc)' },
@@ -501,7 +503,8 @@ export const endpoints: EndpointDoc[] = [
   },
   { method: 'POST', path: '/api/v1/tasks', description: 'Create a task within a project. Optionally assign team members, set a due date, link to a goal, and tag it. The task records that this API key made it (created_via api, or mcp through the MCP server, and created_by_key_id), so it never reads as made by the key\'s person in the app.', group: 'Tasks',
     body: [
-      { name: 'project_id', type: 'uuid', required: true, description: 'Project ID this task belongs to' },
+      { name: 'project_id', type: 'uuid', required: false, description: 'Project ID this task belongs to. Required, except for a subtask: with parent_task_id it takes its parent\'s project.' },
+      { name: 'parent_task_id', type: 'uuid', required: false, description: 'Makes it a subtask of this task: a full task (assignees, due date, comments, files) in the parent\'s project, last in its list. One level deep: the parent cannot itself be a subtask. You must be able to manage the parent (tasks.manage_all, or be assigned to it).' },
       { name: 'title', type: 'string', required: true, description: 'Task title' },
       { name: 'description', type: 'string', required: false, description: 'Task description (supports plain text)' },
       { name: 'status', type: 'backlog|todo|in_progress|in_review|done', required: false, description: 'Initial status (default todo)' },
@@ -517,10 +520,10 @@ export const endpoints: EndpointDoc[] = [
       { name: 'source_note', type: 'string', required: false, description: 'Why this key is creating the task, in a few words ("from Brennan\'s email"), up to 200 characters. Shown on the task as the key\'s own words; set once, never changed.' },
     ],
   },
-  { method: 'GET', path: '/api/v1/tasks/:id', description: 'Get a single task with its subtasks (sorted by sort_order), comments (sorted by created_at), assignee_ids, acceptance_criteria, blocked_by (each blocker with id, title, status), and dependencies_met (true when every blocker is done)', group: 'Tasks',
+  { method: 'GET', path: '/api/v1/tasks/:id', description: 'Get a single task with its parent ({ id, title, status } for a subtask, otherwise null), its subtasks (each a task: id, title, status, completed, assignee_ids, due_date, sorted by sort_order), comments (sorted by created_at), assignee_ids, acceptance_criteria, blocked_by (each blocker with id, title, status), and dependencies_met (true when every blocker is done)', group: 'Tasks',
     params: [{ name: 'id', type: 'uuid', required: true, description: 'Task ID' }],
   },
-  { method: 'PATCH', path: '/api/v1/tasks/:id', description: 'Update a task. Only include fields you want to change. Pass assignee_ids to replace the full assignee list.', group: 'Tasks',
+  { method: 'PATCH', path: '/api/v1/tasks/:id', description: 'Update a task. Only include fields you want to change. Pass assignee_ids to replace the full assignee list. Send parent_task_id to make a task a subtask of another task (it keeps its comments, files, assignees and history), or null to make a subtask top-level again. A task and its subtasks finish separately: completing every subtask does not complete the parent.', group: 'Tasks',
     params: [{ name: 'id', type: 'uuid', required: true, description: 'Task ID' }],
     body: [
       { name: 'title', type: 'string', required: false, description: 'Task title' },
@@ -530,7 +533,8 @@ export const endpoints: EndpointDoc[] = [
       { name: 'due_date', type: 'string|null', required: false, description: 'Due date or null to clear' },
       { name: 'tags', type: 'string[]', required: false, description: 'Replace tag labels' },
       { name: 'assignee_ids', type: 'uuid[]', required: false, description: 'Replace the full assignee list (deletes existing, inserts these)' },
-      { name: 'project_id', type: 'uuid', required: false, description: 'Move task to a different project' },
+      { name: 'project_id', type: 'uuid', required: false, description: 'Move task to a different project. Its subtasks move with it. A subtask cannot move on its own: move its parent, or make it top-level first.' },
+      { name: 'parent_task_id', type: 'uuid|null', required: false, description: 'Make it a subtask of this task (placed last), or null to make it top-level. Refused when the parent is itself a subtask, or when this task has subtasks of its own (400). Under a task in another project it moves there and takes that task\'s goal: that needs tasks.manage_all, assignees who can open the project, and no blocker links. You must be able to manage the new parent. Send it without project_id.' },
       { name: 'task_type', type: 'string|null', required: false, description: 'Task type or null' },
       { name: 'ai_readiness', type: 'ai_ready|needs_spec|human_only|null', required: false, description: 'Who does the task (see create). null makes it a task for a person' },
       { name: 'acceptance_criteria', type: 'string[]', required: false, description: 'Replace the full criteria list (deletes existing rows and resets satisfied flags). Use the acceptance-criteria endpoints to edit individual criteria.' },
@@ -538,10 +542,10 @@ export const endpoints: EndpointDoc[] = [
       { name: 'project_goal_id', type: 'uuid|null', required: false, description: 'Link to a goal or null to unlink' },
     ],
   },
-  { method: 'DELETE', path: '/api/v1/tasks/:id', description: 'Move a task to Trash. Its subtasks, comments and reminders go out of reach with it and come back when it is restored. It can be restored from Trash in the app.', group: 'Tasks',
+  { method: 'DELETE', path: '/api/v1/tasks/:id', description: 'Move a task to Trash (needs tasks.manage_all). Its subtasks, comments and reminders go out of reach with it and come back when it is restored. It can be restored from Trash in the app.', group: 'Tasks',
     params: [{ name: 'id', type: 'uuid', required: true, description: 'Task ID' }],
   },
-  { method: 'POST', path: '/api/v1/tasks/reorder', description: 'Move a task to a new position within its column (same project + status). Shifts sibling sort_order values to maintain a contiguous sequence.', group: 'Tasks',
+  { method: 'POST', path: '/api/v1/tasks/reorder', description: 'Move a task to a new position among its siblings: a top-level task within its column (same project + status), a subtask among its parent\'s subtasks. Shifts sibling sort_order values to maintain a contiguous sequence.', group: 'Tasks',
     body: [
       { name: 'task_id', type: 'uuid', required: true, description: 'The task to move' },
       { name: 'new_sort_order', type: 'number', required: true, description: 'Target position index (0-based). Clamped to the valid range.' },
@@ -549,10 +553,10 @@ export const endpoints: EndpointDoc[] = [
   },
 
   // ─── Subtasks ─────────────────────────────────────────────────────
-  { method: 'GET', path: '/api/v1/tasks/:id/subtasks', description: 'List subtasks for a task, ordered by sort_order', group: 'Subtasks',
+  { method: 'GET', path: '/api/v1/tasks/:id/subtasks', description: 'List a task\'s subtasks, ordered by sort_order. A subtask is a task: each has id, title, status, completed (status is done), assignee_ids, due_date and sort_order; GET /api/v1/tasks/:subtaskId reads it in full. Same as GET /api/v1/tasks?parent_task_id=:id.', group: 'Subtasks',
     params: [{ name: 'id', type: 'uuid', required: true, description: 'Parent task ID' }],
   },
-  { method: 'POST', path: '/api/v1/tasks/:id/subtasks', description: 'Add a subtask (checklist item) to a task. Appended to the end of the sort order.', group: 'Subtasks',
+  { method: 'POST', path: '/api/v1/tasks/:id/subtasks', description: 'Quick way to add a subtask by title: a task under this one, in its project, with no one assigned, last in the list. For anything more (assignees, due date, description), use POST /api/v1/tasks with parent_task_id. Needs the right to manage the parent.', group: 'Subtasks',
     params: [{ name: 'id', type: 'uuid', required: true, description: 'Parent task ID' }],
     body: [{ name: 'title', type: 'string', required: true, description: 'Subtask title' }],
   },
@@ -560,7 +564,7 @@ export const endpoints: EndpointDoc[] = [
     params: [{ name: 'id', type: 'uuid', required: true, description: 'Parent task ID' }],
     body: [{ name: 'subtask_ids', type: 'uuid[]', required: true, description: 'All subtask IDs in the desired display order' }],
   },
-  { method: 'PATCH', path: '/api/v1/tasks/:id/subtasks/:subtaskId', description: 'Update a subtask — toggle completion or rename it', group: 'Subtasks',
+  { method: 'PATCH', path: '/api/v1/tasks/:id/subtasks/:subtaskId', description: 'Rename a subtask or mark it done (status done) or not done (back to todo). It is a task, so PATCH /api/v1/tasks/:subtaskId changes anything else.', group: 'Subtasks',
     params: [
       { name: 'id', type: 'uuid', required: true, description: 'Parent task ID' },
       { name: 'subtaskId', type: 'uuid', required: true, description: 'Subtask ID' },
@@ -570,7 +574,7 @@ export const endpoints: EndpointDoc[] = [
       { name: 'completed', type: 'boolean', required: false, description: 'Whether the subtask is done' },
     ],
   },
-  { method: 'DELETE', path: '/api/v1/tasks/:id/subtasks/:subtaskId', description: 'Move a subtask to Trash. It can be restored from Trash in the app.', group: 'Subtasks',
+  { method: 'DELETE', path: '/api/v1/tasks/:id/subtasks/:subtaskId', description: 'Move a subtask to Trash (whoever may manage its parent may). It can be restored from Trash in the app once its parent is not in Trash.', group: 'Subtasks',
     params: [
       { name: 'id', type: 'uuid', required: true, description: 'Parent task ID' },
       { name: 'subtaskId', type: 'uuid', required: true, description: 'Subtask ID' },

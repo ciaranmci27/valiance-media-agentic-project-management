@@ -23,6 +23,16 @@ export const createTaskSchema = z.object({
   source_note: z.string().trim().min(1).max(200).optional(),
 });
 
+// POST /api/v1/tasks: a subtask names its parent, and its project comes from
+// there (if both are sent they must agree).
+export const createApiTaskSchema = createTaskSchema.extend({
+  project_id: z.string().uuid('project_id must be a UUID').optional(),
+  parent_task_id: z.string().uuid('parent_task_id must be a UUID').optional(),
+}).refine((body) => body.project_id || body.parent_task_id, {
+  message: 'project_id is required (or parent_task_id, for a subtask)',
+  path: ['project_id'],
+});
+
 export const updateTaskSchema = z.object({
   title: z.string().min(1).optional(),
   description: z.string().optional(),
@@ -39,4 +49,6 @@ export const updateTaskSchema = z.object({
   // resets satisfied flags. Intended for retrofitting specs before work starts.
   acceptance_criteria: z.array(z.string().min(1)).optional(),
   blocked_by_ids: z.array(z.string().uuid()).optional(),
+  // A task id makes it a subtask of that task; null makes it top-level.
+  parent_task_id: z.string().uuid('parent_task_id must be a UUID').nullable().optional(),
 });

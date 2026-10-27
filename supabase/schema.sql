@@ -184,6 +184,9 @@ create table public.tasks (
   -- removed; see the Soft delete section.
   deleted_at timestamptz,
   deleted_by uuid references public.team_members(id) on delete set null,
+  -- The task this is a subtask of (null for a top-level task). One level
+  -- deep, same project as the parent: see Subtasks are tasks.
+  parent_task_id uuid references public.tasks(id) on delete cascade,
   -- Where it came from, stamped on insert and never changed (see Task source
   -- and seen): app, api, mcp, system, or unknown for tasks from before.
   created_via text not null default 'unknown',
@@ -191,7 +194,8 @@ create table public.tasks (
   created_by_key_id uuid,
   created_note text,
   constraint tasks_created_via_check check (created_via in ('app', 'api', 'mcp', 'system', 'unknown')),
-  constraint tasks_created_note_length check (created_note is null or length(created_note) between 1 and 200)
+  constraint tasks_created_note_length check (created_note is null or length(created_note) between 1 and 200),
+  constraint tasks_parent_not_self check (parent_task_id is distinct from id)
 );
 
 -- ============================================================
@@ -1016,6 +1020,7 @@ create index idx_tasks_project_id on public.tasks(project_id);
 create index idx_tasks_status on public.tasks(status);
 create index idx_tasks_sort_order on public.tasks(project_id, status, sort_order);
 create index idx_tasks_created_by on public.tasks(created_by);
+create index idx_tasks_parent_task_id on public.tasks(parent_task_id) where parent_task_id is not null;
 create index idx_task_assignees_member_id on public.task_assignees(member_id);
 create index idx_task_subtasks_task_id on public.task_subtasks(task_id);
 create index idx_task_comments_task_id on public.task_comments(task_id);
@@ -3546,6 +3551,27 @@ AS $$
           SELECT 1 FROM public.task_assignees ta
           WHERE ta.task_id = p_task_id AND ta.member_id = public.current_team_member_id()
         )
+        OR EXISTS (
+          SELECT 1 FROM public.tasks child
+          JOIN public.tasks parent ON parent.id = child.parent_task_id
+          WHERE child.id = p_task_id AND (
+            parent.created_by = public.current_team_member_id()
+            OR EXISTS (
+              SELECT 1 FROM public.task_assignees ta
+              WHERE ta.task_id = parent.id AND ta.member_id = public.current_team_member_id()
+            )
+          )
+        )
+        OR EXISTS (
+          SELECT 1 FROM public.tasks child
+          WHERE child.parent_task_id = p_task_id AND child.deleted_at IS NULL AND (
+            child.created_by = public.current_team_member_id()
+            OR EXISTS (
+              SELECT 1 FROM public.task_assignees ta
+              WHERE ta.task_id = child.id AND ta.member_id = public.current_team_member_id()
+            )
+          )
+        )
       )
     )
   )
@@ -5461,11 +5487,12 @@ CREATE POLICY tasks_select ON public.tasks FOR SELECT TO authenticated
 CREATE POLICY tasks_insert ON public.tasks FOR INSERT TO authenticated
   WITH CHECK (public.has_permission('tasks.create') AND public.can_access_project(project_id)
     AND created_by = public.current_team_member_id());
+-- Assigned work includes the subtasks of a task you are on.
 CREATE POLICY tasks_update ON public.tasks FOR UPDATE TO authenticated
   USING (public.can_access_project(project_id) AND (public.has_permission('tasks.manage_all') OR (
     public.has_permission('tasks.manage_assigned') AND EXISTS (
       SELECT 1 FROM public.task_assignees ta
-      WHERE ta.task_id = tasks.id AND ta.member_id = public.current_team_member_id()
+      WHERE ta.task_id IN (tasks.id, tasks.parent_task_id) AND ta.member_id = public.current_team_member_id()
     )
   )));
 CREATE POLICY tasks_delete ON public.tasks FOR DELETE TO authenticated
@@ -11239,7 +11266,9 @@ AS $$
   SELECT EXISTS (
     SELECT 1 FROM public.tasks task
     JOIN public.projects project ON project.id = task.project_id
+    LEFT JOIN public.tasks parent ON parent.id = task.parent_task_id
     WHERE task.id = p_task_id AND task.deleted_at IS NULL AND project.deleted_at IS NULL
+      AND (task.parent_task_id IS NULL OR parent.deleted_at IS NULL)
   )
 $$;
 
@@ -11308,6 +11337,8 @@ $$;
 
 CREATE POLICY tasks_parent_live ON public.tasks AS RESTRICTIVE FOR ALL TO authenticated
   USING (public.project_is_live(project_id));
+CREATE POLICY tasks_parent_task_live ON public.tasks AS RESTRICTIVE FOR ALL TO authenticated
+  USING (parent_task_id IS NULL OR public.task_is_live(parent_task_id));
 CREATE POLICY project_time_entries_parent_live ON public.project_time_entries AS RESTRICTIVE FOR ALL TO authenticated
   USING (public.project_is_live(project_id));
 CREATE POLICY project_invoices_parent_live ON public.project_invoices AS RESTRICTIVE FOR ALL TO authenticated
@@ -11394,7 +11425,7 @@ LANGUAGE sql
 IMMUTABLE
 AS $$
   SELECT ARRAY[
-    'projects', 'tasks', 'task_subtasks', 'task_comments', 'reminders', 'project_credentials',
+    'projects', 'tasks', 'task_comments', 'reminders', 'project_credentials',
     'entity_files', 'portal_updates', 'portal_update_attachments', 'contacts', 'leads',
     'lead_interactions', 'lead_proposals', 'lead_fields',
     'project_time_entries', 'project_invoices', 'invoice_payments', 'project_hourly_rates',
@@ -11423,17 +11454,15 @@ BEGIN
         OR EXISTS (SELECT 1 FROM public.project_members WHERE project_id = p_id AND member_id = me)
       ) INTO allowed;
     WHEN 'tasks' THEN
-      SELECT public.has_permission('tasks.manage_all') AND public.can_access_project(project_id)
-      INTO allowed FROM public.tasks WHERE id = p_id;
-    WHEN 'task_subtasks' THEN
-      SELECT public.can_access_task(task_id) AND (
+      -- A subtask can also go by whoever manages its parent as an assignee.
+      SELECT public.can_access_project(project_id) AND (
         public.has_permission('tasks.manage_all') OR (
-          public.has_permission('tasks.manage_assigned') AND EXISTS (
+          parent_task_id IS NOT NULL AND public.has_permission('tasks.manage_assigned') AND EXISTS (
             SELECT 1 FROM public.task_assignees assignment
-            WHERE assignment.task_id = task_subtasks.task_id AND assignment.member_id = me
+            WHERE assignment.task_id = tasks.parent_task_id AND assignment.member_id = me
           )
         )
-      ) INTO allowed FROM public.task_subtasks WHERE id = p_id;
+      ) INTO allowed FROM public.tasks WHERE id = p_id;
     WHEN 'task_comments' THEN
       SELECT public.can_access_task(task_id) AND (user_id = me OR public.has_permission('tasks.manage_all'))
       INTO allowed FROM public.task_comments WHERE id = p_id;
@@ -11535,18 +11564,23 @@ DECLARE
 BEGIN
   CASE p_table
     WHEN 'tasks' THEN
-      SELECT p.deleted_at IS NOT NULL INTO project_gone
-      FROM public.tasks t JOIN public.projects p ON p.id = t.project_id WHERE t.id = p_id;
-    WHEN 'task_subtasks', 'task_comments', 'task_files' THEN
-      EXECUTE format('SELECT t.deleted_at IS NOT NULL, p.deleted_at IS NOT NULL
+      -- A subtask comes back after its parent.
+      SELECT p.deleted_at IS NOT NULL, coalesce(parent.deleted_at IS NOT NULL, false) INTO project_gone, task_gone
+      FROM public.tasks t JOIN public.projects p ON p.id = t.project_id
+      LEFT JOIN public.tasks parent ON parent.id = t.parent_task_id
+      WHERE t.id = p_id;
+    WHEN 'task_comments', 'task_files' THEN
+      EXECUTE format('SELECT t.deleted_at IS NOT NULL OR coalesce(parent.deleted_at IS NOT NULL, false), p.deleted_at IS NOT NULL
         FROM public.%I c JOIN public.tasks t ON t.id = c.task_id JOIN public.projects p ON p.id = t.project_id
+        LEFT JOIN public.tasks parent ON parent.id = t.parent_task_id
         WHERE c.id = $1', p_table)
       INTO task_gone, project_gone USING p_id;
     WHEN 'reminders' THEN
-      SELECT coalesce(t.deleted_at IS NOT NULL, false), coalesce(p.deleted_at IS NOT NULL, false)
+      SELECT coalesce(t.deleted_at IS NOT NULL OR parent.deleted_at IS NOT NULL, false), coalesce(p.deleted_at IS NOT NULL, false)
       INTO task_gone, project_gone
       FROM public.reminders r
       LEFT JOIN public.tasks t ON t.id = r.task_id
+      LEFT JOIN public.tasks parent ON parent.id = t.parent_task_id
       LEFT JOIN public.projects p ON p.id = r.project_id
       WHERE r.id = p_id;
     WHEN 'project_credentials', 'portal_updates', 'project_time_entries', 'project_invoices',
@@ -12141,8 +12175,8 @@ BEGIN
   FOR spec IN
     SELECT * FROM (VALUES
       ('projects', 'r.name', 'NULL', 'r.id', ''),
-      ('tasks', 'r.title', 'p.name', 'r.project_id', 'LEFT JOIN public.projects p ON p.id = r.project_id'),
-      ('task_subtasks', 'r.title', 't.title', 't.project_id', 'LEFT JOIN public.tasks t ON t.id = r.task_id'),
+      ('tasks', 'r.title', 'CASE WHEN parent.id IS NULL THEN p.name ELSE ''Subtask of '' || parent.title END', 'r.project_id',
+        'LEFT JOIN public.projects p ON p.id = r.project_id LEFT JOIN public.tasks parent ON parent.id = r.parent_task_id'),
       ('task_comments', 'left(r.text, 120)', 't.title', 't.project_id', 'LEFT JOIN public.tasks t ON t.id = r.task_id'),
       ('task_files', 'r.name', 't.title', 't.project_id', 'LEFT JOIN public.tasks t ON t.id = r.task_id'),
       ('reminders', 'r.title', 'coalesce(t.title, p.name)', 'r.project_id',
@@ -12619,10 +12653,21 @@ AS $$
 DECLARE
   v_meta jsonb := jsonb_build_object('task_id', NEW.id, 'task_title', NEW.title);
   v_fields text[];
+  v_ignore text[] := ARRAY['status', 'sort_order', 'completed_at', 'created_at', 'updated_at', 'deleted_at', 'deleted_by', 'parent_task_id'];
+  v_parent record;
 BEGIN
+  IF NEW.parent_task_id IS NOT NULL THEN
+    SELECT id, title INTO v_parent FROM public.tasks WHERE id = NEW.parent_task_id;
+    v_meta := v_meta || jsonb_build_object('parent_task_id', v_parent.id, 'parent_task_title', v_parent.title);
+  END IF;
   IF TG_OP = 'INSERT' THEN
-    PERFORM public.log_team_activity('task.created', 'task', NEW.id::text, NEW.project_id,
-      format('Created task "%s"', NEW.title), v_meta);
+    IF NEW.parent_task_id IS NOT NULL THEN
+      PERFORM public.log_team_activity('subtask.added', 'task', NEW.id::text, NEW.project_id,
+        format('Added subtask "%s" to "%s"', NEW.title, v_parent.title), v_meta);
+    ELSE
+      PERFORM public.log_team_activity('task.created', 'task', NEW.id::text, NEW.project_id,
+        format('Created task "%s"', NEW.title), v_meta);
+    END IF;
     RETURN NULL;
   END IF;
   -- The Trash trigger logs moves to Trash and restores.
@@ -12644,8 +12689,22 @@ BEGIN
     END IF;
   END IF;
 
-  v_fields := public.activity_changed_fields(to_jsonb(NEW), to_jsonb(OLD),
-    ARRAY['status', 'sort_order', 'completed_at', 'created_at', 'updated_at', 'deleted_at', 'deleted_by']);
+  IF NEW.parent_task_id IS DISTINCT FROM OLD.parent_task_id THEN
+    IF NEW.parent_task_id IS NOT NULL THEN
+      PERFORM public.log_team_activity('task.nested', 'task', NEW.id::text, NEW.project_id,
+        format('Moved "%s" under "%s"', NEW.title, v_parent.title), v_meta);
+    ELSE
+      PERFORM public.log_team_activity('task.promoted', 'task', NEW.id::text, NEW.project_id,
+        format('Made "%s" a top-level task', NEW.title), v_meta || jsonb_build_object('from_parent_task_id', OLD.parent_task_id));
+    END IF;
+  END IF;
+
+  -- A subtask's project follows its parent: the parent's move (or the
+  -- nesting above) already says so.
+  IF NEW.parent_task_id IS NOT NULL THEN
+    v_ignore := v_ignore || ARRAY['project_id', 'project_goal_id'];
+  END IF;
+  v_fields := public.activity_changed_fields(to_jsonb(NEW), to_jsonb(OLD), v_ignore);
   IF cardinality(v_fields) > 0 THEN
     PERFORM public.log_team_activity('task.updated', 'task', NEW.id::text, NEW.project_id,
       format('Edited task "%s"', NEW.title), v_meta || jsonb_build_object('fields', to_jsonb(v_fields)));
@@ -13564,15 +13623,20 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
 AS $$
+DECLARE
+  v_ignore text[] := ARRAY['sort_order', 'completed_at', 'created_at', 'updated_at', 'deleted_at', 'deleted_by',
+    'created_via', 'created_by_key_id', 'created_note'];
 BEGIN
   IF NEW.deleted_at IS DISTINCT FROM OLD.deleted_at THEN
     RETURN NULL;
   END IF;
+  -- A subtask moving with its parent is the parent's change, not its own.
+  IF NEW.parent_task_id IS NOT NULL AND NEW.parent_task_id IS NOT DISTINCT FROM OLD.parent_task_id THEN
+    v_ignore := v_ignore || ARRAY['project_id', 'project_goal_id'];
+  END IF;
   IF NEW.status IS DISTINCT FROM OLD.status THEN
     PERFORM public.record_task_event(NEW.id, 'status');
-  ELSIF cardinality(public.activity_changed_fields(to_jsonb(NEW), to_jsonb(OLD),
-    ARRAY['sort_order', 'completed_at', 'created_at', 'updated_at', 'deleted_at', 'deleted_by',
-          'created_via', 'created_by_key_id', 'created_note'])) > 0 THEN
+  ELSIF cardinality(public.activity_changed_fields(to_jsonb(NEW), to_jsonb(OLD), v_ignore)) > 0 THEN
     PERFORM public.record_task_event(NEW.id, 'edit');
   END IF;
   RETURN NULL;
@@ -13717,3 +13781,235 @@ BEGIN
     END LOOP;
   END IF;
 END $$;
+
+-- ---------------------------------------------------------------------------
+-- Subtasks are tasks (migration 20261026212748_subtasks_are_tasks.sql)
+-- ---------------------------------------------------------------------------
+-- A subtask is a task with parent_task_id set. One level deep; always in its
+-- parent's project (moving the parent moves its subtasks, which take its
+-- goal); adding one needs the right to manage the parent. set_task_parent()
+-- nests a task or makes it top-level. Access follows the parent (see
+-- can_read_task_row, tasks_update, task_is_live); a parent in Trash hides its
+-- subtasks and a subtask comes back after its parent. Completion is
+-- independent: finishing every subtask does not finish the parent.
+
+-- task_subtasks (the old text subtasks, copied into tasks) is read-only; the
+-- app and API write tasks. A later migration drops it.
+CREATE OR REPLACE FUNCTION public.forbid_text_subtask_writes()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  RAISE EXCEPTION 'Subtasks are tasks now: refresh the app, or create a task with parent_task_id.'
+    USING ERRCODE = '55000';
+END;
+$$;
+REVOKE ALL ON FUNCTION public.forbid_text_subtask_writes() FROM PUBLIC, anon, authenticated;
+CREATE TRIGGER forbid_text_subtask_writes BEFORE INSERT OR UPDATE ON public.task_subtasks
+  FOR EACH ROW EXECUTE FUNCTION public.forbid_text_subtask_writes();
+
+-- ---------------------------------------------------------------------------
+-- Who may manage a task
+-- ---------------------------------------------------------------------------
+-- The signed-in member may change it: manage all tasks, or manage assigned
+-- ones and be on it or on its parent.
+CREATE OR REPLACE FUNCTION public.can_manage_task(p_task_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT public.can_access_task(p_task_id) AND (
+    public.has_permission('tasks.manage_all') OR (
+      public.has_permission('tasks.manage_assigned') AND EXISTS (
+        SELECT 1 FROM public.tasks task
+        JOIN public.task_assignees assignment
+          ON assignment.task_id IN (task.id, task.parent_task_id)
+        WHERE task.id = p_task_id AND assignment.member_id = public.current_team_member_id()
+      )
+    )
+  )
+$$;
+REVOKE ALL ON FUNCTION public.can_manage_task(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.can_manage_task(uuid) TO authenticated, service_role;
+
+-- ---------------------------------------------------------------------------
+-- The rules, for every writer
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.enforce_task_parent()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_parent public.tasks;
+  v_children integer;
+  v_parent_changed boolean := TG_OP = 'INSERT' OR NEW.parent_task_id IS DISTINCT FROM OLD.parent_task_id;
+BEGIN
+  IF NEW.parent_task_id IS NULL OR NEW.deleted_at IS NOT NULL THEN
+    RETURN NEW;
+  END IF;
+  IF TG_OP = 'UPDATE' AND NOT v_parent_changed AND NEW.project_id IS NOT DISTINCT FROM OLD.project_id
+     AND OLD.deleted_at IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  -- Locked so a parent cannot become a subtask while a subtask joins it.
+  SELECT * INTO v_parent FROM public.tasks WHERE id = NEW.parent_task_id FOR SHARE;
+  IF v_parent.id IS NULL OR v_parent.deleted_at IS NOT NULL THEN
+    RAISE EXCEPTION 'The parent task is not there or is in Trash.' USING ERRCODE = 'P0002';
+  END IF;
+  IF v_parent.parent_task_id IS NOT NULL THEN
+    RAISE EXCEPTION 'Subtasks go one level deep: "%" is itself a subtask.', v_parent.title USING ERRCODE = '23514';
+  END IF;
+  IF TG_OP = 'UPDATE' THEN
+    SELECT count(*) INTO v_children FROM public.tasks WHERE parent_task_id = NEW.id AND deleted_at IS NULL;
+    IF v_children > 0 THEN
+      RAISE EXCEPTION 'It has % subtask%. Make them top-level or move them first.',
+        v_children, CASE WHEN v_children = 1 THEN '' ELSE 's' END USING ERRCODE = '23514';
+    END IF;
+  END IF;
+  IF NEW.project_id IS DISTINCT FROM v_parent.project_id THEN
+    RAISE EXCEPTION 'A subtask stays in its parent task''s project. Move the parent, or make it top-level first.'
+      USING ERRCODE = '23514';
+  END IF;
+  -- A signed-in member needs to be able to manage the parent; the server
+  -- routes check a key's rights themselves.
+  IF v_parent_changed AND auth.uid() IS NOT NULL AND NOT public.can_manage_task(v_parent.id) THEN
+    RAISE EXCEPTION 'You cannot add subtasks to "%".', v_parent.title USING ERRCODE = '42501';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.enforce_task_parent() FROM PUBLIC, anon, authenticated;
+CREATE TRIGGER enforce_task_parent
+  BEFORE INSERT OR UPDATE OF parent_task_id, project_id, deleted_at ON public.tasks
+  FOR EACH ROW EXECUTE FUNCTION public.enforce_task_parent();
+
+-- A parent's subtasks follow it to another project (those in Trash too, so a
+-- restore lands them beside it) and take its goal, since the old project's
+-- goals do not apply there.
+CREATE OR REPLACE FUNCTION public.move_subtasks_with_parent()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  UPDATE public.tasks
+  SET project_id = NEW.project_id, project_goal_id = NEW.project_goal_id
+  WHERE parent_task_id = NEW.id AND project_id IS DISTINCT FROM NEW.project_id;
+  RETURN NULL;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.move_subtasks_with_parent() FROM PUBLIC, anon, authenticated;
+CREATE TRIGGER move_subtasks_with_parent
+  AFTER UPDATE OF project_id ON public.tasks
+  FOR EACH ROW WHEN (NEW.project_id IS DISTINCT FROM OLD.project_id AND NEW.parent_task_id IS NULL)
+  EXECUTE FUNCTION public.move_subtasks_with_parent();
+
+-- Nest a task under a parent (p_parent_id) or make it top-level (null). It
+-- goes last among its new siblings. Under a parent in another project it
+-- moves there and takes the parent's goal; that needs tasks.manage_all for a
+-- signed-in member, and no blocker links (they must stay inside one project).
+-- Runs as the caller, so the task's own update rules still apply.
+CREATE OR REPLACE FUNCTION public.set_task_parent(p_task_id uuid, p_parent_id uuid)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = public
+AS $$
+DECLARE
+  v_task public.tasks;
+  v_parent public.tasks;
+  v_goal uuid;
+  v_order integer;
+BEGIN
+  SELECT * INTO v_task FROM public.tasks WHERE id = p_task_id AND deleted_at IS NULL FOR UPDATE;
+  IF v_task.id IS NULL THEN
+    RAISE EXCEPTION 'Task not found' USING ERRCODE = 'P0002';
+  END IF;
+  IF p_parent_id IS NOT DISTINCT FROM v_task.parent_task_id THEN
+    RETURN to_jsonb(v_task);
+  END IF;
+
+  IF p_parent_id IS NULL THEN
+    SELECT coalesce(max(sort_order) + 1, 0) INTO v_order FROM public.tasks
+    WHERE project_id = v_task.project_id AND parent_task_id IS NULL AND status = v_task.status AND deleted_at IS NULL;
+    UPDATE public.tasks SET parent_task_id = NULL, sort_order = v_order
+    WHERE id = p_task_id RETURNING * INTO v_task;
+  ELSE
+    IF p_parent_id = p_task_id THEN
+      RAISE EXCEPTION 'A task cannot be its own subtask.' USING ERRCODE = '23514';
+    END IF;
+    SELECT * INTO v_parent FROM public.tasks WHERE id = p_parent_id AND deleted_at IS NULL;
+    IF v_parent.id IS NULL THEN
+      RAISE EXCEPTION 'The parent task is not there or is in Trash.' USING ERRCODE = 'P0002';
+    END IF;
+    v_goal := v_task.project_goal_id;
+    IF v_parent.project_id <> v_task.project_id THEN
+      IF auth.uid() IS NOT NULL AND NOT public.has_permission('tasks.manage_all') THEN
+        RAISE EXCEPTION 'Moving a task to another project needs permission to manage all tasks.' USING ERRCODE = '42501';
+      END IF;
+      IF EXISTS (SELECT 1 FROM public.task_dependencies WHERE task_id = p_task_id OR blocked_by_task_id = p_task_id) THEN
+        RAISE EXCEPTION 'It is blocked by, or blocks, tasks in its own project. Remove those links before moving it to another project.'
+          USING ERRCODE = '23514';
+      END IF;
+      v_goal := v_parent.project_goal_id;
+    END IF;
+    SELECT coalesce(max(sort_order) + 1, 0) INTO v_order FROM public.tasks
+    WHERE parent_task_id = p_parent_id AND deleted_at IS NULL;
+    UPDATE public.tasks
+    SET parent_task_id = p_parent_id, project_id = v_parent.project_id, project_goal_id = v_goal, sort_order = v_order
+    WHERE id = p_task_id RETURNING * INTO v_task;
+  END IF;
+
+  IF v_task.id IS NULL THEN
+    RAISE EXCEPTION 'Task % not found or not permitted', p_task_id USING ERRCODE = 'P0002';
+  END IF;
+  RETURN to_jsonb(v_task);
+END;
+$$;
+REVOKE ALL ON FUNCTION public.set_task_parent(uuid, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.set_task_parent(uuid, uuid) TO authenticated, service_role;
+
+-- A subtask added, finished or reopened, renamed, sent to Trash or back, or
+-- moved in or out is news on its parent too (as "subtask"), besides being
+-- the subtask's own change.
+CREATE OR REPLACE FUNCTION public.record_subtask_parent_event()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    IF NEW.parent_task_id IS NOT NULL AND NEW.deleted_at IS NULL THEN
+      PERFORM public.record_task_event(NEW.parent_task_id, 'subtask');
+    END IF;
+    RETURN NULL;
+  END IF;
+  IF NEW.parent_task_id IS DISTINCT FROM OLD.parent_task_id THEN
+    IF OLD.parent_task_id IS NOT NULL THEN
+      PERFORM public.record_task_event(OLD.parent_task_id, 'subtask');
+    END IF;
+    IF NEW.parent_task_id IS NOT NULL THEN
+      PERFORM public.record_task_event(NEW.parent_task_id, 'subtask');
+    END IF;
+  ELSIF NEW.parent_task_id IS NOT NULL AND (
+    (NEW.status = 'done') IS DISTINCT FROM (OLD.status = 'done')
+    OR NEW.deleted_at IS DISTINCT FROM OLD.deleted_at
+    OR NEW.title IS DISTINCT FROM OLD.title
+  ) THEN
+    PERFORM public.record_task_event(NEW.parent_task_id, 'subtask');
+  END IF;
+  RETURN NULL;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.record_subtask_parent_event() FROM PUBLIC, anon, authenticated;
+
+CREATE TRIGGER record_subtask_parent_event
+  AFTER INSERT OR UPDATE OF parent_task_id, status, deleted_at, title ON public.tasks
+  FOR EACH ROW EXECUTE FUNCTION public.record_subtask_parent_event();

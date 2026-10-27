@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { fetchAllRows } from './fetch-all';
 
 /**
  * Records are never permanently deleted: "delete" moves one to Trash and
@@ -8,7 +9,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
  * The database refuses DELETE on these tables outright.
  */
 export const TRASH_TABLES = [
-  'projects', 'tasks', 'task_subtasks', 'task_comments', 'reminders', 'project_credentials',
+  'projects', 'tasks', 'task_comments', 'reminders', 'project_credentials',
   'entity_files', 'portal_updates', 'portal_update_attachments', 'contacts', 'leads',
   'lead_interactions', 'lead_proposals', 'lead_fields',
   'project_time_entries', 'project_invoices', 'invoice_payments', 'project_hourly_rates',
@@ -77,6 +78,30 @@ export async function trashedProjectIds(supabase: SupabaseClient): Promise<strin
   const { data, error } = await supabase.from('projects').select('id').not('deleted_at', 'is', null); // includes-deleted: lists the trashed ones
   if (error) throw error;
   return (data || []).map((row: { id: string }) => row.id);
+}
+
+/**
+ * Ids of subtasks whose parent is in Trash: they went with it. For
+ * service-role task lists, as trashedProjectIds.
+ */
+export async function hiddenSubtaskIds(supabase: SupabaseClient): Promise<string[]> {
+  // Paged: a capped read would quietly bring older parents' subtasks back.
+  const parents = await fetchAllRows<{ id: string }>((from, to, count) => supabase
+    .from('tasks')
+    .select('id', { count })
+    .is('parent_task_id', null)
+    .not('deleted_at', 'is', null) // includes-deleted: lists the trashed ones
+    .order('id')
+    .range(from, to));
+  const parentIds = parents.map((row) => row.id);
+  // Trash keeps every task ever deleted, so ask in chunks to keep URLs short.
+  const hidden: string[] = [];
+  for (let i = 0; i < parentIds.length; i += 100) {
+    const { data, error: childError } = await supabase.from('tasks').select('id').in('parent_task_id', parentIds.slice(i, i + 100)).is('deleted_at', null);
+    if (childError) throw childError;
+    hidden.push(...(data || []).map((row: { id: string }) => row.id));
+  }
+  return hidden;
 }
 
 /** False when the project is missing or in Trash (and so is everything it owns). */

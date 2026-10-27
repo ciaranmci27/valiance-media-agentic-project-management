@@ -120,7 +120,15 @@ const TM2 = 'a1a1a1a1-0002-4000-8000-000000000002';
 const TM3 = 'a1a1a1a1-0003-4000-8000-000000000003';
 const TM4 = 'a1a1a1a1-0004-4000-8000-000000000004';
 
-export const demoTasks: (Omit<Task, 'acceptance_criteria' | 'blocked_by_ids'> & { acceptance_criteria?: Task['acceptance_criteria']; blocked_by_ids?: string[] })[] = [
+/** A demo subtask, written inline under its task and made a task below. */
+type DemoSubtask = { id: string; task_id: string; title: string; completed: boolean; sort_order: number };
+type DemoTask = Omit<Task, 'acceptance_criteria' | 'blocked_by_ids'> & {
+  acceptance_criteria?: Task['acceptance_criteria'];
+  blocked_by_ids?: string[];
+  subtasks?: DemoSubtask[];
+};
+
+const demoTaskRows: DemoTask[] = [
   // === Crest Financial Rebrand (7 tasks) ===
   { id: 'e5e5e5e5-0001-4000-8000-000000000001', project_id: 'c3c3c3c3-0001-4000-8000-000000000001', title: 'Discovery & brand audit',          description: 'Review current brand assets, competitor analysis, and stakeholder interviews.',  status: 'done',        priority: 'high',   assignee_ids: [TM1], due_date: '2026-01-31', tags: ['research','branding'], subtasks: [], comments: [], created_at: daysAgo(35), updated_at: daysAgo(20) },
   { id: 'e5e5e5e5-0002-4000-8000-000000000002', project_id: 'c3c3c3c3-0001-4000-8000-000000000001', title: 'Logo concepts — round 1',          description: 'Present 3 logo directions based on discovery findings.',                        status: 'done',        priority: 'high',   assignee_ids: [TM3], due_date: '2026-02-14', tags: ['design','branding'], subtasks: [], comments: [], created_at: daysAgo(35), updated_at: daysAgo(14) },
@@ -390,6 +398,28 @@ export const demoTasks: (Omit<Task, 'acceptance_criteria' | 'blocked_by_ids'> & 
     created_at: daysAgo(120), updated_at: daysAgo(30),
   },
 ];
+
+// Subtasks are tasks: each inline one becomes a task under its parent.
+export const demoTasks: DemoTask[] = demoTaskRows.flatMap(({ subtasks = [], ...task }) => [
+  task,
+  ...subtasks.map((subtask): DemoTask => ({
+    id: subtask.id,
+    project_id: task.project_id,
+    parent_task_id: task.id,
+    title: subtask.title,
+    description: '',
+    status: subtask.completed ? 'done' : 'todo',
+    priority: 'medium',
+    assignee_ids: [],
+    due_date: null,
+    tags: [],
+    comments: [],
+    sort_order: subtask.sort_order,
+    completed_at: subtask.completed ? task.updated_at : null,
+    created_at: task.created_at,
+    updated_at: task.updated_at,
+  })),
+]);
 
 // ---------------------------------------------------------------------------
 // 6. LEADS
