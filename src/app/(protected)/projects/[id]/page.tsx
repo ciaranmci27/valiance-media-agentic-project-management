@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, type ReactNode } from 'react';
 import { Popover } from '@/components/ui/Popover';
 import { TaskFilterControl, UNASSIGNED_FILTER_ID } from '@/components/tasks/TaskFilterControl';
-import { UnreadNotice } from '@/components/tasks/TaskUnread';
+import { UnreadNotice, useCardUnread } from '@/components/tasks/TaskUnread';
 import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useApp, defaultFilters } from '@/lib/store';
@@ -76,9 +76,10 @@ export default function ProjectDetailPage() {
   const {
     getProject, getTasksByProject,
     team,
-    deleteTask, deleteProject, updateTask, reorderTasks, filters, setFilters, taskUnread,
+    deleteTask, deleteProject, updateTask, reorderTasks, filters, setFilters,
     tasks, loading, timeEntries, getInvoicesByProject,
   } = useApp();
+  const cardUnread = useCardUnread();
 
   useEffect(() => { setFilters(defaultFilters); }, []);
 
@@ -115,7 +116,7 @@ export default function ProjectDetailPage() {
   // Ordered by how a project is run: the work, the client, the money, then
   // the project's assets.
   // The Tasks tab says how many of the project's tasks are new or changed for you.
-  const unreadTaskCount = getTasksByProject(projectId).filter((task) => !!taskUnread(task)).length;
+  const unreadTaskCount = getTasksByProject(projectId).filter((task) => !!cardUnread(task)).length;
   const allTabs: (ProjectTab<ProjectTabKey> & { visible: boolean })[] = [
     { key: 'overview', label: 'Overview', visible: true },
     { key: 'tasks', label: 'Tasks', visible: true,
@@ -211,7 +212,7 @@ export default function ProjectDetailPage() {
   const findsSubtasks = !!filters.search || filters.assigneeIds.length > 0;
   let projectTasks = [...(findsSubtasks ? everyProjectTask : allProjectTasks)];
   if (filters.unread) {
-    projectTasks = projectTasks.filter((task) => !!taskUnread(task));
+    projectTasks = projectTasks.filter((task) => !!cardUnread(task));
   }
   if (filters.status.length > 0) {
     projectTasks = projectTasks.filter(t => filters.status.includes(t.status));

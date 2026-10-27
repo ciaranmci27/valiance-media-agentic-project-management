@@ -56,7 +56,7 @@ import { hasPermission, canEditTask, canManageAllTasks, canBeAssignedInProject }
 import { TaskSourceEmailsSection, useKnownTaskEmailCount, useTaskSourceEmails } from '@/components/inbox/TaskSourceEmails';
 import { RailCard, RailLayout } from '@/components/projects/TabLayout';
 import { TaskSourceLine, useTaskSource } from './TaskSource';
-import { NewSinceDivider, useLookedSince } from './TaskUnread';
+import { NewSinceDivider, useLookedSince, useUnreadSubtasks } from './TaskUnread';
 import { TaskActivity, useTaskActivityCount } from './TaskActivity';
 import { TaskFiles } from './TaskFiles';
 import { TaskPanelShell } from './TaskPanelShell';
@@ -307,6 +307,7 @@ export function TaskDetailPanel({ task, onClose, onDelete, variant = 'panel' }: 
     updateComment,
     deleteComment,
     markTaskSeen,
+    markTasksSeen,
     getTaskUpdate,
   } = useApp();
   const { teamMemberId, access } = useAuth();
@@ -340,11 +341,27 @@ export function TaskDetailPanel({ task, onClose, onDelete, variant = 'panel' }: 
   // Opening a task reads it, and so does a change arriving while it is open.
   const openedTaskId = task?.id;
   const changedWhileOpen = openedTaskId ? getTaskUpdate(openedTaskId)?.last_at : undefined;
+  // A parent shows its subtasks' changes, so opening it reads those too. Which
+  // ones changed is fixed as it opens, so their rows stay marked while it is open.
+  const unreadSubtasks = useUnreadSubtasks();
+  const changedSubtasks = task ? unreadSubtasks(task).map((subtask) => subtask.id) : [];
+  const [subtasksChangedAtOpen, setSubtasksChangedAtOpen] = useState<{ taskId: string; ids: Set<string> } | null>(null);
+  // Kept per open task, and grown when a change lands later (unread loading after a deep link, or live).
+  const sameTask = !!task && subtasksChangedAtOpen?.taskId === task.id;
+  if (task && (!sameTask || changedSubtasks.some((id) => !subtasksChangedAtOpen!.ids.has(id)))) {
+    setSubtasksChangedAtOpen({ taskId: task.id, ids: new Set([...(sameTask ? subtasksChangedAtOpen!.ids : []), ...changedSubtasks]) });
+  }
+  const changedSubtaskKey = changedSubtasks.join(',');
   useEffect(() => {
     if (openedTaskId) markTaskSeen(openedTaskId);
     // markTaskSeen is a fresh closure each render; the task and its latest change are what matter.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openedTaskId, changedWhileOpen]);
+  useEffect(() => {
+    if (changedSubtaskKey) void markTasksSeen(changedSubtaskKey.split(','));
+    // markTasksSeen is a fresh closure each render; which subtasks changed is what matters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [changedSubtaskKey]);
 
   // "Add acceptance criteria" from the task menu (which may sit outside this panel).
   useEffect(() => {
@@ -699,7 +716,7 @@ export function TaskDetailPanel({ task, onClose, onDelete, variant = 'panel' }: 
             const done = subtask.status === 'done';
             const people = team.filter((member) => subtask.assignee_ids.includes(member.id));
             const late = !!subtask.due_date && !done && isDateOverdue(subtask.due_date);
-            const unread = !!taskUnread(subtask);
+            const unread = !!taskUnread(subtask) || !!subtasksChangedAtOpen?.ids.has(subtask.id);
             return (
             <li
               key={subtask.id}

@@ -17,7 +17,7 @@ import { nextReminderFor, reminderGroup, whenLabel } from '@/lib/reminders';
 import { useTaskEmailCount } from '@/components/inbox/TaskSourceEmails';
 import { useTaskFileCount } from './task-file-counts';
 import { useTaskWarmer } from '@/lib/reads';
-import { UnreadLabel } from './TaskUnread';
+import { UnreadLabel, useCardUnread } from './TaskUnread';
 import { subtaskProgress } from '@/lib/subtasks';
 import { createdLabel, lastActivityAt, taskTimesTooltip, timeAgo } from '@/lib/task-times';
 import { useSubtaskMenuActions } from './MakeSubtaskDialog';
@@ -80,7 +80,8 @@ function useTrayOpen(taskId: string): [boolean, (open: boolean) => void] {
 }
 
 export function TaskCard({ task, onView, onDelete, onMove }: TaskCardProps) {
-  const { team, tasks, getProject, reminders, getSubtasks, getTaskUpdate, taskUnread, addSubtask, updateTask } = useApp();
+  const { team, tasks, getProject, reminders, getSubtasks, getTaskUpdate, addSubtask, updateTask } = useApp();
+  const cardUnread = useCardUnread();
   const { teamMemberId, access } = useAuth();
   const trayId = useId();
   const [trayOpen, setTrayOpen] = useTrayOpen(task.id);
@@ -106,7 +107,7 @@ export function TaskCard({ task, onView, onDelete, onMove }: TaskCardProps) {
   const openBlockers = task.status === 'done' ? [] : (task.blocked_by_ids || [])
     .map(id => tasks.find(t => t.id === id))
     .filter((t): t is Task => !!t && t.status !== 'done');
-  const unread = !!taskUnread(task);
+  const unread = !!cardUnread(task);
   const hasBadges = unread || loudPriority || needsSpec;
   const emailCount = useTaskEmailCount(task.id);
   const fileCount = useTaskFileCount(task.id);

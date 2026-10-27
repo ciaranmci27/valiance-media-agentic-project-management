@@ -14,6 +14,7 @@ import { getWorkedHours } from '@/lib/time-entry-utils';
 import { parseDateOnly } from '@/lib/date-utils';
 import { formatListTime } from '@/components/inbox/inbox-badges';
 import { ReminderRow } from '@/components/reminders/ReminderRow';
+import { AddReminderRow } from '@/components/reminders/AddReminderRow';
 import { ActivityTimeline } from '@/components/agent/ActivityTimeline';
 import { useProjectActivity } from '@/lib/use-project-activity';
 import { useRead } from '@/lib/query-cache';
@@ -102,7 +103,7 @@ function ProjectActivityCard({ projectId }: { projectId: string }) {
  */
 export function ProjectOverview({ projectId, onOpenTask, onOpenTab, onOpenContacts, onEditProject, can }: ProjectOverviewProps) {
   const {
-    getProject, getTasksByProject, getTeamMember, getContactsByProject, reminders, updateProject,
+    getProject, getTasksByProject, getTeamMember, getContactsByProject, reminders, addReminder, updateProject,
     getInvoicesByProject, getTimeEntriesByProject, getPortalSettings, getPortalUpdates,
   } = useApp();
   const { isDemoMode } = useDemo();
@@ -301,6 +302,13 @@ export function ProjectOverview({ projectId, onOpenTask, onOpenTab, onOpenContac
               </div>
             </div>
           )}
+          {/* A reminder for the project itself, tied to no task: it shows above when due, else under Later. */}
+          <div className="mt-3">
+            <AddReminderRow
+              onAdd={(draft) => void addReminder({ ...draft, project_id: projectId })}
+              placeholder="Something to remember on this project"
+            />
+          </div>
         </RailCard>
 
         <RailCard

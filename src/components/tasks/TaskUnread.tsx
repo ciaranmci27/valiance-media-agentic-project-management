@@ -6,6 +6,7 @@ import { Tooltip } from '@/components/ui/Tooltip';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import type { Task, TaskEventKind, TaskUpdate, TeamMember } from '@/lib/types';
+import { topLevelTasks } from '@/lib/subtasks';
 
 function timeAgo(dateStr: string): string {
   const diffMins = Math.floor((Date.now() - new Date(dateStr).getTime()) / 60000);
@@ -19,6 +20,23 @@ function timeAgo(dateStr: string): string {
 }
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+/**
+ * Unread as a card shows it. A subtask has no card of its own on the board,
+ * so a change to one marks its parent as updated: every count and filter
+ * reads tasks through this, so a count never points at nothing.
+ */
+export function useCardUnread(): (task: Task) => 'new' | 'updated' | null {
+  const { taskUnread, getSubtasks } = useApp();
+  return (task) => taskUnread(task)
+    ?? (!task.parent_task_id && getSubtasks(task.id).some((subtask) => !!taskUnread(subtask)) ? 'updated' : null);
+}
+
+/** A top-level task's subtasks that changed since the person looked. */
+export function useUnreadSubtasks(): (task: Task) => Task[] {
+  const { taskUnread, getSubtasks } = useApp();
+  return (task) => (task.parent_task_id ? [] : getSubtasks(task.id).filter((subtask) => !!taskUnread(subtask)));
+}
 
 /** What the latest change did, after its maker's name. */
 const DID: Record<TaskEventKind, string> = {
@@ -77,8 +95,31 @@ const KIND_ICON: Record<TaskEventKind, LucideIcon> = {
 export function UnreadLabel({ task }: { task: Task }) {
   const { taskUnread, getTaskUpdate, team } = useApp();
   const { teamMemberId } = useAuth();
+  const unreadSubtasks = useUnreadSubtasks();
   const state = taskUnread(task);
-  if (!state) return null;
+  if (!state) {
+    // Only its subtasks changed: say so, and which.
+    const changed = unreadSubtasks(task);
+    if (changed.length === 0) return null;
+    const latest = changed
+      .map((subtask) => ({ subtask, update: getTaskUpdate(subtask.id) }))
+      .sort((a, b) => (b.update?.last_at ?? '').localeCompare(a.update?.last_at ?? ''))[0];
+    const who = latest.update ? updateAuthor(latest.update, team) : null;
+    const text = `${who ? `${who} updated` : 'Updated'} ${changed.length === 1 ? 'a subtask' : plural(changed.length, 'subtask')}${latest.update ? ` ${timeAgo(latest.update.last_at)}` : ''}`;
+    const detail = changed.map((subtask) => {
+      const update = getTaskUpdate(subtask.id);
+      return `"${subtask.title}": ${taskUnread(subtask) === 'new' ? 'new subtask.' : update ? describeTaskUpdate(update, team) : 'changed since you looked.'}`;
+    }).join(' ');
+    return (
+      <Tooltip content={<span className="block max-w-64">{detail}</span>}>
+        <span className="inline-flex min-w-0 items-center gap-1.5 text-xs font-medium text-brand-300">
+          <History size={13} className="flex-shrink-0" aria-hidden="true" />
+          <span aria-hidden="true" className="truncate">{text}</span>
+          <span className="sr-only">{`Subtasks updated: ${detail}`}</span>
+        </span>
+      </Tooltip>
+    );
+  }
   const update = getTaskUpdate(task.id);
   // New and made as me can only be one of my keys (the nightly recap).
   const creator = task.created_by === teamMemberId ? 'your API key' : team.find((m) => m.id === task.created_by)?.name;
@@ -109,9 +150,13 @@ export function UnreadLabel({ task }: { task: Task }) {
  * project keeps a calm toolbar.
  */
 export function UnreadNotice({ tasks }: { tasks: Task[] }) {
-  const { taskUnread, markTasksSeen, filters, setFilters } = useApp();
-  const states = tasks.map((task) => [task.id, taskUnread(task)] as const).filter(([, state]) => !!state);
+  const { markTasksSeen, filters, setFilters } = useApp();
+  const cardUnread = useCardUnread();
+  const unreadSubtasks = useUnreadSubtasks();
+  const states = tasks.map((task) => [task.id, cardUnread(task)] as const).filter(([, state]) => !!state);
   const unreadIds = states.map(([id]) => id);
+  // Marking all read reads the subtasks behind them too.
+  const toMark = [...unreadIds, ...tasks.flatMap((task) => unreadSubtasks(task).map((subtask) => subtask.id))];
   const on = !!filters.unread;
   if (unreadIds.length === 0 && !on) return null;
 
@@ -140,7 +185,7 @@ export function UnreadNotice({ tasks }: { tasks: Task[] }) {
           type="button"
           onClick={() => {
             setFilters({ ...filters, unread: false });
-            void markTasksSeen(unreadIds);
+            void markTasksSeen(toMark);
           }}
           className={link}
         >
@@ -153,10 +198,12 @@ export function UnreadNotice({ tasks }: { tasks: Task[] }) {
 
 /** How many unread tasks each project has, for the projects list and the sidebar. */
 export function useUnreadByProject(): Map<string, number> {
-  const { tasks, taskUnread } = useApp();
+  const { tasks } = useApp();
+  const cardUnread = useCardUnread();
   const counts = new Map<string, number>();
-  for (const task of tasks) {
-    if (taskUnread(task)) counts.set(task.project_id, (counts.get(task.project_id) ?? 0) + 1);
+  // Counted as the board shows them: a subtask's change counts once, on its parent.
+  for (const task of topLevelTasks(tasks)) {
+    if (cardUnread(task)) counts.set(task.project_id, (counts.get(task.project_id) ?? 0) + 1);
   }
   return counts;
 }
