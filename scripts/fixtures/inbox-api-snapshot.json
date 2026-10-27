@@ -1367,7 +1367,7 @@
     "candidate_project_ids": [],
     "attachment_count": 0,
     "latest_triage": {
-     "id": "<triage:html-only-4@mail.gmail.com/Update header and footer>",
+     "id": "<triage:html-only-4@mail.gmail.com/Update header and footer#3>",
      "outcome": "needs_reply",
      "urgent": false,
      "created_at": "<time>"
@@ -11342,7 +11342,7 @@
     "html_text": "Hi Ashley,\n\nHere is the link to the new logo: logo folder https://files.example/logo.\n\nPlease update the header & footer.",
     "html_text_truncated": false,
     "latest_triage": {
-     "id": "<triage:html-only-4@mail.gmail.com/Update header and footer>",
+     "id": "<triage:html-only-4@mail.gmail.com/Update header and footer#3>",
      "message_id": "<message:Ashley/html-only-4@mail.gmail.com>",
      "member_id": "<ids.ashley>",
      "outcome": "needs_reply",
@@ -11352,7 +11352,7 @@
      "suggested_reply": "Thanks Carla, on it.",
      "project_id": null,
      "project_ids": [],
-     "summarized_at": "<time>",
+     "summarized_at": null,
      "created_at": "<time>"
     },
     "answers": [],
@@ -11448,7 +11448,7 @@
        "html_text": "Hi Ashley,\n\nHere is the link to the new logo: logo folder https://files.example/logo.\n\nPlease update the header & footer.",
        "html_text_truncated": false,
        "latest_triage": {
-        "id": "<triage:html-only-4@mail.gmail.com/Update header and footer>",
+        "id": "<triage:html-only-4@mail.gmail.com/Update header and footer#3>",
         "message_id": "<message:Ashley/html-only-4@mail.gmail.com>",
         "member_id": "<ids.ashley>",
         "outcome": "needs_reply",
@@ -11458,7 +11458,7 @@
         "suggested_reply": "Thanks Carla, on it.",
         "project_id": null,
         "project_ids": [],
-        "summarized_at": "<time>",
+        "summarized_at": null,
         "created_at": "<time>"
        },
        "answers": [],
@@ -19891,6 +19891,7 @@
      "source": "person"
     },
     "summary": "Race",
+    "category": null,
     "projects": [
      {
       "id": "<ids.acme>",
@@ -19950,6 +19951,7 @@
      "source": "mapped"
     },
     "summary": "Homepage copy from Vera",
+    "category": null,
     "projects": [
      {
       "id": "<project:Vera Studio>",
@@ -19999,6 +20001,7 @@
      "source": "person"
     },
     "summary": "Probably Vera Studio",
+    "category": null,
     "projects": [
      {
       "id": "<project:Vera Studio>",
@@ -20017,6 +20020,52 @@
     "question_for_human": "Which project is this for? Default: Acme Roofing.",
     "has_suggested_reply": false,
     "superseded_triage_ids": []
+   },
+   {
+    "links": [],
+    "urgent": false,
+    "message": {
+     "id": "<message:Ashley/html-only-4@mail.gmail.com>",
+     "from": {
+      "name": "Carla Mendes",
+      "address": "carla.mendes@gmail.com"
+     },
+     "kind": "person",
+     "topic": null,
+     "status": "new",
+     "subject": "New logo files",
+     "inbox_id": "<ids.inboxA>",
+     "thread_id": "<thread:Ashley/html-only-4@mail.gmail.com>",
+     "received_at": "<time>",
+     "sort_action": "triage",
+     "forwarded_by": null,
+     "routing_basis": "sender",
+     "original_sender": null,
+     "conversation_id": "<thread:Ashley/html-only-4@mail.gmail.com>"
+    },
+    "outcome": "needs_reply",
+    "project": null,
+    "summary": "Update header and footer",
+    "category": null,
+    "projects": [
+     {
+      "id": "<ids.acme>",
+      "name": "Acme Roofing",
+      "source": "person"
+     }
+    ],
+    "reminders": [],
+    "triage_id": "<triage:html-only-4@mail.gmail.com/Update header and footer#3>",
+    "created_at": "<time>",
+    "project_id": null,
+    "project_ids": [],
+    "thread_summary": null,
+    "question_for_human": null,
+    "has_suggested_reply": true,
+    "superseded_triage_ids": [
+     "<triage:html-only-4@mail.gmail.com/Agency pitch#2>",
+     "<triage:html-only-4@mail.gmail.com/Agency pitch>"
+    ]
    },
    {
     "links": [],
@@ -20047,6 +20096,7 @@
      "source": "person"
     },
     "summary": "Thanks for the update",
+    "category": null,
     "projects": [
      {
       "id": "<ids.acme>",
@@ -20098,6 +20148,7 @@
      "source": "mapped"
     },
     "summary": "Kickoff notes",
+    "category": null,
     "projects": [
      {
       "id": "<ids.acme>",
@@ -20161,6 +20212,7 @@
      "source": "inferred"
     },
     "summary": "The joint call is Cliff's project",
+    "category": null,
     "projects": [
      {
       "id": "<project:Cliff Builders>",
@@ -20191,7 +20243,7 @@
   "data": {
    "new_count": 39,
    "newest_received_at": "<time>",
-   "unsummarized_count": 6,
+   "unsummarized_count": 7,
    "drafts_requested": 0,
    "plans_new_count": 0,
    "shadow_pending_count": 0
@@ -22188,6 +22240,7 @@
       "summary": "Send corrected invoice",
       "question_for_human": null,
       "suggested_reply": null,
+      "category": null,
       "member": {
        "id": "<ids.ashley>",
        "name": "Ashley P."
@@ -22332,6 +22385,7 @@
       "summary": "Dana thanked us for the finished footer.",
       "question_for_human": null,
       "suggested_reply": null,
+      "category": null,
       "member": {
        "id": "<ids.ashley>",
        "name": "Ashley P."
@@ -22460,6 +22514,7 @@
       "summary": "Race",
       "question_for_human": null,
       "suggested_reply": null,
+      "category": null,
       "member": {
        "id": "<ids.ashley>",
        "name": "Ashley P."
@@ -22594,6 +22649,7 @@
       "summary": "Thanks for the update",
       "question_for_human": null,
       "suggested_reply": null,
+      "category": null,
       "member": {
        "id": "<ids.ashley>",
        "name": "Ashley P."
@@ -23916,6 +23972,7 @@
       "summary": "Homepage copy from Vera",
       "question_for_human": null,
       "suggested_reply": null,
+      "category": null,
       "member": {
        "id": "<ids.ashley>",
        "name": "Ashley P."
@@ -24520,6 +24577,7 @@
       "summary": "Site down for Acme",
       "question_for_human": "Restart the server?",
       "suggested_reply": null,
+      "category": null,
       "member": {
        "id": "<ids.ashley>",
        "name": "Ashley P."
@@ -24626,6 +24684,7 @@
       "summary": "Probably Vera Studio",
       "question_for_human": "Which project is this for? Default: Acme Roofing.",
       "suggested_reply": null,
+      "category": null,
       "member": {
        "id": "<ids.ashley>",
        "name": "Ashley P."
@@ -24722,12 +24781,13 @@
      "html_body": "<html><head><style>p{color:red}</style></head><body><p>Hi Ashley,</p><p>Here is the link to the new logo: <a href=\"https://files.example/logo\">logo folder</a>.</p><p>Please update the header &amp; footer.</p><script>alert(1)</script></body></html>\n",
      "attachments": [],
      "triage": {
-      "id": "<triage:html-only-4@mail.gmail.com/Update header and footer>",
+      "id": "<triage:html-only-4@mail.gmail.com/Update header and footer#3>",
       "outcome": "needs_reply",
       "urgent": false,
       "summary": "Update header and footer",
       "question_for_human": null,
       "suggested_reply": "Thanks Carla, on it.",
+      "category": null,
       "member": {
        "id": "<ids.ashley>",
        "name": "Ashley P."
@@ -25291,6 +25351,7 @@
       "summary": "Kickoff notes",
       "question_for_human": null,
       "suggested_reply": null,
+      "category": null,
       "member": {
        "id": "<ids.ashley>",
        "name": "Ashley P."
@@ -25928,6 +25989,7 @@
       "summary": "The joint call is Cliff's project",
       "question_for_human": null,
       "suggested_reply": null,
+      "category": null,
       "member": {
        "id": "<ids.ashley>",
        "name": "Ashley P."

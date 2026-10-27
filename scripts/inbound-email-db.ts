@@ -27,6 +27,7 @@ export const DELIVERY_MIGRATION = '../supabase/migrations/20261026192302_message
 export const PLANS_MIGRATION = '../supabase/migrations/20261026200925_triage_plans.sql';
 export const YOUR_ADDRESSES_MIGRATION = '../supabase/migrations/20261027200420_your_addresses.sql';
 export const YOUR_DOMAINS_MIGRATION = '../supabase/migrations/20261027204003_your_domains.sql';
+export const OUTREACH_MIGRATION = '../supabase/migrations/20261027221258_outreach_filtered.sql';
 const TASK_SAVE_MIGRATION = '../supabase/migrations/20260923235152_atomic_task_save.sql';
 
 async function read(path: string) {
@@ -129,7 +130,7 @@ export async function createEmailDatabase(
     await db.exec(spec);
     await db.exec(spec); // safe to re-run
     if (!stopBeforeNeedsHuman) {
-      for (const path of [NEEDS_HUMAN_MIGRATION, NEEDS_HUMAN_CLEANUP_MIGRATION, PROJECT_SOURCE_PERSON_MIGRATION, SORTING_MIGRATION, ANSWERS_MIGRATION, SHARED_FILES_MIGRATION, ANSWERED_PERSON_MIGRATION, COMMUNICATIONS_MIGRATION, CONVERSATION_SCOPE_MIGRATION, SCOPE_HARDENING_MIGRATION, DELIVERY_MIGRATION, PLANS_MIGRATION, YOUR_ADDRESSES_MIGRATION, YOUR_DOMAINS_MIGRATION]) {
+      for (const path of [NEEDS_HUMAN_MIGRATION, NEEDS_HUMAN_CLEANUP_MIGRATION, PROJECT_SOURCE_PERSON_MIGRATION, SORTING_MIGRATION, ANSWERS_MIGRATION, SHARED_FILES_MIGRATION, ANSWERED_PERSON_MIGRATION, COMMUNICATIONS_MIGRATION, CONVERSATION_SCOPE_MIGRATION, SCOPE_HARDENING_MIGRATION, DELIVERY_MIGRATION, PLANS_MIGRATION, YOUR_ADDRESSES_MIGRATION, YOUR_DOMAINS_MIGRATION, OUTREACH_MIGRATION]) {
         const sql = await read(path);
         await db.exec(sql);
         await db.exec(sql); // safe to re-run
@@ -158,6 +159,11 @@ export async function createEmailDatabase(
       email_attachment_id uuid REFERENCES ${stopBeforeNeedsHuman ? 'public.email_attachments' : 'communications.attachments'}(id) ON DELETE RESTRICT,
       deleted_at timestamptz
     );
+  `);
+  // Outreach guardrails ask whether the sender is a live lead (speaker.ts).
+  await db.exec(`
+    CREATE TABLE public.leads (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), name text NOT NULL DEFAULT '', email text,
+      deleted_at timestamptz, archived_at timestamptz);
   `);
   // Triage plans notify the people who can act (syncWaitingNotification).
   await db.exec(`

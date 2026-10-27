@@ -98,6 +98,10 @@ export function inboxClient(isDemo: boolean) {
     sendBack(threadId: string, messageId: string | null): Promise<{ message_id: string }> {
       return isDemo ? demoInbox.sendBack(threadId, messageId) : post(`/api/workspace/inbox/threads/${threadId}/send-back`, { message_id: messageId });
     },
+    /** A filtered pitch back to the Inbox: the agent reads it in full, and its sender always from now on. */
+    moveToInbox(threadId: string, messageId: string): Promise<{ message_id: string }> {
+      return isDemo ? demoInbox.moveToInbox(threadId, messageId) : post(`/api/workspace/inbox/threads/${threadId}/move-to-inbox`, { message_id: messageId });
+    },
     acceptPlanItem(itemId: string, edits: { project_id?: string; task_id?: string; title?: string; due_date?: string | null } = {}): Promise<unknown> {
       return isDemo ? demoInbox.resolvePlanItem(itemId, 'accepted') : post(`/api/workspace/inbox/plan-items/${itemId}/accept`, edits);
     },

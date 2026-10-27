@@ -6,6 +6,7 @@
  */
 
 import type { CandidateReason } from './mapping';
+import type { TriageCategory } from './outreach';
 
 export const INBOX_TABS = ['all', 'needs_you', 'needs_reply', 'new', 'updates', 'handled', 'ignored', 'unassigned'] as const;
 export type InboxTab = typeof INBOX_TABS[number];
@@ -151,6 +152,8 @@ export interface InboxTriage {
   summary: string;
   question_for_human: string | null;
   suggested_reply: string | null;
+  /** What the agent read it as; outreach is a pitch it filtered (or a guardrail kept). */
+  category: TriageCategory | null;
   member: { id: string; name: string } | null;
   created_at: string;
 }

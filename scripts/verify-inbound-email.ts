@@ -539,6 +539,22 @@ async function main() {
     const flagged = await triageOf(forward.id, { outcome: 'needs_human', urgent: true, summary: 'Site down for Acme', question_for_human: 'Restart the server?' });
     check('triage: needs_human outcome sets needs_human', flagged.body.data?.status === 'needs_human', flagged.body);
 
+    // Outreach: a pitch goes to Filtered unless a guardrail keeps it.
+    const messageStatus = async (id: string) => (await rows(db, 'SELECT status FROM communications.messages WHERE id=$1', [id]))[0].status;
+    const pitchAsking = await triageOf(htmlOnly.id, { outcome: 'needs_human', urgent: false, summary: 'Agency pitch', question_for_human: 'Interested?', category: 'outreach' });
+    check('outreach: a pitch never needs a person (422, nothing recorded)', pitchAsking.status === 422 && (await messageStatus(htmlOnly.id)) === 'handled', pitchAsking.body);
+    const pitch = await triageOf(htmlOnly.id, { outcome: 'no_action', urgent: false, summary: 'Agency offering SEO services', category: 'outreach' });
+    check('outreach: a pitch from a stranger is filtered, with its category kept', pitch.status === 201 && pitch.body.data.status === 'ignored'
+      && pitch.body.data.triage.category === 'outreach' && (await messageStatus(htmlOnly.id)) === 'ignored', pitch.body);
+    const clientPitch = await triageOf(reply.id, { outcome: 'no_action', urgent: false, summary: 'Client mentions a partner offer', category: 'outreach' });
+    check('outreach: a client is never filtered', clientPitch.status === 201 && clientPitch.body.data.status === 'handled' && (await messageStatus(reply.id)) === 'handled', clientPitch.body);
+    const filteredDirect = await asService(db, () => db.query("SELECT communications.record_triage($1, $2, $3::jsonb, '[]'::jsonb, '{}'::uuid[], 'ignored')",
+      [htmlOnly.id, ids.ashley, JSON.stringify({ outcome: 'no_action', summary: 'x', category: 'work' })])).then(() => 'ok', (e: Error) => e.message);
+    check('outreach: the database filters only what was read as outreach', String(filteredDirect).includes('only outreach is filtered'), filteredDirect);
+    // Back to how the tests below expect it.
+    const restored = await triageOf(htmlOnly.id, { outcome: 'needs_reply', urgent: false, summary: 'Update header and footer', suggested_reply: 'Thanks Carla, on it.' });
+    check('outreach: a later triage that is not outreach brings it back', restored.status === 201 && (await messageStatus(htmlOnly.id)) === 'handled', restored.body);
+
     const jeffTriage = await triageOf(reply.id, { outcome: 'no_action', urgent: false, summary: 'x' }, keys.jeff);
     check('scope: triage of an email in an ungranted inbox is 404 and records nothing', jeffTriage.status === 404
       && (await rows(db, 'SELECT 1 FROM communications.triage WHERE member_id=$1', [ids.jeff])).length === 0, jeffTriage.body);
@@ -826,6 +842,25 @@ async function main() {
     const [ignoredId] = (await messageBy('newsletter-6@acme-supplies.example')).filter((m) => m.status === 'ignored');
     await inbox.sendBackToAgent(owner, ignoredId.thread_id, ignoredId.id);
     check('inbox ui: an ignored message can be sent to the agent', (await rows(db, 'SELECT status FROM communications.messages WHERE id=$1', [ignoredId.id]))[0].status === 'new');
+
+    // Move to Inbox: a filtered pitch goes back to the agent, its sender read in full from now on.
+    const inboxRules = await import('../src/lib/communications/inbox-rules');
+    const [sortedAs] = await rows(db, 'SELECT sort_action, sort_reason, sender_rule_id FROM communications.messages WHERE id=$1', [htmlOnly.id]);
+    const filteredPitch = await triageOf(htmlOnly.id, { outcome: 'no_action', urgent: false, summary: 'Agency pitch', category: 'outreach' });
+    check('move to inbox: the pitch starts filtered', filteredPitch.body.data?.status === 'ignored', filteredPitch.body);
+    check('move to inbox: a read-only member cannot move it', (await failsWith(() => inboxRules.moveToInbox(person(ids.owner, 'member', ['inbound_email.read']), htmlOnly.thread_id, htmlOnly.id))) === 403);
+    const movedPitch = await inboxRules.moveToInbox(owner, htmlOnly.thread_id, htmlOnly.id);
+    const [movedRow] = await rows(db, 'SELECT status, sort_action, sender_rule_id FROM communications.messages WHERE id=$1', [htmlOnly.id]);
+    check('move to inbox: New for the agent, read in full, with an always rule for that exact address', movedRow.status === 'new' && movedRow.sort_action === 'always'
+      && movedPitch.rule?.match_kind === 'address' && movedPitch.rule.match_value === 'carla.mendes@gmail.com' && movedPitch.rule.action === 'always' && movedRow.sender_rule_id === movedPitch.rule.id, [movedPitch, movedRow]);
+    check('move to inbox: twice is 409', (await failsWith(() => inboxRules.moveToInbox(owner, htmlOnly.thread_id, htmlOnly.id))) === 409);
+    const pitchAgain = await triageOf(htmlOnly.id, { outcome: 'no_action', urgent: false, summary: 'Agency pitch', category: 'outreach' });
+    check('move to inbox: read as outreach again, it stays in the Inbox', pitchAgain.body.data?.status === 'handled', pitchAgain.body);
+    // Back to how the tests below expect it.
+    await inboxRules.updateSenderRule(owner, movedPitch.rule!.id, { enabled: false });
+    await db.query('UPDATE communications.messages SET sort_action=$2, sort_reason=$3, sender_rule_id=$4 WHERE id=$1', [htmlOnly.id, sortedAs.sort_action, sortedAs.sort_reason, sortedAs.sender_rule_id]);
+    await triageOf(htmlOnly.id, { outcome: 'needs_reply', urgent: false, summary: 'Update header and footer', suggested_reply: 'Thanks Carla, on it.' });
+    await inbox.sendBackToAgent(owner, htmlOnly.thread_id, null);
 
     const carla = 'carla.mendes@gmail.com';
     check('inbox ui: an agent never creates a mapping (rule 7)', (await failsWith(() => inbox.setThreadProject(person(ids.ashley, 'agent', ['*']), htmlOnly.thread_id,

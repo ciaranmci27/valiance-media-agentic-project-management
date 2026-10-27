@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { RULE_ACTIONS } from './sorting';
 import { describeRule, liveRuleFor, ruleTarget, RULE_COLUMNS, senderRuleSchema, type SenderRuleRow } from './sender-rules';
-import { InboxError, assertCanManageInboxes, loadReadableThread, many, one, type InboxContext } from './inbox-service';
+import { InboxError, assertCanManageInboxes, assertCanTriage, assertId, canManageInboxes, loadReadableThread, many, one, type InboxContext } from './inbox-service';
 import { domainOf, organizationalDomain } from './email/addresses';
 import { comms } from '@/lib/communications/db';
 
@@ -107,6 +107,42 @@ async function filterThreadNow(ctx: InboxContext, threadId: string, rule: Sender
   }).in('id', ids).in('status', ['new', 'needs_human']);
   if (error) throw error;
   return ids.length;
+}
+
+/**
+ * A pitch the agent filtered was not one. The email goes back to the agent
+ * to read in full (New, and marked always so it is not filtered again), and
+ * its sender is always read in full from now on: a rule for that exact
+ * address, never a whole domain. Someone who cannot manage rules moves only
+ * this email.
+ */
+export async function moveToInbox(ctx: InboxContext, threadId: string, messageId: string): Promise<{ message_id: string; rule: InboxSenderRule | null }> {
+  assertCanTriage(ctx.access);
+  const thread = await loadReadableThread(ctx, threadId);
+  const message = await one<{ id: string; status: string; routing_basis: string; original_from_address: string | null }>(comms(ctx.service).from('messages')
+    .select('id, status, routing_basis, original_from_address').eq('id', assertId(messageId, 'message_id')).eq('thread_id', thread.id).maybeSingle());
+  if (!message) throw new InboxError(404, 'Message not found');
+  if (message.status !== 'ignored') throw new InboxError(409, 'It is already in the Inbox');
+  const from = await one<{ address: string }>(comms(ctx.service).from('participants').select('address').eq('message_id', message.id).eq('kind', 'from').maybeSingle());
+  const sender = (message.routing_basis === 'forwarded_original' && message.original_from_address) || from?.address || '';
+
+  let rule: InboxSenderRule | null = null;
+  if (sender && canManageInboxes(ctx.access)) {
+    const existing = await liveRuleFor(ctx.service, 'address', sender, null);
+    rule = existing?.action === 'always'
+      ? (await present(ctx, [existing]))[0]
+      : (await createSenderRule(ctx, { match_kind: 'address', match_value: sender, topic: null, action: 'always', reason: 'Moved to the Inbox from Filtered.', thread_id: null })).rule;
+  }
+  const { error } = await comms(ctx.service).from('messages').update({
+    status: 'new',
+    reviewed_at: null,
+    reviewed_by: null,
+    sort_action: 'always',
+    sort_reason: 'Moved to the Inbox: read in full.',
+    ...(rule ? { sender_rule_id: rule.id } : {}),
+  }).eq('id', message.id).eq('status', 'ignored');
+  if (error) throw error;
+  return { message_id: message.id, rule };
 }
 
 export async function updateSenderRule(ctx: InboxContext, ruleId: string, request: UpdateSenderRuleRequest): Promise<{ rule: InboxSenderRule }> {

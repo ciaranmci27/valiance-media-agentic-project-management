@@ -5,7 +5,7 @@ import { loadRead, peekRead, setReadData } from '@/lib/query-cache';
 import { inboxThreadRead } from '@/lib/reads';
 import Link from 'next/link';
 import {
-  AlertTriangle, ArrowLeft, AlignLeft, Bell, Bot, Check, CheckCircle2, ChevronDown, Copy, Download, ExternalLink, Eye, FileText, Filter, Flame, Forward, HelpCircle, Image as ImageIcon,
+  AlertTriangle, ArrowLeft, AlignLeft, Bell, Bot, Check, CheckCircle2, ChevronDown, Copy, Download, ExternalLink, Eye, FileText, Filter, Flame, Forward, HelpCircle, Image as ImageIcon, Inbox,
   Loader2, MessageSquareReply, Paperclip, PenLine, Plus, RefreshCw, RotateCcw, ShieldOff, SquareCheck, Tag, Trash2, Undo2, X,
 } from 'lucide-react';
 import { useApp } from '@/lib/store';
@@ -23,6 +23,7 @@ import { skippedReasonLabel, type InboxAnswer, type InboxAttachment, type InboxL
 import { hasQuotedHtml, inlineImageIds, linkParts, opensAsHtml } from '@/lib/communications/email/display';
 import { FilePreviewModal } from '@/components/ui/FilePreviewModal';
 import { Textarea } from '@/components/ui/inputs/Textarea';
+import { outreachReason } from '@/lib/communications/outreach';
 import { EmailBodyFrame } from './EmailBodyFrame';
 import { ProjectChips, ThreadStateDot, TrustBadge, TrustNote, formatBytes, formatFullTime, formatListTime } from './inbox-badges';
 import { ThreadProjectDialog } from './ThreadProjectDialog';
@@ -524,6 +525,7 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
                   viewUrl={isDemoMode ? null : attachmentViewUrl}
                   onPreview={isDemoMode ? undefined : setPreview}
                   onSendToAgent={canTriage ? () => void after(() => client.sendBack(detail.id, message.id), `Sent to ${agentName}`, 'send_back') : undefined}
+                  onMoveToInbox={canTriage ? () => void after(() => client.moveToInbox(detail.id, message.id), `Moved to the Inbox. ${agentName} will read it in full.`, 'send_back') : undefined}
                   onRule={canManageRules ? () => setRuleFor(message) : undefined}
                   onAnswer={canTriage && !isDemoMode ? (text) => answerQuestion(message.id, text) : undefined}
                   busy={busy !== null}
@@ -745,7 +747,7 @@ function EmailText({ text }: { text: string }) {
   );
 }
 
-function MessageCard({ message, agentName, focused, busy, viewUrl, onSendToAgent, onRule, onAnswer, onDownload, onPreview }: {
+function MessageCard({ message, agentName, focused, busy, viewUrl, onSendToAgent, onMoveToInbox, onRule, onAnswer, onDownload, onPreview }: {
   message: InboxMessage;
   agentName: string;
   focused: boolean;
@@ -754,6 +756,8 @@ function MessageCard({ message, agentName, focused, busy, viewUrl, onSendToAgent
   viewUrl: ((attachmentId: string) => string) | null;
   /** Absent for members who can only view the inbox. */
   onSendToAgent?: () => void;
+  /** A pitch the agent filtered goes back to the Inbox, its sender read in full from now on. */
+  onMoveToInbox?: () => void;
   /** Make or change the sender rule for this email's sender. */
   onRule?: () => void;
   /** Answer the agent's question; absent for members who only view. */
@@ -796,6 +800,8 @@ function MessageCard({ message, agentName, focused, busy, viewUrl, onSendToAgent
   // A teammate's forward shows the original sender; the teammate gets their own line.
   const shownFrom = message.original_sender ?? message.from;
   const sender = shownFrom?.name || shownFrom?.address || 'Unknown sender';
+  // A pitch the agent filtered (not a rule or bulk mail): it can go back to the Inbox.
+  const pitch = message.triage?.category === 'outreach';
   const teammate = message.forwarded_by?.name || message.from?.name || message.from?.address || 'a teammate';
   const forwardedByTeam = message.routing_basis === 'forwarded_original';
   const routedNote = forwardedByTeam
@@ -846,14 +852,18 @@ function MessageCard({ message, agentName, focused, busy, viewUrl, onSendToAgent
 
       {message.status === 'ignored' && (
         <div className="mx-4 mt-3 flex flex-wrap items-center gap-2 rounded-lg bg-white/[0.03] px-3 py-2 text-xs text-zinc-300">
-          <span>{message.sorting?.reason ?? `Filtered as automatic mail${message.auto_mail_reason ? `: ${message.auto_mail_reason}` : ''}.`}</span>
+          <span>{pitch ? outreachReason(agentName) : message.sorting?.reason ?? `Filtered as automatic mail${message.auto_mail_reason ? `: ${message.auto_mail_reason}` : ''}.`}</span>
           <span className="ml-auto flex items-center gap-1">
             {onRule && (
               <Button size="sm" variant="ghost" onClick={onRule} icon={<Filter size={12} aria-hidden="true" />}>
                 {message.sorting?.rule_id ? 'Change rule' : 'Make a rule'}
               </Button>
             )}
-            {onSendToAgent && (
+            {pitch && onMoveToInbox ? (
+              <Button size="sm" variant="ghost" disabled={busy} onClick={onMoveToInbox} icon={<Inbox size={12} aria-hidden="true" />}>
+                Move to Inbox
+              </Button>
+            ) : onSendToAgent && (
               <Button size="sm" variant="ghost" disabled={busy} onClick={onSendToAgent} icon={<RotateCcw size={12} aria-hidden="true" />}>
                 Send to {agentName}
               </Button>

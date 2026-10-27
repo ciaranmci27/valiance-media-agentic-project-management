@@ -72,10 +72,11 @@ function message({ linked_tasks: links = [], ...partial }: DemoMessage): InboxMe
 }
 
 const person = (name: string, address: string, contactId: string | null = null) => ({ name, address, contact_id: contactId });
-const triage = (partial: Omit<InboxMessage['triage'] & object, 'id' | 'member' | 'created_at'> & { created_at?: string }, member = SCOUT) => ({
+const triage = (partial: Omit<InboxMessage['triage'] & object, 'id' | 'member' | 'created_at' | 'category'> & Partial<Pick<InboxMessage['triage'] & object, 'created_at' | 'category'>>, member = SCOUT) => ({
   id: id('9d9d9d9d'),
   member,
   created_at: partial.created_at ?? hoursAgo(1),
+  category: null,
   ...partial,
 });
 
@@ -524,6 +525,17 @@ export const demoInbox = {
     const target = messageId ? detail?.messages.find((m) => m.id === messageId) : detail?.messages[detail.messages.length - 1];
     if (!target) throw new Error('Message not found');
     if (target.status === 'new') throw new Error('It is already waiting for the agent');
+    target.status = 'new';
+    target.reviewed_at = null;
+    target.reviewed_by = null;
+    return { message_id: target.id };
+  },
+
+  async moveToInbox(threadId: string, messageId: string): Promise<{ message_id: string }> {
+    await pause();
+    const target = store().find((t) => t.id === threadId)?.messages.find((m) => m.id === messageId);
+    if (!target) throw new Error('Message not found');
+    if (target.status !== 'ignored') throw new Error('It is already in the Inbox');
     target.status = 'new';
     target.reviewed_at = null;
     target.reviewed_by = null;

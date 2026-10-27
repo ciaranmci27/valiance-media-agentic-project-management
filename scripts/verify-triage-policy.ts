@@ -6,6 +6,7 @@
  * Run: npx tsx --tsconfig tsconfig.mcp-test.json scripts/verify-triage-policy.ts
  */
 import { decideItem, type Decision, type PolicyItem, type PolicyMessage } from '../src/lib/communications/triage-policy';
+import { outreachPlacement, type OutreachFacts } from '../src/lib/communications/outreach';
 
 let passed = 0;
 const failures: string[] = [];
@@ -89,6 +90,30 @@ for (const [label, message, planned, expected] of cases) {
   const got = decideItem(message, planned);
   if (got.decision === expected && got.reason.length > 0) passed++;
   else failures.push(`${label}: expected ${expected}, got ${got.decision} (${got.reason})`);
+}
+
+// Outreach: a pitch from a stranger is filtered; anything guarded stays.
+const pitch: OutreachFacts = { speaker: 'stranger', sortAction: 'triage', topic: null, ourSideWrote: false, hasTasks: false };
+const outreachCases: [string, OutreachFacts, boolean][] = [
+  ['a cold pitch from a stranger is filtered', pitch, true],
+  ['a pitch from bulk mail is filtered', { ...pitch, speaker: 'machine', topic: 'promotion' }, true],
+  ['a pitch marked FYI by a rule is filtered', { ...pitch, sortAction: 'fyi' }, true],
+  ['a client is never filtered', { ...pitch, speaker: 'client' }, false],
+  ['someone on a client conversation is never filtered', { ...pitch, speaker: 'client_colleague' }, false],
+  ['a live lead is never filtered', { ...pitch, speaker: 'prospect' }, false],
+  ['a teammate is never filtered', { ...pitch, speaker: 'teammate' }, false],
+  ['the owner is never filtered', { ...pitch, speaker: 'owner' }, false],
+  ['a sender a person said to always read stays', { ...pitch, sortAction: 'always' }, false],
+  ['money stays', { ...pitch, topic: 'money' }, false],
+  ['an account problem stays', { ...pitch, topic: 'account_risk' }, false],
+  ['security stays', { ...pitch, topic: 'security' }, false],
+  ['a conversation we wrote in stays', { ...pitch, ourSideWrote: true }, false],
+  ['a conversation linked to a task stays', { ...pitch, hasTasks: true }, false],
+];
+for (const [label, facts, expected] of outreachCases) {
+  const got = outreachPlacement(facts);
+  if (got.filter === expected && (got.filter || got.kept.length > 0)) passed++;
+  else failures.push(`outreach, ${label}: expected ${expected ? 'filtered' : 'kept'}, got ${JSON.stringify(got)}`);
 }
 
 if (failures.length) {

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { TRIAGE_CATEGORIES } from './outreach';
 
 // -- Agent API -------------------------------------------------------------
 
@@ -24,7 +25,18 @@ export const triageSchema = z.object({
   thread_summary: z.string().trim().min(1).max(300).nullable().optional(),
   // A retry with the same key on the same email returns the first triage.
   idempotency_key: z.string().min(8).max(100).nullable().optional(),
-}).strict();
+  // What the email is: work, fyi (needs nothing), or outreach (someone
+  // selling to us). Outreach is filtered unless something guards it.
+  category: z.enum(TRIAGE_CATEGORIES).nullable().optional(),
+}).strict().superRefine((body, ctx) => {
+  // A pitch asks nothing of anyone: it never needs a person, a reply or a task.
+  if (body.category !== 'outreach') return;
+  if (body.outcome !== 'no_action') ctx.addIssue({ code: 'custom', path: ['outcome'], message: 'Outreach is no_action: a pitch never needs a person, a reply or a task' });
+  if (body.urgent) ctx.addIssue({ code: 'custom', path: ['urgent'], message: 'Outreach is never urgent' });
+  if (body.links.length > 0) ctx.addIssue({ code: 'custom', path: ['links'], message: 'Outreach links no task' });
+  if (body.question_for_human) ctx.addIssue({ code: 'custom', path: ['question_for_human'], message: 'Outreach asks no question' });
+  if (body.suggested_reply) ctx.addIssue({ code: 'custom', path: ['suggested_reply'], message: 'Outreach gets no reply' });
+});
 export type TriageRequest = z.infer<typeof triageSchema>;
 
 export const attachmentLabelSchema = z.object({

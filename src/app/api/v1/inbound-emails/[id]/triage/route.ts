@@ -10,6 +10,9 @@ import { formatEventTitle } from '@/lib/agent-events';
 import { isGoneError, loadAccessibleMessage, type AccessibleMessage } from '@/lib/communications/agent-access';
 import { triageSchema, type TriageRequest } from '@/lib/communications/schemas';
 import { comms } from '@/lib/communications/db';
+import { outreachPlacement } from '@/lib/communications/outreach';
+import { messageFacts } from '@/lib/communications/speaker';
+import type { MailTopic, SortAction } from '@/lib/communications/sorting';
 
 export const dynamic = 'force-dynamic';
 
@@ -46,6 +49,8 @@ function requestHash(body: TriageRequest): string {
     projects.length <= 1 ? projects[0] ?? null : projects,
     links,
     body.thread_summary ?? null,
+    // Only when given, so a retry from before categories hashes as it did.
+    ...(body.category ? [body.category] : []),
   ])).digest('hex');
 }
 
@@ -76,9 +81,40 @@ async function priorTriage(supabase: SupabaseClient, message: AccessibleMessage,
 }
 
 /**
+ * Outreach goes to Filtered unless a guardrail keeps it (outreach.ts): who
+ * the sender is, an always rule, money or security, or a conversation we
+ * are already in. Kept, it is triaged like any other email.
+ */
+async function filtersAsOutreach(
+  supabase: SupabaseClient,
+  message: AccessibleMessage,
+  row: { topic: MailTopic | null; sort_action: SortAction | null },
+  body: TriageRequest,
+): Promise<boolean> {
+  if (body.category !== 'outreach') return false;
+  const [facts, ours, linked] = await Promise.all([
+    messageFacts(supabase, message.id),
+    comms(supabase).from('messages').select('id').eq('thread_id', message.thread_id).neq('id', message.id)
+      .or('sender_member_id.not.is.null,kind.eq.team').limit(1),
+    comms(supabase).from('task_links').select('message_id, message:messages!inner(thread_id)')
+      .eq('message.thread_id', message.thread_id).limit(1),
+  ]);
+  if (ours.error) throw ours.error;
+  if (linked.error) throw linked.error;
+  return outreachPlacement({
+    speaker: facts.speaker,
+    sortAction: row.sort_action,
+    topic: row.topic,
+    ourSideWrote: (ours.data ?? []).length > 0,
+    hasTasks: (linked.data ?? []).length > 0,
+  }).filter;
+}
+
+/**
  * Records a triage (history is kept; the newest wins) and sets the email's
- * status: needs_human when the outcome is needs_human, or the sender is
- * untrusted and it is not a notification left alone, otherwise handled.
+ * status: ignored (Filtered) when it is outreach no guardrail keeps;
+ * needs_human when the outcome is needs_human, or the sender is untrusted
+ * and it is not a notification left alone; otherwise handled.
  * A triage files the email on every project it names (project_ids, or the
  * older project_id) and on every linked task's project, each within the
  * email's project scope (communications.scope_source: the conversation's
@@ -102,7 +138,7 @@ export const POST = withApi<TriageRequest, { id: string }>(async ({ supabase, pa
   }
 
   const [{ data: row, error: rowError }, { data: filedRows, error: filedError }] = await Promise.all([
-    comms(supabase).from('messages').select('auth, kind').eq('id', message.id).single(),
+    comms(supabase).from('messages').select('auth, kind, topic, sort_action').eq('id', message.id).single(),
     comms(supabase).from('conversation_projects').select('project_id').eq('conversation_id', message.thread_id),
   ]);
   // Deleted while this request ran: the same 404 as an id that never existed.
@@ -154,7 +190,9 @@ export const POST = withApi<TriageRequest, { id: string }>(async ({ supabase, pa
   // notification read and left alone does not.
   const trust = ((row.auth ?? {}) as { trust?: string }).trust;
   const machine = row.kind === 'notification' || row.kind === 'marketing';
-  const status = body.outcome === 'needs_human' || (trust === 'untrusted' && (!machine || links.length > 0)) ? 'needs_human' : 'handled';
+  const status = await filtersAsOutreach(supabase, message, row as { topic: MailTopic | null; sort_action: SortAction | null }, body)
+    ? 'ignored'
+    : body.outcome === 'needs_human' || (trust === 'untrusted' && (!machine || links.length > 0)) ? 'needs_human' : 'handled';
   const { data, error } = await comms(supabase).rpc('record_triage', {
     p_message_id: message.id,
     p_member_id: teamMemberId,
@@ -165,6 +203,7 @@ export const POST = withApi<TriageRequest, { id: string }>(async ({ supabase, pa
       question_for_human: body.question_for_human ?? null,
       suggested_reply: body.suggested_reply ?? null,
       thread_summary: body.thread_summary ?? null,
+      category: body.category ?? null,
     },
     p_links: links,
     p_project_ids: named,

@@ -7504,6 +7504,9 @@ CREATE TABLE communications.triage (
   project_ids uuid[] NOT NULL DEFAULT '{}',
   -- The plan a plan-based triage recorded (triage_plan_id_fkey, after plans).
   plan_id uuid,
+  -- What the agent read the email as: work, fyi (needs nothing from anyone),
+  -- or outreach (someone selling to us, filtered unless something guards it).
+  category text CONSTRAINT email_triage_category_check CHECK (category IS NULL OR category IN ('work', 'fyi', 'outreach')),
   CONSTRAINT email_triage_key_has_hash CHECK (idempotency_key IS NULL OR request_hash IS NOT NULL)
 );
 CREATE INDEX idx_email_triage_message ON communications.triage (message_id, created_at DESC);
@@ -8457,7 +8460,11 @@ DECLARE
   v_task_project uuid;
 BEGIN
   IF COALESCE(auth.role(), '') <> 'service_role' THEN RAISE EXCEPTION 'Service role required' USING ERRCODE = '42501'; END IF;
-  IF p_status NOT IN ('handled', 'needs_human') THEN RAISE EXCEPTION 'record_triage: invalid status' USING ERRCODE = '22023'; END IF;
+  IF p_status NOT IN ('handled', 'needs_human', 'ignored') THEN RAISE EXCEPTION 'record_triage: invalid status' USING ERRCODE = '22023'; END IF;
+  -- A triage filters only what it read as outreach.
+  IF p_status = 'ignored' AND p_triage->>'category' IS DISTINCT FROM 'outreach' THEN
+    RAISE EXCEPTION 'record_triage: only outreach is filtered' USING ERRCODE = '22023';
+  END IF;
 
   SELECT * INTO v_message FROM communications.messages WHERE id = p_message_id FOR UPDATE;
   IF NOT FOUND OR v_message.status = 'receiving' THEN
@@ -8499,13 +8506,13 @@ BEGIN
 
   INSERT INTO communications.triage (
     message_id, member_id, outcome, urgent, summary, question_for_human, suggested_reply, project_id, project_ids,
-    idempotency_key, request_hash
+    idempotency_key, request_hash, category
   )
   VALUES (
     p_message_id, p_member_id, p_triage->>'outcome', COALESCE((p_triage->>'urgent')::boolean, false),
     p_triage->>'summary', p_triage->>'question_for_human', p_triage->>'suggested_reply',
     CASE WHEN cardinality(v_projects) = 1 THEN v_projects[1] END, v_projects,
-    p_idempotency_key, p_request_hash
+    p_idempotency_key, p_request_hash, p_triage->>'category'
   )
   RETURNING * INTO v_triage;
 
@@ -10886,6 +10893,7 @@ BEGIN
       'triage_id', l.id,
       'created_at', l.created_at,
       'outcome', l.outcome,
+      'category', l.category,
       'urgent', l.urgent,
       'summary', l.summary,
       'question_for_human', l.question_for_human,

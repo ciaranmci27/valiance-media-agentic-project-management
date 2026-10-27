@@ -17,6 +17,7 @@ import type {
   SetThreadProjectRequest, SetThreadProjectResult, TaskSourceEmails, ThreadProject, TriageOutcome, TrustLevel,
   InboxPlan, InboxPlanItem, InboxReplyPoint,
 } from './inbox-types';
+import type { TriageCategory } from './outreach';
 import { comms } from '@/lib/communications/db';
 
 /**
@@ -93,9 +94,13 @@ export function assertCanTriage(access: AccessContext) {
   if (!canTriageInbox(access)) throw new InboxError(403, 'Viewing the inbox is read only. Triaging email needs permission to triage inbox email.');
 }
 
+export function canManageInboxes(access: AccessContext): boolean {
+  return accessAllows(access, 'inbound_email.manage');
+}
+
 /** Sender rules apply to every inbox, so seeing and changing them takes managing inboxes. */
 export function assertCanManageInboxes(access: AccessContext) {
-  if (!accessAllows(access, 'inbound_email.manage')) throw new InboxError(403, 'Sender rules apply to every inbox, so they need permission to manage inboxes.');
+  if (!canManageInboxes(access)) throw new InboxError(403, 'Sender rules apply to every inbox, so they need permission to manage inboxes.');
 }
 
 /** What a project the member cannot reach is called instead of its name. */
@@ -561,7 +566,7 @@ export async function threadDetail(ctx: InboxContext, threadId: string): Promise
       ctxSelect(comms(service), 'attachments', 'id, message_id, position, filename, content_type, size_bytes, sha256, skipped_reason, uploaded_at, agent_label, content_id', count)
         .in('message_id', chunk).order('id').range(from, to)),
     readIn<Row & { id: string; message_id: string; created_at: string }>(ids, (chunk, from, to, count) =>
-      ctxSelect(comms(service), 'triage', 'id, message_id, member_id, outcome, urgent, summary, question_for_human, suggested_reply, created_at', count)
+      ctxSelect(comms(service), 'triage', 'id, message_id, member_id, outcome, urgent, summary, question_for_human, suggested_reply, category, created_at', count)
         .in('message_id', chunk).order('id').range(from, to)),
     readIn<Row & { message_id: string; task_id: string }>(ids, (chunk, from, to, count) =>
       ctxSelect(comms(service), 'task_links', 'id, message_id, task_id, relation, triage_id, created_at', count).in('message_id', chunk).order('id').range(from, to)),
@@ -671,6 +676,7 @@ export async function threadDetail(ctx: InboxContext, threadId: string): Promise
         summary: triageRow.summary as string,
         question_for_human: (triageRow.question_for_human as string | null) ?? null,
         suggested_reply: (triageRow.suggested_reply as string | null) ?? null,
+        category: (triageRow.category as TriageCategory | null) ?? null,
         member: memberId ? { id: memberId, name: people.get(memberId) ?? 'Agent' } : null,
         created_at: triageRow.created_at,
       } : null,
