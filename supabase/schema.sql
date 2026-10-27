@@ -7152,7 +7152,7 @@ CREATE TABLE communications.sender_rules (
   match_kind text NOT NULL CHECK (match_kind IN ('address', 'domain')),
   match_value text NOT NULL CHECK (match_value = lower(btrim(match_value)) AND length(match_value) BETWEEN 3 AND 320),
   -- NULL: every topic from this sender.
-  topic text CHECK (topic IN ('money', 'account_risk', 'security', 'usage', 'event', 'newsletter', 'promotion', 'update')),
+  topic text CONSTRAINT sender_rules_topic_check CHECK (topic IN ('money', 'account_risk', 'security', 'usage', 'event', 'newsletter', 'promotion', 'update', 'receipt', 'calendar', 'survey', 'code')),
   action text NOT NULL CHECK (action IN ('ignore', 'fyi', 'always')),
   source text NOT NULL CHECK (source IN ('person', 'agent')),
   -- Why the rule exists, in a sentence (the agent always gives one).
@@ -7238,7 +7238,7 @@ CREATE TABLE communications.messages (
   -- never triaged, fyi = triaged lightly, always = full triage, triage = the
   -- default), why, and the sender rule that decided it.
   kind text CONSTRAINT email_messages_kind_check CHECK (kind IN ('person', 'team', 'meeting_notes', 'notification', 'marketing')),
-  topic text CONSTRAINT email_messages_topic_check CHECK (topic IN ('money', 'account_risk', 'security', 'usage', 'event', 'newsletter', 'promotion', 'update')),
+  topic text CONSTRAINT email_messages_topic_check CHECK (topic IN ('money', 'account_risk', 'security', 'usage', 'event', 'newsletter', 'promotion', 'update', 'receipt', 'calendar', 'survey', 'code')),
   sort_action text CONSTRAINT email_messages_sort_action_check CHECK (sort_action IN ('ignore', 'fyi', 'always', 'triage')),
   sort_reason text CONSTRAINT email_messages_sort_reason_check CHECK (sort_reason IS NULL OR length(sort_reason) <= 300),
   sender_rule_id uuid REFERENCES communications.sender_rules(id) ON DELETE SET NULL,

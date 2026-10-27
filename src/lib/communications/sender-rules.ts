@@ -62,6 +62,10 @@ export const TOPIC_PLURALS: Record<MailTopic, string> = {
   newsletter: 'Newsletters',
   promotion: 'Promotions',
   update: 'Automatic updates',
+  receipt: 'Receipts',
+  calendar: 'Calendar replies',
+  survey: 'Surveys',
+  code: 'One-time codes',
 };
 
 /** "Usage alerts from okendo.io" / "Mail from no-reply@upwork.com". */
@@ -70,7 +74,7 @@ export function describeRule(rule: Pick<SenderRuleRow, 'match_value' | 'topic'>)
 }
 
 /** Topics no rule from the agent may name: Ciaran always sees this mail. */
-export const PROTECTED_TOPICS: readonly MailTopic[] = ['money', 'account_risk', 'security'];
+export const PROTECTED_TOPICS: readonly MailTopic[] = ['money', 'receipt', 'account_risk', 'security'];
 
 function sameOrUnder(domain: string, parent: string): boolean {
   return domain === parent || domain.endsWith(`.${parent}`);

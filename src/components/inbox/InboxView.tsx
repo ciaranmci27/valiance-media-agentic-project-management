@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { AlertTriangle, Bell, Flame, Inbox as InboxIcon, Mail, Paperclip, RefreshCw, Search, Sparkles, SquareCheck, X } from 'lucide-react';
+import { AlertTriangle, Bell, Flame, Inbox as InboxIcon, KeyRound, Mail, Paperclip, RefreshCw, Search, Sparkles, SquareCheck, X } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { useDemo } from '@/lib/demo-context';
 import { useAuth } from '@/lib/auth-context';
@@ -10,12 +10,14 @@ import { Button } from '@/components/ui/Button';
 import { Select } from '@/components/ui/inputs/Select';
 import { TextInput } from '@/components/ui/inputs/TextInput';
 import { inboxClient } from '@/lib/communications/inbox-client';
-import { INBOX_TAB_LABELS, INBOX_TABS, isAgentChoice, type InboxSummary, type InboxTab, type InboxTabCounts, type InboxThreadSummary } from '@/lib/communications/inbox-types';
-import { isInboxTab } from '@/lib/communications/inbox-view';
+import { INBOX_FILTERS, INBOX_TAB_LABELS, INBOX_TABS, isAgentChoice, type InboxSummary, type InboxTab, type InboxTabCounts, type InboxThreadSummary } from '@/lib/communications/inbox-types';
+import { CODE_PIN_MINUTES, isInboxTab } from '@/lib/communications/inbox-view';
+import { timeAgo } from '@/lib/task-times';
+import { CopyValueButton } from '@/components/settings/EmailConnectChecklist';
 import { ThreadStateBadge, TrustBadge, formatListTime, projectSourceHint } from './inbox-badges';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { ThreadView } from './ThreadView';
-import type { InboxThreadList } from '@/lib/communications/inbox-types';
+import type { InboxLatestCode, InboxThreadList } from '@/lib/communications/inbox-types';
 import { INBOX_PAGE_SIZE, inboxThreadRead, inboxThreadsRead, useIntent } from '@/lib/reads';
 import { loadRead, peekRead, setReadData, warmRead } from '@/lib/query-cache';
 import { SenderRulesManager } from './SenderRulesManager';
@@ -56,6 +58,14 @@ interface InboxViewProps {
  * New Email here, by rule.
  */
 /** Where a link into an embedded inbox lands: a thread (and email) to open, or a task to filter by. */
+
+/** One line under a view that is not the Inbox, saying what lives there. */
+const VIEW_NOTES: Partial<Record<InboxTab, string>> = {
+  fyi: 'Conversations that need nothing from you.',
+  updates: 'Automatic mail nobody needs to act on.',
+  codes: 'One-time sign-in and verification codes. No agent reads them.',
+  ignored: 'Mail nobody needs to read: pitches, bulk mail and your rules.',
+};
 export interface InboxLink {
   thread?: string | null;
   message?: string | null;
@@ -87,6 +97,7 @@ export function InboxView({ projectId, embedded = false, emptyState, searchQuery
   const [inboxes, setInboxes] = useState<InboxSummary[]>([]);
   const [threads, setThreads] = useState<InboxThreadSummary[]>([]);
   const [counts, setCounts] = useState<InboxTabCounts | null>(null);
+  const [latestCode, setLatestCode] = useState<InboxLatestCode | null>(null);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -177,6 +188,7 @@ export function InboxView({ projectId, embedded = false, emptyState, searchQuery
       setInboxes(data.inboxes);
       setThreads((current) => (append ? [...current, ...data.threads.filter((t) => !current.some((c) => c.id === t.id))] : data.threads));
       setCounts(data.counts);
+      if (!append) setLatestCode(data.latest_code ?? null);
       setTotal(data.total);
       setHasLoaded(true);
       setError('');
@@ -244,13 +256,14 @@ export function InboxView({ projectId, embedded = false, emptyState, searchQuery
   ];
   // One inbox needs no inbox filter; keep it while one is picked so it can be cleared.
   const showInboxFilter = inboxes.length > 1 || !!inboxId;
-  // Plain rows: the status, then its count as quiet text on the right.
+  // Plain rows: the view or filter, then its count as quiet text on the right. Filters sit under their own heading.
   const statusOptions = INBOX_TABS.map((key) => {
     const count = counts?.[key] ?? 0;
     const label = INBOX_TAB_LABELS[key];
     return {
       value: key,
       label,
+      group: (INBOX_FILTERS as readonly string[]).includes(key) ? 'Filters' : undefined,
       render: (
         <span className="flex w-full items-center justify-between gap-3">
           <span>{label}</span>
@@ -262,26 +275,28 @@ export function InboxView({ projectId, embedded = false, emptyState, searchQuery
   const filtersActive = tab !== 'all' || !!search.trim() || !!inboxId || !!taskFilter || (!lockedProject && !!projectFilter);
   const filteredTask = taskFilter ? tasks.find((task) => task.id === taskFilter) : null;
   // The full Inbox with nothing in it yet: one setup guide instead of two empty panes.
-  // Updates and Filtered mail stay out of the Inbox; one quiet line says how much and opens each.
-  const hiddenUpdates = tab === 'all' ? counts?.updates ?? 0 : 0;
-  const hiddenFiltered = tab === 'all' ? counts?.ignored ?? 0 : 0;
+  // FYI, Updates, Codes and Filtered mail stay out of the Inbox; one quiet line says how much and opens each.
+  const hidden = tab === 'all'
+    ? ([
+        ['fyi', counts?.fyi ?? 0, 'FYI'],
+        ['updates', counts?.updates ?? 0, (n: number) => (n === 1 ? 'update' : 'updates')],
+        ['codes', counts?.codes ?? 0, (n: number) => (n === 1 ? 'code' : 'codes')],
+        ['ignored', counts?.ignored ?? 0, 'filtered'],
+      ] as const).filter(([, count]) => count > 0)
+    : [];
+  const hiddenCount = hidden.reduce((sum, [, count]) => sum + count, 0);
   const hiddenLink = 'rounded font-medium text-brand-300 hover:text-brand-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500';
-  const filteredNote = (hiddenUpdates > 0 || hiddenFiltered > 0) && (
+  const filteredNote = hidden.length > 0 && (
     <p className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 px-4 py-3 text-xs text-zinc-400">
       <span>Not in your inbox:</span>
-      {hiddenUpdates > 0 && (
-        <button type="button" onClick={() => setTab('updates')} className={hiddenLink}>
-          {hiddenUpdates} {hiddenUpdates === 1 ? 'update' : 'updates'}
+      {hidden.map(([key, count, word]) => (
+        <button key={key} type="button" onClick={() => setTab(key)} className={hiddenLink}>
+          {count} {typeof word === 'function' ? word(count) : word}
         </button>
-      )}
-      {hiddenFiltered > 0 && (
-        <button type="button" onClick={() => setTab('ignored')} className={hiddenLink}>
-          {hiddenFiltered} filtered
-        </button>
-      )}
+      ))}
     </p>
   );
-  const neverHadEmail = hasLoaded && threads.length === 0 && hiddenFiltered === 0 && hiddenUpdates === 0 && !filtersActive && !error && (!embedded || !!emptyState);
+  const neverHadEmail = hasLoaded && threads.length === 0 && hiddenCount === 0 && !filtersActive && !error && (!embedded || !!emptyState);
   const selectThread = useCallback((id: string | null, messageId: string | null = null) => {
     setSelectedId(id);
     setFocusMessageId(messageId);
@@ -342,9 +357,9 @@ export function InboxView({ projectId, embedded = false, emptyState, searchQuery
         </div>
       )}
 
-      {(tab === 'updates' || tab === 'ignored') && (
+      {VIEW_NOTES[tab] && (
         <p className="flex flex-wrap items-center gap-x-1.5 border-b border-white/[0.06] px-4 py-2 text-xs text-zinc-400">
-          {tab === 'updates' ? 'Automatic mail nobody needs to act on.' : 'Mail nobody needs to read.'}
+          {VIEW_NOTES[tab]}
           {canManageRules && !isDemoMode ? (
             <button
               type="button"
@@ -356,6 +371,8 @@ export function InboxView({ projectId, embedded = false, emptyState, searchQuery
           ) : null}
         </p>
       )}
+
+      {tab === 'all' && latestCode && <PinnedCode code={latestCode} onOpen={() => selectThread(latestCode.thread_id)} />}
 
       <div className="min-h-0 flex-1 overflow-y-auto" aria-busy={loading}>
         {loading && !hasLoaded ? (
@@ -384,8 +401,8 @@ export function InboxView({ projectId, embedded = false, emptyState, searchQuery
             <div className="mb-1 flex h-10 w-10 items-center justify-center rounded-full bg-white/[0.06]">
               <Mail size={18} className="text-zinc-400" aria-hidden="true" />
             </div>
-            <p className="text-sm font-medium text-zinc-300">{filtersActive ? 'No email matches' : hiddenFiltered || hiddenUpdates ? 'Nothing that needs reading' : 'No email yet'}</p>
-            {!hiddenFiltered && !hiddenUpdates && (
+            <p className="text-sm font-medium text-zinc-300">{filtersActive ? 'No email matches' : hiddenCount ? 'Nothing that needs reading' : 'No email yet'}</p>
+            {!hiddenCount && (
               <p className="text-xs text-zinc-400">
                 {filtersActive
                   ? 'Try another status, inbox or search.'
@@ -565,5 +582,36 @@ function ThreadCount({ icon: Icon, count, one, many, hint }: { icon: typeof Pape
         <span aria-hidden="true">{count}</span>
       </span>
     </Tooltip>
+  );
+}
+
+/**
+ * The newest one-time code, pinned above the Inbox while it is fresh, so
+ * signing in never means opening Codes. It hides itself when it expires.
+ */
+function PinnedCode({ code, onOpen }: { code: InboxLatestCode; onOpen: () => void }) {
+  const expiresAt = new Date(code.received_at).getTime() + CODE_PIN_MINUTES * 60_000;
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    // Ticks each minute for the age, and once more when it expires.
+    const tick = setInterval(() => setNow(new Date()), 60_000);
+    const expire = setTimeout(() => setNow(new Date()), Math.max(0, expiresAt - Date.now()));
+    return () => { clearInterval(tick); clearTimeout(expire); };
+  }, [expiresAt]);
+  if (now.getTime() >= expiresAt) return null;
+  const from = code.sender?.name || code.sender?.address || 'A sender';
+  return (
+    <div className="flex items-center gap-2 border-b border-white/[0.06] bg-brand-500/10 px-3 py-2">
+      <KeyRound size={14} className="flex-shrink-0 text-brand-300" aria-hidden="true" />
+      <button
+        type="button"
+        onClick={onOpen}
+        className="min-w-0 flex-1 rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+      >
+        <span className="block truncate text-[11px] text-zinc-300">{from} code, {timeAgo(code.received_at, now).toLowerCase()}</span>
+        <span className="block font-mono text-sm tracking-wider text-white">{code.code ?? 'Open to see the code'}</span>
+      </button>
+      {code.code && <CopyValueButton value={code.code} label={`Copy the code from ${from}`} />}
+    </div>
   );
 }

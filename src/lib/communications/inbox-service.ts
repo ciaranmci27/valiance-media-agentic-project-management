@@ -9,11 +9,11 @@ import { attachmentKind } from './attachments';
 import { normalizeContentId } from './email/display';
 import { isPublicEmailDomain, validateClientDomain } from './email/public-domains';
 import type { CandidateReason } from './mapping';
-import { attentionCounts, matchesSearch, snippetOf, tabCounts, threadFlags, threadInTab, type InboxAttention, type MessageState, type ThreadFlags } from './inbox-view';
+import { attentionCounts, CODE_PIN_MINUTES, codeIn, matchesSearch, snippetOf, tabCounts, threadFlags, threadInTab, type InboxAttention, type MessageState, type ThreadFlags } from './inbox-view';
 import type { MailKind, MailTopic } from './sorting';
 import type {
   InboxAttachment, InboxCandidate, InboxReminder, InboxSorting, TaskLinkRelation, InboxLinkedTask, InboxMessage, InboxPerson, InboxSummary, InboxTab,
-  InboxThreadDetail, InboxThreadList, InboxThreadSummary, MessageStatus, ProjectSource, RememberableSender, RoutingBasis,
+  InboxLatestCode, InboxThreadDetail, InboxThreadList, InboxThreadSummary, MessageStatus, ProjectSource, RememberableSender, RoutingBasis,
   SetThreadProjectRequest, SetThreadProjectResult, TaskSourceEmails, ThreadProject, TriageOutcome, TrustLevel,
   InboxPlan, InboxPlanItem, InboxReplyPoint,
 } from './inbox-types';
@@ -280,8 +280,8 @@ async function loadThreadEntries(service: SupabaseClient, inboxIds: string[], pr
     .filter((message) => threadIds.has(message.thread_id));
   const messageIds = messages.map((message) => message.id);
   const [triage, senders] = await Promise.all([
-    readIn<{ id: string; message_id: string; outcome: TriageOutcome; urgent: boolean; created_at: string }>(messageIds, (chunk, from, to, count) =>
-      ctxSelect(comms(service), 'triage', 'id, message_id, outcome, urgent, created_at', count).in('message_id', chunk).order('id').range(from, to)),
+    readIn<{ id: string; message_id: string; outcome: TriageOutcome; urgent: boolean; category: TriageCategory | null; created_at: string }>(messageIds, (chunk, from, to, count) =>
+      ctxSelect(comms(service), 'triage', 'id, message_id, outcome, urgent, category, created_at', count).in('message_id', chunk).order('id').range(from, to)),
     readIn<{ id: string; message_id: string; address: string; name: string }>(messageIds, (chunk, from, to, count) =>
       ctxSelect(comms(service), 'participants', 'id, message_id, address, name', count).in('message_id', chunk).eq('kind', 'from').order('id').range(from, to)),
   ]);
@@ -312,6 +312,7 @@ async function loadThreadEntries(service: SupabaseClient, inboxIds: string[], pr
         trust: trustOf(message.auth),
         kind: message.kind,
         topic: message.topic,
+        category: triageRow?.category ?? null,
       };
     });
     const threadSenders = list.flatMap((message) => [senderByMessage.get(message.id), forwarderByMessage.get(message.id)])
@@ -419,6 +420,8 @@ export async function listThreads(ctx: InboxContext, filters: ThreadListFilters)
     : inTask;
   const counts = tabCounts(searched.map((entry) => ({ flags: entry.flags, project_id: entry.thread.project_id })));
   const inTab = searched.filter((entry) => threadInTab(entry.flags, entry.thread.project_id, filters.tab));
+  // A search or a task looks for something else; the pinned code is for the plain list.
+  const latestCode = filters.search.trim() || filters.taskId ? null : await freshCode(ctx, inTask);
   const page = inTab.slice(filters.offset, filters.offset + filters.limit);
 
   const latestIds = page.map((entry) => entry.messages[entry.messages.length - 1].id);
@@ -474,7 +477,49 @@ export async function listThreads(ctx: InboxContext, filters: ThreadListFilters)
       })(),
     };
   });
-  return { inboxes, threads, total: inTab.length, counts };
+  return { inboxes, threads, total: inTab.length, counts, latest_code: latestCode };
+}
+
+/** The newest one-time code that arrived in the last CODE_PIN_MINUTES, with the code read from it. */
+async function freshCode(ctx: InboxContext, entries: ThreadEntry[]): Promise<InboxLatestCode | null> {
+  const since = new Date(Date.now() - CODE_PIN_MINUTES * 60_000).toISOString();
+  const newest = entries
+    .filter((entry) => entry.flags.code)
+    .map((entry) => ({ entry, message: entry.messages[entry.messages.length - 1] }))
+    .filter(({ message }) => message.received_at >= since)
+    .sort((a, b) => (a.message.received_at < b.message.received_at ? 1 : -1))[0];
+  if (!newest) return null;
+  const body = await one<{ new_text: string | null; text_body: string | null }>(comms(ctx.service).from('messages')
+    .select('new_text, text_body').eq('id', newest.message.id).maybeSingle());
+  return {
+    thread_id: newest.entry.thread.id,
+    sender: newest.entry.sender,
+    code: codeIn(newest.message.subject ?? '', body?.new_text || body?.text_body),
+    received_at: newest.message.received_at,
+  };
+}
+
+/**
+ * Senders of these filtered pitches who pitched before (another email the
+ * agent read as outreach) and have no rule filtering them yet: a person is
+ * offered to always filter them.
+ */
+async function repeatPitchSenders(service: SupabaseClient, pitches: { id: string; address: string }[]): Promise<Set<string>> {
+  const addresses = [...new Set(pitches.map((pitch) => pitch.address).filter(Boolean))];
+  if (addresses.length === 0) return new Set();
+  const own = new Set(pitches.map((pitch) => pitch.id));
+  const [fromRows, rules] = await Promise.all([
+    many<{ message_id: string; address: string }>(comms(service).from('participants').select('message_id, address').eq('kind', 'from').in('address', addresses)),
+    many<{ match_value: string }>(comms(service).from('sender_rules').select('match_value')
+      .eq('match_kind', 'address').in('match_value', addresses).eq('action', 'ignore').is('topic', null).is('disabled_at', null)),
+  ]);
+  const others = fromRows.filter((row) => !own.has(row.message_id));
+  if (others.length === 0) return new Set();
+  const pitched = await many<{ message_id: string }>(comms(service).from('triage').select('message_id')
+    .in('message_id', [...new Set(others.map((row) => row.message_id))]).eq('category', 'outreach'));
+  const pitchedIds = new Set(pitched.map((row) => row.message_id));
+  const filtered = new Set(rules.map((rule) => rule.match_value));
+  return new Set(others.filter((row) => pitchedIds.has(row.message_id) && !filtered.has(row.address)).map((row) => row.address));
 }
 
 /** Threads waiting on a person, by how badly, across every inbox the member reads (the sidebar badge). */
@@ -577,6 +622,12 @@ export async function threadDetail(ctx: InboxContext, threadId: string): Promise
       ctxSelect(comms(service), 'answers', 'id, message_id, triage_id, answer, answered_by, created_at', count).in('message_id', chunk).order('id').range(from, to)),
   ]);
   const latest = latestTriage(triageRows);
+  // Who sent each email, as sorting saw it: a teammate's forward by its original sender.
+  const senderAddress = (row: Row): string => ((row.routing_basis === 'forwarded_original' && row.original_from_address)
+    || recipients.find((r) => r.message_id === row.id && r.kind === 'from')?.address || '') as string;
+  const repeatPitchers = await repeatPitchSenders(service, messages
+    .filter((row) => row.status === 'ignored' && latest.get(row.id as string)?.category === 'outreach')
+    .map((row) => ({ id: row.id as string, address: senderAddress(row) })));
   const plans = await threadPlans(ctx, thread.id, ids);
   const taskIds = [...new Set([...links.map((link) => link.task_id), ...plans.taskIds])];
   const tasks = taskIds.length
@@ -617,6 +668,7 @@ export async function threadDetail(ctx: InboxContext, threadId: string): Promise
       trust: trustOf(auth),
       kind: (row.kind as MailKind | null) ?? null,
       topic: (row.topic as MailTopic | null) ?? null,
+      category: (triageRow?.category as TriageCategory | null | undefined) ?? null,
     });
     const memberId = (triageRow?.member_id as string | null) ?? null;
     const reviewedBy = (row.reviewed_by as string | null) ?? null;
@@ -728,6 +780,7 @@ export async function threadDetail(ctx: InboxContext, threadId: string): Promise
       })),
       reviewed_at: (row.reviewed_at as string | null) ?? null,
       reviewed_by: reviewedBy ? { id: reviewedBy, name: people.get(reviewedBy) ?? 'Someone' } : null,
+      repeat_pitch: repeatPitchers.has(senderAddress(row)),
     };
   });
 

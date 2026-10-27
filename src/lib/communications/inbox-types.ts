@@ -8,17 +8,26 @@
 import type { CandidateReason } from './mapping';
 import type { TriageCategory } from './outreach';
 
-export const INBOX_TABS = ['all', 'needs_you', 'needs_reply', 'new', 'updates', 'handled', 'ignored', 'unassigned'] as const;
+/**
+ * Views (where a thread lives: Inbox, FYI, Updates, Codes, Filtered), then
+ * filters: what waits on someone, wherever it lives, and the Inbox's handled
+ * and unassigned threads.
+ */
+export const INBOX_VIEWS = ['all', 'fyi', 'updates', 'codes', 'ignored'] as const;
+export const INBOX_FILTERS = ['needs_you', 'needs_reply', 'new', 'handled', 'unassigned'] as const;
+export const INBOX_TABS = [...INBOX_VIEWS, ...INBOX_FILTERS] as const;
 export type InboxTab = typeof INBOX_TABS[number];
 
 export const INBOX_TAB_LABELS: Record<InboxTab, string> = {
   all: 'Inbox',
+  fyi: 'FYI',
+  updates: 'Updates',
+  codes: 'Codes',
+  ignored: 'Filtered',
   needs_you: 'Needs you',
   needs_reply: 'Needs reply',
   new: 'New',
-  updates: 'Updates',
   handled: 'Handled',
-  ignored: 'Filtered',
   unassigned: 'Unassigned',
 };
 
@@ -97,6 +106,16 @@ export interface InboxThreadList {
   threads: InboxThreadSummary[];
   total: number;
   counts: InboxTabCounts;
+  /** The newest one-time code, while it is fresh (CODE_PIN_MINUTES): pinned at the top of the Inbox. */
+  latest_code: InboxLatestCode | null;
+}
+
+export interface InboxLatestCode {
+  thread_id: string;
+  sender: { name: string; address: string } | null;
+  /** Null when neither the subject nor the text shows it: open the email. */
+  code: string | null;
+  received_at: string;
 }
 
 export interface InboxPerson {
@@ -199,6 +218,8 @@ export interface InboxMessage {
   auto_mail_reason: string | null;
   /** How it was sorted on arrival; null for mail from before sorting. */
   sorting: InboxSorting | null;
+  /** A filtered pitch from a sender who pitched before and no rule filters yet. */
+  repeat_pitch: boolean;
   new_text: string | null;
   text_body: string | null;
   html_body: string | null;

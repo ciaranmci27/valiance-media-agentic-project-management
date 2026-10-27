@@ -49,6 +49,7 @@ function message({ linked_tasks: links = [], ...partial }: DemoMessage): InboxMe
   return {
     id: id('9f9f9f9f'),
     status: 'handled',
+    repeat_pitch: false,
     sent_at: partial.received_at,
     to: [{ address: INBOX_SCOUT.address, name: 'Scout', contact_id: null }],
     cc: [],
@@ -318,7 +319,7 @@ function withSenders(detail: InboxThreadDetail): InboxThreadDetail {
 function stateOf(m: InboxMessage): MessageState {
   return {
     status: m.status, reviewed_at: m.reviewed_at, outcome: m.triage?.outcome ?? null, urgent: m.triage?.urgent ?? false, trust: m.trust.level,
-    kind: m.sorting?.kind ?? null, topic: m.sorting?.topic ?? null,
+    kind: m.sorting?.kind ?? null, topic: m.sorting?.topic ?? null, category: m.triage?.category ?? null,
   };
 }
 
@@ -423,6 +424,7 @@ export const demoInbox = {
       threads: inTab.slice(filters.offset, filters.offset + filters.limit).map((t) => summary(t.detail)),
       total: inTab.length,
       counts,
+      latest_code: null,
     };
   },
 

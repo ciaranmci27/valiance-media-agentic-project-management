@@ -1411,7 +1411,7 @@ export const endpoints: EndpointDoc[] = [
     body: [
       { name: 'match_kind', type: 'address|domain', required: true, description: 'An exact address, or a domain (its subdomains too)' },
       { name: 'match_value', type: 'string', required: true, description: 'The address or domain' },
-      { name: 'topic', type: 'usage|event|newsletter|promotion|update', required: true, description: 'The one topic of machine mail the rule covers. An agent rule always names one, and never money, account_risk or security (422): those always get full triage.' },
+      { name: 'topic', type: 'usage|event|newsletter|promotion|update|calendar|survey|code', required: true, description: 'The one topic of machine mail the rule covers. An agent rule always names one, and never money, receipt, account_risk or security (422): Ciaran always sees those.' },
       { name: 'action', type: 'ignore|fyi|always', required: true, description: 'ignore: Filtered, never triaged. fyi: triaged lightly; it reaches needs_human only when the email itself asks for something. always: full triage, even when the default would filter it.' },
       { name: 'reason', type: 'string', required: true, description: 'The pattern, in a sentence (10 to 500 characters): it shows next to the rule.' },
     ],

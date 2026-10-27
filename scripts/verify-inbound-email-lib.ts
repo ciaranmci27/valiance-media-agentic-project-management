@@ -28,7 +28,7 @@ import { fromRfc822Head, inlineForwardedSender, isAttachedMessage, parseForwarde
 import { readCapped } from '../src/lib/communications/email/ingest';
 import { skippedReasonLabel } from '../src/lib/communications/inbox-types';
 import { verifySignatureHeader } from '../src/lib/webhooks/sign';
-import { attentionCounts, matchesSearch, needsAttention, snippetOf, tabCounts, threadFlags, threadInTab, type MessageState } from '../src/lib/communications/inbox-view';
+import { attentionCounts, codeIn, matchesSearch, needsAttention, snippetOf, tabCounts, threadFlags, threadInTab, type MessageState } from '../src/lib/communications/inbox-view';
 import { FakeResend, readEml, resendFixture } from './inbound-email-fixtures';
 
 let checks = 0;
@@ -152,7 +152,22 @@ async function main() {
   check(sort('no-reply@asana.com', '📅 You have 1 overdue task'), ['fyi', 'notification', 'update'], 'sort: an overdue task is not an account problem');
   check(sort('forwarding-noreply@google.com', 'Forwarding Confirmation - Receive Mail from x'), ['triage', 'notification', 'security'], 'sort: noreply inside the address; a forwarding confirmation is security');
   check(sort('billing@stripe.com', 'Your payment failed'), ['triage', 'notification', 'account_risk'], 'sort: a failed payment is triaged');
-  check(sort('receipts@vercel.com', 'Your receipt from Vercel #1234'), ['triage', 'notification', 'money'], 'sort: a receipt is triaged');
+  check(sort('receipts@vercel.com', 'Your receipt from Vercel #1234'), ['fyi', 'notification', 'receipt'], 'sort: a receipt is an update');
+  check(sort('billing@vercel.com', 'Invoice receipt: payment due Nov 3'), ['triage', 'notification', 'money'], 'sort: an invoice is money, never a receipt');
+  check(sort('updates@tool.example', 'Payment received, thank you', '', { autoMailReason: 'list: list-unsubscribe' }), ['fyi', 'notification', 'receipt'], 'sort: a receipt is never filtered as bulk mail');
+  // Codes and calendar replies, whoever sends them (TikTok mails through a client's Google Group).
+  check(sort('tiktok.happysoles@suitupbrands.com', '807155 is your verification code', '', { knownPerson: true }), ['ignore', 'notification', 'code'], 'sort: a one-time code goes to Codes, even through a client group');
+  check(sort('no-reply@shopify.com', 'Your Shopify login code'), ['ignore', 'notification', 'code'], 'sort: a login code');
+  check(sort('no-reply@okendo.io', 'Your one-time passcode', '', { filterAutoMail: false }), ['ignore', 'notification', 'code'], 'sort: a code waits in Codes even in an inbox that keeps bulk mail');
+  check(sort('no-reply@accounts.google.com', 'Critical security alert'), ['triage', 'notification', 'security'], 'sort: a security alert is never a code');
+  check(sort('no-reply@accounts.google.com', 'New sign-in: your verification code was used'), ['triage', 'notification', 'security'], 'sort: a new sign-in naming a code stays security');
+  check(sort('maria@suitupbrands.com', 'Fwd: 123456 is your verification code', '', { knownPerson: true }), ['triage', 'person', null], 'sort: a forwarded code is a person writing');
+  check(sort('shay@happyinnovations.com', 'Updated invitation: Customer service tickets @ Fri Oct 23, 2026', '', { knownPerson: true }), ['fyi', 'notification', 'calendar'], 'sort: an updated invitation is a calendar reply');
+  check(sort('dana@client.example', 'Accepted: Kickoff call @ Mon Nov 2', '', { knownPerson: true }), ['fyi', 'notification', 'calendar'], 'sort: an acceptance is a calendar reply');
+  check(sort('dana@client.example', 'Invitation: Kickoff call @ Mon Nov 2', '', { knownPerson: true }), ['triage', 'person', null], 'sort: a new invitation is still a person');
+  check(sort('dana@client.example', 'Re: Accepted: Kickoff call', '', { knownPerson: true }), ['triage', 'person', null], 'sort: a reply about a calendar reply is a person');
+  check(sort('workspacesupport@feedback.google.com', 'Quick reminder - [Managed user cannot sign in due to a conflicting unmanaged account] Your feedback matters for case #76845455'),
+    ['fyi', 'notification', 'survey'], 'sort: a support survey is an update, not security');
   check(sort('gemini-notes@google.com', 'Notes: “Q4 All-Hands Meeting” Oct 23, 2026'), ['triage', 'meeting_notes', null], 'sort: Gemini notes are meeting notes');
   check(sort('maria@suitupbrands.com', 'Re: Customer Support Update'), ['triage', 'person', null], 'sort: a person is triaged');
   check(sort('info@smallclient.example', 'Quick question about the site'), ['triage', 'person', null], 'sort: info@ is a person until headers say otherwise');
@@ -265,6 +280,30 @@ async function main() {
     threadFlags([machine({ status: 'handled', outcome: 'no_action' }), msg({ status: 'handled', outcome: 'no_action', kind: 'person' })]).update,
   ], [true, false, false, false, false], 'updates: machine FYI only; money, needs-you, unsorted and threads with a person stay in the Inbox');
   check([threadInTab(fyi, 'p', 'all'), threadInTab(fyi, 'p', 'updates'), threadInTab(fyi, null, 'unassigned')], [false, true, false], 'updates leave the Inbox and Unassigned');
+  // FYI: the latest email was read as needing nothing, and nothing waits.
+  const done = (extra: Partial<MessageState> = {}) => msg({ status: 'handled', outcome: 'no_action', kind: 'person', ...extra });
+  const chat = threadFlags([done({ category: 'work', outcome: 'task' }), done({ category: 'fyi' })]);
+  check([chat.fyi, threadInTab(chat, 'p', 'fyi'), threadInTab(chat, 'p', 'all'), threadInTab(chat, 'p', 'handled'), threadInTab(chat, null, 'unassigned')],
+    [true, true, false, false, false], 'fyi: a thank-you after finished work moves the thread to FYI, out of the Inbox and its filters');
+  check([
+    threadFlags([done({ category: 'fyi' }), done({ category: 'work' })]).fyi,
+    threadFlags([done({ category: 'fyi' }), done({ category: 'fyi', status: 'needs_human', outcome: 'needs_human' })]).fyi,
+    threadFlags([done({ category: 'fyi' }), msg({ status: 'new', outcome: null, kind: 'person' })]).fyi,
+    threadFlags([done({ category: 'fyi', outcome: 'needs_reply' })]).fyi,
+    threadFlags([done({ category: null })]).fyi,
+  ], [false, false, false, false, false], 'fyi: new work, anything waiting, a reply owed, or an older triage stays in the Inbox');
+  // Codes: every email a one-time code; Filtered keeps the rest.
+  const codes = threadFlags([msg({ status: 'ignored', outcome: null, kind: 'notification', topic: 'code' })]);
+  const pitch = threadFlags([msg({ status: 'ignored', outcome: 'no_action', kind: 'person', category: 'outreach' })]);
+  check([threadInTab(codes, null, 'codes'), threadInTab(codes, null, 'ignored'), threadInTab(codes, null, 'all'), threadInTab(pitch, null, 'ignored'), threadInTab(pitch, null, 'codes')],
+    [true, false, false, true, false], 'codes: one-time codes in Codes, not Filtered; a filtered pitch stays in Filtered');
+  check([
+    codeIn('807155 is your verification code', ''),
+    codeIn('G-482913 is your Google verification code', ''),
+    codeIn('Your Shopify login code', 'Hi,\n\nYour login code is: 448193\n\nIt expires in 10 minutes.'),
+    codeIn('Your Slack confirmation code', 'Your confirmation code is ABC-123'),
+    codeIn('Sign in to Notion', 'Use the code below to sign in.'),
+  ], ['807155', 'G-482913', '448193', 'ABC-123', null], 'codes: the code from the subject, else the text; none when neither shows one');
   check(needsAttention(threadFlags([msg({ status: 'new', outcome: null })])), false, 'new mail waits on the agent, not on a person');
   check(attentionCounts([
     threadFlags([msg({ status: 'needs_human', outcome: 'needs_human', urgent: true })]),

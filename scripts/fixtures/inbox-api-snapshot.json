@@ -21543,14 +21543,17 @@
   "total": 39,
   "counts": {
    "all": 39,
+   "fyi": 0,
+   "updates": 2,
+   "codes": 0,
+   "ignored": 4,
    "needs_you": 1,
    "needs_reply": 0,
    "new": 34,
-   "updates": 2,
-   "handled": 6,
-   "ignored": 4,
+   "handled": 5,
    "unassigned": 13
-  }
+  },
+  "latest_code": null
  },
  "threads": [
   {
@@ -21699,7 +21702,8 @@
      "plan": null,
      "reply_points": [],
      "reviewed_at": null,
-     "reviewed_by": null
+     "reviewed_by": null,
+     "repeat_pitch": false
     },
     {
      "id": "<message:Ashley/attach-8@acme-roofing.example>",
@@ -21812,7 +21816,8 @@
      "plan": null,
      "reply_points": [],
      "reviewed_at": null,
-     "reviewed_by": null
+     "reviewed_by": null,
+     "repeat_pitch": false
     },
     {
      "id": "<message:Ashley/dead-file@acme-roofing.example>",
@@ -21925,7 +21930,8 @@
      "plan": null,
      "reply_points": [],
      "reviewed_at": null,
-     "reviewed_by": null
+     "reviewed_by": null,
+     "repeat_pitch": false
     },
     {
      "id": "<message:Ashley/flaky@acme-roofing.example>",
@@ -22014,7 +22020,8 @@
      "plan": null,
      "reply_points": [],
      "reviewed_at": null,
-     "reviewed_by": null
+     "reviewed_by": null,
+     "repeat_pitch": false
     },
     {
      "id": "<message:Ashley/old-file@acme-roofing.example>",
@@ -22127,7 +22134,8 @@
      "plan": null,
      "reply_points": [],
      "reviewed_at": null,
-     "reviewed_by": null
+     "reviewed_by": null,
+     "repeat_pitch": false
     }
    ],
    "summary": null,
@@ -22253,7 +22261,8 @@
      "plan": null,
      "reply_points": [],
      "reviewed_at": null,
-     "reviewed_by": null
+     "reviewed_by": null,
+     "repeat_pitch": false
     }
    ],
    "summary": null,
@@ -22462,7 +22471,8 @@
      "reviewed_by": {
       "id": "<member:Rae>",
       "name": "Rae"
-     }
+     },
+     "repeat_pitch": false
     },
     {
      "id": "<message:Ashley/followup-2@acme-roofing.example>",
@@ -22530,7 +22540,8 @@
      "reviewed_by": {
       "id": "<member:Rae>",
       "name": "Rae"
-     }
+     },
+     "repeat_pitch": false
     },
     {
      "id": "<message:Ashley/forwarded@agency.example>",
@@ -22591,7 +22602,8 @@
      "reviewed_by": {
       "id": "<member:Rae>",
       "name": "Rae"
-     }
+     },
+     "repeat_pitch": false
     },
     {
      "id": "<message:Ashley/orig-1@agency.example>",
@@ -22665,7 +22677,8 @@
      "reviewed_by": {
       "id": "<member:Rae>",
       "name": "Rae"
-     }
+     },
+     "repeat_pitch": false
     },
     {
      "id": "<message:Ashley/pa-reply@acme-roofing.example>",
@@ -22720,7 +22733,8 @@
      "reviewed_by": {
       "id": "<member:Rae>",
       "name": "Rae"
-     }
+     },
+     "repeat_pitch": false
     },
     {
      "id": "<message:Ashley/two-inboxes@agency.example>",
@@ -22781,7 +22795,8 @@
      "reviewed_by": {
       "id": "<member:Rae>",
       "name": "Rae"
-     }
+     },
+     "repeat_pitch": false
     },
     {
      "id": "<message:Ashley/upper@agency.example>",
@@ -22842,7 +22857,8 @@
      "reviewed_by": {
       "id": "<member:Rae>",
       "name": "Rae"
-     }
+     },
+     "repeat_pitch": false
     }
    ],
    "summary": "Footer done; Dana is happy with it.",
@@ -22961,7 +22977,8 @@
      "plan": null,
      "reply_points": [],
      "reviewed_at": null,
-     "reviewed_by": null
+     "reviewed_by": null,
+     "repeat_pitch": false
     }
    ],
    "summary": null,
@@ -23073,7 +23090,8 @@
      "plan": null,
      "reply_points": [],
      "reviewed_at": null,
-     "reviewed_by": null
+     "reviewed_by": null,
+     "repeat_pitch": false
     }
    ],
    "summary": null,
@@ -23192,7 +23210,8 @@
      "plan": null,
      "reply_points": [],
      "reviewed_at": null,
-     "reviewed_by": null
+     "reviewed_by": null,
+     "repeat_pitch": false
     }
    ],
    "summary": null,
@@ -23284,7 +23303,8 @@
      "plan": null,
      "reply_points": [],
      "reviewed_at": null,
-     "reviewed_by": null
+     "reviewed_by": null,
+     "repeat_pitch": false
     }
    ],
    "summary": null,
@@ -23396,7 +23416,8 @@
      "plan": null,
      "reply_points": [],
      "reviewed_at": null,
-     "reviewed_by": null
+     "reviewed_by": null,
+     "repeat_pitch": false
     }
    ],
    "summary": null,
@@ -23506,7 +23527,8 @@
      "plan": null,
      "reply_points": [],
      "reviewed_at": null,
-     "reviewed_by": null
+     "reviewed_by": null,
+     "repeat_pitch": false
     }
    ],
    "summary": null,
@@ -23622,7 +23644,8 @@
      "plan": null,
      "reply_points": [],
      "reviewed_at": null,
-     "reviewed_by": null
+     "reviewed_by": null,
+     "repeat_pitch": false
     }
    ],
    "summary": null,
@@ -23751,7 +23774,8 @@
      "plan": null,
      "reply_points": [],
      "reviewed_at": null,
-     "reviewed_by": null
+     "reviewed_by": null,
+     "repeat_pitch": false
     }
    ],
    "summary": null,
@@ -23870,7 +23894,8 @@
      "plan": null,
      "reply_points": [],
      "reviewed_at": null,
-     "reviewed_by": null
+     "reviewed_by": null,
+     "repeat_pitch": false
     }
    ],
    "summary": null,
@@ -23985,7 +24010,8 @@
      "plan": null,
      "reply_points": [],
      "reviewed_at": null,
-     "reviewed_by": null
+     "reviewed_by": null,
+     "repeat_pitch": false
     }
    ],
    "summary": null,
@@ -24101,7 +24127,8 @@
      "plan": null,
      "reply_points": [],
      "reviewed_at": null,
-     "reviewed_by": null
+     "reviewed_by": null,
+     "repeat_pitch": false
     }
    ],
    "summary": null,
@@ -24217,7 +24244,8 @@
      "plan": null,
      "reply_points": [],
      "reviewed_at": null,
-     "reviewed_by": null
+     "reviewed_by": null,
+     "repeat_pitch": false
     }
    ],
    "summary": null,
@@ -24307,7 +24335,8 @@
      "plan": null,
      "reply_points": [],
      "reviewed_at": null,
-     "reviewed_by": null
+     "reviewed_by": null,
+     "repeat_pitch": false
     }
    ],
    "summary": null,
@@ -24411,7 +24440,8 @@
      "plan": null,
      "reply_points": [],
      "reviewed_at": null,
-     "reviewed_by": null
+     "reviewed_by": null,
+     "repeat_pitch": false
     }
    ],
    "summary": null,
@@ -24501,7 +24531,8 @@
      "plan": null,
      "reply_points": [],
      "reviewed_at": null,
-     "reviewed_by": null
+     "reviewed_by": null,
+     "repeat_pitch": false
     }
    ],
    "summary": null,
@@ -24593,7 +24624,8 @@
      "reviewed_by": {
       "id": "<ids.owner>",
       "name": "Sam"
-     }
+     },
+     "repeat_pitch": false
     }
    ],
    "summary": null,
@@ -24704,7 +24736,8 @@
      "plan": null,
      "reply_points": [],
      "reviewed_at": null,
-     "reviewed_by": null
+     "reviewed_by": null,
+     "repeat_pitch": false
     }
    ],
    "summary": null,
@@ -24800,7 +24833,8 @@
      "plan": null,
      "reply_points": [],
      "reviewed_at": null,
-     "reviewed_by": null
+     "reviewed_by": null,
+     "repeat_pitch": false
     }
    ],
    "summary": null,
@@ -24937,7 +24971,8 @@
      "plan": null,
      "reply_points": [],
      "reviewed_at": null,
-     "reviewed_by": null
+     "reviewed_by": null,
+     "repeat_pitch": false
     },
     {
      "id": "<message:Ashley/oversized-10b@birchpartners.example>",
@@ -25014,7 +25049,8 @@
      "plan": null,
      "reply_points": [],
      "reviewed_at": null,
-     "reviewed_by": null
+     "reviewed_by": null,
+     "repeat_pitch": false
     }
    ],
    "summary": null,
@@ -25122,7 +25158,8 @@
      "plan": null,
      "reply_points": [],
      "reviewed_at": null,
-     "reviewed_by": null
+     "reviewed_by": null,
+     "repeat_pitch": false
     }
    ],
    "summary": null,
@@ -25226,7 +25263,8 @@
      "plan": null,
      "reply_points": [],
      "reviewed_at": null,
-     "reviewed_by": null
+     "reviewed_by": null,
+     "repeat_pitch": false
     }
    ],
    "summary": null,
@@ -25364,7 +25402,8 @@
      "plan": null,
      "reply_points": [],
      "reviewed_at": null,
-     "reviewed_by": null
+     "reviewed_by": null,
+     "repeat_pitch": false
     }
    ],
    "summary": null,
@@ -25468,7 +25507,8 @@
      "plan": null,
      "reply_points": [],
      "reviewed_at": null,
-     "reviewed_by": null
+     "reviewed_by": null,
+     "repeat_pitch": false
     }
    ],
    "summary": null,
@@ -25566,7 +25606,8 @@
      "plan": null,
      "reply_points": [],
      "reviewed_at": null,
-     "reviewed_by": null
+     "reviewed_by": null,
+     "repeat_pitch": false
     }
    ],
    "summary": null,
@@ -25664,7 +25705,8 @@
      "plan": null,
      "reply_points": [],
      "reviewed_at": null,
-     "reviewed_by": null
+     "reviewed_by": null,
+     "repeat_pitch": false
     }
    ],
    "summary": null,
@@ -25770,7 +25812,8 @@
      "plan": null,
      "reply_points": [],
      "reviewed_at": null,
-     "reviewed_by": null
+     "reviewed_by": null,
+     "repeat_pitch": false
     }
    ],
    "summary": null,
@@ -25862,7 +25905,8 @@
      "plan": null,
      "reply_points": [],
      "reviewed_at": null,
-     "reviewed_by": null
+     "reviewed_by": null,
+     "repeat_pitch": false
     }
    ],
    "summary": null,
@@ -26002,7 +26046,8 @@
      "plan": null,
      "reply_points": [],
      "reviewed_at": null,
-     "reviewed_by": null
+     "reviewed_by": null,
+     "repeat_pitch": false
     }
    ],
    "summary": null,
@@ -26112,7 +26157,8 @@
      "plan": null,
      "reply_points": [],
      "reviewed_at": null,
-     "reviewed_by": null
+     "reviewed_by": null,
+     "repeat_pitch": false
     }
    ],
    "summary": null,
@@ -26217,7 +26263,8 @@
      "plan": null,
      "reply_points": [],
      "reviewed_at": null,
-     "reviewed_by": null
+     "reviewed_by": null,
+     "repeat_pitch": false
     },
     {
      "id": "<message:Ashley/tt-3@verastudio.example>",
@@ -26275,7 +26322,8 @@
      "plan": null,
      "reply_points": [],
      "reviewed_at": null,
-     "reviewed_by": null
+     "reviewed_by": null,
+     "repeat_pitch": false
     }
    ],
    "summary": null,
@@ -26394,7 +26442,8 @@
      "plan": null,
      "reply_points": [],
      "reviewed_at": null,
-     "reviewed_by": null
+     "reviewed_by": null,
+     "repeat_pitch": false
     }
    ],
    "summary": null,
@@ -26490,7 +26539,8 @@
      "plan": null,
      "reply_points": [],
      "reviewed_at": null,
-     "reviewed_by": null
+     "reviewed_by": null,
+     "repeat_pitch": false
     }
    ],
    "summary": null,
@@ -26582,7 +26632,8 @@
      "plan": null,
      "reply_points": [],
      "reviewed_at": null,
-     "reviewed_by": null
+     "reviewed_by": null,
+     "repeat_pitch": false
     }
    ],
    "summary": null,
@@ -26673,7 +26724,8 @@
      "plan": null,
      "reply_points": [],
      "reviewed_at": null,
-     "reviewed_by": null
+     "reviewed_by": null,
+     "repeat_pitch": false
     }
    ],
    "summary": null,
@@ -26777,7 +26829,8 @@
      "plan": null,
      "reply_points": [],
      "reviewed_at": null,
-     "reviewed_by": null
+     "reviewed_by": null,
+     "repeat_pitch": false
     }
    ],
    "summary": null,
@@ -26869,7 +26922,8 @@
      "plan": null,
      "reply_points": [],
      "reviewed_at": null,
-     "reviewed_by": null
+     "reviewed_by": null,
+     "repeat_pitch": false
     }
    ],
    "summary": null,

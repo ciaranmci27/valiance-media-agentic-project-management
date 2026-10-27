@@ -5,9 +5,11 @@ import { domainOf, organizationalDomain } from './email/addresses';
  * fixtures test it directly. It answers three things:
  * - kind: a person (or a teammate's forward of one), a teammate, AI meeting
  *   notes, an automatic notification, or marketing;
- * - topic, for machine mail: money (charges, invoices, receipts), account
- *   risk (failed payments, expired cards, suspensions), security, usage
- *   (plan limits, quotas), event, newsletter, promotion, or a plain update;
+ * - topic, for machine mail: money (charges, invoices), receipt (a payment
+ *   already made), account risk (failed payments, expired cards,
+ *   suspensions), security, usage (plan limits, quotas), event, newsletter,
+ *   promotion, survey, calendar (a reply to an invitation), code (a one-time
+ *   sign-in or verification code), or a plain update;
  * - action: ignore (Filtered, never triaged), fyi (triaged lightly, "needs
  *   you" only when the email itself asks for something), always (full
  *   triage), or triage (the default).
@@ -16,12 +18,17 @@ import { domainOf, organizationalDomain } from './email/addresses';
  * meeting notes are triaged; machine mail about money, account risk or
  * security is triaged; usage alerts, events, newsletters and promotions are
  * filtered; any other notification is FYI.
+ *
+ * Two kinds of mail read the same from anyone, a client's own calendar
+ * included: a one-time code goes straight to Codes (never triaged, never a
+ * security alert), and a calendar reply is an update. Neither when the
+ * subject is a reply or a forward: that is a person writing.
  */
 
 export const MAIL_KINDS = ['person', 'team', 'meeting_notes', 'notification', 'marketing'] as const;
 export type MailKind = typeof MAIL_KINDS[number];
 
-export const MAIL_TOPICS = ['money', 'account_risk', 'security', 'usage', 'event', 'newsletter', 'promotion', 'update'] as const;
+export const MAIL_TOPICS = ['money', 'account_risk', 'security', 'usage', 'event', 'newsletter', 'promotion', 'update', 'receipt', 'calendar', 'survey', 'code'] as const;
 export type MailTopic = typeof MAIL_TOPICS[number];
 
 export const RULE_ACTIONS = ['ignore', 'fyi', 'always'] as const;
@@ -71,6 +78,10 @@ const TOPIC_LABELS: Record<MailTopic, string> = {
   newsletter: 'a newsletter',
   promotion: 'a promotion',
   update: 'an automatic update',
+  receipt: 'a receipt',
+  calendar: 'a calendar reply',
+  survey: 'a survey',
+  code: 'a one-time code',
 };
 
 export function topicLabel(topic: MailTopic): string {
@@ -83,9 +94,9 @@ const MEETING_NOTE_SUBJECT = /^(notes:|meeting (notes|summary|recap)\b|summary o
 
 // Mailboxes no person reads.
 // Mailboxes no person reads. Not info@, hello@ or support@: small clients write from those.
-const AUTOMATED_LOCAL = /^(notifications?|notify|alerts?|mailer|news(letter)?|updates?|marketing|billing|receipts?|invoices?|system|automated|bounce)([._+-].*)?$|(^|[._+-])(no-?reply|do-?not-?reply|donotreply)([._+-]|$)/i;
+const AUTOMATED_LOCAL = /^(notifications?|notify|alerts?|mailer|news(letter)?|updates?|marketing|billing|receipts?|invoices?|system|automated|bounce|feedback|surveys?)([._+-].*)?$|(^|[._+-])(no-?reply|do-?not-?reply|donotreply)([._+-]|$)/i;
 // Bulk senders mail from a subdomain of their own (t.upwork.com, em.brand.com).
-const BULK_SUBDOMAIN = /^(t|e|em|email|mail|mailer|mg|mkt|news|newsletter|notify|notifications?|bounce|reply|messages?|comms)\d*\./i;
+const BULK_SUBDOMAIN = /^(t|e|em|email|mail|mailer|mg|mkt|news|newsletter|notify|notifications?|bounce|reply|messages?|comms|feedback|surveys?)\d*\./i;
 
 // Subject words, then stricter body phrases: mail footers carry "sign in",
 // "password" and prices, so the body only counts a clear statement.
@@ -96,9 +107,21 @@ const TOPIC_RULES: readonly { topic: MailTopic; subject: RegExp; body: RegExp }[
     body: /\b(payment (has )?(failed|was declined|was unsuccessful|could not be processed)|card (has )?(expired|was declined)|(is|are) past due|will be suspended|has been suspended|has been deactivated|service will (stop|be interrupted)|update your (payment method|billing details|card))\b/i,
   },
   {
+    // Before security: a survey about a support case quotes the case ("cannot sign in").
+    topic: 'survey',
+    subject: /\b(survey|your feedback matters|rate your (experience|support|recent)|how did we do|how was your (experience|support|visit|stay|order)|tell us (how we did|what you think))\b/i,
+    body: /\b(take (our|a|the) (short |quick |brief )?survey|share your feedback)\b/i,
+  },
+  {
     topic: 'security',
     subject: /\b(password|sign[- ]?in|log[- ]?in|verification code|security (alert|code|notice)|two[- ]factor|2fa|new device|suspicious|unusual activity|forwarding confirmation)\b/i,
     body: /\b(verification code|security alert|new sign[- ]?in|password (was )?(changed|reset)|suspicious (activity|sign[- ]?in)|unusual activity|requested to automatically forward)\b/i,
+  },
+  {
+    // A payment already made; an invoice (still to pay) is money.
+    topic: 'receipt',
+    subject: /^(?!.*\binvoice\b).*\b(receipt|payment (received|confirmation|confirmed|successful)|order (confirmation|confirmed)|thanks? (you )?for your (order|purchase|payment))\b/i,
+    body: /\b(this is your receipt|thank you for your (payment|purchase|order))\b/i,
   },
   {
     topic: 'money',
@@ -182,11 +205,32 @@ const DEFAULT_ACTION: Record<MailTopic, SortAction> = {
   newsletter: 'ignore',
   promotion: 'ignore',
   update: 'fyi',
+  receipt: 'fyi',
+  calendar: 'fyi',
+  survey: 'fyi',
+  code: 'ignore',
 };
 
+// One-time codes by their subject ("807155 is your verification code", "Your Shopify login code").
+const CODE_SUBJECT = /\b((verification|security|login|log-in|sign[- ]?in|one[- ]time|confirmation|access|authentication|two[- ]factor|2fa) code|pass ?code|one[- ]time pass(word|code)|otp)\b|\bis your\b.{0,40}\bcode\b/i;
+// A security alert names a code too, but it is about the account: never Codes.
+const NOT_A_CODE = /\b(alert|new (sign[- ]?in|device|login)|password (was )?(changed|reset)|recovery|suspicious|unusual|blocked|locked)\b/i;
+// Google Calendar and Outlook replies to an invitation. A new invitation is not one: someone may need to act.
+const CALENDAR_SUBJECT = /^\s*(accepted|declined|tentative(ly accepted)?|updated invitation|invitation updated|cancel+ed( event| invitation)?|event cancel+ed)( with note)?\s*:/i;
+const REPLY_OR_FORWARD = /^\s*(re|fwd?|fw|aw|wg)\s*:/i;
+
+/** A code or a calendar reply, whoever sent it; null for anything else. */
+function readsTheSame(subject: string): 'code' | 'calendar' | null {
+  if (REPLY_OR_FORWARD.test(subject)) return null;
+  if (CODE_SUBJECT.test(subject) && !NOT_A_CODE.test(subject)) return 'code';
+  if (CALENDAR_SUBJECT.test(subject)) return 'calendar';
+  return null;
+}
+
 export function sortEmail(input: SortInput): SortResult {
-  const machineTopic = topicOf(input.subject, input.text);
-  const kind = kindOf(input, machineTopic);
+  const same = readsTheSame(input.subject);
+  const machineTopic = same ?? topicOf(input.subject, input.text);
+  const kind = same ? 'notification' : kindOf(input, machineTopic);
   const machine = kind === 'notification' || kind === 'marketing';
   const topic = machine ? machineTopic : null;
 
@@ -204,7 +248,10 @@ export function sortEmail(input: SortInput): SortResult {
     return { kind, topic, action: 'triage', reason, rule_id: null };
   }
   const what = topicLabel(topic!);
-  const important = topic === 'money' || topic === 'account_risk' || topic === 'security';
+  // A code waits in Codes whatever the inbox does with bulk mail.
+  if (topic === 'code') return { kind, topic, action: 'ignore', reason: `In Codes: ${what}.`, rule_id: null };
+  // Never filtered as bulk mail: what is about money (paid or not), an account or security.
+  const important = topic === 'money' || topic === 'receipt' || topic === 'account_risk' || topic === 'security';
   let action = DEFAULT_ACTION[topic!];
   // Bulk mail the headers mark stays filtered, unless it is about money, an account problem or security.
   if (input.autoMailReason && input.filterAutoMail && !important) action = 'ignore';

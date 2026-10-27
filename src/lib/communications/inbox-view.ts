@@ -1,5 +1,6 @@
 import type { InboxTab, InboxTabCounts, MessageStatus, ThreadState, TriageOutcome, TrustLevel } from './inbox-types';
 import type { MailKind, MailTopic } from './sorting';
+import type { TriageCategory } from './outreach';
 import { INBOX_TABS } from './inbox-types';
 
 /**
@@ -17,6 +18,10 @@ import { INBOX_TABS } from './inbox-types';
  * you or a reply, nothing urgent, and nothing about money, an account
  * problem or security. Updates stay out of the Inbox view, like Filtered.
  * Mail from before sorting (no kind) always counts as the Inbox.
+ *
+ * A thread is FYI when the agent read its latest email as needing nothing
+ * (category fyi) and nothing waits on anyone; it is Codes when every email
+ * in it is a one-time code. Filtered holds the rest of the filtered mail.
  */
 
 export interface MessageState {
@@ -28,6 +33,8 @@ export interface MessageState {
   /** How sorting saw it; absent or null for mail from before sorting. */
   kind?: MailKind | null;
   topic?: MailTopic | null;
+  /** What the agent's latest triage read it as. */
+  category?: TriageCategory | null;
 }
 
 export interface ThreadFlags {
@@ -39,6 +46,10 @@ export interface ThreadFlags {
   untrusted: boolean;
   /** Only machine mail that asks nothing of anyone: the Updates view. */
   update: boolean;
+  /** A conversation the agent read as needing nothing: the FYI view. */
+  fyi: boolean;
+  /** Only one-time codes: the Codes view. */
+  code: boolean;
 }
 
 const ALWAYS_INBOX_TOPICS: readonly (MailTopic | null | undefined)[] = ['money', 'account_risk', 'security'];
@@ -50,6 +61,7 @@ export function messageNeedsReply(message: MessageState): boolean {
     && message.status !== 'ignored';
 }
 
+/** Messages oldest first: FYI reads the latest one. */
 export function threadFlags(messages: readonly MessageState[]): ThreadFlags {
   const needsYou = messages.some((message) => message.status === 'needs_human');
   const needsReply = messages.some(messageNeedsReply);
@@ -60,6 +72,7 @@ export function threadFlags(messages: readonly MessageState[]): ThreadFlags {
   const shown = messages.filter((message) => message.status !== 'ignored');
   const update = !needsYou && !needsReply && !urgent && shown.length > 0
     && shown.every((message) => (message.kind === 'notification' || message.kind === 'marketing') && !ALWAYS_INBOX_TOPICS.includes(message.topic));
+  const fyi = !needsYou && !needsReply && !hasNew && !urgent && !update && shown.length > 0 && shown[shown.length - 1].category === 'fyi';
   return {
     state,
     needs_you: needsYou,
@@ -69,21 +82,30 @@ export function threadFlags(messages: readonly MessageState[]): ThreadFlags {
     urgent,
     untrusted: messages.some((message) => message.trust === 'untrusted'),
     update,
+    fyi,
+    code: messages.length > 0 && messages.every((message) => message.topic === 'code'),
   };
+}
+
+function inInbox(flags: ThreadFlags): boolean {
+  return flags.state !== 'ignored' && !flags.update && !flags.fyi;
 }
 
 export function threadInTab(flags: ThreadFlags, projectId: string | null, tab: InboxTab): boolean {
   switch (tab) {
-    // The Inbox is what a person should see: Updates and Filtered wait in their own views.
-    case 'all': return flags.state !== 'ignored' && !flags.update;
+    // The Inbox is what a person should see: FYI, Updates, Codes and Filtered wait in their own views.
+    case 'all': return inInbox(flags);
+    case 'fyi': return flags.state !== 'ignored' && flags.fyi;
     case 'updates': return flags.state !== 'ignored' && flags.update;
+    case 'codes': return flags.code;
+    case 'ignored': return flags.state === 'ignored' && !flags.code;
+    // What waits on someone shows wherever it lives.
     case 'needs_you': return flags.needs_you;
     case 'needs_reply': return flags.needs_reply;
-    case 'new': return flags.has_new;
-    case 'handled': return flags.state === 'handled';
-    case 'ignored': return flags.state === 'ignored';
+    case 'new': return flags.has_new && !flags.code;
+    case 'handled': return flags.state === 'handled' && inInbox(flags);
     // Auto-mail is noise, not a mapping gap.
-    case 'unassigned': return !projectId && flags.state !== 'ignored' && !flags.update;
+    case 'unassigned': return !projectId && inInbox(flags);
   }
 }
 
@@ -130,6 +152,22 @@ export function attentionCounts(threads: readonly ThreadFlags[]): InboxAttention
     counts[level]++;
   }
   return counts;
+}
+
+/** How long the newest one-time code stays pinned at the top of the Inbox. */
+export const CODE_PIN_MINUTES = 10;
+
+// "807155 is your verification code", "G-482913 is your Google verification code".
+const CODE_IN_SUBJECT = /\b([A-Z]{1,3}-)?\d{4,8}\b/;
+// "Your code is: 4KQ-92B", "verification code 448193".
+const CODE_IN_TEXT = /\b(?:code|passcode|otp)\b(?:\s+is)?\s*:?\s*([A-Z0-9]{2,5}-?[A-Z0-9]{2,6})\b/i;
+
+/** The code itself, from the subject or else the opening text; null when neither shows one. */
+export function codeIn(subject: string, text: string | null | undefined): string | null {
+  const fromSubject = subject.match(CODE_IN_SUBJECT)?.[0];
+  if (fromSubject) return fromSubject;
+  const fromText = (text ?? '').slice(0, 1000).match(CODE_IN_TEXT)?.[1];
+  return fromText && /\d/.test(fromText) ? fromText : null;
 }
 
 /** Every word of the query appears somewhere in the haystack (case-insensitive). */

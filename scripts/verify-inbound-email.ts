@@ -862,6 +862,42 @@ async function main() {
     await triageOf(htmlOnly.id, { outcome: 'needs_reply', urgent: false, summary: 'Update header and footer', suggested_reply: 'Thanks Carla, on it.' });
     await inbox.sendBackToAgent(owner, htmlOnly.thread_id, null);
 
+    // The newest code is pinned while it is fresh, and only then.
+    const [single] = await rows(db, `SELECT m.id, m.thread_id, m.subject, m.status, m.kind, m.topic, m.received_at FROM communications.messages m
+      WHERE m.status = 'ignored' AND (SELECT count(*) FROM communications.messages o WHERE o.thread_id = m.thread_id) = 1 LIMIT 1`);
+    const asCode = (receivedAt: string) => db.query("UPDATE communications.messages SET topic='code', kind='notification', subject='807155 is your verification code', received_at=$2 WHERE id=$1",
+      [single.id, receivedAt]);
+    await asCode(new Date().toISOString());
+    const pinned = await inbox.listThreads(owner, allThreads);
+    await asCode(new Date(Date.now() - 11 * 60_000).toISOString());
+    const staleCode = await inbox.listThreads(owner, allThreads);
+    const codesTab = await inbox.listThreads(owner, { ...allThreads, tab: 'codes' });
+    check('codes: a fresh code is pinned with its code; a staleCode one is not; it lives in Codes, not Filtered',
+      pinned.latest_code?.thread_id === single.thread_id && pinned.latest_code?.code === '807155' && staleCode.latest_code === null
+      && codesTab.threads.some((t) => t.id === single.thread_id) && byId(pinned, single.thread_id) === undefined, [pinned.latest_code, staleCode.latest_code]);
+    await db.query('UPDATE communications.messages SET topic=$2, kind=$3, subject=$4, received_at=$5 WHERE id=$1', [single.id, single.topic, single.kind, single.subject, single.received_at]);
+
+    // A sender who pitched twice is offered a filter rule, until one exists.
+    const pair = await rows(db, `SELECT p.address, array_agg(p.message_id ORDER BY m.received_at) AS ids FROM communications.participants p
+      JOIN communications.messages m ON m.id = p.message_id WHERE p.kind = 'from' AND m.routing_basis = 'sender'
+      GROUP BY p.address HAVING count(DISTINCT m.thread_id) >= 2 LIMIT 1`);
+    const [firstId, secondId] = pair[0].ids as string[];
+    const before = await rows(db, 'SELECT id, status FROM communications.messages WHERE id = ANY($1)', [[firstId, secondId]]);
+    const pitchTriage = (id: string) => asService(db, () => db.query(
+      "INSERT INTO communications.triage (message_id, outcome, urgent, summary, category) VALUES ($1, 'no_action', false, 'A pitch', 'outreach')", [id]));
+    await pitchTriage(firstId);
+    await pitchTriage(secondId);
+    await db.query("UPDATE communications.messages SET status='ignored' WHERE id = ANY($1)", [[firstId, secondId]]);
+    const [secondThread] = await rows(db, 'SELECT thread_id FROM communications.messages WHERE id=$1', [secondId]);
+    const offered = (await inbox.threadDetail(owner, secondThread.thread_id)).messages.find((m) => m.id === secondId)?.repeat_pitch;
+    const ruleFor = await inboxRules.createSenderRule(owner, { match_kind: 'address', match_value: pair[0].address, topic: null, action: 'ignore', reason: 'Pitched more than once.', thread_id: null });
+    const offeredAfter = (await inbox.threadDetail(owner, secondThread.thread_id)).messages.find((m) => m.id === secondId)?.repeat_pitch;
+    check('repeat pitch: a second pitch from one sender offers a filter rule; once it exists, no offer', offered === true && offeredAfter === false, [offered, offeredAfter]);
+    // Back to how the tests below expect it.
+    await inboxRules.updateSenderRule(owner, ruleFor.rule.id, { enabled: false });
+    await asService(db, () => db.query("DELETE FROM communications.triage WHERE message_id = ANY($1) AND summary = 'A pitch'", [[firstId, secondId]]));
+    for (const row of before) await db.query('UPDATE communications.messages SET status=$2 WHERE id=$1', [row.id, row.status]);
+
     const carla = 'carla.mendes@gmail.com';
     check('inbox ui: an agent never creates a mapping (rule 7)', (await failsWith(() => inbox.setThreadProject(person(ids.ashley, 'agent', ['*']), htmlOnly.thread_id,
       { project_id: ids.acme, remember_sender: { address: carla, project_ids: [ids.acme] } }))) === 403);

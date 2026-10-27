@@ -526,6 +526,9 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
                   onPreview={isDemoMode ? undefined : setPreview}
                   onSendToAgent={canTriage ? () => void after(() => client.sendBack(detail.id, message.id), `Sent to ${agentName}`, 'send_back') : undefined}
                   onMoveToInbox={canTriage ? () => void after(() => client.moveToInbox(detail.id, message.id), `Moved to the Inbox. ${agentName} will read it in full.`, 'send_back') : undefined}
+                  onAlwaysFilter={canManageRules ? (address) => void after(() => client.createSenderRule({
+                    match_kind: 'address', match_value: address, topic: null, action: 'ignore', reason: 'Pitched more than once.',
+                  }), `Mail from ${address} goes straight to Filtered from now on.`, 'send_back') : undefined}
                   onRule={canManageRules ? () => setRuleFor(message) : undefined}
                   onAnswer={canTriage && !isDemoMode ? (text) => answerQuestion(message.id, text) : undefined}
                   busy={busy !== null}
@@ -747,7 +750,7 @@ function EmailText({ text }: { text: string }) {
   );
 }
 
-function MessageCard({ message, agentName, focused, busy, viewUrl, onSendToAgent, onMoveToInbox, onRule, onAnswer, onDownload, onPreview }: {
+function MessageCard({ message, agentName, focused, busy, viewUrl, onSendToAgent, onMoveToInbox, onAlwaysFilter, onRule, onAnswer, onDownload, onPreview }: {
   message: InboxMessage;
   agentName: string;
   focused: boolean;
@@ -758,6 +761,8 @@ function MessageCard({ message, agentName, focused, busy, viewUrl, onSendToAgent
   onSendToAgent?: () => void;
   /** A pitch the agent filtered goes back to the Inbox, its sender read in full from now on. */
   onMoveToInbox?: () => void;
+  /** A sender who keeps pitching: a rule filters their mail from now on. */
+  onAlwaysFilter?: (address: string) => void;
   /** Make or change the sender rule for this email's sender. */
   onRule?: () => void;
   /** Answer the agent's question; absent for members who only view. */
@@ -857,6 +862,11 @@ function MessageCard({ message, agentName, focused, busy, viewUrl, onSendToAgent
             {onRule && (
               <Button size="sm" variant="ghost" onClick={onRule} icon={<Filter size={12} aria-hidden="true" />}>
                 {message.sorting?.rule_id ? 'Change rule' : 'Make a rule'}
+              </Button>
+            )}
+            {pitch && message.repeat_pitch && onAlwaysFilter && shownFrom?.address && (
+              <Button size="sm" variant="ghost" disabled={busy} onClick={() => onAlwaysFilter(shownFrom.address)} icon={<Filter size={12} aria-hidden="true" />}>
+                Always filter this sender
               </Button>
             )}
             {pitch && onMoveToInbox ? (
