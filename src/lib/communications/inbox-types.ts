@@ -13,7 +13,7 @@ import type { TriageCategory } from './outreach';
  * filters: what waits on someone, wherever it lives, and the Inbox's handled
  * and unassigned threads.
  */
-export const INBOX_VIEWS = ['all', 'fyi', 'updates', 'codes', 'ignored'] as const;
+export const INBOX_VIEWS = ['all', 'fyi', 'updates', 'codes', 'ignored', 'everything'] as const;
 export const INBOX_FILTERS = ['needs_you', 'needs_reply', 'new', 'handled', 'unassigned'] as const;
 export const INBOX_TABS = [...INBOX_VIEWS, ...INBOX_FILTERS] as const;
 export type InboxTab = typeof INBOX_TABS[number];
@@ -24,6 +24,7 @@ export const INBOX_TAB_LABELS: Record<InboxTab, string> = {
   updates: 'Updates',
   codes: 'Codes',
   ignored: 'Filtered',
+  everything: 'All',
   needs_you: 'Needs you',
   needs_reply: 'Needs reply',
   new: 'New',

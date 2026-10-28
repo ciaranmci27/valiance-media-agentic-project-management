@@ -784,7 +784,7 @@ async function main() {
     // The Inbox leaves Updates and Filtered threads out; the three together are every thread.
     check('inbox ui: manage sees every thread in every inbox, newest activity first, Updates and Filtered apart',
       ownerList.total + ownerList.counts.updates + ownerList.counts.ignored === threadCount && ownerList.counts.all === ownerList.total
-      && ownerList.counts.ignored > 0 && ownerList.threads.every((t) => t.state !== 'ignored') && sortedDesc && ownerList.inboxes.length === 2,
+      && ownerList.counts.ignored > 0 && ownerList.counts.everything === threadCount && ownerList.threads.every((t) => t.state !== 'ignored') && sortedDesc && ownerList.inboxes.length === 2,
       { total: ownerList.total, updates: ownerList.counts.updates, ignored: ownerList.counts.ignored, threadCount, sortedDesc });
     const byId = (list: typeof ownerList, threadId: string) => list.threads.find((t) => t.id === threadId);
     check('inbox ui: needs you (untrusted, needs_human) and needs reply read from messages and triage',

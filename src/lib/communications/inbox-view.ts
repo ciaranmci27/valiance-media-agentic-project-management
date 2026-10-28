@@ -99,6 +99,8 @@ export function threadInTab(flags: ThreadFlags, projectId: string | null, tab: I
     case 'updates': return flags.state !== 'ignored' && flags.update;
     case 'codes': return flags.code;
     case 'ignored': return flags.state === 'ignored' && !flags.code;
+    // Every thread, wherever it was sorted: for finding an email.
+    case 'everything': return true;
     // What waits on someone shows wherever it lives.
     case 'needs_you': return flags.needs_you;
     case 'needs_reply': return flags.needs_reply;

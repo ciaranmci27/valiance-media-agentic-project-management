@@ -268,7 +268,7 @@ async function main() {
     { flags: threadFlags([msg({ outcome: 'needs_reply' })]), project_id: null },
     { flags: ignoredFlags, project_id: null },
   ]);
-  check([counts.all, counts.needs_you, counts.new, counts.needs_reply, counts.handled, counts.ignored, counts.unassigned], [2, 1, 1, 1, 0, 1, 1], 'tab counts (the Inbox leaves out Filtered)');
+  check([counts.all, counts.needs_you, counts.new, counts.needs_reply, counts.handled, counts.ignored, counts.unassigned, counts.everything], [2, 1, 1, 1, 0, 1, 1, 3], 'tab counts (the Inbox leaves out Filtered, All holds every thread)');
   // Updates: machine mail that asks nothing of anyone, never money, account or security mail.
   const machine = (extra: Partial<MessageState>, topic: MessageState['topic'] = 'update') => msg({ kind: 'notification', topic, ...extra });
   const fyi = threadFlags([machine({ status: 'handled', outcome: 'no_action' })]);

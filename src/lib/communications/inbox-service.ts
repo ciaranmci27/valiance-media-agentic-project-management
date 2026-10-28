@@ -252,6 +252,8 @@ function shownSender(
   return from ?? null;
 }
 
+interface TriageStateRow { id: string; message_id: string; outcome: TriageOutcome; urgent: boolean; category: TriageCategory | null; created_at: string }
+
 interface ThreadEntry {
   thread: ThreadRow;
   messages: StateMessageRow[];
@@ -263,28 +265,28 @@ interface ThreadEntry {
 /** Every thread in the given inboxes with its messages' states, newest activity first. */
 async function loadThreadEntries(service: SupabaseClient, inboxIds: string[], projectId: string | null): Promise<ThreadEntry[]> {
   if (inboxIds.length === 0) return [];
-  // A project's threads: every thread filed on it, whatever else it is filed on.
-  const onProject = projectId
-    ? new Set((await many<{ conversation_id: string }>(comms(service).from('conversation_projects')
-        .select('conversation_id').eq('project_id', projectId))).map((row) => row.conversation_id))
-    : null;
-  const threads = (await readIn<ThreadRow & Row>(inboxIds, (chunk, from, to, count) =>
-    ctxSelect(comms(service), 'conversations', 'id, inbox_id, subject_normalized, project_id, project_source, summary, last_message_at', count)
-      .in('inbox_id', chunk).order('id').range(from, to)))
-    .filter((thread) => !onProject || onProject.has(thread.id));
+  // One round: threads and their emails both read by inbox, each email with
+  // its triage and its From in the same request.
+  const [onProject, threadRows, messageRows] = await Promise.all([
+    // A project's threads: every thread filed on it, whatever else it is filed on.
+    projectId
+      ? many<{ conversation_id: string }>(comms(service).from('conversation_projects').select('conversation_id').eq('project_id', projectId))
+        .then((rows) => new Set(rows.map((row) => row.conversation_id)))
+      : Promise.resolve(null),
+    readIn<ThreadRow & Row>(inboxIds, (chunk, from, to, count) =>
+      ctxSelect(comms(service), 'conversations', 'id, inbox_id, subject_normalized, project_id, project_source, summary, last_message_at', count)
+        .in('inbox_id', chunk).order('id').range(from, to)),
+    readIn<StateMessageRow & Row & { triage: TriageStateRow[]; from_participant: { address: string; name: string }[] }>(inboxIds, (chunk, from, to, count) =>
+      ctxSelect(comms(service), 'messages', `id, thread_id, status, subject, received_at, auth, reviewed_at, kind, topic, ${ROUTING_COLUMNS}, `
+        + 'triage(id, message_id, outcome, urgent, category, created_at), from_participant:participants(address, name)', count)
+        .in('inbox_id', chunk).neq('status', 'receiving').eq('from_participant.kind', 'from').order('id').range(from, to)),
+  ]);
+  const threads = threadRows.filter((thread) => !onProject || onProject.has(thread.id));
   if (threads.length === 0) return [];
   const threadIds = new Set(threads.map((thread) => thread.id));
-  const messages = (await readIn<StateMessageRow & Row>(inboxIds, (chunk, from, to, count) =>
-    ctxSelect(comms(service), 'messages', `id, thread_id, status, subject, received_at, auth, reviewed_at, kind, topic, ${ROUTING_COLUMNS}`, count)
-      .in('inbox_id', chunk).neq('status', 'receiving').order('id').range(from, to)))
-    .filter((message) => threadIds.has(message.thread_id));
-  const messageIds = messages.map((message) => message.id);
-  const [triage, senders] = await Promise.all([
-    readIn<{ id: string; message_id: string; outcome: TriageOutcome; urgent: boolean; category: TriageCategory | null; created_at: string }>(messageIds, (chunk, from, to, count) =>
-      ctxSelect(comms(service), 'triage', 'id, message_id, outcome, urgent, category, created_at', count).in('message_id', chunk).order('id').range(from, to)),
-    readIn<{ id: string; message_id: string; address: string; name: string }>(messageIds, (chunk, from, to, count) =>
-      ctxSelect(comms(service), 'participants', 'id, message_id, address, name', count).in('message_id', chunk).eq('kind', 'from').order('id').range(from, to)),
-  ]);
+  const messages = messageRows.filter((message) => threadIds.has(message.thread_id));
+  const triage = messages.flatMap((message) => message.triage ?? []);
+  const senders = messages.flatMap((message) => (message.from_participant ?? []).slice(0, 1).map((from) => ({ message_id: message.id, ...from })));
   const latest = latestTriage(triage);
   const fromByMessage = new Map(senders.map((row) => [row.message_id, { name: row.name, address: row.address }]));
   const senderByMessage = new Map(messages.map((message) => [message.id, shownSender(message, fromByMessage.get(message.id))]));
@@ -384,6 +386,33 @@ async function emailReminders(ctx: InboxContext, messageIds: string[], openOnly:
   });
 }
 
+/** What a page of list rows shows beyond the thread: snippets, file counts, linked tasks and open reminders. */
+async function pageDetails(ctx: InboxContext, page: ThreadEntry[]) {
+  const latestIds = page.map((entry) => entry.messages[entry.messages.length - 1].id);
+  const pageMessageIds = page.flatMap((entry) => entry.messages.map((message) => message.id));
+  const [bodies, attachments, { links, liveTaskIds }, openReminders] = await Promise.all([
+    readIn<{ id: string; new_text: string | null; text_body: string | null }>(latestIds, (chunk, from, to, count) =>
+      ctxSelect(comms(ctx.service), 'messages', 'id, new_text, text_body', count).in('id', chunk).order('id').range(from, to)),
+    readIn<{ id: string; message_id: string; sha256: string | null }>(pageMessageIds, (chunk, from, to, count) =>
+      ctxSelect(comms(ctx.service), 'attachments', 'id, message_id, sha256', count).in('message_id', chunk).order('id').range(from, to)),
+    (async () => {
+      const links = await readIn<{ id: string; message_id: string; task_id: string }>(pageMessageIds, (chunk, from, to, count) =>
+        ctxSelect(comms(ctx.service), 'task_links', 'id, message_id, task_id', count).in('message_id', chunk).order('id').range(from, to));
+      // Counts only cover tasks the member can open and that are not in the trash.
+      const linkedTaskIds = [...new Set(links.map((link) => link.task_id))];
+      const liveTasks = linkedTaskIds.length
+        ? (await readIn<{ id: string; project_id: string }>(linkedTaskIds, (chunk, from, to, count) =>
+            ctxSelect(ctx.service, 'tasks', 'id, project_id', count).in('id', chunk).is('deleted_at', null).order('id').range(from, to)))
+            .filter((task) => accessAllowsProject(ctx.access, task.project_id))
+        : [];
+      return { links, liveTaskIds: new Set(liveTasks.map((task) => task.id)) };
+    })(),
+    // The open reminders these emails set, the same ones the thread shows.
+    emailReminders(ctx, pageMessageIds, true),
+  ]);
+  return { bodies, attachments, links, liveTaskIds, openReminders };
+}
+
 export async function listThreads(ctx: InboxContext, filters: ThreadListFilters): Promise<InboxThreadList> {
   if (!canReadInbox(ctx.access)) throw new InboxError(403, 'Forbidden');
   const readable = await readableInboxIds(ctx);
@@ -391,16 +420,10 @@ export async function listThreads(ctx: InboxContext, filters: ThreadListFilters)
   const projectId = filters.projectId ? assertId(filters.projectId, 'project_id') : null;
   if (inboxId && !readable.includes(inboxId)) throw new InboxError(403, 'You cannot read this inbox');
   const scope = inboxId ? [inboxId] : readable;
-  const [inboxes, entries] = await Promise.all([
-    inboxSummaries(ctx.service, readable),
-    loadThreadEntries(ctx.service, scope, projectId),
-  ]);
-  // Only reachable project names: search must not reveal another project's threads either.
-  const [names, filed] = await Promise.all([
-    projectNames(ctx, entries.map((entry) => entry.thread.project_id)),
-    threadProjects(ctx, entries.map((entry) => entry.thread.id)),
-  ]);
-  const inboxNames = new Map(inboxes.map((inbox) => [inbox.id, inbox.name]));
+  // The inbox names (with their handlers) are read alongside and awaited only once needed.
+  const inboxesRead = inboxSummaries(ctx.service, readable);
+  inboxesRead.catch(() => undefined);
+  const entries = await loadThreadEntries(ctx.service, scope, projectId);
   // The inbox for one task: threads with any email linked to it.
   let taskThreads: Set<string> | null = null;
   if (filters.taskId) {
@@ -410,40 +433,34 @@ export async function listThreads(ctx: InboxContext, filters: ThreadListFilters)
     taskThreads = new Set(entries.filter((entry) => entry.messages.some((message) => messageIds.has(message.id))).map((entry) => entry.thread.id));
   }
   const inTask = taskThreads ? entries.filter((entry) => taskThreads!.has(entry.thread.id)) : entries;
-  const searched = filters.search.trim()
+  // A search matches the projects threads are filed on, so it reads them for every
+  // thread first; the plain list reads them for its page only, alongside the rest.
+  // Only reachable project names: search must not reveal another project's threads either.
+  const [searchFiled, searchInboxes] = filters.search.trim()
+    ? await Promise.all([threadProjects(ctx, inTask.map((entry) => entry.thread.id)), inboxesRead])
+    : [null, null];
+  const searchInboxNames = new Map((searchInboxes ?? []).map((inbox) => [inbox.id, inbox.name]));
+  const searched = searchFiled
     ? inTask.filter((entry) => matchesSearch(filters.search, [
         ...entry.messages.map((message) => message.subject),
         ...entry.senders.flatMap((sender) => [sender.name, sender.address]),
-        ...(filed.get(entry.thread.id) ?? []).filter((project) => accessAllowsProject(ctx.access, project.id)).map((project) => project.name),
-        inboxNames.get(entry.thread.inbox_id),
+        ...(searchFiled.get(entry.thread.id) ?? []).filter((project) => accessAllowsProject(ctx.access, project.id)).map((project) => project.name),
+        searchInboxNames.get(entry.thread.inbox_id),
       ]))
     : inTask;
   const counts = tabCounts(searched.map((entry) => ({ flags: entry.flags, project_id: entry.thread.project_id })));
   const inTab = searched.filter((entry) => threadInTab(entry.flags, entry.thread.project_id, filters.tab));
-  // A search or a task looks for something else; the pinned code is for the plain list.
-  const latestCode = filters.search.trim() || filters.taskId ? null : await freshCode(ctx, inTask);
   const page = inTab.slice(filters.offset, filters.offset + filters.limit);
 
-  const latestIds = page.map((entry) => entry.messages[entry.messages.length - 1].id);
-  const pageMessageIds = page.flatMap((entry) => entry.messages.map((message) => message.id));
-  const [bodies, attachments, links] = await Promise.all([
-    readIn<{ id: string; new_text: string | null; text_body: string | null }>(latestIds, (chunk, from, to, count) =>
-      ctxSelect(comms(ctx.service), 'messages', 'id, new_text, text_body', count).in('id', chunk).order('id').range(from, to)),
-    readIn<{ id: string; message_id: string; sha256: string | null }>(pageMessageIds, (chunk, from, to, count) =>
-      ctxSelect(comms(ctx.service), 'attachments', 'id, message_id, sha256', count).in('message_id', chunk).order('id').range(from, to)),
-    readIn<{ id: string; message_id: string; task_id: string }>(pageMessageIds, (chunk, from, to, count) =>
-      ctxSelect(comms(ctx.service), 'task_links', 'id, message_id, task_id', count).in('message_id', chunk).order('id').range(from, to)),
+  const [inboxes, names, filed, latestCode, { bodies, attachments, links, liveTaskIds, openReminders }] = await Promise.all([
+    inboxesRead,
+    projectNames(ctx, page.map((entry) => entry.thread.project_id)),
+    searchFiled ?? threadProjects(ctx, page.map((entry) => entry.thread.id)),
+    // A search or a task looks for something else; the pinned code is for the plain list.
+    filters.search.trim() || filters.taskId ? null : freshCode(ctx, inTask),
+    pageDetails(ctx, page),
   ]);
-  // Counts only cover tasks the member can open and that are not in the trash.
-  const linkedTaskIds = [...new Set(links.map((link) => link.task_id))];
-  const liveTasks = linkedTaskIds.length
-    ? (await readIn<{ id: string; project_id: string }>(linkedTaskIds, (chunk, from, to, count) =>
-        ctxSelect(ctx.service, 'tasks', 'id, project_id', count).in('id', chunk).is('deleted_at', null).order('id').range(from, to)))
-        .filter((task) => accessAllowsProject(ctx.access, task.project_id))
-    : [];
-  const liveTaskIds = new Set(liveTasks.map((task) => task.id));
-  // The open reminders these emails set, the same ones the thread shows.
-  const openReminders = await emailReminders(ctx, pageMessageIds, true);
+  const inboxNames = new Map(inboxes.map((inbox) => [inbox.id, inbox.name]));
   const bodyById = new Map(bodies.map((row) => [row.id, row]));
   const threads: InboxThreadSummary[] = page.map((entry) => {
     const latest = entry.messages[entry.messages.length - 1];

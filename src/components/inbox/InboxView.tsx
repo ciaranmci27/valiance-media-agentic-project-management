@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/Button';
 import { Select } from '@/components/ui/inputs/Select';
 import { TextInput } from '@/components/ui/inputs/TextInput';
 import { inboxClient } from '@/lib/communications/inbox-client';
-import { INBOX_FILTERS, INBOX_TAB_LABELS, INBOX_TABS, isAgentChoice, type InboxSummary, type InboxTab, type InboxTabCounts, type InboxThreadSummary } from '@/lib/communications/inbox-types';
+import { INBOX_FILTERS, INBOX_TAB_LABELS, INBOX_TABS, INBOX_VIEWS, isAgentChoice, type InboxSummary, type InboxTab, type InboxTabCounts, type InboxThreadSummary } from '@/lib/communications/inbox-types';
 import { CODE_PIN_MINUTES, isInboxTab } from '@/lib/communications/inbox-view';
 import { timeAgo } from '@/lib/task-times';
 import { CopyValueButton } from '@/components/settings/EmailConnectChecklist';
@@ -19,7 +19,7 @@ import { Tooltip } from '@/components/ui/Tooltip';
 import { ThreadView } from './ThreadView';
 import type { InboxLatestCode, InboxThreadList } from '@/lib/communications/inbox-types';
 import { INBOX_PAGE_SIZE, inboxThreadRead, inboxThreadsRead, useIntent } from '@/lib/reads';
-import { loadRead, peekRead, setReadData, warmRead } from '@/lib/query-cache';
+import { loadRead, peekRead, setReadData, warmRead, warmReads } from '@/lib/query-cache';
 import { SenderRulesManager } from './SenderRulesManager';
 import { InboxEmptyState } from './InboxEmptyState';
 import { useInboxUpdates } from './use-inbox-updates';
@@ -65,6 +65,7 @@ const VIEW_NOTES: Partial<Record<InboxTab, string>> = {
   updates: 'Automatic mail nobody needs to act on.',
   codes: 'One-time sign-in and verification codes. No agent reads them.',
   ignored: 'Mail nobody needs to read: pitches, bulk mail and your rules.',
+  everything: 'Every email, wherever it was sorted.',
 };
 export interface InboxLink {
   thread?: string | null;
@@ -241,6 +242,25 @@ export function InboxView({ projectId, embedded = false, emptyState, searchQuery
 
   useEffect(() => { void load({ mode: 'reset' }); }, [load]);
 
+  // The list's other views and filters, loaded ahead of a pick: each then paints
+  // at once and refreshes behind itself, like a view seen before.
+  const warmTabs = useCallback((keys: readonly InboxTab[]) => {
+    if (!urlReady) return;
+    warmReads(keys.filter((key) => key !== tab).map((key) => inboxThreadsRead(
+      { inboxId: inboxId || null, projectId: activeProject, taskId: taskFilter || null, tab: key, search }, isDemoMode)));
+  }, [urlReady, inboxId, activeProject, taskFilter, tab, search, isDemoMode]);
+  // Once the list is up, the other views load in idle time; the filters wait for the menu.
+  useEffect(() => {
+    if (!hasLoaded || search) return;
+    const run = () => warmTabs(INBOX_VIEWS);
+    if (typeof window.requestIdleCallback === 'function') {
+      const handle = window.requestIdleCallback(run, { timeout: 3000 });
+      return () => window.cancelIdleCallback(handle);
+    }
+    const timer = window.setTimeout(run, 1500);
+    return () => window.clearTimeout(timer);
+  }, [hasLoaded, search, warmTabs]);
+
   // Live updates, one source: realtime and actions both fire the inbox event.
   useInboxUpdates(() => { void load({ mode: 'refresh' }); });
   const retry = () => void load(failedRef.current);
@@ -319,7 +339,9 @@ export function InboxView({ projectId, embedded = false, emptyState, searchQuery
         )}
         {/* Status first, then project, sharing the row; an inbox filter (several inboxes) takes the next row. */}
         <div className={`grid gap-2 ${lockedProject && !showInboxFilter ? 'grid-cols-1' : 'grid-cols-2'}`}>
-          <Select ariaLabel="Status" value={tab} onChange={(value) => isInboxTab(value) && setTab(value)} options={statusOptions} size="sm" />
+          <div {...intent(() => warmTabs(INBOX_TABS))}>
+            <Select ariaLabel="Status" value={tab} onChange={(value) => isInboxTab(value) && setTab(value)} options={statusOptions} size="sm" />
+          </div>
           {!lockedProject && (
             <Select ariaLabel="Project" value={projectFilter} onChange={setProjectFilter} options={projectOptions} searchable size="sm" />
           )}
