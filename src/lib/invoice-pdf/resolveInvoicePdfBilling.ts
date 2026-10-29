@@ -16,7 +16,7 @@ function toCents(value: number): number {
 }
 
 function money(value: number): string {
-  return `$${value.toLocaleString('en-US', {
+  return `${value < 0 ? '-' : ''}$${Math.abs(value).toLocaleString('en-US', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;

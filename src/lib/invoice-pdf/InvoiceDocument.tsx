@@ -395,7 +395,9 @@ export function InvoiceDocument({ data, theme = 'dark' }: { data: InvoicePdfData
             <View key={li.id} style={styles.tr} wrap={false}>
               <View style={styles.colDescription}>
                 <Text style={styles.tdDescription}>
-                  {li.description || (li.item_type === 'recurring'
+                  {li.description || (li.amount < 0
+                    ? 'Discount'
+                    : li.item_type === 'recurring'
                     ? 'Recurring charge'
                     : li.item_type === 'fixed'
                     ? 'Fixed charge'
@@ -407,7 +409,7 @@ export function InvoiceDocument({ data, theme = 'dark' }: { data: InvoicePdfData
               </View>
               <Text style={[styles.tdMono, styles.colQty]}>{qtyText}</Text>
               <Text style={[styles.tdMono, styles.colRate]}>{li.rateLabel}</Text>
-              <Text style={[styles.tdMono, styles.colAmount]}>${formatMoney(li.amount)}</Text>
+              <Text style={[styles.tdMono, styles.colAmount]}>{li.amount < 0 ? '-' : ''}${formatMoney(Math.abs(li.amount))}</Text>
             </View>
           );
         })}

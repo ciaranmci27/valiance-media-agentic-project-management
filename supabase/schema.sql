@@ -2165,8 +2165,9 @@ create trigger set_webhook_deliveries_updated_at
 -- Emits invoice.paid / invoice.updated / invoice.deleted events for
 -- paid-relevant invoices and fans out deliveries. See migration
 -- 20260725154128_create_webhooks.sql for the annotated version.
--- What the company keeps of an invoice after revenue splits. Only fixed and
--- recurring lines can carry a split; every other line is its full amount.
+-- What the company keeps of an invoice after revenue splits. Only positive
+-- fixed and recurring lines can carry a split; every other line, discounts
+-- included, is its full amount.
 create or replace function public.invoice_net_amounts(p_invoice public.project_invoices)
 returns jsonb
 language plpgsql
@@ -2197,6 +2198,7 @@ begin
           where share.invoice_id = p_invoice.id
             and share.line_item_id = li->>'id'
             and li->>'item_type' in ('fixed', 'recurring')
+            and (li->>'amount')::numeric > 0
         ), 0)) / 100),
         2
       ) as net_amount

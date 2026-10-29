@@ -223,7 +223,10 @@ export function ProjectOverview({ projectId, onOpenTask, onOpenTab, onOpenContac
               ))}
             </Skeleton>
           ) : needsYouCount === 0 ? (
-            <p className="text-sm text-zinc-500">Nothing is waiting on you here.</p>
+            // With reminders listed under Later, "nothing is waiting" would contradict them.
+            <p className="text-sm text-zinc-500">
+              {laterReminders.length > 0 ? 'Nothing due now.' : 'Nothing is waiting on you here.'}
+            </p>
           ) : (
             <div className="space-y-4">
               {dueReminders.length > 0 && (

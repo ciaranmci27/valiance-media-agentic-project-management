@@ -1024,12 +1024,13 @@ export default function FinancesPage() {
     )) {
       const dollarsThatDay =
         (spreadLineItem(line.item, line.fallbackDate).get(drilldownDay) ?? 0) * (1 - line.shareRatio);
-      if (dollarsThatDay <= 0) continue;
+      // A discount line is negative and comes off the same buckets.
+      if (dollarsThatDay === 0) continue;
       const perHourDollars = dollarsThatDay / 24;
       const isRecurring = line.item.item_type === 'recurring';
       for (let h = 0; h < 24; h++) {
         const vestedDollars = perHourDollars * hourVestingRatio(drilldownDay, h, now, preferredTimezone);
-        if (vestedDollars <= 0) continue;
+        if (vestedDollars === 0) continue;
         if (isRecurring) buckets[h].recurring += vestedDollars;
         else buckets[h].fixed += vestedDollars;
         bumpProject(buckets[h], line.projectId, isRecurring ? { recurring: vestedDollars } : { fixed: vestedDollars });

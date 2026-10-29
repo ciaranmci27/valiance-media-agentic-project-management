@@ -168,6 +168,8 @@ export default function RetainersModal({
       for (const line of ensureLineItems(invoice)) {
         if (line.item_type !== 'recurring' && line.item_type !== 'fixed') continue;
         if (line.retainer_id || !line.service_start_date || line.id.startsWith('legacy:')) continue;
+        // A discount is not a month of service a retainer could claim.
+        if ((Number(line.amount) || 0) <= 0) continue;
         result.push({
           key: `${invoice.id}:${line.id}`,
           invoice,

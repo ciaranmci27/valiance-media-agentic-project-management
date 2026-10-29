@@ -677,6 +677,7 @@ export function* iterDateKeys(startKey: string, endKey: string): Generator<strin
  * Spread a fixed or recurring line item's amount across the days it covers.
  * - Items with both service_start_date and service_end_date amortize evenly.
  * - Items without service dates fall on `fallbackDate` as a single-day amount.
+ * - A discount (a negative line) spreads the same way and subtracts.
  * Hourly and reimbursement items contribute nothing here.
  *
  * Returns a Map<YYYY-MM-DD, dollars>.
@@ -685,7 +686,7 @@ export function spreadLineItem(item: InvoiceLineItem, fallbackDate: string): Map
   const out = new Map<string, number>();
   if (item.item_type === 'hourly' || item.item_type === 'reimbursement') return out;
   const amount = Number(item.amount) || 0;
-  if (amount <= 0) return out;
+  if (amount === 0) return out;
 
   // Pick a start/end pair. If only one bound is set, treat the item as a
   // single-day charge on that date. If neither is set, fall back to the

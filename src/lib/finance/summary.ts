@@ -71,7 +71,8 @@ export function serviceAccrualLines(
         projectId: invoice.project_id,
         item,
         fallbackDate: invoice.date,
-        shareRatio: ratio(input.lineSharePercent?.get(lineShareKey(invoice.id, item.id)) ?? 0),
+        // A discount (negative line) never carries a split: it comes out of the company's share.
+        shareRatio: item.amount > 0 ? ratio(input.lineSharePercent?.get(lineShareKey(invoice.id, item.id)) ?? 0) : 0,
       });
     }
   }
@@ -264,7 +265,8 @@ export function computeFinanceData(input: FinanceEngineInput): FinanceData {
     for (const [dk, dollars] of spreadLineItem(line.item, line.fallbackDate)) {
       if (dk < startKey || dk > endKey) continue;
       const vested = dollars * (1 - line.shareRatio) * dayVestingRatio(dk, now, timezone);
-      if (vested <= 0) continue;
+      // A negative amount is a discount coming off the company's share, so only zero is skipped.
+      if (vested === 0) continue;
       if (!bucket.has(dk)) bucket.set(dk, new Map());
       const pmap = bucket.get(dk)!;
       pmap.set(line.projectId, (pmap.get(line.projectId) ?? 0) + vested);

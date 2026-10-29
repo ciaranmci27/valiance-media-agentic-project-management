@@ -1166,7 +1166,7 @@ export const endpoints: EndpointDoc[] = [
       { name: 'amount', type: 'number', required: true, description: 'Total; must equal the sum of line_items[].amount to the cent' },
       { name: 'status', type: 'draft|sent|paid|overdue|cancelled', required: false, description: 'Initial status (default draft)' },
       { name: 'invoice_type', type: 'hourly|fixed|recurring', required: false, description: 'Dominant invoice type (default hourly)' },
-      { name: 'line_items', type: 'InvoiceLineItem[]', required: true, description: 'Items with id, position, item_type, amount, description, service dates, and optional recurrence frequency' },
+      { name: 'line_items', type: 'InvoiceLineItem[]', required: true, description: 'Items with id, position, item_type, amount, description, service dates, and optional recurrence frequency. A fixed or recurring line may have a negative amount: a discount, which never carries a revenue split' },
       { name: 'time_allocations', type: 'TimeAllocation[]', required: false, description: 'Mappings with line_item_id, time_entry_id, start_offset_hours, allocated_hours, and allocated_amount' },
       { name: 'date', type: 'YYYY-MM-DD', required: true, description: 'Invoice date' },
       { name: 'due_date', type: 'YYYY-MM-DD|null', required: false, description: 'Due date' },
@@ -1205,7 +1205,7 @@ export const endpoints: EndpointDoc[] = [
     ],
   },
 
-  { method: 'GET', path: '/api/v1/invoices', description: 'For an accounting tool: every invoice the key can see, across projects, oldest first. Each has lines that always sum to amount (a line-less invoice gets one line keyed legacy:<id>; lines that do not add up get a fixed line keyed balance:<id> for the difference), tax_amount and total (amount plus tax at the project rate on every line but reimbursements, as the PDF shows), payments, paid_total and outstanding (total less payments), the project, and the customer (the primary client contact and the project billing email). Lines: key, type (hourly|fixed|recurring|reimbursement), description, amount, service_from, service_to, retainer_id. Amounts are dollars with two decimals. Paginated; read every page for a full snapshot.', group: 'Invoices',
+  { method: 'GET', path: '/api/v1/invoices', description: 'For an accounting tool: every invoice the key can see, across projects, oldest first. Each has lines that always sum to amount (a line-less invoice gets one line keyed legacy:<id>; lines that do not add up get a fixed line keyed balance:<id> for the difference), tax_amount and total (amount plus tax at the project rate on every line but reimbursements, as the PDF shows), payments, paid_total and outstanding (total less payments), the project, and the customer (the primary client contact and the project billing email). Lines: key, type (hourly|fixed|recurring|reimbursement), description, amount (negative for a discount), service_from, service_to, retainer_id. Amounts are dollars with two decimals. Paginated; read every page for a full snapshot.', group: 'Invoices',
     queryParams: [
       { name: 'status', type: 'string', description: 'Comma-separated statuses to include: draft, sent, paid, overdue, cancelled (default all)' },
       { name: 'project_id', type: 'uuid', description: 'Only this project' },

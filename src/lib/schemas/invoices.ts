@@ -9,7 +9,7 @@ export const invoiceLineItemSchema = z.object({
   id: z.string().min(1),
   position: z.number().int().min(0),
   item_type: invoiceLineItemTypeEnum,
-  amount: z.number().min(0),
+  amount: z.number(),
   description: z.string().default(''),
   service_start_date: z.string().nullable().default(null),
   service_end_date: z.string().nullable().default(null),
@@ -17,7 +17,11 @@ export const invoiceLineItemSchema = z.object({
   // Links the line to a project retainer. Kept optional so a PATCH that
   // round-trips line items does not strip the link (unknown keys are dropped).
   retainer_id: z.string().uuid().nullable().optional(),
-});
+}).refine(
+  // A negative fixed or recurring line is a discount; it never carries a split.
+  (line) => line.amount >= 0 || line.item_type === 'fixed' || line.item_type === 'recurring',
+  { message: 'Only fixed and recurring lines can be negative (a discount)', path: ['amount'] },
+);
 
 export const invoiceTimeAllocationSchema = z.object({
   line_item_id: z.string().min(1),

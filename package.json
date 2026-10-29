@@ -15,6 +15,7 @@
     "test:reminders-api": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-reminders-api.ts",
     "test:invoice-hours": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-invoice-hours.ts",
     "test:billing-plans": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-billing-plans.ts",
+    "test:finance-discounts": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-finance-discounts.ts",
     "test:billing-digest": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-billing-digest.ts",
     "test:invoice-payments": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-invoice-payments.ts && tsx --tsconfig tsconfig.mcp-test.json scripts/verify-invoice-payments-api.ts",
     "test:webhook-retries": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-webhook-retries.ts",

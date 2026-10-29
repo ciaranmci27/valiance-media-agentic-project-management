@@ -5,6 +5,7 @@ import { useState, useRef, useEffect, useMemo } from 'react';
 import {
   Receipt,
   Plus,
+  Minus,
   Edit2,
   Trash2,
   FileDown,
@@ -101,6 +102,11 @@ function formatCurrency(value: number): string {
     : value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+/** "$1,000" or, for a discount, "-$1,000". */
+function signedCurrency(value: number): string {
+  return `${value < 0 ? '-' : ''}$${formatCurrency(Math.abs(value))}`;
+}
+
 function formatHours(value: number): string {
   if (value > 0 && value < 0.0001) return '<0.0001';
   return value.toLocaleString('en-US', { maximumFractionDigits: 4 });
@@ -172,6 +178,11 @@ function fmtServicePeriod(start: string | null, end: string | null): string | nu
 
 function lineItemTypeLabel(type: InvoiceLineItemType): string {
   return type.charAt(0).toUpperCase() + type.slice(1);
+}
+
+/** Fixed and recurring lines: they carry service dates and splits, and may be negative (a discount). */
+function isServiceLine(li: Pick<InvoiceLineItem, 'item_type'>): boolean {
+  return li.item_type === 'fixed' || li.item_type === 'recurring';
 }
 
 function makeLineItem(defaultType: InvoiceLineItemType, position = 0): InvoiceLineItem {
@@ -640,8 +651,9 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
     const touched = touchedShareLinesRef.current;
     if (!canManageSplits || isDemoMode || touched.size === 0) return;
     try {
+      // A discount carries no split: it is never sent, and the database ignores any left on one.
       const splittable = new Set(
-        items.filter((li) => li.item_type === 'fixed' || li.item_type === 'recurring').map((li) => li.id),
+        items.filter((li) => isServiceLine(li) && li.amount > 0).map((li) => li.id),
       );
       const existing = await fetchInvoiceLineShares(retainerClient, invoiceId);
       const next = existing
@@ -668,6 +680,24 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
       const fresh = makeLineItem(defaultType, items.length);
       setAmountDrafts((d) => ({ ...d, [fresh.id]: '' }));
       return [...items, fresh];
+    });
+  };
+  // A discount sits right under the last charge it reduces and copies its type
+  // and service dates, so it lowers revenue in the same period. The amount
+  // starts as "-" for the user to finish.
+  const addDiscountLine = () => {
+    setFormLineItems((items) => {
+      const target = [...items].reverse().find((li) => isServiceLine(li) && li.amount > 0);
+      const fresh: InvoiceLineItem = {
+        ...makeLineItem(target?.item_type ?? 'fixed'),
+        description: 'Discount',
+        service_start_date: target?.service_start_date ?? null,
+        service_end_date: target?.service_end_date ?? null,
+        recurrence_frequency: target?.recurrence_frequency ?? null,
+      };
+      setAmountDrafts((d) => ({ ...d, [fresh.id]: '-' }));
+      const at = target ? items.indexOf(target) + 1 : items.length;
+      return [...items.slice(0, at), fresh, ...items.slice(at)].map((li, i) => ({ ...li, position: i }));
     });
   };
   // Insert (or replace) an unpaid-hours line item with the given amount /
@@ -928,7 +958,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
   };
 
   const validLineItems = (items: InvoiceLineItem[]) =>
-    items.filter((li) => (Number(li.amount) || 0) > 0 || li.description.trim().length > 0);
+    items.filter((li) => (Number(li.amount) || 0) !== 0 || li.description.trim().length > 0);
 
   const formTotal = lineItemsTotal(formLineItems);
 
@@ -937,8 +967,10 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
     if (formStatus === 'paid' && !formPaidDate) return false;
     const items = validLineItems(formLineItems);
     if (items.length === 0) return false;
+    // Discounts can bring the total down to zero, never below.
+    if (lineItemsTotal(items) < 0) return false;
     for (const li of items) {
-      if ((Number(li.amount) || 0) < 0) return false;
+      if ((Number(li.amount) || 0) < 0 && !isServiceLine(li)) return false;
       if (
         li.service_start_date &&
         li.service_end_date &&
@@ -1147,7 +1179,8 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
   // Render a single editable line item row
   const renderLineItem = (li: InvoiceLineItem, canDelete: boolean) => {
     const showFrequency = li.item_type === 'recurring';
-    const showServiceDates = li.item_type === 'fixed' || li.item_type === 'recurring';
+    const showServiceDates = isServiceLine(li);
+    const isDiscount = li.amount < 0 || (amountDrafts[li.id] ?? '').trim().startsWith('-');
     const linkedAllocations = formTimeAllocations.filter(
       (allocation) => allocation.line_item_id === li.id,
     );
@@ -1293,7 +1326,12 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
             />
           </div>
         )}
-        {canManageSplits && showServiceDates && (
+        {canManageSplits && showServiceDates && isDiscount && (
+          <p className="text-xs text-zinc-400">
+            A discount carries no split. It comes out of the company&apos;s share, and split members still earn on the full charge.
+          </p>
+        )}
+        {canManageSplits && showServiceDates && !isDiscount && (
           <InvoiceLineSplit
             lineAmount={Number(li.amount) || 0}
             splits={formLineShares[li.id]}
@@ -1346,12 +1384,17 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
         <div className="flex items-baseline justify-between">
           <span className="text-xs font-medium text-input-text-label">Line Items</span>
           <span className="text-xs font-medium text-input-text-label">
-            Total <span className="text-white">${formatCurrency(formTotal)}</span>
+            Total <span className="text-white">{signedCurrency(formTotal)}</span>
           </span>
         </div>
         <div className="space-y-2">
           {formLineItems.map((li) => renderLineItem(li, formLineItems.length > 1))}
         </div>
+        {formTotal < 0 ? (
+          <p role="alert" className="text-[11px] text-red-400">Discounts can bring the total to $0, not below.</p>
+        ) : formLineItems.some((li) => li.amount < 0 && !isServiceLine(li)) ? (
+          <p role="alert" className="text-[11px] text-red-400">Only fixed and recurring lines can be a discount.</p>
+        ) : null}
         <div className="flex items-center gap-3 flex-wrap">
           <button
             type="button"
@@ -1360,6 +1403,14 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
           >
             <Plus size={12} strokeWidth={2.5} />
             Add line
+          </button>
+          <button
+            type="button"
+            onClick={addDiscountLine}
+            className="inline-flex items-center gap-1 text-xs font-medium text-brand-300 hover:text-brand-300 transition-colors"
+          >
+            <Minus size={12} strokeWidth={2.5} aria-hidden="true" />
+            Add discount
           </button>
           {allUnpaidHoursDraft && !unpaidPickerOpen && formTimeAllocations.length === 0 && (
             <button
@@ -1881,7 +1932,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
                       <div className="min-w-0 space-y-1">
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium rounded bg-white/[0.06] text-zinc-300 capitalize">
-                            {lineItemTypeLabel(li.item_type)}
+                            {li.amount < 0 ? 'Discount' : lineItemTypeLabel(li.item_type)}
                           </span>
                           {li.item_type === 'recurring' && li.recurrence_frequency && (
                             <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium rounded bg-amber-500/15 text-amber-300 capitalize">
@@ -1893,7 +1944,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
                         {li.description && <p className="text-sm text-zinc-300 break-words">{li.description}</p>}
                       </div>
                       <span className="text-sm font-medium tabular-nums text-white flex-shrink-0">
-                        ${formatCurrency(li.amount)}
+                        {signedCurrency(li.amount)}
                       </span>
                     </li>
                   );

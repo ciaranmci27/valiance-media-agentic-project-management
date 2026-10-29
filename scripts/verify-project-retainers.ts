@@ -8,6 +8,7 @@ import { PGlite } from '@electric-sql/pglite';
 
 const MIGRATION = '../supabase/migrations/20260919050750_create_project_retainers.sql';
 const WEBHOOK_MIGRATION = '../supabase/migrations/20260919213826_webhook_amount_basis.sql';
+const DISCOUNT_MIGRATION = '../supabase/migrations/20261028223337_invoice_discount_lines.sql';
 
 async function main() {
   const db = new PGlite();
@@ -90,6 +91,9 @@ async function main() {
     const webhookMigration = await readFile(new URL(WEBHOOK_MIGRATION, import.meta.url), 'utf8');
     await db.exec(webhookMigration);
     await db.exec(webhookMigration); // safe to re-run
+    const discountMigration = await readFile(new URL(DISCOUNT_MIGRATION, import.meta.url), 'utf8');
+    await db.exec(discountMigration);
+    await db.exec(discountMigration);
     await db.exec(`CREATE TRIGGER emit_invoice_webhook AFTER INSERT OR UPDATE OR DELETE ON public.project_invoices
       FOR EACH ROW EXECUTE FUNCTION public.emit_invoice_webhook()`);
     await db.query(
@@ -172,6 +176,25 @@ async function main() {
     check((await one<{ n: number }>('SELECT count(*)::int n FROM webhook_events')).n, eventsBefore + 1, 'one event for a split change');
     const fixedBodies = await latestBodies(fixedInvoice);
     check([fixedBodies.net.data.totals_by_type, fixedBodies.gross.data.totals_by_type], [{ fixed: 600 }, { fixed: 800 }], 'net follows the split, gross does not');
+
+    // -- A discount line comes out of the company's share: the split member still earns on the full charge,
+    //    even when a split was somehow saved on the discount itself.
+    const discounted = randomUUID();
+    await db.query(
+      `INSERT INTO project_invoices(id, project_id, invoice_number, amount, status, invoice_type, date, line_items)
+       VALUES ($1, $2, 'INV-D1', 1000, 'sent', 'recurring', '2026-09-10', $3::jsonb)`,
+      [discounted, project, JSON.stringify([
+        { id: 'r1', position: 0, item_type: 'recurring', amount: 2000, description: 'Retainer' },
+        { id: 'd1', position: 1, item_type: 'recurring', amount: -1000, description: 'Discount' },
+      ])]);
+    await db.query('SELECT set_invoice_line_shares($1, $2::jsonb)', [discounted, JSON.stringify([
+      { line_item_id: 'r1', member_id: bystander, percent: 50 }, { line_item_id: 'd1', member_id: bystander, percent: 50 }])]);
+    await db.query("UPDATE project_invoices SET status = 'paid', paid_date = '2026-09-12' WHERE id = $1", [discounted]);
+    check(await rows("SELECT line_item_id, amount::text FROM team_member_share_earnings WHERE invoice_id = $1 AND voided_at IS NULL", [discounted]),
+      [{ line_item_id: 'r1', amount: '1000.00' }], 'the split member earns half the full charge');
+    const discountBodies = await latestBodies(discounted);
+    check([discountBodies.gross.data.invoice.amount, discountBodies.gross.data.totals_by_type], [1000, { recurring: 1000 }], 'gross is what the client pays');
+    check([discountBodies.net.data.invoice.amount, discountBodies.net.data.totals_by_type], [0, { recurring: 0 }], 'net: the discount is all the company share');
 
     // -- The job: nothing due mid September, October drafts the day before the 1st.
     check((await one<{ n: number }>("SELECT generate_retainer_drafts('2026-09-20') n")).n, 0, 'nothing due');

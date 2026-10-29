@@ -88,6 +88,9 @@ Notes:
 - `totals_by_type` sums `line_items` by `item_type` (`hourly`, `fixed`,
   `recurring`, `reimbursement`). If an invoice has no explicit line items, it
   falls back to `{ <invoice_type>: <amount> }`.
+- A `fixed` or `recurring` line can be negative: a discount. It never carries a
+  revenue split, so on a `net` endpoint it comes out of the company's share,
+  and a type's subtotal can be negative.
 - `paid` is a convenience boolean (`status === 'paid'`). On `invoice.updated`
   after an un-pay it is `false`; on `invoice.deleted` it reflects the last state.
 
