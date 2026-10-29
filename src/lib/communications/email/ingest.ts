@@ -178,7 +178,11 @@ async function matchInboxes(supabase: SupabaseClient, prepared: PreparedEmail): 
 }
 
 export async function ingestInbound(supabase: SupabaseClient, email: InboundEmail): Promise<IngestResult> {
-  const prepared = prepareEmail(email, { trustedAuthservIds: trustedAuthservIds() });
+  // Our own domains, so mail forwarded through them keeps the original's verdict.
+  const { data: domainRows, error: domainError } = await comms(supabase).from('own_domains').select('domain');
+  if (domainError) throw domainError;
+  const ownDomains = ((domainRows ?? []) as { domain: string }[]).map((row) => row.domain);
+  const prepared = prepareEmail(email, { trustedAuthservIds: trustedAuthservIds(), ownDomains });
   const targets = await matchInboxes(supabase, prepared);
   if (targets.length === 0) {
     // Logged only: there is no inbox to record it on, and nothing is stored.

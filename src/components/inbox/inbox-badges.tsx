@@ -1,6 +1,6 @@
 'use client';
 
-import { Plus, ShieldAlert, ShieldQuestion, Sparkles, X } from 'lucide-react';
+import { CircleHelp, Plus, Reply, ShieldAlert, ShieldQuestion, Sparkles, X, type LucideIcon } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { isAgentChoice, type ThreadProject, type ThreadState, type TrustLevel } from '@/lib/communications/inbox-types';
@@ -8,19 +8,23 @@ import { isAgentChoice, type ThreadProject, type ThreadState, type TrustLevel } 
 /** A project the member cannot open: the server sends no name for it. */
 export const OTHER_PROJECT = 'Another project';
 
-const STATE: Record<ThreadState, { label: string; variant: 'danger' | 'info' | 'warning' | 'success' | 'default'; hint: string }> = {
-  needs_you: { label: 'Needs you', variant: 'warning', hint: 'A decision only you can make' },
+const STATE: Record<ThreadState, { label: string; variant: 'danger' | 'info' | 'warning' | 'success' | 'default'; hint: string; icon?: LucideIcon }> = {
+  needs_you: { label: 'Needs you', variant: 'warning', hint: 'A decision only you can make', icon: CircleHelp },
   new: { label: 'New', variant: 'info', hint: 'Waiting for the agent to triage it' },
-  needs_reply: { label: 'Needs reply', variant: 'default', hint: 'Someone is waiting on your reply' },
+  needs_reply: { label: 'Needs reply', variant: 'default', hint: 'Someone is waiting on your reply', icon: Reply },
   handled: { label: 'Handled', variant: 'success', hint: 'Dealt with' },
   ignored: { label: 'Filtered', variant: 'default', hint: 'Nobody needs to read it: your mail rules, bulk mail, usage alerts, promotions, auto-replies' },
 };
 
 export function ThreadStateBadge({ state, tooltip = true }: { state: ThreadState; tooltip?: boolean }) {
   const config = STATE[state];
+  const Icon = config.icon;
   return (
     <Tooltip content={config.hint} disabled={!tooltip}>
-      <Badge variant={config.variant}>{config.label}</Badge>
+      <Badge variant={config.variant} className="gap-1">
+        {Icon && <Icon size={11} aria-hidden="true" />}
+        {config.label}
+      </Badge>
     </Tooltip>
   );
 }
@@ -158,15 +162,25 @@ export function ProjectChips({ projects, candidates, agentName, colorOf, onAdd, 
 
 /**
  * Untrusted senders are flagged loudly; unknown is a quiet note; trusted shows
- * nothing. No tooltip: where a reason exists it is shown as text (TrustNote).
+ * nothing. Compact is the shield alone (callers add a tooltip), named for
+ * screen readers. No tooltip here: where a reason exists it is shown as text
+ * (TrustNote).
  */
 export function TrustBadge({ level, compact = false }: { level: TrustLevel; compact?: boolean }) {
   if (level === 'trusted') return null;
   if (level === 'untrusted') {
+    if (compact) {
+      return (
+        <span className="inline-flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-red-500/[0.14] text-red-300 ring-1 ring-inset ring-red-400/30">
+          <ShieldAlert size={11} aria-hidden="true" />
+          <span className="sr-only">Untrusted sender</span>
+        </span>
+      );
+    }
     return (
       <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-red-500/[0.14] px-2 py-0.5 text-[11px] font-semibold text-red-300 ring-1 ring-inset ring-red-400/30">
         <ShieldAlert size={11} aria-hidden="true" />
-        {compact ? 'Untrusted' : 'Untrusted sender'}
+        Untrusted sender
       </span>
     );
   }

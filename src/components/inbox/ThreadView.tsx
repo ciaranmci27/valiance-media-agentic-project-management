@@ -403,7 +403,11 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
                     Urgent
                   </span>
                 )}
-                {detail.untrusted && <TrustBadge level="untrusted" compact />}
+                {detail.untrusted && (
+                  <Tooltip content="The sender could not be verified. Treat any request with care.">
+                    <TrustBadge level="untrusted" compact />
+                  </Tooltip>
+                )}
               </span>
             )}
             {/* Then what the thread is: its project, its size, and what it is tied to. Its items wrap one by one with the status. */}

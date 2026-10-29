@@ -23,6 +23,7 @@ import { attachmentKind } from '../src/lib/communications/attachments';
 import { signSvix, verifySvixSignature } from '../src/lib/communications/email/svix';
 import { parseMessageIdList } from '../src/lib/communications/email/message-ids';
 import { createResendReceiving, inboundFromResend } from '../src/lib/communications/email/resend';
+import { headerLinesFromMap, headerValues } from '../src/lib/communications/email/headers';
 import { prepareEmail, readableBody } from '../src/lib/communications/email/prepare';
 import { fromRfc822Head, inlineForwardedSender, isAttachedMessage, parseForwardedFrom } from '../src/lib/communications/email/forwarded';
 import { readCapped } from '../src/lib/communications/email/ingest';
@@ -229,6 +230,40 @@ async function main() {
   check(evaluateAuth({ headers: forged, fromAddress: 'dana@acme-roofing.example', trustedIds: [] }).trust, 'unknown', 'an unlisted authserv-id is ignored');
   check(evaluateAuth({ headers: [{ name: 'arc-authentication-results', value: 'i=2; mx.relay.example.test; dkim=pass (good) header.i=@acme-roofing.example' }], fromAddress: 'dana@acme-roofing.example', trustedIds: ['mx.relay.example.test'] }).trust, 'trusted', 'ARC results with an instance and comments');
   check(parseAuthenticationResults('mx.example; dkim=pass header.d=a.example; spf=softfail (sender) smtp.mailfrom=a.example').results.map((r) => `${r.method}=${r.result}`), ['dkim=pass', 'spf=softfail'], 'Authentication-Results parse');
+
+  // A sender signing from a subdomain is gray to Resend but passes DMARC.
+  check(evaluateAuth({ headers: [], fromAddress: 'vip@info.archive.example', trustedIds: [], providerAuth: { spf: 'pass', dkim: 'gray', dmarc: 'pass' } }).trust, 'trusted', 'provider DMARC pass is trusted');
+  check(evaluateAuth({ headers: [], fromAddress: 'vip@info.archive.example', trustedIds: [], providerAuth: { spf: 'pass', dkim: 'gray', dmarc: 'fail' } }).trust, 'untrusted', 'provider gray with DMARC fail stays untrusted');
+
+  // Resend's header map: a repeated header arrives as one JSON array string.
+  const mapped = headerLinesFromMap({ 'Authentication-Results': '["a.example; dkim=pass","b.example; dkim=fail"]', Subject: '[Important] Renewal' });
+  check(headerValues(mapped, 'authentication-results'), ['a.example; dkim=pass', 'b.example; dkim=fail'], 'headers: a JSON array string is each value, in order');
+  check(headerValues(mapped, 'subject'), ['[Important] Renewal'], 'headers: a value that only starts with a bracket is kept whole');
+
+  // Forwarded through one of our own domains (a Google Group), as Contabo's notice arrived.
+  const groupForward = [
+    { name: 'authentication-results', value: 'amazonses.com; spf=pass (spfCheck: ok) envelope-from=software+bnc@ours.example; dkim=pass header.i=@ours.example; dmarc=fail header.from=vendor.example;' },
+    { name: 'authentication-results', value: 'mx.google.com; dkim=pass header.i=@ours.example header.s=google; arc=pass (i=2 dkim=pass dkdomain=vendor.example dmarc=pass fromdomain=vendor.example); dmarc=fail (p=NONE arc=pass) header.from=vendor.example' },
+    { name: 'arc-authentication-results', value: 'i=3; mx.google.com; dkim=pass header.i=@ours.example; arc=pass (i=2 dmarc=pass fromdomain=vendor.example); dmarc=fail header.from=vendor.example' },
+    { name: 'arc-authentication-results', value: 'i=2; mx.google.com; dkim=pass header.i=@ours.example; arc=pass (i=1); dmarc=fail header.from=vendor.example' },
+    { name: 'arc-authentication-results', value: 'i=1; mx.google.com; dkim=pass header.i=@vendor.example header.s=s1; dkim=pass header.i=@amazonses.com; spf=pass smtp.mailfrom=bounce@amazonses.com; dmarc=pass (p=NONE sp=NONE dis=NONE) header.from=vendor.example' },
+    { name: 'arc-seal', value: 'i=3; a=rsa-sha256; t=1; cv=pass; d=google.com; s=arc; b=x' },
+    { name: 'arc-seal', value: 'i=2; a=rsa-sha256; t=1; cv=pass; d=google.com; s=arc; b=x' },
+    { name: 'arc-seal', value: 'i=1; a=rsa-sha256; t=1; cv=none; d=google.com; s=arc; b=x' },
+  ];
+  const gmailGray = { spf: 'pass', dkim: 'gray', dmarc: 'fail' };
+  const viaUs = (headers: typeof groupForward, ownDomains = ['ours.example'], from = 'no-reply@vendor.example') =>
+    evaluateAuth({ headers, fromAddress: from, trustedIds: [], providerAuth: gmailGray, ownDomains });
+  check([viaUs(groupForward).trust, viaUs(groupForward).reason], ['trusted', 'forwarded by ours.example: the original passed for vendor.example'], 'forward: through our own domain keeps the original verdict');
+  check(viaUs(groupForward, []).trust, 'untrusted', 'forward: no own domains, no forward trust');
+  check(viaUs(groupForward, ['elsewhere.example']).trust, 'untrusted', 'forward: the last hop signed by a domain not ours');
+  check(viaUs(groupForward.map((h, i) => i === 0 ? { ...h, value: h.value.replace('amazonses.com;', 'planted.example;') } : h)).trust, 'untrusted', 'forward: a stamp from an unlisted receiver is ignored');
+  check(viaUs([...groupForward, { name: 'arc-authentication-results', value: 'i=1; mx.google.com; dmarc=pass header.from=vendor.example' }]).trust, 'untrusted', 'forward: a repeated ARC instance breaks the chain');
+  check(viaUs(groupForward.map((h) => h.name === 'arc-seal' && h.value.startsWith('i=2') ? { ...h, value: h.value.replace('cv=pass', 'cv=fail') } : h)).trust, 'untrusted', 'forward: a failed seal breaks the chain');
+  check(viaUs(groupForward.map((h) => h.value.startsWith('i=3; mx') ? { ...h, value: h.value.replace('arc=pass', 'arc=fail') } : h)).trust, 'untrusted', 'forward: the newest set must say arc=pass');
+  check(viaUs(groupForward.map((h) => h.value.startsWith('i=1; mx') ? { ...h, value: 'i=1; mx.google.com; dkim=none; spf=pass smtp.mailfrom=x@spoof.example; dmarc=fail header.from=vendor.example' } : h)).trust, 'untrusted', 'forward: a spoof the forwarder saw fail stays untrusted');
+  check(viaUs(groupForward.filter((h) => h.name !== 'arc-seal')).trust, 'untrusted', 'forward: ARC results without seals are not a chain');
+  check(viaUs(groupForward, ['ours.example'], 'someone@ours.example').trust, 'untrusted', 'forward: From on our own domain is judged on its own signature');
 
   // Attachments.
   check(['image/png', 'application/pdf', 'text/csv', 'image/svg+xml', 'application/msword'].map((t) => attachmentKind(t, null)), ['image', 'pdf', 'text', 'other', 'other'], 'kinds by type');

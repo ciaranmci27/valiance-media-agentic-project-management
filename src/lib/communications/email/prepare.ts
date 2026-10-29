@@ -57,7 +57,7 @@ export function readableBody(text: string | null | undefined, html: string | nul
   return text && text.trim() ? text : htmlToText(html);
 }
 
-export function prepareEmail(email: InboundEmail, options: { trustedAuthservIds: readonly string[] }): PreparedEmail {
+export function prepareEmail(email: InboundEmail, options: { trustedAuthservIds: readonly string[]; ownDomains?: readonly string[] }): PreparedEmail {
   const fromAddress = normalizeAddress(email.from?.address);
   const recipients: PreparedRecipient[] = [];
   const seen = new Set<string>();
@@ -106,6 +106,7 @@ export function prepareEmail(email: InboundEmail, options: { trustedAuthservIds:
         headers: email.headers,
         fromAddress,
         trustedIds: options.trustedAuthservIds,
+        ownDomains: options.ownDomains,
         providerAuth: email.provider_auth,
       }),
       auto_mail_reason: detectAutoMail({ headers: email.headers, fromAddress }),

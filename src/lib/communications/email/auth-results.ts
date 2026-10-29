@@ -4,7 +4,10 @@ import { headerValues, type HeaderLine } from './headers';
 /**
  * Sender trust: trusted, untrusted or unknown.
  *
- * trusted: a DKIM signature passed and is aligned with the From domain.
+ * trusted: a DKIM signature passed and is aligned with the From domain, or
+ * the receiver's DMARC check passed (aligned DKIM or SPF, subdomains too),
+ * or the mail came through one of our own domains (a Google Group, a Gmail
+ * forward) whose ARC record shows the original passed.
  * untrusted: DKIM failed, is missing, or is not aligned with From. The
  * triage rules turn this into needs_human.
  * unknown: no result we can rely on. Passed to the agent as such; it does
@@ -16,8 +19,10 @@ import { headerValues, type HeaderLine } from './headers';
  *    server, "not from the message headers, so the sender cannot forge them"
  *    (https://resend.com/docs/api-reference/emails/retrieve-received-email).
  *    Its dkim `gray` means "not signed, or the signing domain does not match
- *    the From domain", so pass is aligned and fail/gray are untrusted;
- *    processing_failed/unknown stay unknown.
+ *    the From domain" exactly, so a sender signing from a subdomain
+ *    (cio123.info.example for info.example) is gray yet passes DMARC. DKIM
+ *    or DMARC pass is trusted, fail/gray are untrusted unless forwarded by
+ *    us (below); processing_failed/unknown stay unknown.
  * 2. Authentication-Results / ARC-Authentication-Results headers, but only
  *    those stamped by a receiver listed in INBOUND_EMAIL_TRUSTED_AUTHSERV_IDS
  *    (none by default). Anyone can write such a header into a message, so an
@@ -132,9 +137,70 @@ function dkimDomain(result: AuthMethodResult): string | null {
 function providerVerdict(auth: ProviderAuth): { trust: Trust; reason: string } {
   const dkim = (auth.dkim ?? '').toLowerCase();
   if (dkim === 'pass') return { trust: 'trusted', reason: 'provider: DKIM pass aligned with From' };
+  if ((auth.dmarc ?? '').toLowerCase() === 'pass') return { trust: 'trusted', reason: 'provider: DMARC pass for From' };
   if (dkim === 'fail') return { trust: 'untrusted', reason: 'provider: DKIM failed' };
   if (dkim === 'gray') return { trust: 'untrusted', reason: 'provider: not signed, or signed by a domain other than From' };
   return { trust: 'unknown', reason: `provider: DKIM ${dkim || 'not reported'}` };
+}
+
+// The receiving provider's own stamp. Resend receives on Amazon SES, which
+// puts its Authentication-Results above every header it was handed.
+const PROVIDER_RECEIVER_IDS = ['amazonses.com'];
+
+function tags(value: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const part of value.split(';')) {
+    const eq = part.indexOf('=');
+    if (eq > 0) out[part.slice(0, eq).trim().toLowerCase()] = part.slice(eq + 1).trim().toLowerCase();
+  }
+  return out;
+}
+
+function passedFor(results: readonly AuthMethodResult[], fromDomain: string): boolean {
+  const org = organizationalDomain(fromDomain);
+  return results.some((result) => result.result === 'pass' && (
+    (result.method === 'dmarc' && !!result.props['header.from'] && organizationalDomain(result.props['header.from']) === org)
+    || (result.method === 'dkim' && organizationalDomain(dkimDomain(result) ?? '') === org)
+  ));
+}
+
+/**
+ * Mail forwarded through one of our own domains (a Google Group, a Gmail
+ * forward) is re-signed on the way, so the original signature no longer
+ * lines up with From. The forwarder wrote down what it saw as it took the
+ * message in (ARC). That record is used, and the own domain returned, only
+ * when all of these hold:
+ * - the receiver's stamp (the first Authentication-Results from a listed
+ *   receiver, which it puts above anything it was handed) shows a DKIM pass
+ *   for one of our own domains, so the last hop really was us;
+ * - the ARC sets are one chain: instances 1 to N, each once, no seal with
+ *   cv=fail, and the newest set says arc=pass, so a set the sender planted
+ *   would break it;
+ * - the first set, written when the original sender handed it over, shows
+ *   DMARC or DKIM passing for the From domain.
+ */
+function forwardedByUs(headers: readonly HeaderLine[], fromDomain: string, ownDomains: readonly string[], receiverIds: readonly string[]): string | null {
+  const own = new Set(ownDomains.map((domain) => organizationalDomain(domain)));
+  if (own.size === 0 || own.has(organizationalDomain(fromDomain))) return null;
+  const receivers = new Set(receiverIds.map((id) => id.toLowerCase()));
+  const stamp = headerValues(headers, 'authentication-results')
+    .map(parseAuthenticationResults)
+    .find((parsed) => receivers.has(parsed.authservId));
+  const forwarder = stamp?.results
+    .filter((result) => result.method === 'dkim' && result.result === 'pass')
+    .map((result) => dkimDomain(result))
+    .find((domain): domain is string => !!domain && own.has(organizationalDomain(domain)));
+  if (!forwarder) return null;
+
+  const sets = headerValues(headers, 'arc-authentication-results').map(parseAuthenticationResults);
+  const seals = headerValues(headers, 'arc-seal').map(tags);
+  const instances = sets.map((set) => set.instance ?? 0).sort((a, b) => a - b);
+  if (instances.length === 0 || instances.some((instance, index) => instance !== index + 1)) return null;
+  if (seals.length !== instances.length || seals.some((seal) => seal.cv === 'fail')) return null;
+  const byInstance = new Map(sets.map((set) => [set.instance, set]));
+  const newest = byInstance.get(instances.length)!;
+  if (instances.length > 1 && !newest.results.some((result) => result.method === 'arc' && result.result === 'pass')) return null;
+  return passedFor(byInstance.get(1)!.results, fromDomain) ? organizationalDomain(forwarder) : null;
 }
 
 export function evaluateAuth(input: {
@@ -142,6 +208,8 @@ export function evaluateAuth(input: {
   fromAddress: string | null;
   trustedIds: readonly string[];
   providerAuth?: ProviderAuth | null;
+  /** Our own domains, for mail forwarded through them. */
+  ownDomains?: readonly string[];
 }): AuthVerdict {
   const authenticationResults = headerValues(input.headers, 'authentication-results');
   const arcResults = headerValues(input.headers, 'arc-authentication-results');
@@ -153,7 +221,11 @@ export function evaluateAuth(input: {
   };
 
   if (input.providerAuth) {
-    const verdict = providerVerdict(input.providerAuth);
+    let verdict = providerVerdict(input.providerAuth);
+    const forwarder = verdict.trust === 'untrusted' && fromDomain
+      ? forwardedByUs(input.headers, fromDomain, input.ownDomains ?? [], [...input.trustedIds, ...PROVIDER_RECEIVER_IDS])
+      : null;
+    if (forwarder) verdict = { trust: 'trusted', reason: `forwarded by ${forwarder}: the original passed for ${organizationalDomain(fromDomain!)}` };
     return {
       ...base,
       ...verdict,
