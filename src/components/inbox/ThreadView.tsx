@@ -5,7 +5,7 @@ import { loadRead, peekRead, setReadData } from '@/lib/query-cache';
 import { inboxThreadRead } from '@/lib/reads';
 import Link from 'next/link';
 import {
-  AlertTriangle, ArrowLeft, AlignLeft, Bell, Bot, Check, CheckCircle2, ChevronDown, Copy, Download, ExternalLink, Eye, FileText, Filter, Flame, Forward, HelpCircle, Image as ImageIcon, Inbox,
+  AlertTriangle, ArrowDown, ArrowLeft, AlignLeft, Bell, Bot, Check, CheckCircle2, ChevronDown, Copy, Download, ExternalLink, Eye, FileText, Filter, Flame, Forward, HelpCircle, Image as ImageIcon, Inbox,
   Loader2, MessageSquareReply, Paperclip, PenLine, Plus, RefreshCw, RotateCcw, ShieldOff, SquareCheck, Tag, Trash2, Undo2, X,
 } from 'lucide-react';
 import { useApp } from '@/lib/store';
@@ -30,6 +30,7 @@ import { ThreadProjectDialog } from './ThreadProjectDialog';
 import { LinkTaskDialog } from './LinkTaskDialog';
 import { SenderRuleDialog } from './SenderRuleDialog';
 import { DraftRequestDialog, ReplyDraftCard } from './ReplyDraft';
+import { DecisionCard } from './DecisionCard';
 import { ThreadAttachmentsDialog, threadAttachments } from './ThreadAttachmentsDialog';
 import { useInboxUpdates } from './use-inbox-updates';
 
@@ -98,7 +99,7 @@ const UNDOABLE = new Set(['create_task', 'update_task', 'comment', 'attach_file'
 export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: ThreadViewProps) {
   const { isDemoMode } = useDemo();
   const { projects, team, deleteTask, restoreRecord } = useApp();
-  const { access } = useAuth();
+  const { access, teamMemberId } = useAuth();
   const canTriage = hasPermission(access, 'inbound_email.triage') || hasPermission(access, 'inbound_email.manage');
   const canManageRules = hasPermission(access, 'inbound_email.manage') && !isDemoMode;
   const client = useMemo(() => inboxClient(isDemoMode), [isDemoMode]);
@@ -126,6 +127,21 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
     [preview],
   );
   const scrollRef = useRef<HTMLDivElement>(null);
+  // The decision card, and whether it shows in the thread's scroll area (else a pill brings it back).
+  const decisionNode = useRef<HTMLElement | null>(null);
+  const [decisionInView, setDecisionInView] = useState(true);
+  const decisionRef = useCallback((node: HTMLElement | null) => {
+    decisionNode.current = node;
+    if (!node) return;
+    // The thread's own scroll area (its ref may not be set yet when this first runs).
+    const root = node.closest<HTMLElement>('[data-thread-scroll]');
+    const observer = new IntersectionObserver(([entry]) => setDecisionInView(entry.isIntersecting), { root, threshold: 0.1 });
+    observer.observe(node);
+    return () => {
+      observer.disconnect();
+      setDecisionInView(true);
+    };
+  }, []);
   const scrolledFor = useRef<string | null>(null);
   // Only the newest request may write: a slow answer never overwrites a newer one.
   const requestRef = useRef(0);
@@ -274,6 +290,22 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
   }, [detail, focusMessageId]);
 
   const agentName = detail?.inbox.handler?.name ?? 'the agent';
+  // Done with the thread: the toast says which reply reminders it closed with it.
+  const markHandled = async () => {
+    setBusy('handled');
+    try {
+      const closed = (await client.markHandled(threadId)).closed_reminders ?? [];
+      const short = (title: string) => (title.length > 60 ? `${title.slice(0, 57)}...` : title);
+      toast('success', closed.length === 1 ? `Marked handled, and "${short(closed[0])}" is done`
+        : closed.length > 1 ? `Marked handled, and ${closed.length} reply reminders are done` : 'Marked handled');
+      await load(true);
+      announceInboxChange({ threadId });
+    } catch (err) {
+      toast('error', err instanceof Error ? err.message : 'That did not work');
+    } finally {
+      setBusy(null);
+    }
+  };
   const after = async (action: () => Promise<unknown>, success: string, kind: 'handled' | 'send_back') => {
     setBusy(kind);
     try {
@@ -374,7 +406,25 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
       toast('error', err instanceof Error ? err.message : 'Could not download the file');
     }
   };
+  // Drafts need an agent on the inbox, and the real app (not demo mode).
+  const canDraft = canTriage && !!detail.inbox.handler && !isDemoMode;
+  // The draft folds once it was used (copied, then the thread handled) or a newer email came in.
+  const draft = detail.reply_draft;
+  const draftFolded: 'used' | 'outdated' | null = draft?.status === 'ready' && draft.completed_at
+    ? draft.copied_at && detail.messages.some((m) => !!m.reviewed_at && Date.parse(m.reviewed_at) >= Date.parse(draft.copied_at!)) ? 'used'
+      : detail.messages.some((m) => Date.parse(m.received_at) > Date.parse(draft.completed_at!)) ? 'outdated' : null
+    : null;
+  const ownReplyReminder = detail.messages.some((m) => m.reminders.some((r) => r.mine && r.status === 'open' && /^reply to /i.test(r.title)));
+  // The newest email whose question still waits: answered in the card at the end of the thread.
+  const asking = canTriage && !isDemoMode && detail.state === 'needs_you'
+    ? [...detail.messages].reverse().find((m) => m.status === 'needs_human' && !!m.triage?.question_for_human && !m.answer && !m.reviewed_at) ?? null
+    : null;
+  // An answered decision stays as one line at the end until the thread is done.
+  const answered = !asking && canHandle
+    ? [...detail.messages].reverse().find((m) => !!m.triage?.question_for_human && !!m.answer) ?? null
+    : null;
   const menu: RowAction[] = [
+    ...(canDraft && !drafting ? [{ label: 'Draft a reply', icon: <PenLine size={14} aria-hidden="true" />, onClick: () => setDraftDialog(true) }] : []),
     ...(fileCount > 0 ? [{ label: `Attachments (${fileCount})`, icon: <Paperclip size={14} aria-hidden="true" />, onClick: () => setAttachmentsOpen(true) }] : []),
     ...(canManageRules ? [{ label: 'Filter mail like this', icon: <Filter size={14} aria-hidden="true" />, onClick: () => setRuleFor(latest) }] : []),
     ...(canSendBack ? [{ label: `Send back to ${agentName}`, icon: <RotateCcw size={14} aria-hidden="true" />, onClick: () => void after(() => client.sendBack(detail.id, null), `Sent back to ${agentName}`, 'send_back') }] : []),
@@ -454,20 +504,12 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
           </div>
           {canTriage ? (
             <div className="order-2 ml-auto flex flex-shrink-0 items-center gap-0.5 rounded-lg border border-white/[0.07] bg-white/[0.02] p-0.5">
-              {/* Drafts need an agent on the inbox, and the real app (not demo mode). */}
-              {detail.inbox.handler && !isDemoMode && (
-                // Icon only: the tooltip names it, and screen readers hear the label.
-                <Tooltip content={drafting ? `${agentName} is writing a draft` : `Draft a reply with ${agentName}`}>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="!rounded-md !px-1.5 !py-1.5"
-                    icon={drafting ? <Loader2 size={16} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <PenLine size={16} aria-hidden="true" />}
-                    disabled={drafting}
-                    onClick={() => setDraftDialog(true)}
-                  >
-                    <span className="sr-only">{drafting ? `${agentName} is writing a draft` : 'Draft reply'}</span>
-                  </Button>
+              {drafting && (
+                <Tooltip content={`${agentName} is writing a draft`}>
+                  <span className="inline-flex px-1.5 text-zinc-400">
+                    <Loader2 size={14} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />
+                    <span className="sr-only">{agentName} is writing a draft</span>
+                  </span>
                 </Tooltip>
               )}
               <RowActionsMenu actions={menu} label="More thread actions" triggerClassName="!rounded-md" />
@@ -480,7 +522,7 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
                   className="!rounded-md !py-1 text-zinc-100"
                   icon={busy === 'handled' ? <Loader2 size={13} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Check size={13} aria-hidden="true" />}
                   disabled={busy !== null}
-                  onClick={() => void after(() => client.markHandled(detail.id), 'Marked handled', 'handled')}
+                  onClick={() => void markHandled()}
                 >
                   Mark handled
                 </Button>
@@ -503,7 +545,7 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
       </div>
 
       {/* Messages */}
-      <div ref={scrollRef} className="relative min-h-0 flex-1 overflow-y-auto px-2 py-3 sm:px-5 sm:py-4">
+      <div ref={scrollRef} data-thread-scroll className="relative min-h-0 flex-1 overflow-y-auto px-2 py-3 sm:px-5 sm:py-4">
         <TaskUndoContext.Provider value={taskUndo}>
         <PlanActionsContext.Provider value={planActions}>
         <ProjectLabelsContext.Provider value={detail.projects.length > 1}>
@@ -535,6 +577,7 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
                   }), `Mail from ${address} goes straight to Filtered from now on.`, 'send_back') : undefined}
                   onRule={canManageRules ? () => setRuleFor(message) : undefined}
                   onAnswer={canTriage && !isDemoMode ? (text) => answerQuestion(message.id, text) : undefined}
+                  questionInPanel={asking?.id === message.id}
                   busy={busy !== null}
                   onDownload={(attachment) => void downloadAttachment(attachment)}
                 />
@@ -545,9 +588,76 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
         </ProjectLabelsContext.Provider>
         </PlanActionsContext.Provider>
         </TaskUndoContext.Provider>
-        {detail.reply_draft && (
+        {/* The end of the thread reads, then acts: the draft to use, and last the decision that waits. */}
+        {draft && (
           <div className="mt-4">
-            <ReplyDraftCard draft={detail.reply_draft} agentName={agentName} onAskAgain={canTriage ? () => setDraftDialog(true) : undefined} />
+            <ReplyDraftCard
+              key={draft.id}
+              draft={draft}
+              agentName={agentName}
+              folded={draftFolded}
+              onAskAgain={canTriage ? () => setDraftDialog(true) : undefined}
+              onCopied={canTriage && !draft.copied_at ? () => void client.markDraftCopied(detail.id, draft.id).then(() => load(true)).catch(() => undefined) : undefined}
+              onMarkHandled={canTriage && canHandle ? () => { if (busy === null) void markHandled(); } : undefined}
+              closesReminder={ownReplyReminder}
+              busy={busy !== null}
+            />
+          </div>
+        )}
+        {asking?.triage && (
+          <div className="mt-4">
+            <DecisionCard
+              key={asking.triage.id}
+              sectionRef={decisionRef}
+              triage={asking.triage}
+              agentName={agentName}
+              canDraft={canDraft && !drafting}
+              onSend={async (answer, draft) => {
+                // The draft is asked for first, so the answer never says one was asked for when it was not.
+                if (draft) {
+                  try {
+                    await client.requestDraft(detail.id, draft.instructions);
+                  } catch (err) {
+                    toast('error', err instanceof Error ? err.message : 'Could not ask for a draft, so nothing was sent');
+                    return false;
+                  }
+                }
+                return answerQuestion(asking.id, answer);
+              }}
+              onNothing={markHandled}
+            />
+          </div>
+        )}
+        {answered?.answer && (
+          <div className="mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border border-white/[0.07] bg-white/[0.02] px-4 py-2.5 text-xs">
+            <HelpCircle size={13} className="text-zinc-400" aria-hidden="true" />
+            <span className="font-medium text-zinc-200">{answered.answer.by && answered.answer.by.id !== teamMemberId ? `${answered.answer.by.name} answered` : 'You answered'}</span>
+            <span className="min-w-0 flex-1 truncate text-zinc-300" title={answered.answer.text}>{answered.answer.text.split(/\r?\n/)[0]}</span>
+            <span className="text-[11px] text-zinc-400">{formatFullTime(answered.answer.at)}</span>
+            {answered.status === 'new' && (
+              <span className="inline-flex items-center gap-1 text-[11px] text-zinc-400" role="status">
+                <Loader2 size={11} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />
+                With {agentName}
+              </span>
+            )}
+          </div>
+        )}
+        {/* While the decision card is out of view, a pill brings it back. */}
+        {asking && !decisionInView && (
+          <div className="pointer-events-none sticky bottom-2 z-10 mt-3 flex justify-center">
+            <button
+              type="button"
+              onClick={() => decisionNode.current?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' })}
+              // The Needs you badge's tint over the theme's own solid surface, so the email under it never shows through.
+              className="group/pill pointer-events-auto relative isolate overflow-hidden rounded-full bg-surface-overlay text-xs font-medium text-amber-300/90 shadow-lg shadow-black/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+            >
+              <span aria-hidden="true" className="absolute inset-0 -z-10 bg-amber-500/[0.14] transition-colors group-hover/pill:bg-amber-500/[0.22]" />
+              <span className="inline-flex items-center gap-1 px-2.5 py-1">
+                <HelpCircle size={11} aria-hidden="true" />
+                {agentName} needs a decision
+                <ArrowDown size={11} aria-hidden="true" />
+              </span>
+            </button>
           </div>
         )}
         <p className="mt-5 flex items-center justify-center gap-1.5 text-center text-[11px] text-zinc-400">
@@ -754,7 +864,7 @@ function EmailText({ text }: { text: string }) {
   );
 }
 
-function MessageCard({ message, agentName, focused, busy, viewUrl, onSendToAgent, onMoveToInbox, onAlwaysFilter, onRule, onAnswer, onDownload, onPreview }: {
+function MessageCard({ message, agentName, focused, busy, viewUrl, onSendToAgent, onMoveToInbox, onAlwaysFilter, onRule, onAnswer, questionInPanel, onDownload, onPreview }: {
   message: InboxMessage;
   agentName: string;
   focused: boolean;
@@ -771,6 +881,8 @@ function MessageCard({ message, agentName, focused, busy, viewUrl, onSendToAgent
   onRule?: () => void;
   /** Answer the agent's question; absent for members who only view. */
   onAnswer?: (text: string) => Promise<boolean>;
+  /** Its question is open in the decision card, so the note leaves it out. */
+  questionInPanel?: boolean;
   onDownload: (attachment: InboxAttachment) => void;
   onPreview?: (attachment: InboxAttachment) => void;
 }) {
@@ -910,7 +1022,7 @@ function MessageCard({ message, agentName, focused, busy, viewUrl, onSendToAgent
 
       {message.triage && noteMode && (
         <AgentNote messageId={message.id} triage={message.triage} agentName={agentName} linkedTasks={agentLinks} reminders={message.reminders} collapsed={noteMode === 'summary'} handled={!!message.reviewed_at}
-          answer={message.answer ?? null} waiting={message.status === 'new'} onAnswer={onAnswer} plan={message.plan ?? null} points={message.reply_points ?? []} />
+          answer={message.answer ?? null} waiting={message.status === 'new'} onAnswer={onAnswer} questionInPanel={!!questionInPanel} plan={message.plan ?? null} points={message.reply_points ?? []} />
       )}
       {message.sorting?.superseded_by && (
         <p className="mx-4 mb-3 text-[11px] text-zinc-400">Replaced by a newer alert from the same sender, so it no longer waits on anyone.</p>
@@ -1203,7 +1315,7 @@ function QuestionAnswer({ agentName, answer, waiting, onAnswer }: {
  * set, a question for you (amber until the thread is handled) and an old
  * suggested reply. Nothing repeats the email or spreads across the page.
  */
-function AgentNote({ messageId, triage, agentName, linkedTasks, reminders, collapsed, handled, answer, waiting, onAnswer, plan, points }: {
+function AgentNote({ messageId, triage, agentName, linkedTasks, reminders, collapsed, handled, answer, waiting, onAnswer, questionInPanel, plan, points }: {
   messageId: string;
   /** The plan behind this triage, when the agent planned it: its pills replace the task and reminder ones. */
   plan: InboxPlan | null;
@@ -1214,6 +1326,8 @@ function AgentNote({ messageId, triage, agentName, linkedTasks, reminders, colla
   /** The email is back with the agent (after an answer, say). */
   waiting: boolean;
   onAnswer?: (text: string) => Promise<boolean>;
+  /** The question is open in the decision card at the end of the thread. */
+  questionInPanel: boolean;
   triage: InboxTriage;
   agentName: string;
   linkedTasks: InboxMessage['linked_tasks'];
@@ -1296,7 +1410,7 @@ function AgentNote({ messageId, triage, agentName, linkedTasks, reminders, colla
             </ul>
           </NotePill>
         )}
-        {triage.question_for_human && (
+        {triage.question_for_human && !questionInPanel && (
           // Amber until the thread is handled or answered: a decision waits on you.
           <NotePill
             label={handled ? 'Question' : answer ? 'Answered' : 'Question for you'}

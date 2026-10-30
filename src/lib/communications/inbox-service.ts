@@ -3,6 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { AccessContext } from '@/lib/access-control';
 import { accessAllows, accessAllowsProject } from '@/lib/api/access';
 import { fetchAllRows } from '@/lib/supabase/fetch-all';
+import { getActorClient } from '@/lib/api/supabase-service';
 import { siteConfig } from '@/site-config';
 import { domainOf, normalizeAddress, organizationalDomain } from './email/addresses';
 import { attachmentKind } from './attachments';
@@ -15,7 +16,7 @@ import type {
   InboxAttachment, InboxCandidate, InboxReminder, InboxSorting, TaskLinkRelation, InboxLinkedTask, InboxMessage, InboxPerson, InboxSummary, InboxTab,
   InboxLatestCode, InboxThreadDetail, InboxThreadList, InboxThreadSummary, MessageStatus, ProjectSource, RememberableSender, RoutingBasis,
   SetThreadProjectRequest, SetThreadProjectResult, TaskSourceEmails, ThreadProject, TriageOutcome, TrustLevel,
-  InboxPlan, InboxPlanItem, InboxReplyPoint,
+  InboxPlan, InboxPlanItem, InboxReplyPoint, InboxQuestion,
 } from './inbox-types';
 import type { TriageCategory } from './outreach';
 import { comms } from '@/lib/communications/db';
@@ -628,7 +629,7 @@ export async function threadDetail(ctx: InboxContext, threadId: string): Promise
       ctxSelect(comms(service), 'attachments', 'id, message_id, position, filename, content_type, size_bytes, sha256, skipped_reason, uploaded_at, agent_label, content_id', count)
         .in('message_id', chunk).order('id').range(from, to)),
     readIn<Row & { id: string; message_id: string; created_at: string }>(ids, (chunk, from, to, count) =>
-      ctxSelect(comms(service), 'triage', 'id, message_id, member_id, outcome, urgent, summary, question_for_human, suggested_reply, category, created_at', count)
+      ctxSelect(comms(service), 'triage', 'id, message_id, member_id, outcome, urgent, summary, question_for_human, questions, suggested_reply, category, created_at', count)
         .in('message_id', chunk).order('id').range(from, to)),
     readIn<Row & { message_id: string; task_id: string }>(ids, (chunk, from, to, count) =>
       ctxSelect(comms(service), 'task_links', 'id, message_id, task_id, relation, triage_id, created_at', count).in('message_id', chunk).order('id').range(from, to)),
@@ -744,6 +745,7 @@ export async function threadDetail(ctx: InboxContext, threadId: string): Promise
         urgent: Boolean(triageRow.urgent),
         summary: triageRow.summary as string,
         question_for_human: (triageRow.question_for_human as string | null) ?? null,
+        questions: (triageRow.questions as InboxQuestion[] | null) ?? null,
         suggested_reply: (triageRow.suggested_reply as string | null) ?? null,
         category: (triageRow.category as TriageCategory | null) ?? null,
         member: memberId ? { id: memberId, name: people.get(memberId) ?? 'Agent' } : null,
@@ -786,6 +788,7 @@ export async function threadDetail(ctx: InboxContext, threadId: string): Promise
           remind_on: reminder.remind_on ? String(reminder.remind_on).slice(0, 10) : null,
           status: reminder.status as 'open' | 'done',
           task_id: (reminder.task_id as string | null) ?? null,
+          mine: reminder.owner_id === ctx.memberId,
         })),
       plan: plans.forMessage(id, (projectId) => projectLabel(ctx, names, projectId), (taskId) => {
         const task = tasks.find((t) => t.id === taskId);
@@ -1000,9 +1003,11 @@ export async function removeThreadProject(ctx: InboxContext, threadId: string, p
 /**
  * A person dealt with the thread: what waited on the agent or on a person
  * becomes handled, and every message counts as reviewed (which clears Needs
- * reply). Auto-mail stays ignored.
+ * reply). Auto-mail stays ignored. The replies it owed are done too: the
+ * person's own open "Reply to ..." reminders its emails set close (as theirs,
+ * in the team log); every other reminder stays, and so does anyone else's.
  */
-export async function markThreadHandled(ctx: InboxContext, threadId: string): Promise<{ handled: number; reviewed: number }> {
+export async function markThreadHandled(ctx: InboxContext, threadId: string): Promise<{ handled: number; reviewed: number; closed_reminders: string[] }> {
   assertCanTriage(ctx.access);
   const thread = await loadReadableThread(ctx, threadId);
   const now = new Date().toISOString();
@@ -1011,7 +1016,17 @@ export async function markThreadHandled(ctx: InboxContext, threadId: string): Pr
   const reviewed = await many<{ id: string }>(comms(ctx.service).from('messages')
     .update({ reviewed_at: now, reviewed_by: ctx.memberId })
     .eq('thread_id', thread.id).eq('status', 'handled').is('reviewed_at', null).select('id'));
-  return { handled: handled.length, reviewed: reviewed.length };
+  // The same open reminders the thread shows (none on a task or project in Trash), read in batches.
+  const messageIds = (await many<{ id: string }>(comms(ctx.service).from('messages').select('id').eq('thread_id', thread.id))).map((row) => row.id);
+  const replies = (await emailReminders(ctx, messageIds, true))
+    .filter((row) => row.owner_id === ctx.memberId && /^reply to /i.test(String(row.title)));
+  let closed: { id: string; title: string }[] = [];
+  if (replies.length) {
+    closed = await many<{ id: string; title: string }>(getActorClient(ctx.memberId, 'app').from('reminders')
+      .update({ status: 'done', completed_at: now, completed_by: ctx.memberId })
+      .in('id', replies.map((row) => row.id)).eq('status', 'open').is('deleted_at', null).select('id, title'));
+  }
+  return { handled: handled.length, reviewed: reviewed.length, closed_reminders: closed.map((row) => row.title) };
 }
 
 /** Back to the agent: the message (the newest one by default) is New again and she re-triages it. */

@@ -5,6 +5,7 @@ import { compactLinks } from './email/display';
 import { htmlToText } from './email/html-text';
 import { isGoneError, type AccessibleMessage } from './agent-access';
 import { comms } from '@/lib/communications/db';
+import { liveTaskIds } from '@/lib/api/task-guards';
 
 /**
  * What the agent API returns. Reads are plain queries joined here (no
@@ -374,9 +375,17 @@ export async function messageDetail(supabase: SupabaseClient, message: Accessibl
   const questionOf = new Map(askedRows.map((row) => [row.id as string, row.question_for_human as string | null]));
   const answererName = new Map(answerers.map((member) => [member.id, member.name]));
   const taskIds = [...new Set(links.map((link) => link.task_id as string))];
-  const tasks = taskIds.length
-    ? await rows<Row>(supabase.from('tasks').select('id, title, status, ai_readiness, project_id').in('id', taskIds).is('deleted_at', null))
-    : [];
+  // A linked task in Trash (or in a project or under a parent in Trash) is
+  // still named, marked in_trash: a person removed it, and the agent must
+  // not read it, change it or make it again from the same ask.
+  const [tasks, live] = taskIds.length
+    ? await Promise.all([
+        // includes-deleted: a task in Trash is reported as in_trash, never opened
+        rows<Row>(supabase.from('tasks').select('id, title, status, ai_readiness, project_id, project:projects(deleted_at)').in('id', taskIds)),
+        liveTaskIds(supabase, taskIds),
+      ])
+    : [[], new Set<string>()];
+  const inTrash = (task: Row) => !live.has(task.id as string) || !!(task.project as { deleted_at: string | null } | null)?.deleted_at;
   const [names, addresses, forwarders, filed, scope] = await Promise.all([
     projectNames(supabase, [thread.data.project_id, ...candidates.map((row) => row.project_id as string), ...tasks.map((task) => task.project_id as string)]),
     projectAddresses(supabase, [thread.data.project_address_id]),
@@ -428,9 +437,11 @@ export async function messageDetail(supabase: SupabaseClient, message: Accessibl
         .filter((link) => link.message_id === row.id)
         .map((link) => {
           const task = tasks.find((t) => t.id === link.task_id);
+          const trashed = !task || inTrash(task);
           return {
-            task_id: link.task_id, relation: link.relation, title: task?.title ?? null, status: task?.status ?? null, ai_readiness: task?.ai_readiness ?? null,
+            task_id: link.task_id, relation: link.relation, title: task?.title ?? null, status: trashed ? null : task.status ?? null, ai_readiness: trashed ? null : task.ai_readiness ?? null,
             project_id: task?.project_id ?? null, project_name: task ? names.get(task.project_id as string) ?? null : null,
+            in_trash: trashed,
           };
         }),
       attachments: attachments
@@ -457,6 +468,13 @@ export async function messageDetail(supabase: SupabaseClient, message: Accessibl
   const currentRow = threadMessages.find((row) => row.id === message.id);
   if (!currentRow) throw notFound('Email');
   const candidateIds = [...new Set(candidates.map((row) => row.project_id as string))];
+  const [drafts, reviews] = await Promise.all([
+    rows<Row>(comms(supabase).from('reply_drafts').select('id, instructions, body, completed_at, copied_at')
+      .eq('thread_id', message.thread_id).eq('status', 'ready').order('completed_at', { ascending: false }).limit(3)),
+    rows<Row>(comms(supabase).from('messages').select('reviewed_at').eq('thread_id', message.thread_id)
+      .not('reviewed_at', 'is', null).order('reviewed_at', { ascending: false }).limit(1)),
+  ]);
+  const lastReviewed = (reviews[0]?.reviewed_at as string | undefined) ?? null;
   return {
     ...present(currentRow, CURRENT_TEXT_CAP),
     inbox: { id: inbox.data.id, name: inbox.data.name, address: inbox.data.address },
@@ -481,6 +499,16 @@ export async function messageDetail(supabase: SupabaseClient, message: Accessibl
       summary: thread.data.summary ?? null,
       last_message_at: thread.data.last_message_at,
       messages: threadMessages.map((row) => present(row, THREAD_TEXT_CAP)),
+      // Replies drafted on request, oldest first. used: a person copied it and
+      // then marked the thread handled, so it is (roughly) what they sent.
+      reply_drafts: drafts.reverse().map((row) => ({
+        id: row.id,
+        written_at: row.completed_at,
+        asked: (row.instructions as string) || null,
+        body: ((row.body as string | null) ?? '').slice(0, THREAD_TEXT_CAP),
+        copied_at: row.copied_at ?? null,
+        used: !!row.copied_at && !!lastReviewed && Date.parse(lastReviewed) >= Date.parse(row.copied_at as string),
+      })),
     },
   };
 }

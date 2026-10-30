@@ -24,6 +24,7 @@ import { signSvix, verifySvixSignature } from '../src/lib/communications/email/s
 import { parseMessageIdList } from '../src/lib/communications/email/message-ids';
 import { createResendReceiving, inboundFromResend } from '../src/lib/communications/email/resend';
 import { headerLinesFromMap, headerValues } from '../src/lib/communications/email/headers';
+import { composeAnswer, decisionsOf } from '../src/lib/communications/inbox-decisions';
 import { prepareEmail, readableBody } from '../src/lib/communications/email/prepare';
 import { fromRfc822Head, inlineForwardedSender, isAttachedMessage, parseForwardedFrom } from '../src/lib/communications/email/forwarded';
 import { readCapped } from '../src/lib/communications/email/ingest';
@@ -264,6 +265,26 @@ async function main() {
   check(viaUs(groupForward.map((h) => h.value.startsWith('i=1; mx') ? { ...h, value: 'i=1; mx.google.com; dkim=none; spf=pass smtp.mailfrom=x@spoof.example; dmarc=fail header.from=vendor.example' } : h)).trust, 'untrusted', 'forward: a spoof the forwarder saw fail stays untrusted');
   check(viaUs(groupForward.filter((h) => h.name !== 'arc-seal')).trust, 'untrusted', 'forward: ARC results without seals are not a chain');
   check(viaUs(groupForward, ['ours.example'], 'someone@ours.example').trust, 'untrusted', 'forward: From on our own domain is judged on its own signature');
+
+  // Decisions: what the panel offers, and the one answer it sends.
+  const legacy = decisionsOf({ question_for_human: 'The idea task could not be read. Proposed default: keep this as discussion on the existing idea.', questions: null });
+  check([legacy.legacy, legacy.questions[0].question, legacy.questions[0].options.map((o) => o.label)],
+    [true, 'The idea task could not be read.', ['Keep this as discussion on the existing idea']], 'decisions: an older question offers its proposed default as the choice');
+  check(decisionsOf({ question_for_human: 'Which project is this for?', questions: null }).questions[0].options, [], 'decisions: no default, no choice but an answer');
+  check(decisionsOf({ question_for_human: 'Should I set the default-branch? Proposed default: main', questions: null }).questions[0],
+    { question: 'Should I set the default-branch?', options: [{ label: 'Main' }], recommended: 0 }, 'decisions: only "Proposed default:" splits, not a word like default-branch');
+  check(decisionsOf({ question_for_human: 'Which project is this for? (Proposed default: Acme Roofing.)', questions: null }).questions[0],
+    { question: 'Which project is this for?', options: [{ label: 'Acme Roofing' }], recommended: 0 }, 'decisions: a default in brackets loses them');
+  check(composeAnswer({ ...legacy, picks: [{ option: 0 }] }), 'Go with your proposed default.', 'decisions: taking the default reads as the agent expects');
+  check(composeAnswer({ ...legacy, picks: [{ other: ' Make it a task ' }], note: '', draft: { instructions: 'Thank him' } }),
+    'Make it a task\n\nI asked for a reply draft too.', 'decisions: something else, with a draft asked for');
+  const two = [
+    { question: 'Is the site ours?', options: [{ label: 'Yes, open an urgent task' }, { label: 'No' }], recommended: 0 },
+    { question: 'Remember his Gmail?', options: [{ label: 'Yes' }, { label: 'Not now' }], recommended: 1 },
+  ];
+  check(decisionsOf({ question_for_human: 'x', questions: two }).legacy, false, 'decisions: sent questions are used as they are');
+  check(composeAnswer({ questions: two, legacy: false, picks: [{ option: 0 }, { other: 'Only for this thread' }], note: 'He is the CTO' }),
+    '1. Is the site ours? → Yes, open an urgent task\n\n2. Remember his Gmail? → Only for this thread\n\nAlso: He is the CTO', 'decisions: every question answered in one go, numbered, with the note');
 
   // Attachments.
   check(['image/png', 'application/pdf', 'text/csv', 'image/svg+xml', 'application/msword'].map((t) => attachmentKind(t, null)), ['image', 'pdf', 'text', 'other', 'other'], 'kinds by type');

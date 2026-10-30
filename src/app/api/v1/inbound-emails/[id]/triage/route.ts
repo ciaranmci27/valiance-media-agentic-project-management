@@ -51,6 +51,7 @@ function requestHash(body: TriageRequest): string {
     body.thread_summary ?? null,
     // Only when given, so a retry from before categories hashes as it did.
     ...(body.category ? [body.category] : []),
+    ...(body.questions?.length ? [body.questions] : []),
   ])).digest('hex');
 }
 
@@ -204,6 +205,7 @@ export const POST = withApi<TriageRequest, { id: string }>(async ({ supabase, pa
       suggested_reply: body.suggested_reply ?? null,
       thread_summary: body.thread_summary ?? null,
       category: body.category ?? null,
+      questions: body.questions?.length ? body.questions : null,
     },
     p_links: links,
     p_project_ids: named,

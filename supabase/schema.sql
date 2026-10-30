@@ -7509,6 +7509,12 @@ CREATE TABLE communications.triage (
   -- What the agent read the email as: work, fyi (needs nothing from anyone),
   -- or outreach (someone selling to us, filtered unless something guards it).
   category text CONSTRAINT email_triage_category_check CHECK (category IS NULL OR category IN ('work', 'fyi', 'outreach')),
+  -- The decisions behind question_for_human, as one to three questions, each
+  -- with two to four choices and the agent's pick: [{ question, why,
+  -- options: [{ label, detail }], recommended }]. A person answers them all
+  -- at once. question_for_human stays the one-line version.
+  questions jsonb CONSTRAINT email_triage_questions_check
+    CHECK (questions IS NULL OR (jsonb_typeof(questions) = 'array' AND jsonb_array_length(questions) BETWEEN 1 AND 3)),
   CONSTRAINT email_triage_key_has_hash CHECK (idempotency_key IS NULL OR request_hash IS NOT NULL)
 );
 CREATE INDEX idx_email_triage_message ON communications.triage (message_id, created_at DESC);
@@ -7544,8 +7550,12 @@ CREATE TABLE communications.reply_drafts (
   completed_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
+  -- When a person first copied it. Copied, then the thread marked handled:
+  -- the draft is taken as (roughly) the reply that went out.
+  copied_at timestamptz,
   CONSTRAINT email_reply_drafts_ready_has_body CHECK ((status = 'ready') = (body IS NOT NULL)),
-  CONSTRAINT email_reply_drafts_done_has_time CHECK ((status = 'requested') = (completed_at IS NULL))
+  CONSTRAINT email_reply_drafts_done_has_time CHECK ((status = 'requested') = (completed_at IS NULL)),
+  CONSTRAINT email_reply_drafts_copied_is_ready CHECK (copied_at IS NULL OR status = 'ready')
 );
 CREATE INDEX idx_email_reply_drafts_thread ON communications.reply_drafts (thread_id, created_at DESC);
 CREATE INDEX idx_email_reply_drafts_requested ON communications.reply_drafts (created_at) WHERE status = 'requested';
@@ -8508,13 +8518,13 @@ BEGIN
 
   INSERT INTO communications.triage (
     message_id, member_id, outcome, urgent, summary, question_for_human, suggested_reply, project_id, project_ids,
-    idempotency_key, request_hash, category
+    idempotency_key, request_hash, category, questions
   )
   VALUES (
     p_message_id, p_member_id, p_triage->>'outcome', COALESCE((p_triage->>'urgent')::boolean, false),
     p_triage->>'summary', p_triage->>'question_for_human', p_triage->>'suggested_reply',
     CASE WHEN cardinality(v_projects) = 1 THEN v_projects[1] END, v_projects,
-    p_idempotency_key, p_request_hash, p_triage->>'category'
+    p_idempotency_key, p_request_hash, p_triage->>'category', NULLIF(p_triage->'questions', 'null'::jsonb)
   )
   RETURNING * INTO v_triage;
 

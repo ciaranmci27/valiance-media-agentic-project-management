@@ -188,7 +188,7 @@ async function main() {
     const hidden = await get(firstId);
     const listed = await call(list.GET, 'GET', `/api/v1/tasks?project_id=${s.apex}`, {});
     const ids = (listed.body.data as unknown as { id: string }[]).map((t) => t.id);
-    check('a parent in Trash takes its subtasks out of reach', trashed.status === 200 && hidden.status === 403 && !ids.includes(firstId) && !ids.includes(secondId),
+    check('a parent in Trash takes its subtasks out of reach', trashed.status === 200 && hidden.status === 404 && !ids.includes(firstId) && !ids.includes(secondId),
       { trashed: trashed.status, hidden: hidden.status, ids });
     const orphan = await create({ parent_task_id: s.launch, title: 'Late' });
     check('nothing joins a parent in Trash', orphan.status === 404, orphan);

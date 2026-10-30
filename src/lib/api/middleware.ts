@@ -271,7 +271,8 @@ export function withApi<TBody = unknown, TParams = Record<string, string>>(
           .maybeSingle();
         // So does a subtask whose parent is in Trash.
         const parentGone = !!task?.parent_task_id && !(await liveTaskIds(supabase, [task.id])).has(task.id);
-        if (!task || parentGone) throw forbidden('Task scope denied', { reason: 'not_found_or_forbidden', resource: 'task' });
+        // Not found, never "denied": an agent told "denied" takes it for a permission problem.
+        if (!task || parentGone) throw new ApiError(404, 'NOT_FOUND', 'Task not found. It may be in Trash.', { reason: 'not_found_or_in_trash', resource: 'task' });
         if (!accessAllowsProject(access, task.project_id, 'api')) {
           throw forbidden('Project scope denied', {
             reason: 'project_scope',

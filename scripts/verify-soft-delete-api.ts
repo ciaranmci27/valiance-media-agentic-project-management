@@ -91,10 +91,10 @@ async function main() {
     const row = (await q<{ deleted_at: string | null; deleted_by: string | null }>('SELECT deleted_at, deleted_by FROM public.tasks WHERE id = $1', [T1]))[0];
     check('the task is still there, in Trash, stamped with the key\'s member', !!row?.deleted_at && row.deleted_by === owner, row);
     const gone = await call(task.GET, 'GET', `/api/v1/tasks/${T1}`, { id: T1 });
-    check('it then reads as missing', gone.status === 403 && gone.json.error?.details?.reason === 'not_found_or_forbidden', gone);
+    check('it then reads as missing', gone.status === 404 && gone.json.error?.details?.reason === 'not_found_or_in_trash', gone);
     check('and the task list leaves it out', JSON.stringify(await taskIds(P)) === JSON.stringify([T2]), await taskIds(P));
     const twice = await call(task.DELETE, 'DELETE', `/api/v1/tasks/${T1}`, { id: T1 });
-    check('deleting it again is not found, not an error', twice.status === 403 || twice.status === 404, twice);
+    check('deleting it again is not found, not an error', twice.status === 404, twice);
 
     // -- Time on an invoice stays -----------------------------------------------
     const entry = (await q<{ id: string }>(`INSERT INTO public.project_time_entries
@@ -118,7 +118,7 @@ async function main() {
     check('it reads as missing', (await call(project.GET, 'GET', `/api/v1/projects/${P}`, { id: P })).status === 404);
     check('it is not listed, archived or not', !(await projectIds()).includes(P));
     check('what it owns is out of reach', (await call(timeEntries.GET, 'GET', `/api/v1/projects/${P}/time-entries`, { id: P })).status === 404);
-    check('its tasks too', (await call(task.GET, 'GET', `/api/v1/tasks/${T2}`, { id: T2 })).status === 403);
+    check('its tasks too', (await call(task.GET, 'GET', `/api/v1/tasks/${T2}`, { id: T2 })).status === 404);
     const untouched = (await q<{ n: number }>('SELECT count(*)::int AS n FROM public.tasks WHERE project_id = $1 AND deleted_at IS NULL', [P]))[0].n;
     check('its tasks are untouched underneath', untouched === 1, untouched);
 

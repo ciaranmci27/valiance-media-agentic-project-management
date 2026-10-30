@@ -3637,7 +3637,8 @@
         }
        ]
       }
-     ]
+     ],
+     "reply_drafts": []
     }
    }
   },
@@ -4399,7 +4400,8 @@
         }
        ]
       }
-     ]
+     ],
+     "reply_drafts": []
     }
    }
   },
@@ -4595,7 +4597,8 @@
        "linked_tasks": [],
        "attachments": []
       }
-     ]
+     ],
+     "reply_drafts": []
     }
    }
   },
@@ -4763,7 +4766,8 @@
         }
        ]
       }
-     ]
+     ],
+     "reply_drafts": []
     }
    }
   },
@@ -4851,7 +4855,8 @@
       "status": "todo",
       "ai_readiness": "ai_ready",
       "project_id": "<ids.acme>",
-      "project_name": "Acme Roofing"
+      "project_name": "Acme Roofing",
+      "in_trash": false
      },
      {
       "task_id": "<task:Birch-only task title>",
@@ -4860,7 +4865,8 @@
       "status": "todo",
       "ai_readiness": null,
       "project_id": "<ids.birch>",
-      "project_name": "Birch Partners"
+      "project_name": "Birch Partners",
+      "in_trash": false
      },
      {
       "task_id": "<task:Footer copy>",
@@ -4869,7 +4875,8 @@
       "status": "done",
       "ai_readiness": null,
       "project_id": "<ids.acme>",
-      "project_name": "Acme Roofing"
+      "project_name": "Acme Roofing",
+      "in_trash": false
      },
      {
       "task_id": "<task:Gutter quote>",
@@ -4878,7 +4885,8 @@
       "status": "todo",
       "ai_readiness": null,
       "project_id": "<ids.acme2>",
-      "project_name": "Acme Gutters LLC"
+      "project_name": "Acme Gutters LLC",
+      "in_trash": false
      },
      {
       "task_id": "<task:Swap banner photo>",
@@ -4887,7 +4895,8 @@
       "status": "todo",
       "ai_readiness": "ai_ready",
       "project_id": "<ids.acme>",
-      "project_name": "Acme Roofing"
+      "project_name": "Acme Roofing",
+      "in_trash": false
      }
     ],
     "attachments": [],
@@ -5043,7 +5052,8 @@
          "status": "todo",
          "ai_readiness": "ai_ready",
          "project_id": "<ids.acme>",
-         "project_name": "Acme Roofing"
+         "project_name": "Acme Roofing",
+         "in_trash": false
         },
         {
          "task_id": "<task:Birch-only task title>",
@@ -5052,7 +5062,8 @@
          "status": "todo",
          "ai_readiness": null,
          "project_id": "<ids.birch>",
-         "project_name": "Birch Partners"
+         "project_name": "Birch Partners",
+         "in_trash": false
         },
         {
          "task_id": "<task:Footer copy>",
@@ -5061,7 +5072,8 @@
          "status": "done",
          "ai_readiness": null,
          "project_id": "<ids.acme>",
-         "project_name": "Acme Roofing"
+         "project_name": "Acme Roofing",
+         "in_trash": false
         },
         {
          "task_id": "<task:Gutter quote>",
@@ -5070,7 +5082,8 @@
          "status": "todo",
          "ai_readiness": null,
          "project_id": "<ids.acme2>",
-         "project_name": "Acme Gutters LLC"
+         "project_name": "Acme Gutters LLC",
+         "in_trash": false
         },
         {
          "task_id": "<task:Swap banner photo>",
@@ -5079,7 +5092,8 @@
          "status": "todo",
          "ai_readiness": "ai_ready",
          "project_id": "<ids.acme>",
-         "project_name": "Acme Roofing"
+         "project_name": "Acme Roofing",
+         "in_trash": false
         }
        ],
        "attachments": []
@@ -5470,6 +5484,16 @@
        "linked_tasks": [],
        "attachments": []
       }
+     ],
+     "reply_drafts": [
+      {
+       "id": "<draft:pa-reply@acme-roofing.example/Thank her and confirm Friday.>",
+       "written_at": "<time>",
+       "asked": "Thank her and confirm Friday.",
+       "body": "Hi Dana,\n\nThank you. Friday works.\n\nCiaran",
+       "copied_at": "<time>",
+       "used": true
+      }
      ]
     }
    }
@@ -5665,7 +5689,8 @@
        "linked_tasks": [],
        "attachments": []
       }
-     ]
+     ],
+     "reply_drafts": []
     }
    }
   },
@@ -5834,7 +5859,8 @@
        "linked_tasks": [],
        "attachments": []
       }
-     ]
+     ],
+     "reply_drafts": []
     }
    }
   },
@@ -6015,7 +6041,8 @@
        "linked_tasks": [],
        "attachments": []
       }
-     ]
+     ],
+     "reply_drafts": []
     }
    }
   },
@@ -6777,7 +6804,8 @@
         }
        ]
       }
-     ]
+     ],
+     "reply_drafts": []
     }
    }
   },
@@ -7513,7 +7541,8 @@
         }
        ]
       }
-     ]
+     ],
+     "reply_drafts": []
     }
    }
   },
@@ -7739,7 +7768,8 @@
          "status": "todo",
          "ai_readiness": "ai_ready",
          "project_id": "<ids.acme>",
-         "project_name": "Acme Roofing"
+         "project_name": "Acme Roofing",
+         "in_trash": false
         },
         {
          "task_id": "<task:Birch-only task title>",
@@ -7748,7 +7778,8 @@
          "status": "todo",
          "ai_readiness": null,
          "project_id": "<ids.birch>",
-         "project_name": "Birch Partners"
+         "project_name": "Birch Partners",
+         "in_trash": false
         },
         {
          "task_id": "<task:Footer copy>",
@@ -7757,7 +7788,8 @@
          "status": "done",
          "ai_readiness": null,
          "project_id": "<ids.acme>",
-         "project_name": "Acme Roofing"
+         "project_name": "Acme Roofing",
+         "in_trash": false
         },
         {
          "task_id": "<task:Gutter quote>",
@@ -7766,7 +7798,8 @@
          "status": "todo",
          "ai_readiness": null,
          "project_id": "<ids.acme2>",
-         "project_name": "Acme Gutters LLC"
+         "project_name": "Acme Gutters LLC",
+         "in_trash": false
         },
         {
          "task_id": "<task:Swap banner photo>",
@@ -7775,7 +7808,8 @@
          "status": "todo",
          "ai_readiness": "ai_ready",
          "project_id": "<ids.acme>",
-         "project_name": "Acme Roofing"
+         "project_name": "Acme Roofing",
+         "in_trash": false
         }
        ],
        "attachments": []
@@ -8165,6 +8199,16 @@
        "answers": [],
        "linked_tasks": [],
        "attachments": []
+      }
+     ],
+     "reply_drafts": [
+      {
+       "id": "<draft:pa-reply@acme-roofing.example/Thank her and confirm Friday.>",
+       "written_at": "<time>",
+       "asked": "Thank her and confirm Friday.",
+       "body": "Hi Dana,\n\nThank you. Friday works.\n\nCiaran",
+       "copied_at": "<time>",
+       "used": true
       }
      ]
     }
@@ -8369,7 +8413,8 @@
          "status": "todo",
          "ai_readiness": "ai_ready",
          "project_id": "<ids.acme>",
-         "project_name": "Acme Roofing"
+         "project_name": "Acme Roofing",
+         "in_trash": false
         },
         {
          "task_id": "<task:Birch-only task title>",
@@ -8378,7 +8423,8 @@
          "status": "todo",
          "ai_readiness": null,
          "project_id": "<ids.birch>",
-         "project_name": "Birch Partners"
+         "project_name": "Birch Partners",
+         "in_trash": false
         },
         {
          "task_id": "<task:Footer copy>",
@@ -8387,7 +8433,8 @@
          "status": "done",
          "ai_readiness": null,
          "project_id": "<ids.acme>",
-         "project_name": "Acme Roofing"
+         "project_name": "Acme Roofing",
+         "in_trash": false
         },
         {
          "task_id": "<task:Gutter quote>",
@@ -8396,7 +8443,8 @@
          "status": "todo",
          "ai_readiness": null,
          "project_id": "<ids.acme2>",
-         "project_name": "Acme Gutters LLC"
+         "project_name": "Acme Gutters LLC",
+         "in_trash": false
         },
         {
          "task_id": "<task:Swap banner photo>",
@@ -8405,7 +8453,8 @@
          "status": "todo",
          "ai_readiness": "ai_ready",
          "project_id": "<ids.acme>",
-         "project_name": "Acme Roofing"
+         "project_name": "Acme Roofing",
+         "in_trash": false
         }
        ],
        "attachments": []
@@ -8796,6 +8845,16 @@
        "linked_tasks": [],
        "attachments": []
       }
+     ],
+     "reply_drafts": [
+      {
+       "id": "<draft:pa-reply@acme-roofing.example/Thank her and confirm Friday.>",
+       "written_at": "<time>",
+       "asked": "Thank her and confirm Friday.",
+       "body": "Hi Dana,\n\nThank you. Friday works.\n\nCiaran",
+       "copied_at": "<time>",
+       "used": true
+      }
      ]
     }
    }
@@ -8936,7 +8995,8 @@
        "linked_tasks": [],
        "attachments": []
       }
-     ]
+     ],
+     "reply_drafts": []
     }
    }
   },
@@ -9118,7 +9178,8 @@
        "linked_tasks": [],
        "attachments": []
       }
-     ]
+     ],
+     "reply_drafts": []
     }
    }
   },
@@ -9287,7 +9348,8 @@
        "linked_tasks": [],
        "attachments": []
       }
-     ]
+     ],
+     "reply_drafts": []
     }
    }
   },
@@ -9483,7 +9545,8 @@
        "linked_tasks": [],
        "attachments": []
       }
-     ]
+     ],
+     "reply_drafts": []
     }
    }
   },
@@ -9693,7 +9756,8 @@
         }
        ]
       }
-     ]
+     ],
+     "reply_drafts": []
     }
    }
   },
@@ -9881,7 +9945,8 @@
        "linked_tasks": [],
        "attachments": []
       }
-     ]
+     ],
+     "reply_drafts": []
     }
    }
   },
@@ -10089,7 +10154,8 @@
        "linked_tasks": [],
        "attachments": []
       }
-     ]
+     ],
+     "reply_drafts": []
     }
    }
   },
@@ -10271,7 +10337,8 @@
        "linked_tasks": [],
        "attachments": []
       }
-     ]
+     ],
+     "reply_drafts": []
     }
    }
   },
@@ -10453,7 +10520,8 @@
        "linked_tasks": [],
        "attachments": []
       }
-     ]
+     ],
+     "reply_drafts": []
     }
    }
   },
@@ -10593,7 +10661,8 @@
        "linked_tasks": [],
        "attachments": []
       }
-     ]
+     ],
+     "reply_drafts": []
     }
    }
   },
@@ -10766,7 +10835,8 @@
        "linked_tasks": [],
        "attachments": []
       }
-     ]
+     ],
+     "reply_drafts": []
     }
    }
   },
@@ -10906,7 +10976,8 @@
        "linked_tasks": [],
        "attachments": []
       }
-     ]
+     ],
+     "reply_drafts": []
     }
    }
   },
@@ -11072,7 +11143,8 @@
        "linked_tasks": [],
        "attachments": []
       }
-     ]
+     ],
+     "reply_drafts": []
     }
    }
   },
@@ -11284,7 +11356,8 @@
        "linked_tasks": [],
        "attachments": []
       }
-     ]
+     ],
+     "reply_drafts": []
     }
    }
   },
@@ -11465,7 +11538,8 @@
        "linked_tasks": [],
        "attachments": []
       }
-     ]
+     ],
+     "reply_drafts": []
     }
    }
   },
@@ -11745,7 +11819,8 @@
        "linked_tasks": [],
        "attachments": []
       }
-     ]
+     ],
+     "reply_drafts": []
     }
    }
   },
@@ -12025,7 +12100,8 @@
        "linked_tasks": [],
        "attachments": []
       }
-     ]
+     ],
+     "reply_drafts": []
     }
    }
   },
@@ -12787,7 +12863,8 @@
         }
        ]
       }
-     ]
+     ],
+     "reply_drafts": []
     }
    }
   },
@@ -12955,7 +13032,8 @@
        "linked_tasks": [],
        "attachments": []
       }
-     ]
+     ],
+     "reply_drafts": []
     }
    }
   },
@@ -13171,7 +13249,8 @@
          "status": "todo",
          "ai_readiness": "ai_ready",
          "project_id": "<ids.acme>",
-         "project_name": "Acme Roofing"
+         "project_name": "Acme Roofing",
+         "in_trash": false
         },
         {
          "task_id": "<task:Birch-only task title>",
@@ -13180,7 +13259,8 @@
          "status": "todo",
          "ai_readiness": null,
          "project_id": "<ids.birch>",
-         "project_name": "Birch Partners"
+         "project_name": "Birch Partners",
+         "in_trash": false
         },
         {
          "task_id": "<task:Footer copy>",
@@ -13189,7 +13269,8 @@
          "status": "done",
          "ai_readiness": null,
          "project_id": "<ids.acme>",
-         "project_name": "Acme Roofing"
+         "project_name": "Acme Roofing",
+         "in_trash": false
         },
         {
          "task_id": "<task:Gutter quote>",
@@ -13198,7 +13279,8 @@
          "status": "todo",
          "ai_readiness": null,
          "project_id": "<ids.acme2>",
-         "project_name": "Acme Gutters LLC"
+         "project_name": "Acme Gutters LLC",
+         "in_trash": false
         },
         {
          "task_id": "<task:Swap banner photo>",
@@ -13207,7 +13289,8 @@
          "status": "todo",
          "ai_readiness": "ai_ready",
          "project_id": "<ids.acme>",
-         "project_name": "Acme Roofing"
+         "project_name": "Acme Roofing",
+         "in_trash": false
         }
        ],
        "attachments": []
@@ -13597,6 +13680,16 @@
        "answers": [],
        "linked_tasks": [],
        "attachments": []
+      }
+     ],
+     "reply_drafts": [
+      {
+       "id": "<draft:pa-reply@acme-roofing.example/Thank her and confirm Friday.>",
+       "written_at": "<time>",
+       "asked": "Thank her and confirm Friday.",
+       "body": "Hi Dana,\n\nThank you. Friday works.\n\nCiaran",
+       "copied_at": "<time>",
+       "used": true
       }
      ]
     }
@@ -13905,7 +13998,8 @@
         }
        ]
       }
-     ]
+     ],
+     "reply_drafts": []
     }
    }
   },
@@ -14212,7 +14306,8 @@
         }
        ]
       }
-     ]
+     ],
+     "reply_drafts": []
     }
    }
   },
@@ -14380,7 +14475,8 @@
        "linked_tasks": [],
        "attachments": []
       }
-     ]
+     ],
+     "reply_drafts": []
     }
    }
   },
@@ -14549,7 +14645,8 @@
        "linked_tasks": [],
        "attachments": []
       }
-     ]
+     ],
+     "reply_drafts": []
     }
    }
   },
@@ -14787,7 +14884,8 @@
        "linked_tasks": [],
        "attachments": []
       }
-     ]
+     ],
+     "reply_drafts": []
     }
    }
   },
@@ -15068,7 +15166,8 @@
        "linked_tasks": [],
        "attachments": []
       }
-     ]
+     ],
+     "reply_drafts": []
     }
    }
   },
@@ -15287,7 +15386,8 @@
          "status": "todo",
          "ai_readiness": "ai_ready",
          "project_id": "<ids.acme>",
-         "project_name": "Acme Roofing"
+         "project_name": "Acme Roofing",
+         "in_trash": false
         },
         {
          "task_id": "<task:Birch-only task title>",
@@ -15296,7 +15396,8 @@
          "status": "todo",
          "ai_readiness": null,
          "project_id": "<ids.birch>",
-         "project_name": "Birch Partners"
+         "project_name": "Birch Partners",
+         "in_trash": false
         },
         {
          "task_id": "<task:Footer copy>",
@@ -15305,7 +15406,8 @@
          "status": "done",
          "ai_readiness": null,
          "project_id": "<ids.acme>",
-         "project_name": "Acme Roofing"
+         "project_name": "Acme Roofing",
+         "in_trash": false
         },
         {
          "task_id": "<task:Gutter quote>",
@@ -15314,7 +15416,8 @@
          "status": "todo",
          "ai_readiness": null,
          "project_id": "<ids.acme2>",
-         "project_name": "Acme Gutters LLC"
+         "project_name": "Acme Gutters LLC",
+         "in_trash": false
         },
         {
          "task_id": "<task:Swap banner photo>",
@@ -15323,7 +15426,8 @@
          "status": "todo",
          "ai_readiness": "ai_ready",
          "project_id": "<ids.acme>",
-         "project_name": "Acme Roofing"
+         "project_name": "Acme Roofing",
+         "in_trash": false
         }
        ],
        "attachments": []
@@ -15714,6 +15818,16 @@
        "linked_tasks": [],
        "attachments": []
       }
+     ],
+     "reply_drafts": [
+      {
+       "id": "<draft:pa-reply@acme-roofing.example/Thank her and confirm Friday.>",
+       "written_at": "<time>",
+       "asked": "Thank her and confirm Friday.",
+       "body": "Hi Dana,\n\nThank you. Friday works.\n\nCiaran",
+       "copied_at": "<time>",
+       "used": true
+      }
      ]
     }
    }
@@ -15874,7 +15988,8 @@
        "linked_tasks": [],
        "attachments": []
       }
-     ]
+     ],
+     "reply_drafts": []
     }
    }
   },
@@ -16048,7 +16163,8 @@
        "linked_tasks": [],
        "attachments": []
       }
-     ]
+     ],
+     "reply_drafts": []
     }
    }
   },
@@ -16222,7 +16338,8 @@
        "linked_tasks": [],
        "attachments": []
       }
-     ]
+     ],
+     "reply_drafts": []
     }
    }
   },
@@ -16400,7 +16517,8 @@
        "linked_tasks": [],
        "attachments": []
       }
-     ]
+     ],
+     "reply_drafts": []
     }
    }
   },
@@ -16540,7 +16658,8 @@
        "linked_tasks": [],
        "attachments": []
       }
-     ]
+     ],
+     "reply_drafts": []
     }
    }
   },
@@ -16780,7 +16899,8 @@
        "linked_tasks": [],
        "attachments": []
       }
-     ]
+     ],
+     "reply_drafts": []
     }
    }
   },
@@ -16978,7 +17098,8 @@
        "linked_tasks": [],
        "attachments": []
       }
-     ]
+     ],
+     "reply_drafts": []
     }
    }
   },
@@ -17228,7 +17349,8 @@
        "linked_tasks": [],
        "attachments": []
       }
-     ]
+     ],
+     "reply_drafts": []
     }
    }
   },
@@ -17416,7 +17538,8 @@
        "linked_tasks": [],
        "attachments": []
       }
-     ]
+     ],
+     "reply_drafts": []
     }
    }
   },
@@ -17662,7 +17785,8 @@
        "linked_tasks": [],
        "attachments": []
       }
-     ]
+     ],
+     "reply_drafts": []
     }
    }
   },
@@ -17865,7 +17989,8 @@
          "status": "todo",
          "ai_readiness": "ai_ready",
          "project_id": "<ids.acme>",
-         "project_name": "Acme Roofing"
+         "project_name": "Acme Roofing",
+         "in_trash": false
         },
         {
          "task_id": "<task:Birch-only task title>",
@@ -17874,7 +17999,8 @@
          "status": "todo",
          "ai_readiness": null,
          "project_id": "<ids.birch>",
-         "project_name": "Birch Partners"
+         "project_name": "Birch Partners",
+         "in_trash": false
         },
         {
          "task_id": "<task:Footer copy>",
@@ -17883,7 +18009,8 @@
          "status": "done",
          "ai_readiness": null,
          "project_id": "<ids.acme>",
-         "project_name": "Acme Roofing"
+         "project_name": "Acme Roofing",
+         "in_trash": false
         },
         {
          "task_id": "<task:Gutter quote>",
@@ -17892,7 +18019,8 @@
          "status": "todo",
          "ai_readiness": null,
          "project_id": "<ids.acme2>",
-         "project_name": "Acme Gutters LLC"
+         "project_name": "Acme Gutters LLC",
+         "in_trash": false
         },
         {
          "task_id": "<task:Swap banner photo>",
@@ -17901,7 +18029,8 @@
          "status": "todo",
          "ai_readiness": "ai_ready",
          "project_id": "<ids.acme>",
-         "project_name": "Acme Roofing"
+         "project_name": "Acme Roofing",
+         "in_trash": false
         }
        ],
        "attachments": []
@@ -18292,6 +18421,16 @@
        "linked_tasks": [],
        "attachments": []
       }
+     ],
+     "reply_drafts": [
+      {
+       "id": "<draft:pa-reply@acme-roofing.example/Thank her and confirm Friday.>",
+       "written_at": "<time>",
+       "asked": "Thank her and confirm Friday.",
+       "body": "Hi Dana,\n\nThank you. Friday works.\n\nCiaran",
+       "copied_at": "<time>",
+       "used": true
+      }
      ]
     }
    }
@@ -18470,7 +18609,8 @@
        "linked_tasks": [],
        "attachments": []
       }
-     ]
+     ],
+     "reply_drafts": []
     }
    }
   },
@@ -18673,7 +18813,8 @@
          "status": "todo",
          "ai_readiness": "ai_ready",
          "project_id": "<ids.acme>",
-         "project_name": "Acme Roofing"
+         "project_name": "Acme Roofing",
+         "in_trash": false
         },
         {
          "task_id": "<task:Birch-only task title>",
@@ -18682,7 +18823,8 @@
          "status": "todo",
          "ai_readiness": null,
          "project_id": "<ids.birch>",
-         "project_name": "Birch Partners"
+         "project_name": "Birch Partners",
+         "in_trash": false
         },
         {
          "task_id": "<task:Footer copy>",
@@ -18691,7 +18833,8 @@
          "status": "done",
          "ai_readiness": null,
          "project_id": "<ids.acme>",
-         "project_name": "Acme Roofing"
+         "project_name": "Acme Roofing",
+         "in_trash": false
         },
         {
          "task_id": "<task:Gutter quote>",
@@ -18700,7 +18843,8 @@
          "status": "todo",
          "ai_readiness": null,
          "project_id": "<ids.acme2>",
-         "project_name": "Acme Gutters LLC"
+         "project_name": "Acme Gutters LLC",
+         "in_trash": false
         },
         {
          "task_id": "<task:Swap banner photo>",
@@ -18709,7 +18853,8 @@
          "status": "todo",
          "ai_readiness": "ai_ready",
          "project_id": "<ids.acme>",
-         "project_name": "Acme Roofing"
+         "project_name": "Acme Roofing",
+         "in_trash": false
         }
        ],
        "attachments": []
@@ -19100,6 +19245,16 @@
        "linked_tasks": [],
        "attachments": []
       }
+     ],
+     "reply_drafts": [
+      {
+       "id": "<draft:pa-reply@acme-roofing.example/Thank her and confirm Friday.>",
+       "written_at": "<time>",
+       "asked": "Thank her and confirm Friday.",
+       "body": "Hi Dana,\n\nThank you. Friday works.\n\nCiaran",
+       "copied_at": "<time>",
+       "used": true
+      }
      ]
     }
    }
@@ -19240,7 +19395,8 @@
        "linked_tasks": [],
        "attachments": []
       }
-     ]
+     ],
+     "reply_drafts": []
     }
    }
   },
@@ -19380,7 +19536,8 @@
        "linked_tasks": [],
        "attachments": []
       }
-     ]
+     ],
+     "reply_drafts": []
     }
    }
   },
@@ -19546,7 +19703,8 @@
        "linked_tasks": [],
        "attachments": []
       }
-     ]
+     ],
+     "reply_drafts": []
     }
    }
   },
@@ -19686,7 +19844,8 @@
        "linked_tasks": [],
        "attachments": []
       }
-     ]
+     ],
+     "reply_drafts": []
     }
    }
   },
@@ -19854,7 +20013,8 @@
        "linked_tasks": [],
        "attachments": []
       }
-     ]
+     ],
+     "reply_drafts": []
     }
    }
   }
@@ -22248,6 +22408,7 @@
       "urgent": false,
       "summary": "Send corrected invoice",
       "question_for_human": null,
+      "questions": null,
       "suggested_reply": null,
       "category": null,
       "member": {
@@ -22394,6 +22555,7 @@
       "urgent": false,
       "summary": "Dana thanked us for the finished footer.",
       "question_for_human": null,
+      "questions": null,
       "suggested_reply": null,
       "category": null,
       "member": {
@@ -22456,14 +22618,16 @@
        "title": "Chase the final banner copy",
        "remind_on": "2026-11-11",
        "status": "open",
-       "task_id": "<task:Footer copy>"
+       "task_id": "<task:Footer copy>",
+       "mine": false
       },
       {
        "id": "<reminder:My own note>",
        "title": "My own note",
        "remind_on": "2026-11-13",
        "status": "open",
-       "task_id": null
+       "task_id": null,
+       "mine": true
       }
      ],
      "plan": null,
@@ -22524,6 +22688,7 @@
       "urgent": false,
       "summary": "Race",
       "question_for_human": null,
+      "questions": null,
       "suggested_reply": null,
       "category": null,
       "member": {
@@ -22661,6 +22826,7 @@
       "urgent": false,
       "summary": "Thanks for the update",
       "question_for_human": null,
+      "questions": null,
       "suggested_reply": null,
       "category": null,
       "member": {
@@ -23997,6 +24163,7 @@
       "urgent": false,
       "summary": "Homepage copy from Vera",
       "question_for_human": null,
+      "questions": null,
       "suggested_reply": null,
       "category": null,
       "member": {
@@ -24608,6 +24775,22 @@
       "urgent": true,
       "summary": "Site down for Acme",
       "question_for_human": "Restart the server?",
+      "questions": [
+       {
+        "why": "The site has been down since 9am.",
+        "options": [
+         {
+          "label": "Restart it now",
+          "detail": "About two minutes offline"
+         },
+         {
+          "label": "Wait for the host"
+         }
+        ],
+        "question": "Restart the server?",
+        "recommended": 0
+       }
+      ],
       "suggested_reply": null,
       "category": null,
       "member": {
@@ -24716,6 +24899,7 @@
       "urgent": false,
       "summary": "Probably Vera Studio",
       "question_for_human": "Which project is this for? Default: Acme Roofing.",
+      "questions": null,
       "suggested_reply": null,
       "category": null,
       "member": {
@@ -24820,6 +25004,7 @@
       "urgent": false,
       "summary": "Update header and footer",
       "question_for_human": null,
+      "questions": null,
       "suggested_reply": "Thanks Carla, on it.",
       "category": null,
       "member": {
@@ -25389,6 +25574,7 @@
       "urgent": false,
       "summary": "Kickoff notes",
       "question_for_human": null,
+      "questions": null,
       "suggested_reply": null,
       "category": null,
       "member": {
@@ -26033,6 +26219,7 @@
       "urgent": false,
       "summary": "The joint call is Cliff's project",
       "question_for_human": null,
+      "questions": null,
       "suggested_reply": null,
       "category": null,
       "member": {

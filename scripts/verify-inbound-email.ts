@@ -26,6 +26,7 @@
  */
 import { createHash, randomUUID } from 'node:crypto';
 import type { IncomingMessage } from 'node:http';
+import { isDeepStrictEqual } from 'node:util';
 import { NextRequest } from 'next/server';
 import type { PGlite } from '@electric-sql/pglite';
 import { startFakePostgrest } from './fake-postgrest';
@@ -497,6 +498,11 @@ async function main() {
     check('triage: a candidate project sets the thread as inferred; trusted task is handled', firstTriage.status === 201 && replyThread.project_id === ids.acme && replyThread.project_source === 'inferred'
       && (await rows(db, 'SELECT status FROM communications.messages WHERE id=$1', [reply.id]))[0].status === 'handled', firstTriage.body);
     check('triage: the link is stored with who linked it', (await rows(db, 'SELECT * FROM communications.task_links WHERE task_id=$1', [acmeTask]))[0]?.linked_by === ids.ashley);
+    // A linked task a person moved to Trash is named and marked, never left blank.
+    await db.query('UPDATE public.tasks SET deleted_at = now() WHERE id = $1', [acmeTask]);
+    const trashedLink = (await api(detail.GET, 'GET', `/api/v1/inbound-emails/${reply.id}`, keys.ashley, { id: reply.id })).body.data.linked_tasks.find((l: Payload) => l.task_id === acmeTask);
+    check('detail: a linked task in Trash keeps its title and says in_trash', trashedLink?.in_trash === true && trashedLink.title === 'Bigger phone number' && trashedLink.status === null, trashedLink);
+    await db.query('UPDATE public.tasks SET deleted_at = NULL WHERE id = $1', [acmeTask]);
     const taskEmailsOf = (key: string) => api(taskEmailsRoute.GET, 'GET', `/api/v1/tasks/${acmeTask}/emails`, key, { id: acmeTask });
     const linkedEmails = await taskEmailsOf(keys.ashley);
     const [linkedEmail] = linkedEmails.body.data?.emails ?? [];
@@ -536,8 +542,19 @@ async function main() {
       && (await htmlTriageCount()) === triageBeforeInactive, unknownTrust.body);
     const unknownTrustNoProject = await triageOf(htmlOnly.id, { outcome: 'needs_reply', urgent: false, summary: 'Update header and footer', suggested_reply: 'Thanks Carla, on it.' });
     check('triage: unknown trust is not forced to needs_human', unknownTrustNoProject.status === 201 && unknownTrustNoProject.body.data.status === 'handled', unknownTrustNoProject.body);
-    const flagged = await triageOf(forward.id, { outcome: 'needs_human', urgent: true, summary: 'Site down for Acme', question_for_human: 'Restart the server?' });
+    const restart = { question: 'Restart the server?', why: 'The site has been down since 9am.', options: [{ label: 'Restart it now', detail: 'About two minutes offline' }, { label: 'Wait for the host' }], recommended: 0 };
+    const forwardTriageCount = async () => (await rows(db, 'SELECT count(*)::int AS n FROM communications.triage WHERE message_id=$1', [forward.id]))[0].n;
+    const beforeQuestions = await forwardTriageCount();
+    const pickOutOfRange = await triageOf(forward.id, { outcome: 'needs_human', urgent: true, summary: 'Site down for Acme', question_for_human: 'Restart the server?', questions: [{ ...restart, recommended: 2 }] });
+    const questionsAlone = await triageOf(forward.id, { outcome: 'needs_human', urgent: true, summary: 'Site down for Acme', questions: [restart] });
+    const oneChoice = await triageOf(forward.id, { outcome: 'needs_human', urgent: true, summary: 'Site down for Acme', question_for_human: 'Restart the server?', questions: [{ ...restart, options: [restart.options[0]] }] });
+    check('triage: questions need a pick among their options, two or more options, and the one-line question (422, nothing recorded)',
+      [pickOutOfRange, questionsAlone, oneChoice].every((r) => r.status === 422) && (await forwardTriageCount()) === beforeQuestions,
+      [pickOutOfRange.body, questionsAlone.body, oneChoice.body]);
+    const flagged = await triageOf(forward.id, { outcome: 'needs_human', urgent: true, summary: 'Site down for Acme', question_for_human: 'Restart the server?', questions: [restart] });
     check('triage: needs_human outcome sets needs_human', flagged.body.data?.status === 'needs_human', flagged.body);
+    check('triage: its questions are stored with their choices and pick',
+      isDeepStrictEqual((await rows(db, 'SELECT questions FROM communications.triage WHERE id=$1', [flagged.body.data?.triage?.id]))[0]?.questions, [restart]));
 
     // Outreach: a pitch goes to Filtered unless a guardrail keeps it.
     const messageStatus = async (id: string) => (await rows(db, 'SELECT status FROM communications.messages WHERE id=$1', [id]))[0].status;
@@ -1838,13 +1855,58 @@ async function main() {
         answered.status === 200 && answered.body.data.status === 'ready' && twice.status === 409 && [400, 422].includes(both.status), [answered.body, twice.status, both.status]);
       const shown = await drafts.latestDraft(owner, reply.thread_id);
       check('drafts: the thread shows the ready draft and who wrote it', shown?.status === 'ready' && !!shown.body?.includes('Friday works') && shown.drafted_by?.id === ids.ashley, shown);
+
+      // Copying it is recorded once; with the thread handled after, the agent reads it as the reply that went out.
+      check('drafts: a reader cannot record a copy (403)', (await failsWith(() => drafts.markDraftCopied(reader, reply.thread_id, asked.id))) === 403);
+      const copiedOnce = await drafts.markDraftCopied(owner, reply.thread_id, asked.id);
+      await db.query("UPDATE communications.reply_drafts SET copied_at = copied_at - interval '1 hour' WHERE id=$1", [asked.id]);
+      const copiedTwice = await drafts.markDraftCopied(owner, reply.thread_id, asked.id);
+      check('drafts: the first copy is the one kept', !!copiedOnce.copied_at && !!copiedTwice.copied_at && Date.parse(copiedTwice.copied_at) < Date.parse(copiedOnce.copied_at), [copiedOnce.copied_at, copiedTwice.copied_at]);
+      const draftOf = async () => ((await api(detail.GET, 'GET', `/api/v1/inbound-emails/${reply.id}`, keys.ashley, { id: reply.id })).body.data.thread.reply_drafts as Payload[]).find((row) => row.id === asked.id);
+      const reviewedBefore = await rows<{ id: string; reviewed_at: string | null }>(db, 'SELECT id, reviewed_at FROM communications.messages WHERE thread_id=$1', [reply.thread_id]);
+      const copiedBefore = (await rows<{ copied_at: string }>(db, 'SELECT copied_at FROM communications.reply_drafts WHERE id=$1', [asked.id]))[0].copied_at;
+      // Handled before the copy: not used.
+      await db.query("UPDATE communications.messages SET reviewed_at = now() - interval '2 hours' WHERE thread_id=$1", [reply.thread_id]);
+      await db.query("UPDATE communications.reply_drafts SET copied_at = now() - interval '1 hour' WHERE id=$1", [asked.id]);
+      const notYet = await draftOf();
+      // Handled after it: used.
+      await db.query('UPDATE communications.messages SET reviewed_at = now() WHERE id=$1', [reply.id]);
+      const used = await draftOf();
+      for (const row of reviewedBefore) await db.query('UPDATE communications.messages SET reviewed_at=$2 WHERE id=$1', [row.id, row.reviewed_at]);
+      await db.query('UPDATE communications.reply_drafts SET copied_at=$2 WHERE id=$1', [asked.id, copiedBefore]);
+      check('drafts: the agent reads a copied draft as used only once the thread was handled after the copy',
+        notYet?.used === false && !!notYet.copied_at && used?.used === true && used.body.includes('Friday works') && used.asked === 'Thank her and confirm Friday.', [notYet, used]);
       const stale = await drafts.requestReplyDraft(owner, reply.thread_id, { instructions: 'Shorter please.' });
       await db.query("UPDATE communications.reply_drafts SET created_at = now() - interval '31 minutes' WHERE id=$1", [stale.id]);
       const fresh = await drafts.requestReplyDraft(owner, reply.thread_id, { instructions: 'Shorter please.' });
       const closed = (await rows<{ status: string; failure: string }>(db, 'SELECT status, failure FROM communications.reply_drafts WHERE id=$1', [stale.id]))[0];
       check('drafts: a request unanswered for 30 minutes closes as failed and a new ask starts fresh',
         fresh.id !== stale.id && fresh.status === 'requested' && closed.status === 'failed' && closed.failure.includes('30 minutes'), [closed, fresh.id]);
+      check('drafts: only a written draft can be copied (409)', (await failsWith(() => drafts.markDraftCopied(owner, reply.thread_id, fresh.id))) === 409);
       await db.query("UPDATE communications.reply_drafts SET status='failed', failure='test', completed_at=now() WHERE id=$1", [fresh.id]);
+    }
+
+    // ---- Marking a thread handled closes the replies it owed -----------------
+    {
+      const [mine, theirs, other, elsewhere] = await rows<{ id: string }>(db, `INSERT INTO public.reminders (title, source_message_id, owner_id, status) VALUES
+        ('Reply to Carla: header copy', $1, $2, 'open'),
+        ('Reply to Carla: footer', $1, $3, 'open'),
+        ('Send Carla the invoice', $1, $2, 'open'),
+        ('Reply to Dana: Friday', $4, $2, 'open') RETURNING id`, [htmlOnly.id, ids.owner, ids.ashley, reply.id]);
+      const htmlBefore = await rows<{ id: string; status: string; reviewed_at: string | null; reviewed_by: string | null }>(db,
+        'SELECT id, status, reviewed_at, reviewed_by FROM communications.messages WHERE thread_id=$1', [htmlOnly.thread_id]);
+      await db.query("UPDATE communications.messages SET status = 'needs_human', reviewed_at = NULL WHERE id = $1", [htmlOnly.id]);
+      const result = await inbox.markThreadHandled(owner, htmlOnly.thread_id);
+      for (const row of htmlBefore) {
+        await db.query('UPDATE communications.messages SET status=$2, reviewed_at=$3, reviewed_by=$4 WHERE id=$1', [row.id, row.status, row.reviewed_at, row.reviewed_by]);
+      }
+      const after = await rows<{ id: string; status: string; completed_by: string | null }>(db, 'SELECT id, status, completed_by FROM public.reminders WHERE id = ANY($1)', [[mine.id, theirs.id, other.id, elsewhere.id]]);
+      const statusOf = (id: string) => after.find((row) => row.id === id)?.status;
+      check('handled: your own "Reply to" reminders on the thread close, and only those',
+        JSON.stringify(result.closed_reminders) === JSON.stringify(['Reply to Carla: header copy'])
+        && statusOf(mine.id) === 'done' && after.find((row) => row.id === mine.id)?.completed_by === ids.owner
+        && statusOf(theirs.id) === 'open' && statusOf(other.id) === 'open' && statusOf(elsewhere.id) === 'open', [result, after]);
+      await db.query('DELETE FROM public.reminders WHERE id = ANY($1)', [[mine.id, theirs.id, other.id, elsewhere.id]]);
     }
 
     // ---- Answers to the agent's questions -----------------------------------

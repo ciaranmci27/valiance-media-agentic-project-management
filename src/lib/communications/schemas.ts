@@ -1,10 +1,24 @@
 import { z } from 'zod';
+import { ANSWER_MAX } from './inbox-decisions';
 import { TRIAGE_CATEGORIES } from './outreach';
 
 // -- Agent API -------------------------------------------------------------
 
 export const AGENT_MESSAGE_STATUSES = ['new', 'handled', 'ignored', 'needs_human'] as const;
 export const TRIAGE_OUTCOMES = ['no_action', 'task', 'needs_reply', 'needs_human'] as const;
+
+export const triageQuestionSchema = z.object({
+  question: z.string().trim().min(1).max(300),
+  // One line on why it needs a person.
+  why: z.string().trim().min(1).max(300).nullable().optional(),
+  options: z.array(z.object({
+    label: z.string().trim().min(1).max(80),
+    detail: z.string().trim().min(1).max(200).nullable().optional(),
+  }).strict()).min(2).max(4),
+  // The option the agent would pick: index into options.
+  recommended: z.number().int().min(0).max(3),
+}).strict();
+export type TriageQuestion = z.infer<typeof triageQuestionSchema>;
 
 export const triageSchema = z.object({
   outcome: z.enum(TRIAGE_OUTCOMES),
@@ -28,13 +42,24 @@ export const triageSchema = z.object({
   // What the email is: work, fyi (needs nothing), or outreach (someone
   // selling to us). Outreach is filtered unless something guards it.
   category: z.enum(TRIAGE_CATEGORIES).nullable().optional(),
+  // The decisions behind question_for_human, answered together in one go:
+  // each with two to four concrete choices and the agent's pick.
+  questions: z.array(triageQuestionSchema).min(1).max(3).nullable().optional(),
 }).strict().superRefine((body, ctx) => {
+  if (body.questions?.length && !body.question_for_human) {
+    ctx.addIssue({ code: 'custom', path: ['question_for_human'], message: 'Questions need question_for_human, the one-line version' });
+  }
+  body.questions?.forEach((question, index) => {
+    if (question.recommended >= question.options.length) {
+      ctx.addIssue({ code: 'custom', path: ['questions', index, 'recommended'], message: 'recommended is the index of one of its options' });
+    }
+  });
   // A pitch asks nothing of anyone: it never needs a person, a reply or a task.
   if (body.category !== 'outreach') return;
   if (body.outcome !== 'no_action') ctx.addIssue({ code: 'custom', path: ['outcome'], message: 'Outreach is no_action: a pitch never needs a person, a reply or a task' });
   if (body.urgent) ctx.addIssue({ code: 'custom', path: ['urgent'], message: 'Outreach is never urgent' });
   if (body.links.length > 0) ctx.addIssue({ code: 'custom', path: ['links'], message: 'Outreach links no task' });
-  if (body.question_for_human) ctx.addIssue({ code: 'custom', path: ['question_for_human'], message: 'Outreach asks no question' });
+  if (body.question_for_human || body.questions?.length) ctx.addIssue({ code: 'custom', path: ['question_for_human'], message: 'Outreach asks no question' });
   if (body.suggested_reply) ctx.addIssue({ code: 'custom', path: ['suggested_reply'], message: 'Outreach gets no reply' });
 });
 export type TriageRequest = z.infer<typeof triageSchema>;
@@ -71,7 +96,7 @@ export const sendBackSchema = z.object({
 /** A person's answer to the agent's question on an email (the newest one asking, by default). */
 export const answerQuestionSchema = z.object({
   message_id: z.string().uuid().nullable().optional(),
-  answer: z.string().trim().min(1).max(2000),
+  answer: z.string().trim().min(1).max(ANSWER_MAX),
 }).strict();
 
 export const clientDomainSchema = z.object({

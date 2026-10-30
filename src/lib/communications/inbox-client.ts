@@ -92,7 +92,7 @@ export function inboxClient(isDemo: boolean) {
         ? demoInbox.removeProject(threadId, projectId)
         : call(`/api/workspace/inbox/threads/${threadId}/projects/${encodeURIComponent(projectId)}`, { method: 'DELETE' });
     },
-    markHandled(threadId: string): Promise<{ handled: number; reviewed: number }> {
+    markHandled(threadId: string): Promise<{ handled: number; reviewed: number; closed_reminders?: string[] }> {
       return isDemo ? demoInbox.markHandled(threadId) : post(`/api/workspace/inbox/threads/${threadId}/handled`);
     },
     sendBack(threadId: string, messageId: string | null): Promise<{ message_id: string }> {
@@ -136,6 +136,10 @@ export function inboxClient(isDemo: boolean) {
     async requestDraft(threadId: string, instructions = ''): Promise<InboxReplyDraft> {
       if (isDemo) throw new Error('Drafts are off in demo mode');
       return post(`/api/workspace/inbox/threads/${threadId}/draft`, { instructions });
+    },
+    async markDraftCopied(threadId: string, draftId: string): Promise<InboxReplyDraft | null> {
+      if (isDemo) return null;
+      return post(`/api/workspace/inbox/threads/${threadId}/draft/copied`, { draft_id: draftId });
     },
     async senderRules(): Promise<{ rules: InboxSenderRule[] }> {
       if (isDemo) return { rules: [] };

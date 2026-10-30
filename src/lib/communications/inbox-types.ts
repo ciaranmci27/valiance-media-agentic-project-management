@@ -165,12 +165,23 @@ export function skippedReasonLabel(reason: string | null): string {
   return (reason && ATTACHMENT_SKIPPED_LABELS[reason as AttachmentSkippedReason]) || 'Not stored';
 }
 
+/** A decision the agent needs, with the choices it offers and the one it would pick. */
+export interface InboxQuestion {
+  question: string;
+  why?: string | null;
+  options: { label: string; detail?: string | null }[];
+  /** Index into options. */
+  recommended: number;
+}
+
 export interface InboxTriage {
   id: string;
   outcome: TriageOutcome;
   urgent: boolean;
   summary: string;
   question_for_human: string | null;
+  /** The decisions behind question_for_human, answered together; null on older triage. */
+  questions: InboxQuestion[] | null;
   suggested_reply: string | null;
   /** What the agent read it as; outreach is a pitch it filtered (or a guardrail kept). */
   category: TriageCategory | null;
@@ -334,6 +345,8 @@ export interface InboxReplyDraft {
   drafted_by: { id: string; name: string } | null;
   created_at: string;
   completed_at: string | null;
+  /** When a person first copied it; copied and then handled, it is taken as the reply that went out. */
+  copied_at: string | null;
 }
 
 /** A reminder that came from an email (reminders.source_message_id). */
@@ -343,6 +356,8 @@ export interface InboxReminder {
   remind_on: string | null;
   status: 'open' | 'done';
   task_id: string | null;
+  /** The viewer's own reminder (marking the thread handled closes their "Reply to ..." ones). */
+  mine?: boolean;
 }
 
 export interface SetThreadProjectRequest {

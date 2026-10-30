@@ -20,11 +20,12 @@ export const requestDraftSchema = z.object({
 }).strict();
 export type RequestDraftRequest = z.infer<typeof requestDraftSchema>;
 
-export const DRAFT_COLUMNS = 'id, thread_id, message_id, status, instructions, body, failure, requested_by, drafted_by, created_at, completed_at';
+export const DRAFT_COLUMNS = 'id, thread_id, message_id, status, instructions, body, failure, requested_by, drafted_by, created_at, completed_at, copied_at';
 
 type DraftRow = {
   id: string; thread_id: string; message_id: string; status: InboxReplyDraft['status']; instructions: string; body: string | null;
   failure: string | null; requested_by: string | null; drafted_by: string | null; created_at: string; completed_at: string | null;
+  copied_at: string | null;
 };
 
 export async function presentDrafts(service: SupabaseClient, rows: DraftRow[]): Promise<InboxReplyDraft[]> {
@@ -44,6 +45,7 @@ export async function presentDrafts(service: SupabaseClient, rows: DraftRow[]): 
     drafted_by: who(row.drafted_by),
     created_at: row.created_at,
     completed_at: row.completed_at,
+    copied_at: row.copied_at ?? null,
   }));
 }
 
@@ -52,6 +54,26 @@ export async function latestDraft(ctx: InboxContext, threadId: string): Promise<
   const row = await one<DraftRow & Record<string, unknown>>(comms(ctx.service).from('reply_drafts').select(DRAFT_COLUMNS)
     .eq('thread_id', threadId).order('created_at', { ascending: false }).limit(1).maybeSingle());
   return row ? (await presentDrafts(ctx.service, [row]))[0] : null;
+}
+
+export const draftCopiedSchema = z.object({ draft_id: z.string().uuid() }).strict();
+
+/**
+ * A person copied a ready draft. The first copy is the one kept: copied, and
+ * then the thread marked handled, the draft is taken as (roughly) the reply
+ * that went out. Copying again changes nothing.
+ */
+export async function markDraftCopied(ctx: InboxContext, threadId: string, draftId: string): Promise<InboxReplyDraft> {
+  assertCanTriage(ctx.access);
+  const thread = await loadReadableThread(ctx, threadId);
+  const { error } = await comms(ctx.service).from('reply_drafts').update({ copied_at: new Date().toISOString() })
+    .eq('id', draftId).eq('thread_id', thread.id).eq('status', 'ready').is('copied_at', null);
+  if (error) throw error;
+  const row = await one<DraftRow & Record<string, unknown>>(comms(ctx.service).from('reply_drafts').select(DRAFT_COLUMNS)
+    .eq('id', draftId).eq('thread_id', thread.id).maybeSingle());
+  if (!row) throw new InboxError(404, 'Draft not found');
+  if (row.status !== 'ready') throw new InboxError(409, 'Only a written draft can be copied');
+  return (await presentDrafts(ctx.service, [row]))[0];
 }
 
 export async function requestReplyDraft(ctx: InboxContext, threadId: string, request: RequestDraftRequest): Promise<InboxReplyDraft> {

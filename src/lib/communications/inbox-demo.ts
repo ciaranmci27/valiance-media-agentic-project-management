@@ -73,11 +73,12 @@ function message({ linked_tasks: links = [], ...partial }: DemoMessage): InboxMe
 }
 
 const person = (name: string, address: string, contactId: string | null = null) => ({ name, address, contact_id: contactId });
-const triage = (partial: Omit<InboxMessage['triage'] & object, 'id' | 'member' | 'created_at' | 'category'> & Partial<Pick<InboxMessage['triage'] & object, 'created_at' | 'category'>>, member = SCOUT) => ({
+const triage = (partial: Omit<InboxMessage['triage'] & object, 'id' | 'member' | 'created_at' | 'category' | 'questions'> & Partial<Pick<InboxMessage['triage'] & object, 'created_at' | 'category' | 'questions'>>, member = SCOUT) => ({
   id: id('9d9d9d9d'),
   member,
   created_at: partial.created_at ?? hoursAgo(1),
   category: null,
+  questions: null,
   ...partial,
 });
 
@@ -134,7 +135,10 @@ function buildThreads(): InboxThreadDetail[] {
           trust: UNKNOWN,
           new_text: 'Our homepage shows a 500 error right now. Investors are looking at the site this afternoon. Can someone look ASAP?\n\nAndre\nCTO, NeoForge Technologies',
           status: 'needs_human',
-          triage: triage({ outcome: 'needs_human', urgent: true, summary: 'Andre (NeoForge CTO, writing from his personal Gmail) reports a 500 error on the homepage before an investor review this afternoon.', question_for_human: 'This came from a personal address I could not map. Is the production site yours to check, and should I open an urgent task?', suggested_reply: 'Hi Andre, thanks for flagging this. We are looking at it now and will update you within the hour.', created_at: hoursAgo(0.5) }),
+          triage: triage({ outcome: 'needs_human', urgent: true, summary: 'Andre (NeoForge CTO, writing from his personal Gmail) reports a 500 error on the homepage before an investor review this afternoon.', question_for_human: 'This came from a personal address I could not map. Is the production site yours to check, and should I open an urgent task?', questions: [
+            { question: 'Is the NeoForge production site ours to fix?', why: 'Andre wrote from a personal Gmail that maps to no client.', options: [{ label: 'Yes, open an urgent task', detail: 'On NeoForge, due today, with his screenshot' }, { label: 'No, it is not ours', detail: 'Reply that we do not host it' }, { label: 'Check first, no task yet' }], recommended: 0 },
+            { question: 'Remember his Gmail for NeoForge?', options: [{ label: 'Yes, map it to NeoForge' }, { label: 'Not now' }], recommended: 1 },
+          ], suggested_reply: 'Hi Andre, thanks for flagging this. We are looking at it now and will update you within the hour.', created_at: hoursAgo(0.5) }),
         }),
       ],
     }),
