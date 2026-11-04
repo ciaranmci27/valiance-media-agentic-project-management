@@ -52,6 +52,7 @@ function requestHash(body: TriageRequest): string {
     // Only when given, so a retry from before categories hashes as it did.
     ...(body.category ? [body.category] : []),
     ...(body.questions?.length ? [body.questions] : []),
+    ...(body.settles_earlier ? ['settles_earlier'] : []),
   ])).digest('hex');
 }
 
@@ -79,6 +80,35 @@ async function priorTriage(supabase: SupabaseClient, message: AccessibleMessage,
   const { request_hash: priorHash, ...triage } = prior as { id: string; request_hash: string | null };
   if (priorHash !== hash) throw idempotencyConflict(triage.id);
   return { triage, status: message.status, thread: await conversationJson(supabase, message.thread_id), replayed: true };
+}
+
+/**
+ * The conversation moved on: a person replied from their own mail, or the
+ * decision was made in the thread. What its earlier emails waited on closes,
+ * questions and owed replies alike. Only a verified sender's email can say so,
+ * and an untrusted earlier email stays for a person, so a spoofed "already
+ * approved" closes nothing. Returns how many emails it closed; a retry finds none.
+ */
+async function settleEarlier(supabase: SupabaseClient, message: AccessibleMessage, memberId: string): Promise<number> {
+  const { data, error } = await comms(supabase).from('messages')
+    .select('id, status, auth, received_at, reviewed_at').eq('thread_id', message.thread_id).neq('status', 'receiving');
+  if (error) throw error;
+  const thread = (data ?? []) as { id: string; status: string; auth: { trust?: string } | null; received_at: string; reviewed_at: string | null }[];
+  const current = thread.find((row) => row.id === message.id);
+  if (!current || current.status === 'ignored' || current.auth?.trust !== 'trusted') return 0;
+  const earlier = thread.filter((row) => Date.parse(row.received_at) < Date.parse(current.received_at) && row.auth?.trust !== 'untrusted');
+  const asked = earlier.filter((row) => row.status === 'needs_human').map((row) => row.id);
+  const unreviewed = earlier.filter((row) => (row.status === 'needs_human' || row.status === 'handled') && !row.reviewed_at).map((row) => row.id);
+  if (asked.length > 0) {
+    const { error: closeError } = await comms(supabase).from('messages').update({ status: 'handled' }).in('id', asked).eq('status', 'needs_human');
+    if (closeError) throw closeError;
+  }
+  if (unreviewed.length > 0) {
+    const { error: reviewError } = await comms(supabase).from('messages')
+      .update({ reviewed_at: new Date().toISOString(), reviewed_by: memberId }).in('id', unreviewed).is('reviewed_at', null);
+    if (reviewError) throw reviewError;
+  }
+  return new Set([...asked, ...unreviewed]).size;
 }
 
 /**
@@ -126,8 +156,9 @@ async function filtersAsOutreach(
  * now must be active unless the conversation is already on it. It never
  * creates a contact or domain mapping. With an idempotency_key already used
  * on this email, the same body returns the first triage (200, nothing
- * recorded, no second activity) and a different body is 409. Nothing here
- * sends email.
+ * recorded, no second activity) and a different body is 409. With
+ * settles_earlier it also closes what the conversation's earlier emails
+ * waited on (see settleEarlier). Nothing here sends email.
  */
 export const POST = withApi<TriageRequest, { id: string }>(async ({ supabase, params, body, teamMemberId, apiKeyId, access }) => {
   const message = await loadAccessibleMessage(supabase, teamMemberId, access, params.id);
@@ -135,7 +166,8 @@ export const POST = withApi<TriageRequest, { id: string }>(async ({ supabase, pa
   const hash = key ? requestHash(body) : null;
   if (key && hash) {
     const replay = await priorTriage(supabase, message, key, hash);
-    if (replay) return success(replay);
+    // Settling runs again on a retry: the first try may have stopped between the two writes.
+    if (replay) return success(body.settles_earlier ? { ...replay, settled_earlier: await settleEarlier(supabase, message, teamMemberId) } : replay);
   }
 
   const [{ data: row, error: rowError }, { data: filedRows, error: filedError }] = await Promise.all([
@@ -232,9 +264,10 @@ export const POST = withApi<TriageRequest, { id: string }>(async ({ supabase, pa
     }
     throw error;
   }
+  const settled = body.settles_earlier ? { settled_earlier: await settleEarlier(supabase, message, teamMemberId) } : {};
   const recorded = data as Recorded;
   // A concurrent retry of the same key recorded it first: nothing new happened.
-  if (recorded.replayed) return success(recorded);
+  if (recorded.replayed) return success({ ...recorded, ...settled });
 
   if (access.role === 'agent') {
     const projectIds = recorded.triage.project_ids ?? [];
@@ -265,5 +298,5 @@ export const POST = withApi<TriageRequest, { id: string }>(async ({ supabase, pa
     afterSnapshot: recorded,
     statusCode: 201,
   });
-  return created(recorded);
+  return created({ ...recorded, ...settled });
 }, { schema: triageSchema, permission: 'inbound_email.triage' });

@@ -977,7 +977,7 @@
     "attachment_count": 0,
     "latest_triage": {
      "id": "<triage:fw-gmail@agency.example/Homepage copy from Vera>",
-     "outcome": "no_action",
+     "outcome": "task",
      "urgent": false,
      "created_at": "<time>"
     }
@@ -1273,7 +1273,7 @@
     "thread_id": "<thread:Ashley/guess@agency.example>",
     "conversation_id": "<thread:Ashley/guess@agency.example>",
     "channel": "email",
-    "status": "new",
+    "status": "handled",
     "subject": "Question about the site",
     "from": {
      "address": "owner@agency.example",
@@ -1318,8 +1318,8 @@
     "candidate_project_ids": [],
     "attachment_count": 0,
     "latest_triage": {
-     "id": "<triage:guess@agency.example/Probably Vera Studio>",
-     "outcome": "needs_human",
+     "id": "<triage:guess@agency.example/Probably Vera Studio#2>",
+     "outcome": "task",
      "urgent": false,
      "created_at": "<time>"
     }
@@ -2218,6 +2218,198 @@
     "latest_triage": null
    },
    {
+    "id": "<message:Ashley/quiet@agency.example>",
+    "inbox_id": "<ids.inboxA>",
+    "thread_id": "<thread:Ashley/quiet@agency.example>",
+    "conversation_id": "<thread:Ashley/quiet@agency.example>",
+    "channel": "email",
+    "status": "handled",
+    "subject": "Pitch decks for this week",
+    "from": {
+     "address": "owner@agency.example",
+     "name": "Sam Owner"
+    },
+    "received_at": "<time>",
+    "sent_at": "<time>",
+    "is_forward": false,
+    "routing_basis": "team_recipients",
+    "forwarded_by": {
+     "member_id": "<ids.owner>",
+     "name": "Sam"
+    },
+    "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": "<ids.owner>",
+    "sender_verified": true,
+    "trust": "trusted",
+    "auto_mail_reason": null,
+    "sorting": {
+     "kind": "team",
+     "topic": null,
+     "action": "triage",
+     "reason": "From a teammate.",
+     "superseded_by": null
+    },
+    "project": null,
+    "projects": [],
+    "candidate_project_ids": [],
+    "attachment_count": 0,
+    "latest_triage": {
+     "id": "<triage:quiet@agency.example/Decks shared, nothing needed>",
+     "outcome": "no_action",
+     "urgent": false,
+     "created_at": "<time>"
+    }
+   },
+   {
+    "id": "<message:Ashley/related@agency.example>",
+    "inbox_id": "<ids.inboxA>",
+    "thread_id": "<thread:Ashley/related@agency.example>",
+    "conversation_id": "<thread:Ashley/related@agency.example>",
+    "channel": "email",
+    "status": "handled",
+    "subject": "Thanks for the copy",
+    "from": {
+     "address": "owner@agency.example",
+     "name": "Sam Owner"
+    },
+    "received_at": "<time>",
+    "sent_at": "<time>",
+    "is_forward": false,
+    "routing_basis": "team_recipients",
+    "forwarded_by": {
+     "member_id": "<ids.owner>",
+     "name": "Sam"
+    },
+    "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": "<ids.owner>",
+    "sender_verified": true,
+    "trust": "trusted",
+    "auto_mail_reason": null,
+    "sorting": {
+     "kind": "team",
+     "topic": null,
+     "action": "triage",
+     "reason": "From a teammate.",
+     "superseded_by": null
+    },
+    "project": {
+     "id": "<project:Vera Studio>",
+     "name": "Vera Studio",
+     "source": "guessed",
+     "address": null
+    },
+    "projects": [
+     {
+      "id": "<project:Vera Studio>",
+      "name": "Vera Studio",
+      "source": "guessed",
+      "address": null
+     }
+    ],
+    "candidate_project_ids": [],
+    "attachment_count": 0,
+    "latest_triage": {
+     "id": "<triage:related@agency.example/Thanks, nothing new>",
+     "outcome": "no_action",
+     "urgent": false,
+     "created_at": "<time>"
+    }
+   },
+   {
+    "id": "<message:Ashley/settle-1@agency.example>",
+    "inbox_id": "<ids.inboxA>",
+    "thread_id": "<thread:Ashley/settle-1@agency.example>",
+    "conversation_id": "<thread:Ashley/settle-1@agency.example>",
+    "channel": "email",
+    "status": "handled",
+    "subject": "Which plan?",
+    "from": {
+     "address": "owner@agency.example",
+     "name": "Sam Owner"
+    },
+    "received_at": "<time>",
+    "sent_at": "<time>",
+    "is_forward": false,
+    "routing_basis": "team_recipients",
+    "forwarded_by": {
+     "member_id": "<ids.owner>",
+     "name": "Sam"
+    },
+    "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": "<ids.owner>",
+    "sender_verified": true,
+    "trust": "trusted",
+    "auto_mail_reason": null,
+    "sorting": {
+     "kind": "team",
+     "topic": null,
+     "action": "triage",
+     "reason": "From a teammate.",
+     "superseded_by": null
+    },
+    "project": null,
+    "projects": [],
+    "candidate_project_ids": [],
+    "attachment_count": 0,
+    "latest_triage": {
+     "id": "<triage:settle-1@agency.example/A reply is owed>",
+     "outcome": "needs_reply",
+     "urgent": false,
+     "created_at": "<time>"
+    }
+   },
+   {
+    "id": "<message:Ashley/settle-2@agency.example>",
+    "inbox_id": "<ids.inboxA>",
+    "thread_id": "<thread:Ashley/settle-1@agency.example>",
+    "conversation_id": "<thread:Ashley/settle-1@agency.example>",
+    "channel": "email",
+    "status": "new",
+    "subject": "Re: Which plan?",
+    "from": {
+     "address": "owner@agency.example",
+     "name": "Sam Owner"
+    },
+    "received_at": "<time>",
+    "sent_at": "<time>",
+    "is_forward": false,
+    "routing_basis": "team_recipients",
+    "forwarded_by": {
+     "member_id": "<ids.owner>",
+     "name": "Sam"
+    },
+    "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": "<ids.owner>",
+    "sender_verified": true,
+    "trust": "trusted",
+    "auto_mail_reason": null,
+    "sorting": {
+     "kind": "team",
+     "topic": null,
+     "action": "triage",
+     "reason": "From a teammate.",
+     "superseded_by": null
+    },
+    "project": null,
+    "projects": [],
+    "candidate_project_ids": [],
+    "attachment_count": 0,
+    "latest_triage": {
+     "id": "<triage:settle-2@agency.example/He replied himself>",
+     "outcome": "needs_human",
+     "urgent": false,
+     "created_at": "<time>"
+    }
+   },
+   {
     "id": "<message:Ashley/stranger@unknown-co.example>",
     "inbox_id": "<ids.inboxA>",
     "thread_id": "<thread:Ashley/stranger@unknown-co.example>",
@@ -2308,8 +2500,8 @@
     ],
     "attachment_count": 0,
     "latest_triage": {
-     "id": "<triage:team-cc-two@agency.example/The joint call is Cliff's project>",
-     "outcome": "no_action",
+     "id": "<triage:team-cc-two@agency.example/The joint call is Cliff's project#2>",
+     "outcome": "task",
      "urgent": false,
      "created_at": "<time>"
     }
@@ -2874,7 +3066,7 @@
   "meta": {
    "page": 1,
    "limit": 100,
-   "total": 57,
+   "total": 61,
    "total_pages": 1
   }
  },
@@ -10013,7 +10205,7 @@
      "id": "<triage:fw-gmail@agency.example/Homepage copy from Vera>",
      "message_id": "<message:Ashley/fw-gmail@agency.example>",
      "member_id": "<ids.ashley>",
-     "outcome": "no_action",
+     "outcome": "task",
      "urgent": false,
      "summary": "Homepage copy from Vera",
      "question_for_human": null,
@@ -10140,7 +10332,7 @@
         "id": "<triage:fw-gmail@agency.example/Homepage copy from Vera>",
         "message_id": "<message:Ashley/fw-gmail@agency.example>",
         "member_id": "<ids.ashley>",
-        "outcome": "no_action",
+        "outcome": "task",
         "urgent": false,
         "summary": "Homepage copy from Vera",
         "question_for_human": null,
@@ -11152,7 +11344,7 @@
    "success": true,
    "data": {
     "id": "<message:Ashley/guess@agency.example>",
-    "status": "new",
+    "status": "handled",
     "subject": "Question about the site",
     "internet_message_id": "guess@agency.example",
     "received_at": "<time>",
@@ -11205,13 +11397,13 @@
     "html_text": null,
     "html_text_truncated": false,
     "latest_triage": {
-     "id": "<triage:guess@agency.example/Probably Vera Studio>",
+     "id": "<triage:guess@agency.example/Probably Vera Studio#2>",
      "message_id": "<message:Ashley/guess@agency.example>",
      "member_id": "<ids.ashley>",
-     "outcome": "needs_human",
+     "outcome": "task",
      "urgent": false,
      "summary": "Probably Vera Studio",
-     "question_for_human": "Which project is this for? Default: Acme Roofing.",
+     "question_for_human": null,
      "suggested_reply": null,
      "project_id": "<project:Vera Studio>",
      "project_ids": [
@@ -11220,14 +11412,7 @@
      "summarized_at": null,
      "created_at": "<time>"
     },
-    "answers": [
-     {
-      "question": "Which project is this for? Default: Acme Roofing.",
-      "answer": "Yes, file it on Acme Roofing.",
-      "answered_by": "Sam",
-      "answered_at": "<time>"
-     }
-    ],
+    "answers": [],
     "linked_tasks": [],
     "attachments": [],
     "inbox": {
@@ -11254,7 +11439,6 @@
     ],
     "project_scope": {
      "bases": [
-      "answered",
       "conversation",
       "team"
      ],
@@ -11266,7 +11450,7 @@
       }
      ],
      "any_project": true,
-     "any_source": "person"
+     "any_source": "guessed"
     },
     "candidates": [],
     "thread": {
@@ -11277,7 +11461,7 @@
      "messages": [
       {
        "id": "<message:Ashley/guess@agency.example>",
-       "status": "new",
+       "status": "handled",
        "subject": "Question about the site",
        "internet_message_id": "guess@agency.example",
        "received_at": "<time>",
@@ -11330,13 +11514,13 @@
        "html_text": null,
        "html_text_truncated": false,
        "latest_triage": {
-        "id": "<triage:guess@agency.example/Probably Vera Studio>",
+        "id": "<triage:guess@agency.example/Probably Vera Studio#2>",
         "message_id": "<message:Ashley/guess@agency.example>",
         "member_id": "<ids.ashley>",
-        "outcome": "needs_human",
+        "outcome": "task",
         "urgent": false,
         "summary": "Probably Vera Studio",
-        "question_for_human": "Which project is this for? Default: Acme Roofing.",
+        "question_for_human": null,
         "suggested_reply": null,
         "project_id": "<project:Vera Studio>",
         "project_ids": [
@@ -11345,14 +11529,7 @@
         "summarized_at": null,
         "created_at": "<time>"
        },
-       "answers": [
-        {
-         "question": "Which project is this for? Default: Acme Roofing.",
-         "answer": "Yes, file it on Acme Roofing.",
-         "answered_by": "Sam",
-         "answered_at": "<time>"
-        }
-       ],
+       "answers": [],
        "linked_tasks": [],
        "attachments": []
       }
@@ -16525,6 +16702,917 @@
   {
    "success": true,
    "data": {
+    "id": "<message:Ashley/quiet@agency.example>",
+    "status": "handled",
+    "subject": "Pitch decks for this week",
+    "internet_message_id": "quiet@agency.example",
+    "received_at": "<time>",
+    "sent_at": "<time>",
+    "from": {
+     "address": "owner@agency.example",
+     "name": "Sam Owner",
+     "contact_id": null
+    },
+    "to": [
+     {
+      "address": "ashley@agency.example",
+      "name": "",
+      "contact_id": null
+     }
+    ],
+    "cc": [],
+    "reply_to": [],
+    "is_forward": false,
+    "routing_basis": "team_recipients",
+    "forwarded_by": {
+     "member_id": "<ids.owner>",
+     "name": "Sam"
+    },
+    "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": "<ids.owner>",
+    "sender_verified": true,
+    "auth": {
+     "trust": "trusted",
+     "trusted": true,
+     "source": "provider",
+     "spf": "pass",
+     "dkim": "pass",
+     "dmarc": "pass",
+     "reason": "provider: DKIM pass aligned with From"
+    },
+    "auto_mail_reason": null,
+    "sorting": {
+     "kind": "team",
+     "topic": null,
+     "action": "triage",
+     "reason": "From a teammate.",
+     "superseded_by": null
+    },
+    "new_text": "Sharing the decks, nothing needed.",
+    "text": "Sharing the decks, nothing needed.\n",
+    "text_truncated": false,
+    "html_text": null,
+    "html_text_truncated": false,
+    "latest_triage": {
+     "id": "<triage:quiet@agency.example/Decks shared, nothing needed>",
+     "message_id": "<message:Ashley/quiet@agency.example>",
+     "member_id": "<ids.ashley>",
+     "outcome": "no_action",
+     "urgent": false,
+     "summary": "Decks shared, nothing needed",
+     "question_for_human": null,
+     "suggested_reply": null,
+     "project_id": null,
+     "project_ids": [],
+     "summarized_at": null,
+     "created_at": "<time>"
+    },
+    "answers": [],
+    "linked_tasks": [],
+    "attachments": [],
+    "inbox": {
+     "id": "<ids.inboxA>",
+     "name": "Ashley",
+     "address": "ashley@agency.example"
+    },
+    "thread_id": "<thread:Ashley/quiet@agency.example>",
+    "conversation_id": "<thread:Ashley/quiet@agency.example>",
+    "channel": "email",
+    "project": null,
+    "projects": [],
+    "project_scope": {
+     "bases": [
+      "team"
+     ],
+     "projects": [],
+     "any_project": true,
+     "any_source": "guessed"
+    },
+    "candidates": [],
+    "thread": {
+     "id": "<thread:Ashley/quiet@agency.example>",
+     "subject_normalized": "pitch decks for this week",
+     "summary": null,
+     "last_message_at": "<time>",
+     "messages": [
+      {
+       "id": "<message:Ashley/quiet@agency.example>",
+       "status": "handled",
+       "subject": "Pitch decks for this week",
+       "internet_message_id": "quiet@agency.example",
+       "received_at": "<time>",
+       "sent_at": "<time>",
+       "from": {
+        "address": "owner@agency.example",
+        "name": "Sam Owner",
+        "contact_id": null
+       },
+       "to": [
+        {
+         "address": "ashley@agency.example",
+         "name": "",
+         "contact_id": null
+        }
+       ],
+       "cc": [],
+       "reply_to": [],
+       "is_forward": false,
+       "routing_basis": "team_recipients",
+       "forwarded_by": {
+        "member_id": "<ids.owner>",
+        "name": "Sam"
+       },
+       "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": "<ids.owner>",
+       "sender_verified": true,
+       "auth": {
+        "trust": "trusted",
+        "trusted": true,
+        "source": "provider",
+        "spf": "pass",
+        "dkim": "pass",
+        "dmarc": "pass",
+        "reason": "provider: DKIM pass aligned with From"
+       },
+       "auto_mail_reason": null,
+       "sorting": {
+        "kind": "team",
+        "topic": null,
+        "action": "triage",
+        "reason": "From a teammate.",
+        "superseded_by": null
+       },
+       "new_text": "Sharing the decks, nothing needed.",
+       "text": "Sharing the decks, nothing needed.\n",
+       "text_truncated": false,
+       "html_text": null,
+       "html_text_truncated": false,
+       "latest_triage": {
+        "id": "<triage:quiet@agency.example/Decks shared, nothing needed>",
+        "message_id": "<message:Ashley/quiet@agency.example>",
+        "member_id": "<ids.ashley>",
+        "outcome": "no_action",
+        "urgent": false,
+        "summary": "Decks shared, nothing needed",
+        "question_for_human": null,
+        "suggested_reply": null,
+        "project_id": null,
+        "project_ids": [],
+        "summarized_at": null,
+        "created_at": "<time>"
+       },
+       "answers": [],
+       "linked_tasks": [],
+       "attachments": []
+      }
+     ],
+     "reply_drafts": []
+    }
+   }
+  },
+  {
+   "success": true,
+   "data": {
+    "id": "<message:Ashley/related@agency.example>",
+    "status": "handled",
+    "subject": "Thanks for the copy",
+    "internet_message_id": "related@agency.example",
+    "received_at": "<time>",
+    "sent_at": "<time>",
+    "from": {
+     "address": "owner@agency.example",
+     "name": "Sam Owner",
+     "contact_id": null
+    },
+    "to": [
+     {
+      "address": "ashley@agency.example",
+      "name": "",
+      "contact_id": null
+     }
+    ],
+    "cc": [],
+    "reply_to": [],
+    "is_forward": false,
+    "routing_basis": "team_recipients",
+    "forwarded_by": {
+     "member_id": "<ids.owner>",
+     "name": "Sam"
+    },
+    "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": "<ids.owner>",
+    "sender_verified": true,
+    "auth": {
+     "trust": "trusted",
+     "trusted": true,
+     "source": "provider",
+     "spf": "pass",
+     "dkim": "pass",
+     "dmarc": "pass",
+     "reason": "provider: DKIM pass aligned with From"
+    },
+    "auto_mail_reason": null,
+    "sorting": {
+     "kind": "team",
+     "topic": null,
+     "action": "triage",
+     "reason": "From a teammate.",
+     "superseded_by": null
+    },
+    "new_text": "Looks fine, thanks.",
+    "text": "Looks fine, thanks.\n",
+    "text_truncated": false,
+    "html_text": null,
+    "html_text_truncated": false,
+    "latest_triage": {
+     "id": "<triage:related@agency.example/Thanks, nothing new>",
+     "message_id": "<message:Ashley/related@agency.example>",
+     "member_id": "<ids.ashley>",
+     "outcome": "no_action",
+     "urgent": false,
+     "summary": "Thanks, nothing new",
+     "question_for_human": null,
+     "suggested_reply": null,
+     "project_id": "<project:Vera Studio>",
+     "project_ids": [
+      "<project:Vera Studio>"
+     ],
+     "summarized_at": null,
+     "created_at": "<time>"
+    },
+    "answers": [],
+    "linked_tasks": [
+     {
+      "task_id": "<task:Homepage copy>",
+      "relation": "related",
+      "title": "Homepage copy",
+      "status": "todo",
+      "ai_readiness": null,
+      "project_id": "<project:Vera Studio>",
+      "project_name": "Vera Studio",
+      "in_trash": false
+     }
+    ],
+    "attachments": [],
+    "inbox": {
+     "id": "<ids.inboxA>",
+     "name": "Ashley",
+     "address": "ashley@agency.example"
+    },
+    "thread_id": "<thread:Ashley/related@agency.example>",
+    "conversation_id": "<thread:Ashley/related@agency.example>",
+    "channel": "email",
+    "project": {
+     "id": "<project:Vera Studio>",
+     "name": "Vera Studio",
+     "source": "guessed",
+     "address": null
+    },
+    "projects": [
+     {
+      "id": "<project:Vera Studio>",
+      "name": "Vera Studio",
+      "source": "guessed",
+      "address": null
+     }
+    ],
+    "project_scope": {
+     "bases": [
+      "conversation",
+      "team"
+     ],
+     "projects": [
+      {
+       "project_id": "<project:Vera Studio>",
+       "name": "Vera Studio",
+       "source": "guessed"
+      }
+     ],
+     "any_project": true,
+     "any_source": "guessed"
+    },
+    "candidates": [],
+    "thread": {
+     "id": "<thread:Ashley/related@agency.example>",
+     "subject_normalized": "thanks for the copy",
+     "summary": null,
+     "last_message_at": "<time>",
+     "messages": [
+      {
+       "id": "<message:Ashley/related@agency.example>",
+       "status": "handled",
+       "subject": "Thanks for the copy",
+       "internet_message_id": "related@agency.example",
+       "received_at": "<time>",
+       "sent_at": "<time>",
+       "from": {
+        "address": "owner@agency.example",
+        "name": "Sam Owner",
+        "contact_id": null
+       },
+       "to": [
+        {
+         "address": "ashley@agency.example",
+         "name": "",
+         "contact_id": null
+        }
+       ],
+       "cc": [],
+       "reply_to": [],
+       "is_forward": false,
+       "routing_basis": "team_recipients",
+       "forwarded_by": {
+        "member_id": "<ids.owner>",
+        "name": "Sam"
+       },
+       "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": "<ids.owner>",
+       "sender_verified": true,
+       "auth": {
+        "trust": "trusted",
+        "trusted": true,
+        "source": "provider",
+        "spf": "pass",
+        "dkim": "pass",
+        "dmarc": "pass",
+        "reason": "provider: DKIM pass aligned with From"
+       },
+       "auto_mail_reason": null,
+       "sorting": {
+        "kind": "team",
+        "topic": null,
+        "action": "triage",
+        "reason": "From a teammate.",
+        "superseded_by": null
+       },
+       "new_text": "Looks fine, thanks.",
+       "text": "Looks fine, thanks.\n",
+       "text_truncated": false,
+       "html_text": null,
+       "html_text_truncated": false,
+       "latest_triage": {
+        "id": "<triage:related@agency.example/Thanks, nothing new>",
+        "message_id": "<message:Ashley/related@agency.example>",
+        "member_id": "<ids.ashley>",
+        "outcome": "no_action",
+        "urgent": false,
+        "summary": "Thanks, nothing new",
+        "question_for_human": null,
+        "suggested_reply": null,
+        "project_id": "<project:Vera Studio>",
+        "project_ids": [
+         "<project:Vera Studio>"
+        ],
+        "summarized_at": null,
+        "created_at": "<time>"
+       },
+       "answers": [],
+       "linked_tasks": [
+        {
+         "task_id": "<task:Homepage copy>",
+         "relation": "related",
+         "title": "Homepage copy",
+         "status": "todo",
+         "ai_readiness": null,
+         "project_id": "<project:Vera Studio>",
+         "project_name": "Vera Studio",
+         "in_trash": false
+        }
+       ],
+       "attachments": []
+      }
+     ],
+     "reply_drafts": []
+    }
+   }
+  },
+  {
+   "success": true,
+   "data": {
+    "id": "<message:Ashley/settle-1@agency.example>",
+    "status": "handled",
+    "subject": "Which plan?",
+    "internet_message_id": "settle-1@agency.example",
+    "received_at": "<time>",
+    "sent_at": "<time>",
+    "from": {
+     "address": "owner@agency.example",
+     "name": "Sam Owner",
+     "contact_id": null
+    },
+    "to": [
+     {
+      "address": "ashley@agency.example",
+      "name": "",
+      "contact_id": null
+     }
+    ],
+    "cc": [],
+    "reply_to": [],
+    "is_forward": false,
+    "routing_basis": "team_recipients",
+    "forwarded_by": {
+     "member_id": "<ids.owner>",
+     "name": "Sam"
+    },
+    "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": "<ids.owner>",
+    "sender_verified": true,
+    "auth": {
+     "trust": "trusted",
+     "trusted": true,
+     "source": "provider",
+     "spf": "pass",
+     "dkim": "pass",
+     "dmarc": "pass",
+     "reason": "provider: DKIM pass aligned with From"
+    },
+    "auto_mail_reason": null,
+    "sorting": {
+     "kind": "team",
+     "topic": null,
+     "action": "triage",
+     "reason": "From a teammate.",
+     "superseded_by": null
+    },
+    "new_text": "Your view on the plan?",
+    "text": "Your view on the plan?\n",
+    "text_truncated": false,
+    "html_text": null,
+    "html_text_truncated": false,
+    "latest_triage": {
+     "id": "<triage:settle-1@agency.example/A reply is owed>",
+     "message_id": "<message:Ashley/settle-1@agency.example>",
+     "member_id": "<ids.ashley>",
+     "outcome": "needs_reply",
+     "urgent": false,
+     "summary": "A reply is owed",
+     "question_for_human": null,
+     "suggested_reply": "Thanks.",
+     "project_id": null,
+     "project_ids": [],
+     "summarized_at": null,
+     "created_at": "<time>"
+    },
+    "answers": [],
+    "linked_tasks": [],
+    "attachments": [],
+    "inbox": {
+     "id": "<ids.inboxA>",
+     "name": "Ashley",
+     "address": "ashley@agency.example"
+    },
+    "thread_id": "<thread:Ashley/settle-1@agency.example>",
+    "conversation_id": "<thread:Ashley/settle-1@agency.example>",
+    "channel": "email",
+    "project": null,
+    "projects": [],
+    "project_scope": {
+     "bases": [
+      "team"
+     ],
+     "projects": [],
+     "any_project": true,
+     "any_source": "guessed"
+    },
+    "candidates": [],
+    "thread": {
+     "id": "<thread:Ashley/settle-1@agency.example>",
+     "subject_normalized": "which plan?",
+     "summary": null,
+     "last_message_at": "<time>",
+     "messages": [
+      {
+       "id": "<message:Ashley/settle-1@agency.example>",
+       "status": "handled",
+       "subject": "Which plan?",
+       "internet_message_id": "settle-1@agency.example",
+       "received_at": "<time>",
+       "sent_at": "<time>",
+       "from": {
+        "address": "owner@agency.example",
+        "name": "Sam Owner",
+        "contact_id": null
+       },
+       "to": [
+        {
+         "address": "ashley@agency.example",
+         "name": "",
+         "contact_id": null
+        }
+       ],
+       "cc": [],
+       "reply_to": [],
+       "is_forward": false,
+       "routing_basis": "team_recipients",
+       "forwarded_by": {
+        "member_id": "<ids.owner>",
+        "name": "Sam"
+       },
+       "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": "<ids.owner>",
+       "sender_verified": true,
+       "auth": {
+        "trust": "trusted",
+        "trusted": true,
+        "source": "provider",
+        "spf": "pass",
+        "dkim": "pass",
+        "dmarc": "pass",
+        "reason": "provider: DKIM pass aligned with From"
+       },
+       "auto_mail_reason": null,
+       "sorting": {
+        "kind": "team",
+        "topic": null,
+        "action": "triage",
+        "reason": "From a teammate.",
+        "superseded_by": null
+       },
+       "new_text": "Your view on the plan?",
+       "text": "Your view on the plan?\n",
+       "text_truncated": false,
+       "html_text": null,
+       "html_text_truncated": false,
+       "latest_triage": {
+        "id": "<triage:settle-1@agency.example/A reply is owed>",
+        "message_id": "<message:Ashley/settle-1@agency.example>",
+        "member_id": "<ids.ashley>",
+        "outcome": "needs_reply",
+        "urgent": false,
+        "summary": "A reply is owed",
+        "question_for_human": null,
+        "suggested_reply": "Thanks.",
+        "project_id": null,
+        "project_ids": [],
+        "summarized_at": null,
+        "created_at": "<time>"
+       },
+       "answers": [],
+       "linked_tasks": [],
+       "attachments": []
+      },
+      {
+       "id": "<message:Ashley/settle-2@agency.example>",
+       "status": "new",
+       "subject": "Re: Which plan?",
+       "internet_message_id": "settle-2@agency.example",
+       "received_at": "<time>",
+       "sent_at": "<time>",
+       "from": {
+        "address": "owner@agency.example",
+        "name": "Sam Owner",
+        "contact_id": null
+       },
+       "to": [
+        {
+         "address": "ashley@agency.example",
+         "name": "",
+         "contact_id": null
+        }
+       ],
+       "cc": [],
+       "reply_to": [],
+       "is_forward": false,
+       "routing_basis": "team_recipients",
+       "forwarded_by": {
+        "member_id": "<ids.owner>",
+        "name": "Sam"
+       },
+       "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": "<ids.owner>",
+       "sender_verified": true,
+       "auth": {
+        "trust": "trusted",
+        "trusted": true,
+        "source": "provider",
+        "spf": "pass",
+        "dkim": "pass",
+        "dmarc": "pass",
+        "reason": "provider: DKIM pass aligned with From"
+       },
+       "auto_mail_reason": null,
+       "sorting": {
+        "kind": "team",
+        "topic": null,
+        "action": "triage",
+        "reason": "From a teammate.",
+        "superseded_by": null
+       },
+       "new_text": "Agreed with what you said.",
+       "text": "Agreed with what you said.\n",
+       "text_truncated": false,
+       "html_text": null,
+       "html_text_truncated": false,
+       "latest_triage": {
+        "id": "<triage:settle-2@agency.example/He replied himself>",
+        "message_id": "<message:Ashley/settle-2@agency.example>",
+        "member_id": "<ids.ashley>",
+        "outcome": "needs_human",
+        "urgent": false,
+        "summary": "He replied himself",
+        "question_for_human": "Which project is this for? Default: Acme Roofing.",
+        "suggested_reply": null,
+        "project_id": null,
+        "project_ids": [],
+        "summarized_at": null,
+        "created_at": "<time>"
+       },
+       "answers": [
+        {
+         "question": "Which project is this for? Default: Acme Roofing.",
+         "answer": "Yes, file it on Acme Roofing.",
+         "answered_by": "Sam",
+         "answered_at": "<time>"
+        }
+       ],
+       "linked_tasks": [],
+       "attachments": []
+      }
+     ],
+     "reply_drafts": []
+    }
+   }
+  },
+  {
+   "success": true,
+   "data": {
+    "id": "<message:Ashley/settle-2@agency.example>",
+    "status": "new",
+    "subject": "Re: Which plan?",
+    "internet_message_id": "settle-2@agency.example",
+    "received_at": "<time>",
+    "sent_at": "<time>",
+    "from": {
+     "address": "owner@agency.example",
+     "name": "Sam Owner",
+     "contact_id": null
+    },
+    "to": [
+     {
+      "address": "ashley@agency.example",
+      "name": "",
+      "contact_id": null
+     }
+    ],
+    "cc": [],
+    "reply_to": [],
+    "is_forward": false,
+    "routing_basis": "team_recipients",
+    "forwarded_by": {
+     "member_id": "<ids.owner>",
+     "name": "Sam"
+    },
+    "original_sender": null,
+    "delivery": "direct",
+    "audience_size": 1,
+    "sender_member_id": "<ids.owner>",
+    "sender_verified": true,
+    "auth": {
+     "trust": "trusted",
+     "trusted": true,
+     "source": "provider",
+     "spf": "pass",
+     "dkim": "pass",
+     "dmarc": "pass",
+     "reason": "provider: DKIM pass aligned with From"
+    },
+    "auto_mail_reason": null,
+    "sorting": {
+     "kind": "team",
+     "topic": null,
+     "action": "triage",
+     "reason": "From a teammate.",
+     "superseded_by": null
+    },
+    "new_text": "Agreed with what you said.",
+    "text": "Agreed with what you said.\n",
+    "text_truncated": false,
+    "html_text": null,
+    "html_text_truncated": false,
+    "latest_triage": {
+     "id": "<triage:settle-2@agency.example/He replied himself>",
+     "message_id": "<message:Ashley/settle-2@agency.example>",
+     "member_id": "<ids.ashley>",
+     "outcome": "needs_human",
+     "urgent": false,
+     "summary": "He replied himself",
+     "question_for_human": "Which project is this for? Default: Acme Roofing.",
+     "suggested_reply": null,
+     "project_id": null,
+     "project_ids": [],
+     "summarized_at": null,
+     "created_at": "<time>"
+    },
+    "answers": [
+     {
+      "question": "Which project is this for? Default: Acme Roofing.",
+      "answer": "Yes, file it on Acme Roofing.",
+      "answered_by": "Sam",
+      "answered_at": "<time>"
+     }
+    ],
+    "linked_tasks": [],
+    "attachments": [],
+    "inbox": {
+     "id": "<ids.inboxA>",
+     "name": "Ashley",
+     "address": "ashley@agency.example"
+    },
+    "thread_id": "<thread:Ashley/settle-1@agency.example>",
+    "conversation_id": "<thread:Ashley/settle-1@agency.example>",
+    "channel": "email",
+    "project": null,
+    "projects": [],
+    "project_scope": {
+     "bases": [
+      "answered",
+      "team"
+     ],
+     "projects": [],
+     "any_project": true,
+     "any_source": "person"
+    },
+    "candidates": [],
+    "thread": {
+     "id": "<thread:Ashley/settle-1@agency.example>",
+     "subject_normalized": "which plan?",
+     "summary": null,
+     "last_message_at": "<time>",
+     "messages": [
+      {
+       "id": "<message:Ashley/settle-1@agency.example>",
+       "status": "handled",
+       "subject": "Which plan?",
+       "internet_message_id": "settle-1@agency.example",
+       "received_at": "<time>",
+       "sent_at": "<time>",
+       "from": {
+        "address": "owner@agency.example",
+        "name": "Sam Owner",
+        "contact_id": null
+       },
+       "to": [
+        {
+         "address": "ashley@agency.example",
+         "name": "",
+         "contact_id": null
+        }
+       ],
+       "cc": [],
+       "reply_to": [],
+       "is_forward": false,
+       "routing_basis": "team_recipients",
+       "forwarded_by": {
+        "member_id": "<ids.owner>",
+        "name": "Sam"
+       },
+       "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": "<ids.owner>",
+       "sender_verified": true,
+       "auth": {
+        "trust": "trusted",
+        "trusted": true,
+        "source": "provider",
+        "spf": "pass",
+        "dkim": "pass",
+        "dmarc": "pass",
+        "reason": "provider: DKIM pass aligned with From"
+       },
+       "auto_mail_reason": null,
+       "sorting": {
+        "kind": "team",
+        "topic": null,
+        "action": "triage",
+        "reason": "From a teammate.",
+        "superseded_by": null
+       },
+       "new_text": "Your view on the plan?",
+       "text": "Your view on the plan?\n",
+       "text_truncated": false,
+       "html_text": null,
+       "html_text_truncated": false,
+       "latest_triage": {
+        "id": "<triage:settle-1@agency.example/A reply is owed>",
+        "message_id": "<message:Ashley/settle-1@agency.example>",
+        "member_id": "<ids.ashley>",
+        "outcome": "needs_reply",
+        "urgent": false,
+        "summary": "A reply is owed",
+        "question_for_human": null,
+        "suggested_reply": "Thanks.",
+        "project_id": null,
+        "project_ids": [],
+        "summarized_at": null,
+        "created_at": "<time>"
+       },
+       "answers": [],
+       "linked_tasks": [],
+       "attachments": []
+      },
+      {
+       "id": "<message:Ashley/settle-2@agency.example>",
+       "status": "new",
+       "subject": "Re: Which plan?",
+       "internet_message_id": "settle-2@agency.example",
+       "received_at": "<time>",
+       "sent_at": "<time>",
+       "from": {
+        "address": "owner@agency.example",
+        "name": "Sam Owner",
+        "contact_id": null
+       },
+       "to": [
+        {
+         "address": "ashley@agency.example",
+         "name": "",
+         "contact_id": null
+        }
+       ],
+       "cc": [],
+       "reply_to": [],
+       "is_forward": false,
+       "routing_basis": "team_recipients",
+       "forwarded_by": {
+        "member_id": "<ids.owner>",
+        "name": "Sam"
+       },
+       "original_sender": null,
+       "delivery": "direct",
+       "audience_size": 1,
+       "sender_member_id": "<ids.owner>",
+       "sender_verified": true,
+       "auth": {
+        "trust": "trusted",
+        "trusted": true,
+        "source": "provider",
+        "spf": "pass",
+        "dkim": "pass",
+        "dmarc": "pass",
+        "reason": "provider: DKIM pass aligned with From"
+       },
+       "auto_mail_reason": null,
+       "sorting": {
+        "kind": "team",
+        "topic": null,
+        "action": "triage",
+        "reason": "From a teammate.",
+        "superseded_by": null
+       },
+       "new_text": "Agreed with what you said.",
+       "text": "Agreed with what you said.\n",
+       "text_truncated": false,
+       "html_text": null,
+       "html_text_truncated": false,
+       "latest_triage": {
+        "id": "<triage:settle-2@agency.example/He replied himself>",
+        "message_id": "<message:Ashley/settle-2@agency.example>",
+        "member_id": "<ids.ashley>",
+        "outcome": "needs_human",
+        "urgent": false,
+        "summary": "He replied himself",
+        "question_for_human": "Which project is this for? Default: Acme Roofing.",
+        "suggested_reply": null,
+        "project_id": null,
+        "project_ids": [],
+        "summarized_at": null,
+        "created_at": "<time>"
+       },
+       "answers": [
+        {
+         "question": "Which project is this for? Default: Acme Roofing.",
+         "answer": "Yes, file it on Acme Roofing.",
+         "answered_by": "Sam",
+         "answered_at": "<time>"
+        }
+       ],
+       "linked_tasks": [],
+       "attachments": []
+      }
+     ],
+     "reply_drafts": []
+    }
+   }
+  },
+  {
+   "success": true,
+   "data": {
     "id": "<message:Ashley/stranger@unknown-co.example>",
     "status": "new",
     "subject": "Question about our site",
@@ -16731,10 +17819,10 @@
     "html_text": null,
     "html_text_truncated": false,
     "latest_triage": {
-     "id": "<triage:team-cc-two@agency.example/The joint call is Cliff's project>",
+     "id": "<triage:team-cc-two@agency.example/The joint call is Cliff's project#2>",
      "message_id": "<message:Ashley/team-cc-two@agency.example>",
      "member_id": "<ids.ashley>",
-     "outcome": "no_action",
+     "outcome": "task",
      "urgent": false,
      "summary": "The joint call is Cliff's project",
      "question_for_human": null,
@@ -16880,10 +17968,10 @@
        "html_text": null,
        "html_text_truncated": false,
        "latest_triage": {
-        "id": "<triage:team-cc-two@agency.example/The joint call is Cliff's project>",
+        "id": "<triage:team-cc-two@agency.example/The joint call is Cliff's project#2>",
         "message_id": "<message:Ashley/team-cc-two@agency.example>",
         "member_id": "<ids.ashley>",
-        "outcome": "no_action",
+        "outcome": "task",
         "urgent": false,
         "summary": "The joint call is Cliff's project",
         "question_for_human": null,
@@ -20026,60 +21114,6 @@
     "links": [],
     "urgent": false,
     "message": {
-     "id": "<message:Ashley/followup-2@acme-roofing.example>",
-     "from": {
-      "name": "Dana Wu",
-      "address": "dana@acme-roofing.example"
-     },
-     "kind": "person",
-     "topic": null,
-     "status": "handled",
-     "subject": "RE: Re: [EXTERNAL] Homepage banner",
-     "inbox_id": "<ids.inboxA>",
-     "thread_id": "<thread:Ashley/CAF2xGmail-reply-1@mail.gmail.com>",
-     "received_at": "<time>",
-     "sort_action": "triage",
-     "forwarded_by": null,
-     "routing_basis": "sender",
-     "original_sender": null,
-     "conversation_id": "<thread:Ashley/CAF2xGmail-reply-1@mail.gmail.com>"
-    },
-    "outcome": "no_action",
-    "project": {
-     "id": "<ids.acme>",
-     "name": "Acme Roofing",
-     "source": "person"
-    },
-    "summary": "Race",
-    "category": null,
-    "projects": [
-     {
-      "id": "<ids.acme>",
-      "name": "Acme Roofing",
-      "source": "person"
-     },
-     {
-      "id": "<ids.acme2>",
-      "name": "Acme Gutters LLC",
-      "source": "inferred"
-     }
-    ],
-    "reminders": [],
-    "triage_id": "<triage:followup-2@acme-roofing.example/Race>",
-    "created_at": "<time>",
-    "project_id": null,
-    "project_ids": [],
-    "thread_summary": "Footer done; Dana is happy with it.",
-    "question_for_human": null,
-    "has_suggested_reply": false,
-    "superseded_triage_ids": [
-     "<triage:followup-2@acme-roofing.example/Thanks for the update>"
-    ]
-   },
-   {
-    "links": [],
-    "urgent": false,
-    "message": {
      "id": "<message:Ashley/fw-gmail@agency.example>",
      "from": {
       "name": "Sam Owner",
@@ -20104,7 +21138,7 @@
      },
      "conversation_id": "<thread:Ashley/fw-gmail@agency.example>"
     },
-    "outcome": "no_action",
+    "outcome": "task",
     "project": {
      "id": "<project:Vera Studio>",
      "name": "Vera Studio",
@@ -20140,7 +21174,7 @@
      },
      "kind": "team",
      "topic": null,
-     "status": "new",
+     "status": "handled",
      "subject": "Question about the site",
      "inbox_id": "<ids.inboxA>",
      "thread_id": "<thread:Ashley/guess@agency.example>",
@@ -20154,7 +21188,7 @@
      "original_sender": null,
      "conversation_id": "<thread:Ashley/guess@agency.example>"
     },
-    "outcome": "needs_human",
+    "outcome": "task",
     "project": {
      "id": "<project:Vera Studio>",
      "name": "Vera Studio",
@@ -20170,175 +21204,71 @@
      }
     ],
     "reminders": [],
-    "triage_id": "<triage:guess@agency.example/Probably Vera Studio>",
+    "triage_id": "<triage:guess@agency.example/Probably Vera Studio#2>",
     "created_at": "<time>",
     "project_id": "<project:Vera Studio>",
     "project_ids": [
      "<project:Vera Studio>"
     ],
     "thread_summary": null,
-    "question_for_human": "Which project is this for? Default: Acme Roofing.",
-    "has_suggested_reply": false,
-    "superseded_triage_ids": []
-   },
-   {
-    "links": [],
-    "urgent": false,
-    "message": {
-     "id": "<message:Ashley/html-only-4@mail.gmail.com>",
-     "from": {
-      "name": "Carla Mendes",
-      "address": "carla.mendes@gmail.com"
-     },
-     "kind": "person",
-     "topic": null,
-     "status": "new",
-     "subject": "New logo files",
-     "inbox_id": "<ids.inboxA>",
-     "thread_id": "<thread:Ashley/html-only-4@mail.gmail.com>",
-     "received_at": "<time>",
-     "sort_action": "triage",
-     "forwarded_by": null,
-     "routing_basis": "sender",
-     "original_sender": null,
-     "conversation_id": "<thread:Ashley/html-only-4@mail.gmail.com>"
-    },
-    "outcome": "needs_reply",
-    "project": null,
-    "summary": "Update header and footer",
-    "category": null,
-    "projects": [
-     {
-      "id": "<ids.acme>",
-      "name": "Acme Roofing",
-      "source": "person"
-     }
-    ],
-    "reminders": [],
-    "triage_id": "<triage:html-only-4@mail.gmail.com/Update header and footer#3>",
-    "created_at": "<time>",
-    "project_id": null,
-    "project_ids": [],
-    "thread_summary": null,
     "question_for_human": null,
-    "has_suggested_reply": true,
+    "has_suggested_reply": false,
     "superseded_triage_ids": [
-     "<triage:html-only-4@mail.gmail.com/Agency pitch#2>",
-     "<triage:html-only-4@mail.gmail.com/Agency pitch>"
+     "<triage:guess@agency.example/Probably Vera Studio>"
     ]
    },
    {
     "links": [],
     "urgent": false,
     "message": {
-     "id": "<message:Ashley/orig-1@agency.example>",
+     "id": "<message:Ashley/quiet@agency.example>",
      "from": {
       "name": "Sam Owner",
       "address": "owner@agency.example"
      },
-     "kind": "person",
+     "kind": "team",
      "topic": null,
      "status": "handled",
-     "subject": "Homepage banner",
+     "subject": "Pitch decks for this week",
      "inbox_id": "<ids.inboxA>",
-     "thread_id": "<thread:Ashley/CAF2xGmail-reply-1@mail.gmail.com>",
+     "thread_id": "<thread:Ashley/quiet@agency.example>",
      "received_at": "<time>",
      "sort_action": "triage",
-     "forwarded_by": null,
-     "routing_basis": "sender",
+     "forwarded_by": {
+      "name": "Sam",
+      "member_id": "<ids.owner>"
+     },
+     "routing_basis": "team_recipients",
      "original_sender": null,
-     "conversation_id": "<thread:Ashley/CAF2xGmail-reply-1@mail.gmail.com>"
+     "conversation_id": "<thread:Ashley/quiet@agency.example>"
     },
     "outcome": "no_action",
-    "project": {
-     "id": "<ids.acme>",
-     "name": "Acme Roofing",
-     "source": "person"
-    },
-    "summary": "Thanks for the update",
+    "project": null,
+    "summary": "Decks shared, nothing needed",
     "category": null,
-    "projects": [
+    "projects": [],
+    "reminders": [
      {
-      "id": "<ids.acme>",
-      "name": "Acme Roofing",
-      "source": "person"
+      "id": "<reminder:A note of mine>",
+      "title": "A note of mine",
+      "task_id": null,
+      "remind_on": null
      },
      {
-      "id": "<ids.acme2>",
-      "name": "Acme Gutters LLC",
-      "source": "inferred"
+      "id": "<reminder:Chase the decks>",
+      "title": "Chase the decks",
+      "task_id": null,
+      "remind_on": null
      }
     ],
-    "reminders": [],
-    "triage_id": "<triage:orig-1@agency.example/Thanks for the update>",
+    "triage_id": "<triage:quiet@agency.example/Decks shared, nothing needed>",
     "created_at": "<time>",
     "project_id": null,
     "project_ids": [],
-    "thread_summary": "Footer done; Dana is happy with it.",
-    "question_for_human": null,
-    "has_suggested_reply": false,
-    "superseded_triage_ids": []
-   },
-   {
-    "links": [],
-    "urgent": false,
-    "message": {
-     "id": "<message:Ashley/pa-new@acme-roofing.example>",
-     "from": {
-      "name": "Dana Wu",
-      "address": "dana@acme-roofing.example"
-     },
-     "kind": "person",
-     "topic": null,
-     "status": "handled",
-     "subject": "Rebrand kickoff notes",
-     "inbox_id": "<ids.inboxA>",
-     "thread_id": "<thread:Ashley/pa-new@acme-roofing.example>",
-     "received_at": "<time>",
-     "sort_action": "triage",
-     "forwarded_by": null,
-     "routing_basis": "sender",
-     "original_sender": null,
-     "conversation_id": "<thread:Ashley/pa-new@acme-roofing.example>"
-    },
-    "outcome": "no_action",
-    "project": {
-     "id": "<ids.birch>",
-     "name": "Birch Partners",
-     "source": "mapped"
-    },
-    "summary": "Kickoff notes",
-    "category": null,
-    "projects": [
-     {
-      "id": "<ids.acme>",
-      "name": "Acme Roofing",
-      "source": "inferred"
-     },
-     {
-      "id": "<ids.birch>",
-      "name": "Birch Partners",
-      "source": "person"
-     },
-     {
-      "id": "<project:P4TF Rebrand>",
-      "name": "P4TF Rebrand",
-      "source": "address"
-     }
-    ],
-    "reminders": [],
-    "triage_id": "<triage:pa-new@acme-roofing.example/Kickoff notes#2>",
-    "created_at": "<time>",
-    "project_id": "<project:P4TF Rebrand>",
-    "project_ids": [
-     "<project:P4TF Rebrand>"
-    ],
     "thread_summary": null,
     "question_for_human": null,
     "has_suggested_reply": false,
-    "superseded_triage_ids": [
-     "<triage:pa-new@acme-roofing.example/Kickoff notes>"
-    ]
+    "superseded_triage_ids": []
    },
    {
     "links": [],
@@ -20365,7 +21295,7 @@
      "original_sender": null,
      "conversation_id": "<thread:Ashley/team-cc-two@agency.example>"
     },
-    "outcome": "no_action",
+    "outcome": "task",
     "project": {
      "id": "<project:Cliff Builders>",
      "name": "Cliff Builders",
@@ -20381,7 +21311,7 @@
      }
     ],
     "reminders": [],
-    "triage_id": "<triage:team-cc-two@agency.example/The joint call is Cliff's project>",
+    "triage_id": "<triage:team-cc-two@agency.example/The joint call is Cliff's project#2>",
     "created_at": "<time>",
     "project_id": "<project:Cliff Builders>",
     "project_ids": [
@@ -20390,7 +21320,9 @@
     "thread_summary": null,
     "question_for_human": null,
     "has_suggested_reply": false,
-    "superseded_triage_ids": []
+    "superseded_triage_ids": [
+     "<triage:team-cc-two@agency.example/The joint call is Cliff's project>"
+    ]
    }
   ]
  },
@@ -20403,8 +21335,9 @@
   "data": {
    "new_count": 39,
    "newest_received_at": "<time>",
-   "unsummarized_count": 7,
+   "unsummarized_count": 4,
    "drafts_requested": 0,
+   "waiting_count": 0,
    "plans_new_count": 0,
    "shadow_pending_count": 0
   }
@@ -21087,10 +22020,10 @@
      "address": "owner@agency.example"
     },
     "snippet": "Who handles the Vera site again?",
-    "state": "new",
+    "state": "handled",
     "needs_you": false,
     "needs_reply": false,
-    "has_new": true,
+    "has_new": false,
     "urgent": false,
     "untrusted": false,
     "attachment_count": 0,
@@ -21388,6 +22321,91 @@
      "address": "dana@acme-roofing.example"
     },
     "snippet": "Hello, a quick note about the project.",
+    "state": "new",
+    "needs_you": false,
+    "needs_reply": false,
+    "has_new": true,
+    "urgent": false,
+    "untrusted": false,
+    "attachment_count": 0,
+    "summary": null,
+    "task_count": 0,
+    "reminder_count": 0
+   },
+   {
+    "id": "<thread:Ashley/quiet@agency.example>",
+    "inbox_id": "<ids.inboxA>",
+    "inbox_name": "Ashley",
+    "subject": "Pitch decks for this week",
+    "project": null,
+    "projects": [],
+    "last_message_at": "<time>",
+    "message_count": 1,
+    "sender": {
+     "name": "Sam Owner",
+     "address": "owner@agency.example"
+    },
+    "snippet": "Sharing the decks, nothing needed.",
+    "state": "handled",
+    "needs_you": false,
+    "needs_reply": false,
+    "has_new": false,
+    "urgent": false,
+    "untrusted": false,
+    "attachment_count": 0,
+    "summary": null,
+    "task_count": 0,
+    "reminder_count": 2
+   },
+   {
+    "id": "<thread:Ashley/related@agency.example>",
+    "inbox_id": "<ids.inboxA>",
+    "inbox_name": "Ashley",
+    "subject": "Thanks for the copy",
+    "project": {
+     "id": "<project:Vera Studio>",
+     "name": "Vera Studio",
+     "source": "guessed"
+    },
+    "projects": [
+     {
+      "id": "<project:Vera Studio>",
+      "name": "Vera Studio",
+      "source": "guessed"
+     }
+    ],
+    "last_message_at": "<time>",
+    "message_count": 1,
+    "sender": {
+     "name": "Sam Owner",
+     "address": "owner@agency.example"
+    },
+    "snippet": "Looks fine, thanks.",
+    "state": "handled",
+    "needs_you": false,
+    "needs_reply": false,
+    "has_new": false,
+    "urgent": false,
+    "untrusted": false,
+    "attachment_count": 0,
+    "summary": null,
+    "task_count": 1,
+    "reminder_count": 0
+   },
+   {
+    "id": "<thread:Ashley/settle-1@agency.example>",
+    "inbox_id": "<ids.inboxA>",
+    "inbox_name": "Ashley",
+    "subject": "Re: Which plan?",
+    "project": null,
+    "projects": [],
+    "last_message_at": "<time>",
+    "message_count": 2,
+    "sender": {
+     "name": "Sam Owner",
+     "address": "owner@agency.example"
+    },
+    "snippet": "Agreed with what you said.",
     "state": "new",
     "needs_you": false,
     "needs_reply": false,
@@ -21700,19 +22718,19 @@
     "reminder_count": 0
    }
   ],
-  "total": 39,
+  "total": 42,
   "counts": {
-   "all": 39,
+   "all": 42,
    "fyi": 0,
    "updates": 2,
    "codes": 0,
    "ignored": 4,
-   "everything": 45,
+   "everything": 48,
    "needs_you": 1,
    "needs_reply": 0,
    "new": 34,
-   "handled": 5,
-   "unassigned": 13
+   "handled": 8,
+   "unassigned": 15
   },
   "latest_code": null
  },
@@ -24159,7 +25177,7 @@
      "attachments": [],
      "triage": {
       "id": "<triage:fw-gmail@agency.example/Homepage copy from Vera>",
-      "outcome": "no_action",
+      "outcome": "task",
       "urgent": false,
       "summary": "Homepage copy from Vera",
       "question_for_human": null,
@@ -24842,14 +25860,14 @@
      "address": null
     }
    ],
-   "state": "new",
+   "state": "handled",
    "urgent": false,
    "untrusted": false,
    "candidates": [],
    "messages": [
     {
      "id": "<message:Ashley/guess@agency.example>",
-     "status": "new",
+     "status": "handled",
      "subject": "Question about the site",
      "received_at": "<time>",
      "sent_at": "<time>",
@@ -24894,11 +25912,11 @@
      "html_body": null,
      "attachments": [],
      "triage": {
-      "id": "<triage:guess@agency.example/Probably Vera Studio>",
-      "outcome": "needs_human",
+      "id": "<triage:guess@agency.example/Probably Vera Studio#2>",
+      "outcome": "task",
       "urgent": false,
       "summary": "Probably Vera Studio",
-      "question_for_human": "Which project is this for? Default: Acme Roofing.",
+      "question_for_human": null,
       "questions": null,
       "suggested_reply": null,
       "category": null,
@@ -24908,14 +25926,7 @@
       },
       "created_at": "<time>"
      },
-     "answer": {
-      "text": "Yes, file it on Acme Roofing.",
-      "by": {
-       "id": "<ids.owner>",
-       "name": "Sam"
-      },
-      "at": "<time>"
-     },
+     "answer": null,
      "linked_tasks": [],
      "reminders": [],
      "plan": null,
@@ -26023,6 +27034,407 @@
    ]
   },
   {
+   "id": "<thread:Ashley/quiet@agency.example>",
+   "inbox": {
+    "id": "<ids.inboxA>",
+    "name": "Ashley",
+    "address": "ashley@agency.example",
+    "enabled": true,
+    "handler": {
+     "id": "<ids.ashley>",
+     "name": "Ashley P."
+    }
+   },
+   "subject": "Pitch decks for this week",
+   "project": null,
+   "projects": [],
+   "state": "handled",
+   "urgent": false,
+   "untrusted": false,
+   "candidates": [],
+   "messages": [
+    {
+     "id": "<message:Ashley/quiet@agency.example>",
+     "status": "handled",
+     "subject": "Pitch decks for this week",
+     "received_at": "<time>",
+     "sent_at": "<time>",
+     "from": {
+      "address": "owner@agency.example",
+      "name": "Sam Owner",
+      "contact_id": null
+     },
+     "to": [
+      {
+       "address": "ashley@agency.example",
+       "name": "",
+       "contact_id": null
+      }
+     ],
+     "cc": [],
+     "is_forward": false,
+     "routing_basis": "team_recipients",
+     "forwarded_by": {
+      "member_id": "<ids.owner>",
+      "name": "Sam"
+     },
+     "original_sender": null,
+     "trust": {
+      "level": "trusted",
+      "reason": "provider: DKIM pass aligned with From",
+      "spf": "pass",
+      "dkim": "pass",
+      "dmarc": "pass"
+     },
+     "auto_mail_reason": null,
+     "sorting": {
+      "kind": "team",
+      "topic": null,
+      "action": "triage",
+      "reason": "From a teammate.",
+      "rule_id": null,
+      "superseded_by": null
+     },
+     "new_text": "Sharing the decks, nothing needed.",
+     "text_body": "Sharing the decks, nothing needed.\n",
+     "html_body": null,
+     "attachments": [],
+     "triage": {
+      "id": "<triage:quiet@agency.example/Decks shared, nothing needed>",
+      "outcome": "no_action",
+      "urgent": false,
+      "summary": "Decks shared, nothing needed",
+      "question_for_human": null,
+      "questions": null,
+      "suggested_reply": null,
+      "category": null,
+      "member": {
+       "id": "<ids.ashley>",
+       "name": "Ashley P."
+      },
+      "created_at": "<time>"
+     },
+     "answer": null,
+     "linked_tasks": [],
+     "reminders": [
+      {
+       "id": "<reminder:A note of mine>",
+       "title": "A note of mine",
+       "remind_on": null,
+       "status": "open",
+       "task_id": null,
+       "mine": true
+      },
+      {
+       "id": "<reminder:Chase the decks>",
+       "title": "Chase the decks",
+       "remind_on": null,
+       "status": "open",
+       "task_id": null,
+       "mine": true
+      }
+     ],
+     "plan": null,
+     "reply_points": [],
+     "reviewed_at": null,
+     "reviewed_by": null,
+     "repeat_pitch": false
+    }
+   ],
+   "summary": null,
+   "senders": []
+  },
+  {
+   "id": "<thread:Ashley/related@agency.example>",
+   "inbox": {
+    "id": "<ids.inboxA>",
+    "name": "Ashley",
+    "address": "ashley@agency.example",
+    "enabled": true,
+    "handler": {
+     "id": "<ids.ashley>",
+     "name": "Ashley P."
+    }
+   },
+   "subject": "Thanks for the copy",
+   "project": {
+    "id": "<project:Vera Studio>",
+    "name": "Vera Studio",
+    "source": "guessed",
+    "address": null
+   },
+   "projects": [
+    {
+     "id": "<project:Vera Studio>",
+     "name": "Vera Studio",
+     "source": "guessed",
+     "address": null
+    }
+   ],
+   "state": "handled",
+   "urgent": false,
+   "untrusted": false,
+   "candidates": [],
+   "messages": [
+    {
+     "id": "<message:Ashley/related@agency.example>",
+     "status": "handled",
+     "subject": "Thanks for the copy",
+     "received_at": "<time>",
+     "sent_at": "<time>",
+     "from": {
+      "address": "owner@agency.example",
+      "name": "Sam Owner",
+      "contact_id": null
+     },
+     "to": [
+      {
+       "address": "ashley@agency.example",
+       "name": "",
+       "contact_id": null
+      }
+     ],
+     "cc": [],
+     "is_forward": false,
+     "routing_basis": "team_recipients",
+     "forwarded_by": {
+      "member_id": "<ids.owner>",
+      "name": "Sam"
+     },
+     "original_sender": null,
+     "trust": {
+      "level": "trusted",
+      "reason": "provider: DKIM pass aligned with From",
+      "spf": "pass",
+      "dkim": "pass",
+      "dmarc": "pass"
+     },
+     "auto_mail_reason": null,
+     "sorting": {
+      "kind": "team",
+      "topic": null,
+      "action": "triage",
+      "reason": "From a teammate.",
+      "rule_id": null,
+      "superseded_by": null
+     },
+     "new_text": "Looks fine, thanks.",
+     "text_body": "Looks fine, thanks.\n",
+     "html_body": null,
+     "attachments": [],
+     "triage": {
+      "id": "<triage:related@agency.example/Thanks, nothing new>",
+      "outcome": "no_action",
+      "urgent": false,
+      "summary": "Thanks, nothing new",
+      "question_for_human": null,
+      "questions": null,
+      "suggested_reply": null,
+      "category": null,
+      "member": {
+       "id": "<ids.ashley>",
+       "name": "Ashley P."
+      },
+      "created_at": "<time>"
+     },
+     "answer": null,
+     "linked_tasks": [
+      {
+       "task_id": "<task:Homepage copy>",
+       "relation": "related",
+       "by": "agent",
+       "title": "Homepage copy",
+       "status": "todo",
+       "project_id": "<project:Vera Studio>",
+       "project_name": "Vera Studio"
+      }
+     ],
+     "reminders": [],
+     "plan": null,
+     "reply_points": [],
+     "reviewed_at": null,
+     "reviewed_by": null,
+     "repeat_pitch": false
+    }
+   ],
+   "summary": null,
+   "senders": []
+  },
+  {
+   "id": "<thread:Ashley/settle-1@agency.example>",
+   "inbox": {
+    "id": "<ids.inboxA>",
+    "name": "Ashley",
+    "address": "ashley@agency.example",
+    "enabled": true,
+    "handler": {
+     "id": "<ids.ashley>",
+     "name": "Ashley P."
+    }
+   },
+   "subject": "Re: Which plan?",
+   "project": null,
+   "projects": [],
+   "state": "new",
+   "urgent": false,
+   "untrusted": false,
+   "candidates": [],
+   "messages": [
+    {
+     "id": "<message:Ashley/settle-1@agency.example>",
+     "status": "handled",
+     "subject": "Which plan?",
+     "received_at": "<time>",
+     "sent_at": "<time>",
+     "from": {
+      "address": "owner@agency.example",
+      "name": "Sam Owner",
+      "contact_id": null
+     },
+     "to": [
+      {
+       "address": "ashley@agency.example",
+       "name": "",
+       "contact_id": null
+      }
+     ],
+     "cc": [],
+     "is_forward": false,
+     "routing_basis": "team_recipients",
+     "forwarded_by": {
+      "member_id": "<ids.owner>",
+      "name": "Sam"
+     },
+     "original_sender": null,
+     "trust": {
+      "level": "trusted",
+      "reason": "provider: DKIM pass aligned with From",
+      "spf": "pass",
+      "dkim": "pass",
+      "dmarc": "pass"
+     },
+     "auto_mail_reason": null,
+     "sorting": {
+      "kind": "team",
+      "topic": null,
+      "action": "triage",
+      "reason": "From a teammate.",
+      "rule_id": null,
+      "superseded_by": null
+     },
+     "new_text": "Your view on the plan?",
+     "text_body": "Your view on the plan?\n",
+     "html_body": null,
+     "attachments": [],
+     "triage": {
+      "id": "<triage:settle-1@agency.example/A reply is owed>",
+      "outcome": "needs_reply",
+      "urgent": false,
+      "summary": "A reply is owed",
+      "question_for_human": null,
+      "questions": null,
+      "suggested_reply": "Thanks.",
+      "category": null,
+      "member": {
+       "id": "<ids.ashley>",
+       "name": "Ashley P."
+      },
+      "created_at": "<time>"
+     },
+     "answer": null,
+     "linked_tasks": [],
+     "reminders": [],
+     "plan": null,
+     "reply_points": [],
+     "reviewed_at": "<time>",
+     "reviewed_by": {
+      "id": "<ids.ashley>",
+      "name": "Ashley P."
+     },
+     "repeat_pitch": false
+    },
+    {
+     "id": "<message:Ashley/settle-2@agency.example>",
+     "status": "new",
+     "subject": "Re: Which plan?",
+     "received_at": "<time>",
+     "sent_at": "<time>",
+     "from": {
+      "address": "owner@agency.example",
+      "name": "Sam Owner",
+      "contact_id": null
+     },
+     "to": [
+      {
+       "address": "ashley@agency.example",
+       "name": "",
+       "contact_id": null
+      }
+     ],
+     "cc": [],
+     "is_forward": false,
+     "routing_basis": "team_recipients",
+     "forwarded_by": {
+      "member_id": "<ids.owner>",
+      "name": "Sam"
+     },
+     "original_sender": null,
+     "trust": {
+      "level": "trusted",
+      "reason": "provider: DKIM pass aligned with From",
+      "spf": "pass",
+      "dkim": "pass",
+      "dmarc": "pass"
+     },
+     "auto_mail_reason": null,
+     "sorting": {
+      "kind": "team",
+      "topic": null,
+      "action": "triage",
+      "reason": "From a teammate.",
+      "rule_id": null,
+      "superseded_by": null
+     },
+     "new_text": "Agreed with what you said.",
+     "text_body": "Agreed with what you said.\n",
+     "html_body": null,
+     "attachments": [],
+     "triage": {
+      "id": "<triage:settle-2@agency.example/He replied himself>",
+      "outcome": "needs_human",
+      "urgent": false,
+      "summary": "He replied himself",
+      "question_for_human": "Which project is this for? Default: Acme Roofing.",
+      "questions": null,
+      "suggested_reply": null,
+      "category": null,
+      "member": {
+       "id": "<ids.ashley>",
+       "name": "Ashley P."
+      },
+      "created_at": "<time>"
+     },
+     "answer": {
+      "text": "Yes, file it on Acme Roofing.",
+      "by": {
+       "id": "<ids.owner>",
+       "name": "Sam"
+      },
+      "at": "<time>"
+     },
+     "linked_tasks": [],
+     "reminders": [],
+     "plan": null,
+     "reply_points": [],
+     "reviewed_at": null,
+     "reviewed_by": null,
+     "repeat_pitch": false
+    }
+   ],
+   "summary": null,
+   "senders": []
+  },
+  {
    "id": "<thread:Ashley/stranger@unknown-co.example>",
    "inbox": {
     "id": "<ids.inboxA>",
@@ -26214,8 +27626,8 @@
      "html_body": null,
      "attachments": [],
      "triage": {
-      "id": "<triage:team-cc-two@agency.example/The joint call is Cliff's project>",
-      "outcome": "no_action",
+      "id": "<triage:team-cc-two@agency.example/The joint call is Cliff's project#2>",
+      "outcome": "task",
       "urgent": false,
       "summary": "The joint call is Cliff's project",
       "question_for_human": null,
@@ -27224,6 +28636,28 @@
       "received_at": "<time>",
       "relation": "updated",
       "linked_by": "person",
+      "linked_at": "<time>"
+     }
+    ]
+   }
+  },
+  {
+   "success": true,
+   "data": {
+    "link_count": 1,
+    "emails": [
+     {
+      "id": "<message:Ashley/related@agency.example>",
+      "thread_id": "<thread:Ashley/related@agency.example>",
+      "conversation_id": "<thread:Ashley/related@agency.example>",
+      "subject": "Thanks for the copy",
+      "from": {
+       "address": "owner@agency.example",
+       "name": "Sam Owner"
+      },
+      "received_at": "<time>",
+      "relation": "related",
+      "linked_by": "agent",
       "linked_at": "<time>"
      }
     ]

@@ -8135,9 +8135,21 @@ BEGIN
     'new_count', (SELECT count(*) FROM communications.messages m WHERE m.inbox_id IN (SELECT id FROM inboxes) AND m.status = 'new'),
     'newest_received_at', (SELECT max(m.received_at) FROM communications.messages m WHERE m.inbox_id IN (SELECT id FROM inboxes) AND m.status = 'new'),
     'unsummarized_count', (
-      SELECT count(DISTINCT t.message_id) FROM communications.triage t
-      JOIN communications.messages m ON m.id = t.message_id
-      WHERE m.inbox_id IN (SELECT id FROM inboxes) AND t.summarized_at IS NULL
+      SELECT count(*) FROM (
+        SELECT DISTINCT ON (t.message_id) t.id
+        FROM communications.triage t
+        JOIN communications.messages m ON m.id = t.message_id
+        WHERE m.inbox_id IN (SELECT id FROM inboxes)
+          AND EXISTS (SELECT 1 FROM communications.triage u WHERE u.message_id = t.message_id AND u.summarized_at IS NULL AND u.created_at > now() - interval '14 days')
+        ORDER BY t.message_id, t.created_at DESC, t.id DESC
+      ) latest
+      WHERE communications.triage_is_news(latest.id)
+    ),
+    'waiting_count', (
+      SELECT count(*) FROM communications.messages m
+      WHERE m.inbox_id IN (SELECT id FROM inboxes) AND m.status = 'needs_human'
+        AND (SELECT t.question_for_human FROM communications.triage t
+             WHERE t.message_id = m.id ORDER BY t.created_at DESC, t.id DESC LIMIT 1) IS NOT NULL
     ),
     'drafts_requested', (
       SELECT count(*) FROM communications.reply_drafts d
@@ -10880,6 +10892,39 @@ CREATE INDEX IF NOT EXISTS idx_reminders_source_message ON public.reminders (sou
 -- Defined after reminders, which it reads (the reminders an email set).
 -- The newest unsummarized triage per message, oldest message first, with
 -- what the batched summary needs (no bodies).
+-- Worth telling a person about: something was done, or something waits on them.
+-- The batched summary and its count both ask this, so an email the agent read
+-- and left alone never wakes a summary. A task it is only about (a related
+-- link) is not an outcome, and a person's later reminder on such an email does
+-- not count: only what the agent itself set.
+CREATE OR REPLACE FUNCTION communications.triage_is_news(p_triage_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = communications, public
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM communications.triage t
+    JOIN communications.messages m ON m.id = t.message_id
+    WHERE t.id = p_triage_id
+      AND (
+        m.status = 'needs_human'
+        OR (t.outcome = 'needs_reply' AND m.reviewed_at IS NULL AND m.status NOT IN ('new', 'ignored'))
+        OR t.outcome = 'task'
+        OR EXISTS (SELECT 1 FROM communications.task_links k WHERE k.triage_id = t.id AND k.relation <> 'related')
+        OR EXISTS (
+          SELECT 1 FROM public.reminders rm
+          WHERE rm.source_message_id = m.id AND rm.created_by = t.member_id
+            AND rm.deleted_at IS NULL AND rm.status = 'open'
+        )
+      )
+  );
+$$;
+REVOKE ALL ON FUNCTION communications.triage_is_news(uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION communications.triage_is_news(uuid) TO service_role;
+
 CREATE OR REPLACE FUNCTION communications.unsummarized_triage(p_inbox_ids jsonb, p_limit integer DEFAULT 200)
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -10896,7 +10941,8 @@ BEGIN
     FROM communications.triage t
     JOIN communications.messages m ON m.id = t.message_id
     WHERE m.inbox_id IN (SELECT id FROM inboxes)
-      AND EXISTS (SELECT 1 FROM communications.triage u WHERE u.message_id = t.message_id AND u.summarized_at IS NULL)
+      -- Quiet triage is never marked summarized, so the look-back keeps this read small.
+      AND EXISTS (SELECT 1 FROM communications.triage u WHERE u.message_id = t.message_id AND u.summarized_at IS NULL AND u.created_at > now() - interval '14 days')
     ORDER BY t.message_id, t.created_at DESC, t.id DESC
   )
   SELECT COALESCE(jsonb_agg(item ORDER BY (item->>'created_at')), '[]'::jsonb)
@@ -10955,6 +11001,7 @@ BEGIN
     JOIN communications.messages m ON m.id = l.message_id
     LEFT JOIN communications.conversations th ON th.id = m.thread_id
     LEFT JOIN public.projects p ON p.id = th.project_id
+    WHERE communications.triage_is_news(l.id)
     ORDER BY l.created_at
     LIMIT GREATEST(1, LEAST(COALESCE(p_limit, 200), 500))
   ) items);

@@ -583,7 +583,7 @@ async function main() {
     // Summaries and signal.
     const sig1 = (await api(signal.GET, 'GET', '/api/v1/inbound-emails/signal', keys.ashley)).body.data;
     const newCount = (await rows(db, "SELECT count(*)::int AS n FROM communications.messages WHERE inbox_id=$1 AND status='new'", [ids.inboxA]))[0].n;
-    check('signal: new and unsummarized counts', sig1.new_count === newCount && sig1.unsummarized_count === 4 && !!sig1.newest_received_at, sig1);
+    check('signal: new and unsummarized counts, an email left alone not among them', sig1.new_count === newCount && sig1.unsummarized_count === 3 && !!sig1.newest_received_at, sig1);
     const second = await triageOf(reply.id, { outcome: 'task', urgent: false, summary: 'Two banner changes, task linked' });
     const pendingSummary = (await api(unsummarized.GET, 'GET', '/api/v1/inbound-emails/triage/unsummarized', keys.ashley)).body.data as Payload[];
     const replyItem = pendingSummary.find((item) => item.message.id === reply.id);
@@ -1465,10 +1465,10 @@ async function main() {
       await db.query("INSERT INTO team_members(id, name, email, role, status) VALUES ($1,'Paul','paul@agency.example','member','suspended')", [paul]);
       await db.query("UPDATE team_members SET email = 'ashley.agent@agency.example' WHERE id = $1", [ids.ashley]);
 
-      type Mail = { from: string; to: string; cc?: string; subject: string; id: string; body?: string; html?: string; attached?: string };
+      type Mail = { from: string; to: string; cc?: string; subject: string; id: string; inReplyTo?: string; body?: string; html?: string; attached?: string };
       const mime = (mail: Mail) => {
         const head = [`From: ${mail.from}`, `To: ${mail.to}`, ...(mail.cc ? [`Cc: ${mail.cc}`] : []), `Subject: ${mail.subject}`,
-          'Date: Tue, 06 Oct 2026 09:00:00 -0400', `Message-ID: <${mail.id}>`, 'MIME-Version: 1.0'];
+          'Date: Tue, 06 Oct 2026 09:00:00 -0400', `Message-ID: <${mail.id}>`, ...(mail.inReplyTo ? [`In-Reply-To: <${mail.inReplyTo}>`, `References: <${mail.inReplyTo}>`] : []), 'MIME-Version: 1.0'];
         if (mail.attached) {
           return Buffer.from([...head, 'Content-Type: multipart/mixed; boundary="fwd-b"', '', '--fwd-b', 'Content-Type: text/plain; charset="UTF-8"', '',
             mail.body ?? 'See attached.', '', '--fwd-b', 'Content-Type: message/rfc822', 'Content-Disposition: attachment; filename="original.eml"', '',
@@ -1657,7 +1657,9 @@ async function main() {
         && !unassigned.threads.some((t) => t.id === guess.thread.id), guessUi.project);
 
       // The batched summary: the triage's own project_id, routing and the project's source.
-      const fwdTriage = await triageOf(gm.message.id, { outcome: 'no_action', urgent: false, summary: 'Homepage copy from Vera' });
+      await triageOf(guess.message.id, { outcome: 'task', urgent: false, summary: 'Probably Vera Studio', project_id: fwdA });
+      await triageOf(teamTwo.message.id, { outcome: 'task', urgent: false, summary: 'The joint call is Cliff\'s project', project_id: fwdB });
+      const fwdTriage = await triageOf(gm.message.id, { outcome: 'task', urgent: false, summary: 'Homepage copy from Vera' });
       const summaryItems = (await api(unsummarized.GET, 'GET', '/api/v1/inbound-emails/triage/unsummarized', keys.ashley)).body.data as Payload[];
       const guessItem = summaryItems.find((i) => i.message.id === guess.message.id);
       const fwdItem = summaryItems.find((i) => i.message.id === gm.message.id);
@@ -1671,6 +1673,65 @@ async function main() {
         && fwdItem.message.original_sender?.address === 'vera@verastudio.example' && fwdItem.message.original_sender.name === 'Vera Lane'
         && plainItem?.message.routing_basis === 'team_recipients' && plainItem.message.forwarded_by?.member_id === ids.owner && plainItem.project?.source === 'inferred',
         [fwdItem, plainItem]);
+
+      // The summary tells outcomes only: an email left alone stays in the Inbox.
+      const feed = async () => (await api(unsummarized.GET, 'GET', '/api/v1/inbound-emails/triage/unsummarized', keys.ashley)).body.data as Payload[];
+      const signalNow = async () => (await api(signal.GET, 'GET', '/api/v1/inbound-emails/signal', keys.ashley)).body.data;
+      const inFeed = async (id: string) => (await feed()).some((item) => item.message.id === id);
+      await sendMail('re_quiet', { from: 'Sam Owner <owner@agency.example>', to: 'ashley@agency.example', subject: 'Pitch decks for this week', id: 'quiet@agency.example', body: 'Sharing the decks, nothing needed.' });
+      const quiet = await routed('quiet@agency.example');
+      const beforeQuiet = (await signalNow()).unsummarized_count;
+      await triageOf(quiet.message.id, { outcome: 'no_action', urgent: false, summary: 'Decks shared, nothing needed' });
+      check('summary: an email read and left alone wakes nothing and is not listed', !(await inFeed(quiet.message.id)) && (await signalNow()).unsummarized_count === beforeQuiet);
+      await sendMail('re_related', { from: 'Sam Owner <owner@agency.example>', to: 'ashley@agency.example', subject: 'Thanks for the copy', id: 'related@agency.example', body: 'Looks fine, thanks.' });
+      const related = await routed('related@agency.example');
+      const relatedTask = await rows<{ id: string }>(db, 'INSERT INTO tasks (title, project_id) VALUES ($1, $2) RETURNING id', ['Homepage copy', fwdA]);
+      const relatedTriage = await triageOf(related.message.id, { outcome: 'no_action', urgent: false, summary: 'Thanks, nothing new', project_id: fwdA, links: [{ task_id: relatedTask[0].id, relation: 'related' }] });
+      check('summary: a task it is only about is not news', relatedTriage.status === 201 && !(await inFeed(related.message.id)), relatedTriage.body);
+      await db.query("INSERT INTO public.reminders (title, source_message_id, owner_id, created_by) VALUES ('A note of mine', $1, $2, $2)", [quiet.message.id, ids.owner]);
+      check('summary: a person\'s own reminder on it does not make it news', !(await inFeed(quiet.message.id)));
+      await db.query("INSERT INTO public.reminders (title, source_message_id, owner_id, created_by) VALUES ('Chase the decks', $1, $2, $3)", [quiet.message.id, ids.owner, ids.ashley]);
+      check('summary: a reminder the agent set makes it news', (await inFeed(quiet.message.id)) && (await signalNow()).unsummarized_count === beforeQuiet + 1);
+      await db.query("UPDATE communications.triage SET created_at = now() - interval '15 days' WHERE message_id=$1", [quiet.message.id]);
+      check('summary: triage older than the look-back is left behind', !(await inFeed(quiet.message.id)) && (await signalNow()).unsummarized_count === beforeQuiet);
+      await db.query("UPDATE communications.triage SET created_at = now() WHERE message_id=$1", [quiet.message.id]);
+
+      // A later email settles what the conversation's earlier emails waited on.
+      await sendMail('re_settle_1', { from: 'Sam Owner <owner@agency.example>', to: 'ashley@agency.example', subject: 'Which plan?', id: 'settle-1@agency.example', body: 'Your view on the plan?' });
+      const askedMail = await routed('settle-1@agency.example');
+      await sendMail('re_settle_2', { from: 'Sam Owner <owner@agency.example>', to: 'ashley@agency.example', subject: 'Re: Which plan?', id: 'settle-2@agency.example', inReplyTo: 'settle-1@agency.example', body: 'Agreed with what you said.' });
+      const laterMail = await routed('settle-2@agency.example');
+      check('settle: the reply joined the conversation', laterMail.thread.id === askedMail.thread.id);
+      const baseWaiting = (await signalNow()).waiting_count;
+      await triageOf(askedMail.message.id, { outcome: 'needs_human', urgent: false, summary: 'Asks for a view on the plan', question_for_human: 'Which plan?' });
+      check('signal: a question waiting counts', (await signalNow()).waiting_count === baseWaiting + 1);
+      const statusNow = async (id: string) => (await rows(db, 'SELECT status, reviewed_at FROM communications.messages WHERE id=$1', [id]))[0];
+      const plain = await triageOf(laterMail.message.id, { outcome: 'no_action', urgent: false, summary: 'Agreed' });
+      check('settle: without it, a later email leaves the question open', plain.body.data.settled_earlier === undefined && (await statusNow(askedMail.message.id)).status === 'needs_human', plain.body);
+      await db.query(`UPDATE communications.messages SET auth = auth || '{"trust":"unknown"}'::jsonb WHERE id=$1`, [laterMail.message.id]);
+      const notVerified = await triageOf(laterMail.message.id, { outcome: 'no_action', urgent: false, summary: 'Agreed', settles_earlier: true });
+      check('settle: a sender we cannot verify closes nothing', notVerified.status === 201 && notVerified.body.data.settled_earlier === 0 && (await statusNow(askedMail.message.id)).status === 'needs_human', notVerified.body);
+      await db.query(`UPDATE communications.messages SET auth = auth || '{"trust":"trusted"}'::jsonb WHERE id=$1`, [laterMail.message.id]);
+      await db.query(`UPDATE communications.messages SET auth = auth || '{"trust":"untrusted"}'::jsonb WHERE id=$1`, [askedMail.message.id]);
+      const shielded = await triageOf(laterMail.message.id, { outcome: 'no_action', urgent: false, summary: 'Agreed', settles_earlier: true });
+      check('settle: an untrusted earlier email stays for a person', shielded.body.data.settled_earlier === 0 && (await statusNow(askedMail.message.id)).status === 'needs_human', shielded.body);
+      await db.query(`UPDATE communications.messages SET auth = auth || '{"trust":"trusted"}'::jsonb WHERE id=$1`, [askedMail.message.id]);
+      const earlierFirst = await triageOf(askedMail.message.id, { outcome: 'no_action', urgent: false, summary: 'x', settles_earlier: true });
+      check('settle: it reaches back only, never forward', earlierFirst.body.data.settled_earlier === 0, earlierFirst.body);
+      await triageOf(askedMail.message.id, { outcome: 'needs_human', urgent: false, summary: 'Asks for a view on the plan', question_for_human: 'Which plan?' });
+      const settleBody = { outcome: 'no_action', urgent: false, summary: 'He replied himself; settled', settles_earlier: true, idempotency_key: 'settle-key-1' };
+      const settled = await triageOf(laterMail.message.id, settleBody);
+      const closed = await statusNow(askedMail.message.id);
+      check('settle: the question closes as handled and reviewed', settled.status === 201 && settled.body.data.settled_earlier === 1 && closed.status === 'handled' && !!closed.reviewed_at, [settled.body, closed]);
+      const settledThread = await inbox.threadDetail(owner, askedMail.thread.id);
+      check('settle: the conversation stops needing a person, and leaves the summary and waiting count', settledThread.state === 'handled' && !(await inFeed(askedMail.message.id)) && (await signalNow()).waiting_count === baseWaiting, settledThread.state);
+      const settledRetry = await triageOf(laterMail.message.id, settleBody);
+      check('settle: a retry replays with nothing left to close', settledRetry.status === 200 && settledRetry.body.data.settled_earlier === 0, settledRetry.body);
+      await db.query('UPDATE communications.messages SET reviewed_at = NULL, reviewed_by = NULL WHERE id=$1', [askedMail.message.id]);
+      await triageOf(askedMail.message.id, { outcome: 'needs_reply', urgent: false, summary: 'A reply is owed', suggested_reply: 'Thanks.' });
+      check('settle: an owed reply reads as owed first', (await inbox.threadDetail(owner, askedMail.thread.id)).state === 'needs_reply');
+      const owed = await triageOf(laterMail.message.id, { outcome: 'no_action', urgent: false, summary: 'He replied himself', settles_earlier: true });
+      check('settle: an owed reply closes too', owed.body.data.settled_earlier === 1 && (await inbox.threadDetail(owner, askedMail.thread.id)).state === 'handled', owed.body);
 
       // Confirming a guess is a person setting it.
       const confirmed = await inbox.setThreadProject(owner, guess.thread.id, { project_id: fwdA });

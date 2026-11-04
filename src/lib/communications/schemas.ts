@@ -45,6 +45,9 @@ export const triageSchema = z.object({
   // The decisions behind question_for_human, answered together in one go:
   // each with two to four concrete choices and the agent's pick.
   questions: z.array(triageQuestionSchema).min(1).max(3).nullable().optional(),
+  // This email shows what the conversation's earlier emails were waiting on is
+  // settled: their questions and owed replies close.
+  settles_earlier: z.boolean().optional(),
 }).strict().superRefine((body, ctx) => {
   if (body.questions?.length && !body.question_for_human) {
     ctx.addIssue({ code: 'custom', path: ['question_for_human'], message: 'Questions need question_for_human, the one-line version' });
