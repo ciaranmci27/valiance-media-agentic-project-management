@@ -420,7 +420,8 @@ export function unreadNotificationsRead(isDemo: boolean): Read<number> {
       const { count, error } = await createClient()
         .from('team_member_notifications')
         .select('*', { count: 'exact', head: true })
-        .eq('is_read', false);
+        .eq('is_read', false)
+        .is('cleared_at', null);
       if (error) throw error;
       return count ?? 0;
     },

@@ -678,6 +678,9 @@ create table public.team_member_notifications (
   message text,
   link text,
   is_read boolean not null default false,
+  -- What it was about is finished: hidden everywhere, otherwise untouched, so
+  -- one that comes back (a reminder reopened) is as it was.
+  cleared_at timestamptz,
   entity_type text check (entity_type in ('task', 'project', 'lead', 'comment', 'member', 'contact', 'suggestion', 'goal', 'question', 'invoice', 'reminder')),
   entity_id text,
   created_at timestamptz not null default now()
@@ -1110,6 +1113,7 @@ create index idx_invoice_time_allocations_entry on public.invoice_time_entry_all
 create index idx_team_member_notifications_user_id on public.team_member_notifications(user_id);
 create index idx_team_member_notifications_unread on public.team_member_notifications(user_id, is_read) where is_read = false;
 create index idx_team_member_notifications_created_at on public.team_member_notifications(created_at desc);
+create index idx_team_member_notifications_entity on public.team_member_notifications(entity_type, entity_id);
 
 -- Dedup index for upsert_notification: one unread notification per user+entity
 create unique index idx_team_member_notifications_dedup
@@ -1129,7 +1133,7 @@ create or replace function public.upsert_notification(
 ) returns void as $$
 begin
   update public.team_member_notifications
-  set title = p_title, message = p_message, link = p_link, created_at = now()
+  set title = p_title, message = p_message, link = p_link, created_at = now(), cleared_at = null
   where user_id = p_user_id
     and entity_type = p_entity_type
     and entity_id = p_entity_id
@@ -1144,6 +1148,24 @@ $$ language plpgsql security definer set search_path = public;
 
 revoke all on function public.upsert_notification(uuid, text, text, text, text, text) from public, anon, authenticated;
 grant execute on function public.upsert_notification(uuid, text, text, text, text, text) to service_role;
+
+-- Clears, or brings back, everyone's notifications about one thing. p_title
+-- narrows it where the entity is shared: a project has many kinds of notice.
+CREATE OR REPLACE FUNCTION public.set_notifications_cleared(p_entity_type text, p_entity_id text, p_cleared boolean, p_title text DEFAULT NULL)
+RETURNS void
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  UPDATE public.team_member_notifications
+  SET cleared_at = CASE WHEN p_cleared THEN now() END
+  WHERE entity_type = p_entity_type
+    AND entity_id = p_entity_id
+    AND (p_title IS NULL OR title = p_title)
+    AND (cleared_at IS NULL) = p_cleared;
+$$;
+
+REVOKE ALL ON FUNCTION public.set_notifications_cleared(text, text, boolean, text) FROM PUBLIC, anon, authenticated;
 
 -- ============================================================
 -- SAVE TASK: a task row and its assignees, criteria and blockers in one
@@ -9625,6 +9647,39 @@ BEGIN
 END;
 $$;
 
+-- "Ready to review and send" holds only while the invoice is a draft. A new
+-- retainer draft answers the last "Retainer draft failed" on its project.
+CREATE OR REPLACE FUNCTION public.sync_invoice_notification()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    IF NEW.auto_generated THEN
+      PERFORM public.set_notifications_cleared('project', NEW.project_id::text, true, 'Retainer draft failed');
+    END IF;
+  ELSE
+    PERFORM public.set_notifications_cleared('invoice', NEW.id::text, NEW.status <> 'draft' OR NEW.deleted_at IS NOT NULL);
+  END IF;
+  RETURN NULL;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.sync_invoice_notification() FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS sync_invoice_notification ON public.project_invoices;
+CREATE TRIGGER sync_invoice_notification
+  AFTER INSERT ON public.project_invoices
+  FOR EACH ROW EXECUTE FUNCTION public.sync_invoice_notification();
+DROP TRIGGER IF EXISTS sync_invoice_notification_update ON public.project_invoices;
+CREATE TRIGGER sync_invoice_notification_update
+  AFTER UPDATE ON public.project_invoices
+  FOR EACH ROW
+  WHEN (NEW.status IS DISTINCT FROM OLD.status OR NEW.deleted_at IS DISTINCT FROM OLD.deleted_at)
+  EXECUTE FUNCTION public.sync_invoice_notification();
+
 -- The retainer drafter, unchanged except: the due date follows the project's
 -- payment terms, and the announcement is per invoice (announce_billing_draft).
 -- (create_retainer_draft_internal: see the retainer section; due date follows payment terms)
@@ -11104,6 +11159,35 @@ CREATE TRIGGER tasks_sync_reminders_with_status
   FOR EACH ROW
   WHEN (NEW.status IS DISTINCT FROM OLD.status OR NEW.project_id IS DISTINCT FROM OLD.project_id)
   EXECUTE FUNCTION public.sync_task_reminders_with_status();
+
+-- A reminder's bell goes when it closes, is deleted or moves to a later time
+-- (the new time rings again). Reopened or restored, its bell comes back.
+CREATE OR REPLACE FUNCTION public.sync_reminder_notification()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF NEW.status <> 'open' OR NEW.deleted_at IS NOT NULL OR NEW.notified_at IS NULL THEN
+    PERFORM public.set_notifications_cleared('reminder', NEW.id::text, true);
+  ELSIF OLD.status <> 'open' OR OLD.deleted_at IS NOT NULL THEN
+    PERFORM public.set_notifications_cleared('reminder', NEW.id::text, false);
+  END IF;
+  RETURN NULL;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.sync_reminder_notification() FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS sync_reminder_notification ON public.reminders;
+CREATE TRIGGER sync_reminder_notification
+  AFTER UPDATE ON public.reminders
+  FOR EACH ROW
+  WHEN (NEW.status IS DISTINCT FROM OLD.status
+    OR NEW.deleted_at IS DISTINCT FROM OLD.deleted_at
+    OR NEW.notified_at IS DISTINCT FROM OLD.notified_at)
+  EXECUTE FUNCTION public.sync_reminder_notification();
 
 -- ------------------------------------------------------------
 -- Row level security

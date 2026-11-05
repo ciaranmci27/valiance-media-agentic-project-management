@@ -18,7 +18,8 @@ export const GET = withApi(async ({ supabase, searchParams, teamMemberId }) => {
   let query = supabase
     .from('team_member_notifications')
     .select('*', { count: 'exact' })
-    .eq('user_id', teamMemberId);
+    .eq('user_id', teamMemberId)
+    .is('cleared_at', null);
 
   if (isRead === 'true') query = query.eq('is_read', true);
   else if (isRead === 'false') query = query.eq('is_read', false);

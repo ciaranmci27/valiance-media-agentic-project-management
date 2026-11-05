@@ -22,6 +22,7 @@
     "test:telemetry": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-agent-telemetry-ingest.ts",
     "test:soft-delete": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-soft-delete.ts",
     "test:team-activity": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-team-activity.ts",
+    "test:notification-clearing": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-notification-clearing.ts",
     "test:task-source": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-task-source.ts",
     "test:task-unread": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-task-unread.ts",
     "test:subtasks": "tsx --tsconfig tsconfig.mcp-test.json scripts/verify-subtasks.ts && tsx --tsconfig tsconfig.mcp-test.json scripts/verify-subtasks-api.ts",

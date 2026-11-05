@@ -83,6 +83,33 @@ CREATE INDEX idx_task_suggestions_converted_task_id ON public.task_suggestions(c
 
 ALTER TABLE public.task_suggestions ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "task_suggestions_all" ON public.task_suggestions FOR ALL TO authenticated USING (true) WITH CHECK (true);
+-- Greg's nudge says a project's findings wait on a review. It goes once none do.
+CREATE OR REPLACE FUNCTION public.sync_findings_notification()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM public.task_suggestions
+    WHERE project_id = NEW.project_id AND status IN ('pending', 'needs_info')
+  ) THEN
+    PERFORM public.set_notifications_cleared('project', NEW.project_id::text, true, 'Greg''s findings are waiting on you');
+  END IF;
+  RETURN NULL;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.sync_findings_notification() FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS sync_findings_notification ON public.task_suggestions;
+CREATE TRIGGER sync_findings_notification
+  AFTER UPDATE OF status ON public.task_suggestions
+  FOR EACH ROW
+  WHEN (NEW.status IS DISTINCT FROM OLD.status)
+  EXECUTE FUNCTION public.sync_findings_notification();
+
 CREATE TRIGGER set_task_suggestions_updated_at BEFORE UPDATE ON public.task_suggestions FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
 
 -- ============================================================

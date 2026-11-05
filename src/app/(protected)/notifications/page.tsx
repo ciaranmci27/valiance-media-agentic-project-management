@@ -82,6 +82,7 @@ export default function NotificationsPage() {
       let listQuery = supabase
         .from('team_member_notifications')
         .select('*')
+        .is('cleared_at', null)
         .order('created_at', { ascending: false })
         .range(offset, offset + PAGE_SIZE - 1);
       if (tab === 'unread') listQuery = listQuery.eq('is_read', false);
@@ -91,7 +92,8 @@ export default function NotificationsPage() {
         supabase
           .from('team_member_notifications')
           .select('*', { count: 'exact', head: true })
-          .eq('is_read', false),
+          .eq('is_read', false)
+          .is('cleared_at', null),
       ]);
 
       if (listResult.data) {
