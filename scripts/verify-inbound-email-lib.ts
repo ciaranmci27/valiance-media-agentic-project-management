@@ -266,6 +266,18 @@ async function main() {
   check(viaUs(groupForward.filter((h) => h.name !== 'arc-seal')).trust, 'untrusted', 'forward: ARC results without seals are not a chain');
   check(viaUs(groupForward, ['ours.example'], 'someone@ours.example').trust, 'untrusted', 'forward: From on our own domain is judged on its own signature');
 
+  // A Workspace domain with no DKIM key of its own, through a Gmail forward, as Brennan's brief arrived.
+  const workspace = (stamp: string, from = 'brennan@designgroove.example', auth = gmailGray) =>
+    evaluateAuth({ headers: [{ name: 'authentication-results', value: stamp }], fromAddress: from, trustedIds: [], providerAuth: auth, ownDomains: ['ours.example'] });
+  const googleStamp = 'amazonses.com; spf=pass (spfCheck: ok) envelope-from=ciaran+caf_=hi=relay.ours.example@client.example; dkim=pass header.i=@designgroove-example.20260707.gappssmtp.com; dmarc=fail header.from=designgroove.example;';
+  check([workspace(googleStamp).trust, workspace(googleStamp).reason], ['trusted', 'signed by Google for the designgroove.example Workspace'], 'workspace: Google\'s signature for the From domain is trusted');
+  check(workspace(googleStamp, 'spoof@other.example').trust, 'untrusted', 'workspace: a signature for another Workspace speaks for nobody else');
+  check(workspace(googleStamp.replace('dkim=pass', 'dkim=fail')).trust, 'untrusted', 'workspace: a failed signature counts for nothing');
+  check(workspace(googleStamp.replace('amazonses.com;', 'planted.example;')).trust, 'untrusted', 'workspace: a stamp from an unlisted receiver is ignored');
+  check(workspace(googleStamp.replace('gappssmtp.com', 'gappssmtp.example.com')).trust, 'untrusted', 'workspace: only Google\'s own signing domain');
+  check(workspace(googleStamp.replace('@designgroove-example.', '@attacker.designgroove-example.')).trust, 'untrusted', 'workspace: an extra label is not the same signer');
+  check(workspace(googleStamp, undefined, { spf: 'pass', dkim: 'fail', dmarc: 'fail' }).trust, 'untrusted', 'workspace: a failed signature at the provider stays untrusted');
+
   // Decisions: what the panel offers, and the one answer it sends.
   const legacy = decisionsOf({ question_for_human: 'The idea task could not be read. Proposed default: keep this as discussion on the existing idea.', questions: null });
   check([legacy.legacy, legacy.questions[0].question, legacy.questions[0].options.map((o) => o.label)],

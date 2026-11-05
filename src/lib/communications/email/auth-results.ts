@@ -7,7 +7,8 @@ import { headerValues, type HeaderLine } from './headers';
  * trusted: a DKIM signature passed and is aligned with the From domain, or
  * the receiver's DMARC check passed (aligned DKIM or SPF, subdomains too),
  * or the mail came through one of our own domains (a Google Group, a Gmail
- * forward) whose ARC record shows the original passed.
+ * forward) whose ARC record shows the original passed, or Google signed it
+ * for the From domain's Workspace.
  * untrusted: DKIM failed, is missing, or is not aligned with From. The
  * triage rules turn this into needs_human.
  * unknown: no result we can rely on. Passed to the agent as such; it does
@@ -164,6 +165,30 @@ function passedFor(results: readonly AuthMethodResult[], fromDomain: string): bo
   ));
 }
 
+/** The receiver's own stamp: the first Authentication-Results from a listed receiver, which it puts above anything it was handed. */
+function receiverStamp(headers: readonly HeaderLine[], receiverIds: readonly string[]): ParsedAuthenticationResults | undefined {
+  const receivers = new Set(receiverIds.map((id) => id.toLowerCase()));
+  return headerValues(headers, 'authentication-results')
+    .map(parseAuthenticationResults)
+    .find((parsed) => receivers.has(parsed.authservId));
+}
+
+/**
+ * A Google Workspace domain with no DKIM key of its own is signed by Google as
+ * <domain-with-dashes>.<key date>.gappssmtp.com. Only Google can sign there,
+ * and only for that Workspace, so it speaks for From even though it is not
+ * aligned. It survives a Gmail forward, where SPF and DMARC do not: the
+ * receiver's stamp must show the signature passing.
+ */
+function signedByGoogleFor(headers: readonly HeaderLine[], fromDomain: string, receiverIds: readonly string[]): boolean {
+  const label = fromDomain.toLowerCase().replace(/\./g, '-');
+  return !!receiverStamp(headers, receiverIds)?.results.some((result) => {
+    if (result.method !== 'dkim' || result.result !== 'pass') return false;
+    const parts = (dkimDomain(result) ?? '').split('.');
+    return parts.length === 4 && parts[0] === label && parts[2] === 'gappssmtp' && parts[3] === 'com';
+  });
+}
+
 /**
  * Mail forwarded through one of our own domains (a Google Group, a Gmail
  * forward) is re-signed on the way, so the original signature no longer
@@ -182,11 +207,7 @@ function passedFor(results: readonly AuthMethodResult[], fromDomain: string): bo
 function forwardedByUs(headers: readonly HeaderLine[], fromDomain: string, ownDomains: readonly string[], receiverIds: readonly string[]): string | null {
   const own = new Set(ownDomains.map((domain) => organizationalDomain(domain)));
   if (own.size === 0 || own.has(organizationalDomain(fromDomain))) return null;
-  const receivers = new Set(receiverIds.map((id) => id.toLowerCase()));
-  const stamp = headerValues(headers, 'authentication-results')
-    .map(parseAuthenticationResults)
-    .find((parsed) => receivers.has(parsed.authservId));
-  const forwarder = stamp?.results
+  const forwarder = receiverStamp(headers, receiverIds)?.results
     .filter((result) => result.method === 'dkim' && result.result === 'pass')
     .map((result) => dkimDomain(result))
     .find((domain): domain is string => !!domain && own.has(organizationalDomain(domain)));
@@ -222,10 +243,14 @@ export function evaluateAuth(input: {
 
   if (input.providerAuth) {
     let verdict = providerVerdict(input.providerAuth);
+    const receivers = [...input.trustedIds, ...PROVIDER_RECEIVER_IDS];
     const forwarder = verdict.trust === 'untrusted' && fromDomain
-      ? forwardedByUs(input.headers, fromDomain, input.ownDomains ?? [], [...input.trustedIds, ...PROVIDER_RECEIVER_IDS])
+      ? forwardedByUs(input.headers, fromDomain, input.ownDomains ?? [], receivers)
       : null;
     if (forwarder) verdict = { trust: 'trusted', reason: `forwarded by ${forwarder}: the original passed for ${organizationalDomain(fromDomain!)}` };
+    else if (input.providerAuth.dkim?.toLowerCase() === 'gray' && fromDomain && signedByGoogleFor(input.headers, fromDomain, receivers)) {
+      verdict = { trust: 'trusted', reason: `signed by Google for the ${fromDomain} Workspace` };
+    }
     return {
       ...base,
       ...verdict,
