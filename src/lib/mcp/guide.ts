@@ -21,8 +21,8 @@ Subtasks
 - A parent and its subtasks finish separately: finishing every subtask does not finish the parent.
 
 Task files
-- add_task_file attaches a file to a task: link an email attachment by email_attachment_id or a project file by entity_file_id (neither is copied), or send small bytes as content_base64 with a name. Add a note saying why it is there.
-- list_task_files shows what a task holds; get_task_file_link gives a short-lived link to open one.
+- add_task_file attaches a file to a task: link an email attachment by email_attachment_id or a project file by entity_file_id (neither is copied), send small bytes as content_base64 with a name, or add a web address as url (a Loom, a design, a shared doc). Add a note saying why it is there.
+- list_task_files shows what a task holds, a link's address included; get_task_file_link gives a short-lived link to open a file.
 
 Reviews
 - submit_task_review needs the pull request URL and the full 40-character head commit SHA. Assignees cannot review their own work.

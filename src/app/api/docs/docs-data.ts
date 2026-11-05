@@ -634,17 +634,18 @@ export const endpoints: EndpointDoc[] = [
   },
 
   // ─── Task Files ───────────────────────────────────────────────────
-  { method: 'GET', path: '/api/v1/tasks/:id/files', description: 'List the files on a task, oldest first. Each is an upload (the task\'s own copy), an email_attachment (a link to an email\'s stored attachment) or a project_file (a link to a file on the task\'s project). source names what a link points to, with the email\'s ids and subject only when your key can open its inbox; preview says whether it opens inline (image, pdf, text); available is false when a linked file is gone.', group: 'Task Files',
+  { method: 'GET', path: '/api/v1/tasks/:id/files', description: 'List the files on a task, oldest first. Each is an upload (the task\'s own copy), an email_attachment (a link to an email\'s stored attachment), a project_file (a link to a file on the task\'s project) or a link (a web address, in url; null for every other kind). source names what a linked file points to, with the email\'s ids and subject only when your key can open its inbox; preview says whether it opens inline (image, pdf, text); available is false when a linked file is gone.', group: 'Task Files',
     params: [{ name: 'id', type: 'uuid', required: true, description: 'Task ID' }],
   },
-  { method: 'POST', path: '/api/v1/tasks/:id/files', description: 'Add a file to a task. Send exactly one source. Uploads are stored once per project by the SHA-256 the server computes. Linking an email attachment needs inbound_email.read and an inbox the key\'s member can read (every inbox for a member who manages inboxes, otherwise the granted ones); it is linked, not copied, unless the email is due for deletion within two days, when the task gets its own copy (retention copies any other linked attachment before it deletes its email). Answers 201 with the new file, or 200 with the existing entry when the task already has that file.', group: 'Task Files',
+  { method: 'POST', path: '/api/v1/tasks/:id/files', description: 'Add a file to a task. Send exactly one source. Uploads are stored once per project by the SHA-256 the server computes. Linking an email attachment needs inbound_email.read and an inbox the key\'s member can read (every inbox for a member who manages inboxes, otherwise the granted ones); it is linked, not copied, unless the email is due for deletion within two days, when the task gets its own copy (retention copies any other linked attachment before it deletes its email). A url is stored at its real address, out of any redirect wrapper and without tracking tags. Answers 201 with the new file, or 200 with the existing entry when the task already has it.', group: 'Task Files',
     params: [{ name: 'id', type: 'uuid', required: true, description: 'Task ID' }],
     body: [
       { name: 'content_base64', type: 'string', required: false, description: 'The file\'s bytes, base64, 3 MB at most. Needs name.' },
       { name: 'upload_id', type: 'uuid', required: false, description: 'A file uploaded to an upload link (POST /files/uploads), up to 50 MB. Needs name.' },
       { name: 'email_attachment_id', type: 'uuid', required: false, description: 'An email attachment to link' },
       { name: 'entity_file_id', type: 'uuid', required: false, description: 'A file on the task\'s project to link' },
-      { name: 'name', type: 'string', required: false, description: 'File name (folders are dropped). Defaults to the linked file\'s name.' },
+      { name: 'url', type: 'string', required: false, description: 'A web address to add as a link: a Loom, a design, a shared doc. http or https only, never with a login in it.' },
+      { name: 'name', type: 'string', required: false, description: 'File name (folders are dropped). Defaults to the linked file\'s name, or a link\'s site.' },
       { name: 'mime_type', type: 'string', required: false, description: 'For bytes: the file type. Guessed from the name when left out.' },
       { name: 'note', type: 'string', required: false, description: 'Why the file is on the task, 500 characters at most' },
     ],
@@ -674,7 +675,7 @@ export const endpoints: EndpointDoc[] = [
       { name: 'fileId', type: 'uuid', required: true, description: 'Task file ID' },
     ],
   },
-  { method: 'GET', path: '/api/v1/tasks/:id/files/:fileId/url', description: 'A short link to open the file: a one-minute download, or with inline=true a five-minute link for images, PDFs and text (other kinds answer 415). Through a key, a linked email attachment opens only if its inbox lets agents read that kind (403 not_agent_readable).', group: 'Task Files',
+  { method: 'GET', path: '/api/v1/tasks/:id/files/:fileId/url', description: 'A short link to open the file: a one-minute download, or with inline=true a five-minute link for images, PDFs and text (other kinds answer 415). Through a key, a linked email attachment opens only if its inbox lets agents read that kind (403 not_agent_readable). A link answers with its own address and expires_at null.', group: 'Task Files',
     params: [
       { name: 'id', type: 'uuid', required: true, description: 'Task ID' },
       { name: 'fileId', type: 'uuid', required: true, description: 'Task file ID' },

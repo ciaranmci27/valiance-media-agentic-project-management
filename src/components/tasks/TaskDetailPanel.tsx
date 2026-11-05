@@ -49,6 +49,7 @@ import { RowActionsMenu, type RowAction } from '@/components/ui/RowActionsMenu';
 import { taskAsText, taskUrl, copyText } from '@/lib/task-copy';
 import { TaskReminders } from '@/components/reminders/TaskReminders';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { LinkedText } from '@/components/ui/LinkedText';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { Popover } from '@/components/ui/Popover';
 import { parseDateOnly, isDateOverdue } from '@/lib/date-utils';
@@ -990,7 +991,7 @@ export function TaskDetailPanel({ task, onClose, onDelete, variant = 'panel' }: 
         task={task}
         isNew={(file) => isNewSince(file.created_at, file.added_by)}
         section={({ count, action, children }) => (
-          <Section variant={variant} title="Files" icon={Paperclip} count={count} action={action}>{children}</Section>
+          <Section variant={variant} title="Files & links" icon={Paperclip} count={count} action={action}>{children}</Section>
         )}
       />
 
@@ -1075,7 +1076,7 @@ export function TaskDetailPanel({ task, onClose, onDelete, variant = 'panel' }: 
                         </div>
                       </form>
                     ) : (
-                      <p className="text-sm text-zinc-300 mt-0.5 whitespace-pre-wrap break-words">{comment.text}</p>
+                      <p className="text-sm text-zinc-300 mt-0.5 whitespace-pre-wrap break-words"><LinkedText text={comment.text} /></p>
                     )}
                   </div>
                 </li>

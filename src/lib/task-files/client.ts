@@ -27,6 +27,10 @@ export const taskFileCandidates = (taskId: string) => call<TaskFileCandidates>(`
 export const linkTaskFile = (taskId: string, source: { email_attachment_id: string } | { entity_file_id: string }) =>
   call<TaskFileView>(base(taskId), { method: 'POST', body: JSON.stringify(source) });
 
+/** Adds a web link; the server keeps it at its real address. */
+export const addTaskLink = (taskId: string, link: { url: string; name?: string }) =>
+  call<TaskFileView>(base(taskId), { method: 'POST', body: JSON.stringify(link) });
+
 export const trashTaskFile = (taskId: string, fileId: string) =>
   call<{ deleted: true }>(`${base(taskId)}/${fileId}`, { method: 'DELETE' });
 

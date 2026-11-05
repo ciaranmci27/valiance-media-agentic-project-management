@@ -6,7 +6,8 @@
  * not copied, unless the email is about to be deleted; a key reads an
  * attachment only from an inbox it was granted and only kinds agents may
  * open; nobody reaches another project's task; renames and Trash are your
- * own unless you manage files.
+ * own unless you manage files; a web link is kept at its real address, once
+ * per task, and only ever as http or https.
  *
  * Runs on PGlite (real Postgres) over the whole real schema; nothing touches
  * a live database.
@@ -321,6 +322,38 @@ async function main() {
     check("candidates: the task's email attachments (pasted images too, each file once, from the email that first sent it, counted by conversation) and project files, marked when already added",
       candidates.email_attachments.map((a) => `${a.name}:${a.added}:${a.subject}:${a.conversation_count}`).join(',') === 'logo.png:false:Lost file:2,lost.png:true:Lost file:1'
         && candidates.project_files.map((f) => `${f.name}:${f.added}`).join(',') === 'brand-guide.pdf:true', candidates);
+
+    // --- Web links ----------------------------------------------------------------------------
+    const loom = await add({ url: 'https://www.loom.com/share/abc123', name: 'Roxanne / missing puff.pdf', note: 'Read from the screenshot' });
+    check('link: an address joins the task with its name whole, and nothing is stored or previewed',
+      loom.status === 201 && loom.body.data?.kind === 'link' && loom.body.data?.url === 'https://www.loom.com/share/abc123'
+        && loom.body.data?.name === 'Roxanne / missing puff.pdf' && loom.body.data?.preview === null && loom.body.data?.file_size === 0
+        && loom.body.data?.available === true && loom.body.data?.source === null && loom.body.data?.note === 'Read from the screenshot', loom);
+    const tagged = await add({ url: '  https://www.loom.com/share/abc123?utm_source=mail&utm_campaign=x ' });
+    check('link: the same page with tracking tags is the entry already there', tagged.status === 200 && tagged.body.data?.id === loom.body.data?.id, tagged);
+    const wrapped = await add({ url: 'https://www.google.com/url?q=https://claude.ai/artifact/EFRyJFBcm8&source=gmail&sa=E' });
+    check('link: a redirect wrapper is opened, and the name falls back to the site',
+      wrapped.status === 201 && wrapped.body.data?.url === 'https://claude.ai/artifact/EFRyJFBcm8' && wrapped.body.data?.name === 'claude.ai/artifact/EFRyJFBcm8', wrapped);
+    const bare = await add({ url: 'figma.com/file/x' });
+    check('link: one pasted without https gets it', bare.status === 201 && bare.body.data?.url === 'https://figma.com/file/x', bare);
+    const refused = await Promise.all(['javascript:alert(1)', 'data:text/html,hi', 'ftp://files.example.com/a', 'https://me:secret@example.com/a', 'not a link', 'localhost'].map((url) => add({ url })));
+    check('link: only a web address with no login in it', refused.every((row) => row.status === 400), refused.map((row) => row.status));
+    const twoSources = await add({ url: 'https://example.com/a', entity_file_id: s.projectFile });
+    check('link: one source at a time', twoSources.status === 422, twoSources.status);
+    const tooLong = await add({ url: `https://example.com/${'a'.repeat(2100)}` });
+    check('link: an address over the limit is refused', tooLong.status === 400, tooLong.status);
+
+    const fileId = loom.body.data?.id as string;
+    const opened = await call(link.GET, 'GET', `${base}/${fileId}/url`, { id: s.task, fileId });
+    check('link: opens at its own address, which never expires', opened.status === 200 && opened.body.data?.url === 'https://www.loom.com/share/abc123'
+      && opened.body.data?.expires_in === null && opened.body.data?.expires_at === null, opened);
+    const inlineLink = await call(link.GET, 'GET', `${base}/${fileId}/url?inline=true`, { id: s.task, fileId });
+    check('link: never opened inline, whatever its name says', inlineLink.status === 415, inlineLink);
+    const relabelled = await call(one.PATCH, 'PATCH', `${base}/${fileId}`, { id: s.task, fileId }, { name: 'Roxanne / the walkthrough' });
+    check('link: a rename keeps its slashes', relabelled.body.data?.name === 'Roxanne / the walkthrough', relabelled);
+    await call(one.DELETE, 'DELETE', `${base}/${fileId}`, { id: s.task, fileId });
+    const addedBack = await add({ url: 'https://www.loom.com/share/abc123' });
+    check('link: one in Trash can be added again', addedBack.status === 201 && addedBack.body.data?.id !== fileId, addedBack);
   } finally {
     await server.close();
     await db.close();

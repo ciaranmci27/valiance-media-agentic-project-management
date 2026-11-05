@@ -5,6 +5,7 @@ import { Check, Plus, Search, X, type LucideIcon } from 'lucide-react';
 import type { AiReadiness, Task } from '@/lib/types';
 import { Popover } from '@/components/ui/Popover';
 import { Avatar } from '@/components/ui/Avatar';
+import { LinkedText } from '@/components/ui/LinkedText';
 import { TextInput } from '@/components/ui/inputs/TextInput';
 import { Textarea } from '@/components/ui/inputs/Textarea';
 
@@ -139,18 +140,23 @@ export function DescriptionField({ value, onChange, canEdit }: { value: string; 
   if (draft === null) {
     if (!canEdit) {
       return text
-        ? <p className="text-sm text-zinc-300 whitespace-pre-wrap break-words leading-relaxed">{value}</p>
+        ? <p className="text-sm text-zinc-300 whitespace-pre-wrap break-words leading-relaxed"><LinkedText text={value} /></p>
         : <p className="text-sm text-zinc-500">No description.</p>;
     }
+    if (!text) {
+      return (
+        <button type="button" onClick={() => setDraft(value)} className={`block w-full py-1 text-sm leading-relaxed text-zinc-500 ${EDITABLE}`}>
+          Add a description
+        </button>
+      );
+    }
+    // The edit button sits behind the text, not around it: a link cannot live
+    // inside a button. Clicks pass through the text to it, except on a link.
     return (
-      <button
-        type="button"
-        onClick={() => setDraft(value)}
-        className={`block w-full py-1 text-sm leading-relaxed ${EDITABLE} ${text ? 'text-zinc-300 whitespace-pre-wrap break-words' : 'text-zinc-500'}`}
-        aria-label={text ? 'Description. Click to edit' : 'Add a description'}
-      >
-        {text ? value : 'Add a description'}
-      </button>
+      <div className="relative">
+        <button type="button" onClick={() => setDraft(value)} className={`absolute inset-0 ${EDITABLE}`} aria-label="Description. Click to edit" />
+        <p className="pointer-events-none relative py-1 text-sm leading-relaxed text-zinc-300 whitespace-pre-wrap break-words"><LinkedText text={value} /></p>
+      </div>
     );
   }
   const save = () => {

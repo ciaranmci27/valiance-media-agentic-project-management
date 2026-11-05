@@ -255,7 +255,7 @@ export const PM_TOOLS: PmTool[] = [
   routeTool({
     name: 'list_task_files',
     lead: "List a task's files and attachments.",
-    detail: 'Uploads, linked email attachments (source.type email, with its subject when you can open its inbox) and linked project files, oldest first. Open one with get_task_file_link.',
+    detail: "Uploads, linked email attachments (source.type email, with its subject when you can open its inbox), linked project files and web links (kind link, the address in url), oldest first. Open a file with get_task_file_link; a link's url is the address itself.",
     input: z.object({ task_id: id('task_id') }).strict(),
     permission: 'files.read',
     method: 'GET',
@@ -349,20 +349,21 @@ export const PM_TOOLS: PmTool[] = [
   }),
   routeTool({
     name: 'add_task_file',
-    lead: 'Attach a file to a task.',
+    lead: 'Attach a file or a link to a task.',
     detail:
-      "Exactly one of: email_attachment_id (links the email's own file, no copy), entity_file_id (a file on the task's project), or content_base64 with name (the bytes, 3 MB at most). Adding a file the task already has returns that entry. note says why it is there.",
+      "Exactly one of: email_attachment_id (links the email's own file, no copy), entity_file_id (a file on the task's project), content_base64 with name (the bytes, 3 MB at most), or url (a web address: a Loom, a design, a shared doc). Adding one the task already has returns that entry. note says why it is there.",
     input: z.object({
       task_id: id('task_id'),
       email_attachment_id: id('email_attachment_id').optional(),
       entity_file_id: id('entity_file_id').optional(),
       content_base64: z.string().min(1).max(4_194_304).optional(),
+      url: z.string().min(1).max(8192).optional(),
       name: z.string().min(1).max(255).optional(),
       mime_type: z.string().max(255).optional(),
       note: z.string().min(1).max(500).optional(),
     }).strict().refine(
-      (value) => [value.email_attachment_id, value.entity_file_id, value.content_base64].filter((source) => source !== undefined).length === 1,
-      'Send exactly one of email_attachment_id, entity_file_id or content_base64',
+      (value) => [value.email_attachment_id, value.entity_file_id, value.content_base64, value.url].filter((source) => source !== undefined).length === 1,
+      'Send exactly one of email_attachment_id, entity_file_id, content_base64 or url',
     ).refine((value) => value.content_base64 === undefined || value.name !== undefined, 'content_base64 needs a name'),
     permission: 'files.upload',
     method: 'POST',

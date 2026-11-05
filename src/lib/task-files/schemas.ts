@@ -5,7 +5,7 @@ const name = z.string().min(1, 'name must not be empty').max(255, 'name must be 
 const mimeType = z.string().max(255).optional();
 const uuid = (what: string) => z.uuid(`${what} must be a uuid`);
 
-/** Exactly one source: bytes (content_base64 or upload_id), an email attachment, or a project file. */
+/** Exactly one source: bytes (content_base64 or upload_id), an email attachment, a project file, or a link. */
 export const addTaskFileSchema = z.union([
   z.object({
     // 3 MB of bytes is 4 MiB of base64; the service checks the decoded size.
@@ -17,7 +17,9 @@ export const addTaskFileSchema = z.union([
   z.object({ upload_id: uuid('upload_id'), name, mime_type: mimeType, note }).strict(),
   z.object({ email_attachment_id: uuid('email_attachment_id'), name: name.optional(), note }).strict(),
   z.object({ entity_file_id: uuid('entity_file_id'), name: name.optional(), note }).strict(),
-], { error: 'Send one of content_base64 (with name), upload_id (with name), email_attachment_id or entity_file_id' });
+  // A redirect wrapper can be longer than the address inside it; the service checks the clean one.
+  z.object({ url: z.string().min(1, 'url must not be empty').max(8192, 'url is too long'), name: name.optional(), note }).strict(),
+], { error: 'Send one of content_base64 (with name), upload_id (with name), email_attachment_id, entity_file_id or url' });
 
 export const updateTaskFileSchema = z.object({ name: name.optional(), note }).strict()
   .refine((value) => value.name !== undefined || value.note !== undefined, 'Send name or note');

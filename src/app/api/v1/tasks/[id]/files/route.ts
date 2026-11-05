@@ -6,15 +6,15 @@ import { addTaskFile, apiContext, listTaskFiles, type AddTaskFileInput } from '@
 
 export const dynamic = 'force-dynamic';
 
-/** Every file on the task, oldest first: its own uploads and links to email attachments and project files. */
+/** Every file on the task, oldest first: its own uploads, links to email attachments and project files, and web links. */
 export const GET = withApi<unknown, { id: string }>(async (ctx) => {
   return success(await listTaskFiles(apiContext(ctx), ctx.params.id));
 }, { permission: 'files.read' });
 
 /**
  * Adds a file: content_base64 (3 MB at most), an upload_id from
- * POST /files/uploads, an email_attachment_id or an entity_file_id. 201 when
- * added; 200 with the existing entry when the task already has that file.
+ * POST /files/uploads, an email_attachment_id, an entity_file_id or a url.
+ * 201 when added; 200 with the existing entry when the task already has it.
  */
 export const POST = withApi<AddTaskFileInput, { id: string }>(async (ctx) => {
   const { file, created: added } = await addTaskFile(apiContext(ctx), ctx.params.id, ctx.body);

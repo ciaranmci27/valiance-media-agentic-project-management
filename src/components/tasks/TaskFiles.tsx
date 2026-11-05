@@ -1,13 +1,13 @@
 'use client';
 
-import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { NewSinceDivider } from './TaskUnread';
 import { setReadData, useRead, warmRead } from '@/lib/query-cache';
 import { taskFileCandidatesRead, taskFilesRead } from '@/lib/reads';
 import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Check, Download, Eye, FileText, FolderOpen, Image as ImageIcon, Loader2, Mail, Plus, Upload, X } from 'lucide-react';
+import { Check, Download, Eye, FileText, FolderOpen, Image as ImageIcon, Link2, Loader2, Mail, Plus, Upload, X } from 'lucide-react';
 import type { Task } from '@/lib/types';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
@@ -18,22 +18,24 @@ import { Popover } from '@/components/ui/Popover';
 import { Button } from '@/components/ui/Button';
 import Modal from '@/components/ui/Modal';
 import { FileInput } from '@/components/ui/inputs/FileInput';
+import { TextInput } from '@/components/ui/inputs/TextInput';
 import { FilePreviewModal } from '@/components/ui/FilePreviewModal';
 import { CardAction } from '@/components/projects/TabLayout';
 import { formatBytes, formatFullTime } from '@/components/inbox/inbox-badges';
 import { setTaskFileCount } from './task-file-counts';
 import {
-  downloadTaskFile, linkTaskFile, taskFileViewUrl, trashTaskFile, uploadTaskFile,
+  addTaskLink, downloadTaskFile, linkTaskFile, taskFileViewUrl, trashTaskFile, uploadTaskFile,
   type TaskFileCandidates, type TaskFileView,
 } from '@/lib/task-files/client';
 
 type Picker = 'email' | 'project';
 
 /**
- * The task's Files: its own uploads and the email attachments and project
- * files linked to it (never copied). Add from the device (or drop files on
- * the section), from the task's emails, or from the project's files. The
- * caller's `section` draws the heading, so it matches the panel or the page.
+ * The task's Files & links: its own uploads, the email attachments and
+ * project files linked to it (never copied), and web links. Add from the
+ * device (or drop files on the section), from the task's emails, from the
+ * project's files, or by address. The caller's `section` draws the heading,
+ * so it matches the panel or the page.
  */
 export function TaskFiles({ task, section, isNew }: {
   task: Task;
@@ -50,6 +52,7 @@ export function TaskFiles({ task, section, isNew }: {
   const [uploading, setUploading] = useState<{ key: string; name: string }[]>([]);
   const [menuOpen, setMenuOpen] = useState(false);
   const [picker, setPicker] = useState<Picker | null>(null);
+  const [addingLink, setAddingLink] = useState(false);
   const [preview, setPreview] = useState<TaskFileView | null>(null);
   const [dragging, setDragging] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -196,12 +199,13 @@ export function TaskFiles({ task, section, isNew }: {
           disabled={shownCandidates?.project_files.length === 0}
           onClick={() => { setMenuOpen(false); setPicker('project'); }}
         />
+        <MenuItem icon={Link2} label="Add a link" onClick={() => { setMenuOpen(false); setAddingLink(true); }} />
       </Popover>
   );
   // Empty, the section's own "+ Add a file" row opens the menu; with files, the heading does.
   const action = canAdd && !empty ? (
     <div ref={menuRef}>
-      <CardAction onClick={toggleMenu} aria-expanded={menuOpen} aria-label="Add a file">
+      <CardAction onClick={toggleMenu} aria-expanded={menuOpen} aria-label="Add a file or link">
         <Plus size={14} aria-hidden="true" />
         Add
       </CardAction>
@@ -247,12 +251,12 @@ export function TaskFiles({ task, section, isNew }: {
               className="w-full flex items-center gap-2 -mx-2 px-2 py-1.5 rounded-lg text-sm text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.03] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
             >
               <Plus size={16} aria-hidden="true" />
-              Add a file, or drop one here
+              Add a file or link, or drop a file here
             </button>
             {menu}
           </div>
         ) : (
-          <p className="text-sm text-zinc-500">No files.</p>
+          <p className="text-sm text-zinc-500">No files or links.</p>
         )
       ) : (
         <ul className="space-y-1.5">
@@ -295,6 +299,7 @@ export function TaskFiles({ task, section, isNew }: {
       <span className="sr-only" aria-live="polite">{uploading.length > 0 ? `Uploading ${uploading.length} file${uploading.length === 1 ? '' : 's'}` : ''}</span>
 
       <FilePreviewModal isOpen={!!preview} onClose={() => setPreview(null)} file={previewFile} />
+      {addingLink && <AddLinkDialog taskId={task.id} onClose={() => setAddingLink(false)} onAdded={keep} />}
       {picker && (
         <CandidatePicker
           kind={picker}
@@ -367,6 +372,55 @@ function sourceLabel(file: TaskFileView, emailHref: (threadId: string, messageId
   return null;
 }
 
+/** A link's address without its scheme, for the row under its name. */
+const shownAddress = (url: string) => url.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '');
+
+/** Adds a link by its address. The name is optional: left out, it is the site's. */
+function AddLinkDialog({ taskId, onClose, onAdded }: { taskId: string; onClose: () => void; onAdded: (file: TaskFileView) => void }) {
+  const [url, setUrl] = useState('');
+  const [name, setName] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const save = async (event: FormEvent) => {
+    event.preventDefault();
+    setSaving(true);
+    setError(null);
+    try {
+      onAdded(await addTaskLink(taskId, { url: url.trim(), ...(name.trim() ? { name: name.trim() } : {}) }));
+      onClose();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not add the link');
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal isOpen onClose={onClose} title="Add a link">
+      <form onSubmit={(event) => void save(event)} className="space-y-4">
+        <p className="sr-only">Add a web address to this task, such as a video, a design or a shared document.</p>
+        <TextInput
+          label="Address"
+          value={url}
+          onChange={(value) => { setUrl(value); setError(null); }}
+          placeholder="https://www.loom.com/share/..."
+          inputMode="url"
+          autoComplete="off"
+          spellCheck={false}
+          autoFocus
+          required
+          error={error ?? undefined}
+        />
+        <TextInput label="Name (optional)" value={name} onChange={setName} maxLength={255} autoComplete="off" />
+        <div className="flex justify-end gap-2 border-t border-white/[0.08] pt-4">
+          <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button type="submit" disabled={saving || !url.trim()}>{saving ? 'Adding...' : 'Add link'}</Button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
 function FileRow({ taskId, projectId, file, onPreview, onDownload, onRemove }: {
   taskId: string;
   projectId: string;
@@ -375,7 +429,7 @@ function FileRow({ taskId, projectId, file, onPreview, onDownload, onRemove }: {
   onDownload: () => void;
   onRemove?: () => void;
 }) {
-  const Icon = file.preview === 'image' ? ImageIcon : FileText;
+  const Icon = file.url ? Link2 : file.preview === 'image' ? ImageIcon : FileText;
   const previewable = file.available && file.preview !== null;
   const pathname = usePathname();
   const inProject = !!pathname?.startsWith(`/projects/${projectId}`);
@@ -393,7 +447,18 @@ function FileRow({ taskId, projectId, file, onPreview, onDownload, onRemove }: {
         </span>
       )}
       <div className="min-w-0 flex-1">
-        {previewable ? (
+        {file.url ? (
+          <a
+            href={file.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label={`Open ${file.name} in a new tab`}
+            title={file.url}
+            className="block max-w-full truncate rounded text-left text-xs font-medium text-zinc-100 underline decoration-white/20 underline-offset-2 hover:text-brand-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+          >
+            {file.name}
+          </a>
+        ) : previewable ? (
           <button
             type="button"
             onClick={onPreview}
@@ -407,13 +472,13 @@ function FileRow({ taskId, projectId, file, onPreview, onDownload, onRemove }: {
           <p className="truncate text-xs font-medium text-zinc-200" title={file.name}>{file.name}</p>
         )}
         <p className="truncate text-[11px] text-zinc-400">
-          {formatBytes(file.file_size)}
+          {file.url ? shownAddress(file.url) : formatBytes(file.file_size)}
           {source && <> · {source}</>}
         </p>
         {file.note && <p className="mt-0.5 text-[11px] leading-snug text-zinc-300">{file.note}</p>}
       </div>
       <div className="flex flex-shrink-0 items-center">
-        {file.available && (
+        {file.available && !file.url && (
           <Tooltip content="Download">
             <button
               type="button"

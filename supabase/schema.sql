@@ -13542,8 +13542,9 @@ CREATE TABLE public.task_files (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   task_id uuid NOT NULL REFERENCES public.tasks(id) ON DELETE CASCADE,
   -- upload: the task's own file. email_attachment, project_file: a link to a
-  -- file that already exists, never a copy.
-  kind text NOT NULL CHECK (kind IN ('upload', 'email_attachment', 'project_file')),
+  -- file that already exists, never a copy. link: a web address (a Loom, a
+  -- Claude artifact, a shared doc); nothing is stored but the address.
+  kind text NOT NULL CHECK (kind IN ('upload', 'email_attachment', 'project_file', 'link')),
   -- upload only: the object in the private task-files bucket, stored by
   -- content ({project_id}/{sha256}) so the same bytes are kept once per project.
   storage_path text,
@@ -13552,6 +13553,8 @@ CREATE TABLE public.task_files (
   -- under a task (email retention moves a linked attachment to the task first).
   email_attachment_id uuid REFERENCES communications.attachments(id) ON DELETE RESTRICT,
   entity_file_id uuid REFERENCES public.entity_files(id) ON DELETE RESTRICT,
+  -- link only: the address, as the server cleaned it.
+  url text CHECK (url IS NULL OR (url ~ '^https?://' AND length(url) <= 2048)),
   name text NOT NULL CHECK (length(name) BETWEEN 1 AND 255),
   mime_type text NOT NULL DEFAULT 'application/octet-stream',
   file_size bigint NOT NULL DEFAULT 0 CHECK (file_size >= 0),
@@ -13564,9 +13567,10 @@ CREATE TABLE public.task_files (
   deleted_at timestamptz,
   deleted_by uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
   CONSTRAINT task_files_one_source CHECK (
-    (kind = 'upload' AND storage_path IS NOT NULL AND sha256 IS NOT NULL AND email_attachment_id IS NULL AND entity_file_id IS NULL)
-    OR (kind = 'email_attachment' AND email_attachment_id IS NOT NULL AND storage_path IS NULL AND sha256 IS NULL AND entity_file_id IS NULL)
-    OR (kind = 'project_file' AND entity_file_id IS NOT NULL AND storage_path IS NULL AND sha256 IS NULL AND email_attachment_id IS NULL)
+    (kind = 'upload' AND storage_path IS NOT NULL AND sha256 IS NOT NULL AND email_attachment_id IS NULL AND entity_file_id IS NULL AND url IS NULL)
+    OR (kind = 'email_attachment' AND email_attachment_id IS NOT NULL AND storage_path IS NULL AND sha256 IS NULL AND entity_file_id IS NULL AND url IS NULL)
+    OR (kind = 'project_file' AND entity_file_id IS NOT NULL AND storage_path IS NULL AND sha256 IS NULL AND email_attachment_id IS NULL AND url IS NULL)
+    OR (kind = 'link' AND url IS NOT NULL AND storage_path IS NULL AND sha256 IS NULL AND email_attachment_id IS NULL AND entity_file_id IS NULL)
   )
 );
 CREATE INDEX idx_task_files_task ON public.task_files (task_id);
@@ -13578,6 +13582,7 @@ CREATE INDEX idx_task_files_entity_file ON public.task_files (entity_file_id) WH
 CREATE UNIQUE INDEX task_files_live_upload ON public.task_files (task_id, sha256) WHERE kind = 'upload' AND deleted_at IS NULL;
 CREATE UNIQUE INDEX task_files_live_email_attachment ON public.task_files (task_id, email_attachment_id) WHERE kind = 'email_attachment' AND deleted_at IS NULL;
 CREATE UNIQUE INDEX task_files_live_project_file ON public.task_files (task_id, entity_file_id) WHERE kind = 'project_file' AND deleted_at IS NULL;
+CREATE UNIQUE INDEX task_files_live_link ON public.task_files (task_id, url) WHERE kind = 'link' AND deleted_at IS NULL;
 
 -- Private, like inbound-email: only the server reads and writes it, and hands
 -- out short signed links. No storage.objects policies on purpose.
@@ -13618,7 +13623,11 @@ BEGIN
   PERFORM public.log_team_activity(
     CASE WHEN NEW.kind = 'upload' THEN 'file.uploaded' ELSE 'file.attached' END,
     'file', NEW.id::text, v_project_id,
-    format(CASE WHEN NEW.kind = 'upload' THEN 'Uploaded "%s" to task "%s"' ELSE 'Attached "%s" to task "%s"' END, NEW.name, v_title),
+    format(CASE NEW.kind
+      WHEN 'upload' THEN 'Uploaded "%s" to task "%s"'
+      WHEN 'link' THEN 'Added link "%s" to task "%s"'
+      ELSE 'Attached "%s" to task "%s"'
+    END, NEW.name, v_title),
     jsonb_build_object('file_name', NEW.name, 'kind', NEW.kind, 'task_id', NEW.task_id, 'task_title', v_title));
   RETURN NULL;
 END;

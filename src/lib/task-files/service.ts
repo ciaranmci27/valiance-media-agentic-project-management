@@ -5,13 +5,14 @@ import type { AccessContext, PermissionKey } from '@/lib/access-control';
 import { accessAllows, accessAllowsProject } from '@/lib/api/access';
 import { ApiError, badRequest, forbidden, notFound } from '@/lib/api/errors';
 import { attachmentKind } from '@/lib/communications/attachments';
+import { realLink, shortUrl } from '@/lib/communications/email/display';
 import { INBOUND_EMAIL_BUCKET } from '@/lib/communications/email/ingest';
 import { trashApiError } from '@/lib/api/trash';
 import { moveToTrash } from '@/lib/supabase/trash';
 
 /**
  * A task's files, for the app (session routes) and the API (v1, MCP). Each
- * is one of three kinds:
+ * is one of four kinds:
  *
  *   upload            the task's own copy, in the private task-files bucket at
  *                     {project_id}/{sha256}: the same bytes on several tasks of
@@ -24,6 +25,8 @@ import { moveToTrash } from '@/lib/supabase/trash';
  *                     is copied as an upload instead, and retention copies
  *                     the rest before it deletes (task-files/retention.ts).
  *   project_file      a link to a file on the task's own project.
+ *   link              a web address: a Loom, a Claude artifact, a shared doc.
+ *                     Only the address is kept; nothing fetches it.
  *
  * Only the server writes task_files (20261024074521): every check here is
  * one the database cannot make. Reads come back as TaskFileView, with links
@@ -43,7 +46,7 @@ const INLINE_SECONDS = 300;
 /** Retention runs daily; an email this close to its retention date is copied, not linked. */
 export const RETENTION_MARGIN_DAYS = 2;
 
-export type TaskFileKind = 'upload' | 'email_attachment' | 'project_file';
+export type TaskFileKind = 'upload' | 'email_attachment' | 'project_file' | 'link';
 export type TaskFilePreview = 'image' | 'pdf' | 'text';
 
 export interface TaskFileView {
@@ -59,6 +62,8 @@ export interface TaskFileView {
   updated_at: string;
   /** What the browser can show inline; null means download only. */
   preview: TaskFilePreview | null;
+  /** A link's address; null for every other kind. */
+  url: string | null;
   /** False when the linked project file is in Trash or the attachment was never stored. */
   available: boolean;
   /** Where a link points. The email's ids and subject only when the reader can open its inbox. */
@@ -72,7 +77,8 @@ export type AddTaskFileInput =
   | { content_base64: string; name: string; mime_type?: string; note?: string | null }
   | { upload_id: string; name: string; mime_type?: string; note?: string | null }
   | { email_attachment_id: string; name?: string; note?: string | null }
-  | { entity_file_id: string; name?: string; note?: string | null };
+  | { entity_file_id: string; name?: string; note?: string | null }
+  | { url: string; name?: string; note?: string | null };
 
 export interface TaskFilesContext {
   /** The service role, naming the member (getActorClient) so the activity log can. */
@@ -94,6 +100,7 @@ interface FileRow {
   sha256: string | null;
   email_attachment_id: string | null;
   entity_file_id: string | null;
+  url: string | null;
   name: string;
   mime_type: string;
   file_size: number | string;
@@ -126,7 +133,7 @@ interface EntityFileRow {
   deleted_at: string | null;
 }
 
-const FILE_COLUMNS = 'id, task_id, kind, storage_path, sha256, email_attachment_id, entity_file_id, name, mime_type, file_size, note, added_by, created_at, updated_at';
+const FILE_COLUMNS = 'id, task_id, kind, storage_path, sha256, email_attachment_id, entity_file_id, url, name, mime_type, file_size, note, added_by, created_at, updated_at';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MIME = /^[a-z0-9][a-z0-9!#$&^_.+-]{0,126}\/[a-z0-9][a-z0-9!#$&^_.+-]{0,126}$/;
 
@@ -151,6 +158,34 @@ export function cleanFileName(name: string): string {
   const base = name.replace(/[\u0000-\u001f\u007f]/g, '').split(/[\\/]/).pop()!.trim();
   if (!base) throw badRequest('name must not be empty');
   return base.slice(0, 255);
+}
+
+/** The database's limit on a link's address. */
+const MAX_LINK_LENGTH = 2048;
+
+/**
+ * A link as stored: a web address at its real location, out of any redirect
+ * wrapper and without tracking tags, so the same page is the same link. One
+ * pasted without its https:// gets it. Never carries a login.
+ */
+export function cleanTaskLink(raw: string): string {
+  const text = raw.trim();
+  let url: URL;
+  try {
+    url = new URL(realLink(/^[a-z][a-z0-9+.-]*:/i.test(text) ? text : `https://${text}`));
+  } catch {
+    throw badRequest('That is not a web address');
+  }
+  if (!/^https?:$/.test(url.protocol) || !url.hostname.includes('.')) throw badRequest('That is not a web address');
+  if (url.username || url.password) throw badRequest('A link cannot have a login in it');
+  const clean = url.toString();
+  if (clean.length > MAX_LINK_LENGTH) throw badRequest(`A link can be at most ${MAX_LINK_LENGTH} characters`);
+  return clean;
+}
+
+/** A link's name: free text, slashes and all, or the site it points to. */
+function linkName(name: string | undefined, url: string): string {
+  return (name ?? '').replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 255) || shortUrl(url).slice(0, 255);
 }
 
 const TYPE_BY_EXTENSION: Record<string, string> = {
@@ -298,7 +333,8 @@ async function views(ctx: TaskFilesContext, rows: FileRow[]): Promise<TaskFileVi
       added_by: row.added_by,
       created_at: row.created_at,
       updated_at: row.updated_at,
-      preview: previewOf(row.mime_type, row.name),
+      preview: row.kind === 'link' ? null : previewOf(row.mime_type, row.name),
+      url: row.url,
       available,
       source,
     };
@@ -405,7 +441,9 @@ async function claimUpload(ctx: TaskFilesContext, projectId: string, uploadId: s
   return { bytes, contentType: data.type || null, remove };
 }
 
-async function existingLive(ctx: TaskFilesContext, taskId: string, column: 'sha256' | 'email_attachment_id' | 'entity_file_id', kind: TaskFileKind, value: string): Promise<FileRow | null> {
+type UniqueColumn = 'sha256' | 'email_attachment_id' | 'entity_file_id' | 'url';
+
+async function existingLive(ctx: TaskFilesContext, taskId: string, column: UniqueColumn, kind: TaskFileKind, value: string): Promise<FileRow | null> {
   const { data, error } = await ctx.db.from('task_files').select(FILE_COLUMNS)
     .eq('task_id', taskId).eq('kind', kind).eq(column, value).is('deleted_at', null).maybeSingle();
   if (error) throw error;
@@ -413,7 +451,7 @@ async function existingLive(ctx: TaskFilesContext, taskId: string, column: 'sha2
 }
 
 /** Inserts the row, or answers with the live one already there for the same file (one per file per task). */
-async function insertOnce(ctx: TaskFilesContext, row: Omit<FileRow, 'id' | 'created_at' | 'updated_at'>, key: { column: 'sha256' | 'email_attachment_id' | 'entity_file_id'; value: string }): Promise<{ row: FileRow; created: boolean }> {
+async function insertOnce(ctx: TaskFilesContext, row: Omit<FileRow, 'id' | 'created_at' | 'updated_at'>, key: { column: UniqueColumn; value: string }): Promise<{ row: FileRow; created: boolean }> {
   const before = await existingLive(ctx, row.task_id, key.column, row.kind, key.value);
   if (before) return { row: before, created: false };
   const { data, error } = await ctx.db.from('task_files').insert(row).select(FILE_COLUMNS).single();
@@ -428,14 +466,14 @@ async function insertOnce(ctx: TaskFilesContext, row: Omit<FileRow, 'id' | 'crea
 
 /**
  * Adds a file to the task: bytes (content_base64, or an upload_id from
- * createUploadLink), an email attachment, or a project file. Adding a file
- * the task already has answers with that entry and created: false.
+ * createUploadLink), an email attachment, a project file, or a link. Adding
+ * one the task already has answers with that entry and created: false.
  */
 export async function addTaskFile(ctx: TaskFilesContext, taskId: string, input: AddTaskFileInput): Promise<{ file: TaskFileView; created: boolean }> {
   requirePermission(ctx, 'files.upload', 'Adding files to a task needs permission to upload files');
   const task = await loadTask(ctx, taskId);
   const note = cleanNote(input.note);
-  const base = { task_id: task.id, note, added_by: ctx.memberId, storage_path: null, sha256: null, email_attachment_id: null, entity_file_id: null };
+  const base = { task_id: task.id, note, added_by: ctx.memberId, storage_path: null, sha256: null, email_attachment_id: null, entity_file_id: null, url: null };
   let result: { row: FileRow; created: boolean };
 
   if ('content_base64' in input || 'upload_id' in input) {
@@ -468,6 +506,9 @@ export async function addTaskFile(ctx: TaskFilesContext, taskId: string, input: 
     }, { column: 'sha256', value: stored.sha256 });
     // Stored under its hash now; the upload link's copy is not needed.
     await removeUpload?.().catch(() => undefined);
+  } else if ('url' in input) {
+    const url = cleanTaskLink(input.url);
+    result = await insertOnce(ctx, { ...base, kind: 'link', url, name: linkName(input.name, url), mime_type: 'text/uri-list', file_size: 0 }, { column: 'url', value: url });
   } else if ('email_attachment_id' in input) {
     result = await addEmailAttachment(ctx, task, assertId(input.email_attachment_id, 'email_attachment_id'), input.name, base);
   } else {
@@ -476,7 +517,7 @@ export async function addTaskFile(ctx: TaskFilesContext, taskId: string, input: 
   return { file: (await views(ctx, [result.row]))[0], created: result.created };
 }
 
-type BaseRow = Pick<FileRow, 'task_id' | 'note' | 'added_by' | 'storage_path' | 'sha256' | 'email_attachment_id' | 'entity_file_id'>;
+type BaseRow = Pick<FileRow, 'task_id' | 'note' | 'added_by' | 'storage_path' | 'sha256' | 'email_attachment_id' | 'entity_file_id' | 'url'>;
 
 async function addEmailAttachment(ctx: TaskFilesContext, task: TaskRow, attachmentId: string, name: string | undefined, base: BaseRow) {
   const { data: attachment, error } = await comms(ctx.db).from('attachments')
@@ -549,7 +590,7 @@ export async function updateTaskFile(ctx: TaskFilesContext, taskId: string, file
   const file = await loadFile(ctx, task, fileId);
   assertMayChange(ctx, file);
   const update: Record<string, unknown> = {};
-  if (changes.name !== undefined) update.name = cleanFileName(changes.name);
+  if (changes.name !== undefined) update.name = file.kind === 'link' ? linkName(changes.name, file.url!) : cleanFileName(changes.name);
   if (changes.note !== undefined) update.note = cleanNote(changes.note);
   if (Object.keys(update).length === 0) throw badRequest('Send name or note');
   const { data, error } = await ctx.db.from('task_files').update(update)
@@ -578,14 +619,16 @@ export async function trashTaskFile(ctx: TaskFilesContext, taskId: string, fileI
  * a five-minute link the browser shows (images, PDFs and text only, never a
  * file's own HTML or SVG). Through a key, a linked email attachment opens
  * only if its inbox lets agents read that kind, as the inbox's own
- * attachment link does.
+ * attachment link does. A link answers with its own address, which never
+ * expires, and is never shown inline.
  */
-export async function taskFileLink(ctx: TaskFilesContext, taskId: string, fileId: string, options: { inline?: boolean } = {}): Promise<{ url: string; name: string; mime_type: string; expires_in: number }> {
+export async function taskFileLink(ctx: TaskFilesContext, taskId: string, fileId: string, options: { inline?: boolean } = {}): Promise<{ url: string; name: string; mime_type: string; expires_in: number | null }> {
   requirePermission(ctx, 'files.read', 'Opening task files needs permission to read files');
   const task = await loadTask(ctx, taskId);
   const file = await loadFile(ctx, task, fileId);
-  const preview = previewOf(file.mime_type, file.name);
+  const preview = file.kind === 'link' ? null : previewOf(file.mime_type, file.name);
   if (options.inline && !preview) throw new ApiError(415, 'UNSUPPORTED_MEDIA_TYPE', 'This file cannot be opened in the browser. Download it instead.');
+  if (file.kind === 'link') return { url: file.url!, name: file.name, mime_type: file.mime_type, expires_in: null };
   const expiresIn = options.inline ? INLINE_SECONDS : DOWNLOAD_SECONDS;
   const sign = async (bucket: string, path: string) => {
     // trash-checked: a Storage bucket, not a table.

@@ -11,7 +11,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   return taskFilesRoute((ctx) => listTaskFiles(ctx, id));
 }
 
-/** Adds an uploaded file (by upload_id), an email attachment or a project file. 201 when new. */
+/** Adds an uploaded file (by upload_id), an email attachment, a project file or a link. 201 when new. */
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   return taskFilesRoute(

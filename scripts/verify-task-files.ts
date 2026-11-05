@@ -103,6 +103,16 @@ async function run(db: PGlite, label: string) {
   check(t('a row has exactly one source'),
     /task_files_one_source/.test((await attempt(db, "INSERT INTO public.task_files (task_id, kind, name, added_by) VALUES ($1, 'upload', 'no bytes', $2)", [task, member])) ?? '')
       && /task_files_one_source/.test((await attempt(db, "INSERT INTO public.task_files (task_id, kind, email_attachment_id, entity_file_id, name, added_by) VALUES ($1, 'email_attachment', $2, $3, 'both', $4)", [task, attachment, projectFile, member])) ?? ''));
+  const insertLink = (url: string | null, extra = '') => attempt(db,
+    `INSERT INTO public.task_files (task_id, kind, url, name, added_by${extra ? ', sha256' : ''}) VALUES ($1, 'link', $2, 'Loom', $3${extra ? `, '${extra}'` : ''})`, [hiddenTask, url, owner]);
+  check(t('a link is a web address, once per task, with no other source'),
+    (await insertLink('https://www.loom.com/share/abc')) === null
+      && /task_files_live_link|duplicate key/.test((await insertLink('https://www.loom.com/share/abc')) ?? '')
+      && /task_files_one_source/.test((await insertLink(null)) ?? '')
+      && /task_files_one_source/.test((await insertLink('https://www.loom.com/share/def', SHA_A)) ?? '')
+      && /task_files_url_check/.test((await insertLink('javascript:alert(1)')) ?? ''));
+  check(t('only a link carries an address'),
+    /task_files_one_source/.test((await attempt(db, "INSERT INTO public.task_files (task_id, kind, entity_file_id, url, name, added_by) VALUES ($1, 'project_file', $2, 'https://a.example', 'x', $3)", [task, projectFile, member])) ?? ''));
   await db.query("INSERT INTO public.task_files (task_id, kind, storage_path, sha256, name, added_by) VALUES ($1, 'upload', $2, $3, 'secret.png', $4)",
     [hiddenTask, `${elsewhere}/${SHA_A}`, SHA_A, owner]);
   const ownersFile = (await q<{ id: string }>("INSERT INTO public.task_files (task_id, kind, storage_path, sha256, name, added_by) VALUES ($1, 'upload', $2, $3, 'owners.png', $4) RETURNING id",
@@ -153,6 +163,7 @@ async function run(db: PGlite, label: string) {
     activity.some((a) => a.type === 'file.uploaded' && a.description === 'Uploaded "brand-guide.pdf"')
       && activity.some((a) => a.type === 'file.uploaded' && a.description === 'Uploaded "banner.png" to task "Holiday banner"')
       && activity.some((a) => a.type === 'file.attached' && a.description === 'Attached "brand-guide.pdf" to task "Holiday banner"')
+      && activity.some((a) => a.type === 'file.attached' && /^Added link "Loom" to task /.test(a.description))
       && activity.some((a) => a.type === 'record.trashed' && /Moved .*"banner.png" to Trash/.test(a.description)), activity);
 }
 
