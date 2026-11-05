@@ -14,7 +14,7 @@ import { mergeClientSenders, resolveMapping, threadProjectDecision } from '../sr
 import { detectAutoMail } from '../src/lib/communications/email/auto-mail';
 import { extractNewText, isForwardedMessage } from '../src/lib/communications/email/quoted';
 import { htmlToText } from '../src/lib/communications/email/html-text';
-import { compactLinks, hasQuotedHtml, inlineImageIds, isTrackingLink, linkParts, normalizeContentId, opensAsHtml, shortUrl } from '../src/lib/communications/email/display';
+import { compactLinks, hasQuotedHtml, inlineImageIds, isTrackingLink, linkParts, normalizeContentId, opensAsHtml, realLink, shortUrl } from '../src/lib/communications/email/display';
 import { alertSeriesKey, sortEmail } from '../src/lib/communications/sorting';
 import { evaluateAuth, parseAuthenticationResults } from '../src/lib/communications/email/auth-results';
 import { organizationalDomain, parseAddressList, normalizeAddress, validateClientSenderAddress } from '../src/lib/communications/email/addresses';
@@ -199,6 +199,16 @@ async function main() {
   const doc = 'https://docs.google.com/document/d/1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789AbCdEfG/edit?usp=sharing';
   check(compactLinks(`Brief: ${doc}`), `Brief: ${doc}`, 'display: a shared document link is kept whole for the agent');
   check(isTrackingLink('https://click.mail.example/ls/click?upn=' + 'q'.repeat(90)), true, 'display: a long redirect with a token query is tracking');
+  check(compactLinks('Designs: https://www.google.com/url?q=https://claude.ai/artifact/EFRyJFBcm8qzFkBjYnuv7w&source=gmail&ust=1793918399738000&sa=E, thanks'),
+    'Designs: https://claude.ai/artifact/EFRyJFBcm8qzFkBjYnuv7w, thanks', 'display: a link Gmail wrapped shows its real address');
+  check(realLink('https://nam02.safelinks.protection.outlook.com/?url=https%3A%2F%2Facme.example%2Fbrief&data=05%7C02'), 'https://acme.example/brief', 'display: Outlook Safe Links unwrap');
+  check(realLink('https://urldefense.proofpoint.com/v2/url?u=https-3A__acme.example_brief-2Dv2&d=DwMF&c=x'), 'https://acme.example/brief-v2', 'display: Proofpoint unwraps');
+  check(realLink('https://www.google.com/url?q=javascript:alert(1)'), 'https://www.google.com/url?q=javascript:alert(1)', 'display: only a web address is unwrapped');
+  check(realLink('https://www.google.com/search?q=https://acme.example'), 'https://www.google.com/search?q=https://acme.example', 'display: a Google search is not a wrapper');
+  check(compactLinks('News: https://www.bloomberg.example/news/articles/2026-10-15/ramp-completes-funding?utm_source=mail&utm_campaign=' + 'x'.repeat(60) + '&id=7'),
+    'News: https://www.bloomberg.example/news/articles/2026-10-15/ramp-completes-funding?id=7', 'display: tracking tags go, the page and its own query stay');
+  check(compactLinks('Invite: https://calendar.google.com/calendar/event?action=VIEW&eid=' + 'M'.repeat(90)), 'Invite: https://calendar.google.com/calendar/event?action=VIEW&eid=' + 'M'.repeat(90), 'display: a calendar event is kept whole');
+  check(compactLinks('Wrapped: https://www.google.com/url?q=https://click.mail.example/ls/click?upn=' + 'q'.repeat(90)), 'Wrapped: [click.mail.example link]', 'display: a tracker inside a wrapper is still a tracker, named by its own site');
   check(isTrackingLink('https://acme.example/pricing?plan=pro'), false, 'display: a short readable link is not tracking');
   check(compactLinks(`Apply here (${tracking}x${'a'.repeat(40)}) or see https://docs.example/brief.`),
     'Apply here [upwork.com link] or see https://docs.example/brief.', 'display: the agent copy cuts long links to their site and keeps short ones');

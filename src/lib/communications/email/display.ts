@@ -51,7 +51,7 @@ export function linkParts(text: string): TextPart[] {
 }
 
 // Hosts whose links are the work itself (a document, a design, a recording): always kept whole.
-const DOCUMENT_HOSTS = /(^|\.)(docs\.google\.com|drive\.google\.com|sheets\.google\.com|figma\.com|notion\.so|notion\.site|dropbox\.com|loom\.com|canva\.com|github\.com|gitlab\.com|airtable\.com|miro\.com|box\.com|onedrive\.live\.com|sharepoint\.com|wetransfer\.com|vimeo\.com|youtube\.com|youtu\.be)$/i;
+const DOCUMENT_HOSTS = /(^|\.)(docs\.google\.com|drive\.google\.com|sheets\.google\.com|calendar\.google\.com|claude\.ai|figma\.com|notion\.so|notion\.site|dropbox\.com|loom\.com|canva\.com|github\.com|gitlab\.com|airtable\.com|miro\.com|box\.com|onedrive\.live\.com|sharepoint\.com|wetransfer\.com|vimeo\.com|youtube\.com|youtu\.be)$/i;
 
 /**
  * Whether a link is a tracking redirect: a long query string, or a path
@@ -69,17 +69,45 @@ export function isTrackingLink(raw: string): boolean {
   }
 }
 
+/** The address inside a redirect wrapper: Gmail's, Outlook's Safe Links or Proofpoint's. */
+function wrappedTarget(url: URL): string | null {
+  if (/^(www\.)?google\.[a-z.]+$/i.test(url.hostname) && url.pathname === '/url') return url.searchParams.get('q') ?? url.searchParams.get('url');
+  if (/\.safelinks\.protection\.outlook\.com$/i.test(url.hostname)) return url.searchParams.get('url');
+  if (url.hostname === 'urldefense.proofpoint.com' && url.pathname === '/v2/url') {
+    return url.searchParams.get('u')?.replace(/_/g, '/').replace(/-([0-9A-F]{2})/g, (_m, hex: string) => String.fromCharCode(parseInt(hex, 16))) ?? null;
+  }
+  return null;
+}
+
+const TRACKING_PARAMS = /^(utm_.+|fbclid|gclid|gbraid|wbraid|msclkid|yclid|mc_cid|mc_eid|mkt_tok|_hsenc|_hsmi|igshid)$/i;
+
+/** Where a link really goes: out of any redirect wrapper, without tracking tags. */
+export function realLink(raw: string): string {
+  try {
+    const url = new URL(raw);
+    const target = wrappedTarget(url);
+    if (target && /^https?:\/\//i.test(target)) return realLink(target);
+    const tags = [...url.searchParams.keys()].filter((key) => TRACKING_PARAMS.test(key));
+    if (tags.length === 0) return raw;
+    tags.forEach((key) => url.searchParams.delete(key));
+    return url.toString();
+  } catch {
+    return raw;
+  }
+}
+
 /**
- * The text with each tracking link replaced by "[site link]". Every other
- * link stays whole: a shared document's address is worth keeping. For the
- * agent's copy of an email, where tracking URLs would otherwise fill the
- * read and push the real words past the cap.
+ * The text with each link at its real address, and each one that is still a
+ * tracking link replaced by "[site link]". A shared document's address is
+ * worth keeping. For the agent's copy of an email, where tracking URLs would
+ * otherwise fill the read and push the real words past the cap.
  */
 export function compactLinks(text: string | null): string | null {
   if (!text) return text;
   return linkParts(text).map((part) => {
     if ('text' in part) return part.text;
-    return isTrackingLink(part.url) ? `[${part.label} link]` : part.url;
+    const url = realLink(part.url);
+    return isTrackingLink(url) ? `[${shortUrl(url)} link]` : url;
   }).join('');
 }
 
