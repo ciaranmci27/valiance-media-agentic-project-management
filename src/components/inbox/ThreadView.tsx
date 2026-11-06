@@ -5,7 +5,7 @@ import { loadRead, peekRead, setReadData } from '@/lib/query-cache';
 import { inboxThreadRead } from '@/lib/reads';
 import Link from 'next/link';
 import {
-  AlertTriangle, ArrowDown, ArrowLeft, AlignLeft, Bell, Bot, Check, CheckCircle2, ChevronDown, Copy, Download, ExternalLink, Eye, FileText, Filter, Flame, Forward, HelpCircle, Image as ImageIcon, Inbox,
+  AlertTriangle, ArrowDown, ArrowLeft, AlignLeft, Bell, Bot, Check, CheckCircle2, ChevronDown, Copy, Download, ExternalLink, Eye, FileText, Filter, Flame, Forward, Hash, HelpCircle, Image as ImageIcon, Inbox,
   Loader2, MessageSquareReply, Paperclip, PenLine, Plus, RefreshCw, RotateCcw, ShieldOff, SquareCheck, Tag, Trash2, Undo2, X,
 } from 'lucide-react';
 import { useApp } from '@/lib/store';
@@ -17,6 +17,7 @@ import { Button } from '@/components/ui/Button';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { Popover } from '@/components/ui/Popover';
 import { RowActionsMenu, type RowAction } from '@/components/ui/RowActionsMenu';
+import { copyText } from '@/lib/task-copy';
 import { toast } from '@/components/ui/Toast';
 import { announceInboxChange, inboxClient } from '@/lib/communications/inbox-client';
 import { skippedReasonLabel, type InboxAnswer, type InboxAttachment, type InboxLinkedTask, type InboxMessage, type InboxPlan, type InboxPlanItem, type InboxReminder, type InboxReplyPoint, type InboxThreadDetail, type InboxTriage, type ThreadProject, type TriageOutcome } from '@/lib/communications/inbox-types';
@@ -427,6 +428,8 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
     ...(canDraft && !drafting ? [{ label: 'Draft a reply', icon: <PenLine size={14} aria-hidden="true" />, onClick: () => setDraftDialog(true) }] : []),
     ...(fileCount > 0 ? [{ label: `Attachments (${fileCount})`, icon: <Paperclip size={14} aria-hidden="true" />, onClick: () => setAttachmentsOpen(true) }] : []),
     ...(canManageRules ? [{ label: 'Filter mail like this', icon: <Filter size={14} aria-hidden="true" />, onClick: () => setRuleFor(latest) }] : []),
+    // The newest message's id: the API and pm-tasks read the whole conversation from any of its messages.
+    { label: 'Copy thread ID', icon: <Hash size={14} aria-hidden="true" />, onClick: () => void copyText(latest.id, 'Thread ID') },
     ...(canSendBack ? [{ label: `Send back to ${agentName}`, icon: <RotateCcw size={14} aria-hidden="true" />, onClick: () => void after(() => client.sendBack(detail.id, null), `Sent back to ${agentName}`, 'send_back') }] : []),
   ];
   let lastDay = '';
@@ -966,8 +969,18 @@ function MessageCard({ message, agentName, focused, busy, viewUrl, onSendToAgent
           {recipients && <p className="mt-0.5 truncate text-[11px] text-zinc-400 sm:whitespace-normal sm:break-words">{recipients}</p>}
           <TrustNote level={message.trust.level} reason={message.trust.reason} />
         </div>
-        <div className="flex flex-shrink-0 flex-col items-end gap-1">
+        <div className="flex flex-shrink-0 items-center gap-1">
           <time dateTime={message.received_at} className="hidden text-xs tabular-nums text-zinc-400 sm:block">{formatFullTime(message.received_at)}</time>
+          <Tooltip content="Copy email ID">
+            <button
+              type="button"
+              onClick={() => void copyText(message.id, 'Email ID')}
+              aria-label="Copy this email's ID"
+              className="rounded-md p-1 text-zinc-400 transition-colors hover:bg-white/[0.06] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+            >
+              <Hash size={14} aria-hidden="true" />
+            </button>
+          </Tooltip>
         </div>
       </header>
 
