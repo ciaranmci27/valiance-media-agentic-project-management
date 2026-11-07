@@ -362,7 +362,7 @@ function workedSliceRange(
 
 /**
  * Longest description the time log prints per entry, in characters. Roughly
- * ten lines of the description column. Entries are logged with the full
+ * fifteen lines of the description column. Entries are logged with the full
  * write-up (some run to several paragraphs) but on the invoice a row is a
  * receipt line, not a report: past this the rest is cut at a word boundary
  * and the record stays intact in the database. The cap also keeps a row
@@ -370,7 +370,7 @@ function workedSliceRange(
  * taller than the page forces react-pdf to squeeze everything else on that
  * page and drops whatever runs past the bottom.
  */
-export const TIME_LOG_DESCRIPTION_MAX_CHARS = 320;
+export const TIME_LOG_DESCRIPTION_MAX_CHARS = 500;
 
 export function clampTimeLogDescription(description: string): string {
   const text = description.trim();
